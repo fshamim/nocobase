@@ -1,0 +1,43 @@
+networks:
+  ecobase-live-gate:
+    driver: bridge
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    networks:
+      - ecobase-live-gate
+    environment:
+      POSTGRES_USER: nocobase
+      POSTGRES_DB: nocobase
+      POSTGRES_PASSWORD: nocobase
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nocobase -d nocobase"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  app:
+    image: ${ECOBASE_LIVE_GATE_IMAGE:-ecobase/nocobase:qa-live-gate}
+    restart: unless-stopped
+    networks:
+      - ecobase-live-gate
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      APP_KEY: ecobase-live-gate-app-key
+      ENCRYPTION_FIELD_KEY: ecobase-live-gate-encryption-key
+      DB_DIALECT: postgres
+      DB_HOST: postgres
+      DB_DATABASE: nocobase
+      DB_USER: nocobase
+      DB_PASSWORD: nocobase
+      INIT_ROOT_EMAIL: ${ECOBASE_LIVE_GATE_ADMIN_EMAIL:-admin@nocobase.com}
+      INIT_ROOT_PASSWORD: ${ECOBASE_LIVE_GATE_ADMIN_PASSWORD:-admin123}
+    volumes:
+      - ./live-gate-startup.sh:/app/nocobase/storage/scripts/010-enable-ecobase.sh:ro
+    ports:
+      - "${ECOBASE_LIVE_GATE_PORT:-13080}:80"
+    init: true

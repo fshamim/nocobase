@@ -1,0 +1,17 @@
+{
+  "Ecobase BI": "Ecobase BI",
+  "Import status": "Import status",
+  "Ecobase import/source status": "Ecobase import/source status",
+  "Connection": "Connection",
+  "Source type": "Source type",
+  "Domain": "Domain",
+  "Latest status": "Latest status",
+  "No runs": "No runs",
+  "Rows": "Rows",
+  "Normalized": "Normalized",
+  "Warnings": "Warnings",
+  "Errors": "Errors",
+  "Last run time": "Last run time",
+  "Never": "Never",
+  "Failed to load import status": "Failed to load import status"
+}

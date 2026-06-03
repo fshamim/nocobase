@@ -1,0 +1,25 @@
+# Ecobase image builds use the NocoBase repository root as context.
+# Keep build-context pruning plugin-local so upstream .dockerignore stays unchanged.
+storage
+node_modules
+.git
+
+**/.umi
+**/.umi-production
+
+packages/*/*/lib
+packages/*/*/esm
+packages/*/*/es
+packages/*/*/dist
+packages/*/*/node_modules
+packages/*/*/*/lib
+packages/*/*/*/esm
+packages/*/*/*/es
+packages/*/*/*/dist
+packages/*/*/*/node_modules
+
+/.vscode
+/.idea
+
+*.sqlite
+/uploads

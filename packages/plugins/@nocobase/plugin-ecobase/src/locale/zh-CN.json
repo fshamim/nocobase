@@ -1,0 +1,17 @@
+{
+  "Ecobase BI": "Ecobase BI",
+  "Import status": "导入状态",
+  "Ecobase import/source status": "Ecobase 导入/来源状态",
+  "Connection": "连接",
+  "Source type": "来源类型",
+  "Domain": "领域",
+  "Latest status": "最新状态",
+  "No runs": "暂无运行",
+  "Rows": "行数",
+  "Normalized": "已规范化",
+  "Warnings": "警告",
+  "Errors": "错误",
+  "Last run time": "上次运行时间",
+  "Never": "从未运行",
+  "Failed to load import status": "导入状态加载失败"
+}

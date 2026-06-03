@@ -1,0 +1,23 @@
+{
+  "name": "@nocobase/plugin-ecobase",
+  "displayName": "Ecobase BI",
+  "description": "Ecofission BI source-adapter foundation and import status surfaces.",
+  "private": true,
+  "version": "2.0.60",
+  "main": "dist/server/index.js",
+  "devDependencies": {
+    "sqlite3": "^6.0.1"
+  },
+  "peerDependencies": {
+    "@nocobase/client": "2.x",
+    "@nocobase/database": "2.x",
+    "@nocobase/server": "2.x",
+    "@nocobase/test": "2.x",
+    "antd": "^5.0.0",
+    "ahooks": "^3.0.0",
+    "react": "^18.0.0"
+  },
+  "nocobase": {
+    "supportedVersions": ["2.x"]
+  }
+}
