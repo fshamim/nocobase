@@ -4,6 +4,13 @@ export const ECOBASE_COLLECTIONS = {
   sourceConnections: 'ecobaseSourceConnections',
   importRuns: 'ecobaseImportRuns',
   rawImportRows: 'ecobaseRawImportRows',
+  rawListings: 'ecobaseRawListings',
+  listingDailyFacts: 'ecobaseListingDailyFacts',
+  inventorySnapshots: 'ecobaseInventorySnapshots',
+  trafficSnapshots: 'ecobaseTrafficSnapshots',
+  planningParameters: 'ecobasePlanningParameters',
+  targetRows: 'ecobaseTargetRows',
+  sourceAccessAudits: 'ecobaseSourceAccessAudits',
 } as const;
 
 export type EcobaseCollectionName = (typeof ECOBASE_COLLECTIONS)[keyof typeof ECOBASE_COLLECTIONS];

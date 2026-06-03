@@ -1,4 +1,5 @@
-import type { AdapterStreamItem, SourceAdapter, SourceAdapterRegistry } from '../adapters';
+import { randomUUID } from 'node:crypto';
+import type { AdapterStreamItem, NormalizedRecord, SourceAdapter, SourceAdapterRegistry } from '../adapters';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 
 type Filter = Record<string, unknown>;
@@ -12,6 +13,16 @@ type RepositoryFindParams = {
 
 type RepositoryCreateParams = { values: Record<string, unknown> };
 type RepositoryUpdateParams = { filterByTk: string; values: Record<string, unknown> };
+
+const NORMALIZED_RECORD_COLLECTIONS: Record<string, string> = {
+  raw_listing: ECOBASE_COLLECTIONS.rawListings,
+  listing_daily_fact: ECOBASE_COLLECTIONS.listingDailyFacts,
+  inventory_snapshot: ECOBASE_COLLECTIONS.inventorySnapshots,
+  traffic_snapshot: ECOBASE_COLLECTIONS.trafficSnapshots,
+  planning_parameter: ECOBASE_COLLECTIONS.planningParameters,
+  target_row: ECOBASE_COLLECTIONS.targetRows,
+  source_access_audit: ECOBASE_COLLECTIONS.sourceAccessAudits,
+};
 
 export interface EcobaseRepository {
   find(params?: RepositoryFindParams): Promise<unknown[]>;
@@ -29,6 +40,8 @@ export interface RunNoopImportParams {
   sourceIdentifier?: string;
   sourceVersion?: string;
   idempotencyKey?: string;
+  preserveAuditRun?: boolean;
+  skipIfNoNewerData?: boolean;
 }
 
 export interface SourceStatusView {
@@ -146,12 +159,26 @@ export class EcobaseImportService {
     const startedAt = new Date();
     const sourceIdentifier = params.sourceIdentifier ?? adapter.metadata.name;
     const sourceVersion = params.sourceVersion ?? startedAt.toISOString();
-    const idempotencyKey = params.idempotencyKey ?? `${params.sourceConnectionId}:${sourceIdentifier}:${sourceVersion}`;
-    const existingRun = await importRunRepo.findOne({ filter: { idempotencyKey } });
+    const baseIdempotencyKey =
+      params.idempotencyKey ?? `${params.sourceConnectionId}:${sourceIdentifier}:${sourceVersion}`;
+    const existingRun = await importRunRepo.findOne({ filter: { idempotencyKey: baseIdempotencyKey } });
 
-    if (existingRun) {
+    if (params.skipIfNoNewerData && existingRun && getString(existingRun, 'status') === 'success') {
+      return this.createSkippedImportRun(importRunRepo, {
+        sourceConnectionId: params.sourceConnectionId,
+        adapterName: adapter.metadata.name,
+        sourceIdentifier,
+        sourceVersion,
+        idempotencyKey: `${baseIdempotencyKey}:skipped:${randomUUID()}`,
+        startedAt,
+      });
+    }
+
+    if (existingRun && !params.preserveAuditRun) {
       return toPlainRecord(existingRun);
     }
+
+    const idempotencyKey = existingRun ? `${baseIdempotencyKey}:audit:${randomUUID()}` : baseIdempotencyKey;
 
     const pendingRun = await importRunRepo.create({
       values: {
@@ -190,11 +217,15 @@ export class EcobaseImportService {
         secretRef: getString(sourceConnection, 'secretRef'),
       })) {
         if (item.type === 'record') {
+          const records = Array.isArray(item.record) ? item.record : [item.record];
           rowCount += 1;
-          normalizedCount += 1;
+          normalizedCount += records.length;
           await this.createRawRow(rawImportRowRepo, importRunId, item);
+          await this.upsertNormalizedRecords(records, importRunId);
         } else {
-          rowCount += 1;
+          if (item.issue.rowNumber > 0) {
+            rowCount += 1;
+          }
           if (item.issue.severity === 'warning') {
             warningCount += 1;
           } else {
@@ -272,6 +303,33 @@ export class EcobaseImportService {
     );
   }
 
+  private async createSkippedImportRun(
+    importRunRepo: EcobaseRepository,
+    values: {
+      sourceConnectionId: string;
+      adapterName: string;
+      sourceIdentifier: string;
+      sourceVersion: string;
+      idempotencyKey: string;
+      startedAt: Date;
+    },
+  ) {
+    const finishedAt = new Date();
+    const skippedRun = await importRunRepo.create({
+      values: {
+        ...values,
+        finishedAt,
+        status: 'skipped',
+        rowCount: 0,
+        normalizedCount: 0,
+        warningCount: 1,
+        errorCount: 0,
+        errorMessage: 'Ecobase daily snapshot skipped: no newer source data since the last successful import.',
+      },
+    });
+    return toPlainRecord(skippedRun);
+  }
+
   private async createRawRow(
     rawImportRowRepo: EcobaseRepository,
     importRunId: string,
@@ -286,6 +344,33 @@ export class EcobaseImportService {
         normalizedStatus: 'success',
       },
     });
+  }
+
+  private async upsertNormalizedRecords(records: NormalizedRecord[], importRunId: string) {
+    for (const record of records) {
+      const collectionName = NORMALIZED_RECORD_COLLECTIONS[record.kind];
+      if (!collectionName) {
+        throw new Error(
+          `Ecobase import failed: normalized record kind "${record.kind}" is not mapped to a collection.`,
+        );
+      }
+      const values = { ...record.data, lastImportRunId: importRunId };
+      const naturalKey = getString(values, 'naturalKey');
+      if (!naturalKey) {
+        throw new Error(`Ecobase import failed: normalized record kind "${record.kind}" is missing naturalKey.`);
+      }
+      const repository = this.db.getRepository(collectionName);
+      const existing = await repository.findOne({ filter: { naturalKey } });
+      if (existing) {
+        const existingId = getString(existing, 'id');
+        if (!existingId) {
+          throw new Error(`Ecobase import failed: existing normalized record "${naturalKey}" is missing id.`);
+        }
+        await repository.update({ filterByTk: existingId, values });
+      } else {
+        await repository.create({ values });
+      }
+    }
   }
 
   private getFinalStatus(errorMessage: string | null, errorCount: number, normalizedCount: number) {

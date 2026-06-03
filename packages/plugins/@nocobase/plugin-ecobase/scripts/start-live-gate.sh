@@ -2,7 +2,7 @@
 set -euo pipefail
 
 plugin_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-repo_root="$(cd "${plugin_root}/../../../../.." && pwd)"
+repo_root="$(cd "${plugin_root}/../../../.." && pwd)"
 compose_file="${plugin_root}/docker/live-gate.compose.yml"
 project_name="${ECOBASE_LIVE_GATE_PROJECT:-ecobase-live-gate}"
 image_tag="${ECOBASE_LIVE_GATE_IMAGE:-ecobase/nocobase:qa-live-gate}"

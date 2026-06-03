@@ -1,5 +1,13 @@
 import { Plugin } from '@nocobase/server';
-import { createSourceAdapterRegistry, noopTestAdapter } from './adapters';
+import {
+  amazonOperationsCsvAdapter,
+  amazonSpApiAccessCheckAdapter,
+  createSourceAdapterRegistry,
+  googleSheetsMigrationCsvAdapter,
+  noopTestAdapter,
+  sellerboardApiAdapter,
+  sellerboardCsvAdapter,
+} from './adapters';
 import type { SourceAdapterRegistry } from './adapters';
 import { ECOBASE_COLLECTIONS } from './collections/names';
 import { EcobaseImportService } from './services/import-service';
@@ -19,6 +27,49 @@ function getOptionalString(values: Record<string, unknown>, key: string): string
 
 export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
   return {
+    run: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const sourceConnectionId = getOptionalString(values, 'sourceConnectionId');
+      const adapterName = getOptionalString(values, 'adapterName');
+      if (!sourceConnectionId || !adapterName) {
+        ctx.throw(400, 'Ecobase import requires sourceConnectionId and adapterName.');
+        return;
+      }
+
+      const service = new EcobaseImportService(ctx.db, registry);
+      const importRun = await service.runAdapterImport({
+        sourceConnectionId,
+        adapterName,
+        sourceIdentifier: getOptionalString(values, 'sourceIdentifier'),
+        sourceVersion: getOptionalString(values, 'sourceVersion'),
+        idempotencyKey: getOptionalString(values, 'idempotencyKey'),
+        preserveAuditRun: true,
+      });
+      ctx.body = { data: importRun };
+      await next();
+    },
+    runDailySnapshot: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const sourceConnectionId = getOptionalString(values, 'sourceConnectionId');
+      const adapterName = getOptionalString(values, 'adapterName');
+      if (!sourceConnectionId || !adapterName) {
+        ctx.throw(400, 'Ecobase daily snapshot requires sourceConnectionId and adapterName.');
+        return;
+      }
+
+      const service = new EcobaseImportService(ctx.db, registry);
+      const importRun = await service.runAdapterImport({
+        sourceConnectionId,
+        adapterName,
+        sourceIdentifier: getOptionalString(values, 'sourceIdentifier'),
+        sourceVersion: getOptionalString(values, 'sourceVersion'),
+        idempotencyKey: getOptionalString(values, 'idempotencyKey'),
+        preserveAuditRun: true,
+        skipIfNoNewerData: true,
+      });
+      ctx.body = { data: importRun };
+      await next();
+    },
     runNoop: async (ctx, next) => {
       const values = getValues(ctx.action.params);
       const sourceConnectionId = getOptionalString(values, 'sourceConnectionId');
@@ -50,7 +101,14 @@ export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
 }
 
 export class PluginEcobaseServer extends Plugin {
-  private registry = createSourceAdapterRegistry([noopTestAdapter]);
+  private registry = createSourceAdapterRegistry([
+    noopTestAdapter,
+    amazonOperationsCsvAdapter,
+    googleSheetsMigrationCsvAdapter,
+    sellerboardCsvAdapter,
+    sellerboardApiAdapter,
+    amazonSpApiAccessCheckAdapter,
+  ]);
 
   async load() {
     this.app.resourceManager.define({
@@ -58,12 +116,19 @@ export class PluginEcobaseServer extends Plugin {
       actions: createEcobaseImportActions(this.registry),
     });
 
-    this.app.acl.allow('ecobaseImport', ['runNoop', 'status', 'adapters'], 'loggedIn');
+    this.app.acl.allow('ecobaseImport', ['run', 'runDailySnapshot', 'runNoop', 'status', 'adapters'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.companies, ['list', 'get', 'create', 'update', 'destroy'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.amazonAccounts, ['list', 'get', 'create', 'update', 'destroy'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.sourceConnections, ['list', 'get', 'create', 'update'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.importRuns, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.rawImportRows, ['list', 'get'], 'loggedIn');
+    this.app.acl.allow(ECOBASE_COLLECTIONS.rawListings, ['list', 'get'], 'loggedIn');
+    this.app.acl.allow(ECOBASE_COLLECTIONS.listingDailyFacts, ['list', 'get'], 'loggedIn');
+    this.app.acl.allow(ECOBASE_COLLECTIONS.inventorySnapshots, ['list', 'get'], 'loggedIn');
+    this.app.acl.allow(ECOBASE_COLLECTIONS.trafficSnapshots, ['list', 'get'], 'loggedIn');
+    this.app.acl.allow(ECOBASE_COLLECTIONS.planningParameters, ['list', 'get'], 'loggedIn');
+    this.app.acl.allow(ECOBASE_COLLECTIONS.targetRows, ['list', 'get'], 'loggedIn');
+    this.app.acl.allow(ECOBASE_COLLECTIONS.sourceAccessAudits, ['list', 'get'], 'loggedIn');
   }
 }
 

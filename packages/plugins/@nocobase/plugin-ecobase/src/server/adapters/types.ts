@@ -45,7 +45,7 @@ export type AdapterStreamItem =
       rowNumber: number;
       sourceKey?: string;
       payload: Record<string, unknown>;
-      record: NormalizedRecord;
+      record: NormalizedRecord | NormalizedRecord[];
     }
   | { type: 'rowIssue'; issue: AdapterRowIssue };
 

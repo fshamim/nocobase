@@ -53,13 +53,20 @@ describe('Ecobase plugin NocoBase integration seam', () => {
 
     const adaptersResponse = await agent.resource('ecobaseImport').adapters();
     expect(adaptersResponse.status).toBe(200);
-    expect(adaptersResponse.body.data.data).toEqual([
-      expect.objectContaining({
-        name: 'noop-test',
-        sourceType: 'noop_test',
-        title: 'No-op test adapter',
-      }),
-    ]);
+    expect(adaptersResponse.body.data.data).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'noop-test',
+          sourceType: 'noop_test',
+          title: 'No-op test adapter',
+        }),
+        expect.objectContaining({
+          name: 'amazon-operations-csv',
+          sourceType: 'seller_central_file',
+          title: 'Amazon operations CSV',
+        }),
+      ]),
+    );
 
     const runResponse = await agent.resource('ecobaseImport').runNoop({
       values: {
