@@ -56,6 +56,64 @@ function getSnapshotDate(file: CsvSourceFile, input: SourceAdapterImportInput, r
   return file.snapshotDate ?? row.string('Date', 'Month', 'Timestamp') ?? input.sourceVersion;
 }
 
+const MONTH_INDEX: Record<string, string> = {
+  jan: '01',
+  january: '01',
+  feb: '02',
+  february: '02',
+  mar: '03',
+  march: '03',
+  apr: '04',
+  april: '04',
+  may: '05',
+  jun: '06',
+  june: '06',
+  jul: '07',
+  july: '07',
+  aug: '08',
+  august: '08',
+  sep: '09',
+  september: '09',
+  oct: '10',
+  october: '10',
+  nov: '11',
+  november: '11',
+  dec: '12',
+  december: '12',
+};
+
+function pad2(value: string) {
+  return value.padStart(2, '0');
+}
+
+function normalizeTargetPeriod(rawPeriod: string) {
+  const period = rawPeriod.trim();
+  const monthNameYear = period.match(/^([A-Za-z]+)[\s/,-]+(\d{4})$/);
+  if (monthNameYear) {
+    const month = MONTH_INDEX[monthNameYear[1].toLowerCase()];
+    if (month) return { period: `${monthNameYear[2]}-${month}`, periodType: 'monthly' as const };
+  }
+
+  const isoMonthOrDate = period.match(/^(\d{4})-(\d{1,2})(?:-(\d{1,2}))?$/);
+  if (isoMonthOrDate) {
+    const normalized = isoMonthOrDate[3]
+      ? `${isoMonthOrDate[1]}-${pad2(isoMonthOrDate[2])}-${pad2(isoMonthOrDate[3])}`
+      : `${isoMonthOrDate[1]}-${pad2(isoMonthOrDate[2])}`;
+    return { period: normalized, periodType: isoMonthOrDate[3] ? ('daily' as const) : ('monthly' as const) };
+  }
+
+  const dayMonthYear = period.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
+  if (dayMonthYear) {
+    return {
+      period: `${dayMonthYear[3]}-${pad2(dayMonthYear[2])}-${pad2(dayMonthYear[1])}`,
+      periodType: 'daily' as const,
+    };
+  }
+
+  const normalizedLower = period.toLowerCase();
+  return { period, periodType: normalizedLower.includes('week') ? ('weekly' as const) : ('monthly' as const) };
+}
+
 function sourceKeyFor(row: CsvRowReader, fallback: string) {
   const asin = row.string('ASIN', 'ASIN ');
   const sku = row.string('SKU');
@@ -128,6 +186,8 @@ function inventoryRecord(
       reserved: row.number('Reserved', 'Rerv.', 'Qty in Prep or Reserved'),
       inbound: row.number('Sent  to FBA', 'Inbound'),
       ordered: row.number('Ordered'),
+      prepStock: row.number('Prep Stock', 'Prep Center Stock', 'Prep-center stock', 'Prep Center Qty'),
+      salesVelocity: row.number('Estimated Sales Velocity', 'Exp Sales Vel', 'Sales Velocity'),
       daysOfStockLeft: row.number('Days  of stock  left', 'Days of Stock Left'),
       recommendedReorderQuantity: row.number('Recommended quantity for  reordering', 'Rec. Best Qty', 'Rec.Best Qty'),
       payload: row.payload(),
@@ -146,6 +206,7 @@ function planningRecord(input: SourceAdapterImportInput, row: CsvRowReader, sour
         row.string('SR ID', 'SR ID '),
       ]),
       sourceConnectionId: input.sourceConnectionId,
+      company: row.string('Company'),
       asin,
       sku,
       supplier: row.string('Supplier', 'Supplier ', 'Supplier Name'),
@@ -154,9 +215,50 @@ function planningRecord(input: SourceAdapterImportInput, row: CsvRowReader, sour
       profitPerUnit: row.number('Profit Per Unit', 'Per.Unit Profit'),
       targetStockRangeDays: row.number('Target stock range after new order days'),
       leadTimeDays: row.number('Lead time(day)', 'Manuf. time days'),
+      safetyBufferDays: row.number('Safety Buffer Days', 'safety_buffer_days'),
       payload: row.payload(),
     },
   };
+}
+
+function supplierRecords(input: SourceAdapterImportInput, row: CsvRowReader, sourceKey: string): NormalizedRecord[] {
+  const supplierName = row.string('Supplier', 'Supplier ', 'Supplier Name');
+  const supplierId = row.string('SR ID', 'SR ID ');
+  const leadTimeDays = row.number('Lead time(day)', 'Manuf. time days');
+  if (!supplierName && !supplierId) {
+    return [];
+  }
+  const company = row.string('Company');
+  const supplierKey = supplierId ?? supplierName ?? sourceKey;
+  const supplierNameValue = supplierName ?? supplierId ?? sourceKey;
+  const records: NormalizedRecord[] = [
+    {
+      kind: 'supplier',
+      data: {
+        naturalKey: naturalKey(input, 'supplier', [company, supplierKey]),
+        sourceConnectionId: input.sourceConnectionId,
+        supplierId,
+        name: supplierNameValue,
+        company,
+        payload: row.payload(),
+      },
+    },
+  ];
+  if (typeof leadTimeDays === 'number') {
+    records.push({
+      kind: 'supplier_lead_time',
+      data: {
+        naturalKey: naturalKey(input, 'supplier_lead_time', [company, supplierKey]),
+        sourceConnectionId: input.sourceConnectionId,
+        supplierId,
+        supplierName: supplierNameValue,
+        company,
+        leadTimeDays,
+        payload: row.payload(),
+      },
+    });
+  }
+  return records;
 }
 
 function dailyFactRecord(
@@ -225,17 +327,21 @@ function targetRecord(
 ): NormalizedRecord {
   const asin = canonicalAsin(row);
   const sku = row.string('SKU');
+  const normalizedPeriod = normalizeTargetPeriod(period);
   return {
     kind: 'target_row',
     data: {
       naturalKey: naturalKey(input, 'target_row', [
-        period,
+        normalizedPeriod.period,
         ...listingIdentityParts(row, sourceKey),
         row.string('Order ID'),
       ]),
       sourceConnectionId: input.sourceConnectionId,
-      period,
-      periodType: period.includes('/') ? 'daily' : 'monthly',
+      company: row.string('Company'),
+      accountKey: row.string('Account', 'Amazon Account', 'Marketplace', 'Market '),
+      targetScope: asin ? 'planning_product' : row.string('Account', 'Amazon Account') ? 'account' : 'company',
+      period: normalizedPeriod.period,
+      periodType: normalizedPeriod.periodType,
       asin,
       sku,
       unitTarget: row.number(
@@ -271,11 +377,16 @@ function recordsForShape(
       listingRecord(input, row, sourceKey),
       inventoryRecord(input, row, snapshotDate, sourceKey),
       planningRecord(input, row, sourceKey),
+      ...supplierRecords(input, row, sourceKey),
     ];
   }
   if (shape === 'profit-planning') {
     const period = row.string('Month') ?? snapshotDate;
-    return [planningRecord(input, row, sourceKey), targetRecord(input, row, period, sourceKey)];
+    return [
+      planningRecord(input, row, sourceKey),
+      ...supplierRecords(input, row, sourceKey),
+      targetRecord(input, row, period, sourceKey),
+    ];
   }
   if (shape === 'profit-tracker') {
     const period = row.string('Month') ?? snapshotDate;
@@ -285,15 +396,25 @@ function recordsForShape(
       targetRecord(input, row, period, sourceKey),
     ];
   }
-  if (shape === 'top-skus') return [listingRecord(input, row, sourceKey), planningRecord(input, row, sourceKey)];
+  if (shape === 'top-skus')
+    return [
+      listingRecord(input, row, sourceKey),
+      planningRecord(input, row, sourceKey),
+      ...supplierRecords(input, row, sourceKey),
+    ];
   if (shape === 'buybox') return [trafficRecord(input, row, snapshotDate, sourceKey)];
   if (shape === 'sellerboard-dashboard-goods' || shape === 'sellerboard-dashboard-totals') {
     return [dailyFactRecord(input, row, snapshotDate, sourceKey), trafficRecord(input, row, snapshotDate, sourceKey)];
   }
-  if (shape === 'supplier-ids') return [planningRecord(input, row, sourceKey)];
+  if (shape === 'supplier-ids')
+    return [planningRecord(input, row, sourceKey), ...supplierRecords(input, row, sourceKey)];
   if (shape === 'order-details' || shape === 'purchase-orders') {
     const period = row.string('Timestamp') ?? snapshotDate;
-    return [planningRecord(input, row, sourceKey), targetRecord(input, row, period, sourceKey)];
+    return [
+      planningRecord(input, row, sourceKey),
+      ...supplierRecords(input, row, sourceKey),
+      targetRecord(input, row, period, sourceKey),
+    ];
   }
   return [];
 }

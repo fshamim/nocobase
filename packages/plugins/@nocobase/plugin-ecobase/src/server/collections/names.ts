@@ -12,7 +12,10 @@ export const ECOBASE_COLLECTIONS = {
   inventorySnapshots: 'ecobaseInventorySnapshots',
   trafficSnapshots: 'ecobaseTrafficSnapshots',
   planningParameters: 'ecobasePlanningParameters',
+  suppliers: 'ecobaseSuppliers',
+  supplierLeadTimes: 'ecobaseSupplierLeadTimes',
   targetRows: 'ecobaseTargetRows',
+  planningCalculationSnapshots: 'ecobasePlanningCalculationSnapshots',
   sourceAccessAudits: 'ecobaseSourceAccessAudits',
 } as const;
 

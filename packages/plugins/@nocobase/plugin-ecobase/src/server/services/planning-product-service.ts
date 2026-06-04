@@ -38,7 +38,12 @@ type ListingMatch = {
   lastImportRunId?: string;
 };
 
-const PRODUCT_FACT_COLLECTIONS = [ECOBASE_COLLECTIONS.inventorySnapshots, ECOBASE_COLLECTIONS.listingDailyFacts];
+const PRODUCT_FACT_COLLECTIONS = [
+  ECOBASE_COLLECTIONS.inventorySnapshots,
+  ECOBASE_COLLECTIONS.listingDailyFacts,
+  ECOBASE_COLLECTIONS.planningParameters,
+  ECOBASE_COLLECTIONS.targetRows,
+];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;

@@ -11,6 +11,7 @@ import {
 import type { SourceAdapterRegistry } from './adapters';
 import { ECOBASE_COLLECTIONS } from './collections/names';
 import { EcobaseImportService } from './services/import-service';
+import { EcobasePlanningCalculationService } from './services/planning-calculation-service';
 import { EcobasePlanningProductService } from './services/planning-product-service';
 
 function getValues(params: unknown): Record<string, unknown> {
@@ -24,6 +25,11 @@ function getValues(params: unknown): Record<string, unknown> {
 function getOptionalString(values: Record<string, unknown>, key: string): string | undefined {
   const value = values[key];
   return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function getOptionalNumber(values: Record<string, unknown>, key: string): number | undefined {
+  const value = values[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
 function getActorId(ctx: { state?: Record<string, unknown> }) {
@@ -87,6 +93,29 @@ export function createEcobasePlanningActions() {
 
       const service = new EcobasePlanningProductService(ctx.db);
       ctx.body = { data: await service.getPlanningProductData({ planningProductId }) };
+      await next();
+    },
+    calculateProduct: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const planningProductId = getOptionalString(values, 'planningProductId');
+      if (!planningProductId) {
+        ctx.throw(400, 'Ecobase planning calculation requires planningProductId.');
+        return;
+      }
+
+      const service = new EcobasePlanningCalculationService(ctx.db);
+      ctx.body = {
+        data: await service.calculatePlanningProduct({
+          planningProductId,
+          calculationDate: getOptionalString(values, 'calculationDate'),
+          safetyBufferDays: getOptionalNumber(values, 'safetyBufferDays'),
+        }),
+      };
+      await next();
+    },
+    validationReport: async (ctx, next) => {
+      const service = new EcobasePlanningCalculationService(ctx.db);
+      ctx.body = { data: await service.validateBenchmarks() };
       await next();
     },
   };
@@ -190,7 +219,14 @@ export class PluginEcobaseServer extends Plugin {
     this.app.acl.allow('ecobaseImport', ['run', 'runDailySnapshot', 'runNoop', 'status', 'adapters'], 'loggedIn');
     this.app.acl.allow(
       'ecobasePlanning',
-      ['listDuplicateMappings', 'confirmMapping', 'adjustMapping', 'productData'],
+      [
+        'listDuplicateMappings',
+        'confirmMapping',
+        'adjustMapping',
+        'productData',
+        'calculateProduct',
+        'validationReport',
+      ],
       'loggedIn',
     );
     this.app.acl.allow(ECOBASE_COLLECTIONS.companies, ['list', 'get', 'create', 'update', 'destroy'], 'loggedIn');
@@ -206,7 +242,10 @@ export class PluginEcobaseServer extends Plugin {
     this.app.acl.allow(ECOBASE_COLLECTIONS.inventorySnapshots, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.trafficSnapshots, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.planningParameters, ['list', 'get'], 'loggedIn');
+    this.app.acl.allow(ECOBASE_COLLECTIONS.suppliers, ['list', 'get'], 'loggedIn');
+    this.app.acl.allow(ECOBASE_COLLECTIONS.supplierLeadTimes, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.targetRows, ['list', 'get'], 'loggedIn');
+    this.app.acl.allow(ECOBASE_COLLECTIONS.planningCalculationSnapshots, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.sourceAccessAudits, ['list', 'get'], 'loggedIn');
   }
 }

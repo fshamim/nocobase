@@ -8,6 +8,7 @@ import {
 } from '../adapters';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { EcobaseDatabase, EcobaseImportService, EcobaseRepository } from '../services/import-service';
+import { EcobasePlanningCalculationService } from '../services/planning-calculation-service';
 
 interface FindParams {
   filter?: Record<string, unknown>;
@@ -113,6 +114,10 @@ Ecofission LLC,,,Missing Identity,1.0,10,November/2025,2.00,1,2`;
 
 const supplierIdsCsv = `SR ID,Supplier Name
 SRO-36,3Dmatsusa`;
+
+const sameSupplierDifferentCompanyCsv = `Company,ASIN,SKU,Title,"ROI, %",FBA/FBM Stock,Stock value,Estimated Sales Velocity,Days  of stock  left,Recommended quantity for  reordering,Reserved,Sent  to FBA,Ordered,Marketplace,Target stock range after new order days,Manuf. time days,Supplier,SR ID
+Ecofission LLC,B00PUSNY5A,W101,Lesson Plan,27,386,1681.3,9.79,40,0,13,0,500,Amazon.com,60,15,Shared Supplier,SRO-1
+Other Company,B00PUSNY5A,W102,Lesson Plan Other,27,100,500,3,40,0,0,0,0,Amazon.com,60,40,Shared Supplier,SRO-1`;
 
 const remainingShapeSamples = [
   {
@@ -220,6 +225,110 @@ describe('Ecobase current Amazon operations CSV import', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.planningParameters).all()).toHaveLength(2);
   });
 
+  it('keeps supplier lead times distinct for the same supplier key in different companies', async () => {
+    const { db, service } = createService();
+    db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
+      filterByTk: 'source-1',
+      values: {
+        config: {
+          files: [
+            {
+              name: 'MasterStock.csv',
+              content: sameSupplierDifferentCompanyCsv,
+              expectedRowCount: 2,
+              snapshotDate: '2025-07-01',
+            },
+          ],
+        },
+      },
+    });
+
+    const run = await service.runAdapterImport({
+      sourceConnectionId: 'source-1',
+      adapterName: 'amazon-operations-csv',
+      sourceIdentifier: 'same-supplier-different-company',
+      sourceVersion: '2025-07-01',
+      preserveAuditRun: true,
+    });
+
+    expect(run).toMatchObject({ status: 'success', rowCount: 2, normalizedCount: 10 });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierLeadTimes).all()).toEqual([
+      expect.objectContaining({ company: 'Ecofission LLC', supplierId: 'SRO-1', leadTimeDays: 15 }),
+      expect.objectContaining({ company: 'Other Company', supplierId: 'SRO-1', leadTimeDays: 40 }),
+    ]);
+  });
+
+  it('links planning inputs imported after raw listings so calculations use separate planning-source runs', async () => {
+    const { db, service } = createService();
+    db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
+      filterByTk: 'source-1',
+      values: {
+        config: {
+          files: [
+            { name: 'MasterStock.csv', content: masterStockCsv, expectedRowCount: 2, snapshotDate: '2025-07-01' },
+          ],
+        },
+      },
+    });
+    await service.runAdapterImport({
+      sourceConnectionId: 'source-1',
+      adapterName: 'amazon-operations-csv',
+      sourceIdentifier: 'master-stock-before-planning',
+      sourceVersion: '2025-07-01',
+      preserveAuditRun: true,
+    });
+
+    db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
+      filterByTk: 'source-1',
+      values: {
+        config: {
+          files: [
+            {
+              name: 'Profit Planning.csv',
+              content: malformedProfitPlanningCsv,
+              expectedRowCount: 2,
+              snapshotDate: '2025-11-01',
+            },
+          ],
+        },
+      },
+    });
+    const planningRun = await service.runAdapterImport({
+      sourceConnectionId: 'source-1',
+      adapterName: 'amazon-operations-csv',
+      sourceIdentifier: 'profit-planning-after-master-stock',
+      sourceVersion: '2025-11-01',
+      preserveAuditRun: true,
+    });
+
+    expect(planningRun).toMatchObject({ status: 'success', rowCount: 2, normalizedCount: 3, warningCount: 1 });
+    const excelloParameter = db
+      .getRepository(ECOBASE_COLLECTIONS.planningParameters)
+      .all()
+      .find(
+        (record) =>
+          record.asin === 'B00Q4UK3Q6' && record.sku === 'Excello' && record.lastImportRunId === planningRun.id,
+      );
+    const excelloTarget = db
+      .getRepository(ECOBASE_COLLECTIONS.targetRows)
+      .all()
+      .find((record) => record.asin === 'B00Q4UK3Q6' && record.sku === 'Excello');
+    expect(excelloParameter).toEqual(expect.objectContaining({ planningProductId: expect.any(String) }));
+    expect(excelloTarget).toEqual(
+      expect.objectContaining({ planningProductId: expect.any(String), profitTarget: 120 }),
+    );
+
+    const result = await new EcobasePlanningCalculationService(db).calculatePlanningProduct({
+      planningProductId: String(excelloParameter?.planningProductId),
+      calculationDate: '2025-11-10',
+      persist: false,
+    });
+    expect(result).toMatchObject({
+      proratedProfitTargetMtd: expect.any(Number),
+      dataCompleteness: expect.stringContaining('profitPerUnit'),
+    });
+  });
+
   it('maps Buybox into traffic snapshots through the same adapter seam', async () => {
     const { db, service } = createService();
     db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
@@ -318,6 +427,11 @@ describe('Ecobase current Amazon operations CSV import', () => {
 
       expect(run, sample.name).toMatchObject({ status: 'success', rowCount: 1, warningCount: 0 });
       expect(db.getRepository(sample.expectedCollection).all(), sample.name).toHaveLength(1);
+      if (sample.name === 'OrderDetails.csv') {
+        expect(db.getRepository(ECOBASE_COLLECTIONS.supplierLeadTimes).all(), sample.name).toEqual([
+          expect.objectContaining({ supplierId: 'SRO-1', supplierName: 'Supplier', leadTimeDays: 10 }),
+        ]);
+      }
       expect(db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).all(), sample.name).toHaveLength(1);
     }
   });
@@ -341,12 +455,17 @@ describe('Ecobase current Amazon operations CSV import', () => {
       preserveAuditRun: true,
     });
 
-    expect(run).toMatchObject({ status: 'success', rowCount: 2, normalizedCount: 2, warningCount: 1 });
+    expect(run).toMatchObject({ status: 'success', rowCount: 2, normalizedCount: 3, warningCount: 1 });
     expect(db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).all()).toEqual([
       expect.objectContaining({ normalizedStatus: 'success' }),
       expect.objectContaining({ normalizedStatus: 'pending', issueCode: 'csv_row_identity_missing' }),
     ]);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.targetRows).all()).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.targetRows).all()).toEqual([
+      expect.objectContaining({ period: '2025-11', periodType: 'monthly', profitTarget: 120 }),
+    ]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.suppliers).all()).toEqual([
+      expect.objectContaining({ name: 'ELAN Publishing Company' }),
+    ]);
   });
 
   it('preserves distinct import-run audit trails while normalized records are idempotently updated', async () => {
@@ -426,10 +545,13 @@ describe('Ecobase current Amazon operations CSV import', () => {
       preserveAuditRun: true,
     });
 
-    expect(run).toMatchObject({ status: 'success', rowCount: 1, normalizedCount: 1 });
+    expect(run).toMatchObject({ status: 'success', rowCount: 1, normalizedCount: 2 });
     expect(db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).all()).toHaveLength(1);
     expect(db.getRepository(ECOBASE_COLLECTIONS.planningParameters).all()).toEqual([
       expect.objectContaining({ supplierId: 'SRO-36', supplier: '3Dmatsusa' }),
+    ]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.suppliers).all()).toEqual([
+      expect.objectContaining({ supplierId: 'SRO-36', name: '3Dmatsusa' }),
     ]);
   });
 

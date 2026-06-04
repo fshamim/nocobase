@@ -48,6 +48,24 @@ interface DuplicateMappingsResponse {
   data?: DuplicateMappingRow[] | { data?: DuplicateMappingRow[] };
 }
 
+interface PlanningValidationRow {
+  key: string;
+  label: string;
+  status: 'pass' | 'fail';
+  expected: unknown;
+  actual: unknown;
+  evidence: Record<string, unknown>;
+}
+
+interface PlanningValidationReport {
+  status?: 'pass' | 'fail';
+  rows?: PlanningValidationRow[];
+}
+
+interface PlanningValidationResponse extends PlanningValidationReport {
+  data?: PlanningValidationReport & { data?: PlanningValidationReport };
+}
+
 function getStatusRows(response: StatusResponse | SourceStatusRow[] | undefined): SourceStatusRow[] {
   if (Array.isArray(response)) {
     return response;
@@ -74,14 +92,27 @@ function getDuplicateMappingRows(response: DuplicateMappingsResponse | Duplicate
   return [];
 }
 
+function getPlanningValidationRows(response: PlanningValidationResponse | undefined): PlanningValidationRow[] {
+  if (Array.isArray(response?.rows)) {
+    return response.rows;
+  }
+  if (Array.isArray(response?.data?.rows)) {
+    return response.data.rows;
+  }
+  if (Array.isArray(response?.data?.data?.rows)) {
+    return response.data.data.rows;
+  }
+  return [];
+}
+
 function getStatusColor(status: string | null) {
-  if (status === 'success' || status === 'confirmed' || status === 'auto_mapped') {
+  if (status === 'success' || status === 'confirmed' || status === 'auto_mapped' || status === 'pass') {
     return 'green';
   }
   if (status === 'partial' || status === 'needs_review' || status === 'adjusted') {
     return 'gold';
   }
-  if (status === 'failed') {
+  if (status === 'failed' || status === 'fail') {
     return 'red';
   }
   if (status === 'pending') {
@@ -107,8 +138,17 @@ export default function ImportStatusPage() {
     url: 'ecobasePlanning:listDuplicateMappings',
     method: 'get',
   });
+  const {
+    data: planningValidationData,
+    loading: planningValidationLoading,
+    error: planningValidationError,
+  } = useRequest<PlanningValidationResponse>({
+    url: 'ecobasePlanning:validationReport',
+    method: 'get',
+  });
   const rows = getStatusRows(data);
   const duplicateRows = getDuplicateMappingRows(duplicateMappingData);
+  const planningValidationRows = getPlanningValidationRows(planningValidationData);
 
   const confirmMapping = async (planningProductId: string) => {
     await api.request({
@@ -208,6 +248,34 @@ export default function ImportStatusPage() {
     },
   ];
 
+  const planningValidationColumns = [
+    { title: t('Check'), dataIndex: 'label', key: 'label' },
+    {
+      title: t('Status'),
+      dataIndex: 'status',
+      key: 'status',
+      render: (status: 'pass' | 'fail') => <Tag color={getStatusColor(status)}>{status}</Tag>,
+    },
+    {
+      title: t('Expected'),
+      dataIndex: 'expected',
+      key: 'expected',
+      render: (value: unknown) => String(value),
+    },
+    {
+      title: t('Actual'),
+      dataIndex: 'actual',
+      key: 'actual',
+      render: (value: unknown) => String(value),
+    },
+    {
+      title: t('Evidence'),
+      dataIndex: 'evidence',
+      key: 'evidence',
+      render: (value: Record<string, unknown>) => <Typography.Text code>{JSON.stringify(value)}</Typography.Text>,
+    },
+  ];
+
   const listingColumns = (row: DuplicateMappingRow) => [
     { title: t('SKU'), dataIndex: 'sku', key: 'sku' },
     { title: t('Title'), dataIndex: 'title', key: 'title' },
@@ -239,6 +307,18 @@ export default function ImportStatusPage() {
       <Card title={t('Ecobase import/source status')}>
         {error ? <Alert type="error" message={t('Failed to load import status')} style={{ marginBottom: 16 }} /> : null}
         <Table columns={columns} dataSource={rows} loading={loading} rowKey="sourceConnectionId" />
+      </Card>
+      <Card title={t('Planning calculation validation report')}>
+        {planningValidationError ? (
+          <Alert type="error" message={t('Failed to load planning validation report')} style={{ marginBottom: 16 }} />
+        ) : null}
+        <Table
+          columns={planningValidationColumns}
+          dataSource={planningValidationRows}
+          loading={planningValidationLoading}
+          rowKey="key"
+          pagination={false}
+        />
       </Card>
       <Card title={t('Planning product duplicate mapping review')}>
         {duplicateMappingsError ? (

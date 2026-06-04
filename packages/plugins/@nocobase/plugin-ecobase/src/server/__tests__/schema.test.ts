@@ -5,6 +5,7 @@ import importRuns from '../collections/import-runs';
 import inventorySnapshots from '../collections/inventory-snapshots';
 import listingDailyFacts from '../collections/listing-daily-facts';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
+import planningCalculationSnapshots from '../collections/planning-calculation-snapshots';
 import planningProductMappingAudits from '../collections/planning-product-mapping-audits';
 import planningProductListings from '../collections/planning-product-listings';
 import planningProducts from '../collections/planning-products';
@@ -13,6 +14,8 @@ import rawImportRows from '../collections/raw-import-rows';
 import rawListings from '../collections/raw-listings';
 import sourceAccessAudits from '../collections/source-access-audits';
 import sourceConnections from '../collections/source-connections';
+import supplierLeadTimes from '../collections/supplier-lead-times';
+import suppliers from '../collections/suppliers';
 import targetRows from '../collections/target-rows';
 import trafficSnapshots from '../collections/traffic-snapshots';
 
@@ -55,7 +58,10 @@ describe('Ecobase plugin-owned schema', () => {
     expect(inventorySnapshots.name).toBe(ECOBASE_COLLECTIONS.inventorySnapshots);
     expect(trafficSnapshots.name).toBe(ECOBASE_COLLECTIONS.trafficSnapshots);
     expect(planningParameters.name).toBe(ECOBASE_COLLECTIONS.planningParameters);
+    expect(suppliers.name).toBe(ECOBASE_COLLECTIONS.suppliers);
+    expect(supplierLeadTimes.name).toBe(ECOBASE_COLLECTIONS.supplierLeadTimes);
     expect(targetRows.name).toBe(ECOBASE_COLLECTIONS.targetRows);
+    expect(planningCalculationSnapshots.name).toBe(ECOBASE_COLLECTIONS.planningCalculationSnapshots);
     expect(sourceAccessAudits.name).toBe(ECOBASE_COLLECTIONS.sourceAccessAudits);
 
     [
@@ -120,8 +126,17 @@ describe('Ecobase plugin-owned schema', () => {
     expect(field(inventorySnapshots, 'planningProductId')).toMatchObject({ type: 'uuid', autoFill: false });
     expect(field(inventorySnapshots, 'stock')).toMatchObject({ type: 'double' });
     expect(field(trafficSnapshots, 'buyBoxPercentage')).toMatchObject({ type: 'double' });
+    expect(field(planningParameters, 'planningProductId')).toMatchObject({ type: 'uuid', autoFill: false });
     expect(field(planningParameters, 'leadTimeDays')).toMatchObject({ type: 'double' });
+    expect(field(planningParameters, 'safetyBufferDays')).toMatchObject({ type: 'double' });
+    expect(field(suppliers, 'naturalKey')).toMatchObject({ type: 'string', unique: true });
+    expect(field(supplierLeadTimes, 'leadTimeDays')).toMatchObject({ type: 'double' });
+    expect(field(targetRows, 'planningProductId')).toMatchObject({ type: 'uuid', autoFill: false });
+    expect(field(targetRows, 'targetScope')).toMatchObject({ type: 'string' });
     expect(field(targetRows, 'periodType')).toMatchObject({ type: 'string' });
+    expect(field(planningCalculationSnapshots, 'ruleVersion')).toMatchObject({ type: 'string' });
+    expect(field(planningCalculationSnapshots, 'currentStockParity')).toMatchObject({ type: 'double' });
+    expect(field(planningCalculationSnapshots, 'dataCompleteness')).toMatchObject({ type: 'string' });
     expect(field(sourceAccessAudits, 'blockerCode')).toMatchObject({ type: 'string' });
   });
 });

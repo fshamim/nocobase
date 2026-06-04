@@ -21,6 +21,8 @@ const NORMALIZED_RECORD_COLLECTIONS: Record<string, string> = {
   inventory_snapshot: ECOBASE_COLLECTIONS.inventorySnapshots,
   traffic_snapshot: ECOBASE_COLLECTIONS.trafficSnapshots,
   planning_parameter: ECOBASE_COLLECTIONS.planningParameters,
+  supplier: ECOBASE_COLLECTIONS.suppliers,
+  supplier_lead_time: ECOBASE_COLLECTIONS.supplierLeadTimes,
   target_row: ECOBASE_COLLECTIONS.targetRows,
   source_access_audit: ECOBASE_COLLECTIONS.sourceAccessAudits,
 };
@@ -252,7 +254,7 @@ export class EcobaseImportService {
     }
 
     if (!errorMessage && normalizedCount > 0) {
-      await new EcobasePlanningProductService(this.db).syncFromRawListings({ importRunId });
+      await new EcobasePlanningProductService(this.db).syncFromRawListings();
     }
 
     const finishedAt = new Date();

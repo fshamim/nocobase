@@ -17,6 +17,8 @@ export default defineCollection({
     { name: 'reserved', type: 'double' },
     { name: 'inbound', type: 'double' },
     { name: 'ordered', type: 'double' },
+    { name: 'prepStock', type: 'double' },
+    { name: 'salesVelocity', type: 'double' },
     { name: 'daysOfStockLeft', type: 'double' },
     { name: 'recommendedReorderQuantity', type: 'double' },
     { name: 'payload', type: 'jsonb', defaultValue: {} },
