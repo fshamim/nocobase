@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { AdapterStreamItem, NormalizedRecord, SourceAdapter, SourceAdapterRegistry } from '../adapters';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
+import { EcobaseDataWarningService } from './data-warning-service';
+import type { EcobaseDataWarning } from './data-warning-service';
 import { EcobasePlanningProductService } from './planning-product-service';
 
 type Filter = Record<string, unknown>;
@@ -53,13 +55,19 @@ export interface SourceStatusView {
   sourceType: string;
   domain: string;
   active: boolean;
+  required: boolean;
+  freshnessSlaMinutes: number | null;
   latestImportRunId: string | null;
   latestRunStatus: string | null;
+  latestSuccessfulRunAt: string | null;
   rowCount: number;
   normalizedCount: number;
   warningCount: number;
+  latestRunWarningCount: number;
   errorCount: number;
   lastRunAt: string | null;
+  latestWarning: EcobaseDataWarning | null;
+  warnings: EcobaseDataWarning[];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -280,6 +288,7 @@ export class EcobaseImportService {
     const sourceConnectionRepo = this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections);
     const importRunRepo = this.db.getRepository(ECOBASE_COLLECTIONS.importRuns);
     const sourceConnections = await sourceConnectionRepo.find({ sort: ['name'] });
+    const warningService = new EcobaseDataWarningService(this.db);
 
     return Promise.all(
       sourceConnections.map(async (sourceConnection) => {
@@ -291,6 +300,7 @@ export class EcobaseImportService {
           filter: { sourceConnectionId },
           sort: ['-startedAt'],
         });
+        const warningAssessment = await warningService.assessSourceConnection(sourceConnectionId);
 
         return {
           sourceConnectionId,
@@ -298,13 +308,19 @@ export class EcobaseImportService {
           sourceType: getString(sourceConnection, 'sourceType') ?? '(unknown source type)',
           domain: getString(sourceConnection, 'domain') ?? '(unknown domain)',
           active: getBoolean(sourceConnection, 'active', true),
+          required: warningAssessment.required,
+          freshnessSlaMinutes: warningAssessment.freshnessSlaMinutes,
           latestImportRunId: getString(latestRun, 'id') ?? null,
           latestRunStatus: getString(latestRun, 'status') ?? null,
+          latestSuccessfulRunAt: warningAssessment.latestSuccessfulRunAt,
           rowCount: getNumber(latestRun, 'rowCount'),
           normalizedCount: getNumber(latestRun, 'normalizedCount'),
-          warningCount: getNumber(latestRun, 'warningCount'),
+          warningCount: warningAssessment.warnings.length,
+          latestRunWarningCount: getNumber(latestRun, 'warningCount'),
           errorCount: getNumber(latestRun, 'errorCount'),
           lastRunAt: getDateString(latestRun, 'finishedAt') ?? getDateString(latestRun, 'startedAt'),
+          latestWarning: warningAssessment.latestWarning,
+          warnings: warningAssessment.warnings,
         };
       }),
     );

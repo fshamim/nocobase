@@ -247,6 +247,11 @@ export class PluginEcobaseServer extends Plugin {
     this.app.acl.allow(ECOBASE_COLLECTIONS.targetRows, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.planningCalculationSnapshots, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.sourceAccessAudits, ['list', 'get'], 'loggedIn');
+    this.app.acl.allow(
+      ECOBASE_COLLECTIONS.sourceWarningPolicies,
+      ['list', 'get', 'create', 'update', 'destroy'],
+      'loggedIn',
+    );
   }
 }
 

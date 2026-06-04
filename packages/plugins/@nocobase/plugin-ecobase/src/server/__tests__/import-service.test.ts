@@ -224,11 +224,117 @@ describe('Ecobase no-op import and status seam', () => {
         sourceType: 'noop_test',
         domain: 'foundation',
         active: true,
+        required: false,
+        freshnessSlaMinutes: null,
         latestRunStatus: 'success',
         rowCount: 0,
         normalizedCount: 0,
         warningCount: 0,
+        latestRunWarningCount: 0,
         errorCount: 0,
+        latestWarning: null,
+        warnings: [],
+      }),
+    ]);
+  });
+
+  it('surfaces stale source warnings from source-type freshness policies', async () => {
+    const { db, service } = createServiceWithSourceConnection();
+    await db.getRepository(ECOBASE_COLLECTIONS.sourceWarningPolicies).create({
+      values: {
+        naturalKey: 'warning-policy:noop_test',
+        sourceType: 'noop_test',
+        freshnessSlaMinutes: 60,
+        active: true,
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.importRuns).create({
+      values: {
+        id: 'run-success',
+        sourceConnectionId: 'source-1',
+        adapterName: 'noop-test',
+        sourceIdentifier: 'manual-noop',
+        sourceVersion: 'v1',
+        idempotencyKey: 'source-1:manual-noop:v1',
+        startedAt: '2025-01-01T00:00:00.000Z',
+        finishedAt: '2025-01-01T00:10:00.000Z',
+        status: 'success',
+        rowCount: 0,
+        normalizedCount: 0,
+        warningCount: 0,
+        errorCount: 0,
+      },
+    });
+
+    const [status] = await service.listSourceStatuses();
+
+    expect(status).toMatchObject({
+      sourceConnectionId: 'source-1',
+      required: false,
+      freshnessSlaMinutes: 60,
+      latestRunStatus: 'success',
+      warningCount: 1,
+      latestWarning: expect.objectContaining({ code: 'stale_successful_run' }),
+    });
+    expect(status.warnings).toEqual([
+      expect.objectContaining({
+        code: 'stale_successful_run',
+        message: 'Latest successful import for source "No-op source" is stale.',
+      }),
+    ]);
+  });
+
+  it('surfaces failed latest run warnings separately from successful-run freshness', async () => {
+    const { db, service } = createServiceWithSourceConnection();
+    await db.getRepository(ECOBASE_COLLECTIONS.importRuns).create({
+      values: {
+        id: 'run-success',
+        sourceConnectionId: 'source-1',
+        adapterName: 'noop-test',
+        sourceIdentifier: 'manual-noop',
+        sourceVersion: 'v1',
+        idempotencyKey: 'source-1:manual-noop:v1',
+        startedAt: '2025-06-01T00:00:00.000Z',
+        finishedAt: '2025-06-01T00:10:00.000Z',
+        status: 'success',
+        rowCount: 0,
+        normalizedCount: 0,
+        warningCount: 0,
+        errorCount: 0,
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.importRuns).create({
+      values: {
+        id: 'run-failed',
+        sourceConnectionId: 'source-1',
+        adapterName: 'noop-test',
+        sourceIdentifier: 'manual-noop',
+        sourceVersion: 'v2',
+        idempotencyKey: 'source-1:manual-noop:v2',
+        startedAt: '2025-06-02T00:00:00.000Z',
+        finishedAt: '2025-06-02T00:10:00.000Z',
+        status: 'failed',
+        rowCount: 0,
+        normalizedCount: 0,
+        warningCount: 0,
+        errorCount: 1,
+        errorMessage: 'Boom',
+      },
+    });
+
+    const [status] = await service.listSourceStatuses();
+
+    expect(status).toMatchObject({
+      latestImportRunId: 'run-failed',
+      latestRunStatus: 'failed',
+      warningCount: 1,
+      latestWarning: expect.objectContaining({ code: 'failed_latest_run' }),
+    });
+    expect(status.warnings).toEqual([
+      expect.objectContaining({
+        code: 'failed_latest_run',
+        importRunId: 'run-failed',
+        message: 'Latest import for source "No-op source" failed.',
       }),
     ]);
   });

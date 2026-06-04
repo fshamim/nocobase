@@ -14,6 +14,7 @@ import rawImportRows from '../collections/raw-import-rows';
 import rawListings from '../collections/raw-listings';
 import sourceAccessAudits from '../collections/source-access-audits';
 import sourceConnections from '../collections/source-connections';
+import sourceWarningPolicies from '../collections/source-warning-policies';
 import supplierLeadTimes from '../collections/supplier-lead-times';
 import suppliers from '../collections/suppliers';
 import targetRows from '../collections/target-rows';
@@ -63,6 +64,7 @@ describe('Ecobase plugin-owned schema', () => {
     expect(targetRows.name).toBe(ECOBASE_COLLECTIONS.targetRows);
     expect(planningCalculationSnapshots.name).toBe(ECOBASE_COLLECTIONS.planningCalculationSnapshots);
     expect(sourceAccessAudits.name).toBe(ECOBASE_COLLECTIONS.sourceAccessAudits);
+    expect(sourceWarningPolicies.name).toBe(ECOBASE_COLLECTIONS.sourceWarningPolicies);
 
     [
       companies,
@@ -138,5 +140,7 @@ describe('Ecobase plugin-owned schema', () => {
     expect(field(planningCalculationSnapshots, 'currentStockParity')).toMatchObject({ type: 'double' });
     expect(field(planningCalculationSnapshots, 'dataCompleteness')).toMatchObject({ type: 'string' });
     expect(field(sourceAccessAudits, 'blockerCode')).toMatchObject({ type: 'string' });
+    expect(field(sourceWarningPolicies, 'sourceType')).toMatchObject({ type: 'string', unique: true });
+    expect(field(sourceWarningPolicies, 'freshnessSlaMinutes')).toMatchObject({ type: 'integer' });
   });
 });

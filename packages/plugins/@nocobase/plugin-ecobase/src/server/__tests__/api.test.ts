@@ -159,16 +159,56 @@ describe('Ecobase import public API seam', () => {
           sourceType: 'noop_test',
           domain: 'foundation',
           active: true,
+          required: false,
+          freshnessSlaMinutes: null,
           latestRunStatus: 'success',
           rowCount: 0,
           normalizedCount: 0,
           warningCount: 0,
+          latestRunWarningCount: 0,
           errorCount: 0,
+          latestWarning: null,
+          warnings: [],
         }),
       ],
     });
     expect(statusNext).toHaveBeenCalledOnce();
     expect(db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).all()).toEqual([]);
+  });
+
+  it('exposes missing required source warnings through the status action', async () => {
+    const db = new MemoryDatabase();
+    await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).create({
+      values: {
+        id: 'source-1',
+        name: 'No-op source',
+        sourceType: 'noop_test',
+        domain: 'foundation',
+        config: { warningPolicy: { required: true } },
+        active: true,
+      },
+    });
+    const actions = createEcobaseImportActions(createSourceAdapterRegistry([noopTestAdapter]));
+    const context = createActionContext(db);
+
+    await actions.status(context, vi.fn());
+
+    expect(context.body).toEqual({
+      data: [
+        expect.objectContaining({
+          sourceConnectionId: 'source-1',
+          required: true,
+          warningCount: 1,
+          latestWarning: expect.objectContaining({ code: 'missing_required_source' }),
+          warnings: [
+            expect.objectContaining({
+              code: 'missing_required_source',
+              message: 'Required source "No-op source" has no successful import run.',
+            }),
+          ],
+        }),
+      ],
+    });
   });
 
   it('rejects run requests without sourceConnectionId', async () => {

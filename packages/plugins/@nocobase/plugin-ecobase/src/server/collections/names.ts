@@ -17,6 +17,7 @@ export const ECOBASE_COLLECTIONS = {
   targetRows: 'ecobaseTargetRows',
   planningCalculationSnapshots: 'ecobasePlanningCalculationSnapshots',
   sourceAccessAudits: 'ecobaseSourceAccessAudits',
+  sourceWarningPolicies: 'ecobaseSourceWarningPolicies',
 } as const;
 
 export type EcobaseCollectionName = (typeof ECOBASE_COLLECTIONS)[keyof typeof ECOBASE_COLLECTIONS];

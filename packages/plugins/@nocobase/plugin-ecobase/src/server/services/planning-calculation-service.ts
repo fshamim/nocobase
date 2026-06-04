@@ -1,4 +1,6 @@
 import { ECOBASE_COLLECTIONS } from '../collections/names';
+import { EcobaseDataWarningService } from './data-warning-service';
+import type { EcobaseDataWarning } from './data-warning-service';
 import type { EcobaseDatabase, EcobaseRepository } from './import-service';
 import { toPlainRecord } from './import-service';
 
@@ -22,6 +24,11 @@ export interface PlanningBenchmarkResult {
   expected: unknown;
   actual: unknown;
   evidence: Record<string, unknown>;
+}
+
+export interface PlanningCalculationResult extends PlainRecord {
+  warnings: EcobaseDataWarning[];
+  warningCount: number;
 }
 
 function asString(value: unknown): string | undefined {
@@ -201,10 +208,15 @@ export class EcobasePlanningCalculationService {
       this.db.getRepository(ECOBASE_COLLECTIONS.targetRows),
       planningProductId,
     );
+    const planningProductListings = await findByPlanningProduct(
+      this.db.getRepository(ECOBASE_COLLECTIONS.planningProductListings),
+      planningProductId,
+    );
     const result = await this.calculateFromRows({
       planningProductId,
       calculationDate,
       product,
+      planningProductListings,
       inventoryRows,
       factRows,
       parameterRows,
@@ -213,7 +225,7 @@ export class EcobasePlanningCalculationService {
     });
 
     if (params.persist !== false) {
-      await this.upsertSnapshot(result);
+      await this.upsertSnapshot(this.snapshotValues(result));
     }
 
     return result;
@@ -223,12 +235,13 @@ export class EcobasePlanningCalculationService {
     planningProductId: string;
     calculationDate: string;
     product: PlainRecord;
+    planningProductListings: PlainRecord[];
     inventoryRows: PlainRecord[];
     factRows: PlainRecord[];
     parameterRows: PlainRecord[];
     targetRows: PlainRecord[];
     safetyBufferDays?: number;
-  }) {
+  }): Promise<PlanningCalculationResult> {
     const latestInventoryDate = latestDate(params.inventoryRows, 'snapshotDate');
     const latestInventoryRows = recordsForDate(params.inventoryRows, 'snapshotDate', latestInventoryDate);
     const sellableStock = sum(latestInventoryRows, 'stock');
@@ -303,6 +316,19 @@ export class EcobasePlanningCalculationService {
       typeof riskDays === 'number' && typeof positiveSalesVelocity === 'number' && typeof profitPerUnit === 'number'
         ? riskDays * positiveSalesVelocity * profitPerUnit
         : undefined;
+    const warnings = await new EcobaseDataWarningService(this.db).listPlanningWarnings({
+      planningProductId: params.planningProductId,
+      calculationDate: params.calculationDate,
+      product: params.product,
+      planningProductListings: params.planningProductListings,
+      inventoryRows: latestInventoryRows,
+      factRows: params.factRows,
+      parameterRows: params.parameterRows,
+      targetRows: params.targetRows,
+      salesVelocity: positiveSalesVelocity,
+      leadTimeDays,
+      monthlyTarget,
+    });
     const completeness = this.dataCompleteness({
       salesVelocity: positiveSalesVelocity,
       leadTimeDays,
@@ -342,6 +368,8 @@ export class EcobasePlanningCalculationService {
       profitGap,
       profitOffTrack,
       estimatedProfitRisk,
+      warningCount: warnings.length,
+      warnings,
       dataCompleteness: completeness,
       calculationStatus: typeof leadTimeDays === 'number' ? 'calculated' : 'missing_lead_time',
       evidence: {
@@ -357,6 +385,8 @@ export class EcobasePlanningCalculationService {
           sourceEstimatedVelocity,
         },
         riskDays,
+        warningCount: warnings.length,
+        warnings,
       },
       lastImportRunId:
         asString(latestInventoryRows[0]?.lastImportRunId) ?? asString(params.parameterRows[0]?.lastImportRunId),
@@ -369,6 +399,7 @@ export class EcobasePlanningCalculationService {
       planningProductId: 'benchmark-product',
       calculationDate,
       product: { id: 'benchmark-product', company: 'Ecofission LLC', canonicalAsin: 'B000BENCH' },
+      planningProductListings: [],
       inventoryRows: [
         {
           snapshotDate: '2025-07-01',
@@ -506,6 +537,18 @@ export class EcobasePlanningCalculationService {
     evidence: Record<string, unknown>,
   ): PlanningBenchmarkResult {
     return { key, label, expected, actual, evidence, status: Object.is(expected, actual) ? 'pass' : 'fail' };
+  }
+
+  private snapshotValues(result: PlanningCalculationResult): PlainRecord {
+    const { warningCount, warnings, ...snapshot } = result;
+    return {
+      ...snapshot,
+      evidence: {
+        ...toPlainRecord(snapshot.evidence),
+        warningCount,
+        warnings,
+      },
+    };
   }
 
   private async upsertSnapshot(values: PlainRecord) {

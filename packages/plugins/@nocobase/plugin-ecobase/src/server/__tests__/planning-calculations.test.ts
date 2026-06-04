@@ -251,10 +251,88 @@ describe('Ecobase spreadsheet-parity planning calculations', () => {
         calculationStatus: 'missing_lead_time',
         urgentRestock: false,
         restockNeeded: false,
+        warningCount: 3,
       });
       expect(result.dataCompleteness).toContain('missing:salesVelocity,leadTimeDays,profitPerUnit');
       expect(result.restockDeadlineParity).toBeUndefined();
+      expect(result.warnings.map((warning) => warning.code)).toEqual([
+        'missing_lead_time',
+        'missing_target',
+        'missing_velocity',
+      ]);
     }
+  });
+
+  it('surfaces unmapped listing warnings on planning calculations', async () => {
+    const db = new MemoryDatabase();
+    const planningProductId = await seedPlanningProduct(db, 'planning-product-unmapped');
+    await db.getRepository(ECOBASE_COLLECTIONS.planningProducts).update({
+      filterByTk: planningProductId,
+      values: { mappingStatus: 'needs_review' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.planningProductListings).create({
+      values: {
+        id: 'listing-1',
+        naturalKey: 'listing-1',
+        planningProductId,
+        rawListingNaturalKey: 'raw-listing-1',
+        sourceConnectionId: 'source-1',
+        company: 'Ecofission LLC',
+        canonicalAsin: 'B000TEST',
+        asin: 'B000TEST',
+        sku: 'SKU-1',
+        mappingMode: 'default',
+        mappingStatus: 'needs_review',
+        mappedAt: '2025-07-01T00:00:00.000Z',
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.inventorySnapshots).create({
+      values: {
+        naturalKey: 'inventory-unmapped',
+        sourceConnectionId: 'source-1',
+        planningProductId,
+        snapshotDate: '2025-07-10',
+        stock: 15,
+        salesVelocity: 2,
+        recommendedReorderQuantity: 8,
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.planningParameters).create({
+      values: {
+        naturalKey: 'parameter-unmapped',
+        sourceConnectionId: 'source-1',
+        planningProductId,
+        profitPerUnit: 4,
+        leadTimeDays: 5,
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.targetRows).create({
+      values: {
+        naturalKey: 'target-unmapped',
+        sourceConnectionId: 'source-1',
+        planningProductId,
+        company: 'Ecofission LLC',
+        targetScope: 'planning_product',
+        period: '2025-07',
+        periodType: 'monthly',
+        profitTarget: 500,
+      },
+    });
+
+    const result = await new EcobasePlanningCalculationService(db).calculatePlanningProduct({
+      planningProductId,
+      calculationDate: '2025-07-10',
+    });
+
+    expect(result.warningCount).toBe(1);
+    expect(result.warnings).toEqual([
+      expect.objectContaining({
+        code: 'unmapped_listing',
+        planningProductId,
+        planningProductListingId: 'listing-1',
+        rawListingNaturalKey: 'raw-listing-1',
+      }),
+    ]);
   });
 
   it('aggregates multi-listing stock, velocity, quantity, and profit inputs at planning-product level', async () => {
