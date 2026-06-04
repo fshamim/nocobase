@@ -1,0 +1,6 @@
+# syntax=docker/dockerfile:1
+
+ARG ECOBASE_BASE_IMAGE=nocobase/nocobase:beta-full
+FROM ${ECOBASE_BASE_IMAGE}
+
+COPY plugin /app/nocobase/storage/plugins/@nocobase/plugin-ecobase

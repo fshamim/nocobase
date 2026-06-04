@@ -57,20 +57,43 @@ function getSnapshotDate(file: CsvSourceFile, input: SourceAdapterImportInput, r
 }
 
 function sourceKeyFor(row: CsvRowReader, fallback: string) {
-  return row.string('ASIN', 'ASIN ', 'SKU', 'Order ID', 'SR ID', 'SR ID ') ?? fallback;
+  const asin = row.string('ASIN', 'ASIN ');
+  const sku = row.string('SKU');
+  if (asin && sku) {
+    return `${asin}:${sku}`;
+  }
+  if (sku) {
+    return sku;
+  }
+  if (asin) {
+    return `${asin}:${fallback}`;
+  }
+  return row.string('Order ID', 'SR ID', 'SR ID ') ?? fallback;
 }
 
 function naturalKey(input: SourceAdapterImportInput, kind: string, parts: Array<string | number | undefined>) {
   return [input.sourceConnectionId, kind, ...parts.map((part) => String(part ?? ''))].join(':');
 }
 
+function canonicalAsin(row: CsvRowReader) {
+  return row.string('ASIN', 'ASIN ')?.toUpperCase();
+}
+
+function listingIdentityParts(row: CsvRowReader, sourceKey: string) {
+  const company = row.string('Company');
+  const marketplace = row.string('Marketplace', 'Market ');
+  const asin = canonicalAsin(row);
+  const sku = row.string('SKU');
+  return [company, marketplace, asin ?? sourceKey, sku ?? sourceKey];
+}
+
 function listingRecord(input: SourceAdapterImportInput, row: CsvRowReader, sourceKey: string): NormalizedRecord {
-  const asin = row.string('ASIN', 'ASIN ');
+  const asin = canonicalAsin(row);
   const sku = row.string('SKU');
   return {
     kind: 'raw_listing',
     data: {
-      naturalKey: naturalKey(input, 'raw_listing', [asin ?? sku ?? sourceKey]),
+      naturalKey: naturalKey(input, 'raw_listing', listingIdentityParts(row, sourceKey)),
       sourceConnectionId: input.sourceConnectionId,
       asin,
       sku,
@@ -90,14 +113,15 @@ function inventoryRecord(
   snapshotDate: string,
   sourceKey: string,
 ): NormalizedRecord {
-  const asin = row.string('ASIN', 'ASIN ');
+  const asin = canonicalAsin(row);
   const sku = row.string('SKU');
   return {
     kind: 'inventory_snapshot',
     data: {
-      naturalKey: naturalKey(input, 'inventory_snapshot', [snapshotDate, asin ?? sku ?? sourceKey]),
+      naturalKey: naturalKey(input, 'inventory_snapshot', [snapshotDate, ...listingIdentityParts(row, sourceKey)]),
       sourceConnectionId: input.sourceConnectionId,
       snapshotDate,
+      company: row.string('Company'),
       asin,
       sku,
       stock: row.number('FBA/FBM Stock', 'Current Stock', 'Stock ', 'FBA', 'Qty'),
@@ -112,12 +136,15 @@ function inventoryRecord(
 }
 
 function planningRecord(input: SourceAdapterImportInput, row: CsvRowReader, sourceKey: string): NormalizedRecord {
-  const asin = row.string('ASIN', 'ASIN ');
+  const asin = canonicalAsin(row);
   const sku = row.string('SKU');
   return {
     kind: 'planning_parameter',
     data: {
-      naturalKey: naturalKey(input, 'planning_parameter', [asin ?? sku ?? row.string('SR ID', 'SR ID ') ?? sourceKey]),
+      naturalKey: naturalKey(input, 'planning_parameter', [
+        ...listingIdentityParts(row, sourceKey),
+        row.string('SR ID', 'SR ID '),
+      ]),
       sourceConnectionId: input.sourceConnectionId,
       asin,
       sku,
@@ -138,14 +165,15 @@ function dailyFactRecord(
   snapshotDate: string,
   sourceKey: string,
 ): NormalizedRecord {
-  const asin = row.string('ASIN', 'ASIN ') ?? '__TOTAL__';
+  const asin = canonicalAsin(row) ?? '__TOTAL__';
   const sku = row.string('SKU') ?? asin;
   return {
     kind: 'listing_daily_fact',
     data: {
-      naturalKey: naturalKey(input, 'listing_daily_fact', [snapshotDate, asin, sku]),
+      naturalKey: naturalKey(input, 'listing_daily_fact', [snapshotDate, ...listingIdentityParts(row, sourceKey)]),
       sourceConnectionId: input.sourceConnectionId,
       snapshotDate,
+      company: row.string('Company'),
       asin,
       sku,
       sales: row.number('SalesOrganic', 'Ordered Product Sales', 'Total Sales'),
@@ -169,12 +197,12 @@ function trafficRecord(
   snapshotDate: string,
   sourceKey: string,
 ): NormalizedRecord {
-  const asin = row.string('ASIN', 'ASIN ');
+  const asin = canonicalAsin(row);
   const sku = row.string('SKU') ?? asin;
   return {
     kind: 'traffic_snapshot',
     data: {
-      naturalKey: naturalKey(input, 'traffic_snapshot', [snapshotDate, asin ?? sku ?? sourceKey]),
+      naturalKey: naturalKey(input, 'traffic_snapshot', [snapshotDate, ...listingIdentityParts(row, sourceKey)]),
       sourceConnectionId: input.sourceConnectionId,
       snapshotDate,
       asin,
@@ -195,12 +223,16 @@ function targetRecord(
   period: string,
   sourceKey: string,
 ): NormalizedRecord {
-  const asin = row.string('ASIN', 'ASIN ');
+  const asin = canonicalAsin(row);
   const sku = row.string('SKU');
   return {
     kind: 'target_row',
     data: {
-      naturalKey: naturalKey(input, 'target_row', [period, asin ?? sku ?? row.string('Order ID') ?? sourceKey]),
+      naturalKey: naturalKey(input, 'target_row', [
+        period,
+        ...listingIdentityParts(row, sourceKey),
+        row.string('Order ID'),
+      ]),
       sourceConnectionId: input.sourceConnectionId,
       period,
       periodType: period.includes('/') ? 'daily' : 'monthly',

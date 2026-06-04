@@ -11,6 +11,7 @@ import {
 import type { SourceAdapterRegistry } from './adapters';
 import { ECOBASE_COLLECTIONS } from './collections/names';
 import { EcobaseImportService } from './services/import-service';
+import { EcobasePlanningProductService } from './services/planning-product-service';
 
 function getValues(params: unknown): Record<string, unknown> {
   if (typeof params !== 'object' || params === null) {
@@ -23,6 +24,72 @@ function getValues(params: unknown): Record<string, unknown> {
 function getOptionalString(values: Record<string, unknown>, key: string): string | undefined {
   const value = values[key];
   return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function getActorId(ctx: { state?: Record<string, unknown> }) {
+  const currentUser = ctx.state?.currentUser;
+  if (typeof currentUser === 'object' && currentUser !== null) {
+    const id = (currentUser as Record<string, unknown>).id;
+    return typeof id === 'string' ? id : undefined;
+  }
+  return undefined;
+}
+
+export function createEcobasePlanningActions() {
+  return {
+    listDuplicateMappings: async (ctx, next) => {
+      const service = new EcobasePlanningProductService(ctx.db);
+      ctx.body = { data: await service.listDuplicateMappings() };
+      await next();
+    },
+    confirmMapping: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const planningProductId = getOptionalString(values, 'planningProductId');
+      if (!planningProductId) {
+        ctx.throw(400, 'Ecobase planning mapping confirmation requires planningProductId.');
+        return;
+      }
+
+      const service = new EcobasePlanningProductService(ctx.db);
+      ctx.body = {
+        data: await service.confirmPlanningProduct({
+          planningProductId,
+          actorId: getActorId(ctx),
+          note: getOptionalString(values, 'note'),
+        }),
+      };
+      await next();
+    },
+    adjustMapping: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobasePlanningProductService(ctx.db);
+      ctx.body = {
+        data: await service.adjustMapping({
+          planningProductListingId: getOptionalString(values, 'planningProductListingId'),
+          rawListingNaturalKey: getOptionalString(values, 'rawListingNaturalKey'),
+          targetPlanningProductId: getOptionalString(values, 'targetPlanningProductId'),
+          targetCompany: getOptionalString(values, 'targetCompany'),
+          targetCanonicalAsin: getOptionalString(values, 'targetCanonicalAsin'),
+          targetTitle: getOptionalString(values, 'targetTitle'),
+          actorId: getActorId(ctx),
+          note: getOptionalString(values, 'note'),
+        }),
+      };
+      await next();
+    },
+    productData: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const planningProductId = getOptionalString(values, 'planningProductId');
+      if (!planningProductId) {
+        ctx.throw(400, 'Ecobase planning product data query requires planningProductId.');
+        return;
+      }
+
+      const service = new EcobasePlanningProductService(ctx.db);
+      ctx.body = { data: await service.getPlanningProductData({ planningProductId }) };
+      await next();
+    },
+  };
 }
 
 export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
@@ -115,14 +182,26 @@ export class PluginEcobaseServer extends Plugin {
       name: 'ecobaseImport',
       actions: createEcobaseImportActions(this.registry),
     });
+    this.app.resourceManager.define({
+      name: 'ecobasePlanning',
+      actions: createEcobasePlanningActions(),
+    });
 
     this.app.acl.allow('ecobaseImport', ['run', 'runDailySnapshot', 'runNoop', 'status', 'adapters'], 'loggedIn');
+    this.app.acl.allow(
+      'ecobasePlanning',
+      ['listDuplicateMappings', 'confirmMapping', 'adjustMapping', 'productData'],
+      'loggedIn',
+    );
     this.app.acl.allow(ECOBASE_COLLECTIONS.companies, ['list', 'get', 'create', 'update', 'destroy'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.amazonAccounts, ['list', 'get', 'create', 'update', 'destroy'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.sourceConnections, ['list', 'get', 'create', 'update'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.importRuns, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.rawImportRows, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.rawListings, ['list', 'get'], 'loggedIn');
+    this.app.acl.allow(ECOBASE_COLLECTIONS.planningProducts, ['list', 'get'], 'loggedIn');
+    this.app.acl.allow(ECOBASE_COLLECTIONS.planningProductListings, ['list', 'get'], 'loggedIn');
+    this.app.acl.allow(ECOBASE_COLLECTIONS.planningProductMappingAudits, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.listingDailyFacts, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.inventorySnapshots, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.trafficSnapshots, ['list', 'get'], 'loggedIn');

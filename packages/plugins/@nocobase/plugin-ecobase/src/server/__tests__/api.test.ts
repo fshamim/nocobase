@@ -6,7 +6,7 @@ import { EcobaseDatabase, EcobaseRepository } from '../services/import-service';
 
 interface FindParams {
   filter?: Record<string, unknown>;
-  filterByTk?: string;
+  filterByTk?: string | number;
   sort?: string[];
   limit?: number;
 }
@@ -31,13 +31,21 @@ class MemoryRepository implements EcobaseRepository {
     return record;
   }
 
-  async update({ filterByTk, values }: { filterByTk: string; values: Record<string, unknown> }) {
-    const record = this.records.find((item) => item.id === filterByTk);
-    if (!record) {
-      throw new Error(`MemoryRepository update failed: record ${filterByTk} was not found.`);
+  async update({
+    filter,
+    filterByTk,
+    values,
+  }: {
+    filter?: Record<string, unknown>;
+    filterByTk?: string | number;
+    values: Record<string, unknown>;
+  }) {
+    const records = this.filterRecords({ filter, filterByTk });
+    if (records.length === 0) {
+      throw new Error(`MemoryRepository update failed: matching record was not found.`);
     }
-    Object.assign(record, values);
-    return record;
+    records.forEach((record) => Object.assign(record, values));
+    return records[0];
   }
 
   all() {

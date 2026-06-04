@@ -6,6 +6,7 @@ repo_root="$(cd "${plugin_root}/../../../.." && pwd)"
 compose_file="${plugin_root}/docker/live-gate.compose.yml"
 project_name="${ECOBASE_LIVE_GATE_PROJECT:-ecobase-live-gate}"
 image_tag="${ECOBASE_LIVE_GATE_IMAGE:-ecobase/nocobase:qa-live-gate}"
+build_mode="${ECOBASE_LIVE_GATE_BUILD_MODE:-overlay}"
 app_port="${ECOBASE_LIVE_GATE_PORT:-13080}"
 admin_email="${ECOBASE_LIVE_GATE_ADMIN_EMAIL:-admin@nocobase.com}"
 admin_password="${ECOBASE_LIVE_GATE_ADMIN_PASSWORD:-admin123}"
@@ -27,11 +28,8 @@ if ! docker info >/dev/null 2>&1; then
 fi
 
 if [ "${ECOBASE_LIVE_GATE_SKIP_BUILD:-0}" != "1" ]; then
-  echo "[ecobase-live-gate] building ${image_tag}"
-  docker build \
-    --file "${plugin_root}/docker/Dockerfile" \
-    --tag "${image_tag}" \
-    "${repo_root}"
+  echo "[ecobase-live-gate] building ${image_tag} with ${build_mode} mode"
+  ECOBASE_LIVE_GATE_BUILD_MODE="${build_mode}" "${plugin_root}/scripts/build-image.sh" "${image_tag}"
 else
   echo "[ecobase-live-gate] using existing image ${image_tag}"
 fi

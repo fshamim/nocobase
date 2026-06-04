@@ -13,5 +13,20 @@
   "Errors": "错误",
   "Last run time": "上次运行时间",
   "Never": "从未运行",
-  "Failed to load import status": "导入状态加载失败"
+  "Failed to load import status": "导入状态加载失败",
+  "Planning product duplicate mapping review": "规划产品重复映射审核",
+  "Failed to load duplicate mapping review": "重复映射审核加载失败",
+  "Planning product": "规划产品",
+  "Listings": "商品列表",
+  "Mapping status": "映射状态",
+  "Mapping mode": "映射模式",
+  "Actions": "操作",
+  "Confirm mapping": "确认映射",
+  "Adjust mapping": "调整映射",
+  "Planning product mapping confirmed": "规划产品映射已确认",
+  "Planning product mapping adjusted": "规划产品映射已调整",
+  "Target planning product ID. Leave blank to create a manual split for this listing.": "目标规划产品 ID。留空将为此商品创建手动拆分。",
+  "SKU": "SKU",
+  "Title": "标题",
+  "Source connection": "来源连接"
 }

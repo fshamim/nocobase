@@ -13,5 +13,20 @@
   "Errors": "Errors",
   "Last run time": "Last run time",
   "Never": "Never",
-  "Failed to load import status": "Failed to load import status"
+  "Failed to load import status": "Failed to load import status",
+  "Planning product duplicate mapping review": "Planning product duplicate mapping review",
+  "Failed to load duplicate mapping review": "Failed to load duplicate mapping review",
+  "Planning product": "Planning product",
+  "Listings": "Listings",
+  "Mapping status": "Mapping status",
+  "Mapping mode": "Mapping mode",
+  "Actions": "Actions",
+  "Confirm mapping": "Confirm mapping",
+  "Adjust mapping": "Adjust mapping",
+  "Planning product mapping confirmed": "Planning product mapping confirmed",
+  "Planning product mapping adjusted": "Planning product mapping adjusted",
+  "Target planning product ID. Leave blank to create a manual split for this listing.": "Target planning product ID. Leave blank to create a manual split for this listing.",
+  "SKU": "SKU",
+  "Title": "Title",
+  "Source connection": "Source connection"
 }

@@ -23,13 +23,20 @@ This is the primary development loop. The plugin source of truth stays in `packa
 
 ## Ecobase image build
 
-Build the product image from this fork with:
+Build the fast QA overlay image with:
 
 ```bash
 packages/plugins/@nocobase/plugin-ecobase/scripts/build-image.sh ecobase/nocobase:local
 ```
 
-The image build compiles and packages `@nocobase/plugin-ecobase` from this source tree, then places the packaged plugin in the NocoBase runtime image. Deployment still needs the target database to run upgrade/enable once:
+The default `overlay` mode compiles and packages `@nocobase/plugin-ecobase` locally, then copies only the packaged plugin into the `nocobase/nocobase:beta-full` runtime base image. This keeps per-issue QA rebuilds focused on changed plugin files instead of rebuilding the full NocoBase source image. To force the slower full source-image path, run:
+
+```bash
+ECOBASE_IMAGE_BUILD_MODE=full \
+  packages/plugins/@nocobase/plugin-ecobase/scripts/build-image.sh ecobase/nocobase:local
+```
+
+Deployment still needs the target database to run upgrade/enable once:
 
 ```bash
 yarn nocobase upgrade --skip-code-update
@@ -54,7 +61,7 @@ For final QA of plugin runtime or UI behavior, run the isolated Docker live gate
 packages/plugins/@nocobase/plugin-ecobase/scripts/start-live-gate.sh
 ```
 
-The script builds the Ecobase image, starts an isolated Postgres + NocoBase Docker Compose project, enables `@nocobase/plugin-ecobase`, waits for `/admin/settings/ecobase`, and prints the URL plus local admin credentials. QA must open the printed URL in a browser, verify the Ecobase status page, capture evidence, then clean up:
+The script builds the Ecobase QA image in fast overlay mode by default, starts an isolated Postgres + NocoBase Docker Compose project, enables `@nocobase/plugin-ecobase`, waits for `/admin/settings/ecobase`, and prints the URL plus local admin credentials. QA must open the printed URL in a browser, verify the Ecobase status page, capture evidence, then clean up:
 
 ```bash
 packages/plugins/@nocobase/plugin-ecobase/scripts/stop-live-gate.sh
@@ -135,6 +142,9 @@ If the same source/version already has a successful run, the daily action writes
 Normalized records are stored in plugin-owned collections:
 
 - `ecobaseRawListings`
+- `ecobasePlanningProducts`
+- `ecobasePlanningProductListings`
+- `ecobasePlanningProductMappingAudits`
 - `ecobaseListingDailyFacts`
 - `ecobaseInventorySnapshots`
 - `ecobaseTrafficSnapshots`
@@ -163,8 +173,27 @@ POST /api/ecobaseImport:runNoop
 GET /api/ecobaseImport:status
 ```
 
+Planning product mapping review APIs:
+
+```http
+GET /api/ecobasePlanning:listDuplicateMappings
+POST /api/ecobasePlanning:confirmMapping
+{
+  "planningProductId": "<planning-product-id>"
+}
+POST /api/ecobasePlanning:adjustMapping
+{
+  "planningProductListingId": "<mapping-id>",
+  "targetPlanningProductId": "<target-planning-product-id>"
+}
+POST /api/ecobasePlanning:productData
+{
+  "planningProductId": "<planning-product-id>"
+}
+```
+
 ## UI
 
-The status page is registered through the standard NocoBase client plugin surface at `/admin/settings/ecobase` and reads `ecobaseImport:status`. This checkout's plugin loader and build tooling expect `client.js`, `dist/client/index.js`, and `src/client`, matching the existing bundled plugins.
+The status page is registered through the standard NocoBase client plugin surface at `/admin/settings/ecobase` and reads `ecobaseImport:status` plus the planning product duplicate mapping review from `ecobasePlanning:listDuplicateMappings`. This checkout's plugin loader and build tooling expect `client.js`, `dist/client/index.js`, and `src/client`, matching the existing bundled plugins.
 
 The local pi NocoBase plugin skill currently recommends `src/client-v2`, but this repository's plugin build and server plugin URL endpoint still emit `dist/client/index.js` from `src/client`. Keep Ecobase on `src/client` until the fork has a tested v2 app entry, v2 plugin bundle build, and runtime loader path.

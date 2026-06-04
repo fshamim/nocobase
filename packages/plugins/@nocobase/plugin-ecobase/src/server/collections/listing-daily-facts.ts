@@ -7,8 +7,10 @@ export default defineCollection({
   title: 'Ecobase listing daily facts',
   fields: [
     { name: 'naturalKey', type: 'string', allowNull: false, unique: true },
-    { name: 'sourceConnectionId', type: 'uuid', allowNull: false, index: true },
+    { name: 'sourceConnectionId', type: 'uuid', allowNull: false, autoFill: false, index: true },
+    { name: 'planningProductId', type: 'uuid', autoFill: false, index: true },
     { name: 'snapshotDate', type: 'string', allowNull: false, index: true },
+    { name: 'company', type: 'string', index: true },
     { name: 'asin', type: 'string', index: true },
     { name: 'sku', type: 'string', index: true },
     { name: 'sales', type: 'double' },
@@ -22,6 +24,6 @@ export default defineCollection({
     { name: 'unitSessionPercentage', type: 'double' },
     { name: 'sourceKey', type: 'string' },
     { name: 'payload', type: 'jsonb', defaultValue: {} },
-    { name: 'lastImportRunId', type: 'uuid', index: true },
+    { name: 'lastImportRunId', type: 'uuid', autoFill: false, index: true },
   ],
 });

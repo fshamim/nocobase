@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { AdapterStreamItem, NormalizedRecord, SourceAdapter, SourceAdapterRegistry } from '../adapters';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
+import { EcobasePlanningProductService } from './planning-product-service';
 
 type Filter = Record<string, unknown>;
 
@@ -12,7 +13,7 @@ type RepositoryFindParams = {
 };
 
 type RepositoryCreateParams = { values: Record<string, unknown> };
-type RepositoryUpdateParams = { filterByTk: string; values: Record<string, unknown> };
+type RepositoryUpdateParams = { filterByTk?: string | number; filter?: Filter; values: Record<string, unknown> };
 
 const NORMALIZED_RECORD_COLLECTIONS: Record<string, string> = {
   raw_listing: ECOBASE_COLLECTIONS.rawListings,
@@ -250,6 +251,10 @@ export class EcobaseImportService {
       errorCount += 1;
     }
 
+    if (!errorMessage && normalizedCount > 0) {
+      await new EcobasePlanningProductService(this.db).syncFromRawListings({ importRunId });
+    }
+
     const finishedAt = new Date();
     const status = this.getFinalStatus(errorMessage, errorCount, normalizedCount);
     await importRunRepo.update({
@@ -362,8 +367,8 @@ export class EcobaseImportService {
       const repository = this.db.getRepository(collectionName);
       const existing = await repository.findOne({ filter: { naturalKey } });
       if (existing) {
-        const existingId = getString(existing, 'id');
-        if (!existingId) {
+        const existingId = toPlainRecord(existing).id;
+        if (typeof existingId !== 'string' && typeof existingId !== 'number') {
           throw new Error(`Ecobase import failed: existing normalized record "${naturalKey}" is missing id.`);
         }
         await repository.update({ filterByTk: existingId, values });
