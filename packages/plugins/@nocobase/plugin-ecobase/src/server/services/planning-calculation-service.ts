@@ -467,7 +467,7 @@ export class EcobasePlanningCalculationService {
         {
           salesVelocity: sample.salesVelocity,
           profitPerUnit: sample.profitPerUnit,
-          riskDays: payload(sample.evidence).riskDays,
+          riskDays: toPlainRecord(sample.evidence).riskDays,
         },
       ),
     ];

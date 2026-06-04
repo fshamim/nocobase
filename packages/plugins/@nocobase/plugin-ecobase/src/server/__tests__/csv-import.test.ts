@@ -9,6 +9,7 @@ import {
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { EcobaseDatabase, EcobaseImportService, EcobaseRepository } from '../services/import-service';
 import { EcobasePlanningCalculationService } from '../services/planning-calculation-service';
+import { EcobaseSupplierOrderService } from '../services/supplier-order-service';
 
 interface FindParams {
   filter?: Record<string, unknown>;
@@ -112,12 +113,32 @@ const malformedProfitPlanningCsv = `Company,ASIN,SKU,Supplier,Exp Sales Vel,Curr
 Ecofission LLC,B00Q4UK3Q6,Excello,ELAN Publishing Company,1.1,245,November/2025,4.23,100,120
 Ecofission LLC,,,Missing Identity,1.0,10,November/2025,2.00,1,2`;
 
-const supplierIdsCsv = `SR ID,Supplier Name
-SRO-36,3Dmatsusa`;
+const supplierIdsCsv = `Company,SR ID,Supplier Name
+Ecofission LLC,SRO-36,3Dmatsusa`;
 
 const sameSupplierDifferentCompanyCsv = `Company,ASIN,SKU,Title,"ROI, %",FBA/FBM Stock,Stock value,Estimated Sales Velocity,Days  of stock  left,Recommended quantity for  reordering,Reserved,Sent  to FBA,Ordered,Marketplace,Target stock range after new order days,Manuf. time days,Supplier,SR ID
 Ecofission LLC,B00PUSNY5A,W101,Lesson Plan,27,386,1681.3,9.79,40,0,13,0,500,Amazon.com,60,15,Shared Supplier,SRO-1
 Other Company,B00PUSNY5A,W102,Lesson Plan Other,27,100,500,3,40,0,0,0,0,Amazon.com,60,40,Shared Supplier,SRO-1`;
+
+const supplierOrderMasterStockCsv = `Company,ASIN,SKU,Title,"ROI, %",FBA/FBM Stock,Stock value,Estimated Sales Velocity,Days  of stock  left,Recommended quantity for  reordering,Reserved,Sent  to FBA,Ordered,Marketplace,Target stock range after new order days,Manuf. time days,Supplier,SR ID
+Ecofission LLC,B0057XUD02,V-651-A,Valve Part,27,386,1681.3,9.79,40,0,13,0,500,Amazon.com,60,15,Alpha Supply,SRO-A`;
+
+const supplierIdsDetailedCsv = `Company,SR ID,Supplier Name
+Ecofission LLC,SRO-A,Alpha Supply
+Ecofission LLC,SRO-B,Beta Supply`;
+
+const orderDetailsDetailedCsv = `Order ID,Timestamp,Company,SR ID,Supplier,Brand ,ASIN,SKU,Qty,PPU,Order type,Lead time(day),T.Profit
+OD-OLD,17/06/2023 18:15:23,Ecofission LLC,SRO-A,Alpha Supply,Brand Legacy,B0057XUD02,V-651-A,50,0.95,New,10,190
+OD-NEW,10/07/2023 08:00:00,Ecofission LLC,SRO-B,Beta Supply,Brand Fresh,B0057XUD02,V-651-A,60,1.25,New,12,240`;
+
+const preOrderSheetDetailedCsv = `Order ID,Timestamp,Company,SR ID,Supplier,Brand,ASIN,SKU,Qty,Expected Sellable Date
+PO-200,15/07/2025 09:15:00,Ecofission LLC,SRO-B,Beta Supply,Brand Fresh,B0057XUD02,V-651-A,120,2025-07-22`;
+
+const preOrderSheetWithoutSellableCsv = `Order ID,Timestamp,Company,SR ID,Supplier,Brand,ASIN,SKU,Qty,Expected Sellable Date
+PO-200,15/07/2025 09:15:00,Ecofission LLC,SRO-B,Beta Supply,Brand Fresh,B0057XUD02,V-651-A,120,`;
+
+const purchaseOrdersDetailedCsv = `Timestamp,Order ID,SR ID ,Supplier,Company,Payment Status,Approval Status,Expected Delivery
+16/07/2025 07:30:00,PO-200,SRO-B,Beta Supply,Ecofission LLC,Paid,Approved,2025-07-24`;
 
 const remainingShapeSamples = [
   {
@@ -154,7 +175,7 @@ const remainingShapeSamples = [
     name: 'OrderDetails.csv',
     content:
       'Order ID,Timestamp,Company,SR ID,Supplier,Brand ,ASIN,SKU,Qty,PPU,Order type,Lead time(day),T.Profit\nOD-1,17/06/2023 18:15:23,Ecofission LLC,SRO-1,Supplier,Sloan Valve,B0057XUD02,V-651-A,200,0.95,New,10,190',
-    expectedCollection: ECOBASE_COLLECTIONS.targetRows,
+    expectedCollection: ECOBASE_COLLECTIONS.supplierOrders,
     sourceType: 'google_sheets',
     domain: 'order_management',
     adapterName: 'google-sheets-migration-csv',
@@ -163,7 +184,16 @@ const remainingShapeSamples = [
     name: 'Purchase Orders.csv',
     content:
       'Timestamp,Order ID,SR ID ,Supplier,Company,Exp. Cost ,Payment Status ,Total units\n17/06/2023 03:46:51,OD-1,SRO-1,Supplier,Ecofission LLC,190,Paid,200',
-    expectedCollection: ECOBASE_COLLECTIONS.targetRows,
+    expectedCollection: ECOBASE_COLLECTIONS.supplierOrders,
+    sourceType: 'google_sheets',
+    domain: 'order_management',
+    adapterName: 'google-sheets-migration-csv',
+  },
+  {
+    name: 'Pre-Order Sheet.csv',
+    content:
+      'Order ID,Timestamp,Company,SR ID,Supplier,Brand,ASIN,SKU,Qty,ETA on Amazon\nPO-1,17/06/2023 03:46:51,Ecofission LLC,SRO-1,Supplier,Sloan Valve,B0057XUD02,V-651-A,200,2023-06-30',
+    expectedCollection: ECOBASE_COLLECTIONS.supplierOrders,
     sourceType: 'google_sheets',
     domain: 'order_management',
     adapterName: 'google-sheets-migration-csv',
@@ -192,6 +222,124 @@ function createService(sourceType = 'seller_central_file', domain = 'amazon_oper
     ]),
   );
   return { db, service };
+}
+
+async function seedSupplierOrderSlice() {
+  const { db, service } = createService('google_sheets', 'order_management');
+  const sourceConnectionRepo = db.getRepository(ECOBASE_COLLECTIONS.sourceConnections);
+
+  sourceConnectionRepo.update({
+    filterByTk: 'source-1',
+    values: {
+      config: {
+        defaultCompany: 'Ecofission LLC',
+        files: [
+          {
+            name: 'MasterStock.csv',
+            content: supplierOrderMasterStockCsv,
+            expectedRowCount: 1,
+            snapshotDate: '2025-07-01',
+          },
+        ],
+      },
+    },
+  });
+  await service.runAdapterImport({
+    sourceConnectionId: 'source-1',
+    adapterName: 'google-sheets-migration-csv',
+    sourceIdentifier: 'supplier-order-master-stock',
+    sourceVersion: '2025-07-01',
+    preserveAuditRun: true,
+  });
+
+  sourceConnectionRepo.update({
+    filterByTk: 'source-1',
+    values: {
+      config: {
+        defaultCompany: 'Ecofission LLC',
+        files: [{ name: 'Supplier IDs.csv', content: supplierIdsDetailedCsv, expectedRowCount: 2 }],
+      },
+    },
+  });
+  const supplierRun = await service.runAdapterImport({
+    sourceConnectionId: 'source-1',
+    adapterName: 'google-sheets-migration-csv',
+    sourceIdentifier: 'supplier-ids-detailed',
+    sourceVersion: '2025-07-02',
+    preserveAuditRun: true,
+  });
+
+  const planningProduct = db
+    .getRepository(ECOBASE_COLLECTIONS.planningProducts)
+    .all()
+    .find((record) => record.canonicalAsin === 'B0057XUD02');
+  if (!planningProduct?.id) {
+    throw new Error('Expected seeded planning product for supplier-order slice.');
+  }
+
+  const suppliers = db.getRepository(ECOBASE_COLLECTIONS.suppliers).all();
+  const supplierA = suppliers.find((record) => record.name === 'Alpha Supply');
+  const supplierB = suppliers.find((record) => record.name === 'Beta Supply');
+  if (!supplierA?.id || !supplierB?.id) {
+    throw new Error('Expected supplier identities to seed Alpha Supply and Beta Supply.');
+  }
+
+  await db.getRepository(ECOBASE_COLLECTIONS.supplierProductLinks).create({
+    values: {
+      naturalKey: `supplier-product-link:Ecofission LLC:${planningProduct.id}:${supplierA.id}:preferred:manual`,
+      company: 'Ecofission LLC',
+      planningProductId: planningProduct.id,
+      supplierId: supplierA.id,
+      role: 'preferred',
+      source: 'manual',
+      confidence: 'high',
+      orderCount: 0,
+      active: true,
+      evidence: { reason: 'operator preference' },
+      payload: { reason: 'operator preference' },
+      lastImportRunId: 'manual',
+    },
+  });
+
+  sourceConnectionRepo.update({
+    filterByTk: 'source-1',
+    values: {
+      config: {
+        defaultCompany: 'Ecofission LLC',
+        files: [
+          { name: 'OrderDetails.csv', content: orderDetailsDetailedCsv, expectedRowCount: 2 },
+          { name: 'Pre-Order Sheet.csv', content: preOrderSheetDetailedCsv, expectedRowCount: 1 },
+          { name: 'Purchase Orders.csv', content: purchaseOrdersDetailedCsv, expectedRowCount: 1 },
+        ],
+      },
+    },
+  });
+  const orderRun = await service.runAdapterImport({
+    sourceConnectionId: 'source-1',
+    adapterName: 'google-sheets-migration-csv',
+    sourceIdentifier: 'supplier-orders-detailed',
+    sourceVersion: '2025-07-20',
+    preserveAuditRun: true,
+  });
+
+  const purchaseOrder = db
+    .getRepository(ECOBASE_COLLECTIONS.supplierOrders)
+    .all()
+    .find((record) => record.externalOrderRef === 'PO-200');
+  if (!purchaseOrder?.id) {
+    throw new Error('Expected purchase order PO-200 in supplier-order slice.');
+  }
+
+  return {
+    db,
+    service,
+    supplierRun,
+    orderRun,
+    planningProductId: String(planningProduct.id),
+    supplierA,
+    supplierB,
+    purchaseOrder,
+  };
 }
 
 describe('Ecobase current Amazon operations CSV import', () => {
@@ -425,7 +573,11 @@ describe('Ecobase current Amazon operations CSV import', () => {
         preserveAuditRun: true,
       });
 
-      expect(run, sample.name).toMatchObject({ status: 'success', rowCount: 1, warningCount: 0 });
+      expect(run, sample.name).toMatchObject({
+        status: 'success',
+        rowCount: 1,
+        warningCount: ['OrderDetails.csv', 'Pre-Order Sheet.csv'].includes(sample.name) ? 1 : 0,
+      });
       expect(db.getRepository(sample.expectedCollection).all(), sample.name).toHaveLength(1);
       if (sample.name === 'OrderDetails.csv') {
         expect(db.getRepository(ECOBASE_COLLECTIONS.supplierLeadTimes).all(), sample.name).toEqual([
@@ -434,6 +586,326 @@ describe('Ecobase current Amazon operations CSV import', () => {
       }
       expect(db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).all(), sample.name).toHaveLength(1);
     }
+  });
+
+  it('normalizes supplier-order sheets into supplier identities, history links, and coverage read models', async () => {
+    const { db, service, supplierRun, orderRun, planningProductId, supplierA, supplierB, purchaseOrder } =
+      await seedSupplierOrderSlice();
+
+    expect(supplierRun).toMatchObject({ status: 'success', rowCount: 2, normalizedCount: 2, warningCount: 0 });
+    expect(orderRun).toMatchObject({ status: 'success', rowCount: 4, normalizedCount: 4, warningCount: 0 });
+
+    const supplierSummary = (
+      supplierRun.summary as { files: Record<string, { sampleMappedRecord?: Record<string, unknown> }> }
+    ).files;
+    expect(supplierSummary['Supplier IDs.csv']).toMatchObject({
+      rowCount: 2,
+      sampleMappedRecord: expect.objectContaining({ kind: 'supplier_identity', company: 'Ecofission LLC' }),
+    });
+
+    const orderSummary = (
+      orderRun.summary as { files: Record<string, { sampleMappedRecord?: Record<string, unknown> }> }
+    ).files;
+    expect(orderSummary['OrderDetails.csv']).toMatchObject({
+      rowCount: 2,
+      sampleMappedRecord: expect.objectContaining({ kind: 'supplier_order', sourceStage: 'order_detail' }),
+    });
+    expect(orderSummary['Pre-Order Sheet.csv']).toMatchObject({
+      rowCount: 1,
+      sampleMappedRecord: expect.objectContaining({ kind: 'supplier_order', sourceStage: 'pre_order' }),
+    });
+    expect(orderSummary['Purchase Orders.csv']).toMatchObject({
+      rowCount: 1,
+      sampleMappedRecord: expect.objectContaining({ kind: 'supplier_order', sourceStage: 'purchase_order' }),
+    });
+
+    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierExternalIdentities).all()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          company: 'Ecofission LLC',
+          externalSupplierCode: 'SRO-A',
+          externalSupplierName: 'Alpha Supply',
+          sourceSystem: 'supplier_ids',
+        }),
+        expect.objectContaining({
+          company: 'Ecofission LLC',
+          externalSupplierCode: 'SRO-B',
+          externalSupplierName: 'Beta Supply',
+          sourceSystem: 'supplier_ids',
+        }),
+      ]),
+    );
+
+    expect(purchaseOrder).toMatchObject({
+      status: 'confirmed',
+      sourceStage: 'purchase_order',
+      company: 'Ecofission LLC',
+    });
+    expect(
+      db
+        .getRepository(ECOBASE_COLLECTIONS.supplierOrders)
+        .all()
+        .filter((record) => record.sourceStage === 'order_detail'),
+    ).toHaveLength(2);
+
+    const productLinks = db
+      .getRepository(ECOBASE_COLLECTIONS.supplierProductLinks)
+      .all()
+      .filter((record) => record.planningProductId === planningProductId && record.active !== false);
+    expect(productLinks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ role: 'preferred', supplierId: supplierA.id, source: 'manual' }),
+        expect.objectContaining({ role: 'candidate', supplierId: supplierA.id, source: 'order_details' }),
+        expect.objectContaining({ role: 'latest_history', supplierId: supplierB.id, latestBrand: 'Brand Fresh' }),
+        expect.objectContaining({ role: 'discovered', supplierId: supplierB.id, source: 'order_details' }),
+      ]),
+    );
+
+    const supplierOrderService = new EcobaseSupplierOrderService(db);
+    await supplierOrderService.recordActivity({
+      company: 'Ecofission LLC',
+      supplierId: String(supplierB.id),
+      supplierOrderId: String(purchaseOrder.id),
+      activityType: 'contacted_supplier',
+      occurredAt: '2025-07-18T10:00:00.000Z',
+      notes: 'Confirmed ship window',
+    });
+
+    const coverage = await supplierOrderService.getCoverage(planningProductId, '2025-07-25');
+    expect(coverage).toMatchObject({
+      coverageState: 'arrives_before_stockout',
+      totalOpenQty: 120,
+      usableOpenQtyBeforeOos: 120,
+      lateOpenQty: 0,
+      blockedOpenQty: 0,
+      incompleteOpenQty: 0,
+      nextExpectedSellableDate: '2025-07-22',
+      blockedOpenOrder: false,
+      unreliableCoverage: false,
+    });
+    expect(coverage.contactRecency).toMatchObject({
+      source: 'order',
+      occurredAt: '2025-07-18T10:00:00.000Z',
+    });
+    expect(coverage.linkedSupplierOrderIds).toContain(String(purchaseOrder.id));
+    expect(coverage.linkedSupplierOrderLineIds).toHaveLength(1);
+    expect(await supplierOrderService.getPrepBufferDays('Ecofission LLC')).toBe(0);
+
+    const countsBeforeRerun = {
+      identities: db.getRepository(ECOBASE_COLLECTIONS.supplierExternalIdentities).all().length,
+      orders: db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).all().length,
+      lines: db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).all().length,
+      links: db.getRepository(ECOBASE_COLLECTIONS.supplierProductLinks).all().length,
+    };
+    const rerun = await service.runAdapterImport({
+      sourceConnectionId: 'source-1',
+      adapterName: 'google-sheets-migration-csv',
+      sourceIdentifier: 'supplier-orders-detailed',
+      sourceVersion: '2025-07-20',
+      preserveAuditRun: true,
+    });
+    expect(rerun).toMatchObject({ status: 'success', rowCount: 4, normalizedCount: 4, warningCount: 0 });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierExternalIdentities).all()).toHaveLength(
+      countsBeforeRerun.identities,
+    );
+    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).all()).toHaveLength(countsBeforeRerun.orders);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).all()).toHaveLength(countsBeforeRerun.lines);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierProductLinks).all()).toHaveLength(countsBeforeRerun.links);
+
+    const purchaseOrderLine = db
+      .getRepository(ECOBASE_COLLECTIONS.supplierOrderLines)
+      .all()
+      .find((record) => record.supplierOrderId === purchaseOrder.id);
+    const sourceLineImportRunId = purchaseOrderLine?.lastImportRunId;
+    db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
+      filterByTk: 'source-1',
+      values: {
+        config: {
+          defaultCompany: 'Ecofission LLC',
+          files: [{ name: 'Supplier IDs.csv', content: supplierIdsDetailedCsv, expectedRowCount: 2 }],
+        },
+      },
+    });
+    await service.runAdapterImport({
+      sourceConnectionId: 'source-1',
+      adapterName: 'google-sheets-migration-csv',
+      sourceIdentifier: 'supplier-ids-only-after-orders',
+      sourceVersion: '2025-07-21',
+      preserveAuditRun: true,
+    });
+    const lineAfterSupplierOnlyImport = db
+      .getRepository(ECOBASE_COLLECTIONS.supplierOrderLines)
+      .all()
+      .find((record) => record.id === purchaseOrderLine?.id);
+    expect(lineAfterSupplierOnlyImport?.lastImportRunId).toBe(sourceLineImportRunId);
+  });
+
+  it('preserves operator-owned supplier-order fields across re-imports and keeps blocked open quantity semantics', async () => {
+    const { db, service, planningProductId, purchaseOrder } = await seedSupplierOrderSlice();
+    const orderRepo = db.getRepository(ECOBASE_COLLECTIONS.supplierOrders);
+    const lineRepo = db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines);
+    const supplierOrderService = new EcobaseSupplierOrderService(db);
+    const purchaseOrderLine = lineRepo.all().find((record) => record.supplierOrderId === purchaseOrder.id);
+    if (!purchaseOrderLine?.id) {
+      throw new Error('Expected pre-order line linked to purchase order PO-200.');
+    }
+
+    await supplierOrderService.updateOrderOperatorFields({
+      supplierOrderId: String(purchaseOrder.id),
+      status: 'blocked',
+      actor: 'operator-1',
+    });
+    await supplierOrderService.updateLineOperatorFields({
+      supplierOrderLineId: String(purchaseOrderLine.id),
+      receivedQty: 10,
+      expectedSellableDate: '2025-07-30',
+      actor: 'operator-1',
+    });
+
+    const rerun = await service.runAdapterImport({
+      sourceConnectionId: 'source-1',
+      adapterName: 'google-sheets-migration-csv',
+      sourceIdentifier: 'supplier-orders-detailed',
+      sourceVersion: '2025-07-20',
+      preserveAuditRun: true,
+    });
+    expect(rerun).toMatchObject({ status: 'success', rowCount: 4, normalizedCount: 4, warningCount: 0 });
+
+    const reloadedOrder = orderRepo.all().find((record) => record.id === purchaseOrder.id);
+    const reloadedLine = lineRepo.all().find((record) => record.id === purchaseOrderLine.id);
+    expect(reloadedOrder).toMatchObject({
+      status: 'blocked',
+      statusSource: 'manual',
+      lastOperatorActor: 'operator-1',
+    });
+    expect(reloadedOrder?.lastOperatorEditAt).toBeTruthy();
+    expect(reloadedLine).toMatchObject({
+      receivedQty: 10,
+      receivedQtySource: 'manual',
+      expectedSellableDate: '2025-07-30',
+      expectedSellableDateSource: 'manual',
+      lastOperatorActor: 'operator-1',
+    });
+    expect(reloadedLine?.lastOperatorEditAt).toBeTruthy();
+
+    const coverage = await supplierOrderService.getCoverage(planningProductId, '2025-07-25');
+    expect(coverage).toMatchObject({
+      coverageState: 'blocked_open_order',
+      totalOpenQty: 110,
+      usableOpenQtyBeforeOos: 0,
+      lateOpenQty: 0,
+      blockedOpenQty: 110,
+      incompleteOpenQty: 0,
+      blockedOpenOrder: true,
+      unreliableCoverage: true,
+    });
+  });
+
+  it('preserves imported expected-sellable precedence when a later import only has delivery-date evidence', async () => {
+    const { db, service, purchaseOrder } = await seedSupplierOrderSlice();
+    const lineRepo = db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines);
+    const sourceConnectionRepo = db.getRepository(ECOBASE_COLLECTIONS.sourceConnections);
+    const purchaseOrderLine = lineRepo.all().find((record) => record.supplierOrderId === purchaseOrder.id);
+    expect(purchaseOrderLine).toMatchObject({
+      expectedSellableDate: '2025-07-22',
+      expectedSellableDateSource: 'imported_expected_sellable_date',
+    });
+
+    sourceConnectionRepo.update({
+      filterByTk: 'source-1',
+      values: {
+        config: {
+          defaultCompany: 'Ecofission LLC',
+          files: [
+            { name: 'Pre-Order Sheet.csv', content: preOrderSheetWithoutSellableCsv, expectedRowCount: 1 },
+            { name: 'Purchase Orders.csv', content: purchaseOrdersDetailedCsv, expectedRowCount: 1 },
+          ],
+        },
+      },
+    });
+    const rerun = await service.runAdapterImport({
+      sourceConnectionId: 'source-1',
+      adapterName: 'google-sheets-migration-csv',
+      sourceIdentifier: 'supplier-orders-without-arrival-date',
+      sourceVersion: '2025-07-21',
+      preserveAuditRun: true,
+    });
+    expect(rerun).toMatchObject({ status: 'success', rowCount: 2, normalizedCount: 2, warningCount: 0 });
+
+    const reloadedLine = lineRepo.all().find((record) => record.id === purchaseOrderLine?.id);
+    expect(reloadedLine).toMatchObject({
+      expectedSellableDate: '2025-07-22',
+      expectedSellableDateSource: 'imported_expected_sellable_date',
+    });
+  });
+
+  it('reports ambiguous listing-level planning-product mappings explicitly', async () => {
+    const { db } = await seedSupplierOrderSlice();
+    const planningProductRepo = db.getRepository(ECOBASE_COLLECTIONS.planningProducts);
+    const listingRepo = db.getRepository(ECOBASE_COLLECTIONS.planningProductListings);
+    await planningProductRepo.create({
+      values: {
+        id: 'planning-product-ambiguous-1',
+        naturalKey: 'planning-product:Ecofission LLC:B0AMBIG1',
+        company: 'Ecofission LLC',
+        canonicalAsin: 'B0AMBIG1',
+      },
+    });
+    await planningProductRepo.create({
+      values: {
+        id: 'planning-product-ambiguous-2',
+        naturalKey: 'planning-product:Ecofission LLC:B0AMBIG2',
+        company: 'Ecofission LLC',
+        canonicalAsin: 'B0AMBIG2',
+      },
+    });
+    await listingRepo.create({
+      values: {
+        naturalKey: 'planning-product-listing:Ecofission LLC:B0AMBIG1:AMBIG-SKU',
+        company: 'Ecofission LLC',
+        planningProductId: 'planning-product-ambiguous-1',
+        canonicalAsin: 'B0AMBIG1',
+        asin: 'B0AMBIG1',
+        sku: 'AMBIG-SKU',
+      },
+    });
+    await listingRepo.create({
+      values: {
+        naturalKey: 'planning-product-listing:Ecofission LLC:B0AMBIG2:AMBIG-SKU',
+        company: 'Ecofission LLC',
+        planningProductId: 'planning-product-ambiguous-2',
+        canonicalAsin: 'B0AMBIG2',
+        asin: 'B0AMBIG2',
+        sku: 'AMBIG-SKU',
+      },
+    });
+
+    const result = await new EcobaseSupplierOrderService(db).applyImportRecord(
+      {
+        kind: 'supplier_order',
+        data: {
+          company: 'Ecofission LLC',
+          supplierName: 'Beta Supply',
+          externalSupplierCode: 'SRO-B',
+          sourceSystem: 'test',
+          sourceConnectionId: 'source-1',
+          externalOrderRef: 'AMBIG-PO-1',
+          sourceStage: 'purchase_order',
+          status: 'confirmed',
+          lines: [{ sourceOrderLineRef: 'AMBIG-PO-1:1', sku: 'AMBIG-SKU', orderedQty: 10 }],
+        },
+      },
+      'import-run-ambiguous',
+    );
+
+    expect(result.warnings).toEqual([
+      expect.objectContaining({
+        code: 'planning_product_mapping_ambiguous',
+        payload: expect.objectContaining({
+          planningProductIds: ['planning-product-ambiguous-1', 'planning-product-ambiguous-2'],
+        }),
+      }),
+    ]);
   });
 
   it('keeps valid rows when malformed rows produce row-level warnings', async () => {
@@ -545,13 +1017,17 @@ describe('Ecobase current Amazon operations CSV import', () => {
       preserveAuditRun: true,
     });
 
-    expect(run).toMatchObject({ status: 'success', rowCount: 1, normalizedCount: 2 });
+    expect(run).toMatchObject({ status: 'success', rowCount: 1, normalizedCount: 1, warningCount: 0 });
     expect(db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).all()).toHaveLength(1);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.planningParameters).all()).toEqual([
-      expect.objectContaining({ supplierId: 'SRO-36', supplier: '3Dmatsusa' }),
+    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierExternalIdentities).all()).toEqual([
+      expect.objectContaining({
+        company: 'Ecofission LLC',
+        externalSupplierCode: 'SRO-36',
+        externalSupplierName: '3Dmatsusa',
+      }),
     ]);
     expect(db.getRepository(ECOBASE_COLLECTIONS.suppliers).all()).toEqual([
-      expect.objectContaining({ supplierId: 'SRO-36', name: '3Dmatsusa' }),
+      expect.objectContaining({ supplierId: 'SRO-36', name: '3Dmatsusa', company: 'Ecofission LLC' }),
     ]);
   });
 

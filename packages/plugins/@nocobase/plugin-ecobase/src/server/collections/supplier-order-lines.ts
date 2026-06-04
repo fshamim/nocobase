@@ -1,0 +1,38 @@
+import { defineCollection } from '@nocobase/database';
+import { ECOBASE_COLLECTIONS } from './names';
+
+export default defineCollection({
+  migrationRules: ['schema-only'],
+  autoGenId: false,
+  name: ECOBASE_COLLECTIONS.supplierOrderLines,
+  title: 'Ecobase supplier order lines',
+  fields: [
+    { name: 'id', type: 'uuid', primaryKey: true },
+    { name: 'naturalKey', type: 'string', allowNull: false, unique: true },
+    { name: 'supplierOrderId', type: 'uuid', allowNull: false, autoFill: false, index: true },
+    { name: 'company', type: 'string', allowNull: false, index: true },
+    { name: 'supplierId', type: 'uuid', allowNull: false, autoFill: false, index: true },
+    { name: 'planningProductId', type: 'uuid', autoFill: false, index: true },
+    { name: 'asin', type: 'string', index: true },
+    { name: 'sku', type: 'string', index: true },
+    { name: 'brand', type: 'string', index: true },
+    { name: 'orderedQty', type: 'double', allowNull: false },
+    { name: 'receivedQty', type: 'double', allowNull: false, defaultValue: 0 },
+    { name: 'receivedQtySource', type: 'string', allowNull: false, defaultValue: 'import' },
+    { name: 'expectedDeliveryDate', type: 'string' },
+    { name: 'expectedSellableDate', type: 'string' },
+    { name: 'expectedSellableDateSource', type: 'string', allowNull: false, defaultValue: 'missing' },
+    { name: 'expectedSellableDateEvidence', type: 'jsonb', defaultValue: {} },
+    { name: 'expectedSellableDateDerivedAt', type: 'datetimeTz' },
+    { name: 'lastOperatorEditAt', type: 'datetimeTz' },
+    { name: 'lastOperatorActor', type: 'string' },
+    { name: 'unitCost', type: 'double' },
+    { name: 'sourceOrderLineRef', type: 'string', allowNull: false, index: true },
+    { name: 'sourceStage', type: 'string', allowNull: false, index: true },
+    { name: 'observedAt', type: 'datetimeTz' },
+    { name: 'unresolvedMapping', type: 'boolean', allowNull: false, defaultValue: false },
+    { name: 'mappingWarning', type: 'text' },
+    { name: 'payload', type: 'jsonb', defaultValue: {} },
+    { name: 'lastImportRunId', type: 'uuid', index: true },
+  ],
+});

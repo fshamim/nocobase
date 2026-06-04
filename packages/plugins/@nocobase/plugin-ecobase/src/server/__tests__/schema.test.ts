@@ -15,7 +15,13 @@ import rawListings from '../collections/raw-listings';
 import sourceAccessAudits from '../collections/source-access-audits';
 import sourceConnections from '../collections/source-connections';
 import sourceWarningPolicies from '../collections/source-warning-policies';
+import supplierExternalIdentities from '../collections/supplier-external-identities';
 import supplierLeadTimes from '../collections/supplier-lead-times';
+import supplierOrderActivities from '../collections/supplier-order-activities';
+import supplierOrderLines from '../collections/supplier-order-lines';
+import supplierOrderSettings from '../collections/supplier-order-settings';
+import supplierOrders from '../collections/supplier-orders';
+import supplierProductLinks from '../collections/supplier-product-links';
 import suppliers from '../collections/suppliers';
 import targetRows from '../collections/target-rows';
 import trafficSnapshots from '../collections/traffic-snapshots';
@@ -61,6 +67,12 @@ describe('Ecobase plugin-owned schema', () => {
     expect(planningParameters.name).toBe(ECOBASE_COLLECTIONS.planningParameters);
     expect(suppliers.name).toBe(ECOBASE_COLLECTIONS.suppliers);
     expect(supplierLeadTimes.name).toBe(ECOBASE_COLLECTIONS.supplierLeadTimes);
+    expect(supplierExternalIdentities.name).toBe(ECOBASE_COLLECTIONS.supplierExternalIdentities);
+    expect(supplierProductLinks.name).toBe(ECOBASE_COLLECTIONS.supplierProductLinks);
+    expect(supplierOrders.name).toBe(ECOBASE_COLLECTIONS.supplierOrders);
+    expect(supplierOrderLines.name).toBe(ECOBASE_COLLECTIONS.supplierOrderLines);
+    expect(supplierOrderActivities.name).toBe(ECOBASE_COLLECTIONS.supplierOrderActivities);
+    expect(supplierOrderSettings.name).toBe(ECOBASE_COLLECTIONS.supplierOrderSettings);
     expect(targetRows.name).toBe(ECOBASE_COLLECTIONS.targetRows);
     expect(planningCalculationSnapshots.name).toBe(ECOBASE_COLLECTIONS.planningCalculationSnapshots);
     expect(sourceAccessAudits.name).toBe(ECOBASE_COLLECTIONS.sourceAccessAudits);
@@ -75,6 +87,10 @@ describe('Ecobase plugin-owned schema', () => {
       planningProducts,
       planningProductListings,
       planningProductMappingAudits,
+      suppliers,
+      supplierOrders,
+      supplierOrderLines,
+      supplierOrderActivities,
     ].forEach((collection) => {
       expect(collection.autoGenId).toBe(false);
       expect(field(collection, 'id')).toMatchObject({ type: 'uuid', primaryKey: true });
@@ -131,8 +147,21 @@ describe('Ecobase plugin-owned schema', () => {
     expect(field(planningParameters, 'planningProductId')).toMatchObject({ type: 'uuid', autoFill: false });
     expect(field(planningParameters, 'leadTimeDays')).toMatchObject({ type: 'double' });
     expect(field(planningParameters, 'safetyBufferDays')).toMatchObject({ type: 'double' });
+    expect(field(suppliers, 'id')).toMatchObject({ type: 'uuid', primaryKey: true });
     expect(field(suppliers, 'naturalKey')).toMatchObject({ type: 'string', unique: true });
     expect(field(supplierLeadTimes, 'leadTimeDays')).toMatchObject({ type: 'double' });
+    expect(field(supplierExternalIdentities, 'supplierId')).toMatchObject({ type: 'uuid', autoFill: false });
+    expect(field(supplierProductLinks, 'planningProductId')).toMatchObject({ type: 'uuid', autoFill: false });
+    expect(field(supplierOrders, 'id')).toMatchObject({ type: 'uuid', primaryKey: true });
+    expect(field(supplierOrders, 'status')).toMatchObject({ type: 'string' });
+    expect(field(supplierOrders, 'lastOperatorActor')).toMatchObject({ type: 'string' });
+    expect(field(supplierOrderLines, 'id')).toMatchObject({ type: 'uuid', primaryKey: true });
+    expect(field(supplierOrderLines, 'receivedQty')).toMatchObject({ type: 'double' });
+    expect(field(supplierOrderLines, 'lastOperatorEditAt')).toMatchObject({ type: 'datetimeTz' });
+    expect(field(supplierOrderLines, 'lastOperatorActor')).toMatchObject({ type: 'string' });
+    expect(field(supplierOrderActivities, 'id')).toMatchObject({ type: 'uuid', primaryKey: true });
+    expect(field(supplierOrderActivities, 'occurredAt')).toMatchObject({ type: 'datetimeTz' });
+    expect(field(supplierOrderSettings, 'numberValue')).toMatchObject({ type: 'double' });
     expect(field(targetRows, 'planningProductId')).toMatchObject({ type: 'uuid', autoFill: false });
     expect(field(targetRows, 'targetScope')).toMatchObject({ type: 'string' });
     expect(field(targetRows, 'periodType')).toMatchObject({ type: 'string' });

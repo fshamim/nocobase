@@ -4,18 +4,26 @@ import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { EcobaseDataWarningService } from './data-warning-service';
 import type { EcobaseDataWarning } from './data-warning-service';
 import { EcobasePlanningProductService } from './planning-product-service';
+import { EcobaseSupplierOrderService } from './supplier-order-service';
 
 type Filter = Record<string, unknown>;
 
 type RepositoryFindParams = {
   filter?: Filter;
-  filterByTk?: string;
+  filterByTk?: string | number;
   sort?: string[];
   limit?: number;
 };
 
 type RepositoryCreateParams = { values: Record<string, unknown> };
 type RepositoryUpdateParams = { filterByTk?: string | number; filter?: Filter; values: Record<string, unknown> };
+
+type ImportFileSummary = {
+  rowCount: number;
+  normalizedCount: number;
+  warningCount: number;
+  sampleMappedRecord?: Record<string, unknown>;
+};
 
 const NORMALIZED_RECORD_COLLECTIONS: Record<string, string> = {
   raw_listing: ECOBASE_COLLECTIONS.rawListings,
@@ -118,6 +126,44 @@ function getDateString(record: unknown, key: string): string | null {
   return typeof value === 'string' ? value : null;
 }
 
+function getSourceFileName(sourceKey?: string) {
+  if (!sourceKey) {
+    return undefined;
+  }
+  const separatorIndex = sourceKey.indexOf(':');
+  return separatorIndex >= 0 ? sourceKey.slice(0, separatorIndex) : sourceKey;
+}
+
+function summarizeRecord(record: NormalizedRecord) {
+  const values = toPlainRecord(record.data);
+  return {
+    kind: record.kind,
+    naturalKey: getString(values, 'naturalKey'),
+    externalOrderRef: getString(values, 'externalOrderRef'),
+    sourceOrderLineRef: getString(values, 'sourceOrderLineRef'),
+    company: getString(values, 'company'),
+  };
+}
+
+function updateFileSummary(
+  summaries: Record<string, ImportFileSummary>,
+  fileName: string | undefined,
+  update: Partial<ImportFileSummary>,
+) {
+  if (!fileName) {
+    return;
+  }
+  const current = summaries[fileName] ?? { rowCount: 0, normalizedCount: 0, warningCount: 0 };
+  summaries[fileName] = {
+    ...current,
+    ...update,
+    rowCount: current.rowCount + (update.rowCount ?? 0),
+    normalizedCount: current.normalizedCount + (update.normalizedCount ?? 0),
+    warningCount: current.warningCount + (update.warningCount ?? 0),
+    sampleMappedRecord: current.sampleMappedRecord ?? update.sampleMappedRecord,
+  };
+}
+
 function validateSourceConnectionForAdapter(sourceConnection: unknown, adapter: SourceAdapter) {
   const sourceConnectionId = getString(sourceConnection, 'id') ?? '(missing id)';
   const sourceType = getString(sourceConnection, 'sourceType');
@@ -217,6 +263,9 @@ export class EcobaseImportService {
     let warningCount = 0;
     let errorCount = 0;
     let errorMessage: string | null = null;
+    const fileSummaries: Record<string, ImportFileSummary> = {};
+    const supplierOrderService = new EcobaseSupplierOrderService(this.db);
+    let supplierOrderTouched = false;
 
     try {
       for await (const item of adapter.import({
@@ -229,16 +278,41 @@ export class EcobaseImportService {
       })) {
         if (item.type === 'record') {
           const records = Array.isArray(item.record) ? item.record : [item.record];
+          const fileName = getSourceFileName(item.sourceKey);
           rowCount += 1;
           normalizedCount += records.length;
-          await this.createRawRow(rawImportRowRepo, importRunId, item);
-          await this.upsertNormalizedRecords(records, importRunId);
+          updateFileSummary(fileSummaries, fileName, { rowCount: 1, normalizedCount: records.length });
+          const rawRow = await this.createRawRow(rawImportRowRepo, importRunId, item);
+          const result = await this.upsertNormalizedRecords(records, importRunId, supplierOrderService);
+          supplierOrderTouched = supplierOrderTouched || result.supplierOrderTouched;
+          warningCount += result.warnings.length;
+          updateFileSummary(fileSummaries, fileName, {
+            warningCount: result.warnings.length,
+            sampleMappedRecord: result.sample ?? summarizeRecord(records[0]),
+          });
+          if (result.warnings.length > 0) {
+            const rawRowId = getString(rawRow, 'id');
+            if (rawRowId) {
+              await rawImportRowRepo.update({
+                filterByTk: rawRowId,
+                values: {
+                  normalizedStatus: 'pending',
+                  normalizedError: result.warnings.map((warning) => warning.message).join(' | '),
+                  issueSeverity: 'warning',
+                  issueCode: result.warnings[0]?.code,
+                },
+              });
+            }
+          }
         } else {
+          const fileName = getSourceFileName(item.issue.sourceKey);
           if (item.issue.rowNumber > 0) {
             rowCount += 1;
+            updateFileSummary(fileSummaries, fileName, { rowCount: 1 });
           }
           if (item.issue.severity === 'warning') {
             warningCount += 1;
+            updateFileSummary(fileSummaries, fileName, { warningCount: 1 });
           } else {
             errorCount += 1;
           }
@@ -263,6 +337,9 @@ export class EcobaseImportService {
 
     if (!errorMessage && normalizedCount > 0) {
       await new EcobasePlanningProductService(this.db).syncFromRawListings();
+      if (supplierOrderTouched) {
+        await supplierOrderService.reconcileAfterImport(importRunId);
+      }
     }
 
     const finishedAt = new Date();
@@ -277,6 +354,7 @@ export class EcobaseImportService {
         warningCount,
         errorCount,
         errorMessage,
+        summary: { files: fileSummaries },
       },
     });
 
@@ -358,7 +436,7 @@ export class EcobaseImportService {
     importRunId: string,
     item: Extract<AdapterStreamItem, { type: 'record' }>,
   ) {
-    await rawImportRowRepo.create({
+    return rawImportRowRepo.create({
       values: {
         importRunId,
         rowNumber: item.rowNumber,
@@ -369,8 +447,24 @@ export class EcobaseImportService {
     });
   }
 
-  private async upsertNormalizedRecords(records: NormalizedRecord[], importRunId: string) {
+  private async upsertNormalizedRecords(
+    records: NormalizedRecord[],
+    importRunId: string,
+    supplierOrderService: EcobaseSupplierOrderService,
+  ) {
+    const warnings: Array<{ code: string; message: string; payload?: Record<string, unknown> }> = [];
+    let sample: Record<string, unknown> | undefined;
+    let supplierOrderTouched = false;
+
     for (const record of records) {
+      const customResult = await supplierOrderService.applyImportRecord(record as { kind: string; data: Record<string, unknown> }, importRunId);
+      if (customResult.handled) {
+        supplierOrderTouched = true;
+        warnings.push(...customResult.warnings);
+        sample = sample ?? customResult.sample;
+        continue;
+      }
+
       const collectionName = NORMALIZED_RECORD_COLLECTIONS[record.kind];
       if (!collectionName) {
         throw new Error(
@@ -393,7 +487,10 @@ export class EcobaseImportService {
       } else {
         await repository.create({ values });
       }
+      sample = sample ?? summarizeRecord(record);
     }
+
+    return { warnings, sample, supplierOrderTouched };
   }
 
   private getFinalStatus(errorMessage: string | null, errorCount: number, normalizedCount: number) {

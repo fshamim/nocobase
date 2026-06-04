@@ -19,6 +19,7 @@ type CsvShape =
   | 'supplier-ids'
   | 'order-details'
   | 'purchase-orders'
+  | 'pre-order-sheet'
   | 'unknown';
 
 function asFileConfig(config: Record<string, unknown>): FileConfig {
@@ -49,11 +50,97 @@ function detectShape(headers: string[]): CsvShape {
   if (has(normalized, 'Order ID') && has(normalized, 'Lead time(day)')) return 'order-details';
   if (has(normalized, 'Timestamp') && has(normalized, 'Order ID') && has(normalized, 'Payment Status'))
     return 'purchase-orders';
+  if (
+    has(normalized, 'Order ID') &&
+    has(normalized, 'Qty') &&
+    !has(normalized, 'Lead time(day)') &&
+    !has(normalized, 'Payment Status') &&
+    (has(normalized, 'ETA on Amazon') ||
+      has(normalized, 'Arrival to Amazon') ||
+      has(normalized, 'Expected Sellable Date'))
+  )
+    return 'pre-order-sheet';
   return 'unknown';
 }
 
 function getSnapshotDate(file: CsvSourceFile, input: SourceAdapterImportInput, row: CsvRowReader) {
   return file.snapshotDate ?? row.string('Date', 'Month', 'Timestamp') ?? input.sourceVersion;
+}
+
+function defaultCompany(input: SourceAdapterImportInput) {
+  const value = input.config.defaultCompany;
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function companyOf(input: SourceAdapterImportInput, row: CsvRowReader) {
+  return row.string('Company') ?? defaultCompany(input);
+}
+
+function isoDate(value: string) {
+  const trimmed = value.trim();
+  const isoDateOnly = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoDateOnly) {
+    return `${isoDateOnly[1]}-${isoDateOnly[2]}-${isoDateOnly[3]}`;
+  }
+  const dayMonthYear = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?$/);
+  if (dayMonthYear) {
+    return `${dayMonthYear[3]}-${dayMonthYear[2].padStart(2, '0')}-${dayMonthYear[1].padStart(2, '0')}`;
+  }
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) {
+    return undefined;
+  }
+  return parsed.toISOString().slice(0, 10);
+}
+
+function isoDateTime(value: string) {
+  const trimmed = value.trim();
+  const dayMonthYear = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+  if (dayMonthYear) {
+    const hour = (dayMonthYear[4] ?? '00').padStart(2, '0');
+    const minute = (dayMonthYear[5] ?? '00').padStart(2, '0');
+    const second = (dayMonthYear[6] ?? '00').padStart(2, '0');
+    return `${dayMonthYear[3]}-${dayMonthYear[2].padStart(2, '0')}-${dayMonthYear[1].padStart(
+      2,
+      '0',
+    )}T${hour}:${minute}:${second}.000Z`;
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return `${trimmed}T00:00:00.000Z`;
+  }
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) {
+    return undefined;
+  }
+  return parsed.toISOString();
+}
+
+function firstDate(row: CsvRowReader, ...headers: string[]) {
+  for (const header of headers) {
+    const value = row.string(header);
+    if (!value) {
+      continue;
+    }
+    const normalized = isoDate(value);
+    if (normalized) {
+      return normalized;
+    }
+  }
+  return undefined;
+}
+
+function firstDateTime(row: CsvRowReader, ...headers: string[]) {
+  for (const header of headers) {
+    const value = row.string(header);
+    if (!value) {
+      continue;
+    }
+    const normalized = isoDateTime(value);
+    if (normalized) {
+      return normalized;
+    }
+  }
+  return undefined;
 }
 
 const MONTH_INDEX: Record<string, string> = {
@@ -261,6 +348,257 @@ function supplierRecords(input: SourceAdapterImportInput, row: CsvRowReader, sou
   return records;
 }
 
+function supplierIdentityRecord(input: SourceAdapterImportInput, row: CsvRowReader): NormalizedRecord[] {
+  const company = companyOf(input, row);
+  const supplierName = row.string('Supplier', 'Supplier ', 'Supplier Name');
+  const supplierId = row.string('SR ID', 'SR ID ');
+  if (!company || (!supplierName && !supplierId)) {
+    return [];
+  }
+
+  return [
+    {
+      kind: 'supplier_identity',
+      data: {
+        company,
+        supplierName: supplierName ?? supplierId,
+        externalSupplierCode: supplierId,
+        sourceSystem: 'supplier_ids',
+        sourceConnectionId: input.sourceConnectionId,
+        observedAt: input.sourceVersion,
+        leadTimeDays: row.number('Lead time(day)', 'Manuf. time days'),
+        payload: row.payload(),
+      },
+    },
+  ];
+}
+
+function expectedSellableDate(row: CsvRowReader) {
+  if (row.string('Expected Sellable Date')) {
+    return {
+      date: firstDate(row, 'Expected Sellable Date'),
+      source: 'imported_expected_sellable_date',
+    };
+  }
+  if (row.string('ETA on Amazon')) {
+    return {
+      date: firstDate(row, 'ETA on Amazon'),
+      source: 'imported_eta_on_amazon',
+    };
+  }
+  if (row.string('Arrival to Amazon')) {
+    return {
+      date: firstDate(row, 'Arrival to Amazon'),
+      source: 'imported_arrival_to_amazon',
+    };
+  }
+  return { date: undefined, source: undefined };
+}
+
+function sourceOrderLineRef(row: CsvRowReader, fallback: string) {
+  return [row.string('Order ID'), canonicalAsin(row), row.string('SKU')].filter(Boolean).join(':') || fallback;
+}
+
+function purchaseOrderStatus(row: CsvRowReader) {
+  const combined = [
+    row.string('Status', 'Order Status', 'Approval Status'),
+    row.string('Payment Status', 'Payment Status '),
+    row.string('Shipping Status'),
+    row.string('Blocked Reason'),
+    row.string('Tracking ID', 'Tracking #'),
+    row.string('Shipping Carrier', 'Carrier'),
+  ]
+    .filter((value): value is string => typeof value === 'string' && value.length > 0)
+    .join(' ')
+    .toLowerCase();
+
+  if (combined.includes('cancel')) {
+    return 'cancelled';
+  }
+  if (combined.includes('block') || combined.includes('hold')) {
+    return 'blocked';
+  }
+  if (combined.includes('receiv') || combined.includes('deliver')) {
+    return 'received';
+  }
+  if (
+    combined.includes('ship') ||
+    row.string('Tracking ID', 'Tracking #') ||
+    row.string('Shipping Carrier', 'Carrier')
+  ) {
+    return 'shipped';
+  }
+  if (combined.includes('prepar') || combined.includes('production') || combined.includes('manufactur')) {
+    return 'preparing';
+  }
+  if (combined.includes('confirm') || combined.includes('approv') || combined.includes('paid')) {
+    return 'confirmed';
+  }
+  return 'po_placed';
+}
+
+function orderDetailsRecord(input: SourceAdapterImportInput, row: CsvRowReader, sourceKey: string): NormalizedRecord[] {
+  const company = companyOf(input, row);
+  const supplierName = row.string('Supplier', 'Supplier ', 'Supplier Name');
+  const orderId = row.string('Order ID');
+  if (!company || !supplierName || !orderId) {
+    return [];
+  }
+
+  return [
+    {
+      kind: 'supplier_order',
+      data: {
+        company,
+        supplierName,
+        externalSupplierCode: row.string('SR ID', 'SR ID '),
+        sourceSystem: 'order_details',
+        sourceConnectionId: input.sourceConnectionId,
+        externalOrderRef: orderId,
+        sourceStage: 'order_detail',
+        status: 'received',
+        orderDate: firstDate(row, 'Timestamp'),
+        statusUpdatedAt: firstDateTime(row, 'Timestamp'),
+        lastMeaningfulUpdateAt: firstDateTime(row, 'Timestamp'),
+        payload: row.payload(),
+        lines: [
+          {
+            sourceOrderLineRef: sourceOrderLineRef(row, sourceKey),
+            asin: canonicalAsin(row),
+            sku: row.string('SKU'),
+            brand: row.string('Brand', 'Brand '),
+            orderedQty: row.number('Qty') ?? 0,
+            receivedQty: row.number('Qty') ?? 0,
+            unitCost: row.number('PPU', 'Exp. Cost '),
+            leadTimeDays: row.number('Lead time(day)', 'Manuf. time days'),
+            observedAt: firstDateTime(row, 'Timestamp'),
+            payload: row.payload(),
+          },
+        ],
+      },
+    },
+  ];
+}
+
+function purchaseOrderRecord(
+  input: SourceAdapterImportInput,
+  row: CsvRowReader,
+  sourceKey: string,
+): NormalizedRecord[] {
+  const company = companyOf(input, row);
+  const supplierName = row.string('Supplier', 'Supplier ', 'Supplier Name');
+  const orderId = row.string('Order ID');
+  if (!company || !supplierName || !orderId) {
+    return [];
+  }
+
+  const lines = [] as Array<Record<string, unknown>>;
+  const orderedQty = row.number('Qty', 'Total units');
+  if (typeof orderedQty === 'number' && (canonicalAsin(row) || row.string('SKU'))) {
+    lines.push({
+      sourceOrderLineRef: sourceOrderLineRef(row, sourceKey),
+      asin: canonicalAsin(row),
+      sku: row.string('SKU'),
+      brand: row.string('Brand', 'Brand '),
+      orderedQty,
+      unitCost: row.number('PPU', 'Exp. Cost '),
+      expectedDeliveryDate: firstDate(row, 'Expected Delivery', 'Expected Delivery Date', 'ETA', 'Arrival to Amazon'),
+      observedAt: firstDateTime(row, 'Timestamp'),
+      payload: row.payload(),
+    });
+  }
+
+  return [
+    {
+      kind: 'supplier_order',
+      data: {
+        company,
+        supplierName,
+        externalSupplierCode: row.string('SR ID', 'SR ID '),
+        sourceSystem: 'purchase_orders',
+        sourceConnectionId: input.sourceConnectionId,
+        externalOrderRef: orderId,
+        sourceStage: 'purchase_order',
+        status: purchaseOrderStatus(row),
+        approvalStatus: row.string('Approval Status'),
+        paymentStatus: row.string('Payment Status', 'Payment Status '),
+        shippingCarrier: row.string('Shipping Carrier', 'Carrier'),
+        trackingId: row.string('Tracking ID', 'Tracking #'),
+        expectedDeliveryDate: firstDate(row, 'Expected Delivery', 'Expected Delivery Date', 'ETA', 'Arrival to Amazon'),
+        blockedReason: row.string('Blocked Reason'),
+        orderDate: firstDate(row, 'Timestamp', 'Order Date'),
+        statusUpdatedAt: firstDateTime(row, 'Timestamp', 'Updated At'),
+        lastMeaningfulUpdateAt: firstDateTime(row, 'Timestamp', 'Updated At'),
+        payload: row.payload(),
+        lines,
+      },
+    },
+  ];
+}
+
+function preOrderSheetRecord(
+  input: SourceAdapterImportInput,
+  row: CsvRowReader,
+  sourceKey: string,
+): NormalizedRecord[] {
+  const company = companyOf(input, row);
+  const supplierName = row.string('Supplier', 'Supplier ', 'Supplier Name');
+  const orderId = row.string('Order ID');
+  const orderedQty = row.number('Qty');
+  if (
+    !company ||
+    !supplierName ||
+    !orderId ||
+    typeof orderedQty !== 'number' ||
+    (!canonicalAsin(row) && !row.string('SKU'))
+  ) {
+    return [];
+  }
+
+  const sellableDate = expectedSellableDate(row);
+  return [
+    {
+      kind: 'supplier_order',
+      data: {
+        company,
+        supplierName,
+        externalSupplierCode: row.string('SR ID', 'SR ID '),
+        sourceSystem: 'pre_order_sheet',
+        sourceConnectionId: input.sourceConnectionId,
+        externalOrderRef: orderId,
+        sourceStage: 'pre_order',
+        status: 'planned',
+        expectedDeliveryDate: firstDate(row, 'Expected Delivery', 'Expected Delivery Date', 'ETA', 'Arrival to Amazon'),
+        orderDate: firstDate(row, 'Timestamp', 'Order Date') ?? input.sourceVersion,
+        statusUpdatedAt: firstDateTime(row, 'Timestamp', 'Order Date') ?? `${input.sourceVersion}T00:00:00.000Z`,
+        lastMeaningfulUpdateAt: firstDateTime(row, 'Timestamp', 'Order Date') ?? `${input.sourceVersion}T00:00:00.000Z`,
+        payload: row.payload(),
+        lines: [
+          {
+            sourceOrderLineRef: sourceOrderLineRef(row, sourceKey),
+            asin: canonicalAsin(row),
+            sku: row.string('SKU'),
+            brand: row.string('Brand', 'Brand '),
+            orderedQty,
+            unitCost: row.number('PPU', 'Exp. Cost '),
+            expectedDeliveryDate: firstDate(
+              row,
+              'Expected Delivery',
+              'Expected Delivery Date',
+              'ETA',
+              'Arrival to Amazon',
+            ),
+            expectedSellableDate: sellableDate.date,
+            expectedSellableDateSource: sellableDate.source,
+            observedAt: firstDateTime(row, 'Timestamp', 'Order Date') ?? `${input.sourceVersion}T00:00:00.000Z`,
+            payload: row.payload(),
+          },
+        ],
+      },
+    },
+  ];
+}
+
 function dailyFactRecord(
   input: SourceAdapterImportInput,
   row: CsvRowReader,
@@ -406,15 +744,17 @@ function recordsForShape(
   if (shape === 'sellerboard-dashboard-goods' || shape === 'sellerboard-dashboard-totals') {
     return [dailyFactRecord(input, row, snapshotDate, sourceKey), trafficRecord(input, row, snapshotDate, sourceKey)];
   }
-  if (shape === 'supplier-ids')
-    return [planningRecord(input, row, sourceKey), ...supplierRecords(input, row, sourceKey)];
-  if (shape === 'order-details' || shape === 'purchase-orders') {
-    const period = row.string('Timestamp') ?? snapshotDate;
-    return [
-      planningRecord(input, row, sourceKey),
-      ...supplierRecords(input, row, sourceKey),
-      targetRecord(input, row, period, sourceKey),
-    ];
+  if (shape === 'supplier-ids') {
+    return supplierIdentityRecord(input, row);
+  }
+  if (shape === 'order-details') {
+    return orderDetailsRecord(input, row, sourceKey);
+  }
+  if (shape === 'purchase-orders') {
+    return purchaseOrderRecord(input, row, sourceKey);
+  }
+  if (shape === 'pre-order-sheet') {
+    return preOrderSheetRecord(input, row, sourceKey);
   }
   return [];
 }

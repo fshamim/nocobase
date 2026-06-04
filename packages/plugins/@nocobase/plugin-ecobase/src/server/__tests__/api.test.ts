@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createSourceAdapterRegistry, noopTestAdapter } from '../adapters';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
-import { createEcobaseImportActions } from '../plugin';
+import { createEcobaseImportActions, createEcobaseSupplierOrderActions } from '../plugin';
 import { EcobaseDatabase, EcobaseRepository } from '../services/import-service';
 
 interface FindParams {
@@ -107,6 +107,143 @@ function createActionContext(db: EcobaseDatabase, values: Record<string, unknown
     },
   };
 }
+
+describe('Ecobase supplier-order public API seam', () => {
+  it('exposes coverage queries and explicit operator-owned line updates', async () => {
+    const db = new MemoryDatabase();
+    await db.getRepository(ECOBASE_COLLECTIONS.planningProducts).create({
+      values: {
+        id: 'planning-product-1',
+        naturalKey: 'planning-product:Ecofission LLC:B00TEST',
+        company: 'Ecofission LLC',
+        canonicalAsin: 'B00TEST',
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).create({
+      values: {
+        id: 'supplier-order-1',
+        naturalKey: 'supplier-order:Ecofission LLC:PO-1',
+        company: 'Ecofission LLC',
+        supplierId: 'supplier-1',
+        status: 'confirmed',
+        statusSource: 'import',
+        sourceStage: 'purchase_order',
+        externalOrderRef: 'PO-1',
+        lastImportRunId: 'import-run-1',
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).create({
+      values: {
+        id: 'supplier-order-line-1',
+        naturalKey: 'supplier-order-line:PO-1:1',
+        supplierOrderId: 'supplier-order-1',
+        company: 'Ecofission LLC',
+        supplierId: 'supplier-1',
+        planningProductId: 'planning-product-1',
+        orderedQty: 20,
+        receivedQty: 0,
+        receivedQtySource: 'import',
+        expectedSellableDate: '2025-07-20',
+        expectedSellableDateSource: 'imported_expected_sellable_date',
+        sourceOrderLineRef: 'PO-1:1',
+        sourceStage: 'purchase_order',
+        lastImportRunId: 'import-run-1',
+      },
+    });
+    const actions = createEcobaseSupplierOrderActions();
+
+    const updateOrderContext = createActionContext(db, {
+      supplierOrderId: 'supplier-order-1',
+      status: 'confirmed',
+      expectedDeliveryDate: '2025-07-24',
+    });
+    await actions.updateOrderOperatorFields(updateOrderContext, vi.fn());
+    expect(updateOrderContext.body).toMatchObject({
+      data: expect.objectContaining({
+        status: 'confirmed',
+        statusSource: 'manual',
+        expectedDeliveryDate: '2025-07-24',
+        expectedDeliveryDateSource: 'manual',
+      }),
+    });
+
+    const updateLineContext = createActionContext(db, {
+      supplierOrderLineId: 'supplier-order-line-1',
+      receivedQty: 5,
+      expectedSellableDate: '2025-07-25',
+    });
+    await actions.updateLineOperatorFields(updateLineContext, vi.fn());
+    expect(updateLineContext.body).toMatchObject({
+      data: expect.objectContaining({
+        receivedQty: 5,
+        receivedQtySource: 'manual',
+        expectedSellableDate: '2025-07-25',
+        expectedSellableDateSource: 'manual',
+      }),
+    });
+
+    const coverageContext = createActionContext(db, {
+      planningProductId: 'planning-product-1',
+      stockoutDate: '2025-07-30',
+    });
+    await actions.getCoverage(coverageContext, vi.fn());
+    expect(coverageContext.body).toMatchObject({
+      data: expect.objectContaining({
+        planningProductId: 'planning-product-1',
+        totalOpenQty: 15,
+        coverageState: 'arrives_before_stockout',
+      }),
+    });
+
+    await expect(
+      actions.updateOrderOperatorFields(createActionContext(db, { supplierOrderId: 'supplier-order-1', status: 'bad' }), vi.fn()),
+    ).rejects.toThrow('Ecobase supplier-order update failed: status "bad" is not supported.');
+    await expect(
+      actions.updateLineOperatorFields(
+        createActionContext(db, { supplierOrderLineId: 'supplier-order-line-1', expectedSellableDate: '25/07/2025' }),
+        vi.fn(),
+      ),
+    ).rejects.toThrow('Ecobase supplier-order update failed: expectedSellableDate must use YYYY-MM-DD.');
+    await expect(
+      actions.updateOrderOperatorFields(
+        createActionContext(db, { supplierOrderId: 'supplier-order-1', expectedDeliveryDate: '2025-02-31' }),
+        vi.fn(),
+      ),
+    ).rejects.toThrow('Ecobase supplier-order update failed: expectedDeliveryDate must be a valid calendar date.');
+    await expect(
+      actions.updateLineOperatorFields(
+        createActionContext(db, { supplierOrderLineId: 'supplier-order-line-1', expectedSellableDate: '2025-99-99' }),
+        vi.fn(),
+      ),
+    ).rejects.toThrow('Ecobase supplier-order update failed: expectedSellableDate must be a valid calendar date.');
+
+    const leapDateContext = createActionContext(db, {
+      supplierOrderLineId: 'supplier-order-line-1',
+      expectedSellableDate: '2024-02-29',
+    });
+    await actions.updateLineOperatorFields(leapDateContext, vi.fn());
+    expect(leapDateContext.body).toMatchObject({
+      data: expect.objectContaining({ expectedSellableDate: '2024-02-29' }),
+    });
+
+    await db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).create({
+      values: { id: 1, naturalKey: 'legacy-order-1', company: 'Ecofission LLC', status: 'planned' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).create({
+      values: { id: 1, naturalKey: 'legacy-line-1', supplierOrderId: 1, orderedQty: 1, receivedQty: 0 },
+    });
+    await actions.updateOrderOperatorFields(createActionContext(db, { supplierOrderId: 1, status: 'confirmed' }), vi.fn());
+    await actions.updateLineOperatorFields(createActionContext(db, { supplierOrderLineId: 1, receivedQty: 1 }), vi.fn());
+    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).all().find((record) => record.id === 1)).toMatchObject({
+      status: 'confirmed',
+      statusSource: 'manual',
+    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).all().find((record) => record.id === 1)).toMatchObject({
+      receivedQty: 1,
+      receivedQtySource: 'manual',
+    });
+  });
+});
 
 describe('Ecobase import public API seam', () => {
   it('runs the no-op import through resource actions and reads source status', async () => {

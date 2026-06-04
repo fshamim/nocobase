@@ -29,6 +29,7 @@ export default defineCollection({
     { name: 'warningCount', type: 'integer', allowNull: false, defaultValue: 0 },
     { name: 'errorCount', type: 'integer', allowNull: false, defaultValue: 0 },
     { name: 'errorMessage', type: 'text' },
+    { name: 'summary', type: 'jsonb', defaultValue: {} },
     {
       name: 'rawImportRows',
       type: 'hasMany',
