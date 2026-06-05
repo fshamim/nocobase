@@ -25,6 +25,10 @@ export const ECOBASE_COLLECTIONS = {
   ruleVersions: 'ecobaseRuleVersions',
   alertEvaluations: 'ecobaseAlertEvaluations',
   alerts: 'ecobaseAlerts',
+  clickupTaskSnapshots: 'ecobaseClickupTaskSnapshots',
+  taskLinks: 'ecobaseTaskLinks',
+  okrs: 'ecobaseOkrs',
+  okrMetricSnapshots: 'ecobaseOkrMetricSnapshots',
   sourceAccessAudits: 'ecobaseSourceAccessAudits',
   sourceWarningPolicies: 'ecobaseSourceWarningPolicies',
 } as const;

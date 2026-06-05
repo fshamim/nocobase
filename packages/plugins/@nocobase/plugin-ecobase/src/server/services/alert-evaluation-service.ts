@@ -231,7 +231,7 @@ export class EcobaseAlertEvaluationService {
     };
   }
 
-  async listAlerts(params: { company?: string; status?: AlertStatus; limit?: number } = {}) {
+  async listAlerts(params: { company?: string; status?: AlertStatus; alertType?: string; severity?: AlertSeverity; limit?: number } = {}) {
     const repo = this.db.getRepository(ECOBASE_COLLECTIONS.alerts);
     const filter: PlainRecord = {};
     if (params.company) {
@@ -239,6 +239,12 @@ export class EcobaseAlertEvaluationService {
     }
     if (params.status) {
       filter.status = params.status;
+    }
+    if (params.alertType) {
+      filter.alertType = params.alertType;
+    }
+    if (params.severity) {
+      filter.severity = params.severity;
     }
     return (await repo.find({ filter, sort: ['-lastSeenAt'], limit: params.limit ?? 100 })).map(toPlainRecord);
   }

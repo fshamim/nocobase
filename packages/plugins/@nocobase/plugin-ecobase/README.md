@@ -80,6 +80,8 @@ Issue 005 adapters are registered through the same Issue 004 source-adapter seam
 | `google-sheets-migration-csv` | `google_sheets` | Planning targets, supplier defaults/lead times, and order-management workbook exports. |
 | `sellerboard-api` | `sellerboard` | Slim live-source check; records a credential blocker when API credentials are absent. |
 | `amazon-sp-api-access-check` | `amazon_sp_api` | Slim Amazon SP-API access check; records an access blocker when approval/credentials are absent. |
+| `clickup-fixture` | `clickup` | Fixture/manual accountability import for ClickUp task snapshots, task links, OKRs, and OKR metric snapshots. |
+| `clickup-access-check` | `clickup` | Slim ClickUp access check; records a credential blocker and source warning when live credentials are absent. |
 
 Documented sample row counts for row-count verification:
 

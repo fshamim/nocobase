@@ -2,11 +2,14 @@ import { describe, expect, it } from 'vitest';
 import alertEvaluations from '../collections/alert-evaluations';
 import alerts from '../collections/alerts';
 import amazonAccounts from '../collections/amazon-accounts';
+import clickupTaskSnapshots from '../collections/clickup-task-snapshots';
 import companies from '../collections/companies';
 import importRuns from '../collections/import-runs';
 import inventorySnapshots from '../collections/inventory-snapshots';
 import listingDailyFacts from '../collections/listing-daily-facts';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
+import okrMetricSnapshots from '../collections/okr-metric-snapshots';
+import okrs from '../collections/okrs';
 import planningCalculationSnapshots from '../collections/planning-calculation-snapshots';
 import planningProductMappingAudits from '../collections/planning-product-mapping-audits';
 import planningProductListings from '../collections/planning-product-listings';
@@ -27,6 +30,7 @@ import supplierOrders from '../collections/supplier-orders';
 import supplierProductLinks from '../collections/supplier-product-links';
 import suppliers from '../collections/suppliers';
 import targetRows from '../collections/target-rows';
+import taskLinks from '../collections/task-links';
 import trafficSnapshots from '../collections/traffic-snapshots';
 
 interface FieldOptions {
@@ -81,6 +85,10 @@ describe('Ecobase plugin-owned schema', () => {
     expect(ruleVersions.name).toBe(ECOBASE_COLLECTIONS.ruleVersions);
     expect(alertEvaluations.name).toBe(ECOBASE_COLLECTIONS.alertEvaluations);
     expect(alerts.name).toBe(ECOBASE_COLLECTIONS.alerts);
+    expect(clickupTaskSnapshots.name).toBe(ECOBASE_COLLECTIONS.clickupTaskSnapshots);
+    expect(taskLinks.name).toBe(ECOBASE_COLLECTIONS.taskLinks);
+    expect(okrs.name).toBe(ECOBASE_COLLECTIONS.okrs);
+    expect(okrMetricSnapshots.name).toBe(ECOBASE_COLLECTIONS.okrMetricSnapshots);
     expect(sourceAccessAudits.name).toBe(ECOBASE_COLLECTIONS.sourceAccessAudits);
     expect(sourceWarningPolicies.name).toBe(ECOBASE_COLLECTIONS.sourceWarningPolicies);
 
@@ -183,6 +191,13 @@ describe('Ecobase plugin-owned schema', () => {
     expect(field(alerts, 'dedupeKey')).toMatchObject({ type: 'string', unique: true });
     expect(field(alerts, 'primaryRootCauseCode')).toMatchObject({ type: 'string' });
     expect(field(alerts, 'actionRequired')).toMatchObject({ type: 'text' });
+    expect(field(clickupTaskSnapshots, 'externalTaskId')).toMatchObject({ type: 'string' });
+    expect(field(clickupTaskSnapshots, 'lastMeaningfulUpdateAt')).toMatchObject({ type: 'datetimeTz' });
+    expect(field(taskLinks, 'targetType')).toMatchObject({ type: 'string' });
+    expect(field(taskLinks, 'confidence')).toMatchObject({ type: 'double' });
+    expect(field(okrs, 'owner')).toMatchObject({ type: 'string' });
+    expect(field(okrs, 'operationalArea')).toMatchObject({ type: 'string' });
+    expect(field(okrMetricSnapshots, 'progressPercent')).toMatchObject({ type: 'double' });
     expect(field(sourceAccessAudits, 'blockerCode')).toMatchObject({ type: 'string' });
     expect(field(sourceWarningPolicies, 'sourceType')).toMatchObject({ type: 'string', unique: true });
     expect(field(sourceWarningPolicies, 'freshnessSlaMinutes')).toMatchObject({ type: 'integer' });

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { AdapterStreamItem, NormalizedRecord, SourceAdapter, SourceAdapterRegistry } from '../adapters';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
+import { EcobaseAccountabilityService } from './accountability-service';
 import { EcobaseDataWarningService } from './data-warning-service';
 import type { EcobaseDataWarning } from './data-warning-service';
 import { EcobasePlanningProductService } from './planning-product-service';
@@ -35,7 +36,13 @@ const NORMALIZED_RECORD_COLLECTIONS: Record<string, string> = {
   supplier_lead_time: ECOBASE_COLLECTIONS.supplierLeadTimes,
   target_row: ECOBASE_COLLECTIONS.targetRows,
   source_access_audit: ECOBASE_COLLECTIONS.sourceAccessAudits,
+  clickup_task_snapshot: ECOBASE_COLLECTIONS.clickupTaskSnapshots,
+  task_link: ECOBASE_COLLECTIONS.taskLinks,
+  okr: ECOBASE_COLLECTIONS.okrs,
+  okr_metric_snapshot: ECOBASE_COLLECTIONS.okrMetricSnapshots,
 };
+
+const ACCOUNTABILITY_RECORD_KINDS = new Set(['clickup_task_snapshot', 'task_link', 'okr', 'okr_metric_snapshot']);
 
 export interface EcobaseRepository {
   find(params?: RepositoryFindParams): Promise<unknown[]>;
@@ -291,6 +298,7 @@ export class EcobaseImportService {
     const fileSummaries: Record<string, ImportFileSummary> = {};
     const supplierOrderService = new EcobaseSupplierOrderService(this.db);
     let supplierOrderTouched = false;
+    let accountabilityTouched = false;
 
     try {
       for await (const item of adapter.import({
@@ -310,6 +318,7 @@ export class EcobaseImportService {
           const rawRow = await this.createRawRow(rawImportRowRepo, importRunId, item);
           const result = await this.upsertNormalizedRecords(records, importRunId, supplierOrderService);
           supplierOrderTouched = supplierOrderTouched || result.supplierOrderTouched;
+          accountabilityTouched = accountabilityTouched || result.accountabilityTouched;
           warningCount += result.warnings.length;
           updateFileSummary(fileSummaries, fileName, {
             warningCount: result.warnings.length,
@@ -364,6 +373,12 @@ export class EcobaseImportService {
       await new EcobasePlanningProductService(this.db).syncFromRawListings();
       if (supplierOrderTouched) {
         await supplierOrderService.reconcileAfterImport(importRunId);
+      }
+      if (accountabilityTouched) {
+        await new EcobaseAccountabilityService(this.db).evaluateAccountability({
+          sourceConnectionId: params.sourceConnectionId,
+          evaluationDate: sourceVersion.slice(0, 10),
+        });
       }
     }
 
@@ -480,6 +495,7 @@ export class EcobaseImportService {
     const warnings: Array<{ code: string; message: string; payload?: Record<string, unknown> }> = [];
     let sample: Record<string, unknown> | undefined;
     let supplierOrderTouched = false;
+    let accountabilityTouched = false;
 
     for (const record of records) {
       const customResult = await supplierOrderService.applyImportRecord(record as { kind: string; data: Record<string, unknown> }, importRunId);
@@ -490,6 +506,7 @@ export class EcobaseImportService {
         continue;
       }
 
+      accountabilityTouched = accountabilityTouched || ACCOUNTABILITY_RECORD_KINDS.has(record.kind);
       const collectionName = NORMALIZED_RECORD_COLLECTIONS[record.kind];
       if (!collectionName) {
         throw new Error(
@@ -530,7 +547,7 @@ export class EcobaseImportService {
       sample = sample ?? summarizeRecord(record);
     }
 
-    return { warnings, sample, supplierOrderTouched };
+    return { warnings, sample, supplierOrderTouched, accountabilityTouched };
   }
 
   private getFinalStatus(errorMessage: string | null, errorCount: number, normalizedCount: number) {

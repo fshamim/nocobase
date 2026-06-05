@@ -2,6 +2,8 @@ import { Plugin } from '@nocobase/server';
 import {
   amazonOperationsCsvAdapter,
   amazonSpApiAccessCheckAdapter,
+  clickupAccessCheckAdapter,
+  clickupFixtureAdapter,
   createSourceAdapterRegistry,
   googleSheetsMigrationCsvAdapter,
   noopTestAdapter,
@@ -10,6 +12,7 @@ import {
 } from './adapters';
 import type { SourceAdapterRegistry } from './adapters';
 import { ECOBASE_COLLECTIONS } from './collections/names';
+import { EcobaseAccountabilityService } from './services/accountability-service';
 import { EcobaseAlertEvaluationService } from './services/alert-evaluation-service';
 import { EcobaseImportService } from './services/import-service';
 import { EcobasePlanningCalculationService } from './services/planning-calculation-service';
@@ -187,6 +190,8 @@ export function createEcobaseAlertActions() {
         data: await service.listAlerts({
           company: getOptionalString(values, 'company'),
           status: getOptionalString(values, 'status') as never,
+          alertType: getOptionalString(values, 'alertType'),
+          severity: getOptionalString(values, 'severity') as never,
           limit: getOptionalNumber(values, 'limit'),
         }),
       };
@@ -387,6 +392,37 @@ export function createEcobaseSupplierOrderActions() {
   };
 }
 
+export function createEcobaseAccountabilityActions() {
+  return {
+    evaluate: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseAccountabilityService(ctx.db);
+      ctx.body = {
+        data: await service.evaluateAccountability({
+          sourceConnectionId: getOptionalString(values, 'sourceConnectionId'),
+          evaluationDate: getOptionalString(values, 'evaluationDate'),
+        }),
+      };
+      await next();
+    },
+    evidence: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseAccountabilityService(ctx.db);
+      ctx.body = {
+        data: await service.listAccountabilityEvidence({
+          sourceConnectionId: getOptionalString(values, 'sourceConnectionId'),
+          limit: getOptionalNumber(values, 'limit'),
+        }),
+      };
+      await next();
+    },
+    defaults: async (ctx, next) => {
+      ctx.body = { data: EcobaseAccountabilityService.defaultConfig() };
+      await next();
+    },
+  };
+}
+
 export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
   return {
     run: async (ctx, next) => {
@@ -470,6 +506,8 @@ export class PluginEcobaseServer extends Plugin {
     sellerboardCsvAdapter,
     sellerboardApiAdapter,
     amazonSpApiAccessCheckAdapter,
+    clickupFixtureAdapter,
+    clickupAccessCheckAdapter,
   ]);
 
   async load() {
@@ -491,6 +529,10 @@ export class PluginEcobaseServer extends Plugin {
     this.app.resourceManager.define({
       name: 'ecobaseAlerts',
       actions: createEcobaseAlertActions(),
+    });
+    this.app.resourceManager.define({
+      name: 'ecobaseAccountability',
+      actions: createEcobaseAccountabilityActions(),
     });
 
     this.app.acl.allow('ecobaseImport', ['run', 'runDailySnapshot', 'runNoop', 'status', 'adapters'], 'loggedIn');
@@ -543,9 +585,14 @@ export class PluginEcobaseServer extends Plugin {
     this.app.acl.allow(ECOBASE_COLLECTIONS.targetRows, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.planningCalculationSnapshots, ['list', 'get'], 'loggedIn');
     this.app.acl.allow('ecobaseAlerts', ['evaluate', 'list', 'defaults'], 'loggedIn');
+    this.app.acl.allow('ecobaseAccountability', ['evaluate', 'evidence', 'defaults'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.ruleVersions, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.alertEvaluations, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.alerts, ['list', 'get'], 'loggedIn');
+    this.app.acl.allow(ECOBASE_COLLECTIONS.clickupTaskSnapshots, ['list', 'get'], 'loggedIn');
+    this.app.acl.allow(ECOBASE_COLLECTIONS.taskLinks, ['list', 'get'], 'loggedIn');
+    this.app.acl.allow(ECOBASE_COLLECTIONS.okrs, ['list', 'get'], 'loggedIn');
+    this.app.acl.allow(ECOBASE_COLLECTIONS.okrMetricSnapshots, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.sourceAccessAudits, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(
       ECOBASE_COLLECTIONS.sourceWarningPolicies,

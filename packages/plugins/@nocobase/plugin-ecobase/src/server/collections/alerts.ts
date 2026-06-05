@@ -9,11 +9,11 @@ export default defineCollection({
   fields: [
     { name: 'id', type: 'uuid', primaryKey: true },
     { name: 'dedupeKey', type: 'string', allowNull: false, unique: true },
-    { name: 'planningProductId', type: 'uuid', allowNull: false, autoFill: false, index: true },
+    { name: 'planningProductId', type: 'uuid', autoFill: false, index: true },
     { name: 'company', type: 'string', index: true },
     { name: 'canonicalAsin', type: 'string', index: true },
     { name: 'title', type: 'string' },
-    { name: 'alertEvaluationId', type: 'uuid', allowNull: false, autoFill: false, index: true },
+    { name: 'alertEvaluationId', type: 'uuid', autoFill: false, index: true },
     { name: 'alertType', type: 'string', allowNull: false, index: true },
     { name: 'severity', type: 'string', allowNull: false, index: true },
     { name: 'status', type: 'string', allowNull: false, defaultValue: 'open', index: true },

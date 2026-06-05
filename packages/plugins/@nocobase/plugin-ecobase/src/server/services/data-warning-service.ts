@@ -7,6 +7,8 @@ export const DATA_WARNING_CODES = {
   staleSuccessfulRun: 'stale_successful_run',
   failedLatestRun: 'failed_latest_run',
   incompleteImport: 'incomplete_import',
+  credentialBlocked: 'credential_blocked',
+  noNewerDataSkipped: 'no_newer_data_skipped',
   unmappedListing: 'unmapped_listing',
   missingLeadTime: 'missing_lead_time',
   missingTarget: 'missing_target',
@@ -202,6 +204,10 @@ export class EcobaseDataWarningService {
     }
 
     const latestRun = await importRunRepo.findOne({ filter: { sourceConnectionId }, sort: ['-startedAt'] });
+    const latestAccessBlock = await this.db.getRepository(ECOBASE_COLLECTIONS.sourceAccessAudits).findOne({
+      filter: { sourceConnectionId, status: 'blocked' },
+      sort: ['-checkedAt'],
+    });
     const latestSuccessfulRun = await importRunRepo.findOne({
       filter: { sourceConnectionId, status: 'success' },
       sort: ['-finishedAt'],
@@ -265,6 +271,39 @@ export class EcobaseDataWarningService {
           latestRunAt,
           normalizedCount: asNumber(latestRunPlain.normalizedCount),
           errorCount: asNumber(latestRunPlain.errorCount),
+        },
+      });
+    }
+
+    if (latestRunStatus === 'skipped') {
+      warnings.push({
+        code: DATA_WARNING_CODES.noNewerDataSkipped,
+        message: `Latest scheduled import for source "${sourceLabel(sourceConnection)}" was skipped because no newer source data was available.`,
+        severity: 'warning',
+        observedAt: latestRunAt ?? reference.toISOString(),
+        ...warningContext,
+        importRunId: asString(latestRunPlain.id),
+        latestSuccessfulImportRunId,
+        metadata: {
+          latestRunStatus,
+          latestRunAt,
+          sourceIdentifier: asString(latestRunPlain.sourceIdentifier),
+          sourceVersion: asString(latestRunPlain.sourceVersion),
+        },
+      });
+    }
+
+    const accessBlock = toPlainRecord(latestAccessBlock);
+    if (asString(accessBlock.status) === 'blocked') {
+      warnings.push({
+        code: DATA_WARNING_CODES.credentialBlocked,
+        message: asString(accessBlock.message) ?? `Source "${sourceLabel(sourceConnection)}" is blocked by missing credentials.`,
+        severity: 'warning',
+        observedAt: getDateString(accessBlock, 'checkedAt') ?? reference.toISOString(),
+        ...warningContext,
+        metadata: {
+          blockerCode: asString(accessBlock.blockerCode),
+          adapterName: asString(accessBlock.adapterName),
         },
       });
     }
