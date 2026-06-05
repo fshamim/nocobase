@@ -14,6 +14,8 @@ import type { SourceAdapterRegistry } from './adapters';
 import { ECOBASE_COLLECTIONS } from './collections/names';
 import { EcobaseAccountabilityService } from './services/accountability-service';
 import { EcobaseAlertEvaluationService } from './services/alert-evaluation-service';
+import { EcobaseComparisonService } from './services/comparison-service';
+import { EcobaseDashboardService } from './services/dashboard-service';
 import { EcobaseImportService } from './services/import-service';
 import { EcobasePlanningCalculationService } from './services/planning-calculation-service';
 import { EcobasePlanningProductService } from './services/planning-product-service';
@@ -82,6 +84,78 @@ function validateSupplierOrderActivityModel(model: { get?: (key?: string) => unk
   if (activityType === 'lead_time_checked' && validatedLeadTimeDays === undefined) {
     throw new Error('Ecobase supplier-order activity failed: leadTimeDays is required for lead_time_checked.');
   }
+}
+
+export function createEcobaseDashboardActions() {
+  return {
+    summary: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseDashboardService(ctx.db);
+      ctx.body = {
+        data: await service.getDashboard({
+          company: getOptionalString(values, 'company'),
+          accountKey: getOptionalString(values, 'accountKey'),
+          date: getOptionalString(values, 'date'),
+          periodType: getOptionalString(values, 'periodType') as 'daily' | 'weekly' | 'monthly' | undefined,
+          period: getOptionalString(values, 'period'),
+          alertType: getOptionalString(values, 'alertType'),
+          severity: getOptionalString(values, 'severity'),
+          status: getOptionalString(values, 'status'),
+        }),
+      };
+      await next();
+    },
+    settings: async (ctx, next) => {
+      const service = new EcobaseDashboardService(ctx.db);
+      ctx.body = { data: await service.getSettings() };
+      await next();
+    },
+    updateSettings: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseDashboardService(ctx.db);
+      ctx.body = { data: await service.updateSettings(values) };
+      await next();
+    },
+  };
+}
+
+export function createEcobaseComparisonActions() {
+  return {
+    compare: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const periodType = getOptionalString(values, 'periodType');
+      if (periodType !== 'daily' && periodType !== 'weekly' && periodType !== 'monthly') {
+        ctx.throw(400, 'Ecobase comparison requires periodType to be daily, weekly, or monthly.');
+        return;
+      }
+      const groupBy = getOptionalString(values, 'groupBy');
+      if (groupBy && !['company', 'account', 'planning_product', 'raw_listing_sku', 'tier'].includes(groupBy)) {
+        ctx.throw(400, 'Ecobase comparison groupBy must be company, account, planning_product, raw_listing_sku, or tier.');
+        return;
+      }
+
+      const service = new EcobaseComparisonService(ctx.db);
+      try {
+        ctx.body = {
+          data: await service.comparePerformance({
+            periodType,
+            period: getOptionalString(values, 'period'),
+            currentStartDate: getOptionalString(values, 'currentStartDate'),
+            currentEndDate: getOptionalString(values, 'currentEndDate'),
+            previousStartDate: getOptionalString(values, 'previousStartDate'),
+            previousEndDate: getOptionalString(values, 'previousEndDate'),
+            groupBy: groupBy as 'company' | 'account' | 'planning_product' | 'raw_listing_sku' | 'tier' | undefined,
+            company: getOptionalString(values, 'company'),
+            planningProductId: getOptionalString(values, 'planningProductId'),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase comparison failed.');
+        return;
+      }
+      await next();
+    },
+  };
 }
 
 export function createEcobasePlanningActions() {
@@ -534,6 +608,14 @@ export class PluginEcobaseServer extends Plugin {
       name: 'ecobaseAccountability',
       actions: createEcobaseAccountabilityActions(),
     });
+    this.app.resourceManager.define({
+      name: 'ecobaseComparison',
+      actions: createEcobaseComparisonActions(),
+    });
+    this.app.resourceManager.define({
+      name: 'ecobaseDashboard',
+      actions: createEcobaseDashboardActions(),
+    });
 
     this.app.acl.allow('ecobaseImport', ['run', 'runDailySnapshot', 'runNoop', 'status', 'adapters'], 'loggedIn');
     this.app.acl.allow(
@@ -586,6 +668,8 @@ export class PluginEcobaseServer extends Plugin {
     this.app.acl.allow(ECOBASE_COLLECTIONS.planningCalculationSnapshots, ['list', 'get'], 'loggedIn');
     this.app.acl.allow('ecobaseAlerts', ['evaluate', 'list', 'defaults'], 'loggedIn');
     this.app.acl.allow('ecobaseAccountability', ['evaluate', 'evidence', 'defaults'], 'loggedIn');
+    this.app.acl.allow('ecobaseComparison', ['compare'], 'loggedIn');
+    this.app.acl.allow('ecobaseDashboard', ['summary', 'settings', 'updateSettings'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.ruleVersions, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.alertEvaluations, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.alerts, ['list', 'get'], 'loggedIn');
