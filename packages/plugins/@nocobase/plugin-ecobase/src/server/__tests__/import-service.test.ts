@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createSourceAdapterRegistry, noopTestAdapter } from '../adapters';
+import type { SourceAdapter } from '../adapters';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { EcobaseDatabase, EcobaseImportService, EcobaseRepository } from '../services/import-service';
 
@@ -207,6 +208,175 @@ describe('Ecobase no-op import and status seam', () => {
       'Ecobase import failed: source connection "wrong-domain-source" has domain "sellerboard" but adapter "noop-test" supports domains: foundation.',
     );
     expect(db.getRepository(ECOBASE_COLLECTIONS.importRuns).all()).toEqual([]);
+  });
+
+  it('rejects invalid generic supplier lead-time imports before persistence', async () => {
+    const db = new MemoryDatabase();
+    await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).create({
+      values: {
+        id: 'source-1',
+        name: 'Supplier lead-time source',
+        sourceType: 'noop_test',
+        domain: 'foundation',
+        config: {},
+        active: true,
+      },
+    });
+    const invalidLeadTimeAdapter: SourceAdapter = {
+      metadata: {
+        name: 'invalid-lead-time-test',
+        title: 'Invalid lead-time test',
+        sourceType: 'noop_test',
+        supportedDomains: ['foundation'],
+        version: '1',
+      },
+      async *import() {
+        yield {
+          type: 'record',
+          rowNumber: 1,
+          sourceKey: 'lead-times.csv:1',
+          payload: { supplierName: 'Bad Supplier', leadTimeDays: -1 },
+          record: {
+            kind: 'supplier_lead_time',
+            data: {
+              naturalKey: 'supplier-lead-time:Ecofission LLC:bad-supplier',
+              sourceConnectionId: 'source-1',
+              supplierName: 'Bad Supplier',
+              company: 'Ecofission LLC',
+              leadTimeDays: -1,
+              source: 'test',
+            },
+          },
+        };
+      },
+    };
+    const service = new EcobaseImportService(db, createSourceAdapterRegistry([invalidLeadTimeAdapter]));
+
+    const run = await service.runAdapterImport({
+      sourceConnectionId: 'source-1',
+      adapterName: 'invalid-lead-time-test',
+      sourceIdentifier: 'invalid-lead-time',
+      sourceVersion: 'v1',
+    });
+
+    expect(run).toMatchObject({
+      status: 'failed',
+      errorCount: 1,
+      errorMessage: 'Ecobase import failed: supplier_lead_time: leadTimeDays must be an integer from 0 to 3650.',
+    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierLeadTimes).all()).toEqual([]);
+  });
+
+  it('rejects invalid planning-parameter lead-time imports before persistence', async () => {
+    const db = new MemoryDatabase();
+    await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).create({
+      values: {
+        id: 'source-1',
+        name: 'Planning parameter source',
+        sourceType: 'noop_test',
+        domain: 'foundation',
+        config: {},
+        active: true,
+      },
+    });
+    const invalidPlanningParameterAdapter: SourceAdapter = {
+      metadata: {
+        name: 'invalid-planning-parameter-test',
+        title: 'Invalid planning parameter test',
+        sourceType: 'noop_test',
+        supportedDomains: ['foundation'],
+        version: '1',
+      },
+      async *import() {
+        yield {
+          type: 'record',
+          rowNumber: 1,
+          sourceKey: 'profit-planning.csv:1',
+          payload: { asin: 'B00BADLEAD', leadTimeDays: 1.5 },
+          record: {
+            kind: 'planning_parameter',
+            data: {
+              naturalKey: 'planning-parameter:Ecofission LLC:B00BADLEAD',
+              sourceConnectionId: 'source-1',
+              company: 'Ecofission LLC',
+              asin: 'B00BADLEAD',
+              leadTimeDays: 1.5,
+            },
+          },
+        };
+      },
+    };
+    const service = new EcobaseImportService(db, createSourceAdapterRegistry([invalidPlanningParameterAdapter]));
+
+    const run = await service.runAdapterImport({
+      sourceConnectionId: 'source-1',
+      adapterName: 'invalid-planning-parameter-test',
+      sourceIdentifier: 'invalid-planning-parameter',
+      sourceVersion: 'v1',
+    });
+
+    expect(run).toMatchObject({
+      status: 'failed',
+      errorCount: 1,
+      errorMessage: 'Ecobase import failed: planning_parameter: leadTimeDays must be an integer from 0 to 3650.',
+    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.planningParameters).all()).toEqual([]);
+  });
+
+  it('rejects non-number planning-parameter lead-time imports before persistence', async () => {
+    const db = new MemoryDatabase();
+    await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).create({
+      values: {
+        id: 'source-1',
+        name: 'Planning parameter source',
+        sourceType: 'noop_test',
+        domain: 'foundation',
+        config: {},
+        active: true,
+      },
+    });
+    const invalidPlanningParameterAdapter: SourceAdapter = {
+      metadata: {
+        name: 'invalid-planning-parameter-string-test',
+        title: 'Invalid planning parameter string test',
+        sourceType: 'noop_test',
+        supportedDomains: ['foundation'],
+        version: '1',
+      },
+      async *import() {
+        yield {
+          type: 'record',
+          rowNumber: 1,
+          sourceKey: 'profit-planning.csv:1',
+          payload: { asin: 'B00STRINGLEAD', leadTimeDays: '4000' },
+          record: {
+            kind: 'planning_parameter',
+            data: {
+              naturalKey: 'planning-parameter:Ecofission LLC:B00STRINGLEAD',
+              sourceConnectionId: 'source-1',
+              company: 'Ecofission LLC',
+              asin: 'B00STRINGLEAD',
+              leadTimeDays: '4000',
+            },
+          },
+        };
+      },
+    };
+    const service = new EcobaseImportService(db, createSourceAdapterRegistry([invalidPlanningParameterAdapter]));
+
+    const run = await service.runAdapterImport({
+      sourceConnectionId: 'source-1',
+      adapterName: 'invalid-planning-parameter-string-test',
+      sourceIdentifier: 'invalid-planning-parameter-string',
+      sourceVersion: 'v1',
+    });
+
+    expect(run).toMatchObject({
+      status: 'failed',
+      errorCount: 1,
+      errorMessage: 'Ecobase import failed: planning_parameter: leadTimeDays must be a number.',
+    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.planningParameters).all()).toEqual([]);
   });
 
   it('reads source/import status through the service seam used by the public API', async () => {

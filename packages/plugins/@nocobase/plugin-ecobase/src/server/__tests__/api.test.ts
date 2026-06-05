@@ -154,6 +154,7 @@ describe('Ecobase supplier-order public API seam', () => {
 
     const updateOrderContext = createActionContext(db, {
       supplierOrderId: 'supplier-order-1',
+      company: 'Ecofission LLC',
       status: 'confirmed',
       expectedDeliveryDate: '2025-07-24',
     });
@@ -169,6 +170,7 @@ describe('Ecobase supplier-order public API seam', () => {
 
     const updateLineContext = createActionContext(db, {
       supplierOrderLineId: 'supplier-order-line-1',
+      company: 'Ecofission LLC',
       receivedQty: 5,
       expectedSellableDate: '2025-07-25',
     });
@@ -196,29 +198,57 @@ describe('Ecobase supplier-order public API seam', () => {
     });
 
     await expect(
-      actions.updateOrderOperatorFields(createActionContext(db, { supplierOrderId: 'supplier-order-1', status: 'bad' }), vi.fn()),
+      actions.updateOrderOperatorFields(
+        createActionContext(db, { supplierOrderId: 'supplier-order-1', company: 'Ecofission LLC', status: 'bad' }),
+        vi.fn(),
+      ),
     ).rejects.toThrow('Ecobase supplier-order update failed: status "bad" is not supported.');
     await expect(
       actions.updateLineOperatorFields(
-        createActionContext(db, { supplierOrderLineId: 'supplier-order-line-1', expectedSellableDate: '25/07/2025' }),
+        createActionContext(db, {
+          supplierOrderLineId: 'supplier-order-line-1',
+          company: 'Ecofission LLC',
+          expectedSellableDate: '25/07/2025',
+        }),
         vi.fn(),
       ),
     ).rejects.toThrow('Ecobase supplier-order update failed: expectedSellableDate must use YYYY-MM-DD.');
     await expect(
       actions.updateOrderOperatorFields(
-        createActionContext(db, { supplierOrderId: 'supplier-order-1', expectedDeliveryDate: '2025-02-31' }),
+        createActionContext(db, {
+          supplierOrderId: 'supplier-order-1',
+          company: 'Ecofission LLC',
+          expectedDeliveryDate: '2025-02-31',
+        }),
         vi.fn(),
       ),
     ).rejects.toThrow('Ecobase supplier-order update failed: expectedDeliveryDate must be a valid calendar date.');
     await expect(
       actions.updateLineOperatorFields(
-        createActionContext(db, { supplierOrderLineId: 'supplier-order-line-1', expectedSellableDate: '2025-99-99' }),
+        createActionContext(db, {
+          supplierOrderLineId: 'supplier-order-line-1',
+          company: 'Ecofission LLC',
+          expectedSellableDate: '2025-99-99',
+        }),
         vi.fn(),
       ),
     ).rejects.toThrow('Ecobase supplier-order update failed: expectedSellableDate must be a valid calendar date.');
+    await expect(
+      actions.updateOrderOperatorFields(
+        createActionContext(db, { supplierOrderId: 'supplier-order-1', company: 'Other LLC', status: 'confirmed' }),
+        vi.fn(),
+      ),
+    ).rejects.toThrow('Ecobase supplier-order update failed: order belongs to a different company.');
+    await expect(
+      actions.updateLineOperatorFields(
+        createActionContext(db, { supplierOrderLineId: 'supplier-order-line-1', company: 'Other LLC', receivedQty: 1 }),
+        vi.fn(),
+      ),
+    ).rejects.toThrow('Ecobase supplier-order line update failed: line belongs to a different company.');
 
     const leapDateContext = createActionContext(db, {
       supplierOrderLineId: 'supplier-order-line-1',
+      company: 'Ecofission LLC',
       expectedSellableDate: '2024-02-29',
     });
     await actions.updateLineOperatorFields(leapDateContext, vi.fn());
@@ -227,13 +257,19 @@ describe('Ecobase supplier-order public API seam', () => {
     });
 
     await db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).create({
-      values: { id: 1, naturalKey: 'legacy-order-1', company: 'Ecofission LLC', status: 'planned' },
+      values: { id: 1, naturalKey: 'legacy-order-1', company: 'Ecofission LLC', supplierId: 'supplier-1', status: 'planned' },
     });
     await db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).create({
-      values: { id: 1, naturalKey: 'legacy-line-1', supplierOrderId: 1, orderedQty: 1, receivedQty: 0 },
+      values: { id: 1, naturalKey: 'legacy-line-1', supplierOrderId: 1, company: 'Ecofission LLC', supplierId: 'supplier-1', orderedQty: 1, receivedQty: 0 },
     });
-    await actions.updateOrderOperatorFields(createActionContext(db, { supplierOrderId: 1, status: 'confirmed' }), vi.fn());
-    await actions.updateLineOperatorFields(createActionContext(db, { supplierOrderLineId: 1, receivedQty: 1 }), vi.fn());
+    await actions.updateOrderOperatorFields(
+      createActionContext(db, { supplierOrderId: 1, company: 'Ecofission LLC', status: 'confirmed' }),
+      vi.fn(),
+    );
+    await actions.updateLineOperatorFields(
+      createActionContext(db, { supplierOrderLineId: 1, company: 'Ecofission LLC', receivedQty: 1 }),
+      vi.fn(),
+    );
     expect(db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).all().find((record) => record.id === 1)).toMatchObject({
       status: 'confirmed',
       statusSource: 'manual',
@@ -241,6 +277,175 @@ describe('Ecobase supplier-order public API seam', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).all().find((record) => record.id === 1)).toMatchObject({
       receivedQty: 1,
       receivedQtySource: 'manual',
+    });
+  });
+});
+
+describe('Ecobase supplier-order workspace API seam', () => {
+  it('creates planned orders from reorder candidates, records activity, and isolates companies', async () => {
+    const db = new MemoryDatabase();
+    const actions = createEcobaseSupplierOrderActions();
+    await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).create({
+      values: { id: '11111111-1111-4111-8111-111111111111', name: 'Order sheet', sourceType: 'google_sheets', domain: 'order_management', config: {}, active: true },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.planningProducts).create({
+      values: {
+        id: '22222222-2222-4222-8222-222222222222',
+        naturalKey: 'planning-product:Ecofission LLC:B00ORDER',
+        company: 'Ecofission LLC',
+        canonicalAsin: 'B00ORDER',
+        title: 'Order candidate',
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.planningProducts).create({
+      values: {
+        id: '33333333-3333-4333-8333-333333333333',
+        naturalKey: 'planning-product:Other LLC:B00ORDER',
+        company: 'Other LLC',
+        canonicalAsin: 'B00ORDER',
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.suppliers).create({
+      values: {
+        id: '44444444-4444-4444-8444-444444444444',
+        naturalKey: 'supplier:Ecofission LLC:preferred supplier',
+        company: 'Ecofission LLC',
+        name: 'Preferred Supplier',
+        sourceConnectionId: '11111111-1111-4111-8111-111111111111',
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.supplierProductLinks).create({
+      values: {
+        id: '55555555-5555-4555-8555-555555555555',
+        naturalKey: 'supplier-product-link:Ecofission LLC:22222222-2222-4222-8222-222222222222:44444444-4444-4444-8444-444444444444:preferred',
+        company: 'Ecofission LLC',
+        planningProductId: '22222222-2222-4222-8222-222222222222',
+        supplierId: '44444444-4444-4444-8444-444444444444',
+        role: 'preferred',
+        active: true,
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).create({
+      values: { id: 'raw-row-other-company', importRunId: 'other-import-run', rowNumber: 1, payload: { company: 'Other LLC' } },
+    });
+
+    const workspaceBefore = createActionContext(db, { company: 'Ecofission LLC', stockoutDate: '2025-07-20' });
+    await actions.workspace(workspaceBefore, vi.fn());
+    expect(workspaceBefore.body).toMatchObject({
+      data: {
+        reorderCandidates: [
+          expect.objectContaining({
+            planningProductId: '22222222-2222-4222-8222-222222222222',
+            preferredSupplierId: '44444444-4444-4444-8444-444444444444',
+            coverage: expect.objectContaining({ coverageState: 'no_open_order' }),
+          }),
+        ],
+        rawImportRows: [],
+      },
+    });
+
+    const createOrderContext = createActionContext(db, {
+      company: 'Ecofission LLC',
+      planningProductId: '22222222-2222-4222-8222-222222222222',
+      orderedQty: 12,
+      expectedDeliveryDate: '2025-07-18',
+      expectedSellableDate: '2025-07-19',
+      externalOrderRef: 'PO-MANUAL-1',
+      notes: 'created from workspace',
+    });
+    await actions.createPlannedOrder(createOrderContext, vi.fn());
+    expect(createOrderContext.body).toMatchObject({
+      data: {
+        order: expect.objectContaining({ status: 'planned', sourceStage: 'manual', externalOrderRef: 'PO-MANUAL-1' }),
+        line: expect.objectContaining({ orderedQty: 12, expectedSellableDate: '2025-07-19' }),
+        coverage: expect.objectContaining({ coverageState: 'incomplete_or_stale', totalOpenQty: 12 }),
+      },
+    });
+
+    const lineId = String(createOrderContext.body.data.line.id);
+    await actions.updateLineOperatorFields(
+      createActionContext(db, { supplierOrderLineId: lineId, company: 'Ecofission LLC', receivedQty: 5 }),
+      vi.fn(),
+    );
+    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).all().find((record) => record.id === lineId)).toMatchObject({
+      receivedQty: 5,
+      receivedQtySource: 'manual',
+    });
+
+    const orderId = String(createOrderContext.body.data.order.id);
+    await actions.recordActivity(
+      createActionContext(db, {
+        company: 'Ecofission LLC',
+        supplierId: '44444444-4444-4444-8444-444444444444',
+        supplierOrderId: orderId,
+        activityType: 'contacted_supplier',
+        occurredAt: '2025-07-10T09:30:00.000Z',
+        notes: 'supplier contacted',
+      }),
+      vi.fn(),
+    );
+    await actions.recordActivity(
+      createActionContext(db, {
+        company: 'Ecofission LLC',
+        supplierId: '44444444-4444-4444-8444-444444444444',
+        supplierOrderId: orderId,
+        activityType: 'lead_time_checked',
+        occurredAt: '2025-07-10T10:00:00.000Z',
+        leadTimeDays: 9,
+        notes: 'supplier confirmed',
+      }),
+      vi.fn(),
+    );
+    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierLeadTimes).all()).toEqual([
+      expect.objectContaining({
+        supplierRefId: '44444444-4444-4444-8444-444444444444',
+        leadTimeDays: 9,
+        confirmedAt: '2025-07-10T10:00:00.000Z',
+        source: 'manual',
+      }),
+    ]);
+    await expect(
+      actions.recordActivity(
+        createActionContext(db, {
+          company: 'Ecofission LLC',
+          supplierId: '44444444-4444-4444-8444-444444444444',
+          supplierOrderId: orderId,
+          activityType: 'free_text_status',
+        }),
+        vi.fn(),
+      ),
+    ).rejects.toThrow('Ecobase supplier-order activity failed: activityType "free_text_status" is not supported.');
+    await expect(
+      actions.recordActivity(
+        createActionContext(db, {
+          company: 'Ecofission LLC',
+          supplierId: '44444444-4444-4444-8444-444444444444',
+          supplierOrderId: orderId,
+          activityType: 'lead_time_checked',
+          leadTimeDays: -1,
+        }),
+        vi.fn(),
+      ),
+    ).rejects.toThrow('Ecobase supplier-order activity failed: leadTimeDays must be an integer from 0 to 3650.');
+    await expect(
+      actions.recordActivity(
+        createActionContext(db, {
+          company: 'Other LLC',
+          supplierId: '44444444-4444-4444-8444-444444444444',
+          supplierOrderId: orderId,
+          activityType: 'contacted_supplier',
+        }),
+        vi.fn(),
+      ),
+    ).rejects.toThrow('Ecobase supplier-order activity failed: supplier belongs to a different company.');
+
+    const workspaceAfter = createActionContext(db, { company: 'Ecofission LLC', stockoutDate: '2025-07-20' });
+    await actions.workspace(workspaceAfter, vi.fn());
+    expect(workspaceAfter.body.data.reorderCandidates).toHaveLength(1);
+    expect(workspaceAfter.body.data.reorderCandidates[0]).toMatchObject({
+      coverage: expect.objectContaining({ totalOpenQty: 7 }),
+      leadTimeDays: 9,
+      latestContactAt: '2025-07-10T09:30:00.000Z',
     });
   });
 });

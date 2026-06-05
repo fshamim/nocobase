@@ -752,11 +752,13 @@ describe('Ecobase current Amazon operations CSV import', () => {
 
     await supplierOrderService.updateOrderOperatorFields({
       supplierOrderId: String(purchaseOrder.id),
+      company: 'Ecofission LLC',
       status: 'blocked',
       actor: 'operator-1',
     });
     await supplierOrderService.updateLineOperatorFields({
       supplierOrderLineId: String(purchaseOrderLine.id),
+      company: 'Ecofission LLC',
       receivedQty: 10,
       expectedSellableDate: '2025-07-30',
       actor: 'operator-1',

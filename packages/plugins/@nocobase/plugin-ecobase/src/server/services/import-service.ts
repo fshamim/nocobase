@@ -4,7 +4,7 @@ import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { EcobaseDataWarningService } from './data-warning-service';
 import type { EcobaseDataWarning } from './data-warning-service';
 import { EcobasePlanningProductService } from './planning-product-service';
-import { EcobaseSupplierOrderService } from './supplier-order-service';
+import { EcobaseSupplierOrderService, validateSupplierLeadTimeDays } from './supplier-order-service';
 
 type Filter = Record<string, unknown>;
 
@@ -111,6 +111,31 @@ function getNumber(record: unknown, key: string): number {
   const plain = toPlainRecord(record);
   const value = plain[key];
   return typeof value === 'number' ? value : 0;
+}
+
+function getOptionalNumber(record: unknown, key: string): number | undefined {
+  const plain = toPlainRecord(record);
+  const value = plain[key];
+  return typeof value === 'number' ? value : undefined;
+}
+
+function hasField(record: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, key);
+}
+
+function requireNumberField(record: Record<string, unknown>, key: string, context: string): number {
+  const value = record[key];
+  if (typeof value !== 'number') {
+    throw new Error(`${context}: ${key} must be a number.`);
+  }
+  return value;
+}
+
+function getOptionalNumberField(record: Record<string, unknown>, key: string, context: string): number | undefined {
+  if (!hasField(record, key) || record[key] === undefined) {
+    return undefined;
+  }
+  return requireNumberField(record, key, context);
 }
 
 function getConfig(record: unknown): Record<string, unknown> {
@@ -471,7 +496,22 @@ export class EcobaseImportService {
           `Ecobase import failed: normalized record kind "${record.kind}" is not mapped to a collection.`,
         );
       }
-      const values = { ...record.data, lastImportRunId: importRunId };
+      const values: Record<string, unknown> = { ...record.data, lastImportRunId: importRunId };
+      if (record.kind === 'supplier_lead_time') {
+        const context = 'Ecobase import failed: supplier_lead_time';
+        const leadTimeDays = validateSupplierLeadTimeDays(requireNumberField(values, 'leadTimeDays', context), context);
+        if (leadTimeDays === undefined) {
+          throw new Error('Ecobase import failed: supplier_lead_time leadTimeDays is required.');
+        }
+        values.leadTimeDays = leadTimeDays;
+      }
+      if (record.kind === 'planning_parameter') {
+        const context = 'Ecobase import failed: planning_parameter';
+        const leadTimeDays = validateSupplierLeadTimeDays(getOptionalNumberField(values, 'leadTimeDays', context), context);
+        if (leadTimeDays !== undefined) {
+          values.leadTimeDays = leadTimeDays;
+        }
+      }
       const naturalKey = getString(values, 'naturalKey');
       if (!naturalKey) {
         throw new Error(`Ecobase import failed: normalized record kind "${record.kind}" is missing naturalKey.`);
