@@ -13,12 +13,15 @@ import {
 import type { SourceAdapterRegistry } from './adapters';
 import { ECOBASE_COLLECTIONS } from './collections/names';
 import { EcobaseAccountabilityService } from './services/accountability-service';
+import { EcobaseAccuracyHarnessService } from './services/accuracy-harness-service';
+import { EcobaseAiRetrievalService } from './services/ai-retrieval-service';
 import { EcobaseAlertEvaluationService } from './services/alert-evaluation-service';
 import { EcobaseComparisonService } from './services/comparison-service';
 import { EcobaseDashboardService } from './services/dashboard-service';
 import { EcobaseImportService } from './services/import-service';
 import { EcobasePlanningCalculationService } from './services/planning-calculation-service';
 import { EcobasePlanningProductService } from './services/planning-product-service';
+import { EcobaseReportService } from './services/report-service';
 import {
   EcobaseSupplierOrderService,
   validateSupplierLeadTimeDays,
@@ -84,6 +87,128 @@ function validateSupplierOrderActivityModel(model: { get?: (key?: string) => unk
   if (activityType === 'lead_time_checked' && validatedLeadTimeDays === undefined) {
     throw new Error('Ecobase supplier-order activity failed: leadTimeDays is required for lead_time_checked.');
   }
+}
+
+export function createEcobaseAccuracyActions() {
+  return {
+    checklistTemplate: async (ctx, next) => {
+      ctx.body = { data: new EcobaseAccuracyHarnessService(ctx.db).checklistTemplate() };
+      await next();
+    },
+    recordSignoff: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseAccuracyHarnessService(ctx.db);
+      try {
+        ctx.body = {
+          data: await service.recordSignoff({
+            company: getOptionalString(values, 'company'),
+            status: getOptionalString(values, 'status') as 'draft' | 'data-quality-signed-off' | 'blocked/not-accepted-for-contract-delivery' | undefined,
+            signedOffBy: getOptionalString(values, 'signedOffBy'),
+            checklist: typeof values.checklist === 'object' && values.checklist !== null ? values.checklist as Record<string, unknown> : undefined,
+            credentialBlockers: Array.isArray(values.credentialBlockers) ? values.credentialBlockers : undefined,
+            notes: getOptionalString(values, 'notes'),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase data-quality sign-off failed.');
+        return;
+      }
+      await next();
+    },
+    evaluate: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const dataQualitySignoffId = getOptionalString(values, 'dataQualitySignoffId');
+      if (!dataQualitySignoffId) {
+        ctx.throw(400, 'Ecobase accuracy evaluation requires dataQualitySignoffId.');
+        return;
+      }
+      const service = new EcobaseAccuracyHarnessService(ctx.db);
+      try {
+        ctx.body = { data: await service.evaluate({ company: getOptionalString(values, 'company'), dataQualitySignoffId }) };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase accuracy evaluation failed.');
+        return;
+      }
+      await next();
+    },
+  };
+}
+
+export function createEcobaseAiActions() {
+  return {
+    answer: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const question = getOptionalString(values, 'question');
+      if (!question) {
+        ctx.throw(400, 'Ecobase AI answer requires question.');
+        return;
+      }
+      const service = new EcobaseAiRetrievalService(ctx.db);
+      try {
+        ctx.body = {
+          data: await service.answerQuestion({
+            question,
+            company: getOptionalString(values, 'company'),
+            date: getOptionalString(values, 'date'),
+            period: getOptionalString(values, 'period'),
+            periodType: getOptionalString(values, 'periodType') as 'daily' | 'weekly' | 'monthly' | undefined,
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase AI answer failed.');
+        return;
+      }
+      await next();
+    },
+    retrieveFacts: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseAiRetrievalService(ctx.db);
+      ctx.body = {
+        data: await service.retrieveFacts({
+          question: getOptionalString(values, 'question') ?? 'Retrieve scoped Ecobase facts.',
+          company: getOptionalString(values, 'company'),
+          date: getOptionalString(values, 'date'),
+          period: getOptionalString(values, 'period'),
+          periodType: getOptionalString(values, 'periodType') as 'daily' | 'weekly' | 'monthly' | undefined,
+        }),
+      };
+      await next();
+    },
+    coverage: async (ctx, next) => {
+      ctx.body = { data: new EcobaseAiRetrievalService(ctx.db).coverageMatrix() };
+      await next();
+    },
+  };
+}
+
+export function createEcobaseReportActions() {
+  return {
+    generatePreview: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const frequency = getOptionalString(values, 'frequency');
+      if (frequency !== 'daily' && frequency !== 'weekly' && frequency !== 'monthly') {
+        ctx.throw(400, 'Ecobase report generation requires frequency to be daily, weekly, or monthly.');
+        return;
+      }
+      const service = new EcobaseReportService(ctx.db);
+      try {
+        ctx.body = {
+          data: await service.generateReport({
+            frequency,
+            company: getOptionalString(values, 'company'),
+            period: getOptionalString(values, 'period'),
+            date: getOptionalString(values, 'date'),
+            emailEnabled: values.emailEnabled === true,
+            emailRecipient: getOptionalString(values, 'emailRecipient'),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase report generation failed.');
+        return;
+      }
+      await next();
+    },
+  };
 }
 
 export function createEcobaseDashboardActions() {
@@ -616,6 +741,18 @@ export class PluginEcobaseServer extends Plugin {
       name: 'ecobaseDashboard',
       actions: createEcobaseDashboardActions(),
     });
+    this.app.resourceManager.define({
+      name: 'ecobaseReports',
+      actions: createEcobaseReportActions(),
+    });
+    this.app.resourceManager.define({
+      name: 'ecobaseAi',
+      actions: createEcobaseAiActions(),
+    });
+    this.app.resourceManager.define({
+      name: 'ecobaseAccuracy',
+      actions: createEcobaseAccuracyActions(),
+    });
 
     this.app.acl.allow('ecobaseImport', ['run', 'runDailySnapshot', 'runNoop', 'status', 'adapters'], 'loggedIn');
     this.app.acl.allow(
@@ -670,6 +807,9 @@ export class PluginEcobaseServer extends Plugin {
     this.app.acl.allow('ecobaseAccountability', ['evaluate', 'evidence', 'defaults'], 'loggedIn');
     this.app.acl.allow('ecobaseComparison', ['compare'], 'loggedIn');
     this.app.acl.allow('ecobaseDashboard', ['summary', 'settings', 'updateSettings'], 'loggedIn');
+    this.app.acl.allow('ecobaseReports', ['generatePreview'], 'loggedIn');
+    this.app.acl.allow('ecobaseAi', ['answer', 'retrieveFacts', 'coverage'], 'loggedIn');
+    this.app.acl.allow('ecobaseAccuracy', ['checklistTemplate', 'recordSignoff', 'evaluate'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.ruleVersions, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.alertEvaluations, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.alerts, ['list', 'get'], 'loggedIn');
@@ -678,6 +818,12 @@ export class PluginEcobaseServer extends Plugin {
     this.app.acl.allow(ECOBASE_COLLECTIONS.okrs, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.okrMetricSnapshots, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.sourceAccessAudits, ['list', 'get'], 'loggedIn');
+    this.app.acl.allow(ECOBASE_COLLECTIONS.reportRuns, ['list', 'get'], 'loggedIn');
+    this.app.acl.allow(ECOBASE_COLLECTIONS.reportItems, ['list', 'get'], 'loggedIn');
+    this.app.acl.allow(ECOBASE_COLLECTIONS.aiAnswers, ['list', 'get'], 'loggedIn');
+    this.app.acl.allow(ECOBASE_COLLECTIONS.dataQualitySignoffs, ['list', 'get'], 'loggedIn');
+    this.app.acl.allow(ECOBASE_COLLECTIONS.benchmarkFixtures, ['list', 'get', 'create', 'update'], 'loggedIn');
+    this.app.acl.allow(ECOBASE_COLLECTIONS.accuracyEvaluationRuns, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(
       ECOBASE_COLLECTIONS.sourceWarningPolicies,
       ['list', 'get', 'create', 'update', 'destroy'],

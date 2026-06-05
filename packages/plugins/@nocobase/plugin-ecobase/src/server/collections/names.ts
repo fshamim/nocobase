@@ -31,6 +31,12 @@ export const ECOBASE_COLLECTIONS = {
   okrMetricSnapshots: 'ecobaseOkrMetricSnapshots',
   sourceAccessAudits: 'ecobaseSourceAccessAudits',
   sourceWarningPolicies: 'ecobaseSourceWarningPolicies',
+  reportRuns: 'ecobaseReportRuns',
+  reportItems: 'ecobaseReportItems',
+  aiAnswers: 'ecobaseAiAnswers',
+  dataQualitySignoffs: 'ecobaseDataQualitySignoffs',
+  benchmarkFixtures: 'ecobaseBenchmarkFixtures',
+  accuracyEvaluationRuns: 'ecobaseAccuracyEvaluationRuns',
 } as const;
 
 export type EcobaseCollectionName = (typeof ECOBASE_COLLECTIONS)[keyof typeof ECOBASE_COLLECTIONS];

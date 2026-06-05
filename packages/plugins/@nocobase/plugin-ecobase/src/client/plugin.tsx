@@ -1,9 +1,12 @@
 import { Plugin, lazy } from '@nocobase/client';
 
+const AccuracyHarnessPage = lazy(() => import('./pages/AccuracyHarnessPage'));
+const AiEvidencePage = lazy(() => import('./pages/AiEvidencePage'));
 const AlertEvaluationPage = lazy(() => import('./pages/AlertEvaluationPage'));
 const ImportStatusPage = lazy(() => import('./pages/ImportStatusPage'));
 const ManagementDashboardPage = lazy(() => import('./pages/ManagementDashboardPage'));
 const OrderManagementPage = lazy(() => import('./pages/OrderManagementPage'));
+const ReportPreviewPage = lazy(() => import('./pages/ReportPreviewPage'));
 
 export class PluginEcobaseClient extends Plugin<Record<string, unknown>> {
   async load() {
@@ -29,6 +32,24 @@ export class PluginEcobaseClient extends Plugin<Record<string, unknown>> {
       title: this.t('Ecobase management dashboard'),
       icon: 'DashboardOutlined',
       Component: ManagementDashboardPage,
+      aclSnippet: 'pm.ecobase',
+    });
+    this.pluginSettingsManager.add('ecobase-report-preview', {
+      title: this.t('Ecobase report preview'),
+      icon: 'MailOutlined',
+      Component: ReportPreviewPage,
+      aclSnippet: 'pm.ecobase',
+    });
+    this.pluginSettingsManager.add('ecobase-ai-evidence', {
+      title: this.t('Ecobase AI evidence'),
+      icon: 'RobotOutlined',
+      Component: AiEvidencePage,
+      aclSnippet: 'pm.ecobase',
+    });
+    this.pluginSettingsManager.add('ecobase-accuracy-harness', {
+      title: this.t('Ecobase accuracy harness'),
+      icon: 'AuditOutlined',
+      Component: AccuracyHarnessPage,
       aclSnippet: 'pm.ecobase',
     });
   }

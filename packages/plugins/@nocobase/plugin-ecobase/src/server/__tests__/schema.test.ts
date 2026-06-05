@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
+import accuracyEvaluationRuns from '../collections/accuracy-evaluation-runs';
+import aiAnswers from '../collections/ai-answers';
 import alertEvaluations from '../collections/alert-evaluations';
 import alerts from '../collections/alerts';
 import amazonAccounts from '../collections/amazon-accounts';
+import benchmarkFixtures from '../collections/benchmark-fixtures';
 import clickupTaskSnapshots from '../collections/clickup-task-snapshots';
 import companies from '../collections/companies';
+import dataQualitySignoffs from '../collections/data-quality-signoffs';
 import importRuns from '../collections/import-runs';
 import inventorySnapshots from '../collections/inventory-snapshots';
 import listingDailyFacts from '../collections/listing-daily-facts';
@@ -17,6 +21,8 @@ import planningProducts from '../collections/planning-products';
 import planningParameters from '../collections/planning-parameters';
 import rawImportRows from '../collections/raw-import-rows';
 import rawListings from '../collections/raw-listings';
+import reportItems from '../collections/report-items';
+import reportRuns from '../collections/report-runs';
 import ruleVersions from '../collections/rule-versions';
 import sourceAccessAudits from '../collections/source-access-audits';
 import sourceConnections from '../collections/source-connections';
@@ -91,6 +97,12 @@ describe('Ecobase plugin-owned schema', () => {
     expect(okrMetricSnapshots.name).toBe(ECOBASE_COLLECTIONS.okrMetricSnapshots);
     expect(sourceAccessAudits.name).toBe(ECOBASE_COLLECTIONS.sourceAccessAudits);
     expect(sourceWarningPolicies.name).toBe(ECOBASE_COLLECTIONS.sourceWarningPolicies);
+    expect(reportRuns.name).toBe(ECOBASE_COLLECTIONS.reportRuns);
+    expect(reportItems.name).toBe(ECOBASE_COLLECTIONS.reportItems);
+    expect(aiAnswers.name).toBe(ECOBASE_COLLECTIONS.aiAnswers);
+    expect(dataQualitySignoffs.name).toBe(ECOBASE_COLLECTIONS.dataQualitySignoffs);
+    expect(benchmarkFixtures.name).toBe(ECOBASE_COLLECTIONS.benchmarkFixtures);
+    expect(accuracyEvaluationRuns.name).toBe(ECOBASE_COLLECTIONS.accuracyEvaluationRuns);
 
     [
       companies,
@@ -108,6 +120,12 @@ describe('Ecobase plugin-owned schema', () => {
       ruleVersions,
       alertEvaluations,
       alerts,
+      reportRuns,
+      reportItems,
+      aiAnswers,
+      dataQualitySignoffs,
+      benchmarkFixtures,
+      accuracyEvaluationRuns,
     ].forEach((collection) => {
       expect(collection.autoGenId).toBe(false);
       expect(field(collection, 'id')).toMatchObject({ type: 'uuid', primaryKey: true });
@@ -201,5 +219,24 @@ describe('Ecobase plugin-owned schema', () => {
     expect(field(sourceAccessAudits, 'blockerCode')).toMatchObject({ type: 'string' });
     expect(field(sourceWarningPolicies, 'sourceType')).toMatchObject({ type: 'string', unique: true });
     expect(field(sourceWarningPolicies, 'freshnessSlaMinutes')).toMatchObject({ type: 'integer' });
+    expect(field(reportRuns, 'frequency')).toMatchObject({ type: 'string' });
+    expect(field(reportRuns, 'emailStatus')).toMatchObject({ type: 'string' });
+    expect(field(reportRuns, 'items')).toMatchObject({
+      type: 'hasMany',
+      target: ECOBASE_COLLECTIONS.reportItems,
+      foreignKey: 'reportRunId',
+    });
+    expect(field(reportItems, 'reportRun')).toMatchObject({
+      type: 'belongsTo',
+      target: ECOBASE_COLLECTIONS.reportRuns,
+      foreignKey: 'reportRunId',
+    });
+    expect(field(reportItems, 'evidence')).toMatchObject({ type: 'jsonb' });
+    expect(field(aiAnswers, 'question')).toMatchObject({ type: 'text' });
+    expect(field(aiAnswers, 'evidenceReferences')).toMatchObject({ type: 'jsonb' });
+    expect(field(aiAnswers, 'provider')).toMatchObject({ type: 'string' });
+    expect(field(dataQualitySignoffs, 'checklist')).toMatchObject({ type: 'jsonb' });
+    expect(field(benchmarkFixtures, 'expectedRootCauses')).toMatchObject({ type: 'jsonb' });
+    expect(field(accuracyEvaluationRuns, 'criticalDetectionAccuracy')).toMatchObject({ type: 'double' });
   });
 });
