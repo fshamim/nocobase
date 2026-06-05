@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createSourceAdapterRegistry, noopTestAdapter } from '../adapters';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
-import { createEcobaseImportActions, createEcobaseSupplierOrderActions } from '../plugin';
+import { createEcobaseAlertActions, createEcobaseImportActions, createEcobaseSupplierOrderActions } from '../plugin';
 import { EcobaseDatabase, EcobaseRepository } from '../services/import-service';
 
 interface FindParams {
@@ -580,5 +580,85 @@ describe('Ecobase import public API seam', () => {
       ],
     });
     expect(next).toHaveBeenCalledOnce();
+  });
+});
+
+describe('Ecobase alert public API seam', () => {
+  it('evaluates deterministic alerts through the public resource action and lists open alerts', async () => {
+    const db = new MemoryDatabase();
+    await db.getRepository(ECOBASE_COLLECTIONS.planningProducts).create({
+      values: {
+        id: 'alert-product-1',
+        naturalKey: 'planning-product:Alerts:B010API',
+        company: 'Alerts LLC',
+        canonicalAsin: 'B010API',
+        title: 'API alert product',
+        mappingStatus: 'confirmed',
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.inventorySnapshots).create({
+      values: {
+        naturalKey: 'inventory:alert-product-1:2025-07-10',
+        sourceConnectionId: 'source-1',
+        planningProductId: 'alert-product-1',
+        snapshotDate: '2025-07-10',
+        company: 'Alerts LLC',
+        asin: 'B010API',
+        stock: 0,
+        reserved: 0,
+        inbound: 0,
+        ordered: 0,
+        prepStock: 0,
+        salesVelocity: 4,
+        recommendedReorderQuantity: 20,
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.planningParameters).create({
+      values: {
+        naturalKey: 'parameter:alert-product-1',
+        sourceConnectionId: 'source-1',
+        planningProductId: 'alert-product-1',
+        company: 'Alerts LLC',
+        asin: 'B010API',
+        leadTimeDays: 10,
+        profitPerUnit: 5,
+        recommendedBestQty: 50,
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.targetRows).create({
+      values: {
+        naturalKey: 'target:alert-product-1:2025-07',
+        sourceConnectionId: 'source-1',
+        planningProductId: 'alert-product-1',
+        company: 'Alerts LLC',
+        periodType: 'monthly',
+        period: '2025-07',
+        targetScope: 'planning_product',
+        profitTarget: 100,
+      },
+    });
+
+    const actions = createEcobaseAlertActions();
+    const evaluateContext = createActionContext(db, {
+      planningProductId: 'alert-product-1',
+      calculationDate: '2025-07-10',
+    });
+    await actions.evaluate(evaluateContext, vi.fn());
+
+    expect(evaluateContext.body.data.productCount).toBe(1);
+    expect(evaluateContext.body.data.summaries[0].rootCauseCodes).toContain('current_oos');
+    expect(evaluateContext.body.data.summaries[0].rootCauseCodes).toContain('no_supplier_order_placed');
+
+    const listContext = createActionContext(db, { company: 'Alerts LLC', status: 'open' });
+    await actions.list(listContext, vi.fn());
+    expect(listContext.body.data).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          alertType: 'oos',
+          primaryRootCauseCode: 'current_oos',
+          actionRequired: 'Restore sellable Amazon stock immediately or confirm an active recovery order.',
+        }),
+      ]),
+    );
   });
 });

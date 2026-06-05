@@ -22,6 +22,9 @@ export const ECOBASE_COLLECTIONS = {
   supplierOrderSettings: 'ecobaseSupplierOrderSettings',
   targetRows: 'ecobaseTargetRows',
   planningCalculationSnapshots: 'ecobasePlanningCalculationSnapshots',
+  ruleVersions: 'ecobaseRuleVersions',
+  alertEvaluations: 'ecobaseAlertEvaluations',
+  alerts: 'ecobaseAlerts',
   sourceAccessAudits: 'ecobaseSourceAccessAudits',
   sourceWarningPolicies: 'ecobaseSourceWarningPolicies',
 } as const;

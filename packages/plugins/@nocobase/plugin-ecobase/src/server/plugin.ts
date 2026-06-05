@@ -10,6 +10,7 @@ import {
 } from './adapters';
 import type { SourceAdapterRegistry } from './adapters';
 import { ECOBASE_COLLECTIONS } from './collections/names';
+import { EcobaseAlertEvaluationService } from './services/alert-evaluation-service';
 import { EcobaseImportService } from './services/import-service';
 import { EcobasePlanningCalculationService } from './services/planning-calculation-service';
 import { EcobasePlanningProductService } from './services/planning-product-service';
@@ -155,6 +156,44 @@ export function createEcobasePlanningActions() {
     validationReport: async (ctx, next) => {
       const service = new EcobasePlanningCalculationService(ctx.db);
       ctx.body = { data: await service.validateBenchmarks() };
+      await next();
+    },
+  };
+}
+
+export function createEcobaseAlertActions() {
+  return {
+    evaluate: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseAlertEvaluationService(ctx.db);
+      try {
+        ctx.body = {
+          data: await service.evaluatePlanningProducts({
+            planningProductId: getOptionalString(values, 'planningProductId'),
+            company: getOptionalString(values, 'company'),
+            calculationDate: getOptionalString(values, 'calculationDate'),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase alert evaluation failed.');
+        return;
+      }
+      await next();
+    },
+    list: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseAlertEvaluationService(ctx.db);
+      ctx.body = {
+        data: await service.listAlerts({
+          company: getOptionalString(values, 'company'),
+          status: getOptionalString(values, 'status') as never,
+          limit: getOptionalNumber(values, 'limit'),
+        }),
+      };
+      await next();
+    },
+    defaults: async (ctx, next) => {
+      ctx.body = { data: EcobaseAlertEvaluationService.defaultConfig() };
       await next();
     },
   };
@@ -449,6 +488,10 @@ export class PluginEcobaseServer extends Plugin {
       name: 'ecobaseSupplierOrders',
       actions: createEcobaseSupplierOrderActions(),
     });
+    this.app.resourceManager.define({
+      name: 'ecobaseAlerts',
+      actions: createEcobaseAlertActions(),
+    });
 
     this.app.acl.allow('ecobaseImport', ['run', 'runDailySnapshot', 'runNoop', 'status', 'adapters'], 'loggedIn');
     this.app.acl.allow(
@@ -499,6 +542,10 @@ export class PluginEcobaseServer extends Plugin {
     this.app.acl.allow(ECOBASE_COLLECTIONS.supplierOrderSettings, ['list', 'get', 'create', 'update'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.targetRows, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.planningCalculationSnapshots, ['list', 'get'], 'loggedIn');
+    this.app.acl.allow('ecobaseAlerts', ['evaluate', 'list', 'defaults'], 'loggedIn');
+    this.app.acl.allow(ECOBASE_COLLECTIONS.ruleVersions, ['list', 'get'], 'loggedIn');
+    this.app.acl.allow(ECOBASE_COLLECTIONS.alertEvaluations, ['list', 'get'], 'loggedIn');
+    this.app.acl.allow(ECOBASE_COLLECTIONS.alerts, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.sourceAccessAudits, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(
       ECOBASE_COLLECTIONS.sourceWarningPolicies,

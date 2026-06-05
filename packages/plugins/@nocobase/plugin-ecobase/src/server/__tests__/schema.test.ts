@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import alertEvaluations from '../collections/alert-evaluations';
+import alerts from '../collections/alerts';
 import amazonAccounts from '../collections/amazon-accounts';
 import companies from '../collections/companies';
 import importRuns from '../collections/import-runs';
@@ -12,6 +14,7 @@ import planningProducts from '../collections/planning-products';
 import planningParameters from '../collections/planning-parameters';
 import rawImportRows from '../collections/raw-import-rows';
 import rawListings from '../collections/raw-listings';
+import ruleVersions from '../collections/rule-versions';
 import sourceAccessAudits from '../collections/source-access-audits';
 import sourceConnections from '../collections/source-connections';
 import sourceWarningPolicies from '../collections/source-warning-policies';
@@ -75,6 +78,9 @@ describe('Ecobase plugin-owned schema', () => {
     expect(supplierOrderSettings.name).toBe(ECOBASE_COLLECTIONS.supplierOrderSettings);
     expect(targetRows.name).toBe(ECOBASE_COLLECTIONS.targetRows);
     expect(planningCalculationSnapshots.name).toBe(ECOBASE_COLLECTIONS.planningCalculationSnapshots);
+    expect(ruleVersions.name).toBe(ECOBASE_COLLECTIONS.ruleVersions);
+    expect(alertEvaluations.name).toBe(ECOBASE_COLLECTIONS.alertEvaluations);
+    expect(alerts.name).toBe(ECOBASE_COLLECTIONS.alerts);
     expect(sourceAccessAudits.name).toBe(ECOBASE_COLLECTIONS.sourceAccessAudits);
     expect(sourceWarningPolicies.name).toBe(ECOBASE_COLLECTIONS.sourceWarningPolicies);
 
@@ -91,6 +97,9 @@ describe('Ecobase plugin-owned schema', () => {
       supplierOrders,
       supplierOrderLines,
       supplierOrderActivities,
+      ruleVersions,
+      alertEvaluations,
+      alerts,
     ].forEach((collection) => {
       expect(collection.autoGenId).toBe(false);
       expect(field(collection, 'id')).toMatchObject({ type: 'uuid', primaryKey: true });
@@ -168,6 +177,12 @@ describe('Ecobase plugin-owned schema', () => {
     expect(field(planningCalculationSnapshots, 'ruleVersion')).toMatchObject({ type: 'string' });
     expect(field(planningCalculationSnapshots, 'currentStockParity')).toMatchObject({ type: 'double' });
     expect(field(planningCalculationSnapshots, 'dataCompleteness')).toMatchObject({ type: 'string' });
+    expect(field(ruleVersions, 'config')).toMatchObject({ type: 'jsonb' });
+    expect(field(alertEvaluations, 'rootCauses')).toMatchObject({ type: 'jsonb' });
+    expect(field(alertEvaluations, 'estimatedProfitRisk')).toMatchObject({ type: 'double' });
+    expect(field(alerts, 'dedupeKey')).toMatchObject({ type: 'string', unique: true });
+    expect(field(alerts, 'primaryRootCauseCode')).toMatchObject({ type: 'string' });
+    expect(field(alerts, 'actionRequired')).toMatchObject({ type: 'text' });
     expect(field(sourceAccessAudits, 'blockerCode')).toMatchObject({ type: 'string' });
     expect(field(sourceWarningPolicies, 'sourceType')).toMatchObject({ type: 'string', unique: true });
     expect(field(sourceWarningPolicies, 'freshnessSlaMinutes')).toMatchObject({ type: 'integer' });
