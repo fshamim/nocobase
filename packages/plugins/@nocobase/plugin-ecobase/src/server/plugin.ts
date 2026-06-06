@@ -21,6 +21,7 @@ import { EcobaseDashboardService } from './services/dashboard-service';
 import { EcobaseImportService } from './services/import-service';
 import { EcobasePlanningCalculationService } from './services/planning-calculation-service';
 import { EcobasePlanningProductService } from './services/planning-product-service';
+import { EcobaseOperatorWorkspaceService } from './services/operator-workspace-service';
 import { EcobaseReportService } from './services/report-service';
 import {
   EcobaseSupplierOrderService,
@@ -239,6 +240,44 @@ export function createEcobaseDashboardActions() {
       const values = getValues(ctx.action.params);
       const service = new EcobaseDashboardService(ctx.db);
       ctx.body = { data: await service.updateSettings(values) };
+      await next();
+    },
+  };
+}
+
+export function createEcobaseOperatorWorkspaceActions() {
+  return {
+    workspace: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseOperatorWorkspaceService(ctx.db);
+      ctx.body = {
+        data: await service.getWorkspace({
+          company: getOptionalString(values, 'company'),
+          sourceConnectionId: getOptionalString(values, 'sourceConnectionId'),
+        }),
+      };
+      await next();
+    },
+    preview: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseOperatorWorkspaceService(ctx.db);
+      try {
+        ctx.body = { data: await service.previewView(values) };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase operator workspace preview failed.');
+        return;
+      }
+      await next();
+    },
+    saveView: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseOperatorWorkspaceService(ctx.db);
+      try {
+        ctx.body = { data: await service.saveBusinessView(values) };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase operator workspace save view failed.');
+        return;
+      }
       await next();
     },
   };
@@ -667,6 +706,48 @@ export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
       ctx.body = { data: importRun };
       await next();
     },
+    forceRefresh: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const sourceConnectionId = getOptionalString(values, 'sourceConnectionId');
+      if (!sourceConnectionId) {
+        ctx.throw(400, 'Ecobase Sellerboard force refresh requires sourceConnectionId.');
+        return;
+      }
+
+      const service = new EcobaseImportService(ctx.db, registry);
+      try {
+        ctx.body = {
+          data: await service.runAdapterImport({
+            sourceConnectionId,
+            adapterName: getOptionalString(values, 'adapterName') ?? 'sellerboard-api',
+            sourceIdentifier: getOptionalString(values, 'sourceIdentifier') ?? 'sellerboard-force-refresh',
+            sourceVersion: getOptionalString(values, 'sourceVersion'),
+            idempotencyKey: getOptionalString(values, 'idempotencyKey'),
+            preserveAuditRun: true,
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase Sellerboard force refresh failed.');
+        return;
+      }
+      await next();
+    },
+    runScheduledSellerboard: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseImportService(ctx.db, registry);
+      try {
+        ctx.body = {
+          data: await service.runScheduledSellerboardImports({
+            now: getOptionalString(values, 'now'),
+            sourceConnectionId: getOptionalString(values, 'sourceConnectionId'),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase scheduled Sellerboard import failed.');
+        return;
+      }
+      await next();
+    },
     runNoop: async (ctx, next) => {
       const values = getValues(ctx.action.params);
       const sourceConnectionId = getOptionalString(values, 'sourceConnectionId');
@@ -742,6 +823,10 @@ export class PluginEcobaseServer extends Plugin {
       actions: createEcobaseDashboardActions(),
     });
     this.app.resourceManager.define({
+      name: 'ecobaseOperatorWorkspace',
+      actions: createEcobaseOperatorWorkspaceActions(),
+    });
+    this.app.resourceManager.define({
       name: 'ecobaseReports',
       actions: createEcobaseReportActions(),
     });
@@ -754,7 +839,7 @@ export class PluginEcobaseServer extends Plugin {
       actions: createEcobaseAccuracyActions(),
     });
 
-    this.app.acl.allow('ecobaseImport', ['run', 'runDailySnapshot', 'runNoop', 'status', 'adapters'], 'loggedIn');
+    this.app.acl.allow('ecobaseImport', ['run', 'runDailySnapshot', 'forceRefresh', 'runScheduledSellerboard', 'runNoop', 'status', 'adapters'], 'loggedIn');
     this.app.acl.allow(
       'ecobasePlanning',
       [
@@ -767,9 +852,9 @@ export class PluginEcobaseServer extends Plugin {
       ],
       'loggedIn',
     );
-    this.app.acl.allow(ECOBASE_COLLECTIONS.companies, ['list', 'get', 'create', 'update', 'destroy'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.amazonAccounts, ['list', 'get', 'create', 'update', 'destroy'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.sourceConnections, ['list', 'get', 'create', 'update'], 'loggedIn');
+    this.app.acl.allow(ECOBASE_COLLECTIONS.companies, ['list', 'get'], 'loggedIn');
+    this.app.acl.allow(ECOBASE_COLLECTIONS.amazonAccounts, ['list', 'get'], 'loggedIn');
+    this.app.acl.allow(ECOBASE_COLLECTIONS.sourceConnections, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.importRuns, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.rawImportRows, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.rawListings, ['list', 'get'], 'loggedIn');
@@ -800,13 +885,14 @@ export class PluginEcobaseServer extends Plugin {
     this.app.acl.allow(ECOBASE_COLLECTIONS.supplierOrders, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.supplierOrderLines, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.supplierOrderActivities, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.supplierOrderSettings, ['list', 'get', 'create', 'update'], 'loggedIn');
+    this.app.acl.allow(ECOBASE_COLLECTIONS.supplierOrderSettings, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.targetRows, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.planningCalculationSnapshots, ['list', 'get'], 'loggedIn');
     this.app.acl.allow('ecobaseAlerts', ['evaluate', 'list', 'defaults'], 'loggedIn');
     this.app.acl.allow('ecobaseAccountability', ['evaluate', 'evidence', 'defaults'], 'loggedIn');
     this.app.acl.allow('ecobaseComparison', ['compare'], 'loggedIn');
-    this.app.acl.allow('ecobaseDashboard', ['summary', 'settings', 'updateSettings'], 'loggedIn');
+    this.app.acl.allow('ecobaseDashboard', ['summary', 'settings'], 'loggedIn');
+    this.app.acl.allow('ecobaseOperatorWorkspace', ['workspace', 'preview', 'saveView'], 'loggedIn');
     this.app.acl.allow('ecobaseReports', ['generatePreview'], 'loggedIn');
     this.app.acl.allow('ecobaseAi', ['answer', 'retrieveFacts', 'coverage'], 'loggedIn');
     this.app.acl.allow('ecobaseAccuracy', ['checklistTemplate', 'recordSignoff', 'evaluate'], 'loggedIn');
@@ -822,13 +908,9 @@ export class PluginEcobaseServer extends Plugin {
     this.app.acl.allow(ECOBASE_COLLECTIONS.reportItems, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.aiAnswers, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.dataQualitySignoffs, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.benchmarkFixtures, ['list', 'get', 'create', 'update'], 'loggedIn');
+    this.app.acl.allow(ECOBASE_COLLECTIONS.benchmarkFixtures, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.accuracyEvaluationRuns, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(
-      ECOBASE_COLLECTIONS.sourceWarningPolicies,
-      ['list', 'get', 'create', 'update', 'destroy'],
-      'loggedIn',
-    );
+    this.app.acl.allow(ECOBASE_COLLECTIONS.sourceWarningPolicies, ['list', 'get'], 'loggedIn');
   }
 }
 

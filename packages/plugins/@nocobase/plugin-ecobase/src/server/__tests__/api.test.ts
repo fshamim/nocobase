@@ -286,7 +286,10 @@ describe('Ecobase supplier-order workspace API seam', () => {
     const db = new MemoryDatabase();
     const actions = createEcobaseSupplierOrderActions();
     await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).create({
-      values: { id: '11111111-1111-4111-8111-111111111111', name: 'Order sheet', sourceType: 'google_sheets', domain: 'order_management', config: {}, active: true },
+      values: { id: '11111111-1111-4111-8111-111111111111', name: 'Order sheet', company: 'Ecofission LLC', sourceType: 'google_sheets', domain: 'order_management', config: {}, active: true },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.importRuns).create({
+      values: { id: 'eco-import-run', sourceConnectionId: '11111111-1111-4111-8111-111111111111', status: 'success' },
     });
     await db.getRepository(ECOBASE_COLLECTIONS.planningProducts).create({
       values: {
@@ -326,7 +329,20 @@ describe('Ecobase supplier-order workspace API seam', () => {
       },
     });
     await db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).create({
-      values: { id: 'raw-row-other-company', importRunId: 'other-import-run', rowNumber: 1, payload: { company: 'Other LLC' } },
+      values: { id: 'raw-row-eco-company', importRunId: 'eco-import-run', rowNumber: 1, payload: { company: 'Ecofission LLC' } },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).create({
+      values: { id: 'raw-row-other-company', importRunId: 'other-import-run', rowNumber: 2, payload: { company: 'Other LLC' } },
+    });
+
+    const unscopedWorkspace = createActionContext(db, { stockoutDate: '2025-07-20' });
+    await actions.workspace(unscopedWorkspace, vi.fn());
+    expect(unscopedWorkspace.body.data).toMatchObject({
+      reorderCandidates: [],
+      supplierOrders: [],
+      supplierOrderLines: [],
+      rawImportRows: [],
+      dataWarnings: ['company_filter_required'],
     });
 
     const workspaceBefore = createActionContext(db, { company: 'Ecofission LLC', stockoutDate: '2025-07-20' });
@@ -340,7 +356,7 @@ describe('Ecobase supplier-order workspace API seam', () => {
             coverage: expect.objectContaining({ coverageState: 'no_open_order' }),
           }),
         ],
-        rawImportRows: [],
+        rawImportRows: [expect.objectContaining({ id: 'raw-row-eco-company', importRunId: 'eco-import-run' })],
       },
     });
 
@@ -404,6 +420,21 @@ describe('Ecobase supplier-order workspace API seam', () => {
         source: 'manual',
       }),
     ]);
+    for (const activityType of ['status_update', 'note', 'blocked', 'unblocked']) {
+      await actions.recordActivity(
+        createActionContext(db, {
+          company: 'Ecofission LLC',
+          supplierId: '44444444-4444-4444-8444-444444444444',
+          supplierOrderId: orderId,
+          activityType,
+          notes: `${activityType} recorded`,
+        }),
+        vi.fn(),
+      );
+    }
+    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities).all().map((activity) => activity.activityType)).toEqual(
+      expect.arrayContaining(['contacted_supplier', 'lead_time_checked', 'status_update', 'note', 'blocked', 'unblocked']),
+    );
     await expect(
       actions.recordActivity(
         createActionContext(db, {

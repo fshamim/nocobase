@@ -141,6 +141,35 @@ POST /api/ecobaseImport:runDailySnapshot
 
 If the same source/version already has a successful run, the daily action writes a distinct `skipped` import run with the no-newer-data message. Normal CSV re-imports always preserve a distinct import-run audit trail while upserting normalized records by source/date/key.
 
+Sellerboard automation report CSV URLs use the `sellerboard-api` adapter. Store URL/token values in a secret reference where possible; `config.reportUrls` is supported for local QA with redacted/test URLs.
+
+```json
+{
+  "reportUrls": [
+    { "name": "Profit Dashboard Data", "category": "profit_dashboard", "url": "https://app.sellerboard.com/en/automation/reports?..." },
+    { "name": "Stock Daily Data", "category": "stock_daily", "url": "https://app.sellerboard.com/en/automation/reports?..." },
+    { "name": "Profit by Product Dashboard Daily Data", "category": "profit_by_product_daily", "url": "https://app.sellerboard.com/en/automation/reports?..." }
+  ],
+  "schedule": { "dailyRefreshTime": "09:00", "retryIntervalMinutes": 60 },
+  "requireFreshData": true
+}
+```
+
+```http
+POST /api/ecobaseImport:runScheduledSellerboard
+{ "sourceConnectionId": "<source-connection-id>", "now": "2026-06-05T09:00:00.000Z" }
+
+POST /api/ecobaseImport:forceRefresh
+{
+  "sourceConnectionId": "<source-connection-id>",
+  "sourceVersion": "2026-06-05"
+}
+```
+
+Scheduled Sellerboard runs use `sourceVersion` as the expected fresh report date. If Sellerboard has not published data for that date/window, the run records `stale` and the scheduler waits for the configured retry interval before trying again. Force refresh bypasses the no-newer-data skip and upserts by natural key, so same-day facts are overwritten instead of duplicated.
+
+The live-gate Docker Compose uses a named PostgreSQL volume. `scripts/start-live-gate.sh` and `scripts/stop-live-gate.sh` preserve this volume by default. Destructive reset requires `ECOBASE_LIVE_GATE_DESTROY_DATA=1 ECOBASE_LIVE_GATE_CONFIRM_DESTROY=destroy-live-sellerboard-data`. Run `scripts/backup-live-gate-db.sh` before any destructive reset to export the review database.
+
 Normalized records are stored in plugin-owned collections:
 
 - `ecobaseRawListings`

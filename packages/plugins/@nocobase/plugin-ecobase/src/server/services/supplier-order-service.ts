@@ -214,6 +214,9 @@ function toPlainRecord(value: unknown): PlainRecord {
 }
 
 function asString(value: unknown): string | undefined {
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 }
 
@@ -421,7 +424,21 @@ export class EcobaseSupplierOrderService {
 
   async getWorkspace(filters: SupplierOrderWorkspaceFilters = {}) {
     const limit = Math.min(Math.max(filters.limit ?? 50, 1), 200);
-    const companyFilter = filters.company ? { company: filters.company } : {};
+    if (!filters.company) {
+      return {
+        filters,
+        reorderCandidates: [],
+        supplierOrders: [],
+        supplierOrderLines: [],
+        supplierProductLinks: [],
+        activities: [],
+        suppliers: [],
+        leadTimes: [],
+        rawImportRows: [],
+        dataWarnings: ['company_filter_required'],
+      };
+    }
+    const companyFilter = { company: filters.company };
     const orderFilter = { ...companyFilter, ...(filters.status ? { status: filters.status } : {}) };
     const planningProducts = (await this.db.getRepository(ECOBASE_COLLECTIONS.planningProducts).find({
       filter: companyFilter,
@@ -458,12 +475,31 @@ export class EcobaseSupplierOrderService {
       sort: ['-confirmedAt'],
       limit: limit * 2,
     })).map(toPlainRecord);
-    const rawImportRows = filters.company
-      ? []
-      : (await this.db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).find({
-          sort: ['-rowNumber'],
-          limit,
-        })).map(toPlainRecord);
+    let rawImportRows: PlainRecord[];
+    if (filters.company) {
+      const companies = (await this.db.getRepository(ECOBASE_COLLECTIONS.companies).find({ limit: 500 })).map(toPlainRecord);
+      const companyId = asString(companies.find((company) => asString(company.name) === filters.company)?.id);
+      const sourceConnections = (await this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).find({ limit: 500 })).map(toPlainRecord);
+      const sourceConnectionIds = new Set(
+        sourceConnections
+          .filter((source) => asString(source.company) === filters.company || (companyId && asString(source.companyId) === companyId))
+          .map((source) => asString(source.id))
+          .filter((sourceId): sourceId is string => Boolean(sourceId)),
+      );
+      const importRuns = (await this.db.getRepository(ECOBASE_COLLECTIONS.importRuns).find({ limit: 500 })).map(toPlainRecord);
+      const importRunIds = new Set(
+        importRuns
+          .filter((run) => sourceConnectionIds.has(String(run.sourceConnectionId ?? '')))
+          .map((run) => asString(run.id))
+          .filter((runId): runId is string => Boolean(runId)),
+      );
+      rawImportRows = (await this.db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).find({ sort: ['-rowNumber'], limit: 5000 }))
+        .map(toPlainRecord)
+        .filter((row) => importRunIds.has(String(row.importRunId ?? '')))
+        .slice(0, limit);
+    } else {
+      rawImportRows = [];
+    }
 
     const leadTimeBySupplier = new Map<string, PlainRecord>();
     for (const leadTime of leadTimes) {

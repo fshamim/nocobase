@@ -47,7 +47,8 @@ export type AdapterStreamItem =
       payload: Record<string, unknown>;
       record: NormalizedRecord | NormalizedRecord[];
     }
-  | { type: 'rowIssue'; issue: AdapterRowIssue };
+  | { type: 'rowIssue'; issue: AdapterRowIssue }
+  | { type: 'status'; status: string; message: string; payload?: Record<string, unknown> };
 
 export interface SourceAdapter {
   metadata: SourceAdapterMetadata;

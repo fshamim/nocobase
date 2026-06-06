@@ -64,6 +64,11 @@ export interface RunNoopImportParams {
   skipIfNoNewerData?: boolean;
 }
 
+export interface RunScheduledSellerboardImportsParams {
+  now?: string;
+  sourceConnectionId?: string;
+}
+
 export interface SourceStatusView {
   sourceConnectionId: string;
   connectionName: string;
@@ -295,6 +300,7 @@ export class EcobaseImportService {
     let warningCount = 0;
     let errorCount = 0;
     let errorMessage: string | null = null;
+    let finalStatusOverride: string | null = null;
     const fileSummaries: Record<string, ImportFileSummary> = {};
     const supplierOrderService = new EcobaseSupplierOrderService(this.db);
     let supplierOrderTouched = false;
@@ -338,7 +344,7 @@ export class EcobaseImportService {
               });
             }
           }
-        } else {
+        } else if (item.type === 'rowIssue') {
           const fileName = getSourceFileName(item.issue.sourceKey);
           if (item.issue.rowNumber > 0) {
             rowCount += 1;
@@ -362,6 +368,21 @@ export class EcobaseImportService {
               issueCode: item.issue.code,
             },
           });
+        } else {
+          finalStatusOverride = item.status;
+          errorMessage = item.message;
+          await rawImportRowRepo.create({
+            values: {
+              importRunId,
+              rowNumber: 0,
+              sourceKey: item.status,
+              payload: item.payload ?? {},
+              normalizedStatus: item.status,
+              normalizedError: item.message,
+              issueSeverity: 'warning',
+              issueCode: item.status,
+            },
+          });
         }
       }
     } catch (error) {
@@ -383,7 +404,7 @@ export class EcobaseImportService {
     }
 
     const finishedAt = new Date();
-    const status = this.getFinalStatus(errorMessage, errorCount, normalizedCount);
+    const status = finalStatusOverride ?? this.getFinalStatus(errorMessage, errorCount, normalizedCount);
     await importRunRepo.update({
       filterByTk: importRunId,
       values: {
@@ -442,6 +463,119 @@ export class EcobaseImportService {
         };
       }),
     );
+  }
+
+  async runScheduledSellerboardImports(params: RunScheduledSellerboardImportsParams = {}) {
+    const now = params.now ? new Date(params.now) : new Date();
+    if (Number.isNaN(now.getTime())) {
+      throw new Error(`Ecobase scheduled Sellerboard import failed: now "${params.now}" is not a valid date.`);
+    }
+    const today = now.toISOString().slice(0, 10);
+    const minuteOfDay = now.getUTCHours() * 60 + now.getUTCMinutes();
+    const sourceConnectionRepo = this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections);
+    const importRunRepo = this.db.getRepository(ECOBASE_COLLECTIONS.importRuns);
+    const sourceConnections = await sourceConnectionRepo.find({
+      filter: params.sourceConnectionId ? { id: params.sourceConnectionId } : { sourceType: 'sellerboard' },
+      sort: ['name'],
+    });
+    const results = [] as Array<Record<string, unknown>>;
+
+    for (const sourceConnection of sourceConnections) {
+      const sourceConnectionId = getString(sourceConnection, 'id');
+      if (!sourceConnectionId) {
+        throw new Error('Ecobase scheduled Sellerboard import failed: source connection record is missing id.');
+      }
+      if (getString(sourceConnection, 'sourceType') !== 'sellerboard') {
+        results.push({ sourceConnectionId, status: 'ignored', reason: 'source_type_not_sellerboard' });
+        continue;
+      }
+      if (!getBoolean(sourceConnection, 'active', true)) {
+        results.push({ sourceConnectionId, status: 'ignored', reason: 'source_inactive' });
+        continue;
+      }
+      const config = getConfig(sourceConnection);
+      const schedule = this.readSellerboardSchedule(config);
+      if (!schedule.enabled) {
+        results.push({ sourceConnectionId, status: 'ignored', reason: 'schedule_disabled' });
+        continue;
+      }
+      if (minuteOfDay < schedule.dailyMinuteOfDay) {
+        results.push({
+          sourceConnectionId,
+          status: 'not_due',
+          dailyRefreshTime: schedule.dailyRefreshTime,
+          now: now.toISOString(),
+        });
+        continue;
+      }
+
+      const latestForDate = await importRunRepo.findOne({
+        filter: { sourceConnectionId, sourceIdentifier: 'sellerboard-scheduled', sourceVersion: today },
+        sort: ['-startedAt'],
+      });
+      const latestStatus = getString(latestForDate, 'status');
+      const latestStartedAt = getDateString(latestForDate, 'startedAt');
+      if (latestStartedAt && latestStatus !== 'success' && !this.retryDue(now, latestStartedAt, schedule.retryIntervalMinutes)) {
+        results.push({
+          sourceConnectionId,
+          status: 'waiting_retry',
+          sourceVersion: today,
+          retryIntervalMinutes: schedule.retryIntervalMinutes,
+          latestRunStatus: latestStatus,
+          latestRunStartedAt: latestStartedAt,
+        });
+        continue;
+      }
+
+      const run = await this.runAdapterImport({
+        sourceConnectionId,
+        adapterName: 'sellerboard-api',
+        sourceIdentifier: 'sellerboard-scheduled',
+        sourceVersion: today,
+        idempotencyKey: `${sourceConnectionId}:sellerboard-scheduled:${today}`,
+        preserveAuditRun: true,
+        skipIfNoNewerData: true,
+      });
+      results.push({ sourceConnectionId, status: getString(run, 'status') ?? 'unknown', run });
+    }
+
+    return { now: now.toISOString(), results };
+  }
+
+  private readSellerboardSchedule(config: Record<string, unknown>) {
+    const schedule = isRecord(config.schedule) ? config.schedule : {};
+    const enabled = schedule.enabled !== false && config.scheduleEnabled !== false;
+    const dailyRefreshTime =
+      (typeof schedule.dailyRefreshTime === 'string' && schedule.dailyRefreshTime) ||
+      (typeof config.dailyRefreshTime === 'string' && config.dailyRefreshTime) ||
+      '00:00';
+    const match = dailyRefreshTime.match(/^(\d{2}):(\d{2})$/);
+    if (!match) {
+      throw new Error(`Ecobase scheduled Sellerboard import failed: dailyRefreshTime "${dailyRefreshTime}" must use HH:mm.`);
+    }
+    const hours = Number(match[1]);
+    const minutes = Number(match[2]);
+    if (hours > 23 || minutes > 59) {
+      throw new Error(`Ecobase scheduled Sellerboard import failed: dailyRefreshTime "${dailyRefreshTime}" is outside 00:00-23:59.`);
+    }
+    const retryIntervalMinutes =
+      typeof schedule.retryIntervalMinutes === 'number'
+        ? schedule.retryIntervalMinutes
+        : typeof config.retryIntervalMinutes === 'number'
+          ? config.retryIntervalMinutes
+          : 60;
+    if (!Number.isFinite(retryIntervalMinutes) || retryIntervalMinutes <= 0) {
+      throw new Error('Ecobase scheduled Sellerboard import failed: retryIntervalMinutes must be a positive number.');
+    }
+    return { enabled, dailyRefreshTime, dailyMinuteOfDay: hours * 60 + minutes, retryIntervalMinutes };
+  }
+
+  private retryDue(now: Date, latestStartedAt: string, retryIntervalMinutes: number) {
+    const previous = new Date(latestStartedAt);
+    if (Number.isNaN(previous.getTime())) {
+      return true;
+    }
+    return now.getTime() - previous.getTime() >= retryIntervalMinutes * 60 * 1000;
   }
 
   private async createSkippedImportRun(

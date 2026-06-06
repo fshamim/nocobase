@@ -3,4 +3,5 @@
 ARG ECOBASE_BASE_IMAGE=nocobase/nocobase:beta-full
 FROM ${ECOBASE_BASE_IMAGE}
 
-COPY plugin /app/nocobase/storage/plugins/@nocobase/plugin-ecobase
+COPY plugin-ecobase /app/nocobase/storage/plugins/@nocobase/plugin-ecobase
+COPY plugin-ai-codex-subscription /app/nocobase/storage/plugins/@nocobase/plugin-ai-codex-subscription

@@ -67,6 +67,12 @@ export default function OrderManagementPage() {
   const [error, setError] = useState<Error | null>(null);
 
   const loadWorkspace = useCallback(async () => {
+    const companyFilter = company.trim();
+    if (!companyFilter) {
+      setData(unwrapWorkspace({}));
+      setError(null);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -74,7 +80,7 @@ export default function OrderManagementPage() {
         url: 'ecobaseSupplierOrders:workspace',
         method: 'post',
         data: {
-          company: company.trim() || undefined,
+          company: companyFilter,
           status: status.trim() || undefined,
           stockoutDate: stockoutDate.trim() || undefined,
           limit: 75,
@@ -102,6 +108,7 @@ export default function OrderManagementPage() {
     if (supplierId === null) {
       return;
     }
+    const unitCostText = window.prompt(t('Unit cost'), '') || undefined;
     const expectedDeliveryDate = window.prompt(t('Expected delivery date YYYY-MM-DD'), '') || undefined;
     const expectedSellableDate = window.prompt(t('Expected sellable date YYYY-MM-DD'), '') || undefined;
     await api.request({
@@ -112,6 +119,7 @@ export default function OrderManagementPage() {
         planningProductId: row.planningProductId,
         supplierId: supplierId.trim() || undefined,
         orderedQty,
+        unitCost: unitCostText ? Number(unitCostText) : undefined,
         expectedDeliveryDate,
         expectedSellableDate,
         notes: 'Created from Ecobase order-management workspace.',
@@ -127,6 +135,10 @@ export default function OrderManagementPage() {
       return;
     }
     const expectedDeliveryDate = window.prompt(t('Expected delivery date YYYY-MM-DD'), row.expectedDeliveryDate ?? '') || undefined;
+    const approvalStatus = window.prompt(t('Approval status'), row.approvalStatus ?? '') || undefined;
+    const paymentStatus = window.prompt(t('Payment status'), row.paymentStatus ?? '') || undefined;
+    const shippingCarrier = window.prompt(t('Shipping carrier'), row.shippingCarrier ?? '') || undefined;
+    const trackingId = window.prompt(t('Tracking reference'), row.trackingId ?? '') || undefined;
     const blockedReason = window.prompt(t('Blocked reason'), row.blockedReason ?? '') || undefined;
     await api.request({
       url: 'ecobaseSupplierOrders:updateOrderOperatorFields',
@@ -136,6 +148,10 @@ export default function OrderManagementPage() {
         company: row.company,
         status: statusValue.trim() || undefined,
         expectedDeliveryDate,
+        approvalStatus,
+        paymentStatus,
+        shippingCarrier,
+        trackingId,
         blockedReason,
       },
     });
@@ -148,15 +164,25 @@ export default function OrderManagementPage() {
     if (receivedQtyText === null) {
       return;
     }
+    const planningProductId = window.prompt(t('Planning product ID'), row.planningProductId ?? '') || undefined;
+    const orderedQtyText = window.prompt(t('Ordered quantity'), String(row.orderedQty ?? '')) || undefined;
+    const unitCostText = window.prompt(t('Unit cost'), String(row.unitCost ?? '')) || undefined;
+    const expectedDeliveryDate = window.prompt(t('Expected delivery date YYYY-MM-DD'), row.expectedDeliveryDate ?? '') || undefined;
     const expectedSellableDate = window.prompt(t('Expected sellable date YYYY-MM-DD'), row.expectedSellableDate ?? '') || undefined;
+    const notes = window.prompt(t('Line notes'), '') || undefined;
     await api.request({
       url: 'ecobaseSupplierOrders:updateLineOperatorFields',
       method: 'post',
       data: {
         supplierOrderLineId: row.id,
         company: row.company,
+        planningProductId,
+        orderedQty: orderedQtyText ? Number(orderedQtyText) : undefined,
         receivedQty: Number(receivedQtyText),
+        unitCost: unitCostText ? Number(unitCostText) : undefined,
+        expectedDeliveryDate,
         expectedSellableDate,
+        notes,
       },
     });
     message.success(t('Supplier order line updated'));
@@ -172,6 +198,10 @@ export default function OrderManagementPage() {
     if (orderedQtyText === null) {
       return;
     }
+    const unitCostText = window.prompt(t('Unit cost'), '') || undefined;
+    const expectedDeliveryDate = window.prompt(t('Expected delivery date YYYY-MM-DD'), '') || undefined;
+    const expectedSellableDate = window.prompt(t('Expected sellable date YYYY-MM-DD'), '') || undefined;
+    const notes = window.prompt(t('Line notes'), 'Added from Ecobase order-management workspace.') || undefined;
     await api.request({
       url: 'ecobaseSupplierOrders:createOrderLine',
       method: 'post',
@@ -179,7 +209,10 @@ export default function OrderManagementPage() {
         supplierOrderId: row.id,
         planningProductId: planningProductId.trim(),
         orderedQty: Number(orderedQtyText),
-        notes: 'Added from Ecobase order-management workspace.',
+        unitCost: unitCostText ? Number(unitCostText) : undefined,
+        expectedDeliveryDate,
+        expectedSellableDate,
+        notes,
       },
     });
     message.success(t('Supplier order line added'));
@@ -191,6 +224,8 @@ export default function OrderManagementPage() {
     if (notes === null) {
       return;
     }
+    const occurredAt = window.prompt(t('Occurred at ISO timestamp'), new Date().toISOString()) || undefined;
+    const nextFollowUpAt = window.prompt(t('Next follow-up at ISO timestamp'), '') || undefined;
     const leadTimeDays =
       activityType === 'lead_time_checked' ? Number(window.prompt(t('Confirmed lead time days'), '') ?? NaN) : undefined;
     await api.request({
@@ -201,7 +236,9 @@ export default function OrderManagementPage() {
         supplierId: row.supplierId,
         supplierOrderId: row.id,
         activityType,
+        occurredAt,
         notes,
+        nextFollowUpAt,
         leadTimeDays: Number.isFinite(leadTimeDays) ? leadTimeDays : undefined,
       },
     });
@@ -229,6 +266,7 @@ export default function OrderManagementPage() {
               {t('Refresh workspace')}
             </Button>
           </Space>
+          {!company.trim() ? <Alert type="info" message={t('Enter a company filter to load company-scoped order data.')} /> : null}
           {error ? <Alert type="error" message={error.message} /> : null}
         </Space>
       </Card>
@@ -286,8 +324,11 @@ export default function OrderManagementPage() {
                   <Button onClick={() => void updateOrder(row)}>{t('Update order')}</Button>
                   <Button onClick={() => void addLine(row)}>{t('Add line')}</Button>
                   <Button onClick={() => void recordActivity(row, 'contacted_supplier')}>{t('Contacted')}</Button>
+                  <Button onClick={() => void recordActivity(row, 'status_update')}>{t('Status update')}</Button>
                   <Button onClick={() => void recordActivity(row, 'lead_time_checked')}>{t('Lead time checked')}</Button>
+                  <Button onClick={() => void recordActivity(row, 'note')}>{t('Note')}</Button>
                   <Button onClick={() => void recordActivity(row, 'blocked')}>{t('Blocked')}</Button>
+                  <Button onClick={() => void recordActivity(row, 'unblocked')}>{t('Unblocked')}</Button>
                 </Space>
               ),
             },

@@ -1043,7 +1043,7 @@ describe('Ecobase current Amazon operations CSV import', () => {
       preserveAuditRun: true,
     });
 
-    expect(sellerboardRun).toMatchObject({ status: 'success', normalizedCount: 1 });
+    expect(sellerboardRun).toMatchObject({ status: 'blocked', normalizedCount: 1 });
     expect(sellerboard.db.getRepository(ECOBASE_COLLECTIONS.sourceAccessAudits).all()).toEqual([
       expect.objectContaining({ status: 'blocked', blockerCode: 'sellerboard_credentials_missing' }),
     ]);

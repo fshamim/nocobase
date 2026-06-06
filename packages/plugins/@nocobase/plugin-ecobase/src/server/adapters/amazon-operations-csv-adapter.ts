@@ -759,7 +759,7 @@ function recordsForShape(
   return [];
 }
 
-async function* importCsvFiles(input: SourceAdapterImportInput): AsyncIterable<AdapterStreamItem> {
+export async function* importCsvFiles(input: SourceAdapterImportInput): AsyncIterable<AdapterStreamItem> {
   const files = getFiles(asFileConfig(input.config));
   if (files.length === 0) {
     yield {

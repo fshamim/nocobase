@@ -12,6 +12,35 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 2
 fi
 
+package_overlay_plugin() {
+  local plugin_name="$1"
+  local build_flag="${2:-}"
+  local plugin_dir plugin_slug tarball
+
+  plugin_dir="${plugin_name##*/}"
+  plugin_slug="${plugin_dir//@/-}"
+
+  echo "[ecobase-image] packaging ${plugin_name} from local source"
+  (
+    cd "${repo_root}"
+    if [ -n "${build_flag}" ]; then
+      yarn nocobase build "${plugin_name}" ${build_flag}
+    else
+      yarn nocobase build "${plugin_name}"
+    fi
+    yarn nocobase tar "${plugin_name}"
+  )
+
+  tarball="$(find "${repo_root}/storage/tar" -maxdepth 2 -type f -path "*/${plugin_name}-*.tgz" 2>/dev/null | sort | tail -1)"
+  if [ -z "${tarball}" ] || [ ! -f "${tarball}" ]; then
+    echo "BLOCKED: packaged ${plugin_name} tarball was not found in ${repo_root}/storage/tar." >&2
+    exit 2
+  fi
+
+  mkdir -p "${build_context}/${plugin_slug}"
+  tar -xzf "${tarball}" -C "${build_context}/${plugin_slug}"
+}
+
 case "${build_mode}" in
   full)
     echo "[ecobase-image] building full image ${image_tag} from ${repo_root}"
@@ -32,21 +61,8 @@ case "${build_mode}" in
     }
     trap cleanup EXIT
 
-    echo "[ecobase-image] packaging @nocobase/plugin-ecobase from local source"
-    (
-      cd "${repo_root}"
-      yarn nocobase build @nocobase/plugin-ecobase --no-dts
-      yarn nocobase tar @nocobase/plugin-ecobase
-    )
-
-    tarball="$(find "${repo_root}/storage/tar" -maxdepth 2 -type f -path '*/@nocobase/plugin-ecobase-*.tgz' 2>/dev/null | sort | tail -1)"
-    if [ -z "${tarball}" ] || [ ! -f "${tarball}" ]; then
-      echo "BLOCKED: packaged @nocobase/plugin-ecobase tarball was not found in ${repo_root}/storage/tar." >&2
-      exit 2
-    fi
-
-    mkdir -p "${build_context}/plugin"
-    tar -xzf "${tarball}" -C "${build_context}/plugin"
+    package_overlay_plugin "@nocobase/plugin-ecobase" "--no-dts"
+    package_overlay_plugin "@nocobase/plugin-ai-codex-subscription"
 
     echo "[ecobase-image] building overlay image ${image_tag} from base ${base_image}"
     docker build \

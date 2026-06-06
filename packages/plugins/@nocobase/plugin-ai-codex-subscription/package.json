@@ -1,0 +1,27 @@
+{
+  "name": "@nocobase/plugin-ai-codex-subscription",
+  "displayName": "AI LLM: Codex/ChatGPT subscription",
+  "description": "Registers a credential-reference based Codex/ChatGPT subscription provider for NocoBase AI employees.",
+  "version": "0.1.0",
+  "main": "dist/server/index.js",
+  "nocobase": {
+    "supportedVersions": [
+      "2.x"
+    ],
+    "editionLevel": 0
+  },
+  "peerDependencies": {
+    "@nocobase/client": "2.x",
+    "@nocobase/plugin-ai": "2.x",
+    "@nocobase/server": "2.x",
+    "@nocobase/test": "2.x",
+    "antd": "^5.0.0",
+    "react": "^18.0.0"
+  },
+  "keywords": [
+    "AI",
+    "Codex",
+    "ChatGPT"
+  ],
+  "license": "Apache-2.0"
+}

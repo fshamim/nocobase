@@ -34,8 +34,17 @@ else
   echo "[ecobase-live-gate] using existing image ${image_tag}"
 fi
 
-echo "[ecobase-live-gate] resetting isolated Docker Compose project ${project_name}"
-docker compose --project-name "${project_name}" --file "${compose_file}" down --volumes --remove-orphans >/dev/null 2>&1 || true
+if [ "${ECOBASE_LIVE_GATE_DESTROY_DATA:-0}" = "1" ]; then
+  if [ "${ECOBASE_LIVE_GATE_CONFIRM_DESTROY:-}" != "destroy-live-sellerboard-data" ]; then
+    echo "BLOCKED: refusing to destroy persisted live-gate data without ECOBASE_LIVE_GATE_CONFIRM_DESTROY=destroy-live-sellerboard-data." >&2
+    exit 2
+  fi
+  echo "[ecobase-live-gate] resetting isolated Docker Compose project ${project_name} and destroying persisted PostgreSQL data"
+  docker compose --project-name "${project_name}" --file "${compose_file}" down --volumes --remove-orphans >/dev/null 2>&1 || true
+else
+  echo "[ecobase-live-gate] restarting isolated Docker Compose project ${project_name} while preserving persisted PostgreSQL data"
+  docker compose --project-name "${project_name}" --file "${compose_file}" down --remove-orphans >/dev/null 2>&1 || true
+fi
 
 echo "[ecobase-live-gate] starting app and database"
 docker compose --project-name "${project_name}" --file "${compose_file}" up -d

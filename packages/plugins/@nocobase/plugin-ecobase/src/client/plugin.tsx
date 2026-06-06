@@ -3,6 +3,7 @@ import { Plugin, lazy } from '@nocobase/client';
 const AccuracyHarnessPage = lazy(() => import('./pages/AccuracyHarnessPage'));
 const AiEvidencePage = lazy(() => import('./pages/AiEvidencePage'));
 const AlertEvaluationPage = lazy(() => import('./pages/AlertEvaluationPage'));
+const CollectionsWorkspacePage = lazy(() => import('./pages/CollectionsWorkspacePage'));
 const ImportStatusPage = lazy(() => import('./pages/ImportStatusPage'));
 const ManagementDashboardPage = lazy(() => import('./pages/ManagementDashboardPage'));
 const OrderManagementPage = lazy(() => import('./pages/OrderManagementPage'));
@@ -26,6 +27,12 @@ export class PluginEcobaseClient extends Plugin<Record<string, unknown>> {
       title: this.t('Ecobase alerts'),
       icon: 'AlertOutlined',
       Component: AlertEvaluationPage,
+      aclSnippet: 'pm.ecobase',
+    });
+    this.pluginSettingsManager.add('ecobase-collections-workspace', {
+      title: this.t('Ecobase collections workspace'),
+      icon: 'TableOutlined',
+      Component: CollectionsWorkspacePage,
       aclSnippet: 'pm.ecobase',
     });
     this.pluginSettingsManager.add('ecobase-management-dashboard', {
