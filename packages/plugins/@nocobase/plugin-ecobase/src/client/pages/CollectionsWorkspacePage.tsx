@@ -1,6 +1,6 @@
-import { useAPIClient, useRequest } from '@nocobase/client';
+import { useAPIClient } from '@nocobase/client';
 import { App, Button, Card, Collapse, Descriptions, Form, Input, Modal, Space, Table, Tag, Typography } from 'antd';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useT } from '../locale';
 
 interface CollectionSummary {
@@ -64,6 +64,12 @@ function unwrapWorkspace(response: WorkspaceResponse | undefined): WorkspaceData
   return response?.data?.data ?? response?.data ?? response ?? {};
 }
 
+function unwrapPreview(response: unknown): PreviewData | null {
+  const first = (response as { data?: unknown })?.data ?? response;
+  const second = (first as { data?: unknown })?.data ?? first;
+  return ((second as { data?: unknown })?.data ?? second ?? null) as PreviewData | null;
+}
+
 function parseCsvList(value: unknown) {
   return String(value ?? '')
     .split(',')
@@ -104,13 +110,33 @@ export default function CollectionsWorkspacePage() {
   const [sourceConnectionId, setSourceConnectionId] = useState('');
   const [preview, setPreview] = useState<PreviewData | null>(null);
   const [saveViewOpen, setSaveViewOpen] = useState(false);
+  const [data, setData] = useState<WorkspaceResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<unknown>(null);
   const [form] = Form.useForm();
-  const { data, loading, error, refresh } = useRequest<WorkspaceResponse>({
-    url: 'ecobaseOperatorWorkspace:workspace',
-    method: 'get',
-    params: { values: { company: company || undefined, sourceConnectionId: sourceConnectionId || undefined } },
-  });
-  const workspace = unwrapWorkspace(data);
+  const loadWorkspace = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await api.request({
+        url: 'ecobaseOperatorWorkspace:workspace',
+        method: 'post',
+        data: { company: company || undefined, sourceConnectionId: sourceConnectionId || undefined },
+      });
+      setData(response?.data ?? response);
+    } catch (workspaceError) {
+      setError(workspaceError);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadWorkspace();
+  }, [company, sourceConnectionId]);
+
+  const refresh = loadWorkspace;
+  const workspace = unwrapWorkspace(data ?? undefined);
 
   const openPreview = async (values: { viewKey?: string; collectionName?: string }) => {
     const response = await api.request({
@@ -118,7 +144,7 @@ export default function CollectionsWorkspacePage() {
       method: 'post',
       data: { ...values, filters: { company: company || undefined, sourceConnectionId: sourceConnectionId || undefined } },
     });
-    setPreview(response?.data?.data ?? response?.data);
+    setPreview(unwrapPreview(response));
   };
 
   const saveBusinessView = async (values: Record<string, unknown>) => {

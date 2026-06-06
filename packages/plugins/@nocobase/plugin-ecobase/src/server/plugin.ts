@@ -16,6 +16,7 @@ import { EcobaseAccountabilityService } from './services/accountability-service'
 import { EcobaseAccuracyHarnessService } from './services/accuracy-harness-service';
 import { EcobaseAiRetrievalService } from './services/ai-retrieval-service';
 import { EcobaseAlertEvaluationService } from './services/alert-evaluation-service';
+import { ensureEcobaseCollectionManagerMetadata } from './services/collection-manager-metadata-service';
 import { EcobaseComparisonService } from './services/comparison-service';
 import { EcobaseDashboardService } from './services/dashboard-service';
 import { EcobaseImportService } from './services/import-service';
@@ -23,6 +24,7 @@ import { EcobasePlanningCalculationService } from './services/planning-calculati
 import { EcobasePlanningProductService } from './services/planning-product-service';
 import { EcobaseOperatorWorkspaceService } from './services/operator-workspace-service';
 import { EcobaseReportService } from './services/report-service';
+import { EcobaseSourceConnectionService } from './services/source-connection-service';
 import {
   EcobaseSupplierOrderService,
   validateSupplierLeadTimeDays,
@@ -33,8 +35,9 @@ function getValues(params: unknown): Record<string, unknown> {
   if (typeof params !== 'object' || params === null) {
     return {};
   }
-  const values = (params as Record<string, unknown>).values;
-  return typeof values === 'object' && values !== null ? (values as Record<string, unknown>) : {};
+  const record = params as Record<string, unknown>;
+  const values = record.values;
+  return typeof values === 'object' && values !== null ? (values as Record<string, unknown>) : record;
 }
 
 function getOptionalString(values: Record<string, unknown>, key: string): string | undefined {
@@ -775,6 +778,38 @@ export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
       ctx.body = { data: registry.list() };
       await next();
     },
+    listSellerboardSources: async (ctx, next) => {
+      const service = new EcobaseSourceConnectionService(ctx.db);
+      ctx.body = { data: await service.listSellerboardSources() };
+      await next();
+    },
+    saveSellerboardSource: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseSourceConnectionService(ctx.db);
+      try {
+        ctx.body = { data: await service.saveSellerboardSource(values) };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase Sellerboard source save failed.');
+        return;
+      }
+      await next();
+    },
+    deleteSellerboardSource: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const sourceConnectionId = getOptionalString(values, 'sourceConnectionId');
+      if (!sourceConnectionId) {
+        ctx.throw(400, 'Ecobase Sellerboard source delete requires sourceConnectionId.');
+        return;
+      }
+      const service = new EcobaseSourceConnectionService(ctx.db);
+      try {
+        ctx.body = { data: await service.deleteSellerboardSource(sourceConnectionId) };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase Sellerboard source delete failed.');
+        return;
+      }
+      await next();
+    },
   };
 }
 
@@ -790,7 +825,48 @@ export class PluginEcobaseServer extends Plugin {
     clickupAccessCheckAdapter,
   ]);
 
+  private sellerboardScheduler?: ReturnType<typeof setInterval>;
+  private sellerboardSchedulerRunning = false;
+
+  private startSellerboardScheduler() {
+    if (this.sellerboardScheduler) {
+      return;
+    }
+    const runScheduledImports = async () => {
+      if (this.sellerboardSchedulerRunning) {
+        return;
+      }
+      this.sellerboardSchedulerRunning = true;
+      try {
+        const service = new EcobaseImportService(this.app.db, this.registry);
+        await service.runScheduledSellerboardImports();
+      } catch (error) {
+        this.app.logger?.error?.(error);
+      } finally {
+        this.sellerboardSchedulerRunning = false;
+      }
+    };
+    this.sellerboardScheduler = setInterval(runScheduledImports, 60 * 1000);
+    this.sellerboardScheduler.unref?.();
+  }
+
+  private stopSellerboardScheduler() {
+    if (!this.sellerboardScheduler) {
+      return;
+    }
+    clearInterval(this.sellerboardScheduler);
+    this.sellerboardScheduler = undefined;
+  }
+
   async load() {
+    this.app.on('afterStart', async () => {
+      await ensureEcobaseCollectionManagerMetadata(this.app.db);
+      this.startSellerboardScheduler();
+    });
+    this.app.on('beforeStop', async () => {
+      this.stopSellerboardScheduler();
+    });
+
     this.app.db.on(`${ECOBASE_COLLECTIONS.supplierOrderActivities}.beforeCreate`, validateSupplierOrderActivityModel);
     this.app.db.on(`${ECOBASE_COLLECTIONS.supplierOrderActivities}.beforeUpdate`, validateSupplierOrderActivityModel);
 
@@ -807,7 +883,7 @@ export class PluginEcobaseServer extends Plugin {
       actions: createEcobaseSupplierOrderActions(),
     });
     this.app.resourceManager.define({
-      name: 'ecobaseAlerts',
+      name: 'ecobaseAlertEvaluation',
       actions: createEcobaseAlertActions(),
     });
     this.app.resourceManager.define({
@@ -839,7 +915,22 @@ export class PluginEcobaseServer extends Plugin {
       actions: createEcobaseAccuracyActions(),
     });
 
-    this.app.acl.allow('ecobaseImport', ['run', 'runDailySnapshot', 'forceRefresh', 'runScheduledSellerboard', 'runNoop', 'status', 'adapters'], 'loggedIn');
+    this.app.acl.allow(
+      'ecobaseImport',
+      [
+        'run',
+        'runDailySnapshot',
+        'forceRefresh',
+        'runScheduledSellerboard',
+        'runNoop',
+        'status',
+        'adapters',
+        'listSellerboardSources',
+        'saveSellerboardSource',
+        'deleteSellerboardSource',
+      ],
+      'loggedIn',
+    );
     this.app.acl.allow(
       'ecobasePlanning',
       [
@@ -888,7 +979,7 @@ export class PluginEcobaseServer extends Plugin {
     this.app.acl.allow(ECOBASE_COLLECTIONS.supplierOrderSettings, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.targetRows, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.planningCalculationSnapshots, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow('ecobaseAlerts', ['evaluate', 'list', 'defaults'], 'loggedIn');
+    this.app.acl.allow('ecobaseAlertEvaluation', ['evaluate', 'list', 'defaults'], 'loggedIn');
     this.app.acl.allow('ecobaseAccountability', ['evaluate', 'evidence', 'defaults'], 'loggedIn');
     this.app.acl.allow('ecobaseComparison', ['compare'], 'loggedIn');
     this.app.acl.allow('ecobaseDashboard', ['summary', 'settings'], 'loggedIn');

@@ -44,7 +44,7 @@ export default function AlertEvaluationPage() {
     setError(null);
     try {
       const response = await api.request({
-        url: 'ecobaseAlerts:list',
+        url: 'ecobaseAlertEvaluation:list',
         method: 'post',
         data: { company: company.trim() || undefined, status: 'open', limit: 100 },
       });
@@ -61,7 +61,7 @@ export default function AlertEvaluationPage() {
     setError(null);
     try {
       const response = await api.request({
-        url: 'ecobaseAlerts:evaluate',
+        url: 'ecobaseAlertEvaluation:evaluate',
         method: 'post',
         data: { company: company.trim() || undefined, calculationDate: calculationDate.trim() || undefined },
       });

@@ -277,7 +277,6 @@ async function* sellerboardApiImport(input: SourceAdapterImportInput): AsyncIter
           payload: { reportName: report.name, category: report.category, expectedFreshDate: expected, maxReportDate: maxDate },
         },
       };
-      continue;
     }
 
     files.push({ name: `${report.category}-${report.name}.csv`, content: csvContent, snapshotDate: report.snapshotDate ?? maxDate });
@@ -295,8 +294,8 @@ async function* sellerboardApiImport(input: SourceAdapterImportInput): AsyncIter
         'stale',
         'sellerboard_data_not_fresh',
         files.length === 0
-          ? 'Sellerboard live import fetched data but no configured report was fresh enough for the expected report date.'
-          : 'Sellerboard live import normalized fresh reports but at least one required report was stale; scheduled import must retry.',
+          ? 'Sellerboard live import normalized available report data, but no configured report met the expected freshness date.'
+          : 'Sellerboard live import normalized available report data while warning that at least one report was stale.',
         { staleReports, freshReportCount: files.length },
       ),
     };
@@ -312,8 +311,8 @@ async function* sellerboardApiImport(input: SourceAdapterImportInput): AsyncIter
       status: 'stale',
       message:
         files.length === 0
-          ? 'Sellerboard live import fetched data but no configured report was fresh enough for the expected report date.'
-          : 'Sellerboard live import normalized fresh reports but at least one required report was stale; scheduled import must retry.',
+          ? 'Sellerboard live import normalized available report data, but no configured report met the expected freshness date.'
+          : 'Sellerboard live import normalized available report data while warning that at least one report was stale.',
       payload: { staleReports, freshReportCount: files.length },
     };
   }

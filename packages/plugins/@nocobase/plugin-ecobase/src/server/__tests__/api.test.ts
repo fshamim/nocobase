@@ -48,6 +48,12 @@ class MemoryRepository implements EcobaseRepository {
     return records[0];
   }
 
+  async destroy({ filter, filterByTk }: { filter?: Record<string, unknown>; filterByTk?: string | number }) {
+    const records = this.filterRecords({ filter, filterByTk });
+    this.records = this.records.filter((record) => !records.includes(record));
+    return records.length;
+  }
+
   all() {
     return this.records;
   }
@@ -611,6 +617,68 @@ describe('Ecobase import public API seam', () => {
       ],
     });
     expect(next).toHaveBeenCalledOnce();
+  });
+
+  it('saves, lists, and deletes Sellerboard live source configuration', async () => {
+    const db = new MemoryDatabase();
+    const actions = createEcobaseImportActions(createSourceAdapterRegistry([noopTestAdapter]));
+
+    const saveContext = createActionContext(db, {
+      name: 'Sellerboard Live Company',
+      companyName: 'Live Company LLC',
+      timezone: 'UTC',
+      dailyRefreshTime: '02:30',
+      refreshIntervalMinutes: 720,
+      retryIntervalMinutes: 45,
+      freshnessSlaMinutes: 180,
+      active: true,
+      scheduleEnabled: true,
+      reportUrls: [
+        {
+          name: 'Profit Dashboard Data',
+          category: 'profit_dashboard',
+          url: 'https://app.sellerboard.com/report.csv',
+        },
+      ],
+    });
+
+    await actions.saveSellerboardSource(saveContext, vi.fn());
+    const source = db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).all()[0];
+    expect(source).toMatchObject({
+      name: 'Sellerboard Live Company',
+      sourceType: 'sellerboard',
+      domain: 'amazon_operations',
+      active: true,
+      freshnessSlaMinutes: 180,
+      config: {
+        requireFreshData: true,
+        schedule: { enabled: true, dailyRefreshTime: '02:30', refreshIntervalMinutes: 720, retryIntervalMinutes: 45 },
+        reportUrls: [
+          {
+            name: 'Profit Dashboard Data',
+            category: 'profit_dashboard',
+            url: 'https://app.sellerboard.com/report.csv',
+          },
+        ],
+      },
+    });
+
+    const listContext = createActionContext(db);
+    await actions.listSellerboardSources(listContext, vi.fn());
+    expect(listContext.body.data).toEqual([
+      expect.objectContaining({
+        sourceConnectionId: source.id,
+        name: 'Sellerboard Live Company',
+        companyName: 'Live Company LLC',
+        reportUrls: [expect.objectContaining({ category: 'profit_dashboard' })],
+        schedule: { enabled: true, dailyRefreshTime: '02:30', refreshIntervalMinutes: 720, retryIntervalMinutes: 45 },
+      }),
+    ]);
+
+    const deleteContext = createActionContext(db, { sourceConnectionId: String(source.id) });
+    await actions.deleteSellerboardSource(deleteContext, vi.fn());
+    expect(deleteContext.body).toEqual({ data: { sourceConnectionId: source.id, deleted: true } });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).all()).toEqual([]);
   });
 });
 

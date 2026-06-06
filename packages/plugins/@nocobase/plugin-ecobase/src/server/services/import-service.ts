@@ -499,7 +499,7 @@ export class EcobaseImportService {
         results.push({ sourceConnectionId, status: 'ignored', reason: 'schedule_disabled' });
         continue;
       }
-      if (minuteOfDay < schedule.dailyMinuteOfDay) {
+      if (!schedule.refreshIntervalMinutes && minuteOfDay < schedule.dailyMinuteOfDay) {
         results.push({
           sourceConnectionId,
           status: 'not_due',
@@ -509,17 +509,58 @@ export class EcobaseImportService {
         continue;
       }
 
-      const latestForDate = await importRunRepo.findOne({
-        filter: { sourceConnectionId, sourceIdentifier: 'sellerboard-scheduled', sourceVersion: today },
+      const latestScheduledRun = schedule.refreshIntervalMinutes
+        ? await importRunRepo.findOne({
+            filter: { sourceConnectionId, sourceIdentifier: 'sellerboard-scheduled' },
+            sort: ['-startedAt'],
+          })
+        : null;
+      const latestScheduledStatus = getString(latestScheduledRun, 'status');
+      const latestScheduledStartedAt = getDateString(latestScheduledRun, 'startedAt');
+      if (latestScheduledStartedAt && schedule.refreshIntervalMinutes) {
+        if (
+          (latestScheduledStatus === 'success' || latestScheduledStatus === 'stale' || latestScheduledStatus === 'skipped') &&
+          !this.retryDue(now, latestScheduledStartedAt, schedule.refreshIntervalMinutes)
+        ) {
+          results.push({
+            sourceConnectionId,
+            status: 'not_due',
+            refreshIntervalMinutes: schedule.refreshIntervalMinutes,
+            latestRunStatus: latestScheduledStatus,
+            latestRunStartedAt: latestScheduledStartedAt,
+            now: now.toISOString(),
+          });
+          continue;
+        }
+        if (
+          latestScheduledStatus !== 'success' &&
+          latestScheduledStatus !== 'stale' &&
+          latestScheduledStatus !== 'skipped' &&
+          !this.retryDue(now, latestScheduledStartedAt, schedule.retryIntervalMinutes)
+        ) {
+          results.push({
+            sourceConnectionId,
+            status: 'waiting_retry',
+            retryIntervalMinutes: schedule.retryIntervalMinutes,
+            latestRunStatus: latestScheduledStatus,
+            latestRunStartedAt: latestScheduledStartedAt,
+          });
+          continue;
+        }
+      }
+
+      const sourceVersion = schedule.refreshIntervalMinutes ? now.toISOString() : today;
+      const latestForVersion = await importRunRepo.findOne({
+        filter: { sourceConnectionId, sourceIdentifier: 'sellerboard-scheduled', sourceVersion },
         sort: ['-startedAt'],
       });
-      const latestStatus = getString(latestForDate, 'status');
-      const latestStartedAt = getDateString(latestForDate, 'startedAt');
+      const latestStatus = getString(latestForVersion, 'status');
+      const latestStartedAt = getDateString(latestForVersion, 'startedAt');
       if (latestStartedAt && latestStatus !== 'success' && !this.retryDue(now, latestStartedAt, schedule.retryIntervalMinutes)) {
         results.push({
           sourceConnectionId,
           status: 'waiting_retry',
-          sourceVersion: today,
+          sourceVersion,
           retryIntervalMinutes: schedule.retryIntervalMinutes,
           latestRunStatus: latestStatus,
           latestRunStartedAt: latestStartedAt,
@@ -531,10 +572,10 @@ export class EcobaseImportService {
         sourceConnectionId,
         adapterName: 'sellerboard-api',
         sourceIdentifier: 'sellerboard-scheduled',
-        sourceVersion: today,
-        idempotencyKey: `${sourceConnectionId}:sellerboard-scheduled:${today}`,
+        sourceVersion,
+        idempotencyKey: `${sourceConnectionId}:sellerboard-scheduled:${sourceVersion}`,
         preserveAuditRun: true,
-        skipIfNoNewerData: true,
+        skipIfNoNewerData: !schedule.refreshIntervalMinutes,
       });
       results.push({ sourceConnectionId, status: getString(run, 'status') ?? 'unknown', run });
     }
@@ -558,6 +599,18 @@ export class EcobaseImportService {
     if (hours > 23 || minutes > 59) {
       throw new Error(`Ecobase scheduled Sellerboard import failed: dailyRefreshTime "${dailyRefreshTime}" is outside 00:00-23:59.`);
     }
+    const refreshIntervalMinutes =
+      typeof schedule.refreshIntervalMinutes === 'number'
+        ? schedule.refreshIntervalMinutes
+        : typeof config.refreshIntervalMinutes === 'number'
+          ? config.refreshIntervalMinutes
+          : 1440;
+    if (
+      refreshIntervalMinutes !== undefined &&
+      (!Number.isFinite(refreshIntervalMinutes) || refreshIntervalMinutes <= 0)
+    ) {
+      throw new Error('Ecobase scheduled Sellerboard import failed: refreshIntervalMinutes must be a positive number.');
+    }
     const retryIntervalMinutes =
       typeof schedule.retryIntervalMinutes === 'number'
         ? schedule.retryIntervalMinutes
@@ -567,7 +620,7 @@ export class EcobaseImportService {
     if (!Number.isFinite(retryIntervalMinutes) || retryIntervalMinutes <= 0) {
       throw new Error('Ecobase scheduled Sellerboard import failed: retryIntervalMinutes must be a positive number.');
     }
-    return { enabled, dailyRefreshTime, dailyMinuteOfDay: hours * 60 + minutes, retryIntervalMinutes };
+    return { enabled, dailyRefreshTime, dailyMinuteOfDay: hours * 60 + minutes, refreshIntervalMinutes, retryIntervalMinutes };
   }
 
   private retryDue(now: Date, latestStartedAt: string, retryIntervalMinutes: number) {
