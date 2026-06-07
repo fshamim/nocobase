@@ -36,7 +36,6 @@ export default defineCollection({
       type: 'string',
       interface: 'input',
       uiSchema: { title: 'Supplier Name' },
-      allowNull: false,
       index: true,
     },
     { name: 'company', type: 'string', interface: 'input', uiSchema: { title: 'Company' }, index: true },

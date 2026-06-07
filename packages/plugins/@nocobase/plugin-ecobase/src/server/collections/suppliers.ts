@@ -25,7 +25,7 @@ export default defineCollection({
       index: true,
     },
     { name: 'supplierId', type: 'string', interface: 'input', uiSchema: { title: 'Supplier ID' }, index: true },
-    { name: 'name', type: 'string', interface: 'input', uiSchema: { title: 'Name' }, allowNull: false, index: true },
+    { name: 'name', type: 'string', interface: 'input', uiSchema: { title: 'Name' }, index: true },
     { name: 'normalizedName', type: 'string', interface: 'input', uiSchema: { title: 'Normalized Name' }, index: true },
     { name: 'company', type: 'string', interface: 'input', uiSchema: { title: 'Company' }, index: true },
     {

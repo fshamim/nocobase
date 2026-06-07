@@ -1,0 +1,454 @@
+import { describe, expect, it } from 'vitest';
+import { ECOBASE_COLLECTIONS } from '../collections/names';
+import { EcobaseInventoryPlanningService } from '../services/inventory-planning-service';
+import type { EcobaseDatabase, EcobaseRepository } from '../services/import-service';
+
+interface FindParams {
+  filter?: Record<string, unknown>;
+  filterByTk?: string | number;
+  sort?: string[];
+  limit?: number;
+}
+
+class MemoryRepository implements EcobaseRepository {
+  private sequence = 1;
+
+  constructor(private records: Record<string, unknown>[] = []) {}
+
+  async find(params: FindParams = {}) {
+    const filtered = this.filterRecords(params);
+    return this.sortRecords(filtered, params.sort).slice(0, params.limit ?? filtered.length);
+  }
+
+  async findOne(params: FindParams = {}) {
+    return (await this.find({ ...params, limit: 1 }))[0] ?? null;
+  }
+
+  async create({ values }: { values: Record<string, unknown> }) {
+    const record = { id: values.id ?? `record-${this.sequence++}`, ...values };
+    this.records.push(record);
+    return record;
+  }
+
+  async update({
+    filter,
+    filterByTk,
+    values,
+  }: {
+    filter?: Record<string, unknown>;
+    filterByTk?: string | number;
+    values: Record<string, unknown>;
+  }) {
+    const records = this.filterRecords({ filter, filterByTk });
+    if (records.length === 0) {
+      throw new Error('MemoryRepository update failed: matching record was not found.');
+    }
+    records.forEach((record) => Object.assign(record, values));
+    return records[0];
+  }
+
+  all() {
+    return this.records;
+  }
+
+  private filterRecords(params: FindParams) {
+    if (params.filterByTk) {
+      return this.records.filter((record) => record.id === params.filterByTk);
+    }
+    const filter = params.filter ?? {};
+    return this.records.filter((record) => Object.entries(filter).every(([key, expected]) => record[key] === expected));
+  }
+
+  private sortRecords(records: Record<string, unknown>[], sort: string[] = []) {
+    const [firstSort] = sort;
+    if (!firstSort) {
+      return records;
+    }
+    const descending = firstSort.startsWith('-');
+    const key = descending ? firstSort.slice(1) : firstSort;
+    return [...records].sort((left, right) => {
+      const leftValue = String(left[key] ?? '');
+      const rightValue = String(right[key] ?? '');
+      if (leftValue === rightValue) return 0;
+      const result = leftValue > rightValue ? 1 : -1;
+      return descending ? -result : result;
+    });
+  }
+}
+
+class MemoryDatabase implements EcobaseDatabase {
+  readonly repositories = new Map<string, MemoryRepository>();
+
+  constructor() {
+    Object.values(ECOBASE_COLLECTIONS).forEach((name) => this.repositories.set(name, new MemoryRepository()));
+  }
+
+  getRepository(name: string) {
+    const repository = this.repositories.get(name);
+    if (!repository) {
+      throw new Error(`MemoryDatabase failed: repository ${name} was not registered.`);
+    }
+    return repository;
+  }
+}
+
+async function createRecord(db: MemoryDatabase, collection: string, values: Record<string, unknown>) {
+  await db.getRepository(collection).create({ values });
+}
+
+describe('EcobaseInventoryPlanningService', () => {
+  it('prioritizes order-today tier rows with supplier, lead-time freshness, stock buckets, and velocity-based reorder quantity', async () => {
+    const db = new MemoryDatabase();
+    await createRecord(db, ECOBASE_COLLECTIONS.planningProducts, {
+      id: 'planning-product-1',
+      naturalKey: 'Ecofission LLC:B000RISK',
+      company: 'Ecofission LLC',
+      canonicalAsin: 'B000RISK',
+      title: 'Tier A risk product',
+      mappingStatus: 'confirmed',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
+      naturalKey: 'inventory-1',
+      sourceConnectionId: 'source-1',
+      planningProductId: 'planning-product-1',
+      snapshotDate: '2026-06-07',
+      company: 'Ecofission LLC',
+      asin: 'B000RISK',
+      sku: 'RISK-SKU',
+      stock: 21,
+      reserved: 2,
+      inbound: 0,
+      ordered: 0,
+      prepStock: 0,
+      salesVelocity: 3,
+      payload: { 'AWD Stock': 0 },
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.planningParameters, {
+      naturalKey: 'params-1',
+      sourceConnectionId: 'source-1',
+      planningProductId: 'planning-product-1',
+      company: 'Ecofission LLC',
+      asin: 'B000RISK',
+      sku: 'RISK-SKU',
+      supplier: 'Fresh Supplier',
+      supplierId: 'supplier-code-1',
+      profitPerUnit: 10,
+      leadTimeDays: 0,
+      safetyBufferDays: 7,
+      payload: { recommendedBestQty: 30, productStatus: 'Active' },
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.suppliers, {
+      id: 'supplier-ref-1',
+      naturalKey: 'Ecofission LLC:Fresh Supplier',
+      sourceConnectionId: 'source-1',
+      supplierId: 'supplier-code-1',
+      name: 'Fresh Supplier',
+      company: 'Ecofission LLC',
+      active: true,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.supplierProductLinks, {
+      naturalKey: 'link-1',
+      company: 'Ecofission LLC',
+      planningProductId: 'planning-product-1',
+      supplierId: 'supplier-ref-1',
+      role: 'latest_history',
+      source: 'order_details',
+      confidence: 'high',
+      latestBrand: 'Risk Brand',
+      active: true,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.supplierLeadTimes, {
+      naturalKey: 'leadtime-1',
+      sourceConnectionId: 'source-1',
+      supplierId: 'supplier-code-1',
+      supplierRefId: 'supplier-ref-1',
+      supplierName: 'Fresh Supplier',
+      company: 'Ecofission LLC',
+      leadTimeDays: 0,
+      confirmedAt: '2026-05-20T00:00:00.000Z',
+      source: 'backend_sheet',
+    });
+
+    const [row] = await new EcobaseInventoryPlanningService(db).listRows({
+      company: 'Ecofission LLC',
+      calculationDate: '2026-06-07',
+      reorderCycleDays: 30,
+    });
+
+    expect(row).toMatchObject({
+      planningProductId: 'planning-product-1',
+      tier: 'A',
+      tierScore: 300,
+      actionStatus: 'order_today',
+      supplierName: 'Fresh Supplier',
+      supplierSource: 'order_details',
+      leadTimeFreshness: 'fresh',
+      currentPlanningStock: 23,
+      stuck: true,
+      suggestedReorderQty: 88,
+    });
+  });
+
+  it('uses OrderDetails history to recover supplier and lead time when planning rows have no supplier mapping', async () => {
+    const db = new MemoryDatabase();
+    await createRecord(db, ECOBASE_COLLECTIONS.planningProducts, {
+      id: 'planning-product-history',
+      naturalKey: 'Ecofission LLC:B000HISTORY',
+      company: 'Ecofission LLC',
+      canonicalAsin: 'B000HISTORY',
+      title: 'OrderDetails supplier product',
+      mappingStatus: 'confirmed',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
+      naturalKey: 'inventory-history',
+      sourceConnectionId: 'source-1',
+      planningProductId: 'planning-product-history',
+      snapshotDate: '2026-06-07',
+      company: 'Ecofission LLC',
+      asin: 'B000HISTORY',
+      sku: 'HISTORY-SKU',
+      stock: 10,
+      reserved: 0,
+      salesVelocity: 2,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.planningParameters, {
+      naturalKey: 'params-history',
+      sourceConnectionId: 'source-1',
+      planningProductId: 'planning-product-history',
+      company: 'Ecofission LLC',
+      asin: 'B000HISTORY',
+      sku: 'HISTORY-SKU',
+      profitPerUnit: 20,
+      payload: { recommendedBestQty: 20 },
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.suppliers, {
+      id: 'supplier-ref-history',
+      naturalKey: 'Ecofission LLC:History Supplier',
+      sourceConnectionId: 'source-1',
+      supplierId: 'SRO-HISTORY',
+      name: 'History Supplier',
+      company: 'Ecofission LLC',
+      active: true,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.supplierLeadTimes, {
+      naturalKey: 'leadtime-history',
+      sourceConnectionId: 'source-1',
+      supplierId: 'SRO-HISTORY',
+      supplierRefId: 'supplier-ref-history',
+      supplierName: 'History Supplier',
+      company: 'Ecofission LLC',
+      leadTimeDays: 4,
+      confirmedAt: '2026-06-01T00:00:00.000Z',
+      source: 'order_details',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrderLines, {
+      naturalKey: 'line-history',
+      supplierOrderId: 'order-history',
+      company: 'Ecofission LLC',
+      supplierId: 'supplier-ref-history',
+      planningProductId: 'planning-product-history',
+      asin: 'B000HISTORY',
+      sku: 'HISTORY-SKU',
+      orderedQty: 10,
+      receivedQty: 10,
+      observedAt: '2026-05-20T00:00:00.000Z',
+      sourceOrderLineRef: 'OD-HISTORY:1',
+    });
+
+    const [row] = await new EcobaseInventoryPlanningService(db).listRows({
+      company: 'Ecofission LLC',
+      calculationDate: '2026-06-07',
+    });
+
+    expect(row).toMatchObject({
+      supplierName: 'History Supplier',
+      supplierSource: 'order_details_history',
+      leadTimeDays: 4,
+      leadTimeFreshness: 'fresh',
+      latestSafeReorderDate: '2026-06-01',
+      actionStatus: 'overdue',
+    });
+  });
+
+  it('excludes BackendSheet hold/not-selling style statuses from the primary planning queue', async () => {
+    const db = new MemoryDatabase();
+    await createRecord(db, ECOBASE_COLLECTIONS.planningProducts, {
+      id: 'planning-product-hold',
+      naturalKey: 'Ecofission LLC:B000HOLD',
+      company: 'Ecofission LLC',
+      canonicalAsin: 'B000HOLD',
+      title: 'Hold product',
+      mappingStatus: 'confirmed',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
+      naturalKey: 'inventory-hold',
+      sourceConnectionId: 'source-1',
+      planningProductId: 'planning-product-hold',
+      snapshotDate: '2026-06-07',
+      company: 'Ecofission LLC',
+      stock: 1,
+      reserved: 0,
+      salesVelocity: 1,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.planningParameters, {
+      naturalKey: 'params-hold',
+      sourceConnectionId: 'source-1',
+      planningProductId: 'planning-product-hold',
+      company: 'Ecofission LLC',
+      supplier: 'Hold Supplier',
+      profitPerUnit: 10,
+      leadTimeDays: 1,
+      payload: { recommendedBestQty: 30, 'Product Status': 'Hold' },
+    });
+
+    const [row] = await new EcobaseInventoryPlanningService(db).listRows({
+      company: 'Ecofission LLC',
+      calculationDate: '2026-06-07',
+    });
+
+    expect(row).toMatchObject({
+      productStatus: 'Hold',
+      planningExcluded: true,
+      actionStatus: 'excluded',
+    });
+  });
+
+  it('derives fallback row company from Sellerboard source connection and classifies every tier', async () => {
+    const db = new MemoryDatabase();
+    await createRecord(db, ECOBASE_COLLECTIONS.sourceConnections, {
+      id: 'source-ecofission',
+      name: 'Ecofission LLC Sellerboard',
+      sourceType: 'sellerboard',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
+      naturalKey: 'inventory-fallback',
+      sourceConnectionId: 'source-ecofission',
+      snapshotDate: '2026-06-07',
+      asin: 'B000FALLBACK',
+      sku: 'FALLBACK-SKU',
+      stock: 10,
+      reserved: 1,
+      salesVelocity: 2,
+      recommendedReorderQuantity: 0,
+      payload: { 'Profit forecast (30 days)': 208.89, 'FBA prep. stock Prep center 1 stock': 5 },
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.planningParameters, {
+      naturalKey: 'params-fallback',
+      sourceConnectionId: 'source-ecofission',
+      asin: 'B000FALLBACK',
+      sku: 'FALLBACK-SKU',
+      leadTimeDays: 3,
+      payload: { 'Product Status': 'Active' },
+    });
+
+    const service = new EcobaseInventoryPlanningService(db);
+    const filters = await service.filterOptions();
+    const [row] = await service.listRows({ company: 'Ecofission LLC', calculationDate: '2026-06-07' });
+
+    expect(filters.companies).toContain('Ecofission LLC');
+    expect(row).toMatchObject({
+      company: 'Ecofission LLC',
+      tier: 'B',
+      tierScore: 208.89,
+      currentPlanningStock: 16,
+      pipelineStock: 6,
+    });
+  });
+
+  it('materializes inventory planning rows for NocoBase editable collection blocks', async () => {
+    const db = new MemoryDatabase();
+    await createRecord(db, ECOBASE_COLLECTIONS.planningProducts, {
+      id: 'planning-product-1',
+      naturalKey: 'product-1',
+      company: 'Ecofission LLC',
+      canonicalAsin: 'B000EDITABLE',
+      title: 'Editable block product',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
+      naturalKey: 'inventory-1',
+      sourceConnectionId: 'source-1',
+      planningProductId: 'planning-product-1',
+      company: 'Ecofission LLC',
+      canonicalAsin: 'B000EDITABLE',
+      snapshotDate: '2026-06-07',
+      stock: 2,
+      fbaAvailable: 2,
+      reserved: 0,
+      salesVelocity: 1,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.planningParameters, {
+      naturalKey: 'params-1',
+      sourceConnectionId: 'source-1',
+      planningProductId: 'planning-product-1',
+      company: 'Ecofission LLC',
+      supplier: 'Editable Supplier',
+      profitPerUnit: 15,
+      leadTimeDays: 5,
+      payload: { recommendedBestQty: 25 },
+    });
+
+    const result = await new EcobaseInventoryPlanningService(db).refreshReadModel({
+      company: 'Ecofission LLC',
+      calculationDate: '2026-06-07',
+    });
+
+    const materializedRows = db.getRepository(ECOBASE_COLLECTIONS.inventoryPlanningRows).all();
+    expect(result).toMatchObject({ calculationDate: '2026-06-07', rowCount: 1, created: 1, updated: 0 });
+    expect(materializedRows[0]).toMatchObject({
+      naturalKey: '2026-06-07:Ecofission LLC:planning-product-1',
+      company: 'Ecofission LLC',
+      asin: 'B000EDITABLE',
+      supplierName: 'Editable Supplier',
+      calculationDate: '2026-06-07',
+    });
+  });
+
+  it('keeps the daily digest bounded to order-now risk and supplier contact priorities', async () => {
+    const db = new MemoryDatabase();
+    await createRecord(db, ECOBASE_COLLECTIONS.planningProducts, {
+      id: 'planning-product-1',
+      naturalKey: 'Ecofission LLC:B000RISK',
+      company: 'Ecofission LLC',
+      canonicalAsin: 'B000RISK',
+      mappingStatus: 'confirmed',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
+      naturalKey: 'inventory-1',
+      sourceConnectionId: 'source-1',
+      planningProductId: 'planning-product-1',
+      snapshotDate: '2026-06-07',
+      company: 'Ecofission LLC',
+      stock: 21,
+      reserved: 0,
+      salesVelocity: 3,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.planningParameters, {
+      naturalKey: 'params-1',
+      sourceConnectionId: 'source-1',
+      planningProductId: 'planning-product-1',
+      company: 'Ecofission LLC',
+      supplier: 'Digest Supplier',
+      profitPerUnit: 10,
+      leadTimeDays: 0,
+      payload: { recommendedBestQty: 30 },
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.supplierLeadTimes, {
+      naturalKey: 'leadtime-1',
+      sourceConnectionId: 'source-1',
+      supplierName: 'Digest Supplier',
+      company: 'Ecofission LLC',
+      leadTimeDays: 0,
+      confirmedAt: '2026-06-01T00:00:00.000Z',
+      source: 'backend_sheet',
+    });
+
+    const digest = await new EcobaseInventoryPlanningService(db).digestPreview({
+      company: 'Ecofission LLC',
+      calculationDate: '2026-06-07',
+    });
+
+    expect(digest.summary).toMatchObject({ orderToday: 1, atRisk: 1, suppliersToContact: 1 });
+    expect(digest.sections.orderNow).toHaveLength(1);
+    expect(digest.sections.suppliersToContactFirst[0]).toMatchObject({ supplierName: 'Digest Supplier', urgentCount: 1 });
+  });
+});

@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import type { EcobaseDatabase, EcobaseRepository } from './import-service';
 
@@ -151,7 +151,7 @@ type Filter = Record<string, unknown>;
 
 type SupplierIdentityRecord = {
   company: string;
-  supplierName: string;
+  supplierName?: string;
   externalSupplierCode?: string;
   sourceSystem: string;
   observedAt: string;
@@ -179,7 +179,7 @@ type SupplierOrderLineImport = {
 
 type SupplierOrderRecord = {
   company: string;
-  supplierName: string;
+  supplierName?: string;
   externalSupplierCode?: string;
   sourceSystem: string;
   sourceConnectionId: string;
@@ -218,6 +218,35 @@ function asString(value: unknown): string | undefined {
     return value.toISOString();
   }
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function isUniqueConstraintError(error: unknown) {
+  const record = toPlainRecord(error);
+  return record.name === 'SequelizeUniqueConstraintError' || String(record.message ?? '').includes('must be unique');
+}
+
+function isMissingRecordError(error: unknown) {
+  const message = String(toPlainRecord(error).message ?? '');
+  return message.includes('matching record was not found') || message.includes('found no matching record') || message.includes('not found');
+}
+
+function compactNaturalKey(prefix: string, rawKey: string) {
+  const naturalKey = `${prefix}:${rawKey}`;
+  if (naturalKey.length <= 240) {
+    return naturalKey;
+  }
+  return `${prefix}:hash:${createHash('sha256').update(rawKey).digest('hex')}`;
+}
+
+function truncateText(value: string | undefined, maxLength = 255) {
+  if (!value || value.length <= maxLength) {
+    return value;
+  }
+  return value.slice(0, maxLength);
+}
+
+function supplierOrderLineNaturalKey(orderNaturalKey: string | undefined, sourceOrderLineRef: string) {
+  return compactNaturalKey('supplier-order-line', `${orderNaturalKey ?? 'unknown-order'}:${sourceOrderLineRef}`);
 }
 
 function asNumber(value: unknown): number | undefined {
@@ -397,22 +426,28 @@ function toImportPayload(record: PlainRecord) {
 function toLineImportRecords(value: unknown): SupplierOrderLineImport[] {
   return asArray(value).map((item) => {
     const plain = toPlainRecord(item);
+    const rawLeadTimeDays = asNumber(plain.leadTimeDays);
+    let leadTimeDays: number | undefined;
+    if (typeof rawLeadTimeDays === 'number') {
+      try {
+        leadTimeDays = validateSupplierLeadTimeDays(rawLeadTimeDays, 'Ecobase supplier-order import failed');
+      } catch {
+        leadTimeDays = undefined;
+      }
+    }
     return {
       sourceOrderLineRef: asString(plain.sourceOrderLineRef) ?? randomUUID(),
       asin: asString(plain.asin)?.toUpperCase(),
-      sku: asString(plain.sku),
-      brand: asString(plain.brand),
+      sku: truncateText(asString(plain.sku)),
+      brand: truncateText(asString(plain.brand)),
       orderedQty: asNumber(plain.orderedQty) ?? 0,
       receivedQty: asNumber(plain.receivedQty),
       unitCost: asNumber(plain.unitCost),
       expectedDeliveryDate: maybeIsoDate(plain.expectedDeliveryDate),
       expectedSellableDate: maybeIsoDate(plain.expectedSellableDate),
       expectedSellableDateSource: asString(plain.expectedSellableDateSource),
-      leadTimeDays: validateSupplierLeadTimeDays(
-        asNumber(plain.leadTimeDays),
-        'Ecobase supplier-order import failed',
-      ),
-      rawStatus: asString(plain.rawStatus),
+      leadTimeDays,
+      rawStatus: truncateText(asString(plain.rawStatus)),
       observedAt: maybeIsoDateTime(plain.observedAt),
       payload: toImportPayload(plain),
     } satisfies SupplierOrderLineImport;
@@ -669,7 +704,7 @@ export class EcobaseSupplierOrderService {
     const sourceOrderLineRef = `${externalOrderRef}:manual:${randomUUID()}`;
     const values: PlainRecord = {
       id: randomUUID(),
-      naturalKey: `supplier-order-line:${asString(order.naturalKey) ?? orderId}:${sourceOrderLineRef}`,
+      naturalKey: supplierOrderLineNaturalKey(asString(order.naturalKey) ?? orderId, sourceOrderLineRef),
       supplierOrderId: order.id,
       company: order.company,
       supplierId: order.supplierId,
@@ -1237,19 +1272,20 @@ export class EcobaseSupplierOrderService {
   }
 
   private toSupplierIdentityRecord(data: PlainRecord): SupplierIdentityRecord {
-    const company = asString(data.company);
+    const company = asString(data.company) ?? '__global__';
     const supplierName = asString(data.supplierName) ?? asString(data.externalSupplierName);
+    const externalSupplierCode = asString(data.externalSupplierCode);
     const sourceSystem = asString(data.sourceSystem);
     const sourceConnectionId = asString(data.sourceConnectionId);
-    if (!company || !supplierName || !sourceSystem || !sourceConnectionId) {
+    if ((!supplierName && !externalSupplierCode) || !sourceSystem || !sourceConnectionId) {
       throw new Error(
-        'Ecobase supplier identity import failed: company, supplierName, sourceSystem, and sourceConnectionId are required.',
+        'Ecobase supplier identity import failed: supplierName or externalSupplierCode, sourceSystem, and sourceConnectionId are required.',
       );
     }
     return {
       company,
       supplierName,
-      externalSupplierCode: asString(data.externalSupplierCode),
+      externalSupplierCode,
       sourceSystem,
       observedAt: maybeIsoDateTime(data.observedAt) ?? new Date().toISOString(),
       sourceConnectionId,
@@ -1264,29 +1300,30 @@ export class EcobaseSupplierOrderService {
   private toSupplierOrderRecord(data: PlainRecord): SupplierOrderRecord {
     const company = asString(data.company);
     const supplierName = asString(data.supplierName);
+    const externalSupplierCode = asString(data.externalSupplierCode);
     const sourceSystem = asString(data.sourceSystem);
     const sourceConnectionId = asString(data.sourceConnectionId);
     const externalOrderRef = asString(data.externalOrderRef);
-    if (!company || !supplierName || !sourceSystem || !sourceConnectionId || !externalOrderRef) {
+    if (!company || (!supplierName && !externalSupplierCode) || !sourceSystem || !sourceConnectionId || !externalOrderRef) {
       throw new Error(
-        'Ecobase supplier order import failed: company, supplierName, sourceSystem, sourceConnectionId, and externalOrderRef are required.',
+        'Ecobase supplier order import failed: company, supplierName or externalSupplierCode, sourceSystem, sourceConnectionId, and externalOrderRef are required.',
       );
     }
     return {
       company,
       supplierName,
-      externalSupplierCode: asString(data.externalSupplierCode),
+      externalSupplierCode,
       sourceSystem,
       sourceConnectionId,
       externalOrderRef,
       sourceStage: (asString(data.sourceStage) ?? 'purchase_order') as SupplierOrderRecord['sourceStage'],
       status: asString(data.status) ?? 'planned',
-      approvalStatus: asString(data.approvalStatus),
-      paymentStatus: asString(data.paymentStatus),
-      shippingCarrier: asString(data.shippingCarrier),
-      trackingId: asString(data.trackingId),
+      approvalStatus: truncateText(asString(data.approvalStatus)),
+      paymentStatus: truncateText(asString(data.paymentStatus)),
+      shippingCarrier: truncateText(asString(data.shippingCarrier)),
+      trackingId: truncateText(asString(data.trackingId)),
       expectedDeliveryDate: maybeIsoDate(data.expectedDeliveryDate),
-      blockedReason: asString(data.blockedReason),
+      blockedReason: truncateText(asString(data.blockedReason)),
       orderDate: maybeIsoDate(data.orderDate),
       statusUpdatedAt: maybeIsoDateTime(data.statusUpdatedAt),
       lastMeaningfulUpdateAt: maybeIsoDateTime(data.lastMeaningfulUpdateAt),
@@ -1311,6 +1348,28 @@ export class EcobaseSupplierOrderService {
       },
       importRunId,
     );
+    const resolvedSupplierName = asString(supplier.name) ?? record.supplierName;
+    const supplierId = asString(supplier.id);
+    if (!supplierId) {
+      return {
+        order: {
+          externalOrderRef: record.externalOrderRef,
+          status: 'skipped',
+          sourceStage: record.sourceStage,
+        },
+        warnings: [
+          {
+            code: 'supplier_identity_unresolved',
+            message: `Ecobase supplier-order import skipped ${record.company}/${record.externalOrderRef} because supplier code ${record.externalSupplierCode ?? 'unknown'} is not present in Supplier IDs and no supplier name was provided.`,
+            payload: {
+              company: record.company,
+              externalOrderRef: record.externalOrderRef,
+              externalSupplierCode: record.externalSupplierCode,
+            },
+          },
+        ],
+      };
+    }
 
     const orderRepo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrders);
     const orderNaturalKey = `supplier-order:${record.company}:${record.externalOrderRef}`;
@@ -1325,7 +1384,7 @@ export class EcobaseSupplierOrderService {
       naturalKey: orderNaturalKey,
       sourceConnectionId: record.sourceConnectionId,
       company: record.company,
-      supplierId: asString(supplier.id),
+      supplierId,
       externalOrderRef: record.externalOrderRef,
       sourceStage: chooseStage(asString(existingOrder.sourceStage), record.sourceStage),
       approvalStatus: record.approvalStatus,
@@ -1385,30 +1444,45 @@ export class EcobaseSupplierOrderService {
         importRunId,
         order,
         company: record.company,
-        supplierId: asString(supplier.id) ?? '',
+        supplierId,
         externalSupplierCode: record.externalSupplierCode,
-        supplierName: record.supplierName,
+        supplierName: resolvedSupplierName,
         sourceConnectionId: record.sourceConnectionId,
         sourceStage: record.sourceStage,
         line,
       });
       warnings.push(...lineWarnings);
       if (typeof line.leadTimeDays === 'number') {
-        await this.upsertLeadTime({
-          supplierId: asString(supplier.id) ?? '',
-          company: record.company,
-          supplierName: record.supplierName,
-          externalSupplierCode: record.externalSupplierCode,
-          sourceConnectionId: record.sourceConnectionId,
-          source: record.sourceSystem,
-          leadTimeDays: validateSupplierLeadTimeDays(
-            line.leadTimeDays,
-            'Ecobase supplier-order import failed',
-          ),
-          confirmedAt: line.observedAt ?? importedStatusUpdatedAt,
-          payload: line.payload ?? {},
-          importRunId,
-        });
+        let leadTimeDays: number | undefined;
+        try {
+          leadTimeDays = validateSupplierLeadTimeDays(line.leadTimeDays, 'Ecobase supplier-order import failed');
+        } catch (error) {
+          warnings.push({
+            code: 'supplier_lead_time_invalid',
+            message: error instanceof Error ? error.message : 'Ecobase supplier-order import failed: leadTimeDays is invalid.',
+            payload: {
+              company: record.company,
+              externalOrderRef: record.externalOrderRef,
+              externalSupplierCode: record.externalSupplierCode,
+              sourceOrderLineRef: line.sourceOrderLineRef,
+              leadTimeDays: line.leadTimeDays,
+            },
+          });
+        }
+        if (typeof leadTimeDays === 'number') {
+          await this.upsertLeadTime({
+            supplierId,
+            company: record.company,
+            supplierName: resolvedSupplierName,
+            externalSupplierCode: record.externalSupplierCode,
+            sourceConnectionId: record.sourceConnectionId,
+            source: record.sourceSystem,
+            leadTimeDays,
+            confirmedAt: line.observedAt ?? importedStatusUpdatedAt,
+            payload: line.payload ?? {},
+            importRunId,
+          });
+        }
       }
     }
 
@@ -1421,7 +1495,7 @@ export class EcobaseSupplierOrderService {
     company: string;
     supplierId: string;
     externalSupplierCode?: string;
-    supplierName: string;
+    supplierName?: string;
     sourceConnectionId: string;
     sourceStage: SupplierOrderRecord['sourceStage'];
     line: SupplierOrderLineImport;
@@ -1430,7 +1504,7 @@ export class EcobaseSupplierOrderService {
     const existing = toPlainRecord(
       await lineRepo.findOne({
         filter: {
-          naturalKey: `supplier-order-line:${asString(params.order.naturalKey)}:${params.line.sourceOrderLineRef}`,
+          naturalKey: supplierOrderLineNaturalKey(asString(params.order.naturalKey), params.line.sourceOrderLineRef),
         },
       }),
     );
@@ -1446,7 +1520,7 @@ export class EcobaseSupplierOrderService {
     }
 
     const baseValues: PlainRecord = {
-      naturalKey: `supplier-order-line:${asString(params.order.naturalKey)}:${params.line.sourceOrderLineRef}`,
+      naturalKey: supplierOrderLineNaturalKey(asString(params.order.naturalKey), params.line.sourceOrderLineRef),
       supplierOrderId: asString(params.order.id),
       company: params.company,
       supplierId: params.supplierId,
@@ -1554,13 +1628,20 @@ export class EcobaseSupplierOrderService {
       };
     }
 
-    const leadTime =
+    let leadTime =
       params.importedLine?.leadTimeDays ??
       (await this.findLeadTime({
         supplierId: asString(line.supplierId) ?? asString(order.supplierId),
         company,
         externalSupplierCode: undefined,
       }));
+    if (typeof leadTime === 'number') {
+      try {
+        leadTime = validateSupplierLeadTimeDays(leadTime, 'Ecobase supplier-order import failed');
+      } catch {
+        leadTime = undefined;
+      }
+    }
     const baseDate = asString(order.orderDate) ?? asString(order.statusUpdatedAt)?.slice(0, 10);
     if (typeof leadTime === 'number' && baseDate) {
       return {
@@ -1838,31 +1919,63 @@ export class EcobaseSupplierOrderService {
   private async findOrCreateSupplier(identity: SupplierIdentityRecord, importRunId: string) {
     const supplierRepo = this.db.getRepository(ECOBASE_COLLECTIONS.suppliers);
     const identityRepo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierExternalIdentities);
-    const normalizedSupplierName = normalizeName(identity.supplierName);
+    const identitySupplierName = asString(identity.supplierName);
     const identityNaturalKey = identity.externalSupplierCode
       ? `supplier-identity:${identity.company}:${identity.sourceSystem}:code:${identity.externalSupplierCode}`
-      : `supplier-identity:${identity.company}:${identity.sourceSystem}:name:${normalizedSupplierName}`;
+      : `supplier-identity:${identity.company}:${identity.sourceSystem}:name:${normalizeName(identitySupplierName ?? '')}`;
     const existingIdentity = toPlainRecord(await identityRepo.findOne({ filter: { naturalKey: identityNaturalKey } }));
+    const identityRows = (
+      await identityRepo.find({
+        filter: identity.externalSupplierCode ? { externalSupplierCode: identity.externalSupplierCode } : {},
+        limit: 100,
+      })
+    ).map(toPlainRecord);
+    const codeIdentity = identity.externalSupplierCode
+      ? identityRows.find(
+          (record) =>
+            asString(record.externalSupplierCode) === identity.externalSupplierCode &&
+            (asString(record.company) === identity.company || asString(record.company) === '__global__') &&
+            asString(record.externalSupplierName),
+        )
+      : undefined;
+    const resolvedSupplierName = identitySupplierName ?? asString(codeIdentity?.externalSupplierName);
+    const normalizedSupplierName = resolvedSupplierName ? normalizeName(resolvedSupplierName) : undefined;
     let supplier = existingIdentity.supplierId
       ? toPlainRecord(await supplierRepo.findOne({ filterByTk: asString(existingIdentity.supplierId) }))
       : {};
 
-    if (!asString(supplier.id)) {
+    if (!asString(supplier.id) && codeIdentity?.supplierId && asString(codeIdentity.company) === identity.company) {
+      supplier = toPlainRecord(await supplierRepo.findOne({ filterByTk: asString(codeIdentity.supplierId) }));
+    }
+
+    if (!asString(supplier.id) && identity.externalSupplierCode) {
+      supplier = toPlainRecord(
+        await supplierRepo.findOne({ filter: { company: identity.company, supplierId: identity.externalSupplierCode } }),
+      );
+    }
+
+    if (!asString(supplier.id) && normalizedSupplierName) {
       supplier =
         (await supplierRepo.find({ filter: { company: identity.company } }))
           .map(toPlainRecord)
           .find((record) => normalizeName(asString(record.name) ?? '') === normalizedSupplierName) ?? {};
     }
 
+    const supplierNaturalKey = identity.externalSupplierCode
+      ? `supplier:${identity.company}:code:${identity.externalSupplierCode}`
+      : `supplier:${identity.company}:name:${normalizedSupplierName}`;
+    if (!asString(supplier.id) && !resolvedSupplierName) {
+      return {};
+    }
     if (!asString(supplier.id)) {
       supplier = toPlainRecord(
         await supplierRepo.create({
           values: {
             id: randomUUID(),
-            naturalKey: `supplier:${identity.company}:${normalizedSupplierName}`,
+            naturalKey: supplierNaturalKey,
             sourceConnectionId: identity.sourceConnectionId,
             supplierId: identity.externalSupplierCode,
-            name: identity.supplierName,
+            name: resolvedSupplierName,
             normalizedName: normalizedSupplierName,
             company: identity.company,
             active: true,
@@ -1878,8 +1991,8 @@ export class EcobaseSupplierOrderService {
         values: {
           sourceConnectionId: identity.sourceConnectionId,
           supplierId: asString(supplier.supplierId) ?? identity.externalSupplierCode,
-          name: asString(supplier.name) ?? identity.supplierName,
-          normalizedName: normalizedSupplierName,
+          name: asString(supplier.name) ?? resolvedSupplierName,
+          normalizedName: asString(supplier.normalizedName) ?? normalizedSupplierName,
           company: identity.company,
           active: true,
           lastSeenAt: identity.observedAt,
@@ -1896,7 +2009,7 @@ export class EcobaseSupplierOrderService {
       company: identity.company,
       sourceSystem: identity.sourceSystem,
       externalSupplierCode: identity.externalSupplierCode,
-      externalSupplierName: identity.supplierName,
+      externalSupplierName: resolvedSupplierName,
       normalizedExternalSupplierName: normalizedSupplierName,
       firstSeenAt: asString(existingIdentity.firstSeenAt) ?? identity.observedAt,
       lastSeenAt: identity.observedAt,
@@ -1907,7 +2020,24 @@ export class EcobaseSupplierOrderService {
     if (asString(existingIdentity.id)) {
       await identityRepo.update({ filterByTk: asString(existingIdentity.id), values: identityValues });
     } else {
-      await identityRepo.create({ values: identityValues });
+      try {
+        const updated = await identityRepo.update({ filter: { naturalKey: identityNaturalKey }, values: identityValues });
+        if (Array.isArray(updated) && updated.length === 0) {
+          throw new Error('Ecobase supplier identity update found no matching record.');
+        }
+      } catch (error) {
+        if (!isMissingRecordError(error)) {
+          throw error;
+        }
+        try {
+          await identityRepo.create({ values: identityValues });
+        } catch (createError) {
+          if (!isUniqueConstraintError(createError)) {
+            throw createError;
+          }
+          await identityRepo.update({ filter: { naturalKey: identityNaturalKey }, values: identityValues });
+        }
+      }
     }
 
     return supplier;
@@ -1916,7 +2046,7 @@ export class EcobaseSupplierOrderService {
   private async upsertLeadTime(params: {
     supplierId: string;
     company: string;
-    supplierName: string;
+    supplierName?: string;
     externalSupplierCode?: string;
     sourceConnectionId: string;
     source: string;
@@ -1946,7 +2076,24 @@ export class EcobaseSupplierOrderService {
       await repo.update({ filterByTk: asString(existing.id), values });
       return;
     }
-    await repo.create({ values });
+    try {
+      const updated = await repo.update({ filter: { naturalKey }, values });
+      if (Array.isArray(updated) && updated.length === 0) {
+        throw new Error('Ecobase supplier lead-time update found no matching record.');
+      }
+    } catch (error) {
+      if (!isMissingRecordError(error)) {
+        throw error;
+      }
+      try {
+        await repo.create({ values });
+      } catch (createError) {
+        if (!isUniqueConstraintError(createError)) {
+          throw createError;
+        }
+        await repo.update({ filter: { naturalKey }, values });
+      }
+    }
   }
 
   private async findLeadTime(params: { supplierId?: string; company?: string; externalSupplierCode?: string }) {

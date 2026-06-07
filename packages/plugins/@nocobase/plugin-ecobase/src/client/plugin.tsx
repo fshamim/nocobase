@@ -6,6 +6,7 @@ const AiEvidencePage = lazy(() => import('./pages/AiEvidencePage'));
 const AlertEvaluationPage = lazy(() => import('./pages/AlertEvaluationPage'));
 const CollectionsWorkspacePage = lazy(() => import('./pages/CollectionsWorkspacePage'));
 const ImportStatusPage = lazy(() => import('./pages/ImportStatusPage'));
+const InventoryPlanningPage = lazy(() => import('./pages/InventoryPlanningPage'));
 const ManagementDashboardPage = lazy(() => import('./pages/ManagementDashboardPage'));
 const OrderManagementPage = lazy(() => import('./pages/OrderManagementPage'));
 const ReportPreviewPage = lazy(() => import('./pages/ReportPreviewPage'));
@@ -25,6 +26,12 @@ export class PluginEcobaseClient extends Plugin<Record<string, unknown>> {
       title: this.t('Sellerboard sources'),
       icon: 'CloudDownloadOutlined',
       Component: SellerboardSourcesPage,
+      aclSnippet: 'pm.ecobase',
+    });
+    this.pluginSettingsManager.add('ecobase-inventory-planning', {
+      title: this.t('Inventory planning'),
+      icon: 'OrderedListOutlined',
+      Component: InventoryPlanningPage,
       aclSnippet: 'pm.ecobase',
     });
     this.pluginSettingsManager.add('ecobase-order-management', {

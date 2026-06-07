@@ -20,6 +20,7 @@ import { ensureEcobaseCollectionManagerMetadata } from './services/collection-ma
 import { EcobaseComparisonService } from './services/comparison-service';
 import { EcobaseDashboardService } from './services/dashboard-service';
 import { EcobaseImportService } from './services/import-service';
+import { EcobaseInventoryPlanningService } from './services/inventory-planning-service';
 import { EcobasePlanningCalculationService } from './services/planning-calculation-service';
 import { EcobasePlanningProductService } from './services/planning-product-service';
 import { EcobaseOperatorWorkspaceService } from './services/operator-workspace-service';
@@ -320,6 +321,64 @@ export function createEcobaseComparisonActions() {
         ctx.throw(400, error instanceof Error ? error.message : 'Ecobase comparison failed.');
         return;
       }
+      await next();
+    },
+  };
+}
+
+export function createEcobaseInventoryPlanningActions() {
+  return {
+    filters: async (ctx, next) => {
+      const service = new EcobaseInventoryPlanningService(ctx.db);
+      ctx.body = { data: await service.filterOptions() };
+      await next();
+    },
+    refreshReadModel: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseInventoryPlanningService(ctx.db);
+      ctx.body = {
+        data: await service.refreshReadModel({
+          company: getOptionalString(values, 'company'),
+          calculationDate: getOptionalString(values, 'calculationDate'),
+          leadTimeFreshnessDays: getOptionalNumber(values, 'leadTimeFreshnessDays'),
+          safetyBufferDays: getOptionalNumber(values, 'safetyBufferDays'),
+          orderSoonWindowDays: getOptionalNumber(values, 'orderSoonWindowDays'),
+          reorderCycleDays: getOptionalNumber(values, 'reorderCycleDays'),
+          limit: getOptionalNumber(values, 'limit'),
+        }),
+      };
+      await next();
+    },
+    rows: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseInventoryPlanningService(ctx.db);
+      ctx.body = {
+        data: await service.listRows({
+          company: getOptionalString(values, 'company'),
+          calculationDate: getOptionalString(values, 'calculationDate'),
+          leadTimeFreshnessDays: getOptionalNumber(values, 'leadTimeFreshnessDays'),
+          safetyBufferDays: getOptionalNumber(values, 'safetyBufferDays'),
+          orderSoonWindowDays: getOptionalNumber(values, 'orderSoonWindowDays'),
+          reorderCycleDays: getOptionalNumber(values, 'reorderCycleDays'),
+          limit: getOptionalNumber(values, 'limit'),
+        }),
+      };
+      await next();
+    },
+    digestPreview: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseInventoryPlanningService(ctx.db);
+      ctx.body = {
+        data: await service.digestPreview({
+          company: getOptionalString(values, 'company'),
+          calculationDate: getOptionalString(values, 'calculationDate'),
+          leadTimeFreshnessDays: getOptionalNumber(values, 'leadTimeFreshnessDays'),
+          safetyBufferDays: getOptionalNumber(values, 'safetyBufferDays'),
+          orderSoonWindowDays: getOptionalNumber(values, 'orderSoonWindowDays'),
+          reorderCycleDays: getOptionalNumber(values, 'reorderCycleDays'),
+          limit: getOptionalNumber(values, 'limit'),
+        }),
+      };
       await next();
     },
   };
@@ -879,6 +938,10 @@ export class PluginEcobaseServer extends Plugin {
       actions: createEcobasePlanningActions(),
     });
     this.app.resourceManager.define({
+      name: 'ecobaseInventoryPlanning',
+      actions: createEcobaseInventoryPlanningActions(),
+    });
+    this.app.resourceManager.define({
       name: 'ecobaseSupplierOrders',
       actions: createEcobaseSupplierOrderActions(),
     });
@@ -943,6 +1006,7 @@ export class PluginEcobaseServer extends Plugin {
       ],
       'loggedIn',
     );
+    this.app.acl.allow('ecobaseInventoryPlanning', ['filters', 'refreshReadModel', 'rows', 'digestPreview'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.companies, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.amazonAccounts, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.sourceConnections, ['list', 'get'], 'loggedIn');
@@ -954,6 +1018,7 @@ export class PluginEcobaseServer extends Plugin {
     this.app.acl.allow(ECOBASE_COLLECTIONS.planningProductMappingAudits, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.listingDailyFacts, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.inventorySnapshots, ['list', 'get'], 'loggedIn');
+    this.app.acl.allow(ECOBASE_COLLECTIONS.inventoryPlanningRows, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.trafficSnapshots, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.planningParameters, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.suppliers, ['list', 'get'], 'loggedIn');

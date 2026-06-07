@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { AdapterStreamItem, NormalizedRecord, SourceAdapter, SourceAdapterImportInput } from './types';
 import { CsvRowReader, CsvSourceFile, normalizedHeaderSet, normalizeHeader, parseCsv } from './csv-utils';
 
@@ -317,7 +318,6 @@ function supplierRecords(input: SourceAdapterImportInput, row: CsvRowReader, sou
   }
   const company = row.string('Company');
   const supplierKey = supplierId ?? supplierName ?? sourceKey;
-  const supplierNameValue = supplierName ?? supplierId ?? sourceKey;
   const records: NormalizedRecord[] = [
     {
       kind: 'supplier',
@@ -325,7 +325,7 @@ function supplierRecords(input: SourceAdapterImportInput, row: CsvRowReader, sou
         naturalKey: naturalKey(input, 'supplier', [company, supplierKey]),
         sourceConnectionId: input.sourceConnectionId,
         supplierId,
-        name: supplierNameValue,
+        name: supplierName,
         company,
         payload: row.payload(),
       },
@@ -338,7 +338,7 @@ function supplierRecords(input: SourceAdapterImportInput, row: CsvRowReader, sou
         naturalKey: naturalKey(input, 'supplier_lead_time', [company, supplierKey]),
         sourceConnectionId: input.sourceConnectionId,
         supplierId,
-        supplierName: supplierNameValue,
+        supplierName,
         company,
         leadTimeDays,
         payload: row.payload(),
@@ -348,11 +348,16 @@ function supplierRecords(input: SourceAdapterImportInput, row: CsvRowReader, sou
   return records;
 }
 
+function supplierExternalCode(row: CsvRowReader) {
+  const value = row.string('SR ID', 'SR ID ');
+  return value && value.toLowerCase() !== 'duplicate' ? value : undefined;
+}
+
 function supplierIdentityRecord(input: SourceAdapterImportInput, row: CsvRowReader): NormalizedRecord[] {
-  const company = companyOf(input, row);
+  const company = companyOf(input, row) ?? '__global__';
   const supplierName = row.string('Supplier', 'Supplier ', 'Supplier Name');
-  const supplierId = row.string('SR ID', 'SR ID ');
-  if (!company || (!supplierName && !supplierId)) {
+  const supplierId = supplierExternalCode(row);
+  if (!supplierName && !supplierId) {
     return [];
   }
 
@@ -361,7 +366,7 @@ function supplierIdentityRecord(input: SourceAdapterImportInput, row: CsvRowRead
       kind: 'supplier_identity',
       data: {
         company,
-        supplierName: supplierName ?? supplierId,
+        supplierName,
         externalSupplierCode: supplierId,
         sourceSystem: 'supplier_ids',
         sourceConnectionId: input.sourceConnectionId,
@@ -395,8 +400,16 @@ function expectedSellableDate(row: CsvRowReader) {
   return { date: undefined, source: undefined };
 }
 
+function compactReference(value: string, maxLength = 180) {
+  if (value.length <= maxLength) {
+    return value;
+  }
+  const hash = createHash('sha256').update(value).digest('hex').slice(0, 16);
+  return `${value.slice(0, maxLength - 17)}:${hash}`;
+}
+
 function sourceOrderLineRef(row: CsvRowReader, fallback: string) {
-  return [row.string('Order ID'), canonicalAsin(row), row.string('SKU')].filter(Boolean).join(':') || fallback;
+  return compactReference([row.string('Order ID'), canonicalAsin(row), row.string('SKU')].filter(Boolean).join(':') || fallback);
 }
 
 function purchaseOrderStatus(row: CsvRowReader) {
@@ -440,8 +453,9 @@ function purchaseOrderStatus(row: CsvRowReader) {
 function orderDetailsRecord(input: SourceAdapterImportInput, row: CsvRowReader, sourceKey: string): NormalizedRecord[] {
   const company = companyOf(input, row);
   const supplierName = row.string('Supplier', 'Supplier ', 'Supplier Name');
+  const supplierId = supplierExternalCode(row);
   const orderId = row.string('Order ID');
-  if (!company || !supplierName || !orderId) {
+  if (!company || (!supplierName && !supplierId) || !orderId) {
     return [];
   }
 
@@ -451,7 +465,7 @@ function orderDetailsRecord(input: SourceAdapterImportInput, row: CsvRowReader, 
       data: {
         company,
         supplierName,
-        externalSupplierCode: row.string('SR ID', 'SR ID '),
+        externalSupplierCode: supplierId,
         sourceSystem: 'order_details',
         sourceConnectionId: input.sourceConnectionId,
         externalOrderRef: orderId,
@@ -487,8 +501,9 @@ function purchaseOrderRecord(
 ): NormalizedRecord[] {
   const company = companyOf(input, row);
   const supplierName = row.string('Supplier', 'Supplier ', 'Supplier Name');
+  const supplierId = supplierExternalCode(row);
   const orderId = row.string('Order ID');
-  if (!company || !supplierName || !orderId) {
+  if (!company || (!supplierName && !supplierId) || !orderId) {
     return [];
   }
 
@@ -514,7 +529,7 @@ function purchaseOrderRecord(
       data: {
         company,
         supplierName,
-        externalSupplierCode: row.string('SR ID', 'SR ID '),
+        externalSupplierCode: supplierId,
         sourceSystem: 'purchase_orders',
         sourceConnectionId: input.sourceConnectionId,
         externalOrderRef: orderId,
@@ -543,11 +558,12 @@ function preOrderSheetRecord(
 ): NormalizedRecord[] {
   const company = companyOf(input, row);
   const supplierName = row.string('Supplier', 'Supplier ', 'Supplier Name');
+  const supplierId = supplierExternalCode(row);
   const orderId = row.string('Order ID');
   const orderedQty = row.number('Qty');
   if (
     !company ||
-    !supplierName ||
+    (!supplierName && !supplierId) ||
     !orderId ||
     typeof orderedQty !== 'number' ||
     (!canonicalAsin(row) && !row.string('SKU'))
@@ -562,7 +578,7 @@ function preOrderSheetRecord(
       data: {
         company,
         supplierName,
-        externalSupplierCode: row.string('SR ID', 'SR ID '),
+        externalSupplierCode: supplierId,
         sourceSystem: 'pre_order_sheet',
         sourceConnectionId: input.sourceConnectionId,
         externalOrderRef: orderId,

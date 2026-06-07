@@ -2186,5 +2186,32 @@ export const ecobaseClientCollections: CollectionOptions[] = [
         }
       }
     ]
+  },
+  {
+    "name": "ecobaseInventoryPlanningRows",
+    "title": "Ecobase Inventory Planning Rows",
+    "filterTargetKey": "id",
+    "fields": [
+      { "name": "id", "type": "uuid", "interface": "uuid", "primaryKey": true, "uiSchema": { "type": "string", "title": "Id", "x-component": "Input" } },
+      { "name": "calculationDate", "type": "dateOnly", "interface": "date", "uiSchema": { "type": "string", "title": "Calculation Date", "x-component": "DatePicker" } },
+      { "name": "company", "type": "string", "interface": "input", "uiSchema": { "type": "string", "title": "Company", "x-component": "Input" } },
+      { "name": "actionStatus", "type": "string", "interface": "select", "uiSchema": { "type": "string", "title": "Action Status", "x-component": "Select" } },
+      { "name": "tier", "type": "string", "interface": "select", "uiSchema": { "type": "string", "title": "Tier", "x-component": "Select" } },
+      { "name": "asin", "type": "string", "interface": "input", "uiSchema": { "type": "string", "title": "ASIN", "x-component": "Input" } },
+      { "name": "sku", "type": "string", "interface": "input", "uiSchema": { "type": "string", "title": "SKU", "x-component": "Input" } },
+      { "name": "productStatus", "type": "string", "interface": "input", "uiSchema": { "type": "string", "title": "Product Status", "x-component": "Input" } },
+      { "name": "supplierName", "type": "string", "interface": "input", "uiSchema": { "type": "string", "title": "Supplier Name", "x-component": "Input" } },
+      { "name": "leadTimeFreshness", "type": "string", "interface": "select", "uiSchema": { "type": "string", "title": "Lead Time Freshness", "x-component": "Select" } },
+      { "name": "latestSafeReorderDate", "type": "dateOnly", "interface": "date", "uiSchema": { "type": "string", "title": "Latest Safe Reorder Date", "x-component": "DatePicker" } },
+      { "name": "estimatedOosDate", "type": "dateOnly", "interface": "date", "uiSchema": { "type": "string", "title": "Estimated OOS Date", "x-component": "DatePicker" } },
+      { "name": "currentPlanningStock", "type": "double", "interface": "number", "uiSchema": { "type": "number", "title": "Current Planning Stock", "x-component": "InputNumber" } },
+      { "name": "sellableStock", "type": "double", "interface": "number", "uiSchema": { "type": "number", "title": "Sellable Stock", "x-component": "InputNumber" } },
+      { "name": "reservedStock", "type": "double", "interface": "number", "uiSchema": { "type": "number", "title": "Reserved Stock", "x-component": "InputNumber" } },
+      { "name": "pipelineStock", "type": "double", "interface": "number", "uiSchema": { "type": "number", "title": "Pipeline Stock", "x-component": "InputNumber" } },
+      { "name": "leadTimeDays", "type": "double", "interface": "number", "uiSchema": { "type": "number", "title": "Lead Time Days", "x-component": "InputNumber" } },
+      { "name": "suggestedReorderQty", "type": "double", "interface": "number", "uiSchema": { "type": "number", "title": "Suggested Reorder Qty", "x-component": "InputNumber" } },
+      { "name": "digestPriority", "type": "integer", "interface": "integer", "uiSchema": { "type": "number", "title": "Digest Priority", "x-component": "InputNumber" } },
+      { "name": "lastRefreshedAt", "type": "datetimeTz", "interface": "datetime", "uiSchema": { "type": "datetime", "title": "Last Refreshed At", "x-component": "DatePicker" } }
+    ]
   }
 ];

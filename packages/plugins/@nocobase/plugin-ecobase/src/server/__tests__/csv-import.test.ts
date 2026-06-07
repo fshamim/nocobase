@@ -127,6 +127,18 @@ const supplierIdsDetailedCsv = `Company,SR ID,Supplier Name
 Ecofission LLC,SRO-A,Alpha Supply
 Ecofission LLC,SRO-B,Beta Supply`;
 
+const globalSupplierIdsCsv = `SR ID,Supplier Name
+SRO-ESS,Essence Supplier`;
+
+const duplicateSupplierIdsCsv = `SR ID,Supplier Name
+Duplicate,harkersonline
+Duplicate,kiki-health
+SRO-12801,New england quilt supply`;
+
+const orderDetailsWithSupplierCodeOnlyCsv = `Order ID,Timestamp,Company,SR ID,Supplier,Brand ,ASIN,SKU,Qty,PPU,Order type,Lead time(day),T.Profit
+OD-CODE,17/06/2023 18:15:23,Ecofission LLC,SRO-ESS,,Essence,B00ESSENCE,ESS-1,50,2.50,Restock,,100
+OD-UNKNOWN,18/06/2023 18:15:23,Ecofission LLC,SRO-MISSING,,Unknown,B00UNKNOWN,UNK-1,10,1.00,Restock,,20`;
+
 const orderDetailsDetailedCsv = `Order ID,Timestamp,Company,SR ID,Supplier,Brand ,ASIN,SKU,Qty,PPU,Order type,Lead time(day),T.Profit
 OD-OLD,17/06/2023 18:15:23,Ecofission LLC,SRO-A,Alpha Supply,Brand Legacy,B0057XUD02,V-651-A,50,0.95,New,10,190
 OD-NEW,10/07/2023 08:00:00,Ecofission LLC,SRO-B,Beta Supply,Brand Fresh,B0057XUD02,V-651-A,60,1.25,New,12,240`;
@@ -738,6 +750,83 @@ describe('Ecobase current Amazon operations CSV import', () => {
       .all()
       .find((record) => record.id === purchaseOrderLine?.id);
     expect(lineAfterSupplierOnlyImport?.lastImportRunId).toBe(sourceLineImportRunId);
+  });
+
+  it('imports Supplier IDs rows with duplicate placeholder codes without aborting the source', async () => {
+    const { db, service } = createService('google_sheets', 'order_management');
+    const sourceConnectionRepo = db.getRepository(ECOBASE_COLLECTIONS.sourceConnections);
+
+    sourceConnectionRepo.update({
+      filterByTk: 'source-1',
+      values: {
+        config: {
+          files: [{ name: 'Supplier IDs.csv', content: duplicateSupplierIdsCsv, expectedRowCount: 3 }],
+        },
+      },
+    });
+
+    const supplierRun = await service.runAdapterImport({
+      sourceConnectionId: 'source-1',
+      adapterName: 'google-sheets-migration-csv',
+      sourceIdentifier: 'supplier-ids-with-duplicate-placeholders',
+      sourceVersion: '2025-07-01',
+      preserveAuditRun: true,
+    });
+
+    expect(supplierRun).toMatchObject({ status: 'success', rowCount: 3, normalizedCount: 3, warningCount: 0 });
+    const suppliers = db.getRepository(ECOBASE_COLLECTIONS.suppliers).all();
+    expect(suppliers.find((record) => record.name === 'harkersonline')).toMatchObject({ supplierId: undefined });
+    expect(suppliers.find((record) => record.name === 'kiki-health')).toMatchObject({ supplierId: undefined });
+    expect(suppliers.find((record) => record.name === 'New england quilt supply')).toMatchObject({ supplierId: 'SRO-12801' });
+  });
+
+  it('links order-details supplier codes through Supplier IDs and leaves unknown supplier lead time missing', async () => {
+    const { db, service } = createService('google_sheets', 'order_management');
+    const sourceConnectionRepo = db.getRepository(ECOBASE_COLLECTIONS.sourceConnections);
+
+    sourceConnectionRepo.update({
+      filterByTk: 'source-1',
+      values: {
+        config: {
+          files: [{ name: 'Supplier IDs.csv', content: globalSupplierIdsCsv, expectedRowCount: 1 }],
+        },
+      },
+    });
+    const supplierRun = await service.runAdapterImport({
+      sourceConnectionId: 'source-1',
+      adapterName: 'google-sheets-migration-csv',
+      sourceIdentifier: 'global-supplier-ids',
+      sourceVersion: '2025-07-01',
+      preserveAuditRun: true,
+    });
+    expect(supplierRun).toMatchObject({ status: 'success', rowCount: 1, normalizedCount: 1, warningCount: 0 });
+
+    sourceConnectionRepo.update({
+      filterByTk: 'source-1',
+      values: {
+        config: {
+          files: [{ name: 'OrderDetails.csv', content: orderDetailsWithSupplierCodeOnlyCsv, expectedRowCount: 2 }],
+        },
+      },
+    });
+    const orderRun = await service.runAdapterImport({
+      sourceConnectionId: 'source-1',
+      adapterName: 'google-sheets-migration-csv',
+      sourceIdentifier: 'order-details-code-only',
+      sourceVersion: '2025-07-02',
+      preserveAuditRun: true,
+    });
+    expect(orderRun).toMatchObject({ status: 'success', rowCount: 2, normalizedCount: 2, warningCount: 3 });
+
+    const suppliers = db.getRepository(ECOBASE_COLLECTIONS.suppliers).all();
+    const globalSupplier = suppliers.find((record) => record.supplierId === 'SRO-ESS' && record.company === '__global__');
+    const linkedSupplier = suppliers.find((record) => record.supplierId === 'SRO-ESS' && record.company === 'Ecofission LLC');
+    const unknownSupplier = suppliers.find((record) => record.supplierId === 'SRO-MISSING' && record.company === 'Ecofission LLC');
+    expect(globalSupplier).toMatchObject({ name: 'Essence Supplier' });
+    expect(linkedSupplier).toMatchObject({ name: 'Essence Supplier' });
+    expect(unknownSupplier).toBeUndefined();
+    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).all()).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierLeadTimes).all()).toHaveLength(0);
   });
 
   it('preserves operator-owned supplier-order fields across re-imports and keeps blocked open quantity semantics', async () => {

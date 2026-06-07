@@ -9,6 +9,7 @@ import clickupTaskSnapshots from '../collections/clickup-task-snapshots';
 import companies from '../collections/companies';
 import dataQualitySignoffs from '../collections/data-quality-signoffs';
 import importRuns from '../collections/import-runs';
+import inventoryPlanningRows from '../collections/inventory-planning-rows';
 import inventorySnapshots from '../collections/inventory-snapshots';
 import listingDailyFacts from '../collections/listing-daily-facts';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
@@ -76,6 +77,7 @@ describe('Ecobase plugin-owned schema', () => {
     expect(planningProductMappingAudits.name).toBe(ECOBASE_COLLECTIONS.planningProductMappingAudits);
     expect(listingDailyFacts.name).toBe(ECOBASE_COLLECTIONS.listingDailyFacts);
     expect(inventorySnapshots.name).toBe(ECOBASE_COLLECTIONS.inventorySnapshots);
+    expect(inventoryPlanningRows.name).toBe(ECOBASE_COLLECTIONS.inventoryPlanningRows);
     expect(trafficSnapshots.name).toBe(ECOBASE_COLLECTIONS.trafficSnapshots);
     expect(planningParameters.name).toBe(ECOBASE_COLLECTIONS.planningParameters);
     expect(suppliers.name).toBe(ECOBASE_COLLECTIONS.suppliers);
@@ -110,6 +112,7 @@ describe('Ecobase plugin-owned schema', () => {
       sourceConnections,
       importRuns,
       rawImportRows,
+      inventoryPlanningRows,
       planningProducts,
       planningProductListings,
       planningProductMappingAudits,
@@ -178,6 +181,9 @@ describe('Ecobase plugin-owned schema', () => {
     expect(field(listingDailyFacts, 'refunds')).toMatchObject({ type: 'double' });
     expect(field(inventorySnapshots, 'planningProductId')).toMatchObject({ type: 'uuid', autoFill: false });
     expect(field(inventorySnapshots, 'stock')).toMatchObject({ type: 'double' });
+    expect(field(inventoryPlanningRows, 'naturalKey')).toMatchObject({ type: 'string', unique: true });
+    expect(field(inventoryPlanningRows, 'actionStatus')).toMatchObject({ type: 'string' });
+    expect(field(inventoryPlanningRows, 'leadTimeFreshness')).toMatchObject({ type: 'string' });
     expect(field(trafficSnapshots, 'buyBoxPercentage')).toMatchObject({ type: 'double' });
     expect(field(planningParameters, 'planningProductId')).toMatchObject({ type: 'uuid', autoFill: false });
     expect(field(planningParameters, 'leadTimeDays')).toMatchObject({ type: 'double' });

@@ -9,6 +9,7 @@ const OPERATOR_DASHBOARD_COLLECTIONS = [
   ECOBASE_COLLECTIONS.listingDailyFacts,
   ECOBASE_COLLECTIONS.planningProducts,
   ECOBASE_COLLECTIONS.inventorySnapshots,
+  ECOBASE_COLLECTIONS.inventoryPlanningRows,
   ECOBASE_COLLECTIONS.planningCalculationSnapshots,
   ECOBASE_COLLECTIONS.alerts,
   ECOBASE_COLLECTIONS.supplierOrders,

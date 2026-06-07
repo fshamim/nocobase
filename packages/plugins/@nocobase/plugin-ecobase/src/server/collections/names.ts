@@ -10,6 +10,7 @@ export const ECOBASE_COLLECTIONS = {
   planningProductMappingAudits: 'ecobasePlanningProductMappingAudits',
   listingDailyFacts: 'ecobaseListingDailyFacts',
   inventorySnapshots: 'ecobaseInventorySnapshots',
+  inventoryPlanningRows: 'ecobaseInventoryPlanningRows',
   trafficSnapshots: 'ecobaseTrafficSnapshots',
   planningParameters: 'ecobasePlanningParameters',
   suppliers: 'ecobaseSuppliers',
