@@ -5,6 +5,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useT } from '../locale';
 
 type PlainRecord = Record<string, any>;
+type OrderNowQuickFilter = 'all' | 'urgent_today' | 'missing_supplier' | 'lead_time_issues';
+type OrderNowSortKey = 'urgency' | 'oos_asc' | 'risk_desc' | 'tier' | 'supplier';
 
 interface DigestPreview {
   summary: PlainRecord;
@@ -86,6 +88,19 @@ function unwrapDigest(response: any): DigestPreview {
 function todayIsoDate() {
   return new Date().toISOString().slice(0, 10);
 }
+
+const ACTION_PRIORITY: Record<string, number> = {
+  overdue: 0,
+  order_today: 1,
+  missing_lead_time: 2,
+  order_soon: 3,
+  already_ordered: 4,
+  watch: 5,
+  sufficient_stock: 6,
+  excluded: 7,
+};
+
+const TIER_PRIORITY: Record<string, number> = { A: 0, B: 1, C: 2 };
 
 function actionColor(value?: string) {
   switch (value) {
@@ -263,6 +278,53 @@ function defaultOrderQty(row: PlainRecord) {
   return Number.isFinite(qty) && qty > 0 ? Math.ceil(qty) : 1;
 }
 
+function numericValue(value: any, fallback: number) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function textValue(value: any) {
+  return String(value ?? '').toLowerCase();
+}
+
+function orderNowMatchesQuickFilter(row: PlainRecord, filter: OrderNowQuickFilter) {
+  if (filter === 'urgent_today') {
+    return ['overdue', 'order_today'].includes(String(row.actionStatus ?? ''));
+  }
+  if (filter === 'missing_supplier') {
+    return !row.supplierName;
+  }
+  if (filter === 'lead_time_issues') {
+    return row.actionStatus === 'missing_lead_time' || ['missing', 'stale'].includes(String(row.leadTimeFreshness ?? ''));
+  }
+  return true;
+}
+
+function sortOrderNowRows(rows: PlainRecord[], sortKey: OrderNowSortKey, calculationDate: string) {
+  return [...rows].sort((left, right) => {
+    if (sortKey === 'risk_desc') {
+      return numericValue(right.estimatedProfitRisk, -1) - numericValue(left.estimatedProfitRisk, -1);
+    }
+    if (sortKey === 'oos_asc') {
+      return String(left.estimatedOosDate ?? '9999-12-31').localeCompare(String(right.estimatedOosDate ?? '9999-12-31'));
+    }
+    if (sortKey === 'tier') {
+      return (TIER_PRIORITY[String(left.tier ?? '')] ?? 99) - (TIER_PRIORITY[String(right.tier ?? '')] ?? 99);
+    }
+    if (sortKey === 'supplier') {
+      return String(left.supplierName ?? 'Find supplier from OrderDetails').localeCompare(
+        String(right.supplierName ?? 'Find supplier from OrderDetails'),
+      );
+    }
+    const actionDiff = (ACTION_PRIORITY[String(left.actionStatus ?? '')] ?? 99) - (ACTION_PRIORITY[String(right.actionStatus ?? '')] ?? 99);
+    if (actionDiff !== 0) return actionDiff;
+    const leftOos = dayjs(left.estimatedOosDate ?? '9999-12-31').diff(dayjs(calculationDate), 'day');
+    const rightOos = dayjs(right.estimatedOosDate ?? '9999-12-31').diff(dayjs(calculationDate), 'day');
+    if (leftOos !== rightOos) return leftOos - rightOos;
+    return numericValue(right.estimatedProfitRisk, -1) - numericValue(left.estimatedProfitRisk, -1);
+  });
+}
+
 function productLineMatches(row: PlainRecord, line: PlainRecord) {
   const rowPlanningProductId = String(row.planningProductId ?? '');
   const linePlanningProductId = String(line.planningProductId ?? '');
@@ -300,6 +362,11 @@ export default function InventoryPlanningPage() {
   const [leadTimeFreshnessDays, setLeadTimeFreshnessDays] = useState(60);
   const [orderSoonWindowDays, setOrderSoonWindowDays] = useState(14);
   const [limit, setLimit] = useState(150);
+  const [orderNowQuickFilter, setOrderNowQuickFilter] = useState<OrderNowQuickFilter>('all');
+  const [orderNowTierFilter, setOrderNowTierFilter] = useState<string[]>([]);
+  const [orderNowCompanyFilter, setOrderNowCompanyFilter] = useState<string[]>([]);
+  const [orderNowSearch, setOrderNowSearch] = useState('');
+  const [orderNowSort, setOrderNowSort] = useState<OrderNowSortKey>('urgency');
   const [filterOptions, setFilterOptions] = useState<PlainRecord>({});
   const [rows, setRows] = useState<PlainRecord[]>([]);
   const [digest, setDigest] = useState<DigestPreview>(() => unwrapDigest({}));
@@ -374,6 +441,33 @@ export default function InventoryPlanningPage() {
       }),
     [actionStatus, rows, tier],
   );
+
+  const orderNowCompanies = useMemo(
+    () => Array.from(new Set(digest.sections.orderNow.map((row) => String(row.company ?? '')).filter(Boolean))).sort(),
+    [digest.sections.orderNow],
+  );
+
+  const orderNowTiers = useMemo(
+    () => Array.from(new Set(digest.sections.orderNow.map((row) => String(row.tier ?? '')).filter(Boolean))).sort(),
+    [digest.sections.orderNow],
+  );
+
+  const orderNowRows = useMemo(() => {
+    const search = orderNowSearch.trim().toLowerCase();
+    const filtered = digest.sections.orderNow.filter((row) => {
+      if (!orderNowMatchesQuickFilter(row, orderNowQuickFilter)) return false;
+      if (orderNowTierFilter.length > 0 && !orderNowTierFilter.includes(String(row.tier ?? ''))) return false;
+      if (orderNowCompanyFilter.length > 0 && !orderNowCompanyFilter.includes(String(row.company ?? ''))) return false;
+      if (search) {
+        const haystack = [row.asin, row.sku, row.title, row.company, row.supplierName, row.actionStatus, row.tier]
+          .map(textValue)
+          .join(' ');
+        if (!haystack.includes(search)) return false;
+      }
+      return true;
+    });
+    return sortOrderNowRows(filtered, orderNowSort, calculationDate);
+  }, [calculationDate, digest.sections.orderNow, orderNowCompanyFilter, orderNowQuickFilter, orderNowSearch, orderNowSort, orderNowTierFilter]);
 
   const newActionValues = (row: PlainRecord): DrawerActionValues => {
     const supplierId = isUuid(row.supplierId) ? row.supplierId : '';
@@ -762,10 +856,72 @@ export default function InventoryPlanningPage() {
               <Typography.Paragraph type="secondary">
                 {t('Click a row to review the product and manage supplier-order actions in one drawer.')}
               </Typography.Paragraph>
+              <Row gutter={[8, 8]} style={{ marginBottom: 12 }}>
+                <Col xs={24} md={8} xl={5}>
+                  <Select<OrderNowQuickFilter>
+                    value={orderNowQuickFilter}
+                    onChange={setOrderNowQuickFilter}
+                    style={{ width: '100%' }}
+                    options={[
+                      { value: 'all', label: t('All order-now rows') },
+                      { value: 'urgent_today', label: t('Overdue / today') },
+                      { value: 'missing_supplier', label: t('Missing supplier') },
+                      { value: 'lead_time_issues', label: t('Lead-time issues') },
+                    ]}
+                  />
+                </Col>
+                <Col xs={24} md={8} xl={5}>
+                  <Select
+                    mode="multiple"
+                    allowClear
+                    placeholder={t('Tier')}
+                    value={orderNowTierFilter}
+                    onChange={setOrderNowTierFilter}
+                    style={{ width: '100%' }}
+                    options={orderNowTiers.map((value) => ({ value, label: value }))}
+                  />
+                </Col>
+                <Col xs={24} md={8} xl={5}>
+                  <Select
+                    mode="multiple"
+                    allowClear
+                    placeholder={t('Company')}
+                    value={orderNowCompanyFilter}
+                    onChange={setOrderNowCompanyFilter}
+                    style={{ width: '100%' }}
+                    options={orderNowCompanies.map((value) => ({ value, label: value }))}
+                  />
+                </Col>
+                <Col xs={24} md={8} xl={5}>
+                  <Select<OrderNowSortKey>
+                    value={orderNowSort}
+                    onChange={setOrderNowSort}
+                    style={{ width: '100%' }}
+                    options={[
+                      { value: 'urgency', label: t('Sort by urgency') },
+                      { value: 'oos_asc', label: t('Sort by OOS date') },
+                      { value: 'risk_desc', label: t('Sort by money at risk') },
+                      { value: 'tier', label: t('Sort by tier') },
+                      { value: 'supplier', label: t('Sort by supplier') },
+                    ]}
+                  />
+                </Col>
+                <Col xs={24} md={8} xl={4}>
+                  <Input
+                    allowClear
+                    placeholder={t('Search ASIN, SKU, supplier')}
+                    value={orderNowSearch}
+                    onChange={(event) => setOrderNowSearch(event.target.value)}
+                  />
+                </Col>
+              </Row>
+              <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+                {t('Showing')} {orderNowRows.length} / {digest.sections.orderNow.length} {t('rows')}
+              </Typography.Text>
               <Table<PlainRecord>
                 size="small"
                 rowKey={(row) => row.planningProductId}
-                dataSource={digest.sections.orderNow}
+                dataSource={orderNowRows}
                 pagination={false}
                 onRow={(row) => ({ onClick: () => openRow(row) })}
                 columns={[
