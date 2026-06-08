@@ -1870,10 +1870,8 @@ export class EcobaseSupplierOrderService {
 
   private async ensurePlanningProduct(planningProductId: string, expectedCompany: string | undefined, errorPrefix: string) {
     const productRepo = this.db.getRepository(ECOBASE_COLLECTIONS.planningProducts);
-    let product: PlainRecord = {};
-    if (isUuid(planningProductId)) {
-      product = toPlainRecord(await productRepo.findOne({ filterByTk: planningProductId }));
-    } else {
+    let product = toPlainRecord(await productRepo.findOne({ filterByTk: planningProductId }));
+    if (!asString(product.id)) {
       const fallback = fallbackPlanningProductParts(planningProductId);
       if (fallback?.asin) {
         const company = expectedCompany ?? fallback.company;

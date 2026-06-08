@@ -12,6 +12,11 @@ interface SellerboardReportConfig {
   expectedFreshDate?: string;
 }
 
+const ROLLING_SELLERBOARD_REPORT_CATEGORIES = new Set<SellerboardReportCategory>([
+  'profit_dashboard',
+  'profit_by_product_daily',
+]);
+
 function hasCredential(config: Record<string, unknown>, secretRef: string | undefined, keys: string[]) {
   if (secretRef) {
     return true;
@@ -180,15 +185,47 @@ function maxReportDate(csvContent: string) {
   return maxDate;
 }
 
+function previousIsoDate(value: string) {
+  const date = new Date(`${value}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime())) {
+    return undefined;
+  }
+  date.setUTCDate(date.getUTCDate() - 1);
+  return date.toISOString().slice(0, 10);
+}
+
 function expectedFreshDate(input: SourceAdapterImportInput, report: SellerboardReportConfig) {
   if (report.expectedFreshDate) return report.expectedFreshDate;
   if (typeof input.config.expectedFreshDate === 'string') return input.config.expectedFreshDate;
   if (typeof input.config.expectedReportDate === 'string') return input.config.expectedReportDate;
-  return /^\d{4}-\d{2}-\d{2}/.test(input.sourceVersion) ? input.sourceVersion.slice(0, 10) : undefined;
+  const sourceDate = /^\d{4}-\d{2}-\d{2}/.test(input.sourceVersion) ? input.sourceVersion.slice(0, 10) : undefined;
+  if (!sourceDate) return undefined;
+  return input.sourceIdentifier === 'sellerboard-scheduled' && ROLLING_SELLERBOARD_REPORT_CATEGORIES.has(report.category)
+    ? previousIsoDate(sourceDate)
+    : sourceDate;
 }
 
 function shouldRequireFreshData(input: SourceAdapterImportInput) {
   return input.config.requireFreshData === true || input.sourceIdentifier === 'sellerboard-scheduled';
+}
+
+function shouldAssessReportFreshness(report: SellerboardReportConfig, maxDate: string | undefined) {
+  return report.category !== 'stock_daily' || Boolean(maxDate);
+}
+
+function staleStatusMessage(staleReports: Array<Record<string, unknown>>, filesLength: number) {
+  const staleSummary = staleReports
+    .map(
+      (report) =>
+        `${report.reportName ?? '(unnamed report)'} expected ${report.expectedFreshDate ?? '(unknown expected date)'}, got ${
+          report.maxReportDate ?? 'no report date'
+        }`,
+    )
+    .join('; ');
+  if (filesLength === 0) {
+    return `Sellerboard live import did not find any report fresh enough to trust. Stale report details: ${staleSummary}.`;
+  }
+  return `Sellerboard live import normalized available report data, but these report freshness checks need attention: ${staleSummary}.`;
 }
 
 async function fetchSellerboardCsv(url: string, headers: Record<string, string>) {
@@ -264,7 +301,12 @@ async function* sellerboardApiImport(input: SourceAdapterImportInput): AsyncIter
 
     const expected = expectedFreshDate(input, report);
     const maxDate = maxReportDate(csvContent);
-    if (shouldRequireFreshData(input) && expected && (!maxDate || compareIsoDate(maxDate, expected) < 0)) {
+    if (
+      shouldRequireFreshData(input) &&
+      expected &&
+      shouldAssessReportFreshness(report, maxDate) &&
+      (!maxDate || compareIsoDate(maxDate, expected) < 0)
+    ) {
       staleReports.push({ reportName: report.name, category: report.category, expectedFreshDate: expected, maxReportDate: maxDate });
       yield {
         type: 'rowIssue',
@@ -279,10 +321,15 @@ async function* sellerboardApiImport(input: SourceAdapterImportInput): AsyncIter
       };
     }
 
-    files.push({ name: `${report.category}-${report.name}.csv`, content: csvContent, snapshotDate: report.snapshotDate ?? maxDate });
+    files.push({
+      name: `${report.category}-${report.name}.csv`,
+      content: csvContent,
+      snapshotDate: report.snapshotDate ?? (report.category === 'stock_daily' ? expected ?? maxDate : undefined),
+    });
   }
 
   if (staleReports.length > 0) {
+    const message = staleStatusMessage(staleReports, files.length);
     yield {
       type: 'record',
       rowNumber: 0,
@@ -293,9 +340,7 @@ async function* sellerboardApiImport(input: SourceAdapterImportInput): AsyncIter
         'sellerboard-api',
         'stale',
         'sellerboard_data_not_fresh',
-        files.length === 0
-          ? 'Sellerboard live import normalized available report data, but no configured report met the expected freshness date.'
-          : 'Sellerboard live import normalized available report data while warning that at least one report was stale.',
+        message,
         { staleReports, freshReportCount: files.length },
       ),
     };
@@ -309,10 +354,7 @@ async function* sellerboardApiImport(input: SourceAdapterImportInput): AsyncIter
     yield {
       type: 'status',
       status: 'stale',
-      message:
-        files.length === 0
-          ? 'Sellerboard live import normalized available report data, but no configured report met the expected freshness date.'
-          : 'Sellerboard live import normalized available report data while warning that at least one report was stale.',
+      message: staleStatusMessage(staleReports, files.length),
       payload: { staleReports, freshReportCount: files.length },
     };
   }

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   amazonOperationsCsvAdapter,
   amazonSpApiAccessCheckAdapter,
@@ -1216,6 +1216,123 @@ describe('Ecobase current Amazon operations CSV import', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.suppliers).all()).toEqual([
       expect.objectContaining({ supplierId: 'SRO-36', name: '3Dmatsusa', company: 'Ecofission LLC' }),
     ]);
+  });
+
+  it('treats scheduled rolling Sellerboard reports as fresh when they include the previous completed day', async () => {
+    const { db, service } = createService('sellerboard');
+    await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
+      filterByTk: 'source-1',
+      values: {
+        config: {
+          schedule: { enabled: true, dailyRefreshTime: '00:00', refreshIntervalMinutes: 1440, retryIntervalMinutes: 60 },
+          reportUrls: [
+            {
+              name: 'Profit Dashboard Data',
+              category: 'profit_dashboard',
+              url: 'https://sellerboard.test/profit-dashboard.csv',
+            },
+          ],
+        },
+      },
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response('Date,Orders,SalesOrganic,NetProfit\n06/06/2026,1,10,4\n07/06/2026,2,20,8', { status: 200 }),
+      ),
+    );
+
+    const results = await service.runScheduledSellerboardImports({ now: '2026-06-08T00:05:00.000Z' });
+
+    expect(results.results).toEqual([expect.objectContaining({ status: 'success' })]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.importRuns).all()[0]).toMatchObject({
+      status: 'success',
+      rowCount: 2,
+      normalizedCount: 4,
+      warningCount: 0,
+      errorCount: 0,
+    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).all()).toEqual([
+      expect.objectContaining({ snapshotDate: '2026-06-06' }),
+      expect.objectContaining({ snapshotDate: '2026-06-07' }),
+    ]);
+  });
+
+  it('skips already-normalized rolling Sellerboard days on scheduled refresh', async () => {
+    const { db, service } = createService('sellerboard');
+    await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
+      filterByTk: 'source-1',
+      values: {
+        config: {
+          schedule: { enabled: true, dailyRefreshTime: '00:00', refreshIntervalMinutes: 1, retryIntervalMinutes: 60 },
+          reportUrls: [
+            {
+              name: 'Profit Dashboard Data',
+              category: 'profit_dashboard',
+              url: 'https://sellerboard.test/profit-dashboard.csv',
+            },
+          ],
+        },
+      },
+    });
+    let csv = 'Date,Orders,SalesOrganic,NetProfit\n06/06/2026,1,10,4\n07/06/2026,2,20,8';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(csv, { status: 200 })),
+    );
+
+    await service.runScheduledSellerboardImports({ now: '2026-06-08T00:05:00.000Z' });
+    const firstRun = db.getRepository(ECOBASE_COLLECTIONS.importRuns).all()[0];
+    csv = 'Date,Orders,SalesOrganic,NetProfit\n06/06/2026,1,10,4\n07/06/2026,2,20,8\n08/06/2026,3,30,12';
+    await service.runScheduledSellerboardImports({ now: '2026-06-09T00:05:00.000Z' });
+    const runs = db.getRepository(ECOBASE_COLLECTIONS.importRuns).all();
+    const secondRun = runs[1];
+
+    expect(firstRun).toMatchObject({ normalizedCount: 4 });
+    expect(secondRun).toMatchObject({ status: 'success', rowCount: 3, normalizedCount: 2, warningCount: 0, errorCount: 0 });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).all()).toHaveLength(3);
+    expect(
+      db
+        .getRepository(ECOBASE_COLLECTIONS.listingDailyFacts)
+        .all()
+        .filter((record) => record.lastImportRunId === secondRun.id),
+    ).toEqual([expect.objectContaining({ snapshotDate: '2026-06-08' })]);
+  });
+
+  it('reports partial Sellerboard status when some report URLs fail but available reports normalize', async () => {
+    const { db, service } = createService('sellerboard');
+    await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
+      filterByTk: 'source-1',
+      values: {
+        config: {
+          schedule: { enabled: true, dailyRefreshTime: '00:00', refreshIntervalMinutes: 1440, retryIntervalMinutes: 60 },
+          reportUrls: [
+            { name: 'Profit Dashboard Data', category: 'profit_dashboard', url: 'https://sellerboard.test/profit-dashboard.csv' },
+            { name: 'Stock Daily Data', category: 'stock_daily', url: 'https://sellerboard.test/stock.csv' },
+          ],
+        },
+      },
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('profit-dashboard')) {
+          return new Response('', { status: 401 });
+        }
+        return new Response('ASIN,SKU,FBA/FBM Stock,"ROI, %"\nB000TEST,S-1,12,45', { status: 200 });
+      }),
+    );
+
+    const results = await service.runScheduledSellerboardImports({ now: '2026-06-08T00:05:00.000Z' });
+
+    expect(results.results).toEqual([expect.objectContaining({ status: 'partial' })]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.importRuns).all()[0]).toMatchObject({
+      status: 'partial',
+      rowCount: 1,
+      normalizedCount: 3,
+      warningCount: 0,
+      errorCount: 1,
+    });
   });
 
   it('records Sellerboard and Amazon SP-API live-source credential blockers', async () => {

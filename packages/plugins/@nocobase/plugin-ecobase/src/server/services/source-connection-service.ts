@@ -34,6 +34,17 @@ function getString(record: unknown, key: string): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
+function getDisplayString(record: unknown, key: string): string | undefined {
+  const value = toPlainRecord(record)[key];
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  return undefined;
+}
+
 function getBoolean(record: unknown, key: string, fallback: boolean): boolean {
   const value = toPlainRecord(record)[key];
   return typeof value === 'boolean' ? value : fallback;
@@ -154,6 +165,20 @@ function readSchedule(config: Record<string, unknown>) {
   };
 }
 
+function payloadPreview(record: unknown) {
+  const payload = toPlainRecord(record).payload;
+  if (typeof payload !== 'object' || payload === null) {
+    return null;
+  }
+  const preview: Record<string, unknown> = {};
+  Object.entries(payload as Record<string, unknown>)
+    .slice(0, 6)
+    .forEach(([key, value]) => {
+      preview[key] = value;
+    });
+  return preview;
+}
+
 function repoWithDestroy(repository: EcobaseRepository, collectionName: string): DestroyableRepository {
   const destroyable = repository as DestroyableRepository;
   if (typeof destroyable.destroy !== 'function') {
@@ -169,6 +194,7 @@ export class EcobaseSourceConnectionService {
     const sourceRepo = this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections);
     const companyRepo = this.db.getRepository(ECOBASE_COLLECTIONS.companies);
     const importRunRepo = this.db.getRepository(ECOBASE_COLLECTIONS.importRuns);
+    const rawImportRowRepo = this.db.getRepository(ECOBASE_COLLECTIONS.rawImportRows);
     const sources = await sourceRepo.find({ filter: { sourceType: 'sellerboard' }, sort: ['name'] });
 
     return Promise.all(
@@ -181,7 +207,46 @@ export class EcobaseSourceConnectionService {
         const companyId = getString(sourceRecord, 'companyId');
         const company = companyId ? await companyRepo.findOne({ filterByTk: companyId }) : null;
         const config = getConfig(source);
-        const latestRun = await importRunRepo.findOne({ filter: { sourceConnectionId }, sort: ['-startedAt'] });
+        const recentRuns = await importRunRepo.find({ filter: { sourceConnectionId }, sort: ['-startedAt'], limit: 5 });
+        const latestRun = recentRuns[0] ?? null;
+        const latestRunLogs = await Promise.all(
+          recentRuns.map(async (run) => {
+            const importRunId = getString(run, 'id');
+            const rawRows = importRunId
+              ? await rawImportRowRepo.find({ filter: { importRunId }, sort: ['rowNumber'] })
+              : [];
+            const issues = rawRows
+              .filter((rawRow) => {
+                const severity = getString(rawRow, 'issueSeverity');
+                const normalizedStatus = getString(rawRow, 'normalizedStatus');
+                return Boolean(severity) || (Boolean(normalizedStatus) && normalizedStatus !== 'success');
+              })
+              .slice(0, 20)
+              .map((rawRow) => ({
+                rowNumber: getNumber(rawRow, 'rowNumber') ?? null,
+                sourceKey: getString(rawRow, 'sourceKey') ?? null,
+                severity: getString(rawRow, 'issueSeverity') ?? null,
+                code: getString(rawRow, 'issueCode') ?? null,
+                status: getString(rawRow, 'normalizedStatus') ?? null,
+                message: getString(rawRow, 'normalizedError') ?? null,
+                payloadPreview: payloadPreview(rawRow),
+              }));
+            return {
+              importRunId: importRunId ?? null,
+              status: getString(run, 'status') ?? null,
+              startedAt: getDisplayString(run, 'startedAt') ?? null,
+              finishedAt: getDisplayString(run, 'finishedAt') ?? null,
+              sourceIdentifier: getString(run, 'sourceIdentifier') ?? null,
+              sourceVersion: getDisplayString(run, 'sourceVersion') ?? null,
+              rowCount: getNumber(run, 'rowCount') ?? 0,
+              normalizedCount: getNumber(run, 'normalizedCount') ?? 0,
+              warningCount: getNumber(run, 'warningCount') ?? 0,
+              errorCount: getNumber(run, 'errorCount') ?? 0,
+              errorMessage: getString(run, 'errorMessage') ?? null,
+              issues,
+            };
+          }),
+        );
         return {
           sourceConnectionId,
           name: getString(source, 'name') ?? '(unnamed Sellerboard source)',
@@ -193,10 +258,13 @@ export class EcobaseSourceConnectionService {
           reportUrls: readReportUrls(config),
           schedule: readSchedule(config),
           latestRunStatus: getString(latestRun, 'status') ?? null,
-          latestRunAt: getString(latestRun, 'finishedAt') ?? getString(latestRun, 'startedAt') ?? null,
+          latestRunAt: getDisplayString(latestRun, 'finishedAt') ?? getDisplayString(latestRun, 'startedAt') ?? null,
           latestRunRowCount: getNumber(latestRun, 'rowCount') ?? 0,
           latestRunNormalizedCount: getNumber(latestRun, 'normalizedCount') ?? 0,
+          latestRunWarningCount: getNumber(latestRun, 'warningCount') ?? 0,
           latestRunErrorCount: getNumber(latestRun, 'errorCount') ?? 0,
+          latestRunErrorMessage: getString(latestRun, 'errorMessage') ?? null,
+          latestRunLogs,
         };
       }),
     );

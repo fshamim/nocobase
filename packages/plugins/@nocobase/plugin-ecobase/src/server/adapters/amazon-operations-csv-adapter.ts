@@ -65,7 +65,8 @@ function detectShape(headers: string[]): CsvShape {
 }
 
 function getSnapshotDate(file: CsvSourceFile, input: SourceAdapterImportInput, row: CsvRowReader) {
-  return file.snapshotDate ?? row.string('Date', 'Month', 'Timestamp') ?? input.sourceVersion;
+  const value = file.snapshotDate ?? row.string('Date', 'Month', 'Timestamp') ?? input.sourceVersion;
+  return isoDate(value) ?? value;
 }
 
 function defaultCompany(input: SourceAdapterImportInput) {

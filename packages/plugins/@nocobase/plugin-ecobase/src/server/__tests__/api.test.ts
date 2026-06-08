@@ -673,6 +673,36 @@ describe('Ecobase import public API seam', () => {
       },
     });
 
+    const latestRun = await db.getRepository(ECOBASE_COLLECTIONS.importRuns).create({
+      values: {
+        id: 'sellerboard-run-1',
+        sourceConnectionId: source.id,
+        adapterName: 'sellerboard-api',
+        sourceIdentifier: 'sellerboard-scheduled',
+        sourceVersion: '2026-06-08T17:25:00.000Z',
+        startedAt: '2026-06-08T17:20:00.000Z',
+        finishedAt: '2026-06-08T17:21:00.000Z',
+        status: 'partial',
+        rowCount: 308,
+        normalizedCount: 924,
+        warningCount: 0,
+        errorCount: 2,
+        errorMessage: 'Sellerboard live import failed: URL returned HTTP 401.',
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).create({
+      values: {
+        importRunId: latestRun.id,
+        rowNumber: 0,
+        sourceKey: 'profit_dashboard:Profit Dashboard Data',
+        normalizedStatus: 'failed',
+        normalizedError: 'Sellerboard live import failed: URL returned HTTP 401.',
+        issueSeverity: 'error',
+        issueCode: 'sellerboard_live_fetch_failed',
+        payload: { reportName: 'Profit Dashboard Data', category: 'profit_dashboard' },
+      },
+    });
+
     const listContext = createActionContext(db);
     await actions.listSellerboardSources(listContext, vi.fn());
     expect(listContext.body.data).toEqual([
@@ -682,6 +712,23 @@ describe('Ecobase import public API seam', () => {
         companyName: 'Live Company LLC',
         reportUrls: [expect.objectContaining({ category: 'profit_dashboard' })],
         schedule: { enabled: true, dailyRefreshTime: '02:30', refreshIntervalMinutes: 720, retryIntervalMinutes: 45 },
+        latestRunStatus: 'partial',
+        latestRunWarningCount: 0,
+        latestRunErrorCount: 2,
+        latestRunErrorMessage: 'Sellerboard live import failed: URL returned HTTP 401.',
+        latestRunLogs: [
+          expect.objectContaining({
+            importRunId: 'sellerboard-run-1',
+            status: 'partial',
+            issues: [
+              expect.objectContaining({
+                severity: 'error',
+                code: 'sellerboard_live_fetch_failed',
+                message: 'Sellerboard live import failed: URL returned HTTP 401.',
+              }),
+            ],
+          }),
+        ],
       }),
     ]);
 

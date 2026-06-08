@@ -62,6 +62,7 @@ export interface RunNoopImportParams {
   idempotencyKey?: string;
   preserveAuditRun?: boolean;
   skipIfNoNewerData?: boolean;
+  skipExistingNormalizedKinds?: string[];
 }
 
 export interface RunScheduledSellerboardImportsParams {
@@ -300,7 +301,10 @@ export class EcobaseImportService {
     let warningCount = 0;
     let errorCount = 0;
     let errorMessage: string | null = null;
+    let statusMessage: string | null = null;
+    let firstErrorIssueMessage: string | null = null;
     let finalStatusOverride: string | null = null;
+    const skipExistingNormalizedKinds = new Set(params.skipExistingNormalizedKinds ?? []);
     const fileSummaries: Record<string, ImportFileSummary> = {};
     const supplierOrderService = new EcobaseSupplierOrderService(this.db);
     let supplierOrderTouched = false;
@@ -319,10 +323,10 @@ export class EcobaseImportService {
           const records = Array.isArray(item.record) ? item.record : [item.record];
           const fileName = getSourceFileName(item.sourceKey);
           rowCount += 1;
-          normalizedCount += records.length;
-          updateFileSummary(fileSummaries, fileName, { rowCount: 1, normalizedCount: records.length });
           const rawRow = await this.createRawRow(rawImportRowRepo, importRunId, item);
-          const result = await this.upsertNormalizedRecords(records, importRunId, supplierOrderService);
+          const result = await this.upsertNormalizedRecords(records, importRunId, supplierOrderService, skipExistingNormalizedKinds);
+          normalizedCount += result.normalizedCount;
+          updateFileSummary(fileSummaries, fileName, { rowCount: 1, normalizedCount: result.normalizedCount });
           supplierOrderTouched = supplierOrderTouched || result.supplierOrderTouched;
           accountabilityTouched = accountabilityTouched || result.accountabilityTouched;
           warningCount += result.warnings.length;
@@ -355,6 +359,7 @@ export class EcobaseImportService {
             updateFileSummary(fileSummaries, fileName, { warningCount: 1 });
           } else {
             errorCount += 1;
+            firstErrorIssueMessage = firstErrorIssueMessage ?? item.issue.message;
           }
           await rawImportRowRepo.create({
             values: {
@@ -370,7 +375,11 @@ export class EcobaseImportService {
           });
         } else {
           finalStatusOverride = item.status;
-          errorMessage = item.message;
+          if (item.status === 'blocked' || item.status === 'failed') {
+            errorMessage = item.message;
+          } else {
+            statusMessage = item.message;
+          }
           await rawImportRowRepo.create({
             values: {
               importRunId,
@@ -404,7 +413,7 @@ export class EcobaseImportService {
     }
 
     const finishedAt = new Date();
-    const status = finalStatusOverride ?? this.getFinalStatus(errorMessage, errorCount, normalizedCount);
+    const status = this.getFinalStatus(errorMessage, errorCount, normalizedCount, finalStatusOverride);
     await importRunRepo.update({
       filterByTk: importRunId,
       values: {
@@ -414,7 +423,7 @@ export class EcobaseImportService {
         normalizedCount,
         warningCount,
         errorCount,
-        errorMessage,
+        errorMessage: errorMessage ?? statusMessage ?? (normalizedCount > 0 ? firstErrorIssueMessage : null),
         summary: { files: fileSummaries },
       },
     });
@@ -576,6 +585,7 @@ export class EcobaseImportService {
         idempotencyKey: `${sourceConnectionId}:sellerboard-scheduled:${sourceVersion}`,
         preserveAuditRun: true,
         skipIfNoNewerData: !schedule.refreshIntervalMinutes,
+        skipExistingNormalizedKinds: ['listing_daily_fact', 'traffic_snapshot'],
       });
       results.push({ sourceConnectionId, status: getString(run, 'status') ?? 'unknown', run });
     }
@@ -678,8 +688,10 @@ export class EcobaseImportService {
     records: NormalizedRecord[],
     importRunId: string,
     supplierOrderService: EcobaseSupplierOrderService,
+    skipExistingNormalizedKinds: Set<string>,
   ) {
     const warnings: Array<{ code: string; message: string; payload?: Record<string, unknown> }> = [];
+    let normalizedCount = 0;
     let sample: Record<string, unknown> | undefined;
     let supplierOrderTouched = false;
     let accountabilityTouched = false;
@@ -688,6 +700,7 @@ export class EcobaseImportService {
       const customResult = await supplierOrderService.applyImportRecord(record as { kind: string; data: Record<string, unknown> }, importRunId);
       if (customResult.handled) {
         supplierOrderTouched = true;
+        normalizedCount += 1;
         warnings.push(...customResult.warnings);
         sample = sample ?? customResult.sample;
         continue;
@@ -723,6 +736,9 @@ export class EcobaseImportService {
       const repository = this.db.getRepository(collectionName);
       const existing = await repository.findOne({ filter: { naturalKey } });
       if (existing) {
+        if (skipExistingNormalizedKinds.has(record.kind)) {
+          continue;
+        }
         const existingId = toPlainRecord(existing).id;
         if (typeof existingId !== 'string' && typeof existingId !== 'number') {
           throw new Error(`Ecobase import failed: existing normalized record "${naturalKey}" is missing id.`);
@@ -731,13 +747,22 @@ export class EcobaseImportService {
       } else {
         await repository.create({ values });
       }
+      normalizedCount += 1;
       sample = sample ?? summarizeRecord(record);
     }
 
-    return { warnings, sample, supplierOrderTouched, accountabilityTouched };
+    return { warnings, normalizedCount, sample, supplierOrderTouched, accountabilityTouched };
   }
 
-  private getFinalStatus(errorMessage: string | null, errorCount: number, normalizedCount: number) {
+  private getFinalStatus(
+    errorMessage: string | null,
+    errorCount: number,
+    normalizedCount: number,
+    finalStatusOverride: string | null,
+  ) {
+    if (finalStatusOverride === 'blocked') {
+      return 'blocked';
+    }
     if (errorMessage) {
       return 'failed';
     }
@@ -747,6 +772,6 @@ export class EcobaseImportService {
     if (errorCount > 0) {
       return 'failed';
     }
-    return 'success';
+    return finalStatusOverride ?? 'success';
   }
 }
