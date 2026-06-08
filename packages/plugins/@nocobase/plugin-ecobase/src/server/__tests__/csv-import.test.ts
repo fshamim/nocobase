@@ -9,6 +9,7 @@ import {
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { EcobaseDatabase, EcobaseImportService, EcobaseRepository } from '../services/import-service';
 import { EcobasePlanningCalculationService } from '../services/planning-calculation-service';
+import { EcobaseInventoryPlanningService } from '../services/inventory-planning-service';
 import { EcobaseSupplierOrderService } from '../services/supplier-order-service';
 
 interface FindParams {
@@ -649,7 +650,7 @@ describe('Ecobase current Amazon operations CSV import', () => {
     );
 
     expect(purchaseOrder).toMatchObject({
-      status: 'confirmed',
+      status: 'paid',
       sourceStage: 'purchase_order',
       company: 'Ecofission LLC',
     });
@@ -892,6 +893,101 @@ describe('Ecobase current Amazon operations CSV import', () => {
     });
   });
 
+  it('keeps draft/contacted orders out of coverage and treats supplier-confirmed orders as weak evidence', async () => {
+    const { db, planningProductId, purchaseOrder } = await seedSupplierOrderSlice();
+    const supplierOrderService = new EcobaseSupplierOrderService(db);
+
+    await supplierOrderService.updateOrderOperatorFields({
+      supplierOrderId: String(purchaseOrder.id),
+      company: 'Ecofission LLC',
+      status: 'supplier_confirmed',
+      actor: 'operator-1',
+    });
+    let coverage = await supplierOrderService.getCoverage(planningProductId, '2025-07-25');
+    expect(coverage).toMatchObject({
+      coverageState: 'incomplete_or_stale',
+      totalOpenQty: 120,
+      usableOpenQtyBeforeOos: 0,
+      incompleteOpenQty: 120,
+      unreliableCoverage: true,
+      dataWarnings: ['weak_order_status'],
+    });
+
+    await supplierOrderService.updateOrderOperatorFields({
+      supplierOrderId: String(purchaseOrder.id),
+      company: 'Ecofission LLC',
+      status: 'draft',
+      actor: 'operator-1',
+    });
+    coverage = await supplierOrderService.getCoverage(planningProductId, '2025-07-25');
+    expect(coverage).toMatchObject({
+      coverageState: 'no_open_order',
+      totalOpenQty: 0,
+      usableOpenQtyBeforeOos: 0,
+    });
+
+    const inventoryRows = await new EcobaseInventoryPlanningService(db).listRows({
+      company: 'Ecofission LLC',
+      calculationDate: '2025-07-20',
+      leadTimeFreshnessDays: 60,
+      orderSoonWindowDays: 14,
+      limit: 10,
+    });
+    expect(inventoryRows.find((row) => row.planningProductId === planningProductId)?.openOrderCoverageQty).toBe(0);
+
+    await supplierOrderService.updateOrderOperatorFields({
+      supplierOrderId: String(purchaseOrder.id),
+      company: 'Ecofission LLC',
+      status: 'paid',
+      actor: 'operator-1',
+    });
+    const paidRows = await new EcobaseInventoryPlanningService(db).listRows({
+      company: 'Ecofission LLC',
+      calculationDate: '2025-07-20',
+      leadTimeFreshnessDays: 60,
+      orderSoonWindowDays: 14,
+      limit: 10,
+    });
+    expect(paidRows.find((row) => row.planningProductId === planningProductId)?.openOrderCoverageQty).toBe(120);
+  });
+
+  it('uses product-specific supplier lead time before supplier default lead time in the operator workspace', async () => {
+    const { db, planningProductId, supplierA } = await seedSupplierOrderSlice();
+    const supplierOrderService = new EcobaseSupplierOrderService(db);
+
+    await supplierOrderService.updateSupplierLeadTime({
+      company: 'Ecofission LLC',
+      supplierId: String(supplierA.id),
+      leadTimeDays: 21,
+      confirmedAt: '2025-07-19T00:00:00.000Z',
+      notes: 'Default supplier lead time.',
+      actor: 'operator-1',
+    });
+    await supplierOrderService.updateSupplierLeadTime({
+      company: 'Ecofission LLC',
+      supplierId: String(supplierA.id),
+      planningProductId,
+      leadTimeDays: 35,
+      confirmedAt: '2025-07-20T00:00:00.000Z',
+      notes: 'Product-specific lead time.',
+      actor: 'operator-1',
+    });
+
+    const workspace = await supplierOrderService.getWorkspace({ company: 'Ecofission LLC', limit: 10 });
+    const candidate = workspace.reorderCandidates.find((row) => row.planningProductId === planningProductId);
+    expect(candidate).toMatchObject({
+      preferredSupplierId: supplierA.id,
+      leadTimeDays: 35,
+      leadTimeConfirmedAt: '2025-07-20T00:00:00.000Z',
+    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierLeadTimes).all()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ supplierRefId: supplierA.id, scope: 'default', leadTimeDays: 21 }),
+        expect.objectContaining({ supplierRefId: supplierA.id, scope: 'product', planningProductId, leadTimeDays: 35 }),
+      ]),
+    );
+  });
+
   it('preserves imported expected-sellable precedence when a later import only has delivery-date evidence', async () => {
     const { db, service, purchaseOrder } = await seedSupplierOrderSlice();
     const lineRepo = db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines);
@@ -982,7 +1078,7 @@ describe('Ecobase current Amazon operations CSV import', () => {
           sourceConnectionId: 'source-1',
           externalOrderRef: 'AMBIG-PO-1',
           sourceStage: 'purchase_order',
-          status: 'confirmed',
+          status: 'supplier_confirmed',
           lines: [{ sourceOrderLineRef: 'AMBIG-PO-1:1', sku: 'AMBIG-SKU', orderedQty: 10 }],
         },
       },

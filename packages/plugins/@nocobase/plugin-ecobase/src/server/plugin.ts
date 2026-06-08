@@ -658,6 +658,37 @@ export function createEcobaseSupplierOrderActions() {
       }
       await next();
     },
+    updateSupplierLeadTime: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const company = getOptionalString(values, 'company');
+      const supplierId = getOptionalString(values, 'supplierId');
+      const leadTimeDays = getOptionalNumber(values, 'leadTimeDays');
+      if (!company || !supplierId || leadTimeDays === undefined) {
+        ctx.throw(400, 'Ecobase supplier lead-time update requires company, supplierId, and leadTimeDays.');
+        return;
+      }
+
+      const service = new EcobaseSupplierOrderService(ctx.db);
+      try {
+        ctx.body = {
+          data: await service.updateSupplierLeadTime({
+            company,
+            supplierId,
+            leadTimeDays,
+            planningProductId: getOptionalString(values, 'planningProductId'),
+            asin: getOptionalString(values, 'asin'),
+            sku: getOptionalString(values, 'sku'),
+            confirmedAt: getOptionalString(values, 'confirmedAt'),
+            notes: getOptionalString(values, 'notes'),
+            actor: getActorId(ctx),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier lead-time update failed.');
+        return;
+      }
+      await next();
+    },
     updateLineOperatorFields: async (ctx, next) => {
       const values = getValues(ctx.action.params);
       const supplierOrderLineId = getOptionalId(values, 'supplierOrderLineId');
@@ -685,6 +716,26 @@ export function createEcobaseSupplierOrderActions() {
         };
       } catch (error) {
         ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier-order line update failed.');
+        return;
+      }
+      await next();
+    },
+    deleteLineOperatorFields: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const supplierOrderLineId = getOptionalId(values, 'supplierOrderLineId');
+      const company = getOptionalString(values, 'company');
+      if (!supplierOrderLineId || !company) {
+        ctx.throw(400, 'Ecobase supplier-order line delete requires supplierOrderLineId and company.');
+        return;
+      }
+
+      const service = new EcobaseSupplierOrderService(ctx.db);
+      try {
+        ctx.body = {
+          data: await service.deleteLineOperatorFields({ supplierOrderLineId, company }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier-order line delete failed.');
         return;
       }
       await next();
@@ -1033,6 +1084,8 @@ export class PluginEcobaseServer extends Plugin {
         'createOrderLine',
         'updateOrderOperatorFields',
         'updateLineOperatorFields',
+        'deleteLineOperatorFields',
+        'updateSupplierLeadTime',
         'recordActivity',
       ],
       'loggedIn',

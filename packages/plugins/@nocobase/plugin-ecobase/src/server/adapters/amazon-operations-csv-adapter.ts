@@ -428,26 +428,39 @@ function purchaseOrderStatus(row: CsvRowReader) {
   if (combined.includes('cancel')) {
     return 'cancelled';
   }
+  if (combined.includes('reject')) {
+    return 'rejected';
+  }
   if (combined.includes('block') || combined.includes('hold')) {
     return 'blocked';
   }
-  if (combined.includes('receiv') || combined.includes('deliver')) {
-    return 'received';
+  if (combined.includes('reached fba') || combined.includes('reached amazon')) {
+    return 'reached_fba';
   }
   if (
     combined.includes('ship') ||
+    combined.includes('inbound') ||
     row.string('Tracking ID', 'Tracking #') ||
     row.string('Shipping Carrier', 'Carrier')
   ) {
-    return 'shipped';
+    return 'shipped_inbound';
   }
   if (combined.includes('prepar') || combined.includes('production') || combined.includes('manufactur')) {
-    return 'preparing';
+    return 'supplier_preparing';
   }
-  if (combined.includes('confirm') || combined.includes('approv') || combined.includes('paid')) {
-    return 'confirmed';
+  if (combined.includes('paid') || combined.includes('payment completed')) {
+    return 'paid';
   }
-  return 'po_placed';
+  if (combined.includes('invoice') || combined.includes('payment')) {
+    return 'payment_pending';
+  }
+  if (combined.includes('confirm')) {
+    return 'supplier_confirmed';
+  }
+  if (combined.includes('approv')) {
+    return 'approval_pending';
+  }
+  return 'supplier_contacted';
 }
 
 function orderDetailsRecord(input: SourceAdapterImportInput, row: CsvRowReader, sourceKey: string): NormalizedRecord[] {

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import type { EcobaseDatabase } from './import-service';
+import { isReliableSupplierOrderCoverageStatus } from './supplier-order-service';
 import { toPlainRecord } from './import-service';
 import { EcobasePlanningCalculationService } from './planning-calculation-service';
 
@@ -242,7 +243,9 @@ export class EcobaseInventoryPlanningService {
         filter: productFilter,
         ...(scanLimit ? { limit: scanLimit } : {}),
       })
-    ).map(toPlainRecord);
+    )
+      .map(toPlainRecord)
+      .filter((product) => asString(toPlainRecord(product.auditSummary).source) !== 'inventory_planning_fallback');
 
     if (products.length === 0) {
       return this.listFallbackRows({
@@ -588,6 +591,14 @@ export class EcobaseInventoryPlanningService {
     const parameterRows = await findRecords(this.db, ECOBASE_COLLECTIONS.planningParameters, { planningProductId });
     const supplierLinks = await findRecords(this.db, ECOBASE_COLLECTIONS.supplierProductLinks, { planningProductId });
     const orderLines = await findRecords(this.db, ECOBASE_COLLECTIONS.supplierOrderLines, { planningProductId });
+    const supplierOrderRepo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrders);
+    const supplierOrderById = new Map<string, PlainRecord>();
+    for (const line of orderLines) {
+      const supplierOrderId = asString(line.supplierOrderId);
+      if (supplierOrderId && !supplierOrderById.has(supplierOrderId)) {
+        supplierOrderById.set(supplierOrderId, toPlainRecord(await supplierOrderRepo.findOne({ filterByTk: supplierOrderId })));
+      }
+    }
     const latestInventory = latestByDate(inventoryRows, 'snapshotDate') ?? {};
     const latestParameter = latestByDate(parameterRows, 'lastImportRunId') ?? parameterRows[0] ?? {};
     const supplierLink = selectSupplierLink(supplierLinks) ?? {};
@@ -600,6 +611,10 @@ export class EcobaseInventoryPlanningService {
       'Active';
     const excluded = isPlanningExcluded(productStatus);
     const openOrderCoverageQty = orderLines.reduce((total, line) => {
+      const order = supplierOrderById.get(asString(line.supplierOrderId) ?? '');
+      if (!isReliableSupplierOrderCoverageStatus(asString(order?.status))) {
+        return total;
+      }
       const orderedQty = asNumber(line.orderedQty) ?? 0;
       const receivedQty = asNumber(line.receivedQty) ?? 0;
       return total + Math.max(orderedQty - receivedQty, 0);
@@ -616,13 +631,14 @@ export class EcobaseInventoryPlanningService {
     const orderHistorySupplier = !asString(supplier.name) && !asString(latestParameter.supplier)
       ? await this.findOrderHistorySupplier({ company, asin, sku })
       : {};
-    let leadTime = await this.findLeadTime(supplier, supplierLink, latestParameter, company);
+    let leadTime = await this.findLeadTime(supplier, supplierLink, latestParameter, company, planningProductId);
     if (typeof asNumber(leadTime.leadTimeDays) !== 'number' && asString(orderHistorySupplier.supplierId)) {
       leadTime = await this.findLeadTime(
         { id: asString(orderHistorySupplier.supplierId), name: asString(orderHistorySupplier.supplierName) },
         {},
         {},
         company,
+        planningProductId,
       );
     }
     const leadTimeDays = asNumber(leadTime.leadTimeDays) ?? asNumber(params.calculation.leadTimeDays);
@@ -816,17 +832,25 @@ export class EcobaseInventoryPlanningService {
     return {};
   }
 
-  private async findLeadTime(supplier: PlainRecord, link: PlainRecord, parameter: PlainRecord, company?: string) {
+  private async findLeadTime(supplier: PlainRecord, link: PlainRecord, parameter: PlainRecord, company?: string, planningProductId?: string) {
     const leadTimeRepo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierLeadTimes);
     const supplierRefId = asString(supplier.id) ?? asString(link.supplierId);
     const externalSupplierCode = asString(supplier.supplierId) ?? asString(parameter.supplierId);
     const supplierName = asString(supplier.name) ?? asString(parameter.supplier);
     const scoped = (filter: PlainRecord) => ({ ...filter, ...(company ? { company } : {}) });
-    const bySupplierRef = supplierRefId ? toPlainRecord(await leadTimeRepo.findOne({ filter: scoped({ supplierRefId }) })) : {};
+    const findScoped = async (base: PlainRecord) => {
+      const rows = (await leadTimeRepo.find({ filter: scoped(base), sort: ['-confirmedAt'], limit: 100 })).map(toPlainRecord);
+      if (planningProductId) {
+        const productSpecific = rows.find((row) => asString(row.planningProductId) === planningProductId);
+        if (productSpecific) return productSpecific;
+      }
+      return rows.find((row) => !asString(row.planningProductId)) ?? {};
+    };
+    const bySupplierRef = supplierRefId ? await findScoped({ supplierRefId }) : {};
     if (asString(bySupplierRef.id) || typeof bySupplierRef.leadTimeDays === 'number') return bySupplierRef;
-    const byExternalCode = externalSupplierCode ? toPlainRecord(await leadTimeRepo.findOne({ filter: scoped({ supplierId: externalSupplierCode }) })) : {};
+    const byExternalCode = externalSupplierCode ? await findScoped({ supplierId: externalSupplierCode }) : {};
     if (asString(byExternalCode.id) || typeof byExternalCode.leadTimeDays === 'number') return byExternalCode;
-    return supplierName ? toPlainRecord(await leadTimeRepo.findOne({ filter: scoped({ supplierName }) })) : {};
+    return supplierName ? await findScoped({ supplierName }) : {};
   }
 
   private suggestedReorderQuantity(params: {

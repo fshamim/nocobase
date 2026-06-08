@@ -115,11 +115,12 @@ export class EcobaseAiRetrievalService {
     const reportRuns = await this.db.getRepository(ECOBASE_COLLECTIONS.reportRuns).find({ filter: companyFilter, sort: ['-generatedAt'], limit: 10 });
     const reportItems = await this.db.getRepository(ECOBASE_COLLECTIONS.reportItems).find({ sort: ['sortOrder'], limit: 100 });
     const importStatuses = await this.sourceStatuses();
+    const comparisonDate = params.date ?? new Date().toISOString().slice(0, 10);
     const comparison = await new EcobaseComparisonService(this.db).comparePerformance({
       periodType: params.periodType ?? 'daily',
       period: params.period,
-      currentStartDate: params.date,
-      currentEndDate: params.date,
+      currentStartDate: comparisonDate,
+      currentEndDate: comparisonDate,
       company: params.company,
       groupBy: 'planning_product',
     });

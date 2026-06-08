@@ -1,5 +1,5 @@
 import { useAPIClient } from '@nocobase/client';
-import { Alert, App, Button, Card, Input, Space, Table, Tag, Typography } from 'antd';
+import { Alert, App, Button, Card, Input, Select, Space, Table, Tag, Tooltip, Typography } from 'antd';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useT } from '../locale';
 
@@ -14,6 +14,7 @@ interface WorkspaceData {
   suppliers: PlainRecord[];
   leadTimes: PlainRecord[];
   rawImportRows: PlainRecord[];
+  statusLanes: PlainRecord[];
 }
 
 function unwrapWorkspace(response: any): WorkspaceData {
@@ -33,6 +34,7 @@ function unwrapWorkspace(response: any): WorkspaceData {
     suppliers: Array.isArray(data?.suppliers) ? data.suppliers : [],
     leadTimes: Array.isArray(data?.leadTimes) ? data.leadTimes : [],
     rawImportRows: Array.isArray(data?.rawImportRows) ? data.rawImportRows : [],
+    statusLanes: Array.isArray(data?.statusLanes) ? data.statusLanes : [],
   };
 }
 
@@ -65,6 +67,9 @@ export default function OrderManagementPage() {
   const [data, setData] = useState<WorkspaceData>(() => unwrapWorkspace({}));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
+  const [aiQuestion, setAiQuestion] = useState('');
+  const [aiAnswer, setAiAnswer] = useState<PlainRecord | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
 
   const loadWorkspace = useCallback(async () => {
     const companyFilter = company.trim();
@@ -130,7 +135,7 @@ export default function OrderManagementPage() {
   };
 
   const updateOrder = async (row: PlainRecord) => {
-    const statusValue = window.prompt(t('Order status'), row.status ?? 'planned');
+    const statusValue = window.prompt(t('Order status'), row.status ?? 'draft');
     if (statusValue === null) {
       return;
     }
@@ -219,6 +224,59 @@ export default function OrderManagementPage() {
     await loadWorkspace();
   };
 
+  const updateLeadTimeForCandidate = async (row: PlainRecord) => {
+    const supplierId = window.prompt(t('Supplier ID'), row.preferredSupplierId ?? '');
+    if (supplierId === null || !supplierId.trim()) {
+      return;
+    }
+    const leadTimeText = window.prompt(t('Confirmed lead time days'), String(row.leadTimeDays ?? ''));
+    if (leadTimeText === null) {
+      return;
+    }
+    const notes = window.prompt(t('Lead time notes'), '') || undefined;
+    await api.request({
+      url: 'ecobaseSupplierOrders:updateSupplierLeadTime',
+      method: 'post',
+      data: {
+        company: row.company,
+        supplierId: supplierId.trim(),
+        planningProductId: row.planningProductId,
+        asin: row.canonicalAsin,
+        leadTimeDays: Number(leadTimeText),
+        notes,
+      },
+    });
+    message.success(t('Product-specific lead time updated'));
+    await loadWorkspace();
+  };
+
+  const askAiEmployee = async () => {
+    const question = aiQuestion.trim();
+    if (!question) {
+      message.error(t('Enter a question for the AI employee.'));
+      return;
+    }
+    setAiLoading(true);
+    try {
+      const response = await api.request({
+        url: 'ecobaseAi:answer',
+        method: 'post',
+        data: {
+          company: company.trim() || undefined,
+          question,
+        },
+      });
+      let payload: any = response;
+      for (let i = 0; i < 4; i += 1) {
+        if (!payload || typeof payload !== 'object' || !('data' in payload)) break;
+        payload = payload.data;
+      }
+      setAiAnswer(payload);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
   const recordActivity = async (row: PlainRecord, activityType: string) => {
     const notes = window.prompt(t('Activity notes'), '');
     if (notes === null) {
@@ -256,7 +314,14 @@ export default function OrderManagementPage() {
           </Typography.Paragraph>
           <Space wrap>
             <Input placeholder={t('Company filter')} value={company} onChange={(event) => setCompany(event.target.value)} />
-            <Input placeholder={t('Status filter')} value={status} onChange={(event) => setStatus(event.target.value)} />
+            <Select
+              allowClear
+              placeholder={t('Status filter')}
+              style={{ minWidth: 220 }}
+              value={status || undefined}
+              onChange={(value) => setStatus(value ?? '')}
+              options={data.statusLanes.map((lane) => ({ label: lane.title ?? lane.key, value: lane.key }))}
+            />
             <Input
               placeholder={t('Projected OOS date YYYY-MM-DD')}
               value={stockoutDate}
@@ -268,6 +333,41 @@ export default function OrderManagementPage() {
           </Space>
           {!company.trim() ? <Alert type="info" message={t('Enter a company filter to load company-scoped order data.')} /> : null}
           {error ? <Alert type="error" message={error.message} /> : null}
+        </Space>
+      </Card>
+
+      <Card title={t('Order-status guide')}> 
+        <Space wrap>
+          {data.statusLanes.map((lane) => (
+            <Tooltip key={lane.key} title={lane.help}>
+              <Tag>{lane.title ?? lane.key}</Tag>
+            </Tooltip>
+          ))}
+        </Space>
+        <Typography.Paragraph type="secondary" style={{ marginTop: 12 }}>
+          {t('Draft/contacted/approval/rejected/cancelled statuses do not count as reorder coverage. Supplier-confirmed is weak evidence until the order is paid or otherwise inbound.')}
+        </Typography.Paragraph>
+      </Card>
+
+      <Card title={t('AI employee order assistant')}> 
+        <Space direction="vertical" style={{ width: '100%' }}>
+          <Typography.Paragraph type="secondary">
+            {t('Ask for reorder follow-up, supplier lead-time gaps, or whether a product already has reliable order coverage. Answers are saved with evidence references.')}
+          </Typography.Paragraph>
+          <Input.TextArea
+            rows={3}
+            placeholder={t('Example: Which urgent A-tier ASINs need supplier follow-up today?')}
+            value={aiQuestion}
+            onChange={(event) => setAiQuestion(event.target.value)}
+          />
+          <Button onClick={() => void askAiEmployee()} loading={aiLoading}>{t('Ask AI employee')}</Button>
+          {aiAnswer ? (
+            <Alert
+              type={aiAnswer.warnings?.length ? 'warning' : 'info'}
+              message={aiAnswer.response ?? t('No response returned.')}
+              description={t('Evidence references') + ': ' + JSON.stringify(aiAnswer.evidenceReferences ?? [])}
+            />
+          ) : null}
         </Space>
       </Card>
 
@@ -294,7 +394,12 @@ export default function OrderManagementPage() {
             {
               title: t('Action'),
               key: 'action',
-              render: (_, row) => <Button onClick={() => void createPlannedOrder(row)}>{t('Create planned order')}</Button>,
+              render: (_, row) => (
+                <Space wrap>
+                  <Button onClick={() => void createPlannedOrder(row)}>{t('Create planned order')}</Button>
+                  <Button onClick={() => void updateLeadTimeForCandidate(row)}>{t('Update lead time')}</Button>
+                </Space>
+              ),
             },
           ]}
         />

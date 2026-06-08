@@ -1,0 +1,480 @@
+{
+  "version": "1",
+  "mode": "replace",
+  "target": {
+    "pageSchemaUid": "qn3ajc8r0b3"
+  },
+  "page": {
+    "title": "Inventory planning",
+    "icon": "OrderedListOutlined",
+    "enableHeader": true,
+    "enableTabs": false,
+    "displayTitle": true
+  },
+  "defaults": {
+    "collections": {
+      "ecobaseInventoryPlanningRows": {
+        "popups": {
+          "view": {
+            "name": "Inventory row details",
+            "description": "Review one inventory planning row with stock, risk, supplier, lead-time, and evidence fields."
+          },
+          "edit": {
+            "name": "Edit inventory row",
+            "description": "Edit operator-maintained inventory planning row fields when needed."
+          },
+          "addNew": {
+            "name": "Create inventory row",
+            "description": "Create one inventory planning row only for controlled operational corrections."
+          }
+        },
+        "fieldGroups": [
+          {
+            "title": "Product identity",
+            "fields": [
+              "naturalKey",
+              "planningProductId",
+              "company",
+              "asin",
+              "sku",
+              "title",
+              "brand",
+              "productStatus",
+              "planningExcluded"
+            ]
+          },
+          {
+            "title": "Planning status",
+            "fields": [
+              "calculationDate",
+              "actionStatus",
+              "tier",
+              "tierScore",
+              "digestPriority",
+              "lastRefreshedAt"
+            ]
+          },
+          {
+            "title": "Stock and pipeline",
+            "fields": [
+              "currentPlanningStock",
+              "sellableStock",
+              "reservedStock",
+              "pipelineStock",
+              "inboundStock",
+              "orderedStock",
+              "prepStock",
+              "awdStock",
+              "openOrderCoverageQty",
+              "stuck"
+            ]
+          },
+          {
+            "title": "Risk and reorder math",
+            "fields": [
+              "daysOfCover",
+              "estimatedOosDate",
+              "latestSafeReorderDate",
+              "daysUntilSafeReorder",
+              "salesVelocity",
+              "suggestedReorderQty",
+              "recommendedBestQty",
+              "profitPerUnit",
+              "estimatedProfitRisk"
+            ]
+          },
+          {
+            "title": "Supplier and lead time",
+            "fields": [
+              "supplierId",
+              "supplierName",
+              "supplierSource",
+              "supplierRole",
+              "supplierConfidence",
+              "leadTimeDays",
+              "leadTimeConfirmedAt",
+              "leadTimeFreshness",
+              "expectedSellableDate"
+            ]
+          },
+          {
+            "title": "Evidence",
+            "fields": [
+              "evidence"
+            ]
+          }
+        ]
+      },
+      "ecobaseSupplierOrders": {
+        "popups": {
+          "view": {
+            "name": "Supplier order details",
+            "description": "Review one supplier order header and its current operational status."
+          },
+          "edit": {
+            "name": "Edit supplier order",
+            "description": "Edit supplier order operator fields such as status, expected delivery, payment, approval, and tracking."
+          },
+          "addNew": {
+            "name": "Create supplier order",
+            "description": "Create one supplier order header for operational planning."
+          }
+        },
+        "fieldGroups": [
+          {
+            "title": "Order identity",
+            "fields": [
+              "naturalKey",
+              "sourceConnectionId",
+              "company",
+              "supplierId",
+              "externalOrderRef",
+              "lastImportRunId"
+            ]
+          },
+          {
+            "title": "Operational status",
+            "fields": [
+              "sourceStage",
+              "status",
+              "statusSource",
+              "statusUpdatedAt",
+              "approvalStatus",
+              "paymentStatus",
+              "blockedReason"
+            ]
+          },
+          {
+            "title": "Dates and updates",
+            "fields": [
+              "orderDate",
+              "expectedDeliveryDate",
+              "expectedDeliveryDateSource",
+              "lastMeaningfulUpdateAt",
+              "lastOperatorEditAt",
+              "lastOperatorActor"
+            ]
+          },
+          {
+            "title": "Shipping",
+            "fields": [
+              "shippingCarrier",
+              "trackingId"
+            ]
+          },
+          {
+            "title": "Raw evidence",
+            "fields": [
+              "payload"
+            ]
+          }
+        ]
+      },
+      "ecobaseSupplierOrderLines": {
+        "popups": {
+          "view": {
+            "name": "Supplier order line details",
+            "description": "Review one supplier order line including product, quantities, expected dates, source, and evidence."
+          },
+          "edit": {
+            "name": "Edit supplier order line",
+            "description": "Edit ordered quantity, received quantity, unit cost, expected dates, and notes for one supplier order line."
+          },
+          "addNew": {
+            "name": "Create supplier order line",
+            "description": "Create one supplier order line for an existing supplier order."
+          }
+        },
+        "fieldGroups": [
+          {
+            "title": "Line identity",
+            "fields": [
+              "naturalKey",
+              "supplierOrderId",
+              "company",
+              "supplierId",
+              "planningProductId",
+              "asin",
+              "sku",
+              "brand",
+              "sourceOrderLineRef"
+            ]
+          },
+          {
+            "title": "Quantities and cost",
+            "fields": [
+              "orderedQty",
+              "receivedQty",
+              "receivedQtySource",
+              "unitCost"
+            ]
+          },
+          {
+            "title": "Delivery timing",
+            "fields": [
+              "expectedDeliveryDate",
+              "expectedSellableDate",
+              "expectedSellableDateSource",
+              "expectedSellableDateEvidence",
+              "expectedSellableDateDerivedAt"
+            ]
+          },
+          {
+            "title": "Source and operator status",
+            "fields": [
+              "sourceStage",
+              "observedAt",
+              "lastOperatorEditAt",
+              "lastOperatorActor",
+              "unresolvedMapping",
+              "mappingWarning",
+              "lastImportRunId"
+            ]
+          },
+          {
+            "title": "Raw evidence",
+            "fields": [
+              "payload"
+            ]
+          }
+        ]
+      },
+      "ecobaseSupplierLeadTimes": {
+        "popups": {
+          "view": {
+            "name": "Supplier lead time details",
+            "description": "Review one supplier lead-time evidence row."
+          },
+          "edit": {
+            "name": "Edit supplier lead time",
+            "description": "Edit lead-time days, confirmation timestamp, source, and notes."
+          },
+          "addNew": {
+            "name": "Create supplier lead time",
+            "description": "Create one supplier lead-time evidence row."
+          }
+        },
+        "fieldGroups": [
+          {
+            "title": "Supplier and product scope",
+            "fields": [
+              "naturalKey",
+              "sourceConnectionId",
+              "company",
+              "supplierId",
+              "supplierRefId",
+              "supplierName",
+              "planningProductId",
+              "asin",
+              "sku",
+              "scope"
+            ]
+          },
+          {
+            "title": "Lead-time evidence",
+            "fields": [
+              "leadTimeDays",
+              "confirmedAt",
+              "source",
+              "notes",
+              "lastImportRunId"
+            ]
+          },
+          {
+            "title": "Raw evidence",
+            "fields": [
+              "payload"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "tabs": [
+    {
+      "key": "main",
+      "title": "Inventory planning",
+      "blocks": [
+        {
+          "type": "jsBlock",
+          "script": "digestPreview",
+          "settings": {
+            "title": "Digital digest preview"
+          }
+        },
+        {
+          "type": "table",
+          "title": "Planning queue",
+          "collection": "ecobaseInventoryPlanningRows",
+          "fields": [
+            "actionStatus",
+            "tier",
+            "company",
+            "asin",
+            "sku",
+            "title",
+            "supplierName",
+            "supplierSource",
+            "leadTimeDays",
+            "leadTimeFreshness",
+            "latestSafeReorderDate",
+            "estimatedOosDate",
+            "suggestedReorderQty",
+            "currentPlanningStock",
+            "sellableStock",
+            "reservedStock",
+            "pipelineStock",
+            "openOrderCoverageQty",
+            "estimatedProfitRisk",
+            "lastRefreshedAt"
+          ],
+          "actions": [
+            "filter",
+            "refresh"
+          ],
+          "recordActions": [
+            "view",
+            "edit"
+          ],
+          "settings": {
+            "pageSize": 25,
+            "density": "small",
+            "showRowNumbers": true,
+            "sorting": [
+              {
+                "field": "digestPriority",
+                "order": "asc"
+              },
+              {
+                "field": "estimatedProfitRisk",
+                "order": "desc"
+              }
+            ]
+          }
+        },
+        {
+          "type": "table",
+          "title": "Supplier order lines for selected products",
+          "collection": "ecobaseSupplierOrderLines",
+          "fields": [
+            "company",
+            "asin",
+            "sku",
+            "brand",
+            "orderedQty",
+            "receivedQty",
+            "expectedDeliveryDate",
+            "expectedSellableDate",
+            "unitCost",
+            "sourceStage",
+            "observedAt",
+            "lastOperatorEditAt"
+          ],
+          "actions": [
+            "filter",
+            "refresh",
+            "addNew"
+          ],
+          "recordActions": [
+            "view",
+            "edit",
+            "delete"
+          ],
+          "settings": {
+            "pageSize": 10,
+            "density": "small",
+            "showRowNumbers": true,
+            "sorting": [
+              {
+                "field": "observedAt",
+                "order": "desc"
+              }
+            ]
+          }
+        },
+        {
+          "type": "table",
+          "title": "Supplier orders",
+          "collection": "ecobaseSupplierOrders",
+          "fields": [
+            "company",
+            "externalOrderRef",
+            "supplierId",
+            "status",
+            "approvalStatus",
+            "paymentStatus",
+            "orderDate",
+            "expectedDeliveryDate",
+            "shippingCarrier",
+            "trackingId",
+            "lastMeaningfulUpdateAt"
+          ],
+          "actions": [
+            "filter",
+            "refresh",
+            "addNew"
+          ],
+          "recordActions": [
+            "view",
+            "edit"
+          ],
+          "settings": {
+            "pageSize": 10,
+            "density": "small",
+            "showRowNumbers": true,
+            "sorting": [
+              {
+                "field": "lastMeaningfulUpdateAt",
+                "order": "desc"
+              }
+            ]
+          }
+        },
+        {
+          "type": "table",
+          "title": "Supplier lead times",
+          "collection": "ecobaseSupplierLeadTimes",
+          "fields": [
+            "company",
+            "asin",
+            "sku",
+            "supplierName",
+            "leadTimeDays",
+            "confirmedAt",
+            "source",
+            "scope",
+            "notes"
+          ],
+          "actions": [
+            "filter",
+            "refresh",
+            "addNew"
+          ],
+          "recordActions": [
+            "view",
+            "edit"
+          ],
+          "settings": {
+            "pageSize": 10,
+            "density": "small",
+            "showRowNumbers": true,
+            "sorting": [
+              {
+                "field": "confirmedAt",
+                "order": "desc"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "assets": {
+    "scripts": {
+      "digestPreview": {
+        "version": "v2",
+        "code": "const { Alert, Card, Col, Row, Statistic, Table, Tag, Typography, Space } = ctx.libs.antd;\nconst t = ctx.t || ((value) => value);\nfunction unwrapDigest(response) {\n  let data = response;\n  for (let i = 0; i < 5; i += 1) {\n    if (!data || typeof data !== 'object' || Array.isArray(data) || data.summary || !('data' in data)) break;\n    data = data.data;\n  }\n  return {\n    summary: data && data.summary ? data.summary : {},\n    sections: {\n      orderNow: Array.isArray(data && data.sections && data.sections.orderNow) ? data.sections.orderNow : [],\n      suppliersToContactFirst: Array.isArray(data && data.sections && data.sections.suppliersToContactFirst) ? data.sections.suppliersToContactFirst : [],\n      supplierActionItems: Array.isArray(data && data.sections && data.sections.supplierActionItems) ? data.sections.supplierActionItems : [],\n      staleLeadTimes: Array.isArray(data && data.sections && data.sections.staleLeadTimes) ? data.sections.staleLeadTimes : [],\n    },\n  };\n}\nfunction colorForAction(value) {\n  if (value === 'overdue') return 'red';\n  if (value === 'order_today') return 'volcano';\n  if (value === 'missing_lead_time') return 'gold';\n  if (value === 'order_soon') return 'orange';\n  if (value === 'already_ordered') return 'green';\n  return 'default';\n}\nfunction colorForTier(value) {\n  if (value === 'A') return 'green';\n  if (value === 'B') return 'gold';\n  if (value === 'C') return 'red';\n  return 'default';\n}\nfunction colorForFreshness(value) {\n  if (value === 'fresh') return 'green';\n  if (value === 'stale') return 'orange';\n  if (value === 'missing') return 'red';\n  return 'default';\n}\nfunction groupDigits(value) {\n  return String(value).replace(/\\B(?=(\\d{3})+(?!\\d))/g, ',');\n}\nfunction money(value) {\n  const parsed = Number(value || 0);\n  const rounded = Math.round(parsed);\n  return '$' + groupDigits(rounded);\n}\nfunction number(value) {\n  const parsed = Number(value || 0);\n  return isFinite(parsed) ? groupDigits(parsed) : '\u2014';\n}\nlet digest;\ntry {\n  const response = await ctx.request({\n    url: 'ecobaseInventoryPlanning:digestPreview',\n    method: 'post',\n    data: { leadTimeFreshnessDays: 60, orderSoonWindowDays: 14, limit: 150 },\n    skipNotify: true,\n  });\n  digest = unwrapDigest(response);\n} catch (error) {\n  ctx.render(<Alert type=\"error\" showIcon message={t('Could not load digital digest preview')} description={String(error && error.message ? error.message : error)} />);\n  return;\n}\nconst orderColumns = [\n  { title: t('Action'), dataIndex: 'actionStatus', render: (value) => <Tag color={colorForAction(value)}>{t(value || 'unknown')}</Tag> },\n  { title: t('Tier'), dataIndex: 'tier', render: (value) => <Tag color={colorForTier(value)}>{value || '\u2014'}</Tag> },\n  { title: t('Company'), dataIndex: 'company' },\n  { title: t('ASIN'), dataIndex: 'asin' },\n  { title: t('Supplier next action'), dataIndex: 'supplierName', render: (value) => value || <Tag color=\"red\">{t('Find supplier from OrderDetails')}</Tag> },\n  { title: t('Lead time'), dataIndex: 'leadTimeDays', render: (value, row) => <Space size={4}><span>{number(value)} {t('days')}</span><Tag color={colorForFreshness(row.leadTimeFreshness)}>{t(row.leadTimeFreshness || 'unknown')}</Tag></Space> },\n  { title: t('OOS date'), dataIndex: 'estimatedOosDate' },\n  { title: t('Money at risk'), dataIndex: 'estimatedProfitRisk', render: money },\n];\nconst supplierColumns = [\n  { title: t('Supplier / next action'), dataIndex: 'supplierName', render: (value) => value === 'Find supplier from OrderDetails' ? <Tag color=\"red\">{t(value)}</Tag> : (value || '\u2014') },\n  { title: t('Urgent'), dataIndex: 'urgentCount' },\n  { title: t('A'), dataIndex: 'tierA' },\n  { title: t('B'), dataIndex: 'tierB' },\n  { title: t('C'), dataIndex: 'tierC' },\n  { title: t('Money at risk'), dataIndex: 'estimatedProfitRisk', render: money },\n];\nconst productColumns = [\n  { title: t('Tier'), dataIndex: 'tier', render: (value) => <Tag color={colorForTier(value)}>{value || '\u2014'}</Tag> },\n  { title: t('ASIN'), dataIndex: 'asin' },\n  { title: t('Supplier'), dataIndex: 'supplierName', render: (value) => value || <Tag color=\"red\">{t('Find supplier')}</Tag> },\n  { title: t('Lead'), dataIndex: 'leadTimeDays', render: (value, row) => <Space size={4}><span>{number(value)} {t('days')}</span><Tag color={colorForFreshness(row.leadTimeFreshness)}>{t(row.leadTimeFreshness || 'unknown')}</Tag></Space> },\n  { title: t('OOS date'), dataIndex: 'estimatedOosDate' },\n  { title: t('Money at risk'), dataIndex: 'estimatedProfitRisk', render: money },\n];\nctx.render(\n  <Space direction=\"vertical\" size=\"large\" style={{ width: '100%' }}>\n    <Alert\n      type=\"info\"\n      showIcon\n      message={t('Digital digest preview restored')}\n      description={t('These are the same operator digest panels as before. The normalized NocoBase tables underneath remain available so AI employees can inspect records through Flow surface context.')}\n    />\n    <Row gutter={[16, 16]}>\n      <Col xs={24} sm={12} lg={4}><Card><Statistic title={t('Overdue')} value={digest.summary.overdue || 0} valueStyle={{ color: '#cf1322' }} /></Card></Col>\n      <Col xs={24} sm={12} lg={4}><Card><Statistic title={t('Order today')} value={digest.summary.orderToday || 0} valueStyle={{ color: '#d4380d' }} /></Card></Col>\n      <Col xs={24} sm={12} lg={4}><Card><Statistic title={t('Order soon')} value={digest.summary.orderSoon || 0} valueStyle={{ color: '#fa8c16' }} /></Card></Col>\n      <Col xs={24} sm={12} lg={4}><Card><Statistic title={t('At risk')} value={digest.summary.atRisk || 0} /></Card></Col>\n      <Col xs={24} sm={12} lg={4}><Card><Statistic title={t('Lead-time issues')} value={digest.summary.staleOrMissingLeadTime || 0} valueStyle={{ color: '#faad14' }} /></Card></Col>\n      <Col xs={24} sm={12} lg={4}><Card><Statistic title={t('Suppliers')} value={digest.summary.suppliersToContact || 0} /></Card></Col>\n    </Row>\n    <Card title={t('Daily digest preview')} extra={<Typography.Text type=\"secondary\">{t('Bounded to urgent action items so operators are not overloaded.')}</Typography.Text>}>\n      <Space direction=\"vertical\" size=\"large\" style={{ width: '100%' }}>\n        <div>\n          <Typography.Title level={5}>{t('Order now')}</Typography.Title>\n          <Typography.Paragraph type=\"secondary\">{t('Products that should be ordered now or checked against already-placed supplier orders.')}</Typography.Paragraph>\n          <Table size=\"small\" rowKey={(row) => row.planningProductId || row.naturalKey || row.asin} dataSource={digest.sections.orderNow} pagination={false} columns={orderColumns} />\n        </div>\n        <Row gutter={[16, 16]}>\n          <Col xs={24} lg={10}>\n            <Typography.Title level={5}>{t('Supplier contact priority')}</Typography.Title>\n            <Typography.Paragraph type=\"secondary\">{t('Urgent rows grouped by supplier, including supplier recovery from OrderDetails where needed.')}</Typography.Paragraph>\n            <Table size=\"small\" rowKey={(row) => row.supplierName || row.supplierId || 'missing'} dataSource={digest.sections.suppliersToContactFirst} pagination={false} columns={supplierColumns} />\n          </Col>\n          <Col xs={24} lg={14}>\n            <Typography.Title level={5}>{t('Products needing supplier action')}</Typography.Title>\n            <Typography.Paragraph type=\"secondary\">{t('Product-level list across tiers A, B, and C for supplier, lead-time, order timing, and OOS risk review.')}</Typography.Paragraph>\n            <Table size=\"small\" rowKey={(row) => row.planningProductId || row.naturalKey || row.asin} dataSource={digest.sections.supplierActionItems} pagination={false} columns={productColumns} />\n          </Col>\n        </Row>\n      </Space>\n    </Card>\n  </Space>,\n);"
+      }
+    }
+  }
+}

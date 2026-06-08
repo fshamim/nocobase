@@ -167,7 +167,7 @@ describe('Ecobase supplier-order public API seam', () => {
     await actions.updateOrderOperatorFields(updateOrderContext, vi.fn());
     expect(updateOrderContext.body).toMatchObject({
       data: expect.objectContaining({
-        status: 'confirmed',
+        status: 'supplier_confirmed',
         statusSource: 'manual',
         expectedDeliveryDate: '2025-07-24',
         expectedDeliveryDateSource: 'manual',
@@ -189,6 +189,11 @@ describe('Ecobase supplier-order public API seam', () => {
         expectedSellableDateSource: 'manual',
       }),
     });
+
+    await actions.updateOrderOperatorFields(
+      createActionContext(db, { supplierOrderId: 'supplier-order-1', company: 'Ecofission LLC', status: 'paid' }),
+      vi.fn(),
+    );
 
     const coverageContext = createActionContext(db, {
       planningProductId: 'planning-product-1',
@@ -277,7 +282,7 @@ describe('Ecobase supplier-order public API seam', () => {
       vi.fn(),
     );
     expect(db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).all().find((record) => record.id === 1)).toMatchObject({
-      status: 'confirmed',
+      status: 'supplier_confirmed',
       statusSource: 'manual',
     });
     expect(db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).all().find((record) => record.id === 1)).toMatchObject({
@@ -378,9 +383,9 @@ describe('Ecobase supplier-order workspace API seam', () => {
     await actions.createPlannedOrder(createOrderContext, vi.fn());
     expect(createOrderContext.body).toMatchObject({
       data: {
-        order: expect.objectContaining({ status: 'planned', sourceStage: 'manual', externalOrderRef: 'PO-MANUAL-1' }),
+        order: expect.objectContaining({ status: 'draft', sourceStage: 'manual', externalOrderRef: 'PO-MANUAL-1' }),
         line: expect.objectContaining({ orderedQty: 12, expectedSellableDate: '2025-07-19' }),
-        coverage: expect.objectContaining({ coverageState: 'incomplete_or_stale', totalOpenQty: 12 }),
+        coverage: expect.objectContaining({ coverageState: 'no_open_order', totalOpenQty: 0 }),
       },
     });
 
@@ -475,6 +480,11 @@ describe('Ecobase supplier-order workspace API seam', () => {
         vi.fn(),
       ),
     ).rejects.toThrow('Ecobase supplier-order activity failed: supplier belongs to a different company.');
+
+    await actions.updateOrderOperatorFields(
+      createActionContext(db, { supplierOrderId: orderId, company: 'Ecofission LLC', status: 'paid' }),
+      vi.fn(),
+    );
 
     const workspaceAfter = createActionContext(db, { company: 'Ecofission LLC', stockoutDate: '2025-07-20' });
     await actions.workspace(workspaceAfter, vi.fn());

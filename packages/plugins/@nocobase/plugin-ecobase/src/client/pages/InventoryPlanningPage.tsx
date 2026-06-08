@@ -1,5 +1,5 @@
 import { useAPIClient } from '@nocobase/client';
-import { Alert, Button, Card, Col, DatePicker, Descriptions, Drawer, InputNumber, Row, Select, Space, Statistic, Table, Tag, Typography } from 'antd';
+import { Alert, App, Button, Card, Col, Collapse, DatePicker, Descriptions, Divider, Drawer, Input, InputNumber, Popconfirm, Row, Select, Space, Statistic, Table, Tag, Tooltip, Typography } from 'antd';
 import dayjs from 'dayjs';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useT } from '../locale';
@@ -14,6 +14,32 @@ interface DigestPreview {
     supplierActionItems: PlainRecord[];
     staleLeadTimes: PlainRecord[];
   };
+}
+
+interface DrawerActionValues {
+  draftQty: number;
+  draftSupplierId: string;
+  draftExpectedDeliveryDate?: string;
+  draftExpectedSellableDate?: string;
+  draftNotes: string;
+  addSupplierOrderId: string;
+  addQty: number;
+  addExpectedDeliveryDate?: string;
+  addExpectedSellableDate?: string;
+  addNotes: string;
+  leadSupplierId: string;
+  leadTimeDays?: number;
+  leadNotes: string;
+}
+
+interface LineEditValues {
+  id: string;
+  orderedQty: number;
+  receivedQty: number;
+  unitCost?: number;
+  expectedDeliveryDate?: string;
+  expectedSellableDate?: string;
+  notes: string;
 }
 
 function unwrapRows(response: any): PlainRecord[] {
@@ -110,6 +136,30 @@ function freshnessColor(value?: string) {
   }
 }
 
+function supplierOrderStatusColor(value?: string) {
+  switch (value) {
+    case 'draft':
+      return 'blue';
+    case 'supplier_contacted':
+    case 'supplier_confirmed':
+      return 'cyan';
+    case 'approval_pending':
+    case 'payment_pending':
+      return 'gold';
+    case 'paid':
+    case 'supplier_preparing':
+    case 'shipped':
+    case 'inbound':
+      return 'orange';
+    case 'completed':
+      return 'green';
+    case 'cancelled':
+      return 'red';
+    default:
+      return 'default';
+  }
+}
+
 function formatNumber(value: any) {
   const number = Number(value);
   return Number.isFinite(number) ? number.toLocaleString(undefined, { maximumFractionDigits: 2 }) : '—';
@@ -200,6 +250,33 @@ function nextStepFor(row: PlainRecord) {
   }
 }
 
+function columnHelp(title: string, help: string) {
+  return <Tooltip title={help}><span>{title}</span></Tooltip>;
+}
+
+function isUuid(value: any) {
+  return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function defaultOrderQty(row: PlainRecord) {
+  const qty = Number(row.suggestedReorderQty);
+  return Number.isFinite(qty) && qty > 0 ? Math.ceil(qty) : 1;
+}
+
+function productLineMatches(row: PlainRecord, line: PlainRecord) {
+  const rowPlanningProductId = String(row.planningProductId ?? '');
+  const linePlanningProductId = String(line.planningProductId ?? '');
+  const rowAsin = String(row.asin ?? '').toUpperCase();
+  const lineAsin = String(line.asin ?? '').toUpperCase();
+  const rowSku = String(row.sku ?? '');
+  const lineSku = String(line.sku ?? '');
+  return (
+    (isUuid(rowPlanningProductId) && rowPlanningProductId === linePlanningProductId) ||
+    (rowAsin && rowAsin === lineAsin) ||
+    (rowSku && rowSku === lineSku)
+  );
+}
+
 function FilterControl({ title, help, children }: { title: string; help: string; children: React.ReactNode }) {
   return (
     <Col xs={24} md={12} xl={6}>
@@ -215,6 +292,7 @@ function FilterControl({ title, help, children }: { title: string; help: string;
 export default function InventoryPlanningPage() {
   const t = useT();
   const api = useAPIClient();
+  const { message } = App.useApp();
   const [company, setCompany] = useState('');
   const [calculationDate, setCalculationDate] = useState(todayIsoDate());
   const [actionStatus, setActionStatus] = useState<string | undefined>();
@@ -226,6 +304,12 @@ export default function InventoryPlanningPage() {
   const [rows, setRows] = useState<PlainRecord[]>([]);
   const [digest, setDigest] = useState<DigestPreview>(() => unwrapDigest({}));
   const [selectedRow, setSelectedRow] = useState<PlainRecord | null>(null);
+  const [actionValues, setActionValues] = useState<DrawerActionValues | null>(null);
+  const [supplierOptions, setSupplierOptions] = useState<PlainRecord[]>([]);
+  const [orderOptions, setOrderOptions] = useState<PlainRecord[]>([]);
+  const [orderLineHistory, setOrderLineHistory] = useState<PlainRecord[]>([]);
+  const [lineEditValues, setLineEditValues] = useState<LineEditValues | null>(null);
+  const [managePanels, setManagePanels] = useState<string[]>(['history', 'draft']);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
@@ -291,16 +375,227 @@ export default function InventoryPlanningPage() {
     [actionStatus, rows, tier],
   );
 
+  const newActionValues = (row: PlainRecord): DrawerActionValues => {
+    const supplierId = isUuid(row.supplierId) ? row.supplierId : '';
+    return {
+      draftQty: defaultOrderQty(row),
+      draftSupplierId: supplierId,
+      draftExpectedSellableDate: formatDate(row.expectedSellableDate) === '—' ? undefined : formatDate(row.expectedSellableDate),
+      draftNotes: 'Created from Ecobase inventory planning.',
+      addSupplierOrderId: '',
+      addQty: defaultOrderQty(row),
+      addExpectedSellableDate: formatDate(row.expectedSellableDate) === '—' ? undefined : formatDate(row.expectedSellableDate),
+      addNotes: 'Added from Ecobase inventory planning.',
+      leadSupplierId: supplierId,
+      leadTimeDays: Number.isFinite(Number(row.leadTimeDays)) ? Number(row.leadTimeDays) : undefined,
+      leadNotes: '',
+    };
+  };
+
+  const setActionValue = (field: keyof DrawerActionValues, value: string | number | undefined) => {
+    setActionValues((current) => (current ? { ...current, [field]: value } : current));
+  };
+
+  const setLineEditValue = (field: keyof LineEditValues, value: string | number | undefined) => {
+    setLineEditValues((current) => (current ? { ...current, [field]: value } : current));
+  };
+
+  const startEditLine = (line: PlainRecord) => {
+    setLineEditValues({
+      id: String(line.id),
+      orderedQty: Number(line.orderedQty ?? 1),
+      receivedQty: Number(line.receivedQty ?? 0),
+      unitCost: line.unitCost === undefined || line.unitCost === null ? undefined : Number(line.unitCost),
+      expectedDeliveryDate: formatDate(line.expectedDeliveryDate) === '—' ? undefined : formatDate(line.expectedDeliveryDate),
+      expectedSellableDate: formatDate(line.expectedSellableDate) === '—' ? undefined : formatDate(line.expectedSellableDate),
+      notes: String(line.payload?.notes ?? ''),
+    });
+    setManagePanels((current) => Array.from(new Set([...current, 'edit-line'])));
+  };
+
+  const loadDrawerEntities = async (row: PlainRecord) => {
+    const response = await api.request({
+      url: 'ecobaseSupplierOrders:workspace',
+      method: 'post',
+      data: { company: row.company, limit: 75 },
+    });
+    const workspace = unwrapData(response);
+    const suppliers = (Array.isArray(workspace.suppliers) ? workspace.suppliers : []).filter((supplier: PlainRecord) => isUuid(supplier.id));
+    const supplierOrders = Array.isArray(workspace.supplierOrders) ? workspace.supplierOrders : [];
+    const supplierOrderLines = Array.isArray(workspace.supplierOrderLines) ? workspace.supplierOrderLines : [];
+    const ordersById = new Map(supplierOrders.map((order: PlainRecord) => [String(order.id), order]));
+    setSupplierOptions(suppliers);
+    setOrderOptions(supplierOrders);
+    setOrderLineHistory(
+      supplierOrderLines
+        .filter((line: PlainRecord) => productLineMatches(row, line))
+        .map((line: PlainRecord) => ({ ...line, order: ordersById.get(String(line.supplierOrderId)) ?? {} }))
+        .sort((left: PlainRecord, right: PlainRecord) => {
+          const leftDate = new Date(left.observedAt ?? left.order?.lastMeaningfulUpdateAt ?? left.order?.createdAt ?? 0).getTime();
+          const rightDate = new Date(right.observedAt ?? right.order?.lastMeaningfulUpdateAt ?? right.order?.createdAt ?? 0).getTime();
+          return rightDate - leftDate;
+        }),
+    );
+    const actionableStatuses = new Set(['draft', 'supplier_contacted', 'supplier_confirmed', 'approval_pending', 'payment_pending', 'paid', 'supplier_preparing']);
+    const supplierId = isUuid(row.supplierId) ? row.supplierId : suppliers.find((supplier: PlainRecord) => supplier.name === row.supplierName)?.id;
+    const matchingOrder = supplierOrders.find((order: PlainRecord) =>
+      (!supplierId || order.supplierId === supplierId) && actionableStatuses.has(order.status),
+    ) ?? supplierOrders.find((order: PlainRecord) => actionableStatuses.has(order.status));
+    setActionValues((current) => current ? {
+      ...current,
+      draftSupplierId: current.draftSupplierId || supplierId || '',
+      leadSupplierId: current.leadSupplierId || supplierId || '',
+      addSupplierOrderId: matchingOrder?.id ? String(matchingOrder.id) : current.addSupplierOrderId,
+    } : current);
+  };
+
+  const openRow = (row: PlainRecord) => {
+    setSelectedRow(row);
+    setActionValues(newActionValues(row));
+    setSupplierOptions([]);
+    setOrderOptions([]);
+    setOrderLineHistory([]);
+    setLineEditValues(null);
+    setManagePanels(['history', 'draft']);
+    void loadDrawerEntities(row);
+  };
+
+  const draftOrder = async () => {
+    if (!selectedRow || !actionValues) return;
+    if (!Number.isFinite(actionValues.draftQty) || actionValues.draftQty <= 0) {
+      message.error(t('Draft order quantity must be greater than zero.'));
+      return;
+    }
+    if (!isUuid(actionValues.draftSupplierId)) {
+      message.error(t('Select a supplier from the lookup before creating a draft order.'));
+      return;
+    }
+    await api.request({
+      url: 'ecobaseSupplierOrders:createPlannedOrder',
+      method: 'post',
+      data: {
+        company: selectedRow.company,
+        planningProductId: selectedRow.planningProductId,
+        supplierId: actionValues.draftSupplierId.trim(),
+        orderedQty: actionValues.draftQty,
+        expectedDeliveryDate: actionValues.draftExpectedDeliveryDate,
+        expectedSellableDate: actionValues.draftExpectedSellableDate,
+        notes: actionValues.draftNotes.trim() || undefined,
+      },
+    });
+    message.success(t('Draft supplier order created'));
+    await Promise.all([loadPlanning(), loadDrawerEntities(selectedRow)]);
+  };
+
+  const addToExistingOrder = async () => {
+    if (!selectedRow || !actionValues) return;
+    if (!isUuid(actionValues.addSupplierOrderId)) {
+      message.error(t('Select a supplier order from the lookup before adding the product.'));
+      return;
+    }
+    if (!Number.isFinite(actionValues.addQty) || actionValues.addQty <= 0) {
+      message.error(t('Order-line quantity must be greater than zero.'));
+      return;
+    }
+    await api.request({
+      url: 'ecobaseSupplierOrders:createOrderLine',
+      method: 'post',
+      data: {
+        supplierOrderId: actionValues.addSupplierOrderId.trim(),
+        planningProductId: selectedRow.planningProductId,
+        orderedQty: actionValues.addQty,
+        expectedDeliveryDate: actionValues.addExpectedDeliveryDate,
+        expectedSellableDate: actionValues.addExpectedSellableDate,
+        notes: actionValues.addNotes.trim() || undefined,
+      },
+    });
+    message.success(t('Product added to supplier order'));
+    await Promise.all([loadPlanning(), loadDrawerEntities(selectedRow)]);
+  };
+
+  const saveOrderLineEdit = async () => {
+    if (!selectedRow || !lineEditValues) return;
+    if (!Number.isFinite(lineEditValues.orderedQty) || lineEditValues.orderedQty <= 0) {
+      message.error(t('Ordered quantity must be greater than zero.'));
+      return;
+    }
+    if (!Number.isFinite(lineEditValues.receivedQty) || lineEditValues.receivedQty < 0) {
+      message.error(t('Received quantity must be zero or greater.'));
+      return;
+    }
+    await api.request({
+      url: 'ecobaseSupplierOrders:updateLineOperatorFields',
+      method: 'post',
+      data: {
+        supplierOrderLineId: lineEditValues.id,
+        company: selectedRow.company,
+        orderedQty: lineEditValues.orderedQty,
+        receivedQty: lineEditValues.receivedQty,
+        unitCost: lineEditValues.unitCost,
+        expectedDeliveryDate: lineEditValues.expectedDeliveryDate,
+        expectedSellableDate: lineEditValues.expectedSellableDate,
+        notes: lineEditValues.notes.trim() || undefined,
+      },
+    });
+    message.success(t('Order line updated'));
+    setLineEditValues(null);
+    await Promise.all([loadPlanning(), loadDrawerEntities(selectedRow)]);
+  };
+
+  const deleteOrderLine = async (line: PlainRecord) => {
+    if (!selectedRow) return;
+    await api.request({
+      url: 'ecobaseSupplierOrders:deleteLineOperatorFields',
+      method: 'post',
+      data: {
+        supplierOrderLineId: line.id,
+        company: selectedRow.company,
+      },
+    });
+    message.success(t('Order line deleted'));
+    if (lineEditValues?.id === line.id) {
+      setLineEditValues(null);
+    }
+    await Promise.all([loadPlanning(), loadDrawerEntities(selectedRow)]);
+  };
+
+  const updateLeadTime = async () => {
+    if (!selectedRow || !actionValues) return;
+    if (!isUuid(actionValues.leadSupplierId)) {
+      message.error(t('Select a supplier from the lookup before updating lead time.'));
+      return;
+    }
+    if (actionValues.leadTimeDays === undefined || !Number.isFinite(actionValues.leadTimeDays) || actionValues.leadTimeDays < 0) {
+      message.error(t('Lead time days must be zero or greater.'));
+      return;
+    }
+    await api.request({
+      url: 'ecobaseSupplierOrders:updateSupplierLeadTime',
+      method: 'post',
+      data: {
+        company: selectedRow.company,
+        supplierId: actionValues.leadSupplierId.trim(),
+        planningProductId: selectedRow.planningProductId,
+        asin: selectedRow.asin,
+        sku: selectedRow.sku,
+        leadTimeDays: actionValues.leadTimeDays,
+        notes: actionValues.leadNotes.trim() || undefined,
+      },
+    });
+    message.success(t('Product lead time updated'));
+    await Promise.all([loadPlanning(), loadDrawerEntities(selectedRow)]);
+  };
+
   const columns = [
     {
       title: t('Review'),
       key: 'review',
       fixed: 'left' as const,
       width: 95,
-      render: (_value: any, row: PlainRecord) => <Button size="small" onClick={() => setSelectedRow(row)}>{t('Details')}</Button>,
+      render: (_value: any, row: PlainRecord) => <Button size="small" onClick={() => openRow(row)}>{t('Details')}</Button>,
     },
     {
-      title: t('Action'),
+      title: columnHelp(t('Action'), t('Status tells the operator whether to order now, contact the supplier first, watch, or review existing coverage.')),
       dataIndex: 'actionStatus',
       fixed: 'left' as const,
       width: 155,
@@ -318,7 +613,7 @@ export default function InventoryPlanningPage() {
     { title: t('Status'), dataIndex: 'productStatus', width: 130 },
     { title: t('Current stock status'), key: 'stockStatus', width: 260, render: (_value: any, row: PlainRecord) => <StockStatus row={row} t={t} /> },
     {
-      title: t('Supplier'),
+      title: columnHelp(t('Supplier'), t('Supplier comes from confirmed product links first, then latest OrderDetails history when available.')),
       dataIndex: 'supplierName',
       width: 210,
       render: (value: string, row: PlainRecord) => (
@@ -329,7 +624,7 @@ export default function InventoryPlanningPage() {
       ),
     },
     {
-      title: t('Lead time'),
+      title: columnHelp(t('Lead time'), t('Uses product-specific supplier lead time first, then supplier/default planning data. Update it when a supplier confirms a new value.')),
       dataIndex: 'leadTimeDays',
       width: 150,
       render: (value: number, row: PlainRecord) => (
@@ -359,29 +654,24 @@ export default function InventoryPlanningPage() {
       },
     },
     {
-      title: t('Suggest qty'),
+      title: columnHelp(t('Suggest qty'), t('Formula: velocity × target days − stock − reliable open-order coverage.')),
       dataIndex: 'suggestedReorderQty',
-      width: 190,
-      render: (value: number, row: PlainRecord) => (
-        <Space direction="vertical" size={0}>
-          <span>{formatNumber(value)}</span>
-          <Typography.Text type="secondary">{t('velocity × target days − stock − open orders')}</Typography.Text>
-        </Space>
-      ),
+      width: 125,
+      render: formatNumber,
     },
     { title: t('Sellable'), dataIndex: 'sellableStock', width: 105, render: formatNumber },
     { title: t('Reserved'), dataIndex: 'reservedStock', width: 105, render: formatNumber },
     { title: t('Inbound'), dataIndex: 'inboundStock', width: 105, render: formatNumber },
     { title: t('Ordered'), dataIndex: 'orderedStock', width: 105, render: formatNumber },
     { title: t('Prep'), dataIndex: 'prepStock', width: 95, render: formatNumber },
-    { title: t('Open order coverage'), dataIndex: 'openOrderCoverageQty', width: 170, render: formatNumber },
+    { title: columnHelp(t('Open order coverage'), t('Only reliable order statuses count as coverage; draft/contacted/approval rows remain operator actions.')), dataIndex: 'openOrderCoverageQty', width: 170, render: formatNumber },
     {
       title: t('Stuck'),
       dataIndex: 'stuck',
       width: 90,
       render: (value: boolean) => (value ? <Tag color="purple">{t('Check')}</Tag> : <Tag>{t('No')}</Tag>),
     },
-    { title: t('Profit risk'), dataIndex: 'estimatedProfitRisk', width: 125, render: formatNumber },
+    { title: columnHelp(t('Profit risk'), t('Estimated missed profit if the product remains uncovered during the projected stockout window.')), dataIndex: 'estimatedProfitRisk', width: 125, render: formatNumber },
   ];
 
   return (
@@ -470,31 +760,31 @@ export default function InventoryPlanningPage() {
             <Col xs={24}>
               <Typography.Title level={5}>{t('Order now')}</Typography.Title>
               <Typography.Paragraph type="secondary">
-                {t('Open a row to see why it appears here and what the next operator action should be. Lead time can exist even when supplier is missing because it may come from the imported ASIN/company planning parameter; the supplier still needs to be recovered from OrderDetails.')}
+                {t('Click a row to review the product and manage supplier-order actions in one drawer.')}
               </Typography.Paragraph>
-              <Table
+              <Table<PlainRecord>
                 size="small"
                 rowKey={(row) => row.planningProductId}
                 dataSource={digest.sections.orderNow}
                 pagination={false}
-                onRow={(row) => ({ onClick: () => setSelectedRow(row) })}
+                onRow={(row) => ({ onClick: () => openRow(row) })}
                 columns={[
                   { title: t('Action'), dataIndex: 'actionStatus', render: (value: string) => <Tag color={actionColor(value)}>{t(value)}</Tag> },
                   { title: t('Tier'), dataIndex: 'tier', render: (value: string) => <Tag color={tierColor(value)}>{value}</Tag> },
                   { title: t('Company'), dataIndex: 'company' },
                   { title: t('ASIN'), dataIndex: 'asin' },
                   { title: t('Supplier next action'), key: 'supplierAction', render: (_value: any, row: PlainRecord) => row.supplierName ? row.supplierName : <Tag color="red">{t('Find supplier from OrderDetails')}</Tag> },
-                  { title: t('Lead time'), dataIndex: 'leadTimeDays', render: (value: number, row: PlainRecord) => <Space direction="vertical" size={0}><Space size={4}><span>{formatNumber(value)} {t('days')}</span><Tag color={freshnessColor(row.leadTimeFreshness)}>{t(row.leadTimeFreshness ?? 'unknown')}</Tag></Space><Typography.Text type="secondary">{t(leadTimeSourceText(row))}</Typography.Text></Space> },
+                  { title: columnHelp(t('Lead time'), t('Uses product-specific supplier lead time first, then supplier/default planning data.')), dataIndex: 'leadTimeDays', render: (value: number, row: PlainRecord) => <Space size={4}><span>{formatNumber(value)} {t('days')}</span><Tag color={freshnessColor(row.leadTimeFreshness)}>{t(row.leadTimeFreshness ?? 'unknown')}</Tag></Space> },
                   { title: t('OOS in'), dataIndex: 'estimatedOosDate', render: (value: string) => <Tag color={relativeDateLabel(value, calculationDate).color}>{t(relativeDateLabel(value, calculationDate).label)}</Tag> },
-                  { title: t('Money at risk'), dataIndex: 'estimatedProfitRisk', render: (value: number, row: PlainRecord) => <Space direction="vertical" size={0}><Typography.Text strong>{formatCurrency(value)}</Typography.Text><Typography.Text type="secondary">{t(monetaryRiskText(row))}</Typography.Text></Space> },
-                  { title: t('Next'), key: 'next', render: (_value: any, row: PlainRecord) => <Button size="small" onClick={(event) => { event.stopPropagation(); setSelectedRow(row); }}>{t('Review')}</Button> },
+                  { title: columnHelp(t('Money at risk'), t('Estimated missed profit if the row remains uncovered.')), dataIndex: 'estimatedProfitRisk', render: (value: number) => <Typography.Text strong>{formatCurrency(value)}</Typography.Text> },
+                  { title: t('Next'), key: 'next', render: (_value: any, row: PlainRecord) => <Button size="small" onClick={(event) => { event.stopPropagation(); openRow(row); }}>{t('Review / edit')}</Button> },
                 ]}
               />
             </Col>
             <Col xs={24} lg={10}>
               <Typography.Title level={5}>{t('Supplier contact priority')}</Typography.Title>
               <Typography.Paragraph type="secondary">{t('Groups urgent rows by supplier. If the supplier is missing, the next action is to recover it from OrderDetails history for that ASIN/company.')}</Typography.Paragraph>
-              <Table
+              <Table<PlainRecord>
                 size="small"
                 rowKey={(row) => row.supplierName}
                 dataSource={digest.sections.suppliersToContactFirst}
@@ -512,27 +802,27 @@ export default function InventoryPlanningPage() {
             <Col xs={24} lg={14}>
               <Typography.Title level={5}>{t('Products needing supplier action')}</Typography.Title>
               <Typography.Paragraph type="secondary">{t('Product-level list across tiers A, B, and C. Review a row to confirm supplier, lead time, order timing, and OOS loss risk.')}</Typography.Paragraph>
-              <Table
+              <Table<PlainRecord>
                 size="small"
                 rowKey={(row) => row.planningProductId}
                 dataSource={digest.sections.supplierActionItems}
                 pagination={false}
-                onRow={(row) => ({ onClick: () => setSelectedRow(row) })}
+                onRow={(row) => ({ onClick: () => openRow(row) })}
                 columns={[
                   { title: t('Tier'), dataIndex: 'tier', render: (value: string) => <Tag color={tierColor(value)}>{value}</Tag> },
                   { title: t('ASIN'), dataIndex: 'asin' },
                   { title: t('Supplier'), key: 'supplier', render: (_value: any, row: PlainRecord) => row.supplierName ?? <Tag color="red">{t('Find supplier')}</Tag> },
-                  { title: t('Lead'), dataIndex: 'leadTimeDays', render: (value: number, row: PlainRecord) => <Space direction="vertical" size={0}><span>{formatNumber(value)} {t('days')}</span><Typography.Text type="secondary">{t(leadTimeSourceText(row))}</Typography.Text></Space> },
+                  { title: columnHelp(t('Lead'), t('Uses product-specific supplier lead time first, then supplier/default planning data.')), dataIndex: 'leadTimeDays', render: (value: number, row: PlainRecord) => <Space size={4}><span>{formatNumber(value)} {t('days')}</span><Tag color={freshnessColor(row.leadTimeFreshness)}>{t(row.leadTimeFreshness ?? 'unknown')}</Tag></Space> },
                   { title: t('OOS in'), dataIndex: 'estimatedOosDate', render: (value: string) => <Tag color={relativeDateLabel(value, calculationDate).color}>{t(relativeDateLabel(value, calculationDate).label)}</Tag> },
-                  { title: t('Money at risk'), dataIndex: 'estimatedProfitRisk', render: (value: number, row: PlainRecord) => <Space direction="vertical" size={0}><span>{formatCurrency(value)}</span><Typography.Text type="secondary">{t(monetaryRiskText(row))}</Typography.Text></Space> },
-                  { title: t('Review'), key: 'review', render: (_value: any, row: PlainRecord) => <Button size="small" onClick={(event) => { event.stopPropagation(); setSelectedRow(row); }}>{t('Review')}</Button> },
+                  { title: columnHelp(t('Money at risk'), t('Estimated missed profit if the row remains uncovered.')), dataIndex: 'estimatedProfitRisk', render: (value: number) => <span>{formatCurrency(value)}</span> },
+                  { title: t('Next'), key: 'next', render: (_value: any, row: PlainRecord) => <Button size="small" onClick={(event) => { event.stopPropagation(); openRow(row); }}>{t('Review / edit')}</Button> },
                 ]}
               />
             </Col>
           </Row>
         </Card>
         <Card title={t('Inventory planning queue')}>
-          <Table
+          <Table<PlainRecord>
             className="ecobase-inventory-table"
             loading={loading}
             rowKey={(row) => row.planningProductId}
@@ -542,16 +832,16 @@ export default function InventoryPlanningPage() {
             size="small"
             scroll={{ x: 2700 }}
             pagination={{ pageSize: 25, showSizeChanger: true }}
-            onRow={(row) => ({ onDoubleClick: () => setSelectedRow(row) })}
+            onRow={(row) => ({ onDoubleClick: () => openRow(row) })}
           />
         </Card>
       </Space>
       <Drawer
         open={!!selectedRow}
         title={selectedRow ? `${selectedRow.asin ?? selectedRow.sku ?? t('Inventory row')} · ${selectedRow.company ?? t('No company')}` : t('Inventory row')}
-        width={720}
-        onClose={() => setSelectedRow(null)}
-        extra={<Button href="/admin/qn3ajc8r0b3" target="_blank">{t('Open editable table')}</Button>}
+        width={920}
+        onClose={() => { setSelectedRow(null); setActionValues(null); setOrderLineHistory([]); setLineEditValues(null); }}
+        extra={selectedRow ? <Button onClick={() => { setSelectedRow(null); setActionValues(null); setOrderLineHistory([]); setLineEditValues(null); }}>{t('Close')}</Button> : undefined}
       >
         {selectedRow ? (
           <Space direction="vertical" size="large" style={{ width: '100%' }}>
@@ -562,29 +852,240 @@ export default function InventoryPlanningPage() {
               <Descriptions.Item label={t('Company')}>{selectedRow.company ?? '—'}</Descriptions.Item>
               <Descriptions.Item label={t('ASIN / SKU')}>{selectedRow.asin ?? '—'} / {selectedRow.sku ?? '—'}</Descriptions.Item>
               <Descriptions.Item label={t('Supplier')}>{selectedRow.supplierName ?? '—'} · {selectedRow.supplierSource ?? '—'} · {selectedRow.supplierConfidence ?? '—'}</Descriptions.Item>
-              <Descriptions.Item label={t('Lead time')}>
-                <Space direction="vertical" size={0}>
-                  <span>{formatNumber(selectedRow.leadTimeDays)} {t('days')} <Tag color={freshnessColor(selectedRow.leadTimeFreshness)}>{t(selectedRow.leadTimeFreshness ?? 'unknown')}</Tag></span>
-                  <Typography.Text type="secondary">{t(leadTimeSourceText(selectedRow))}</Typography.Text>
-                </Space>
+              <Descriptions.Item label={columnHelp(t('Lead time'), t(leadTimeSourceText(selectedRow)))}>
+                <span>{formatNumber(selectedRow.leadTimeDays)} {t('days')} <Tag color={freshnessColor(selectedRow.leadTimeFreshness)}>{t(selectedRow.leadTimeFreshness ?? 'unknown')}</Tag></span>
               </Descriptions.Item>
               <Descriptions.Item label={t('Order by')}>{relativeDateLabel(selectedRow.latestSafeReorderDate, calculationDate).label} ({formatDate(selectedRow.latestSafeReorderDate)})</Descriptions.Item>
               <Descriptions.Item label={t('OOS date')}>{relativeDateLabel(selectedRow.estimatedOosDate, calculationDate).label} ({formatDate(selectedRow.estimatedOosDate)})</Descriptions.Item>
-              <Descriptions.Item label={t('Suggested quantity')}>{formatNumber(selectedRow.suggestedReorderQty)} · {t('velocity × target days − stock − open orders')}</Descriptions.Item>
-              <Descriptions.Item label={t('Money at risk')}>
-                <Space direction="vertical" size={0}>
-                  <Typography.Text strong>{formatCurrency(selectedRow.estimatedProfitRisk)}</Typography.Text>
-                  <Typography.Text type="secondary">{t(monetaryRiskText(selectedRow))}</Typography.Text>
-                </Space>
+              <Descriptions.Item label={columnHelp(t('Suggested quantity'), t('Formula: velocity × target days − stock − reliable open-order coverage.'))}>{formatNumber(selectedRow.suggestedReorderQty)}</Descriptions.Item>
+              <Descriptions.Item label={columnHelp(t('Money at risk'), t(monetaryRiskText(selectedRow)))}>
+                <Typography.Text strong>{formatCurrency(selectedRow.estimatedProfitRisk)}</Typography.Text>
               </Descriptions.Item>
               <Descriptions.Item label={t('Stock buckets')}>
                 <StockStatus row={selectedRow} t={t} />
               </Descriptions.Item>
               <Descriptions.Item label={t('Order coverage')}>{formatNumber(selectedRow.openOrderCoverageQty)}</Descriptions.Item>
             </Descriptions>
-            <Typography.Text type="secondary">
-              {t('Use the editable table for record-level review today. The next UI iteration should connect this drawer to the order-management action surface for creating or confirming supplier orders.')}
-            </Typography.Text>
+            {actionValues ? (
+              <>
+                <Divider orientation="left">{t('Manage supplier order')}</Divider>
+                <Collapse
+                  activeKey={managePanels}
+                  onChange={(keys) => setManagePanels(Array.isArray(keys) ? keys.map(String) : [String(keys)])}
+                  items={[
+                    {
+                      key: 'history',
+                      label: t('Order lines and product order history'),
+                      children: (
+                        <Space direction="vertical" style={{ width: '100%' }}>
+                          <Alert
+                            type="info"
+                            showIcon
+                            message={t('Use this history to avoid duplicate orders')}
+                            description={t('New draft orders for this product appear at the top after creation. Existing lines are matched by planning product, ASIN, or SKU.')}
+                          />
+                          <Table<PlainRecord>
+                            size="small"
+                            rowKey={(line) => line.id}
+                            dataSource={orderLineHistory}
+                            pagination={{ pageSize: 5, showSizeChanger: false }}
+                            columns={[
+                              {
+                                title: t('Status'),
+                                key: 'status',
+                                render: (_value: any, line: PlainRecord) => <Tag color={supplierOrderStatusColor(line.order?.status)}>{t(line.order?.status ?? 'unknown')}</Tag>,
+                              },
+                              {
+                                title: t('Supplier order'),
+                                key: 'order',
+                                render: (_value: any, line: PlainRecord) => line.order?.externalOrderRef ?? line.supplierOrderId ?? '—',
+                              },
+                              { title: t('Ordered'), dataIndex: 'orderedQty', render: formatNumber },
+                              { title: t('Received'), dataIndex: 'receivedQty', render: formatNumber },
+                              { title: t('Expected delivery'), dataIndex: 'expectedDeliveryDate', render: formatDate },
+                              { title: t('Expected sellable'), dataIndex: 'expectedSellableDate', render: formatDate },
+                              { title: t('Observed'), dataIndex: 'observedAt', render: formatDate },
+                              { title: t('Source'), dataIndex: 'sourceStage', render: (value: string) => value || '—' },
+                              {
+                                title: t('Actions'),
+                                key: 'actions',
+                                render: (_value: any, line: PlainRecord) => (
+                                  <Space size={4}>
+                                    <Button size="small" onClick={() => startEditLine(line)}>{t('Edit')}</Button>
+                                    <Popconfirm
+                                      title={t('Delete this order line?')}
+                                      okText={t('Delete')}
+                                      cancelText={t('Cancel')}
+                                      onConfirm={() => void deleteOrderLine(line)}
+                                    >
+                                      <Button size="small" danger>{t('Delete')}</Button>
+                                    </Popconfirm>
+                                  </Space>
+                                ),
+                              },
+                            ]}
+                          />
+                          <Button type="primary" onClick={() => void draftOrder()}>{t('Draft new order for this product')}</Button>
+                        </Space>
+                      ),
+                    },
+                    {
+                      key: 'edit-line',
+                      label: lineEditValues ? t('Edit selected order line') : t('Edit order line'),
+                      children: lineEditValues ? (
+                        <Row gutter={[12, 12]}>
+                          <Col xs={24} md={8}>
+                            <Typography.Text strong>{t('Ordered quantity')}</Typography.Text>
+                            <InputNumber min={1} value={lineEditValues.orderedQty} onChange={(value) => setLineEditValue('orderedQty', Number(value ?? 1))} style={{ width: '100%' }} />
+                          </Col>
+                          <Col xs={24} md={8}>
+                            <Typography.Text strong>{t('Received quantity')}</Typography.Text>
+                            <InputNumber min={0} value={lineEditValues.receivedQty} onChange={(value) => setLineEditValue('receivedQty', Number(value ?? 0))} style={{ width: '100%' }} />
+                          </Col>
+                          <Col xs={24} md={8}>
+                            <Typography.Text strong>{t('Unit cost')}</Typography.Text>
+                            <InputNumber min={0} value={lineEditValues.unitCost} onChange={(value) => setLineEditValue('unitCost', value === null ? undefined : Number(value))} style={{ width: '100%' }} />
+                          </Col>
+                          <Col xs={24} md={12}>
+                            <Typography.Text strong>{t('Expected delivery')}</Typography.Text>
+                            <DatePicker value={lineEditValues.expectedDeliveryDate ? dayjs(lineEditValues.expectedDeliveryDate) : undefined} onChange={(_date, value) => setLineEditValue('expectedDeliveryDate', Array.isArray(value) ? value[0] : value || undefined)} style={{ width: '100%' }} />
+                          </Col>
+                          <Col xs={24} md={12}>
+                            <Typography.Text strong>{t('Expected sellable')}</Typography.Text>
+                            <DatePicker value={lineEditValues.expectedSellableDate ? dayjs(lineEditValues.expectedSellableDate) : undefined} onChange={(_date, value) => setLineEditValue('expectedSellableDate', Array.isArray(value) ? value[0] : value || undefined)} style={{ width: '100%' }} />
+                          </Col>
+                          <Col xs={24}>
+                            <Typography.Text strong>{t('Notes')}</Typography.Text>
+                            <Input.TextArea rows={2} value={lineEditValues.notes} onChange={(event) => setLineEditValue('notes', event.target.value)} />
+                          </Col>
+                          <Col xs={24}>
+                            <Space>
+                              <Button type="primary" onClick={() => void saveOrderLineEdit()}>{t('Save order line')}</Button>
+                              <Button onClick={() => setLineEditValues(null)}>{t('Cancel')}</Button>
+                            </Space>
+                          </Col>
+                        </Row>
+                      ) : <Alert type="info" showIcon message={t('Select an order line from history to edit it.')} />,
+                    },
+                    {
+                      key: 'draft',
+                      label: t('Draft new supplier order'),
+                      children: (
+                        <Row gutter={[12, 12]}>
+                          <Col xs={24} md={8}>
+                            <Typography.Text strong>{t('Quantity')}</Typography.Text>
+                            <InputNumber min={1} value={actionValues.draftQty} onChange={(value) => setActionValue('draftQty', Number(value ?? 1))} style={{ width: '100%' }} />
+                          </Col>
+                          <Col xs={24} md={16}>
+                            <Typography.Text strong>{t('Supplier')}</Typography.Text>
+                            <Select
+                              showSearch
+                              allowClear
+                              placeholder={t('Search supplier by name, code, or company')}
+                              value={actionValues.draftSupplierId || undefined}
+                              onChange={(value) => setActionValue('draftSupplierId', value ?? '')}
+                              optionFilterProp="label"
+                              style={{ width: '100%' }}
+                              options={supplierOptions.map((supplier) => ({
+                                value: supplier.id,
+                                label: `${supplier.name ?? supplier.supplierId ?? supplier.id}${supplier.supplierId ? ` · ${supplier.supplierId}` : ''}`,
+                              }))}
+                            />
+                          </Col>
+                          <Col xs={24} md={12}>
+                            <Typography.Text strong>{t('Expected delivery')}</Typography.Text>
+                            <DatePicker value={actionValues.draftExpectedDeliveryDate ? dayjs(actionValues.draftExpectedDeliveryDate) : undefined} onChange={(_date, value) => setActionValue('draftExpectedDeliveryDate', Array.isArray(value) ? value[0] : value || undefined)} style={{ width: '100%' }} />
+                          </Col>
+                          <Col xs={24} md={12}>
+                            <Typography.Text strong>{t('Expected sellable')}</Typography.Text>
+                            <DatePicker value={actionValues.draftExpectedSellableDate ? dayjs(actionValues.draftExpectedSellableDate) : undefined} onChange={(_date, value) => setActionValue('draftExpectedSellableDate', Array.isArray(value) ? value[0] : value || undefined)} style={{ width: '100%' }} />
+                          </Col>
+                          <Col xs={24}>
+                            <Typography.Text strong>{t('Notes')}</Typography.Text>
+                            <Input.TextArea rows={2} value={actionValues.draftNotes} onChange={(event) => setActionValue('draftNotes', event.target.value)} />
+                          </Col>
+                          <Col xs={24}><Button type="primary" onClick={() => void draftOrder()}>{t('Create draft order')}</Button></Col>
+                        </Row>
+                      ),
+                    },
+                    {
+                      key: 'add',
+                      label: t('Add product to an existing supplier order'),
+                      children: (
+                        <Row gutter={[12, 12]}>
+                          <Col xs={24} md={16}>
+                            <Typography.Text strong>{t('Supplier order')}</Typography.Text>
+                            <Select
+                              showSearch
+                              allowClear
+                              placeholder={t('Search open supplier orders')}
+                              value={actionValues.addSupplierOrderId || undefined}
+                              onChange={(value) => setActionValue('addSupplierOrderId', value ?? '')}
+                              optionFilterProp="label"
+                              style={{ width: '100%' }}
+                              options={orderOptions.map((order) => ({
+                                value: order.id,
+                                label: `${order.externalOrderRef ?? order.id} · ${order.status ?? 'unknown'}${order.supplierId ? ` · ${order.supplierId}` : ''}`,
+                              }))}
+                            />
+                          </Col>
+                          <Col xs={24} md={8}>
+                            <Typography.Text strong>{t('Quantity')}</Typography.Text>
+                            <InputNumber min={1} value={actionValues.addQty} onChange={(value) => setActionValue('addQty', Number(value ?? 1))} style={{ width: '100%' }} />
+                          </Col>
+                          <Col xs={24} md={12}>
+                            <Typography.Text strong>{t('Expected delivery')}</Typography.Text>
+                            <DatePicker value={actionValues.addExpectedDeliveryDate ? dayjs(actionValues.addExpectedDeliveryDate) : undefined} onChange={(_date, value) => setActionValue('addExpectedDeliveryDate', Array.isArray(value) ? value[0] : value || undefined)} style={{ width: '100%' }} />
+                          </Col>
+                          <Col xs={24} md={12}>
+                            <Typography.Text strong>{t('Expected sellable')}</Typography.Text>
+                            <DatePicker value={actionValues.addExpectedSellableDate ? dayjs(actionValues.addExpectedSellableDate) : undefined} onChange={(_date, value) => setActionValue('addExpectedSellableDate', Array.isArray(value) ? value[0] : value || undefined)} style={{ width: '100%' }} />
+                          </Col>
+                          <Col xs={24}>
+                            <Typography.Text strong>{t('Notes')}</Typography.Text>
+                            <Input.TextArea rows={2} value={actionValues.addNotes} onChange={(event) => setActionValue('addNotes', event.target.value)} />
+                          </Col>
+                          <Col xs={24}><Button onClick={() => void addToExistingOrder()}>{t('Add to existing order')}</Button></Col>
+                        </Row>
+                      ),
+                    },
+                    {
+                      key: 'lead-time',
+                      label: t('Update product-specific lead time'),
+                      children: (
+                        <Row gutter={[12, 12]}>
+                          <Col xs={24} md={16}>
+                            <Typography.Text strong>{t('Supplier')}</Typography.Text>
+                            <Select
+                              showSearch
+                              allowClear
+                              placeholder={t('Search supplier by name, code, or company')}
+                              value={actionValues.leadSupplierId || undefined}
+                              onChange={(value) => setActionValue('leadSupplierId', value ?? '')}
+                              optionFilterProp="label"
+                              style={{ width: '100%' }}
+                              options={supplierOptions.map((supplier) => ({
+                                value: supplier.id,
+                                label: `${supplier.name ?? supplier.supplierId ?? supplier.id}${supplier.supplierId ? ` · ${supplier.supplierId}` : ''}`,
+                              }))}
+                            />
+                          </Col>
+                          <Col xs={24} md={8}>
+                            <Typography.Text strong>{t('Lead time days')}</Typography.Text>
+                            <InputNumber min={0} value={actionValues.leadTimeDays} onChange={(value) => setActionValue('leadTimeDays', Number(value ?? 0))} style={{ width: '100%' }} />
+                          </Col>
+                          <Col xs={24}>
+                            <Typography.Text strong>{t('Evidence / notes')}</Typography.Text>
+                            <Input.TextArea rows={2} value={actionValues.leadNotes} onChange={(event) => setActionValue('leadNotes', event.target.value)} placeholder={t('Example: supplier confirmed by email today')} />
+                          </Col>
+                          <Col xs={24}><Button onClick={() => void updateLeadTime()}>{t('Save lead time')}</Button></Col>
+                        </Row>
+                      ),
+                    },
+                  ]}
+                />
+              </>
+            ) : null}
           </Space>
         ) : null}
       </Drawer>
