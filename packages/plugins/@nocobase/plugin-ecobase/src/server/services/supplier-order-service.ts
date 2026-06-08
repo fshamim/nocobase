@@ -649,15 +649,24 @@ export class EcobaseSupplierOrderService {
       rawImportRows = [];
     }
 
-    const defaultLeadTimeBySupplier = new Map<string, PlainRecord>();
+    const supplierNameById = new Map(
+      suppliers
+        .map((supplier) => [asString(supplier.id), asString(supplier.name)] as const)
+        .filter((entry): entry is [string, string] => Boolean(entry[0] && entry[1])),
+    );
     const productLeadTimeBySupplierAndProduct = new Map<string, PlainRecord>();
+    const productLeadTimeBySupplierNameAndAsin = new Map<string, PlainRecord>();
     for (const leadTime of leadTimes) {
       const supplierId = asString(leadTime.supplierRefId);
       const planningProductId = asString(leadTime.planningProductId);
+      const supplierName = asString(leadTime.supplierName)?.toLowerCase();
+      const company = asString(leadTime.company);
+      const asin = asString(leadTime.asin);
       if (supplierId && planningProductId) {
         productLeadTimeBySupplierAndProduct.set(`${supplierId}:${planningProductId}`, leadTime);
-      } else if (supplierId && !defaultLeadTimeBySupplier.has(supplierId)) {
-        defaultLeadTimeBySupplier.set(supplierId, leadTime);
+      }
+      if (company && supplierName && asin) {
+        productLeadTimeBySupplierNameAndAsin.set(`${company}:${supplierName}:${asin}`, leadTime);
       }
     }
 
@@ -677,8 +686,13 @@ export class EcobaseSupplierOrderService {
         activeLinks.find((link) => asString(link.role) === 'discovered') ??
         activeLinks.find((link) => asString(link.role) === 'candidate');
       const supplierId = asString(preferredLink?.supplierId);
+      const supplierName = supplierId ? supplierNameById.get(supplierId)?.toLowerCase() : undefined;
+      const canonicalAsin = asString(product.canonicalAsin);
       const leadTime = supplierId
-        ? productLeadTimeBySupplierAndProduct.get(`${supplierId}:${planningProductId}`) ?? defaultLeadTimeBySupplier.get(supplierId)
+        ? productLeadTimeBySupplierAndProduct.get(`${supplierId}:${planningProductId}`) ??
+          (supplierName && canonicalAsin
+            ? productLeadTimeBySupplierNameAndAsin.get(`${product.company}:${supplierName}:${canonicalAsin}`)
+            : undefined)
         : undefined;
       reorderCandidates.push({
         planningProductId,
@@ -1635,9 +1649,8 @@ export class EcobaseSupplierOrderService {
       });
       warnings.push(...lineWarnings);
       if (typeof line.leadTimeDays === 'number') {
-        let leadTimeDays: number | undefined;
         try {
-          leadTimeDays = validateSupplierLeadTimeDays(line.leadTimeDays, 'Ecobase supplier-order import failed');
+          validateSupplierLeadTimeDays(line.leadTimeDays, 'Ecobase supplier-order import failed');
         } catch (error) {
           warnings.push({
             code: 'supplier_lead_time_invalid',
@@ -1649,20 +1662,6 @@ export class EcobaseSupplierOrderService {
               sourceOrderLineRef: line.sourceOrderLineRef,
               leadTimeDays: line.leadTimeDays,
             },
-          });
-        }
-        if (typeof leadTimeDays === 'number') {
-          await this.upsertLeadTime({
-            supplierId,
-            company: record.company,
-            supplierName: resolvedSupplierName,
-            externalSupplierCode: record.externalSupplierCode,
-            sourceConnectionId: record.sourceConnectionId,
-            source: record.sourceSystem,
-            leadTimeDays,
-            confirmedAt: line.observedAt ?? importedStatusUpdatedAt,
-            payload: line.payload ?? {},
-            importRunId,
           });
         }
       }
@@ -2327,25 +2326,42 @@ export class EcobaseSupplierOrderService {
   private async findLeadTime(params: { supplierId?: string; company?: string; externalSupplierCode?: string; planningProductId?: string }) {
     const repo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierLeadTimes);
     const rows = (await repo.find()).map(toPlainRecord);
+    const product = params.planningProductId
+      ? toPlainRecord(await this.db.getRepository(ECOBASE_COLLECTIONS.planningProducts).findOne({ filterByTk: params.planningProductId }))
+      : {};
+    const supplier = params.supplierId
+      ? toPlainRecord(await this.db.getRepository(ECOBASE_COLLECTIONS.suppliers).findOne({ filterByTk: params.supplierId }))
+      : {};
+    const supplierName = asString(supplier.name)?.toLowerCase();
+    const canonicalAsin = asString(product.canonicalAsin);
     const bySupplierRef = rows.filter(
-      (row) => asString(row.company) === params.company && asString(row.supplierRefId) === params.supplierId,
+      (row) =>
+        asString(row.company) === params.company &&
+        asString(row.scope) === 'product' &&
+        asString(row.supplierRefId) === params.supplierId,
     );
     const productSpecific = bySupplierRef.find((row) => asString(row.planningProductId) === params.planningProductId);
     if (typeof asNumber(productSpecific?.leadTimeDays) === 'number') {
       return asNumber(productSpecific?.leadTimeDays);
     }
-    const defaultBySupplierRef = bySupplierRef.find((row) => !asString(row.planningProductId));
-    if (typeof asNumber(defaultBySupplierRef?.leadTimeDays) === 'number') {
-      return asNumber(defaultBySupplierRef?.leadTimeDays);
+    const productBySupplierName = rows.find(
+      (row) =>
+        asString(row.company) === params.company &&
+        asString(row.scope) === 'product' &&
+        supplierName === asString(row.supplierName)?.toLowerCase() &&
+        canonicalAsin === asString(row.asin),
+    );
+    if (typeof asNumber(productBySupplierName?.leadTimeDays) === 'number') {
+      return asNumber(productBySupplierName?.leadTimeDays);
     }
     const byExternalCode = rows.filter(
-      (row) => asString(row.company) === params.company && asString(row.supplierId) === params.externalSupplierCode,
+      (row) =>
+        asString(row.company) === params.company &&
+        asString(row.scope) === 'product' &&
+        asString(row.supplierId) === params.externalSupplierCode,
     );
     const productByExternalCode = byExternalCode.find((row) => asString(row.planningProductId) === params.planningProductId);
-    if (typeof asNumber(productByExternalCode?.leadTimeDays) === 'number') {
-      return asNumber(productByExternalCode?.leadTimeDays);
-    }
-    return asNumber(byExternalCode.find((row) => !asString(row.planningProductId))?.leadTimeDays);
+    return asNumber(productByExternalCode?.leadTimeDays);
   }
 
   private async resolveContactRecency(params: { company: string; supplierId: string; supplierOrderId?: string }) {

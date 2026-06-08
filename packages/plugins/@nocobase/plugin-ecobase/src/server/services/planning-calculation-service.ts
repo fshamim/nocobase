@@ -276,7 +276,7 @@ export class EcobasePlanningCalculationService {
       params.safetyBufferDays ??
       firstNumber(params.parameterRows, ['safetyBufferDays', 'Safety Buffer Days']) ??
       DEFAULT_SAFETY_BUFFER_DAYS;
-    const leadTimeDays = await this.resolveLeadTimeDays(params.parameterRows);
+    const leadTimeDays = await this.resolveLeadTimeDays(params.product, params.parameterRows);
     const daysOfCover =
       salesVelocity && salesVelocity > 0 ? currentStockParity / salesVelocity : ZERO_VELOCITY_DAYS_OF_COVER_SENTINEL;
     const oosDate = addDays(params.calculationDate, daysOfCover);
@@ -474,26 +474,33 @@ export class EcobasePlanningCalculationService {
     return { status: rows.every((row) => row.status === 'pass') ? 'pass' : 'fail', rows };
   }
 
-  private async resolveLeadTimeDays(parameterRows: PlainRecord[]) {
-    const directLeadTime = firstNumber(parameterRows, ['leadTimeDays', 'Lead time(day)', 'Manuf. time days']);
+  private async resolveLeadTimeDays(product: PlainRecord, parameterRows: PlainRecord[]) {
+    const directLeadTime = firstNumber(parameterRows, ['leadTimeDays', 'Lead Time', 'Lead time(day)', 'Manuf. time days']);
     if (typeof directLeadTime === 'number') {
       return directLeadTime;
     }
     const leadTimeRepo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierLeadTimes);
     for (const parameterRow of parameterRows) {
       const sourceConnectionId = asString(parameterRow.sourceConnectionId);
-      const company = asString(parameterRow.company);
+      const company = asString(parameterRow.company) ?? asString(product.company);
       const supplierId = asString(parameterRow.supplierId);
       const supplierName = asString(parameterRow.supplier);
+      const asin = asString(parameterRow.asin) ?? asString(product.canonicalAsin);
+      const sku = asString(parameterRow.sku);
       const scopedFilter = (identity: Record<string, string>) => ({
         ...identity,
         ...(sourceConnectionId ? { sourceConnectionId } : {}),
         ...(company ? { company } : {}),
       });
-      const byId = supplierId ? await leadTimeRepo.findOne({ filter: scopedFilter({ supplierId }) }) : null;
-      const byName =
-        !byId && supplierName ? await leadTimeRepo.findOne({ filter: scopedFilter({ supplierName }) }) : null;
-      const leadTimeDays = asNumber(toPlainRecord(byId ?? byName).leadTimeDays);
+      const productScope = (identity: Record<string, string>) => scopedFilter({ ...identity, scope: 'product', ...(asin ? { asin } : sku ? { sku } : {}) });
+      const defaultScope = (identity: Record<string, string>) => scopedFilter({ ...identity, scope: 'default' });
+      const byProductId = supplierId && (asin || sku) ? await leadTimeRepo.findOne({ filter: productScope({ supplierId }) }) : null;
+      const byProductName =
+        !byProductId && supplierName && (asin || sku) ? await leadTimeRepo.findOne({ filter: productScope({ supplierName }) }) : null;
+      const byDefaultId = supplierId ? await leadTimeRepo.findOne({ filter: defaultScope({ supplierId }) }) : null;
+      const byDefaultName =
+        !byDefaultId && supplierName ? await leadTimeRepo.findOne({ filter: defaultScope({ supplierName }) }) : null;
+      const leadTimeDays = asNumber(toPlainRecord(byProductId ?? byProductName ?? byDefaultId ?? byDefaultName).leadTimeDays);
       if (typeof leadTimeDays === 'number') {
         return leadTimeDays;
       }

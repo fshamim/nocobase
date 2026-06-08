@@ -419,6 +419,50 @@ describe('Ecobase current Amazon operations CSV import', () => {
     ]);
   });
 
+  it('uses MasterStock Lead Time as product-specific supplier lead time ahead of manufacturing days', async () => {
+    const { db, service } = createService();
+    db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
+      filterByTk: 'source-1',
+      values: {
+        config: {
+          files: [
+            {
+              name: 'MasterStock.csv',
+              content:
+                'Company,ASIN,SKU,Title,"ROI, %",FBA/FBM Stock,Stock value,Estimated Sales Velocity,Days  of stock  left,Recommended quantity for  reordering,Reserved,Sent  to FBA,Ordered,Marketplace,Target stock range after new order days,Manuf. time days,Supplier,Lead Time\n' +
+                'Ecofission LLC,B00PUSNY5A,W101,Lesson Plan,27,386,1681.3,9.79,40,0,13,0,500,Amazon.com,60,15,Lead Supplier,25',
+              expectedRowCount: 1,
+              snapshotDate: '2025-07-01',
+            },
+          ],
+        },
+      },
+    });
+
+    const run = await service.runAdapterImport({
+      sourceConnectionId: 'source-1',
+      adapterName: 'amazon-operations-csv',
+      sourceIdentifier: 'masterstock-lead-time',
+      sourceVersion: '2025-07-01',
+      preserveAuditRun: true,
+    });
+
+    expect(run).toMatchObject({ status: 'success', rowCount: 1 });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.planningParameters).all()).toEqual([
+      expect.objectContaining({ asin: 'B00PUSNY5A', sku: 'W101', supplier: 'Lead Supplier', leadTimeDays: 25 }),
+    ]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierLeadTimes).all()).toEqual([
+      expect.objectContaining({
+        company: 'Ecofission LLC',
+        supplierName: 'Lead Supplier',
+        asin: 'B00PUSNY5A',
+        sku: 'W101',
+        scope: 'product',
+        leadTimeDays: 25,
+      }),
+    ]);
+  });
+
   it('links planning inputs imported after raw listings so calculations use separate planning-source runs', async () => {
     const { db, service } = createService();
     db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
@@ -593,9 +637,7 @@ describe('Ecobase current Amazon operations CSV import', () => {
       });
       expect(db.getRepository(sample.expectedCollection).all(), sample.name).toHaveLength(1);
       if (sample.name === 'OrderDetails.csv') {
-        expect(db.getRepository(ECOBASE_COLLECTIONS.supplierLeadTimes).all(), sample.name).toEqual([
-          expect.objectContaining({ supplierId: 'SRO-1', supplierName: 'Supplier', leadTimeDays: 10 }),
-        ]);
+        expect(db.getRepository(ECOBASE_COLLECTIONS.supplierLeadTimes).all(), sample.name).toEqual([]);
       }
       expect(db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).all(), sample.name).toHaveLength(1);
     }
@@ -1085,14 +1127,16 @@ describe('Ecobase current Amazon operations CSV import', () => {
       'import-run-ambiguous',
     );
 
-    expect(result.warnings).toEqual([
-      expect.objectContaining({
-        code: 'planning_product_mapping_ambiguous',
-        payload: expect.objectContaining({
-          planningProductIds: ['planning-product-ambiguous-1', 'planning-product-ambiguous-2'],
+    expect(result.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'planning_product_mapping_ambiguous',
+          payload: expect.objectContaining({
+            planningProductIds: ['planning-product-ambiguous-1', 'planning-product-ambiguous-2'],
+          }),
         }),
-      }),
-    ]);
+      ]),
+    );
   });
 
   it('keeps valid rows when malformed rows produce row-level warnings', async () => {

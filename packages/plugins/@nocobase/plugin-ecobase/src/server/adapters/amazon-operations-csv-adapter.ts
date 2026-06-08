@@ -95,6 +95,10 @@ function isoDate(value: string) {
   return parsed.toISOString().slice(0, 10);
 }
 
+function productLeadTimeDays(row: CsvRowReader) {
+  return row.number('Lead Time', 'Lead time(day)', 'Manuf. time days');
+}
+
 function isoDateTime(value: string) {
   const trimmed = value.trim();
   const dayMonthYear = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
@@ -303,7 +307,7 @@ function planningRecord(input: SourceAdapterImportInput, row: CsvRowReader, sour
       cogs: row.number('COGS', 'COG (Incl all costs)', 'Cost of Goods', 'PPU', 'Exp. Cost '),
       profitPerUnit: row.number('Profit Per Unit', 'Per.Unit Profit'),
       targetStockRangeDays: row.number('Target stock range after new order days'),
-      leadTimeDays: row.number('Lead time(day)', 'Manuf. time days'),
+      leadTimeDays: productLeadTimeDays(row),
       safetyBufferDays: row.number('Safety Buffer Days', 'safety_buffer_days'),
       payload: row.payload(),
     },
@@ -313,12 +317,15 @@ function planningRecord(input: SourceAdapterImportInput, row: CsvRowReader, sour
 function supplierRecords(input: SourceAdapterImportInput, row: CsvRowReader, sourceKey: string): NormalizedRecord[] {
   const supplierName = row.string('Supplier', 'Supplier ', 'Supplier Name');
   const supplierId = row.string('SR ID', 'SR ID ');
-  const leadTimeDays = row.number('Lead time(day)', 'Manuf. time days');
+  const leadTimeDays = productLeadTimeDays(row);
   if (!supplierName && !supplierId) {
     return [];
   }
   const company = row.string('Company');
   const supplierKey = supplierId ?? supplierName ?? sourceKey;
+  const asin = canonicalAsin(row);
+  const sku = row.string('SKU');
+  const productLeadTimeScope = Boolean(asin || sku);
   const records: NormalizedRecord[] = [
     {
       kind: 'supplier',
@@ -336,11 +343,19 @@ function supplierRecords(input: SourceAdapterImportInput, row: CsvRowReader, sou
     records.push({
       kind: 'supplier_lead_time',
       data: {
-        naturalKey: naturalKey(input, 'supplier_lead_time', [company, supplierKey]),
+        naturalKey: naturalKey(input, 'supplier_lead_time', [
+          company,
+          supplierKey,
+          productLeadTimeScope ? 'product' : 'default',
+          productLeadTimeScope ? asin ?? sku : undefined,
+        ]),
         sourceConnectionId: input.sourceConnectionId,
         supplierId,
         supplierName,
         company,
+        asin,
+        sku,
+        scope: productLeadTimeScope ? 'product' : 'default',
         leadTimeDays,
         payload: row.payload(),
       },
