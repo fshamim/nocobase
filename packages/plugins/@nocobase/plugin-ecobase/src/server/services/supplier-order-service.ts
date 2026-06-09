@@ -44,7 +44,6 @@ export const OPEN_SUPPLIER_ORDER_STATUSES = [
   'blocked',
 ];
 export const RELIABLE_SUPPLIER_ORDER_COVERAGE_STATUSES = [
-  'payment_pending',
   'paid',
   'supplier_preparing',
   'shipped_inbound',
@@ -176,6 +175,7 @@ export interface UpdateSupplierOrderLineOperatorFieldsParams {
   supplierOrderLineId: string | number;
   company: string;
   planningProductId?: string;
+  externalOrderRef?: string;
   orderedQty?: number;
   receivedQty?: number;
   unitCost?: number;
@@ -1060,6 +1060,7 @@ export class EcobaseSupplierOrderService {
     }
     if (
       !params.planningProductId &&
+      !params.externalOrderRef &&
       params.orderedQty === undefined &&
       params.receivedQty === undefined &&
       params.unitCost === undefined &&
@@ -1068,7 +1069,7 @@ export class EcobaseSupplierOrderService {
       !params.notes
     ) {
       throw new Error(
-        'Ecobase supplier-order line update failed: planningProductId, orderedQty, receivedQty, unitCost, expectedDeliveryDate, expectedSellableDate, or notes is required.',
+        'Ecobase supplier-order line update failed: planningProductId, externalOrderRef, orderedQty, receivedQty, unitCost, expectedDeliveryDate, expectedSellableDate, or notes is required.',
       );
     }
 
@@ -1095,8 +1096,31 @@ export class EcobaseSupplierOrderService {
       throw new Error('Ecobase supplier-order line update failed: line supplier does not match parent order supplier.');
     }
 
+    const editedAt = new Date().toISOString();
+    if (params.externalOrderRef) {
+      const externalOrderRef = asString(params.externalOrderRef);
+      if (!externalOrderRef) {
+        throw new Error('Ecobase supplier-order line update failed: externalOrderRef must not be empty.');
+      }
+      const naturalKey = `supplier-order:${params.company}:${externalOrderRef}`;
+      const duplicate = toPlainRecord(await this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).findOne({ filter: { naturalKey } }));
+      if (duplicate.id !== undefined && duplicate.id !== null && String(duplicate.id) !== String(order.id)) {
+        throw new Error(`Ecobase supplier-order line update failed: supplier order "${externalOrderRef}" already exists for ${params.company}.`);
+      }
+      await this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).update({
+        filterByTk: existing.supplierOrderId as string | number,
+        values: {
+          externalOrderRef,
+          naturalKey,
+          lastOperatorEditAt: editedAt,
+          lastOperatorActor: params.actor,
+          lastMeaningfulUpdateAt: editedAt,
+        },
+      });
+    }
+
     const values: PlainRecord = {
-      lastOperatorEditAt: new Date().toISOString(),
+      lastOperatorEditAt: editedAt,
       lastOperatorActor: params.actor,
     };
     if (params.planningProductId) {

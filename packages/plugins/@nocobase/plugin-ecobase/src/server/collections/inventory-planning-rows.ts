@@ -54,7 +54,7 @@ export default defineCollection({
     { name: 'currentPlanningStock', type: 'double', interface: 'number', uiSchema: { title: 'Current Planning Stock' } },
     { name: 'sellableStock', type: 'double', interface: 'number', uiSchema: { title: 'Sellable Stock' } },
     { name: 'reservedStock', type: 'double', interface: 'number', uiSchema: { title: 'Reserved Stock' } },
-    { name: 'pipelineStock', type: 'double', interface: 'number', uiSchema: { title: 'Pipeline Stock' } },
+    { name: 'pipelineStock', type: 'double', interface: 'number', uiSchema: { title: 'Replenishment Stock' } },
     { name: 'inboundStock', type: 'double', interface: 'number', uiSchema: { title: 'Inbound Stock' } },
     { name: 'orderedStock', type: 'double', interface: 'number', uiSchema: { title: 'Ordered Stock' } },
     { name: 'prepStock', type: 'double', interface: 'number', uiSchema: { title: 'Prep Stock' } },

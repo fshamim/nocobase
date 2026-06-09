@@ -198,7 +198,7 @@ describe('Ecobase spreadsheet-parity planning calculations', () => {
       tierScore: 100,
       currentStockParity: 20,
       sellableStock: 10,
-      pipelineStock: 10,
+      pipelineStock: 8,
       salesVelocity: 2,
       daysOfCover: 10,
       oosDate: '2025-07-20',

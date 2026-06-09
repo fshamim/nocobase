@@ -428,55 +428,76 @@ function sourceOrderLineRef(row: CsvRowReader, fallback: string) {
   return compactReference([row.string('Order ID'), canonicalAsin(row), row.string('SKU')].filter(Boolean).join(':') || fallback);
 }
 
-function purchaseOrderStatus(row: CsvRowReader) {
-  const combined = [
-    row.string('Status', 'Order Status', 'Approval Status'),
-    row.string('Payment Status', 'Payment Status '),
-    row.string('Shipping Status'),
-    row.string('Blocked Reason'),
-    row.string('Tracking ID', 'Tracking #'),
-    row.string('Shipping Carrier', 'Carrier'),
-  ]
-    .filter((value): value is string => typeof value === 'string' && value.length > 0)
-    .join(' ')
-    .toLowerCase();
+function lower(value: string | undefined) {
+  return value?.trim().toLowerCase() ?? '';
+}
 
-  if (combined.includes('cancel')) {
-    return 'cancelled';
-  }
-  if (combined.includes('reject')) {
-    return 'rejected';
-  }
-  if (combined.includes('block') || combined.includes('hold')) {
-    return 'blocked';
-  }
-  if (combined.includes('reached fba') || combined.includes('reached amazon')) {
-    return 'reached_fba';
-  }
+function hasAny(value: string, terms: string[]) {
+  return terms.some((term) => value.includes(term));
+}
+
+function purchaseOrderStatus(row: CsvRowReader) {
+  const orderStatus = lower(row.string('Order status', 'Order Status', 'Status'));
+  const paymentStatus = lower(row.string('Payment Status', 'Payment Status '));
+  const poApproval = lower(row.string('PO approval', 'Approval Status', 'PO Approval'));
+  const invoiceStatus = lower(row.string('Invoice Status'));
+  const orStatus = lower(row.string('OR Status'));
+  const prepStatus = lower(row.string('Prep Status', 'Prep Status '));
+  const combined = [
+    orderStatus,
+    paymentStatus,
+    poApproval,
+    invoiceStatus,
+    orStatus,
+    prepStatus,
+    lower(row.string('Blocked Reason')),
+    lower(row.string('Tracking ID', 'Tracking #')),
+    lower(row.string('Shipping Carrier', 'Carrier')),
+  ].filter(Boolean).join(' ');
+
+  if (hasAny(combined, ['cancel'])) return 'cancelled';
+  if (hasAny(combined, ['reject'])) return 'rejected';
+  if (hasAny(combined, ['block', 'hold'])) return 'blocked';
+  if (hasAny(orStatus, ['reached fba', 'reached amazon'])) return 'reached_fba';
   if (
-    combined.includes('ship') ||
-    combined.includes('inbound') ||
+    hasAny(combined, ['dispatch to fba', 'ship', 'inbound']) ||
     row.string('Tracking ID', 'Tracking #') ||
     row.string('Shipping Carrier', 'Carrier')
   ) {
     return 'shipped_inbound';
   }
-  if (combined.includes('prepar') || combined.includes('production') || combined.includes('manufactur')) {
-    return 'supplier_preparing';
-  }
-  if (combined.includes('paid') || combined.includes('payment completed')) {
-    return 'paid';
-  }
-  if (combined.includes('invoice') || combined.includes('payment')) {
+  if (hasAny(combined, ['prep', 'production', 'manufactur'])) return 'supplier_preparing';
+  if (hasAny(paymentStatus, ['completed', 'paid']) || hasAny(orderStatus, ['completed', 'complete']) || row.string('Date of Payment')) return 'paid';
+  if (hasAny(paymentStatus, ['pending', 'due', 'not paid']) || hasAny(invoiceStatus, ['uploaded', 'invoice']) || hasAny(orderStatus, ['placed'])) {
     return 'payment_pending';
   }
-  if (combined.includes('confirm')) {
-    return 'supplier_confirmed';
-  }
-  if (combined.includes('approv')) {
-    return 'approval_pending';
-  }
+  if (hasAny(combined, ['confirm'])) return 'supplier_confirmed';
+  if (hasAny(poApproval, ['approved']) || hasAny(combined, ['approv'])) return 'approval_pending';
   return 'supplier_contacted';
+}
+
+function orderDetailsStatus(row: CsvRowReader) {
+  const orderStatus = lower(row.string('Order status', 'Order Status'));
+  const poStatus = lower(row.string('PO Status'));
+  const amStatus = lower(row.string('AM Status'));
+  const cooStatus = lower(row.string('COO status'));
+  const combined = [orderStatus, poStatus, amStatus, cooStatus, lower(row.string('Remarks')), lower(row.string('AM Remarks'))]
+    .filter(Boolean)
+    .join(' ');
+  if (hasAny(combined, ['cancel'])) return 'cancelled';
+  if (hasAny(combined, ['reject'])) return 'rejected';
+  if (hasAny(combined, ['block', 'hold'])) return 'blocked';
+  if (hasAny(combined, ['ship', 'inbound', 'dispatch'])) return 'shipped_inbound';
+  if (hasAny(combined, ['prep', 'reserved'])) return 'supplier_preparing';
+  if (hasAny(combined, ['paid', 'payment completed'])) return 'paid';
+  if (hasAny(combined, ['payment', 'invoice', 'po placed', 'order placed'])) return 'payment_pending';
+  if (hasAny(combined, ['approved', 'approval', 'cleared', 'added to po'])) return 'approval_pending';
+  if (hasAny(combined, ['confirm'])) return 'supplier_confirmed';
+  return 'supplier_contacted';
+}
+
+function orderDetailsReceivedQty(_row: CsvRowReader) {
+  return 0;
 }
 
 function orderDetailsRecord(input: SourceAdapterImportInput, row: CsvRowReader, sourceKey: string): NormalizedRecord[] {
@@ -499,7 +520,7 @@ function orderDetailsRecord(input: SourceAdapterImportInput, row: CsvRowReader, 
         sourceConnectionId: input.sourceConnectionId,
         externalOrderRef: orderId,
         sourceStage: 'order_detail',
-        status: 'received',
+        status: orderDetailsStatus(row),
         orderDate: firstDate(row, 'Timestamp'),
         statusUpdatedAt: firstDateTime(row, 'Timestamp'),
         lastMeaningfulUpdateAt: firstDateTime(row, 'Timestamp'),
@@ -511,7 +532,7 @@ function orderDetailsRecord(input: SourceAdapterImportInput, row: CsvRowReader, 
             sku: row.string('SKU'),
             brand: row.string('Brand', 'Brand '),
             orderedQty: row.number('Qty') ?? 0,
-            receivedQty: row.number('Qty') ?? 0,
+            receivedQty: orderDetailsReceivedQty(row),
             unitCost: row.number('PPU', 'Exp. Cost '),
             leadTimeDays: row.number('Lead time(day)', 'Manuf. time days'),
             observedAt: firstDateTime(row, 'Timestamp'),
@@ -564,15 +585,15 @@ function purchaseOrderRecord(
         externalOrderRef: orderId,
         sourceStage: 'purchase_order',
         status: purchaseOrderStatus(row),
-        approvalStatus: row.string('Approval Status'),
+        approvalStatus: row.string('PO approval', 'Approval Status', 'PO Approval'),
         paymentStatus: row.string('Payment Status', 'Payment Status '),
         shippingCarrier: row.string('Shipping Carrier', 'Carrier'),
         trackingId: row.string('Tracking ID', 'Tracking #'),
-        expectedDeliveryDate: firstDate(row, 'Expected Delivery', 'Expected Delivery Date', 'ETA', 'Arrival to Amazon'),
+        expectedDeliveryDate: firstDate(row, 'Expected Delivery', 'Expected Delivery Date', 'Exp. Delivery Date', 'Exp. Delivery Date ', 'ETA', 'Arrival to Amazon'),
         blockedReason: row.string('Blocked Reason'),
         orderDate: firstDate(row, 'Timestamp', 'Order Date'),
-        statusUpdatedAt: firstDateTime(row, 'Timestamp', 'Updated At'),
-        lastMeaningfulUpdateAt: firstDateTime(row, 'Timestamp', 'Updated At'),
+        statusUpdatedAt: firstDateTime(row, 'OR Status Date', 'Timestamp', 'Updated At'),
+        lastMeaningfulUpdateAt: firstDateTime(row, 'OR Status Date', 'Date of Payment', 'Timestamp', 'Updated At'),
         payload: row.payload(),
         lines,
       },

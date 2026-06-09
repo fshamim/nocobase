@@ -705,6 +705,7 @@ export function createEcobaseSupplierOrderActions() {
             supplierOrderLineId,
             company,
             planningProductId: getOptionalString(values, 'planningProductId'),
+            externalOrderRef: getOptionalString(values, 'externalOrderRef'),
             orderedQty: getOptionalNumber(values, 'orderedQty'),
             receivedQty: getOptionalNumber(values, 'receivedQty'),
             unitCost: getOptionalNumber(values, 'unitCost'),

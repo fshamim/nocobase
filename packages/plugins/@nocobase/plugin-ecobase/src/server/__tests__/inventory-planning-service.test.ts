@@ -329,8 +329,8 @@ describe('EcobaseInventoryPlanningService', () => {
       stock: 10,
       reserved: 1,
       salesVelocity: 2,
-      recommendedReorderQuantity: 0,
-      payload: { 'Profit forecast (30 days)': 208.89, 'FBA prep. stock Prep center 1 stock': 5 },
+      recommendedReorderQuantity: 50,
+      payload: { 'Profit forecast (30 days)': 208.89, 'FBA prep. stock Prep center 1 stock': 5, 'MTD Revenue ': 1200, 'MTD Unit Sold': 24, 'MTD Profit ': 180 },
     });
     await createRecord(db, ECOBASE_COLLECTIONS.planningParameters, {
       naturalKey: 'params-fallback',
@@ -338,7 +338,29 @@ describe('EcobaseInventoryPlanningService', () => {
       asin: 'B000FALLBACK',
       sku: 'FALLBACK-SKU',
       leadTimeDays: 3,
+      profitPerUnit: 4,
       payload: { 'Product Status': 'Active' },
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrders, {
+      id: 'fallback-order-1',
+      naturalKey: 'supplier-order:Ecofission LLC:FB-100',
+      sourceConnectionId: 'source-ecofission',
+      company: 'Ecofission LLC',
+      supplierId: 'supplier-ref-1',
+      externalOrderRef: 'FB-100',
+      sourceStage: 'manual',
+      status: 'shipped_inbound',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrderLines, {
+      id: 'fallback-line-1',
+      naturalKey: 'supplier-order-line:FB-100:1',
+      sourceConnectionId: 'source-ecofission',
+      company: 'Ecofission LLC',
+      supplierOrderId: 'fallback-order-1',
+      asin: 'B000FALLBACK',
+      sku: 'FALLBACK-SKU',
+      orderedQty: 20,
+      receivedQty: 5,
     });
 
     const service = new EcobaseInventoryPlanningService(db);
@@ -349,9 +371,13 @@ describe('EcobaseInventoryPlanningService', () => {
     expect(row).toMatchObject({
       company: 'Ecofission LLC',
       tier: 'B',
-      tierScore: 208.89,
+      tierScore: 200,
       currentPlanningStock: 16,
-      pipelineStock: 6,
+      pipelineStock: 5,
+      openOrderCoverageQty: 15,
+      monthToDateRevenue: 1200,
+      monthToDateUnitsSold: 24,
+      monthToDateProfit: 180,
     });
   });
 
@@ -450,5 +476,165 @@ describe('EcobaseInventoryPlanningService', () => {
     expect(digest.summary).toMatchObject({ orderToday: 1, atRisk: 1, suppliersToContact: 1 });
     expect(digest.sections.orderNow).toHaveLength(1);
     expect(digest.sections.suppliersToContactFirst[0]).toMatchObject({ supplierName: 'Digest Supplier', urgentCount: 1 });
+  });
+
+  it('puts no-order digest rows before placed-but-not-purchased rows and excludes purchased pipeline rows', async () => {
+    const db = new MemoryDatabase();
+    for (const id of ['no-order', 'payment-pending', 'approval-soon', 'paid-pipeline']) {
+      await createRecord(db, ECOBASE_COLLECTIONS.planningProducts, {
+        id,
+        naturalKey: `Ecofission LLC:${id}`,
+        company: 'Ecofission LLC',
+        canonicalAsin: `ASIN-${id}`,
+        mappingStatus: 'confirmed',
+      });
+      await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
+        naturalKey: `inventory-${id}`,
+        sourceConnectionId: 'source-1',
+        planningProductId: id,
+        snapshotDate: '2026-06-07',
+        company: 'Ecofission LLC',
+        asin: `ASIN-${id}`,
+        sku: `SKU-${id}`,
+        stock: id === 'approval-soon' ? 30 : 1,
+        reserved: 0,
+        salesVelocity: 3,
+      });
+      await createRecord(db, ECOBASE_COLLECTIONS.planningParameters, {
+        naturalKey: `params-${id}`,
+        sourceConnectionId: 'source-1',
+        planningProductId: id,
+        company: 'Ecofission LLC',
+        supplier: 'Digest Supplier',
+        profitPerUnit: 10,
+        leadTimeDays: 0,
+        payload: { recommendedBestQty: 30 },
+      });
+      await createRecord(db, ECOBASE_COLLECTIONS.supplierLeadTimes, {
+        naturalKey: `leadtime-${id}`,
+        sourceConnectionId: 'source-1',
+        supplierName: 'Digest Supplier',
+        company: 'Ecofission LLC',
+        leadTimeDays: 0,
+        confirmedAt: '2026-06-01T00:00:00.000Z',
+        source: 'backend_sheet',
+      });
+    }
+
+    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrders, {
+      id: 'order-payment-pending',
+      naturalKey: 'supplier-order:Ecofission LLC:PP-1',
+      sourceConnectionId: 'source-1',
+      company: 'Ecofission LLC',
+      supplierId: 'supplier-1',
+      externalOrderRef: 'PP-1',
+      sourceStage: 'manual',
+      status: 'payment_pending',
+      lastMeaningfulUpdateAt: '2026-06-06T00:00:00.000Z',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrderLines, {
+      id: 'line-payment-pending',
+      naturalKey: 'supplier-order-line:PP-1',
+      sourceConnectionId: 'source-1',
+      company: 'Ecofission LLC',
+      supplierOrderId: 'order-payment-pending',
+      planningProductId: 'payment-pending',
+      asin: 'ASIN-payment-pending',
+      sku: 'SKU-payment-pending',
+      orderedQty: 20,
+      receivedQty: 0,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrders, {
+      id: 'order-old-paid',
+      naturalKey: 'supplier-order:Ecofission LLC:OLD-PAID-1',
+      sourceConnectionId: 'source-1',
+      company: 'Ecofission LLC',
+      supplierId: 'supplier-1',
+      externalOrderRef: 'OLD-PAID-1',
+      sourceStage: 'purchase_order',
+      status: 'paid',
+      lastMeaningfulUpdateAt: '2026-06-01T00:00:00.000Z',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrderLines, {
+      id: 'line-old-paid',
+      naturalKey: 'supplier-order-line:OLD-PAID-1',
+      sourceConnectionId: 'source-1',
+      company: 'Ecofission LLC',
+      supplierOrderId: 'order-old-paid',
+      planningProductId: 'payment-pending',
+      asin: 'ASIN-payment-pending',
+      sku: 'SKU-payment-pending',
+      orderedQty: 90,
+      receivedQty: 0,
+      expectedSellableDate: '2026-06-20',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrders, {
+      id: 'order-approval-soon',
+      naturalKey: 'supplier-order:Ecofission LLC:APP-1',
+      sourceConnectionId: 'source-1',
+      company: 'Ecofission LLC',
+      supplierId: 'supplier-1',
+      externalOrderRef: 'APP-1',
+      sourceStage: 'manual',
+      status: 'approval_pending',
+      lastMeaningfulUpdateAt: '2026-06-06T00:00:00.000Z',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrderLines, {
+      id: 'line-approval-soon',
+      naturalKey: 'supplier-order-line:APP-1',
+      sourceConnectionId: 'source-1',
+      company: 'Ecofission LLC',
+      supplierOrderId: 'order-approval-soon',
+      planningProductId: 'approval-soon',
+      asin: 'ASIN-approval-soon',
+      sku: 'SKU-approval-soon',
+      orderedQty: 20,
+      receivedQty: 0,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrders, {
+      id: 'order-paid-pipeline',
+      naturalKey: 'supplier-order:Ecofission LLC:PAID-1',
+      sourceConnectionId: 'source-1',
+      company: 'Ecofission LLC',
+      supplierId: 'supplier-1',
+      externalOrderRef: 'PAID-1',
+      sourceStage: 'manual',
+      status: 'paid',
+      lastMeaningfulUpdateAt: '2026-06-06T00:00:00.000Z',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrderLines, {
+      id: 'line-paid-pipeline',
+      naturalKey: 'supplier-order-line:PAID-1',
+      sourceConnectionId: 'source-1',
+      company: 'Ecofission LLC',
+      supplierOrderId: 'order-paid-pipeline',
+      planningProductId: 'paid-pipeline',
+      asin: 'ASIN-paid-pipeline',
+      sku: 'SKU-paid-pipeline',
+      orderedQty: 20,
+      receivedQty: 0,
+    });
+
+    const digest = await new EcobaseInventoryPlanningService(db).digestPreview({
+      company: 'Ecofission LLC',
+      calculationDate: '2026-06-07',
+    });
+
+    expect(digest.summary).toMatchObject({ noSupplierOrder: 1, placedNotPurchased: 2, purchasedPipelineExcluded: 1 });
+    expect(digest.sections.orderNow.map((row) => row.planningProductId)).toEqual(['no-order', 'payment-pending', 'approval-soon']);
+    expect(digest.sections.orderNow[0]).toMatchObject({ supplierOrderState: 'no_open_order' });
+    expect(digest.sections.orderNow[1]).toMatchObject({
+      supplierOrderState: 'placed_not_purchased',
+      supplierOrderStatus: 'payment_pending',
+      supplierOrderRef: 'PP-1',
+      openOrderCoverageQty: 0,
+    });
+    expect(digest.sections.orderNow[2]).toMatchObject({
+      actionStatus: 'order_soon',
+      supplierOrderState: 'placed_not_purchased',
+      supplierOrderStatus: 'approval_pending',
+      supplierOrderRef: 'APP-1',
+      openOrderCoverageQty: 0,
+    });
   });
 });

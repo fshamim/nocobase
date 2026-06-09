@@ -5,7 +5,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useT } from '../locale';
 
 type PlainRecord = Record<string, any>;
-type OrderNowQuickFilter = 'all' | 'urgent_today' | 'missing_supplier' | 'lead_time_issues';
+type OrderNowQuickFilter = 'all' | 'urgent_today' | 'missing_supplier' | 'lead_time_issues' | 'no_order' | 'placed_not_purchased';
 type OrderNowSortKey = 'urgency' | 'oos_asc' | 'risk_desc' | 'tier' | 'supplier';
 
 interface DigestPreview {
@@ -36,6 +36,7 @@ interface DrawerActionValues {
 
 interface LineEditValues {
   id: string;
+  externalOrderRef: string;
   orderedQty: number;
   receivedQty: number;
   unitCost?: number;
@@ -123,6 +124,35 @@ function actionColor(value?: string) {
     default:
       return 'default';
   }
+}
+
+function supplierOrderStateLabel(row: PlainRecord, t: (key: string) => string) {
+  const state = String(row.supplierOrderState ?? 'no_open_order');
+  if (state === 'placed_not_purchased') {
+    return (
+      <Space direction="vertical" size={0}>
+        <Tag color="orange">{t('Order placed, not purchased')}</Tag>
+        <Typography.Text type="secondary">{String(row.supplierOrderRef ?? '—')} · {t(String(row.supplierOrderStatus ?? 'unknown'))}</Typography.Text>
+      </Space>
+    );
+  }
+  if (state === 'closed_history') {
+    return (
+      <Space direction="vertical" size={0}>
+        <Tag color="default">{t('No open order')}</Tag>
+        <Typography.Text type="secondary">{String(row.supplierOrderRef ?? '—')} · {t(String(row.supplierOrderStatus ?? 'closed'))}</Typography.Text>
+      </Space>
+    );
+  }
+  if (state === 'purchased_pipeline') {
+    return (
+      <Space direction="vertical" size={0}>
+        <Tag color="blue">{t('Purchased / pipeline')}</Tag>
+        <Typography.Text type="secondary">{String(row.supplierOrderRef ?? '—')} · {t(String(row.supplierOrderStatus ?? 'unknown'))}</Typography.Text>
+      </Space>
+    );
+  }
+  return <Tag color="red">{t('No order history')}</Tag>;
 }
 
 function tierColor(value?: string) {
@@ -214,7 +244,7 @@ function StockStatus({ row, t }: { row: PlainRecord; t: (key: string) => string 
       <Space size={4} wrap>
         <Tag color={sellable > 0 ? 'green' : 'red'}>{t('Sellable')} {formatNumber(sellable)}</Tag>
         <Tag color={reservedColor}>{t('Reserved')} {formatNumber(reserved)}</Tag>
-        <Tag color={pipeline > 0 ? 'cyan' : 'default'}>{t('Pipeline')} {formatNumber(pipeline)}</Tag>
+        <Tag color={pipeline > 0 ? 'cyan' : 'default'}>{t('Replenishment')} {formatNumber(pipeline)}</Tag>
       </Space>
     </Space>
   );
@@ -232,37 +262,27 @@ function leadTimeSourceText(row: PlainRecord) {
 
 function monetaryRiskText(row: PlainRecord) {
   if (row.estimatedProfitRiskBasis === 'uncovered_oos_days × sales_velocity × profit_per_unit') {
-    return 'Formula: max(lead time + safety buffer − days of cover, 0) × sales velocity × profit per unit.';
+    return 'Potential profit loss if this product remains uncovered: max(lead time + safety buffer − days of cover, 0) × sales velocity × profit per unit.';
   }
   if (row.estimatedProfitRiskBasis === 'planning_calculation_estimated_profit_risk') {
-    return 'Formula comes from the planning calculation service estimated profit risk.';
+    return 'Potential profit loss from the planning calculation service. It uses uncovered days, sales velocity, and profit per unit when those inputs are available.';
   }
   if (row.estimatedProfitRiskBasis === 'imported_missed_profit_or_30_day_profit_forecast') {
-    return 'Current fallback: imported missed-profit estimate or 30-day profit forecast, because profit per unit is not available in the imported planning row.';
+    return 'Imported missed-profit estimate or 30-day profit forecast, used only when profit-per-unit inputs are not available.';
   }
-  return 'Monetary risk is unavailable until profit or missed-profit data is imported.';
+  return 'Money at risk is unavailable until profit or missed-profit data is imported.';
 }
 
-function nextStepFor(row: PlainRecord) {
-  if (!row.supplierName) {
-    return 'Find the supplier from OrderDetails history for this ASIN/company, then confirm the current lead time before ordering.';
-  }
-  switch (row.actionStatus) {
-    case 'overdue':
-      return 'Order now or confirm an already-placed supplier order immediately.';
-    case 'order_today':
-      return 'Create or confirm the supplier order today.';
-    case 'order_soon':
-      return 'Prepare the supplier order before the soon window closes.';
-    case 'missing_lead_time':
-      return 'Contact the supplier first; lead time is missing or stale before reorder math is trusted.';
-    case 'already_ordered':
-      return 'Review open order coverage and expected sellable date.';
-    case 'missing_velocity':
-      return 'Check sales velocity/import data before making an order decision.';
-    default:
-      return 'Monitor this product; no immediate order action is currently required.';
-  }
+function productStatusText() {
+  return 'MasterStock status uses operator BackendSheet status first for Not selling, Hold, or One Time. Otherwise it derives OOS, Inactive, Inbound, or Reserved from sellable, reserved, inbound, ordered, and prep/AWD stock buckets.';
+}
+
+function orderCoverageText() {
+  return 'Coverage counts only reliable purchased pipeline that can still prevent OOS: paid, supplier preparing, or shipped inbound orders in the current recovery cycle. Draft, approval/payment-pending, cancelled, reached-FBA, and old historical rows do not reduce suggested reorder quantity, so this is often zero.';
+}
+
+function tierScoreText() {
+  return "Tier score follows the sheet's Top SKU logic: Profit Per Unit × Rec. Best Qty. It is separate from money at risk; when those profit inputs are missing the score is 0.";
 }
 
 function columnHelp(title: string, help: string) {
@@ -297,7 +317,22 @@ function orderNowMatchesQuickFilter(row: PlainRecord, filter: OrderNowQuickFilte
   if (filter === 'lead_time_issues') {
     return row.actionStatus === 'missing_lead_time' || ['missing', 'stale'].includes(String(row.leadTimeFreshness ?? ''));
   }
+  if (filter === 'no_order') {
+    return ['no_open_order', 'closed_history'].includes(String(row.supplierOrderState ?? ''));
+  }
+  if (filter === 'placed_not_purchased') {
+    return row.supplierOrderState === 'placed_not_purchased';
+  }
   return true;
+}
+
+function digestOrderStatePriority(row: PlainRecord) {
+  const state = String(row.supplierOrderState ?? 'no_open_order');
+  if (state === 'no_open_order') return 0;
+  if (state === 'placed_not_purchased') return 1;
+  if (state === 'closed_history') return 1;
+  if (state === 'purchased_pipeline') return 2;
+  return 3;
 }
 
 function sortOrderNowRows(rows: PlainRecord[], sortKey: OrderNowSortKey, calculationDate: string) {
@@ -316,6 +351,8 @@ function sortOrderNowRows(rows: PlainRecord[], sortKey: OrderNowSortKey, calcula
         String(right.supplierName ?? 'Find supplier from OrderDetails'),
       );
     }
+    const orderStateDiff = digestOrderStatePriority(left) - digestOrderStatePriority(right);
+    if (orderStateDiff !== 0) return orderStateDiff;
     const actionDiff = (ACTION_PRIORITY[String(left.actionStatus ?? '')] ?? 99) - (ACTION_PRIORITY[String(right.actionStatus ?? '')] ?? 99);
     if (actionDiff !== 0) return actionDiff;
     const leftOos = dayjs(left.estimatedOosDate ?? '9999-12-31').diff(dayjs(calculationDate), 'day');
@@ -459,7 +496,7 @@ export default function InventoryPlanningPage() {
       if (orderNowTierFilter.length > 0 && !orderNowTierFilter.includes(String(row.tier ?? ''))) return false;
       if (orderNowCompanyFilter.length > 0 && !orderNowCompanyFilter.includes(String(row.company ?? ''))) return false;
       if (search) {
-        const haystack = [row.asin, row.sku, row.title, row.company, row.supplierName, row.actionStatus, row.tier]
+        const haystack = [row.asin, row.sku, row.title, row.company, row.supplierName, row.supplierOrderRef, row.supplierOrderStatus, row.actionStatus, row.tier]
           .map(textValue)
           .join(' ');
         if (!haystack.includes(search)) return false;
@@ -497,6 +534,7 @@ export default function InventoryPlanningPage() {
   const startEditLine = (line: PlainRecord) => {
     setLineEditValues({
       id: String(line.id),
+      externalOrderRef: String(line.order?.externalOrderRef ?? ''),
       orderedQty: Number(line.orderedQty ?? 1),
       receivedQty: Number(line.receivedQty ?? 0),
       unitCost: line.unitCost === undefined || line.unitCost === null ? undefined : Number(line.unitCost),
@@ -623,6 +661,7 @@ export default function InventoryPlanningPage() {
       data: {
         supplierOrderLineId: lineEditValues.id,
         company: selectedRow.company,
+        externalOrderRef: lineEditValues.externalOrderRef.trim() || undefined,
         orderedQty: lineEditValues.orderedQty,
         receivedQty: lineEditValues.receivedQty,
         unitCost: lineEditValues.unitCost,
@@ -755,6 +794,7 @@ export default function InventoryPlanningPage() {
     },
     { title: t('Sellable'), dataIndex: 'sellableStock', width: 105, render: formatNumber },
     { title: t('Reserved'), dataIndex: 'reservedStock', width: 105, render: formatNumber },
+    { title: columnHelp(t('Replenishment'), t('Inbound + ordered + prep + AWD stock. Reserved is shown separately because it is not new replenishment.')), dataIndex: 'pipelineStock', width: 145, render: formatNumber },
     { title: t('Inbound'), dataIndex: 'inboundStock', width: 105, render: formatNumber },
     { title: t('Ordered'), dataIndex: 'orderedStock', width: 105, render: formatNumber },
     { title: t('Prep'), dataIndex: 'prepStock', width: 95, render: formatNumber },
@@ -867,6 +907,8 @@ export default function InventoryPlanningPage() {
                       { value: 'urgent_today', label: t('Overdue / today') },
                       { value: 'missing_supplier', label: t('Missing supplier') },
                       { value: 'lead_time_issues', label: t('Lead-time issues') },
+                      { value: 'no_order', label: t('Needs new supplier order') },
+                      { value: 'placed_not_purchased', label: t('Placed, not purchased') },
                     ]}
                   />
                 </Col>
@@ -929,11 +971,11 @@ export default function InventoryPlanningPage() {
                   { title: t('Tier'), dataIndex: 'tier', render: (value: string) => <Tag color={tierColor(value)}>{value}</Tag> },
                   { title: t('Company'), dataIndex: 'company' },
                   { title: t('ASIN'), dataIndex: 'asin' },
+                  { title: t('Order state'), key: 'supplierOrderState', render: (_value: any, row: PlainRecord) => supplierOrderStateLabel(row, t) },
                   { title: t('Supplier next action'), key: 'supplierAction', render: (_value: any, row: PlainRecord) => row.supplierName ? row.supplierName : <Tag color="red">{t('Find supplier from OrderDetails')}</Tag> },
                   { title: columnHelp(t('Lead time'), t('Uses product-specific supplier lead time first, then supplier/default planning data.')), dataIndex: 'leadTimeDays', render: (value: number, row: PlainRecord) => <Space size={4}><span>{formatNumber(value)} {t('days')}</span><Tag color={freshnessColor(row.leadTimeFreshness)}>{t(row.leadTimeFreshness ?? 'unknown')}</Tag></Space> },
                   { title: t('OOS in'), dataIndex: 'estimatedOosDate', render: (value: string) => <Tag color={relativeDateLabel(value, calculationDate).color}>{t(relativeDateLabel(value, calculationDate).label)}</Tag> },
-                  { title: columnHelp(t('Money at risk'), t('Estimated missed profit if the row remains uncovered.')), dataIndex: 'estimatedProfitRisk', render: (value: number) => <Typography.Text strong>{formatCurrency(value)}</Typography.Text> },
-                  { title: t('Next'), key: 'next', render: (_value: any, row: PlainRecord) => <Button size="small" onClick={(event) => { event.stopPropagation(); openRow(row); }}>{t('Review / edit')}</Button> },
+                  { title: columnHelp(t('Money at risk'), t('Potential profit loss if the row remains uncovered.')), dataIndex: 'estimatedProfitRisk', render: (value: number) => <Typography.Text strong style={{ background: '#fff0f6', color: '#c41d7f', padding: '1px 6px', borderRadius: 4 }}>{formatCurrency(value)}</Typography.Text> },
                 ]}
               />
             </Col>
@@ -951,7 +993,7 @@ export default function InventoryPlanningPage() {
                   { title: t('A'), dataIndex: 'tierA' },
                   { title: t('B'), dataIndex: 'tierB' },
                   { title: t('C'), dataIndex: 'tierC' },
-                  { title: t('Money at risk'), dataIndex: 'estimatedProfitRisk', render: formatCurrency },
+                  { title: t('Money at risk'), dataIndex: 'estimatedProfitRisk', render: (value: number) => <Typography.Text strong style={{ background: '#fff0f6', color: '#c41d7f', padding: '1px 6px', borderRadius: 4 }}>{formatCurrency(value)}</Typography.Text> },
                 ]}
               />
             </Col>
@@ -970,7 +1012,7 @@ export default function InventoryPlanningPage() {
                   { title: t('Supplier'), key: 'supplier', render: (_value: any, row: PlainRecord) => row.supplierName ?? <Tag color="red">{t('Find supplier')}</Tag> },
                   { title: columnHelp(t('Lead'), t('Uses product-specific supplier lead time first, then supplier/default planning data.')), dataIndex: 'leadTimeDays', render: (value: number, row: PlainRecord) => <Space size={4}><span>{formatNumber(value)} {t('days')}</span><Tag color={freshnessColor(row.leadTimeFreshness)}>{t(row.leadTimeFreshness ?? 'unknown')}</Tag></Space> },
                   { title: t('OOS in'), dataIndex: 'estimatedOosDate', render: (value: string) => <Tag color={relativeDateLabel(value, calculationDate).color}>{t(relativeDateLabel(value, calculationDate).label)}</Tag> },
-                  { title: columnHelp(t('Money at risk'), t('Estimated missed profit if the row remains uncovered.')), dataIndex: 'estimatedProfitRisk', render: (value: number) => <span>{formatCurrency(value)}</span> },
+                  { title: columnHelp(t('Money at risk'), t('Potential profit loss if the row remains uncovered.')), dataIndex: 'estimatedProfitRisk', render: (value: number) => <Typography.Text strong style={{ background: '#fff0f6', color: '#c41d7f', padding: '1px 6px', borderRadius: 4 }}>{formatCurrency(value)}</Typography.Text> },
                   { title: t('Next'), key: 'next', render: (_value: any, row: PlainRecord) => <Button size="small" onClick={(event) => { event.stopPropagation(); openRow(row); }}>{t('Review / edit')}</Button> },
                 ]}
               />
@@ -1001,10 +1043,10 @@ export default function InventoryPlanningPage() {
       >
         {selectedRow ? (
           <Space direction="vertical" size="large" style={{ width: '100%' }}>
-            <Alert type="info" showIcon message={t('Recommended next step')} description={t(nextStepFor(selectedRow))} />
             <Descriptions bordered column={1} size="small">
               <Descriptions.Item label={t('Action')}><Tag color={actionColor(selectedRow.actionStatus)}>{t(selectedRow.actionStatus ?? 'unknown')}</Tag></Descriptions.Item>
-              <Descriptions.Item label={t('Tier')}><Tag color={tierColor(selectedRow.tier)}>{selectedRow.tier}</Tag> {t('Score')} {formatNumber(selectedRow.tierScore)}</Descriptions.Item>
+              <Descriptions.Item label={columnHelp(t('Product status'), t(productStatusText()))}><Tag>{selectedRow.productStatus ?? '—'}</Tag></Descriptions.Item>
+              <Descriptions.Item label={columnHelp(t('Tier'), t(tierScoreText()))}><Tag color={tierColor(selectedRow.tier)}>{selectedRow.tier}</Tag> {t('Score')} {formatNumber(selectedRow.tierScore)}</Descriptions.Item>
               <Descriptions.Item label={t('Company')}>{selectedRow.company ?? '—'}</Descriptions.Item>
               <Descriptions.Item label={t('ASIN / SKU')}>{selectedRow.asin ?? '—'} / {selectedRow.sku ?? '—'}</Descriptions.Item>
               <Descriptions.Item label={t('Supplier')}>{selectedRow.supplierName ?? '—'} · {selectedRow.supplierSource ?? '—'} · {selectedRow.supplierConfidence ?? '—'}</Descriptions.Item>
@@ -1015,12 +1057,19 @@ export default function InventoryPlanningPage() {
               <Descriptions.Item label={t('OOS date')}>{relativeDateLabel(selectedRow.estimatedOosDate, calculationDate).label} ({formatDate(selectedRow.estimatedOosDate)})</Descriptions.Item>
               <Descriptions.Item label={columnHelp(t('Suggested quantity'), t('Formula: velocity × target days − stock − reliable open-order coverage.'))}>{formatNumber(selectedRow.suggestedReorderQty)}</Descriptions.Item>
               <Descriptions.Item label={columnHelp(t('Money at risk'), t(monetaryRiskText(selectedRow)))}>
-                <Typography.Text strong>{formatCurrency(selectedRow.estimatedProfitRisk)}</Typography.Text>
+                <Typography.Text strong style={{ background: '#fff0f6', color: '#c41d7f', padding: '2px 8px', borderRadius: 4 }}>{formatCurrency(selectedRow.estimatedProfitRisk)}</Typography.Text>
+              </Descriptions.Item>
+              <Descriptions.Item label={t('Month to date')}>
+                <Space size={4} wrap>
+                  <Tag color="blue">{t('Revenue')} {formatCurrency(selectedRow.monthToDateRevenue)}</Tag>
+                  <Tag color="cyan">{t('Units sold')} {formatNumber(selectedRow.monthToDateUnitsSold)}</Tag>
+                  <Tag color="green">{t('Profit')} {formatCurrency(selectedRow.monthToDateProfit)}</Tag>
+                </Space>
               </Descriptions.Item>
               <Descriptions.Item label={t('Stock buckets')}>
                 <StockStatus row={selectedRow} t={t} />
               </Descriptions.Item>
-              <Descriptions.Item label={t('Order coverage')}>{formatNumber(selectedRow.openOrderCoverageQty)}</Descriptions.Item>
+              <Descriptions.Item label={columnHelp(t('Order coverage'), t(orderCoverageText()))}>{formatNumber(selectedRow.openOrderCoverageQty)}</Descriptions.Item>
             </Descriptions>
             {actionValues ? (
               <>
@@ -1034,12 +1083,6 @@ export default function InventoryPlanningPage() {
                       label: t('Order lines and product order history'),
                       children: (
                         <Space direction="vertical" style={{ width: '100%' }}>
-                          <Alert
-                            type="info"
-                            showIcon
-                            message={t('Use this history to avoid duplicate orders')}
-                            description={t('New draft orders for this product appear at the top after creation. Existing lines are matched by planning product, ASIN, or SKU.')}
-                          />
                           <Table<PlainRecord>
                             size="small"
                             rowKey={(line) => line.id}
@@ -1090,6 +1133,11 @@ export default function InventoryPlanningPage() {
                       label: lineEditValues ? t('Edit selected order line') : t('Edit order line'),
                       children: lineEditValues ? (
                         <Row gutter={[12, 12]}>
+                          <Col xs={24} md={8}>
+                            <Typography.Text strong>{t('Supplier order ID')}</Typography.Text>
+                            <Input value={lineEditValues.externalOrderRef} onChange={(event) => setLineEditValue('externalOrderRef', event.target.value)} />
+                            <Typography.Text type="secondary">{t('Supplier-facing order number. Must be unique per company.')}</Typography.Text>
+                          </Col>
                           <Col xs={24} md={8}>
                             <Typography.Text strong>{t('Ordered quantity')}</Typography.Text>
                             <InputNumber min={1} value={lineEditValues.orderedQty} onChange={(value) => setLineEditValue('orderedQty', Number(value ?? 1))} style={{ width: '100%' }} />

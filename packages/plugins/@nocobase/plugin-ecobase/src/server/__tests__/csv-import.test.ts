@@ -140,9 +140,9 @@ const orderDetailsWithSupplierCodeOnlyCsv = `Order ID,Timestamp,Company,SR ID,Su
 OD-CODE,17/06/2023 18:15:23,Ecofission LLC,SRO-ESS,,Essence,B00ESSENCE,ESS-1,50,2.50,Restock,,100
 OD-UNKNOWN,18/06/2023 18:15:23,Ecofission LLC,SRO-MISSING,,Unknown,B00UNKNOWN,UNK-1,10,1.00,Restock,,20`;
 
-const orderDetailsDetailedCsv = `Order ID,Timestamp,Company,SR ID,Supplier,Brand ,ASIN,SKU,Qty,PPU,Order type,Lead time(day),T.Profit
-OD-OLD,17/06/2023 18:15:23,Ecofission LLC,SRO-A,Alpha Supply,Brand Legacy,B0057XUD02,V-651-A,50,0.95,New,10,190
-OD-NEW,10/07/2023 08:00:00,Ecofission LLC,SRO-B,Beta Supply,Brand Fresh,B0057XUD02,V-651-A,60,1.25,New,12,240`;
+const orderDetailsDetailedCsv = `Order ID,Timestamp,Company,SR ID,Supplier,Brand ,ASIN,SKU,Qty,PPU,Order type,Lead time(day),T.Profit,PO Status,AM Status
+OD-OLD,17/06/2023 18:15:23,Ecofission LLC,SRO-A,Alpha Supply,Brand Legacy,B0057XUD02,V-651-A,50,0.95,New,10,190,,Cleared
+OD-NEW,10/07/2023 08:00:00,Ecofission LLC,SRO-B,Beta Supply,Brand Fresh,B0057XUD02,V-651-A,60,1.25,New,12,240,Added to PO,Cleared`;
 
 const preOrderSheetDetailedCsv = `Order ID,Timestamp,Company,SR ID,Supplier,Brand,ASIN,SKU,Qty,Expected Sellable Date
 PO-200,15/07/2025 09:15:00,Ecofission LLC,SRO-B,Beta Supply,Brand Fresh,B0057XUD02,V-651-A,120,2025-07-22`;
@@ -150,8 +150,8 @@ PO-200,15/07/2025 09:15:00,Ecofission LLC,SRO-B,Beta Supply,Brand Fresh,B0057XUD
 const preOrderSheetWithoutSellableCsv = `Order ID,Timestamp,Company,SR ID,Supplier,Brand,ASIN,SKU,Qty,Expected Sellable Date
 PO-200,15/07/2025 09:15:00,Ecofission LLC,SRO-B,Beta Supply,Brand Fresh,B0057XUD02,V-651-A,120,`;
 
-const purchaseOrdersDetailedCsv = `Timestamp,Order ID,SR ID ,Supplier,Company,Payment Status,Approval Status,Expected Delivery
-16/07/2025 07:30:00,PO-200,SRO-B,Beta Supply,Ecofission LLC,Paid,Approved,2025-07-24`;
+const purchaseOrdersDetailedCsv = `Timestamp,Order ID,SR ID ,Supplier,Company,Order Status,Payment Status,Approval Status,Expected Delivery
+16/07/2025 07:30:00,PO-200,SRO-B,Beta Supply,Ecofission LLC,Completed,Completed,Approved,2025-07-24`;
 
 const remainingShapeSamples = [
   {
@@ -696,12 +696,24 @@ describe('Ecobase current Amazon operations CSV import', () => {
       sourceStage: 'purchase_order',
       company: 'Ecofission LLC',
     });
+    const orderDetailOrders = db
+      .getRepository(ECOBASE_COLLECTIONS.supplierOrders)
+      .all()
+      .filter((record) => record.sourceStage === 'order_detail');
+    expect(orderDetailOrders).toHaveLength(2);
+    expect(orderDetailOrders.find((record) => record.externalOrderRef === 'OD-OLD')).toMatchObject({
+      status: 'approval_pending',
+    });
+    expect(orderDetailOrders.find((record) => record.externalOrderRef === 'OD-NEW')).toMatchObject({
+      status: 'approval_pending',
+    });
     expect(
       db
-        .getRepository(ECOBASE_COLLECTIONS.supplierOrders)
+        .getRepository(ECOBASE_COLLECTIONS.supplierOrderLines)
         .all()
-        .filter((record) => record.sourceStage === 'order_detail'),
-    ).toHaveLength(2);
+        .filter((record) => ['OD-OLD', 'OD-NEW'].some((orderId) => String(record.sourceOrderLineRef).startsWith(orderId)))
+        .every((record) => record.receivedQty === 0),
+    ).toBe(true);
 
     const productLinks = db
       .getRepository(ECOBASE_COLLECTIONS.supplierProductLinks)
@@ -870,6 +882,29 @@ describe('Ecobase current Amazon operations CSV import', () => {
     expect(unknownSupplier).toBeUndefined();
     expect(db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).all()).toHaveLength(1);
     expect(db.getRepository(ECOBASE_COLLECTIONS.supplierLeadTimes).all()).toHaveLength(0);
+  });
+
+  it('lets operators correct the supplier-facing order number from an order-line edit', async () => {
+    const { db, purchaseOrder } = await seedSupplierOrderSlice();
+    const orderRepo = db.getRepository(ECOBASE_COLLECTIONS.supplierOrders);
+    const lineRepo = db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines);
+    const purchaseOrderLine = lineRepo.all().find((record) => record.supplierOrderId === purchaseOrder.id);
+    if (!purchaseOrderLine?.id) {
+      throw new Error('Expected line linked to purchase order PO-200.');
+    }
+
+    await new EcobaseSupplierOrderService(db).updateLineOperatorFields({
+      supplierOrderLineId: String(purchaseOrderLine.id),
+      company: 'Ecofission LLC',
+      externalOrderRef: 'PO-200-CORRECTED',
+      actor: 'operator-1',
+    });
+
+    expect(orderRepo.all().find((record) => record.id === purchaseOrder.id)).toMatchObject({
+      externalOrderRef: 'PO-200-CORRECTED',
+      naturalKey: 'supplier-order:Ecofission LLC:PO-200-CORRECTED',
+      lastOperatorActor: 'operator-1',
+    });
   });
 
   it('preserves operator-owned supplier-order fields across re-imports and keeps blocked open quantity semantics', async () => {

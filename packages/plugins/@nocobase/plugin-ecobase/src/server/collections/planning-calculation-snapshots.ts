@@ -54,7 +54,7 @@ export default defineCollection({
     { name: 'tierScore', type: 'double', interface: 'number', uiSchema: { title: 'Tier Score' } },
     { name: 'currentStockParity', type: 'double', interface: 'number', uiSchema: { title: 'Current Stock Parity' } },
     { name: 'sellableStock', type: 'double', interface: 'number', uiSchema: { title: 'Sellable Stock' } },
-    { name: 'pipelineStock', type: 'double', interface: 'number', uiSchema: { title: 'Pipeline Stock' } },
+    { name: 'pipelineStock', type: 'double', interface: 'number', uiSchema: { title: 'Replenishment Stock' } },
     { name: 'salesVelocity', type: 'double', interface: 'number', uiSchema: { title: 'Sales Velocity' } },
     { name: 'daysOfCover', type: 'double', interface: 'number', uiSchema: { title: 'Days Of Cover' } },
     { name: 'oosDate', type: 'string', interface: 'input', uiSchema: { title: 'OOS date' } },

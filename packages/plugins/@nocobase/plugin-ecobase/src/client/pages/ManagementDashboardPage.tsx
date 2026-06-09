@@ -132,7 +132,7 @@ export default function ManagementDashboardPage() {
               { title: t('Company'), dataIndex: 'key', key: 'key' },
               { title: t('Products'), dataIndex: 'productCount', key: 'productCount' },
               { title: t('Sellable stock'), dataIndex: 'sellableStock', key: 'sellableStock' },
-              { title: t('Pipeline stock'), dataIndex: 'pipelineStock', key: 'pipelineStock' },
+              { title: t('Replenishment stock'), dataIndex: 'pipelineStock', key: 'pipelineStock' },
               { title: t('Profit gap'), dataIndex: 'profitGap', key: 'profitGap' },
             ]}
           />

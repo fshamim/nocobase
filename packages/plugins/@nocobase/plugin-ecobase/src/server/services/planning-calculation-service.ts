@@ -253,8 +253,8 @@ export class EcobasePlanningCalculationService {
         total + (asNumber(record.prepStock) ?? payloadNumber(record, ['Prep Stock', 'Prep Center Stock']) ?? 0),
       0,
     );
-    const pipelineStock = reservedStock + inboundStock + orderedStock + prepStock;
-    const currentStockParity = sellableStock + pipelineStock;
+    const pipelineStock = inboundStock + orderedStock + prepStock;
+    const currentStockParity = sellableStock + reservedStock + pipelineStock;
     const sourceEstimatedVelocity =
       sumFirstNumbers(latestInventoryRows, [
         'salesVelocity',
