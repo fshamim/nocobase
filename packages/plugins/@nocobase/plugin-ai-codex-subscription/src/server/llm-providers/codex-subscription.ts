@@ -1,5 +1,6 @@
 import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { AIMessage } from '@langchain/core/messages';
+import { convertToOpenAITool } from '@langchain/core/utils/function_calling';
 import { extractChatGptAccountId, refreshCodexAccessToken } from '../auth/codex-oauth';
 import { loadCodexCredentials, saveCodexCredentials } from '../auth/store';
 import type { AppLike, StoredCodexCredentials } from '../auth/store';
@@ -42,6 +43,18 @@ type CodexSubscriptionModelOptions = {
 type ChatMessage = {
   role: string;
   content: string;
+};
+
+type CodexToolCall = {
+  id: string;
+  name: string;
+  args: Record<string, unknown>;
+  type: 'tool_call';
+};
+
+type CodexCompletion = {
+  content: string;
+  toolCalls?: CodexToolCall[];
 };
 
 type CodexSubscriptionChatModelOptions = {
@@ -102,13 +115,14 @@ export class CodexSubscriptionChatModel extends BaseChatModel {
   }
 
   async _generate(messages: any[]) {
-    const content = await this.complete(messages);
+    const completion = await this.complete(messages);
     return {
       generations: [
         {
-          text: content,
+          text: completion.content,
           message: new AIMessage({
-            content,
+            content: completion.content,
+            tool_calls: completion.toolCalls,
             response_metadata: {
               provider: 'codex-subscription',
               model: this.options.modelOptions.model ?? DEFAULT_MODEL,
@@ -132,10 +146,10 @@ export class CodexSubscriptionChatModel extends BaseChatModel {
     });
   }
 
-  private async complete(messages: unknown[] | unknown) {
+  private async complete(messages: unknown[] | unknown): Promise<CodexCompletion> {
     const { serviceOptions, modelOptions } = this.options;
     if (serviceOptions.mockMode) {
-      return serviceOptions.mockResponse ?? 'Mock Codex subscription response.';
+      return { content: serviceOptions.mockResponse ?? 'Mock Codex subscription response.' };
     }
 
     const credentials = await this.getConnectedCredentials();
@@ -145,6 +159,7 @@ export class CodexSubscriptionChatModel extends BaseChatModel {
     const request = buildRequestBody({
       model: modelOptions.model ?? DEFAULT_MODEL,
       messages: toChatMessages(messages),
+      tools: this.options.tools ?? [],
       systemPrompt: this.options.systemPrompt,
       responseFormat: modelOptions.responseFormat,
     });
@@ -175,7 +190,7 @@ export class CodexSubscriptionChatModel extends BaseChatModel {
       }
       const isSse = isCodexSseBody(body);
       try {
-        return isSse ? extractContentFromSse(body) : extractContent(json);
+        return isSse ? extractCompletionFromSse(body) : extractCompletion(json);
       } catch (error) {
         const detail = isSse ? summarizeCodexSse(body) : summarizeCodexJson(json);
         throw new Error(`${(error as Error).message} ${detail}`.trim());
@@ -429,6 +444,7 @@ function extractMessageContent(content: unknown): string {
 function buildRequestBody(input: {
   model: string;
   messages: ChatMessage[];
+  tools: unknown[];
   systemPrompt?: string;
   responseFormat?: string;
 }): CodexResponsesRequest {
@@ -439,6 +455,7 @@ function buildRequestBody(input: {
     .filter((value): value is string => typeof value === 'string' && value.length > 0)
     .join('\n\n');
 
+  const tools = toCodexTools(input.tools);
   return {
     model: input.model,
     store: false,
@@ -452,11 +469,11 @@ function buildRequestBody(input: {
         content: [
           {
             type: message.role === 'assistant' ? 'output_text' : 'input_text',
-            text: message.content,
+            text: message.role === 'tool' ? `Tool result:\n${message.content}` : message.content,
           },
         ],
       })),
-    tools: [],
+    tools,
     tool_choice: 'auto',
     parallel_tool_calls: true,
     include: ['reasoning.encrypted_content'],
@@ -464,14 +481,37 @@ function buildRequestBody(input: {
   };
 }
 
+function toCodexTools(tools: unknown[]): unknown[] {
+  return tools
+    .map((tool) => {
+      const converted = convertToOpenAITool(tool as never) as Record<string, unknown>;
+      const fn = converted.function as Record<string, unknown> | undefined;
+      if (converted.type === 'function' && fn) {
+        return {
+          type: 'function',
+          name: fn.name,
+          description: fn.description,
+          parameters: fn.parameters ?? {},
+          strict: false,
+        };
+      }
+      return converted;
+    })
+    .filter((tool) => {
+      const record = tool as Record<string, unknown>;
+      return record.type === 'function' && typeof record.name === 'string' && record.name.length > 0;
+    });
+}
+
 function isCodexSseBody(body: string) {
   return body.split('\n').some((line) => line.trimStart().startsWith('data:'));
 }
 
-function extractContentFromSse(body: string) {
+function extractCompletionFromSse(body: string): CodexCompletion {
   let outputText = '';
   let completedResponse: Record<string, unknown> | undefined;
   const completedItems: Record<string, unknown>[] = [];
+  const toolCalls: CodexToolCall[] = [];
 
   for (const event of parseCodexSseEvents(body)) {
     const type = typeof event.type === 'string' ? event.type : '';
@@ -485,7 +525,12 @@ function extractContentFromSse(body: string) {
       outputText = event.text;
     }
     if (type === 'response.output_item.done' && typeof event.item === 'object' && event.item !== null) {
-      completedItems.push(event.item as Record<string, unknown>);
+      const item = event.item as Record<string, unknown>;
+      completedItems.push(item);
+      const toolCall = toCodexToolCall(item);
+      if (toolCall) {
+        toolCalls.push(toolCall);
+      }
     }
     if (type === 'response.completed' && typeof event.response === 'object' && event.response !== null) {
       completedResponse = event.response as Record<string, unknown>;
@@ -500,14 +545,17 @@ function extractContentFromSse(body: string) {
     }
   }
 
+  if (toolCalls.length > 0) {
+    return { content: outputText, toolCalls };
+  }
   if (outputText.trim().length > 0) {
-    return outputText;
+    return { content: outputText };
   }
   if (completedItems.length > 0) {
-    return extractContent({ output: completedItems });
+    return extractCompletion({ output: completedItems });
   }
   if (completedResponse) {
-    return extractContent(completedResponse);
+    return extractCompletion(completedResponse);
   }
   throw new Error('Codex subscription stream did not include message content.');
 }
@@ -546,13 +594,20 @@ function summarizeCodexJson(json: Record<string, unknown>) {
   return `Codex response summary: jsonKeys=${Object.keys(json).join(',') || 'none'}.`;
 }
 
-function extractContent(json: Record<string, unknown>) {
+function extractCompletion(json: Record<string, unknown>): CodexCompletion {
   if (typeof json.output_text === 'string' && json.output_text.trim().length > 0) {
-    return json.output_text;
+    return { content: json.output_text };
   }
 
   const output = json.output;
   if (Array.isArray(output)) {
+    const toolCalls = output
+      .map((item) => (typeof item === 'object' && item !== null ? toCodexToolCall(item as Record<string, unknown>) : null))
+      .filter((toolCall): toolCall is CodexToolCall => Boolean(toolCall));
+    if (toolCalls.length > 0) {
+      return { content: '', toolCalls };
+    }
+
     const text = output
       .flatMap((item) => {
         const content =
@@ -576,7 +631,7 @@ function extractContent(json: Record<string, unknown>) {
       .filter((value) => value.length > 0)
       .join('\n');
     if (text) {
-      return text;
+      return { content: text };
     }
   }
 
@@ -584,12 +639,26 @@ function extractContent(json: Record<string, unknown>) {
     | Record<string, unknown>
     | undefined;
   if (typeof choiceMessage?.content === 'string') {
-    return choiceMessage.content;
+    return { content: choiceMessage.content };
   }
   if (typeof json.content === 'string') {
-    return json.content;
+    return { content: json.content };
   }
   throw new Error('Codex subscription response did not include message content.');
+}
+
+function toCodexToolCall(item: Record<string, unknown>): CodexToolCall | null {
+  if (item.type !== 'function_call' || typeof item.name !== 'string') {
+    return null;
+  }
+  const rawArguments = typeof item.arguments === 'string' && item.arguments.length > 0 ? item.arguments : '{}';
+  const parsedArguments = parseJsonSafely(rawArguments);
+  return {
+    id: typeof item.call_id === 'string' ? item.call_id : typeof item.id === 'string' ? item.id : item.name,
+    name: item.name,
+    args: parsedArguments,
+    type: 'tool_call',
+  };
 }
 
 function parseJsonSafely(body: string): Record<string, unknown> {

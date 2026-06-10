@@ -10,6 +10,22 @@ import { extractChatGptAccountId } from '../auth/codex-oauth';
 
 const { createAgent } = require('langchain') as typeof import('langchain');
 
+if (typeof AbortSignal.any !== 'function') {
+  Object.defineProperty(AbortSignal, 'any', {
+    value(signals: AbortSignal[]) {
+      const controller = new AbortController();
+      for (const signal of signals) {
+        if (signal.aborted) {
+          controller.abort(signal.reason);
+          break;
+        }
+        signal.addEventListener('abort', () => controller.abort(signal.reason), { once: true });
+      }
+      return controller.signal;
+    },
+  });
+}
+
 type RepositoryRecord = Record<string, unknown> & {
   get?: (key?: string) => unknown;
   update?: (values: Record<string, unknown>) => Promise<void>;
@@ -195,6 +211,85 @@ describe('Codex subscription provider', () => {
       include: ['reasoning.encrypted_content'],
       tool_choice: 'auto',
       parallel_tool_calls: true,
+    });
+  });
+
+  it('does not refresh unnecessarily when NocoBase returns Date objects for credential expiry', async () => {
+    const { app, connections } = createApp();
+    await saveCodexCredentials(app as any, {
+      llmServiceName: 'service-alpha',
+      accountId: 'acct_live_12345678',
+      accessToken: createJwt('acct_live_12345678'),
+      refreshToken: 'refresh-live',
+      expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+    });
+    connections[0].expiresAt = new Date(Date.now() + 10 * 60_000);
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      expect(String(input)).toBe('https://chatgpt.com/backend-api/codex/responses');
+      return new Response(JSON.stringify({ output_text: 'date expiry answer' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const llm = provider(app, { llmServiceName: 'service-alpha' });
+    await expect(llm.chatModel.invoke([{ role: 'user', content: 'hello date' }])).resolves.toMatchObject({
+      content: 'date expiry answer',
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns Codex function calls as LangChain tool calls', async () => {
+    const { app } = createApp();
+    await saveCodexCredentials(app as any, {
+      llmServiceName: 'service-alpha',
+      accountId: 'acct_live_12345678',
+      accessToken: createJwt('acct_live_12345678'),
+      refreshToken: 'refresh-live',
+      expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+    });
+
+    const inventoryTool = tool(async () => 'critical inventory facts', {
+      name: 'ecobase_inventory_digest',
+      description: 'Return inventory risk facts',
+      schema: z.object({ companyName: z.string() }),
+    });
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      expect(body.tools).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ type: 'function', name: 'ecobase_inventory_digest' }),
+        ]),
+      );
+      const event = {
+        type: 'response.output_item.done',
+        item: {
+          type: 'function_call',
+          id: 'fc_1',
+          call_id: 'call_inventory_1',
+          name: 'ecobase_inventory_digest',
+          arguments: JSON.stringify({ companyName: 'Ecofission LLC' }),
+        },
+      };
+      return new Response(`event: response.output_item.done\ndata: ${JSON.stringify(event)}\n\ndata: [DONE]\n`, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const llm = provider(app, { llmServiceName: 'service-alpha' }).createModel().bindTools([inventoryTool]);
+    await expect(llm.invoke([{ role: 'user', content: 'inventory risks today' }])).resolves.toMatchObject({
+      tool_calls: [
+        {
+          id: 'call_inventory_1',
+          name: 'ecobase_inventory_digest',
+          args: { companyName: 'Ecofission LLC' },
+        },
+      ],
     });
   });
 

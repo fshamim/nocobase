@@ -76,6 +76,15 @@ type InterruptAction = {
   };
 };
 
+type SkillSettingEntry = string | { name?: string; autoCall?: boolean };
+
+function getSkillSettingName(skill: SkillSettingEntry): string | undefined {
+  return typeof skill === 'string' ? skill : skill?.name;
+}
+
+function getSkillAutoCall(skill: SkillSettingEntry): boolean | undefined {
+  return typeof skill === 'string' ? undefined : skill?.autoCall;
+}
 export class AIEmployee {
   sessionId: string;
   from = 'main-agent';
@@ -550,7 +559,12 @@ export class AIEmployee {
           const [chunk, metadata] = chunks;
           const { currentConversation } = metadata;
           if (chunk.type === 'ai') {
-            gathered = gathered !== undefined ? concat(gathered, chunk) : chunk;
+            try {
+              gathered = gathered !== undefined ? concat(gathered, chunk) : chunk;
+            } catch (error) {
+              this.logger.warn('Failed to concatenate AI message chunks; keeping latest chunk', error);
+              gathered = chunk;
+            }
             if (chunk.content) {
               if (isReasoning) {
                 isReasoning = false;
@@ -1289,9 +1303,14 @@ If information is missing, clearly state it in the summary.</Important>`;
     if (tools.scope !== 'CUSTOM') {
       return isAutoCall;
     }
-    const employeeTools = this.employee.skillSettings?.tools ?? [];
-    const presetTools = employeeTools.find((s) => s.name === tools.definition.name);
-    return presetTools ? presetTools.autoCall : isAutoCall;
+    const employeeTools: SkillSettingEntry[] = this.employee.skillSettings?.tools ?? [];
+    const presetTool = employeeTools.find((s) => getSkillSettingName(s) === tools.definition.name);
+    if (presetTool) {
+      return getSkillAutoCall(presetTool) === true;
+    }
+    const legacySkills: SkillSettingEntry[] = this.employee.skillSettings?.skills ?? [];
+    const legacyPresetTool = legacySkills.find((s) => getSkillSettingName(s) === tools.definition.name);
+    return legacyPresetTool ? getSkillAutoCall(legacyPresetTool) === true : isAutoCall;
   }
 
   private async formatMessages({ messages, provider }: { messages: AIMessageInput[]; provider: LLMProvider }) {
@@ -1450,7 +1469,7 @@ If information is missing, clearly state it in the summary.</Important>`;
     }
     const generalToolsNameSet = new Set(tools.map((x) => x.definition.name));
     const toolMap = await this.getToolsMap();
-    const settingsTools = this.employee.skillSettings?.tools ?? [];
+    const settingsTools: SkillSettingEntry[] = this.employee.skillSettings?.tools ?? [];
     const employeeTools = [...settingsTools, ...this.tools];
     if (await this.plugin.knowledgeBaseManager.isEnabledKnowledgeBase(this.employee.toJSON() as AIEmployeeType)) {
       const knowledgeBaseRetrieveTool = await this.toolsManager.getTools(SYSTEM_TOOLS.KNOWLEDGE_BASE);
@@ -1459,10 +1478,11 @@ If information is missing, clearly state it in the summary.</Important>`;
       }
     }
     for (const toolSetting of employeeTools) {
-      if (generalToolsNameSet.has(toolSetting.name)) {
+      const toolName = getSkillSettingName(toolSetting);
+      if (!toolName || generalToolsNameSet.has(toolName)) {
         continue;
       }
-      const tool = toolMap.get(toolSetting.name);
+      const tool = toolMap.get(toolName);
       if (!tool) {
         continue;
       }
@@ -1472,7 +1492,7 @@ If information is missing, clearly state it in the summary.</Important>`;
     if (!this.skillSettings) {
       return tools;
     } else if (!this.skillSettings.toolsVersion) {
-      const toolFilter = this.skillSettings.tools ?? [];
+      const toolFilter = (this.skillSettings.tools ?? []).map(getSkillSettingName).filter(Boolean);
       return tools.filter(
         (t) =>
           toolFilter.length === 0 || systemTools.includes(t.definition.name) || toolFilter.includes(t.definition.name),
@@ -1480,7 +1500,10 @@ If information is missing, clearly state it in the summary.</Important>`;
     } else {
       const toolFilter = this.skillSettings.tools;
       if (_.isArray(toolFilter)) {
-        return tools.filter((t) => systemTools.includes(t.definition.name) || toolFilter.includes(t.definition.name));
+        const toolFilterNames = toolFilter.map(getSkillSettingName).filter(Boolean);
+        return tools.filter(
+          (t) => systemTools.includes(t.definition.name) || toolFilterNames.includes(t.definition.name),
+        );
       } else {
         return tools;
       }
@@ -1498,19 +1521,20 @@ If information is missing, clearly state it in the summary.</Important>`;
       return [];
     }
     const generalSkills = await skillsManager.listSkills({ scope: 'GENERAL' });
-    const specifiedSkillNames = this.employee.skillSettings?.skills ?? [];
+    const specifiedSkillNames = (this.employee.skillSettings?.skills ?? []).map(getSkillSettingName).filter(Boolean);
     const specifiedSkills = specifiedSkillNames.length ? await skillsManager.getSkills(specifiedSkillNames) : [];
     const mergedSkills = _.uniqBy([...(specifiedSkills || []), ...(generalSkills || [])], 'name');
 
     if (!this.skillSettings) {
       return mergedSkills;
     } else if (!this.skillSettings.skillsVersion) {
-      const skillFilter = this.skillSettings.skills ?? [];
+      const skillFilter = (this.skillSettings.skills ?? []).map(getSkillSettingName).filter(Boolean);
       return mergedSkills.filter((it) => skillFilter.length === 0 || skillFilter.includes(it.name));
     } else {
       const skillFilter = this.skillSettings.skills;
       if (_.isArray(skillFilter)) {
-        return mergedSkills.filter((it) => skillFilter.includes(it.name));
+        const skillFilterNames = skillFilter.map(getSkillSettingName).filter(Boolean);
+        return mergedSkills.filter((it) => skillFilterNames.includes(it.name));
       } else {
         return mergedSkills;
       }

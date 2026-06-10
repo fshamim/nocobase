@@ -2,8 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   CODEX_DEVICE_VERIFICATION_URI,
   extractChatGptAccountId,
+  fetchCodexUsage,
   maskAccountId,
   pollCodexDeviceAuthorization,
+  refreshCodexAccessToken,
   startCodexDeviceAuthorization,
 } from '../auth/codex-oauth';
 
@@ -75,6 +77,27 @@ describe('Codex OAuth helpers', () => {
     ).resolves.toEqual({ status: 'pending' });
   });
 
+  it('keeps the device-code session pending when polling hits OpenAI rate limits', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        return new Response('<!DOCTYPE html><html><title>Just a moment...</title></html>', {
+          status: 429,
+          headers: { 'retry-after': '90' },
+        });
+      }),
+    );
+
+    await expect(
+      pollCodexDeviceAuthorization({ deviceAuthId: 'device-session-1', userCode: 'ABCD-1234' }),
+    ).resolves.toMatchObject({
+      status: 'pending',
+      retryAfterSeconds: 90,
+      errorMessage:
+        'Codex device-code poll was rate-limited or challenged by OpenAI (HTTP 429). Wait a few minutes before requesting another code; if a code is already visible, complete that code instead.',
+    });
+  });
+
   it('exchanges completed device-code authorization for OAuth credentials', async () => {
     const accessToken = createJwt('acct_test_12345678');
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -117,6 +140,57 @@ describe('Codex OAuth helpers', () => {
         access: accessToken,
         refresh: 'refresh-token-1',
       },
+    });
+  });
+
+  it('keeps the existing refresh token when OpenAI refresh omits a rotated token', async () => {
+    const accessToken = createJwt('acct_test_12345678');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        expect(String(init?.body)).toContain('grant_type=refresh_token');
+        return new Response(JSON.stringify({ access_token: accessToken, expires_in: 3600 }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }),
+    );
+
+    await expect(refreshCodexAccessToken('refresh-existing')).resolves.toMatchObject({
+      access: accessToken,
+      refresh: 'refresh-existing',
+      accountId: 'acct_test_12345678',
+    });
+  });
+
+  it('fetches Codex usage percentages from the ChatGPT usage endpoint', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe('https://chatgpt.com/backend-api/wham/usage');
+      expect(init?.headers).toMatchObject({
+        Authorization: 'Bearer access-live',
+        'ChatGPT-Account-Id': 'acct_test_12345678',
+      });
+      return new Response(
+        JSON.stringify({
+          plan_type: 'plus',
+          rate_limit: {
+            primary_window: { used_percent: 39, reset_at: 1_800_000_000, limit_window_seconds: 18_000 },
+            secondary_window: { used_percent: 15, reset_at: 1_800_604_800, limit_window_seconds: 604_800 },
+          },
+          credits: { has_credits: true, unlimited: false, balance: '5.50' },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(fetchCodexUsage({ accessToken: 'access-live', accountId: 'acct_test_12345678' })).resolves.toMatchObject({
+      planType: 'plus',
+      rateLimit: {
+        primaryWindow: { usedPercent: 39, remainingPercent: 61, limitWindowSeconds: 18_000 },
+        secondaryWindow: { usedPercent: 15, remainingPercent: 85, limitWindowSeconds: 604_800 },
+      },
+      credits: { hasCredits: true, unlimited: false, balance: '5.50' },
     });
   });
 

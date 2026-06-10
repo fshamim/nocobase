@@ -3,8 +3,11 @@ import { Plugin } from '@nocobase/server';
 import { codexSubscriptionProviderOptions } from './llm-providers/codex-subscription';
 import {
   CODEX_DEVICE_REDIRECT_URI,
+  CodexUsageAuthError,
+  fetchCodexUsage,
   maskAccountId,
   pollCodexDeviceAuthorization,
+  refreshCodexAccessToken,
   startCodexDeviceAuthorization,
 } from './auth/codex-oauth';
 import {
@@ -13,10 +16,13 @@ import {
   deleteCodexCredentials,
   getCodexConnectionStatus,
   loadCodexAuthSessionById,
+  loadCodexCredentials,
   loadLatestCodexAuthSessionByService,
+  recordCodexCredentialError,
   saveCodexCredentials,
+  updateCodexAuthSessionPolling,
 } from './auth/store';
-import type { StoredCodexAuthSession } from './auth/store';
+import type { AppLike, StoredCodexAuthSession, StoredCodexCredentials } from './auth/store';
 
 type AiPlugin = {
   aiManager: {
@@ -85,6 +91,35 @@ async function verifyCodexService(plugin: PluginAICodexSubscriptionServer, llmSe
   }
 }
 
+function isPollRateLimitedSession(authSession: StoredCodexAuthSession | null): authSession is StoredCodexAuthSession {
+  return (
+    authSession?.status === 'failed' &&
+    Boolean(authSession.errorMessage?.includes('Codex device-code poll was rate-limited'))
+  );
+}
+
+function isExpiredAuthSession(authSession: StoredCodexAuthSession): boolean {
+  const expiresAt = Date.parse(authSession.expiresAt);
+  return Number.isFinite(expiresAt) && expiresAt <= Date.now();
+}
+
+async function recoverRateLimitedPollSession(
+  plugin: PluginAICodexSubscriptionServer,
+  authSession: StoredCodexAuthSession | null,
+): Promise<StoredCodexAuthSession | null> {
+  if (!isPollRateLimitedSession(authSession)) {
+    return authSession;
+  }
+  if (isExpiredAuthSession(authSession)) {
+    return null;
+  }
+  await updateCodexAuthSessionPolling(plugin.app, authSession.id, {
+    errorMessage: authSession.errorMessage,
+    intervalSeconds: Math.max(authSession.intervalSeconds, 60),
+  });
+  return loadCodexAuthSessionById(plugin.app, authSession.id);
+}
+
 async function completePendingDeviceSession(
   plugin: PluginAICodexSubscriptionServer,
   authSession: StoredCodexAuthSession,
@@ -107,6 +142,12 @@ async function completePendingDeviceSession(
       userCode: authSession.userCode,
     });
     if (result.status === 'pending') {
+      if (result.errorMessage || result.retryAfterSeconds) {
+        await updateCodexAuthSessionPolling(plugin.app, authSession.id, {
+          errorMessage: result.errorMessage,
+          intervalSeconds: Math.max(authSession.intervalSeconds, result.retryAfterSeconds ?? authSession.intervalSeconds),
+        });
+      }
       return;
     }
     await saveCodexCredentials(plugin.app, {
@@ -126,6 +167,85 @@ async function completePendingDeviceSession(
   }
 }
 
+async function getUsageCheckedCredentials(
+  app: AppLike,
+  llmServiceName: string,
+): Promise<{ credentials: StoredCodexCredentials; refreshed: boolean }> {
+  const stored = await loadCodexCredentials(app, llmServiceName);
+  if (!stored) {
+    throw new Error(`Codex subscription usage check failed: connect ${llmServiceName} to ChatGPT first.`);
+  }
+  if (!stored.refreshToken) {
+    throw new Error(`Codex subscription usage check failed: ${llmServiceName} is missing a refresh token.`);
+  }
+  if (!stored.accessToken || !stored.accountId) {
+    throw new Error(`Codex subscription usage check failed: ${llmServiceName} is missing OAuth token material.`);
+  }
+  if (!needsRefresh(stored.expiresAt)) {
+    return { credentials: stored, refreshed: false };
+  }
+  return { credentials: await refreshStoredCredentials(app, stored), refreshed: true };
+}
+
+async function refreshStoredCredentials(app: AppLike, stored: StoredCodexCredentials): Promise<StoredCodexCredentials> {
+  const refreshed = await refreshCodexAccessToken(stored.refreshToken);
+  const updated: StoredCodexCredentials = {
+    llmServiceName: stored.llmServiceName,
+    accountId: refreshed.accountId,
+    accessToken: refreshed.access,
+    refreshToken: refreshed.refresh,
+    expiresAt: refreshed.expiresAt,
+    connectedAt: stored.connectedAt,
+    lastVerifiedAt: new Date().toISOString(),
+  };
+  await saveCodexCredentials(app, updated);
+  return updated;
+}
+
+async function getCodexUsageWithOneRefresh(
+  app: AppLike,
+  llmServiceName: string,
+  signal?: AbortSignal,
+): Promise<{ usage: Awaited<ReturnType<typeof fetchCodexUsage>>; credentials: StoredCodexCredentials }> {
+  const initial = await getUsageCheckedCredentials(app, llmServiceName);
+  try {
+    const usage = await fetchCodexUsage({
+      accessToken: initial.credentials.accessToken,
+      accountId: initial.credentials.accountId,
+      signal,
+    });
+    return { usage, credentials: initial.credentials };
+  } catch (error) {
+    if (!(error instanceof CodexUsageAuthError) || initial.refreshed) {
+      throw error;
+    }
+    const refreshed = await refreshStoredCredentials(app, initial.credentials);
+    const usage = await fetchCodexUsage({
+      accessToken: refreshed.accessToken,
+      accountId: refreshed.accountId,
+      signal,
+    });
+    return { usage, credentials: refreshed };
+  }
+}
+
+function needsRefresh(expiresAt: string | undefined): boolean {
+  if (!expiresAt) {
+    return true;
+  }
+  const timestamp = Date.parse(expiresAt);
+  if (!Number.isFinite(timestamp)) {
+    return true;
+  }
+  return timestamp <= Date.now() + 5 * 60_000;
+}
+
+function createRequestAbortSignal(ctx: { req?: { on?: (event: string, listener: () => void) => void } }): AbortSignal {
+  const controller = new AbortController();
+  ctx.req?.on?.('close', () => controller.abort());
+  return controller.signal;
+}
+
 export class PluginAICodexSubscriptionServer extends Plugin {
   async load() {
     this.aiPlugin.aiManager.registerLLMProvider('codex-subscription', codexSubscriptionProviderOptions);
@@ -143,6 +263,7 @@ export class PluginAICodexSubscriptionServer extends Plugin {
             );
             await verifyCodexService(this, llmServiceName);
             let latestAuthSession = await loadLatestCodexAuthSessionByService(this.app, llmServiceName);
+            latestAuthSession = await recoverRateLimitedPollSession(this, latestAuthSession);
             if (latestAuthSession?.status === 'pending') {
               await completePendingDeviceSession(this, latestAuthSession);
               latestAuthSession = await loadCodexAuthSessionById(this.app, latestAuthSession.id);
@@ -200,6 +321,7 @@ export class PluginAICodexSubscriptionServer extends Plugin {
             if (authSession?.llmServiceName !== llmServiceName) {
               authSession = null;
             }
+            authSession = await recoverRateLimitedPollSession(this, authSession);
             if (authSession?.status === 'pending') {
               await completePendingDeviceSession(this, authSession);
               authSession = await loadCodexAuthSessionById(this.app, authSession.id);
@@ -211,6 +333,36 @@ export class PluginAICodexSubscriptionServer extends Plugin {
             };
           } catch (error) {
             ctx.throw(400, safeErrorMessage(error));
+            return;
+          }
+          await next();
+        },
+        usage: async (ctx, next) => {
+          const values = getActionValues(ctx.action.params);
+          const llmServiceName = getRequiredString(
+            values,
+            'llmServiceName',
+            'Codex subscription usage check failed: llmServiceName is required.',
+          );
+          const signal = createRequestAbortSignal(ctx);
+          try {
+            const { usage, credentials } = await getCodexUsageWithOneRefresh(this.app, llmServiceName, signal);
+            ctx.body = {
+              llmServiceName,
+              connected: true,
+              accountId: credentials.accountId,
+              accountLabel: maskAccountId(credentials.accountId),
+              expiresAt: credentials.expiresAt,
+              lastVerifiedAt: credentials.lastVerifiedAt,
+              usage,
+            };
+          } catch (error) {
+            const message = safeErrorMessage(error);
+            if ((error as Error).name === 'AbortError') {
+              return;
+            }
+            await recordCodexCredentialError(this.app, llmServiceName, message);
+            ctx.throw(400, message);
             return;
           }
           await next();
@@ -234,7 +386,7 @@ export class PluginAICodexSubscriptionServer extends Plugin {
       },
     });
 
-    this.app.acl.allow('codexSubscriptionAuth', ['begin', 'status', 'disconnect'], 'loggedIn');
+    this.app.acl.allow('codexSubscriptionAuth', ['begin', 'status', 'usage', 'disconnect'], 'loggedIn');
   }
 
   private get aiPlugin(): AiPlugin {

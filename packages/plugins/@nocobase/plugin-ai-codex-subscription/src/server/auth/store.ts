@@ -125,15 +125,14 @@ export async function loadCodexCredentials(
     throw new Error(`Codex subscription credential record for ${llmServiceName} is incomplete.`);
   }
   const accountId = readValue(model, 'accountId');
-  const expiresAt = readValue(model, 'expiresAt');
   return {
     llmServiceName,
     accountId: typeof accountId === 'string' ? accountId : '',
     accessToken: await encryptor.decrypt(accessTokenEncrypted),
     refreshToken: await encryptor.decrypt(refreshTokenEncrypted),
-    expiresAt: typeof expiresAt === 'string' ? expiresAt : '',
-    connectedAt: asString(readValue(model, 'connectedAt')),
-    lastVerifiedAt: asString(readValue(model, 'lastVerifiedAt')),
+    expiresAt: asIsoString(readValue(model, 'expiresAt')) ?? '',
+    connectedAt: asIsoString(readValue(model, 'connectedAt')),
+    lastVerifiedAt: asIsoString(readValue(model, 'lastVerifiedAt')),
   };
 }
 
@@ -146,6 +145,18 @@ export async function deleteCodexCredentials(app: AppLike, llmServiceName: strin
   }
   if (repository.destroy) {
     await repository.destroy({ filter: { llmServiceName } });
+  }
+}
+
+export async function recordCodexCredentialError(
+  app: AppLike,
+  llmServiceName: string,
+  lastError: string,
+): Promise<void> {
+  const repository = requiredRepository(app, CODEX_SUBSCRIPTION_COLLECTIONS.connections);
+  const model = await repository.findOne({ filter: { llmServiceName } });
+  if (model?.update) {
+    await model.update({ lastError, lastVerifiedAt: new Date().toISOString() });
   }
 }
 
@@ -170,15 +181,16 @@ export async function getCodexConnectionStatus(
   }
 
   const accountId = asString(readValue(model, 'accountId'));
-  const expiresAt = asString(readValue(model, 'expiresAt'));
+  const lastError = asString(readValue(model, 'lastError'));
   return {
     llmServiceName,
     connected: true,
     accountId,
     accountLabel: maskAccountId(accountId),
-    expiresAt,
-    connectedAt: asString(readValue(model, 'connectedAt')),
-    lastVerifiedAt: asString(readValue(model, 'lastVerifiedAt')),
+    expiresAt: asIsoString(readValue(model, 'expiresAt')),
+    connectedAt: asIsoString(readValue(model, 'connectedAt')),
+    lastVerifiedAt: asIsoString(readValue(model, 'lastVerifiedAt')),
+    lastError,
   };
 }
 
@@ -263,7 +275,7 @@ async function readCodexAuthSessionModel(
     userCode: String(readValue(model, 'userCode') ?? ''),
     verificationUri: String(readValue(model, 'verificationUri') ?? ''),
     intervalSeconds: normalizeIntervalSeconds(readValue(model, 'intervalSeconds')),
-    expiresAt: String(readValue(model, 'expiresAt') ?? ''),
+    expiresAt: asIsoString(readValue(model, 'expiresAt')) ?? '',
     redirectUri: String(readValue(model, 'redirectUri') ?? ''),
     status: normalizeSessionStatus(readValue(model, 'status')),
     errorMessage: asString(readValue(model, 'errorMessage')),
@@ -287,12 +299,40 @@ export async function completeCodexAuthSession(
   });
 }
 
+export async function updateCodexAuthSessionPolling(
+  app: AppLike,
+  id: string,
+  update: { errorMessage?: string; intervalSeconds?: number },
+): Promise<void> {
+  const repository = requiredRepository(app, CODEX_SUBSCRIPTION_COLLECTIONS.authSessions);
+  const model = await repository.findOne({ filter: { id } });
+  if (!model?.update) {
+    throw new Error(`Codex subscription auth session ${id} was not found.`);
+  }
+  await model.update({
+    status: 'pending',
+    errorMessage: update.errorMessage ?? null,
+    intervalSeconds: update.intervalSeconds,
+    completedAt: null,
+  });
+}
+
 function isDecryptFailure(error: unknown): boolean {
   return error instanceof Error && /bad decrypt|decrypt/i.test(error.message);
 }
 
 function asString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function asIsoString(value: unknown): string | undefined {
+  if (typeof value === 'string' && value.length > 0) {
+    return value;
+  }
+  if (value instanceof Date && Number.isFinite(value.getTime())) {
+    return value.toISOString();
+  }
+  return undefined;
 }
 
 function normalizeSessionStatus(value: unknown): 'pending' | 'succeeded' | 'failed' {

@@ -97,6 +97,154 @@ async function createRecord(db: MemoryDatabase, collection: string, values: Reco
 }
 
 describe('EcobaseInventoryPlanningService', () => {
+  it('selects highest-profit approval candidates under an explicit budget', async () => {
+    const db = new MemoryDatabase();
+    await createRecord(db, ECOBASE_COLLECTIONS.suppliers, {
+      id: 'supplier-a',
+      naturalKey: 'supplier-a',
+      company: 'Ecofission LLC',
+      name: 'Profit Supplier',
+      active: true,
+    });
+    for (const product of [
+      { id: 'product-high', asin: 'B000HIGH', sku: 'HIGH-SKU', profitPerUnit: 50, bestQty: 20, stock: 0, salesVelocity: 3, orderId: 'order-high', orderRef: 'PO-HIGH', qty: 10, unitCost: 10 },
+      { id: 'product-low', asin: 'B000LOW', sku: 'LOW-SKU', profitPerUnit: 10, bestQty: 10, stock: 0, salesVelocity: 2, orderId: 'order-low', orderRef: 'PO-LOW', qty: 10, unitCost: 10 },
+    ]) {
+      await createRecord(db, ECOBASE_COLLECTIONS.planningProducts, {
+        id: product.id,
+        naturalKey: `Ecofission LLC:${product.asin}`,
+        company: 'Ecofission LLC',
+        canonicalAsin: product.asin,
+        title: product.sku,
+        mappingStatus: 'confirmed',
+      });
+      await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
+        naturalKey: `inventory-${product.id}`,
+        sourceConnectionId: 'source-1',
+        planningProductId: product.id,
+        snapshotDate: '2026-06-09',
+        company: 'Ecofission LLC',
+        asin: product.asin,
+        sku: product.sku,
+        stock: product.stock,
+        salesVelocity: product.salesVelocity,
+      });
+      await createRecord(db, ECOBASE_COLLECTIONS.planningParameters, {
+        naturalKey: `params-${product.id}`,
+        sourceConnectionId: 'source-1',
+        planningProductId: product.id,
+        company: 'Ecofission LLC',
+        asin: product.asin,
+        sku: product.sku,
+        supplier: 'Profit Supplier',
+        supplierId: 'SRO-A',
+        profitPerUnit: product.profitPerUnit,
+        leadTimeDays: 1,
+        payload: { recommendedBestQty: product.bestQty, productStatus: 'Active' },
+      });
+      await createRecord(db, ECOBASE_COLLECTIONS.supplierOrders, {
+        id: product.orderId,
+        naturalKey: `supplier-order:Ecofission LLC:${product.orderRef}`,
+        company: 'Ecofission LLC',
+        supplierId: 'supplier-a',
+        externalOrderRef: product.orderRef,
+        status: 'approval_pending',
+        sourceStage: 'order_detail',
+        lastMeaningfulUpdateAt: '2026-06-09T00:00:00.000Z',
+      });
+      await createRecord(db, ECOBASE_COLLECTIONS.supplierOrderLines, {
+        id: `line-${product.id}`,
+        naturalKey: `supplier-order-line:${product.orderRef}:1`,
+        supplierOrderId: product.orderId,
+        company: 'Ecofission LLC',
+        supplierId: 'supplier-a',
+        planningProductId: product.id,
+        asin: product.asin,
+        sku: product.sku,
+        orderedQty: product.qty,
+        receivedQty: 0,
+        unitCost: product.unitCost,
+        sourceOrderLineRef: `${product.orderRef}:1`,
+        sourceStage: 'order_detail',
+        observedAt: '2026-06-09T00:00:00.000Z',
+      });
+    }
+
+    const result = await new EcobaseInventoryPlanningService(db).optimizeBudget({
+      company: 'Ecofission LLC',
+      calculationDate: '2026-06-09',
+      budget: 100,
+    });
+
+    expect(result).toMatchObject({
+      mode: 'budget_optimizer',
+      budget: 100,
+      selectedSpend: 100,
+      remainingBudget: 0,
+      selectedCount: 1,
+    });
+    expect(result.recommendations[0]).toMatchObject({
+      candidateType: 'supplier_order',
+      supplierOrderRef: 'PO-HIGH',
+      recommendedAction: 'approve',
+      spend: 100,
+    });
+    expect(result.skipped.some((candidate: Record<string, unknown>) => candidate.supplierOrderRef === 'PO-LOW')).toBe(true);
+  });
+
+  it('shows missing-cost candidates as skipped instead of selecting them silently', async () => {
+    const db = new MemoryDatabase();
+    await createRecord(db, ECOBASE_COLLECTIONS.planningProducts, {
+      id: 'product-no-cost',
+      naturalKey: 'Ecofission LLC:B000NOCOST',
+      company: 'Ecofission LLC',
+      canonicalAsin: 'B000NOCOST',
+      title: 'No cost product',
+      mappingStatus: 'confirmed',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
+      naturalKey: 'inventory-no-cost',
+      sourceConnectionId: 'source-1',
+      planningProductId: 'product-no-cost',
+      snapshotDate: '2026-06-09',
+      company: 'Ecofission LLC',
+      asin: 'B000NOCOST',
+      sku: 'NO-COST',
+      stock: 0,
+      salesVelocity: 2,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.planningParameters, {
+      naturalKey: 'params-no-cost',
+      sourceConnectionId: 'source-1',
+      planningProductId: 'product-no-cost',
+      company: 'Ecofission LLC',
+      asin: 'B000NOCOST',
+      sku: 'NO-COST',
+      profitPerUnit: 25,
+      leadTimeDays: 1,
+      payload: { recommendedBestQty: 10, productStatus: 'Active' },
+    });
+
+    const result = await new EcobaseInventoryPlanningService(db).optimizeBudget({
+      company: 'Ecofission LLC',
+      calculationDate: '2026-06-09',
+      budget: 100,
+    });
+
+    expect(result.selectedCount).toBe(0);
+    expect(result.skipped[0]).toMatchObject({
+      candidateType: 'planning_product',
+      skipReason: 'missing_unit_cost',
+      reasonCodes: expect.arrayContaining(['missing_unit_cost']),
+    });
+  });
+
+  it('requires a positive optimizer budget', async () => {
+    await expect(new EcobaseInventoryPlanningService(new MemoryDatabase()).optimizeBudget({ budget: 0 })).rejects.toThrow(
+      'Ecobase budget optimizer requires a budget greater than zero.',
+    );
+  });
+
   it('prioritizes order-today tier rows with supplier, lead-time freshness, stock buckets, and velocity-based reorder quantity', async () => {
     const db = new MemoryDatabase();
     await createRecord(db, ECOBASE_COLLECTIONS.planningProducts, {

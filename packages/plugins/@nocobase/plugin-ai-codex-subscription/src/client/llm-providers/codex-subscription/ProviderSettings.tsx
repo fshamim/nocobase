@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { App, Alert, Button, Descriptions, Space, Typography } from 'antd';
+import { App, Alert, Button, Descriptions, Space, Spin, Typography } from 'antd';
 import { useAPIClient, useCollectionRecordData } from '@nocobase/client';
 import { useForm } from '@formily/react';
 import { SchemaComponent } from '@nocobase/client';
@@ -22,7 +22,38 @@ type AuthStatus = {
   expiresAt?: string;
   connectedAt?: string;
   lastVerifiedAt?: string;
+  lastError?: string;
   authSession?: DeviceAuthSession | null;
+};
+
+type UsageWindow = {
+  usedPercent: number;
+  remainingPercent: number;
+  resetAt?: string;
+  resetAfterSeconds?: number;
+  limitWindowSeconds?: number;
+};
+
+type UsagePayload = {
+  usage?: {
+    planType?: string;
+    fetchedAt: string;
+    rateLimit?: {
+      primaryWindow?: UsageWindow;
+      secondaryWindow?: UsageWindow;
+    };
+    codeReviewRateLimit?: {
+      primaryWindow?: UsageWindow;
+      secondaryWindow?: UsageWindow;
+    };
+    credits?: {
+      hasCredits?: boolean;
+      unlimited?: boolean;
+      balance?: number | string;
+      approxLocalMessages?: [number, number];
+      approxCloudMessages?: [number, number];
+    };
+  };
 };
 
 type BeginDeviceAuthPayload = {
@@ -64,6 +95,21 @@ function toPollIntervalMs(intervalSeconds: number | undefined): number {
   return Math.max(intervalSeconds * 1000, 2000);
 }
 
+function isCancelledRequest(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.name === 'AbortError' || error.name === 'CanceledError' || /cancel|abort/i.test(error.message))
+  );
+}
+
+function formatUsageWindow(window: UsageWindow | undefined, fallback: string): string {
+  if (!window) {
+    return fallback;
+  }
+  const reset = window.resetAt ? `, resets ${window.resetAt}` : '';
+  return `${window.remainingPercent.toFixed(0)}% remaining (${window.usedPercent.toFixed(0)}% used${reset})`;
+}
+
 const OAuthConnectionCard: React.FC = () => {
   const t = useT();
   const api = useAPIClient();
@@ -71,9 +117,13 @@ const OAuthConnectionCard: React.FC = () => {
   const record = useCollectionRecordData<Record<string, unknown>>();
   const { message } = App.useApp();
   const [status, setStatus] = useState<AuthStatus | null>(null);
+  const [usage, setUsage] = useState<UsagePayload['usage'] | null>(null);
+  const [usageLoading, setUsageLoading] = useState(false);
+  const [usageError, setUsageError] = useState<string | null>(null);
   const [deviceSession, setDeviceSession] = useState<DeviceAuthSession | null>(null);
   const [loading, setLoading] = useState(false);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const usageAbortRef = useRef<AbortController | null>(null);
 
   const serviceName = useMemo(() => {
     const formName = typeof form.values?.name === 'string' ? form.values.name : undefined;
@@ -108,6 +158,47 @@ const OAuthConnectionCard: React.FC = () => {
     [api, serviceName],
   );
 
+  const cancelUsage = useCallback(() => {
+    usageAbortRef.current?.abort();
+    usageAbortRef.current = null;
+    setUsageLoading(false);
+  }, []);
+
+  const refreshUsage = useCallback(async () => {
+    if (!serviceName || mockMode) {
+      setUsage(null);
+      setUsageError(null);
+      return;
+    }
+    cancelUsage();
+    const controller = new AbortController();
+    usageAbortRef.current = controller;
+    setUsageLoading(true);
+    setUsageError(null);
+    try {
+      const response = await api.resource('codexSubscriptionAuth').usage(
+        { values: { llmServiceName: serviceName } },
+        { skipNotify: true, signal: controller.signal } as Record<string, unknown>,
+      );
+      if (controller.signal.aborted) {
+        return;
+      }
+      const payload = getActionPayload<UsagePayload>(response);
+      setUsage(payload?.usage ?? null);
+    } catch (error) {
+      if (isCancelledRequest(error)) {
+        return;
+      }
+      setUsage(null);
+      setUsageError(getErrorMessage(error, t('Codex usage check failed')));
+    } finally {
+      if (usageAbortRef.current === controller) {
+        usageAbortRef.current = null;
+        setUsageLoading(false);
+      }
+    }
+  }, [api, cancelUsage, mockMode, serviceName, t]);
+
   const stopPolling = useCallback(() => {
     if (pollTimerRef.current) {
       clearInterval(pollTimerRef.current);
@@ -116,25 +207,44 @@ const OAuthConnectionCard: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    let mounted = true;
     if (!serviceName || mockMode) {
       setStatus(null);
+      setUsage(null);
+      setUsageError(null);
       setDeviceSession(null);
-      return;
+      cancelUsage();
+      return stopPolling;
     }
-    refreshStatus();
-    return stopPolling;
-  }, [mockMode, refreshStatus, serviceName, stopPolling]);
+    refreshStatus().then((nextStatus) => {
+      if (mounted && nextStatus?.connected) {
+        refreshUsage();
+      }
+    });
+    return () => {
+      mounted = false;
+      stopPolling();
+      cancelUsage();
+    };
+  }, [cancelUsage, mockMode, refreshStatus, refreshUsage, serviceName, stopPolling]);
 
   const startPolling = (authSessionId: string, intervalSeconds: number | undefined) => {
     stopPolling();
     pollTimerRef.current = setInterval(async () => {
       const next = await refreshStatus(authSessionId);
       if (!next?.authSession || next.authSession.status === 'pending') {
+        if (
+          next?.authSession?.intervalSeconds &&
+          toPollIntervalMs(next.authSession.intervalSeconds) !== toPollIntervalMs(intervalSeconds)
+        ) {
+          startPolling(authSessionId, next.authSession.intervalSeconds);
+        }
         return;
       }
       stopPolling();
       if (next.authSession.status === 'succeeded') {
         setDeviceSession(null);
+        refreshUsage();
         message.success(t('ChatGPT connection completed'));
       } else {
         message.error(next.authSession.errorMessage || t('ChatGPT connection failed'));
@@ -185,7 +295,10 @@ const OAuthConnectionCard: React.FC = () => {
         .resource('codexSubscriptionAuth')
         .disconnect({ values: { llmServiceName: serviceName } }, { skipNotify: true });
       stopPolling();
+      cancelUsage();
       setDeviceSession(null);
+      setUsage(null);
+      setUsageError(null);
       await refreshStatus();
       message.success(t('ChatGPT connection removed'));
     } catch (error) {
@@ -227,6 +340,48 @@ const OAuthConnectionCard: React.FC = () => {
         <Descriptions.Item label={t('Access expires')}>
           {status?.expiresAt || <Typography.Text type="secondary">{t('Unknown')}</Typography.Text>}
         </Descriptions.Item>
+        <Descriptions.Item label={t('Usage health')}>
+          {usageLoading ? (
+            <Space size="small">
+              <Spin size="small" />
+              <Typography.Text>{t('Checking usage…')}</Typography.Text>
+            </Space>
+          ) : usageError ? (
+            <Typography.Text type="danger">{usageError}</Typography.Text>
+          ) : usage ? (
+            <Space direction="vertical" size={0}>
+              <Typography.Text>{usage.planType ? `${t('Plan')}: ${usage.planType}` : t('Plan unknown')}</Typography.Text>
+              <Typography.Text>{`${t('5h window')}: ${formatUsageWindow(
+                usage.rateLimit?.primaryWindow,
+                t('Unknown'),
+              )}`}</Typography.Text>
+              <Typography.Text>{`${t('7d window')}: ${formatUsageWindow(
+                usage.rateLimit?.secondaryWindow,
+                t('Unknown'),
+              )}`}</Typography.Text>
+              {usage.codeReviewRateLimit?.primaryWindow ? (
+                <Typography.Text>{`${t('Code review')}: ${formatUsageWindow(
+                  usage.codeReviewRateLimit.primaryWindow,
+                  t('Unknown'),
+                )}`}</Typography.Text>
+              ) : null}
+              {usage.credits ? (
+                <Typography.Text>{`${t('Credits')}: ${
+                  usage.credits.unlimited
+                    ? t('Unlimited')
+                    : usage.credits.balance === undefined
+                    ? t('Unknown')
+                    : usage.credits.balance
+                }`}</Typography.Text>
+              ) : null}
+              <Typography.Text type="secondary">{`${t('Last fetched')}: ${usage.fetchedAt}`}</Typography.Text>
+            </Space>
+          ) : status?.connected ? (
+            <Typography.Text type="secondary">{t('Not checked yet')}</Typography.Text>
+          ) : (
+            <Typography.Text type="secondary">{t('Connect ChatGPT to check usage')}</Typography.Text>
+          )}
+        </Descriptions.Item>
       </Descriptions>
       {activeDeviceSession?.status === 'pending' &&
       activeDeviceSession.userCode &&
@@ -253,14 +408,26 @@ const OAuthConnectionCard: React.FC = () => {
           }
         />
       ) : null}
+      {status?.authSession?.status === 'pending' && status.authSession.errorMessage ? (
+        <Alert type="warning" showIcon message={status.authSession.errorMessage} />
+      ) : null}
       {status?.authSession?.status === 'failed' && status.authSession.errorMessage ? (
         <Alert type="error" showIcon message={status.authSession.errorMessage} />
       ) : null}
+      {status?.lastError ? <Alert type="warning" showIcon message={status.lastError} /> : null}
       <Space wrap>
         <Button type="primary" onClick={connect} loading={loading} disabled={mockMode || pending}>
           {status?.connected ? t('Reconnect ChatGPT') : t('Connect ChatGPT')}
         </Button>
-        <Button onClick={() => refreshStatus()} disabled={!serviceName || loading || mockMode}>
+        <Button
+          onClick={async () => {
+            const nextStatus = await refreshStatus();
+            if (nextStatus?.connected) {
+              refreshUsage();
+            }
+          }}
+          disabled={!serviceName || loading || mockMode}
+        >
           {t('Refresh status')}
         </Button>
         <Button danger onClick={disconnect} disabled={!status?.connected || loading || pending}>

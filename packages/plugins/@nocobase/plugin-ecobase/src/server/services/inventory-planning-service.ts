@@ -41,6 +41,11 @@ export interface InventoryPlanningQuery {
   limit?: number;
 }
 
+export interface InventoryBudgetOptimizationQuery extends InventoryPlanningQuery {
+  budget: number;
+  horizonDays?: number;
+}
+
 type PlainRecord = Record<string, unknown>;
 
 function asString(value: unknown): string | undefined {
@@ -48,7 +53,12 @@ function asString(value: unknown): string | undefined {
 }
 
 function asNumber(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const parsed = Number(value.replace(/[$,%\s]/g, ''));
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
 }
 
 function asBoolean(value: unknown): boolean | undefined {
@@ -304,6 +314,48 @@ function stableUuid(value: string) {
     .padStart(2, '0')}${hex.slice(18, 20)}-${hex.slice(20, 32)}`;
 }
 
+function productIdentity(row: PlainRecord) {
+  return asString(row.planningProductId) ?? `${asString(row.company) ?? ''}:${asString(row.asin) ?? ''}:${asString(row.sku) ?? ''}`;
+}
+
+function lineMatchesRow(line: PlainRecord, row: PlainRecord) {
+  const rowPlanningProductId = asString(row.planningProductId);
+  const linePlanningProductId = asString(line.planningProductId);
+  const rowAsin = asString(row.asin)?.toUpperCase();
+  const lineAsin = asString(line.asin)?.toUpperCase();
+  const rowSku = asString(row.sku);
+  const lineSku = asString(line.sku);
+  return Boolean(
+    (rowPlanningProductId && linePlanningProductId && rowPlanningProductId === linePlanningProductId) ||
+    (rowAsin && lineAsin && rowAsin === lineAsin) ||
+    (rowSku && lineSku && rowSku === lineSku)
+  );
+}
+
+function openQty(line: PlainRecord) {
+  return Math.max((asNumber(line.orderedQty) ?? 0) - (asNumber(line.receivedQty) ?? 0), 0);
+}
+
+function urgencyWeight(row: PlainRecord) {
+  const status = asString(row.actionStatus);
+  const tier = asString(row.tier);
+  return (
+    (status === 'overdue' ? 50 : 0) +
+    (status === 'order_today' ? 35 : 0) +
+    (status === 'order_soon' ? 15 : 0) +
+    (status === 'missing_lead_time' ? 5 : 0) +
+    (tier === 'A' ? 20 : tier === 'B' ? 10 : tier === 'C' ? 3 : 0)
+  );
+}
+
+function recommendedActionForStatus(status: unknown) {
+  const normalized = asString(status);
+  if (normalized === 'payment_pending') return 'pay';
+  if (normalized === 'blocked') return 'review_blocker';
+  if (['draft', 'supplier_contacted', 'supplier_confirmed', 'approval_pending'].includes(normalized ?? '')) return 'approve';
+  return 'review';
+}
+
 const INVENTORY_PLANNING_ROW_FIELDS = [
   'planningProductId',
   'calculationDate',
@@ -444,6 +496,250 @@ export class EcobaseInventoryPlanningService {
         supplierActionItems: supplierActionItems.slice(0, 25),
         staleLeadTimes: urgentRows.filter((row) => row.leadTimeFreshness !== 'fresh').slice(0, 25),
       },
+    };
+  }
+
+  async optimizeBudget(query: InventoryBudgetOptimizationQuery) {
+    const budget = asNumber(query.budget);
+    if (typeof budget !== 'number' || budget <= 0) {
+      throw new Error('Ecobase budget optimizer requires a budget greater than zero.');
+    }
+    const calculationDate = isoDate(query.calculationDate ?? new Date());
+    const horizonDays = Math.max(Math.round(query.horizonDays ?? 30), 1);
+    const rows = await this.listRows({ ...query, calculationDate, limit: query.limit ?? 500 });
+    const urgentRows = this.sortDigestRows(
+      rows.filter((row) => ['overdue', 'order_today', 'order_soon', 'missing_lead_time'].includes(String(row.actionStatus)) && row.supplierOrderState !== 'purchased_pipeline'),
+    );
+    const orderFilter = query.company ? { company: query.company } : {};
+    const supplierOrders = (await this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).find({
+      filter: orderFilter,
+      sort: ['-lastMeaningfulUpdateAt'],
+      limit: 1000,
+    })).map(toPlainRecord);
+    const supplierOrderLines = (await this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).find({
+      filter: orderFilter,
+      sort: ['-observedAt'],
+      limit: 5000,
+    })).map(toPlainRecord);
+    const suppliers = (await this.db.getRepository(ECOBASE_COLLECTIONS.suppliers).find({
+      filter: orderFilter,
+      sort: ['company', 'name'],
+      limit: 2000,
+    })).map(toPlainRecord);
+    const supplierNameById = new Map(
+      suppliers
+        .map((supplier) => [asString(supplier.id), asString(supplier.name)] as const)
+        .filter((entry): entry is [string, string] => Boolean(entry[0] && entry[1])),
+    );
+    const orderById = new Map(
+      supplierOrders
+        .map((order) => [asString(order.id), order] as const)
+        .filter((entry): entry is [string, PlainRecord] => Boolean(entry[0])),
+    );
+    const ordersByCompanyAndRef = new Map(
+      supplierOrders
+        .map((order) => [`${asString(order.company) ?? ''}:${asString(order.externalOrderRef) ?? asString(order.id) ?? ''}`, order] as const)
+        .filter(([key]) => !key.endsWith(':')),
+    );
+    const linesByOrderId = new Map<string, PlainRecord[]>();
+    for (const line of supplierOrderLines) {
+      const orderId = asString(line.supplierOrderId);
+      if (!orderId) continue;
+      const current = linesByOrderId.get(orderId) ?? [];
+      current.push(line);
+      linesByOrderId.set(orderId, current);
+    }
+
+    const candidates = new Map<string, PlainRecord & { rows: PlainRecord[]; lineIds: Set<string>; reasonSet: Set<string>; urgency: number }>();
+    const latestLineForRow = (row: PlainRecord) => supplierOrderLines.find((line) => lineMatchesRow(line, row));
+    const addCandidateRow = (candidate: PlainRecord & { rows: PlainRecord[]; lineIds: Set<string>; reasonSet: Set<string>; urgency: number }, row: PlainRecord) => {
+      const identity = productIdentity(row);
+      if (!candidate.rows.some((existing) => productIdentity(existing) === identity)) {
+        candidate.rows.push(row);
+        candidate.protectedProfit = Math.round(((asNumber(candidate.protectedProfit) ?? 0) + (asNumber(row.estimatedProfitRisk) ?? 0)) * 100) / 100;
+      }
+      candidate.urgency = Math.max(candidate.urgency, urgencyWeight(row));
+      const actionStatus = asString(row.actionStatus);
+      const tier = asString(row.tier);
+      if (actionStatus) candidate.reasonSet.add(actionStatus);
+      if (tier) candidate.reasonSet.add(`tier_${tier.toLowerCase()}`);
+      if (!asString(row.supplierName)) candidate.reasonSet.add('missing_supplier');
+    };
+
+    for (const row of urgentRows) {
+      const supplierOrderRef = asString(row.supplierOrderRef);
+      const company = asString(row.company) ?? '';
+      const existingOrder = supplierOrderRef ? ordersByCompanyAndRef.get(`${company}:${supplierOrderRef}`) ?? orderById.get(supplierOrderRef) : undefined;
+      if (existingOrder && row.supplierOrderState === 'placed_not_purchased') {
+        const orderId = asString(existingOrder.id) ?? supplierOrderRef;
+        const key = `order:${orderId}`;
+        const orderLines = linesByOrderId.get(orderId) ?? [];
+        let candidate = candidates.get(key);
+        if (!candidate) {
+          let spend = 0;
+          let missingCost = false;
+          let openQuantity = 0;
+          const lineSummaries = [] as PlainRecord[];
+          for (const line of orderLines) {
+            const quantity = openQty(line);
+            if (quantity <= 0) continue;
+            openQuantity += quantity;
+            const unitCost = asNumber(line.unitCost);
+            if (typeof unitCost !== 'number' || unitCost <= 0) {
+              missingCost = true;
+            } else {
+              spend += quantity * unitCost;
+            }
+            lineSummaries.push({
+              supplierOrderLineId: asString(line.id),
+              planningProductId: asString(line.planningProductId),
+              asin: asString(line.asin),
+              sku: asString(line.sku),
+              brand: asString(line.brand),
+              openQty: quantity,
+              unitCost,
+              lineSpend: typeof unitCost === 'number' && unitCost > 0 ? Math.round(quantity * unitCost * 100) / 100 : undefined,
+            });
+          }
+          candidate = {
+            key,
+            candidateType: 'supplier_order',
+            recommendedAction: recommendedActionForStatus(existingOrder.status),
+            supplierOrderId: orderId,
+            supplierOrderRef: asString(existingOrder.externalOrderRef) ?? orderId,
+            supplierOrderStatus: asString(existingOrder.status),
+            company,
+            supplierId: asString(existingOrder.supplierId),
+            supplierName: supplierNameById.get(asString(existingOrder.supplierId) ?? '') ?? asString(existingOrder.supplierName),
+            spend: missingCost || spend <= 0 ? undefined : Math.round(spend * 100) / 100,
+            openQty: openQuantity,
+            protectedProfit: 0,
+            score: 0,
+            adjustedScore: 0,
+            lineSummaries,
+            rows: [],
+            lineIds: new Set(lineSummaries.map((line) => String(line.supplierOrderLineId ?? '')).filter(Boolean)),
+            reasonSet: new Set<string>(),
+            urgency: 0,
+          };
+          if (missingCost || spend <= 0) candidate.reasonSet.add('missing_unit_cost');
+          if (asString(existingOrder.status)) candidate.reasonSet.add(asString(existingOrder.status) as string);
+          candidates.set(key, candidate);
+        }
+        addCandidateRow(candidate, row);
+        continue;
+      }
+
+      const suggestedQty = asNumber(row.suggestedReorderQty) ?? 0;
+      const historyLine = latestLineForRow(row);
+      const unitCost = asNumber(historyLine?.unitCost);
+      const spend = suggestedQty > 0 && typeof unitCost === 'number' && unitCost > 0 ? suggestedQty * unitCost : undefined;
+      const key = `product:${productIdentity(row)}`;
+      const candidate: PlainRecord & { rows: PlainRecord[]; lineIds: Set<string>; reasonSet: Set<string>; urgency: number } = {
+        key,
+        candidateType: 'planning_product',
+        recommendedAction: spend ? 'create_order' : 'recover_supplier_or_cost',
+        planningProductId: asString(row.planningProductId),
+        company: asString(row.company),
+        asin: asString(row.asin),
+        sku: asString(row.sku),
+        title: asString(row.title),
+        supplierId: asString(row.supplierId),
+        supplierName: asString(row.supplierName),
+        suggestedReorderQty: suggestedQty,
+        unitCost,
+        spend: spend ? Math.round(spend * 100) / 100 : undefined,
+        protectedProfit: 0,
+        score: 0,
+        adjustedScore: 0,
+        rows: [],
+        lineIds: new Set<string>(),
+        reasonSet: new Set<string>(),
+        urgency: 0,
+      };
+      if (!spend) candidate.reasonSet.add('missing_unit_cost');
+      addCandidateRow(candidate, row);
+      candidates.set(key, candidate);
+    }
+
+    const rankedCandidates = [...candidates.values()]
+      .map((candidate) => {
+        const spend = asNumber(candidate.spend);
+        const protectedProfit = asNumber(candidate.protectedProfit) ?? 0;
+        const score = spend && spend > 0 ? protectedProfit / spend : 0;
+        const adjustedScore = score * (1 + candidate.urgency / 100);
+        const { rows: candidateRows, lineIds: _lineIds, reasonSet, urgency: _urgency, ...publicCandidate } = candidate;
+        return {
+          ...publicCandidate,
+          score: Math.round(score * 10000) / 10000,
+          adjustedScore: Math.round(adjustedScore * 10000) / 10000,
+          urgencyScore: candidate.urgency,
+          reasonCodes: [...reasonSet].sort(),
+          rows: candidateRows.map((row) => ({
+            planningProductId: asString(row.planningProductId),
+            company: asString(row.company),
+            asin: asString(row.asin),
+            sku: asString(row.sku),
+            title: asString(row.title),
+            tier: asString(row.tier),
+            actionStatus: asString(row.actionStatus),
+            estimatedOosDate: asString(row.estimatedOosDate),
+            estimatedProfitRisk: asNumber(row.estimatedProfitRisk) ?? 0,
+            suggestedReorderQty: asNumber(row.suggestedReorderQty) ?? 0,
+          })),
+        };
+      })
+      .sort((left, right) => {
+        const leftSpend = asNumber(left.spend);
+        const rightSpend = asNumber(right.spend);
+        if (!leftSpend && rightSpend) return 1;
+        if (leftSpend && !rightSpend) return -1;
+        const scoreDiff = (asNumber(right.adjustedScore) ?? 0) - (asNumber(left.adjustedScore) ?? 0);
+        if (scoreDiff !== 0) return scoreDiff;
+        const urgencyDiff = (asNumber(right.urgencyScore) ?? 0) - (asNumber(left.urgencyScore) ?? 0);
+        if (urgencyDiff !== 0) return urgencyDiff;
+        return (asNumber(right.protectedProfit) ?? 0) - (asNumber(left.protectedProfit) ?? 0);
+      });
+
+    let selectedSpend = 0;
+    let expectedProtectedProfit = 0;
+    const recommendations: PlainRecord[] = [];
+    const skipped: PlainRecord[] = [];
+    for (const candidate of rankedCandidates) {
+      const spend = asNumber(candidate.spend);
+      if (!spend || spend <= 0) {
+        skipped.push({ ...candidate, skipReason: 'missing_unit_cost' });
+        continue;
+      }
+      if (selectedSpend + spend <= budget) {
+        selectedSpend += spend;
+        expectedProtectedProfit += asNumber(candidate.protectedProfit) ?? 0;
+        recommendations.push(candidate);
+      } else {
+        skipped.push({ ...candidate, skipReason: 'exceeds_remaining_budget' });
+      }
+    }
+
+    return {
+      mode: 'budget_optimizer',
+      generatedAt: new Date().toISOString(),
+      company: query.company ?? null,
+      calculationDate,
+      horizonDays,
+      budget: Math.round(budget * 100) / 100,
+      candidateCount: rankedCandidates.length,
+      selectedCount: recommendations.length,
+      selectedSpend: Math.round(selectedSpend * 100) / 100,
+      remainingBudget: Math.round((budget - selectedSpend) * 100) / 100,
+      expectedProtectedProfit: Math.round(expectedProtectedProfit * 100) / 100,
+      recommendations,
+      skipped: skipped.slice(0, 25),
+      assumptions: [
+        'Budget optimization is optional; empty budget keeps the normal daily digest unchanged.',
+        'Spend uses open quantity multiplied by imported or previously observed unit cost.',
+        'Candidates missing unit cost are shown as skipped instead of selected silently.',
+        'Protected profit uses the inventory-planning estimated profit risk for the selected horizon.',
+      ],
     };
   }
 

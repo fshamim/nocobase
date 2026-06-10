@@ -414,6 +414,10 @@ export default function InventoryPlanningPage() {
   const [orderLineHistory, setOrderLineHistory] = useState<PlainRecord[]>([]);
   const [lineEditValues, setLineEditValues] = useState<LineEditValues | null>(null);
   const [managePanels, setManagePanels] = useState<string[]>(['history', 'draft']);
+  const [budgetAmount, setBudgetAmount] = useState<number | null>(null);
+  const [budgetHorizonDays, setBudgetHorizonDays] = useState(30);
+  const [budgetResult, setBudgetResult] = useState<PlainRecord | null>(null);
+  const [budgetLoading, setBudgetLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
@@ -468,6 +472,35 @@ export default function InventoryPlanningPage() {
       setLoading(false);
     }
   }, [api, calculationDate, company, leadTimeFreshnessDays, limit, loadPlanning, orderSoonWindowDays]);
+
+  const runBudgetOptimizer = useCallback(async () => {
+    if (!budgetAmount || budgetAmount <= 0) {
+      message.error(t('Enter a budget greater than zero to run the optimizer.'));
+      return;
+    }
+    setBudgetLoading(true);
+    setError(null);
+    try {
+      const response = await api.request({
+        url: 'ecobaseInventoryPlanning:optimizeBudget',
+        method: 'post',
+        data: {
+          company: company || undefined,
+          calculationDate: calculationDate || undefined,
+          leadTimeFreshnessDays,
+          orderSoonWindowDays,
+          limit,
+          budget: budgetAmount,
+          horizonDays: budgetHorizonDays,
+        },
+      });
+      setBudgetResult(unwrapData(response));
+    } catch (err) {
+      setError(err as Error);
+    } finally {
+      setBudgetLoading(false);
+    }
+  }, [api, budgetAmount, budgetHorizonDays, calculationDate, company, leadTimeFreshnessDays, limit, message, orderSoonWindowDays, t]);
 
   const filteredRows = useMemo(
     () =>
@@ -878,6 +911,86 @@ export default function InventoryPlanningPage() {
               </Space>
             </Col>
           </Row>
+        </Card>
+        <Card
+          title={t('Optional budget optimizer')}
+          extra={<Typography.Text type="secondary">{t('Leave budget empty to keep using the normal daily digest.')}</Typography.Text>}
+        >
+          <Row gutter={[16, 16]} align="bottom">
+            <Col xs={24} md={8} lg={6}>
+              <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                <Typography.Text strong>{t('Available budget')}</Typography.Text>
+                <InputNumber
+                  min={0}
+                  precision={2}
+                  addonBefore="$"
+                  placeholder={t('Optional')}
+                  value={budgetAmount ?? undefined}
+                  onChange={(value) => setBudgetAmount(typeof value === 'number' ? value : null)}
+                  style={{ width: '100%' }}
+                />
+              </Space>
+            </Col>
+            <Col xs={24} md={8} lg={5}>
+              <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                <Typography.Text strong>{t('Profit horizon')}</Typography.Text>
+                <InputNumber addonAfter={t('days')} min={1} value={budgetHorizonDays} onChange={(value) => setBudgetHorizonDays(Number(value ?? 30))} style={{ width: '100%' }} />
+              </Space>
+            </Col>
+            <Col xs={24} md={8} lg={5}>
+              <Button type="primary" block disabled={!budgetAmount || budgetAmount <= 0} loading={budgetLoading} onClick={runBudgetOptimizer}>
+                {t('Run optimizer')}
+              </Button>
+            </Col>
+            <Col xs={24} lg={8}>
+              <Alert
+                type={budgetAmount && budgetAmount > 0 ? 'info' : 'success'}
+                showIcon
+                message={budgetAmount && budgetAmount > 0 ? t('Budget mode will choose the best approve/pay/order candidates under this budget.') : t('No budget entered: daily digest remains the source of truth.')}
+              />
+            </Col>
+          </Row>
+          {budgetResult ? (
+            <Space direction="vertical" size="middle" style={{ width: '100%', marginTop: 16 }}>
+              <Row gutter={[16, 16]}>
+                <Col xs={12} md={6}><Statistic title={t('Selected spend')} value={Number(budgetResult.selectedSpend ?? 0)} precision={2} prefix="$" /></Col>
+                <Col xs={12} md={6}><Statistic title={t('Budget')} value={Number(budgetResult.budget ?? 0)} precision={2} prefix="$" /></Col>
+                <Col xs={12} md={6}><Statistic title={t('Remaining')} value={Number(budgetResult.remainingBudget ?? 0)} precision={2} prefix="$" /></Col>
+                <Col xs={12} md={6}><Statistic title={t('Protected profit')} value={Number(budgetResult.expectedProtectedProfit ?? 0)} precision={2} prefix="$" valueStyle={{ color: '#3f8600' }} /></Col>
+              </Row>
+              <Table<PlainRecord>
+                size="small"
+                rowKey={(row) => String(row.key)}
+                title={() => t('Recommended approvals / payments')}
+                dataSource={Array.isArray(budgetResult.recommendations) ? budgetResult.recommendations : []}
+                pagination={false}
+                columns={[
+                  { title: t('Action'), dataIndex: 'recommendedAction', render: (value: string) => <Tag color={value === 'pay' ? 'red' : value === 'approve' ? 'orange' : 'blue'}>{t(value)}</Tag> },
+                  { title: t('Order / product'), key: 'target', render: (_value: any, row: PlainRecord) => row.supplierOrderRef ?? row.asin ?? row.planningProductId },
+                  { title: t('Supplier'), dataIndex: 'supplierName', render: (value: string) => value || <Tag color="red">{t('Missing supplier')}</Tag> },
+                  { title: t('Spend'), dataIndex: 'spend', render: formatCurrency },
+                  { title: t('Protected profit'), dataIndex: 'protectedProfit', render: formatCurrency },
+                  { title: t('Score'), dataIndex: 'adjustedScore', render: formatNumber },
+                  { title: t('Reasons'), dataIndex: 'reasonCodes', render: (values: string[]) => <Space size={4} wrap>{(Array.isArray(values) ? values : []).map((value) => <Tag key={value}>{t(value)}</Tag>)}</Space> },
+                ]}
+              />
+              <Table<PlainRecord>
+                size="small"
+                rowKey={(row) => String(row.key)}
+                title={() => t('Skipped but still important')}
+                dataSource={Array.isArray(budgetResult.skipped) ? budgetResult.skipped : []}
+                pagination={false}
+                columns={[
+                  { title: t('Reason'), dataIndex: 'skipReason', render: (value: string) => <Tag color={value === 'missing_unit_cost' ? 'red' : 'default'}>{t(value)}</Tag> },
+                  { title: t('Order / product'), key: 'target', render: (_value: any, row: PlainRecord) => row.supplierOrderRef ?? row.asin ?? row.planningProductId },
+                  { title: t('Supplier'), dataIndex: 'supplierName', render: (value: string) => value || <Tag color="red">{t('Missing supplier')}</Tag> },
+                  { title: t('Spend'), dataIndex: 'spend', render: formatCurrency },
+                  { title: t('Protected profit'), dataIndex: 'protectedProfit', render: formatCurrency },
+                ]}
+              />
+              <Alert type="info" showIcon message={t('Optimizer assumptions')} description={(Array.isArray(budgetResult.assumptions) ? budgetResult.assumptions : []).join(' ')} />
+            </Space>
+          ) : null}
         </Card>
         <Row gutter={[16, 16]}>
           <Col xs={24} sm={12} lg={4}><Card><Statistic title={t('Overdue')} value={digest.summary.overdue ?? 0} valueStyle={{ color: '#cf1322' }} /></Card></Col>

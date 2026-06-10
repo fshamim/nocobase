@@ -27,6 +27,13 @@ export const convertAIMessage = ({
   const message = aiMessage.content;
   const toolCalls = aiMessage.tool_calls;
   const tools = aiEmployee.skillSettings?.tools;
+  const legacySkills = aiEmployee.skillSettings?.skills;
+  const autoCallEnabled = (setting: string | { name?: string; autoCall?: boolean }, toolName: string) => {
+    if (typeof setting === 'string') {
+      return false;
+    }
+    return setting?.name === toolName && setting?.autoCall === true;
+  };
 
   if (message == null && !toolCalls?.length) {
     return null;
@@ -73,7 +80,10 @@ export const convertAIMessage = ({
     values.toolCalls = toolCalls as any;
     values.metadata.autoCallTools = toolCalls
       .filter((tool: { name: string }) => {
-        return tools?.some((s: { name: string; autoCall?: boolean }) => s.name === tool.name && s.autoCall);
+        return (
+          tools?.some((s: string | { name?: string; autoCall?: boolean }) => autoCallEnabled(s, tool.name)) ||
+          legacySkills?.some((s: string | { name?: string; autoCall?: boolean }) => autoCallEnabled(s, tool.name))
+        );
       })
       .map((tool: { name: string }) => tool.name);
   }

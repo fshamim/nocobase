@@ -111,11 +111,13 @@ export async function parseVariables(ctx: Context, value: string) {
   }
   const $user = await getUser(ctx, [...userFieldsSet.values()]);
   const dateVariables = getDateVars();
+  const timezoneHeader = ctx.get('x-timezone');
+  const timezone = /^[+-]\d{2}:\d{2}$/.test(timezoneHeader) ? timezoneHeader : '+00:00';
   const $nDate = {};
   for (const [key, value] of Object.entries(dateVariables)) {
     if (typeof value === 'function') {
       $nDate[key] = value({
-        timezone: ctx.get?.('x-timezone'),
+        timezone,
         now: new Date().toISOString(),
       });
     } else {

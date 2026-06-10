@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createSourceAdapterRegistry, noopTestAdapter } from '../adapters';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
-import { createEcobaseAlertActions, createEcobaseImportActions, createEcobaseSupplierOrderActions } from '../plugin';
+import { createEcobaseAiTools } from '../ecobase-ai-tools';
+import { createEcobaseAiActions, createEcobaseAlertActions, createEcobaseImportActions, createEcobaseInventoryPlanningActions, createEcobaseSupplierOrderActions } from '../plugin';
 import { EcobaseDatabase, EcobaseRepository } from '../services/import-service';
 
 interface FindParams {
@@ -113,6 +114,50 @@ function createActionContext(db: EcobaseDatabase, values: Record<string, unknown
     },
   };
 }
+
+describe('Ecobase AI public API seam', () => {
+  it('answers ephemerally without creating an aiAnswers audit row', async () => {
+    const db = new MemoryDatabase();
+    const actions = createEcobaseAiActions();
+    const context = createActionContext(db, { question: 'Which supplier should I contact first?', company: 'Ecofission LLC' });
+
+    await actions.askEphemeral(context, vi.fn());
+
+    expect(context.body?.data).toMatchObject({
+      question: 'Which supplier should I contact first?',
+      company: 'Ecofission LLC',
+      provider: 'ecobase-plugin-retrieval',
+    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.aiAnswers).all()).toHaveLength(0);
+  });
+
+  it('registers read-only Ecobase AI employee tools with stable names', async () => {
+    const db = new MemoryDatabase();
+    const tools = createEcobaseAiTools();
+    expect(tools.map((tool) => tool.definition.name)).toEqual([
+      'ecobase_source_status',
+      'ecobase_inventory_digest',
+      'ecobase_optimize_budget',
+      'ecobase_supplier_orders',
+      'ecobase_retrieve_facts',
+      'ecobase_answer_ephemeral',
+    ]);
+    expect(tools.every((tool) => tool.scope === 'CUSTOM' && tool.defaultPermission === 'ALLOW' && tool.execution === 'backend')).toBe(true);
+
+    const result = await tools[5].invoke({ db } as any, { question: 'What is stale?', company: 'Ecofission LLC' }, 'tool-call-1');
+    expect(result.status).toBe('success');
+    expect(db.getRepository(ECOBASE_COLLECTIONS.aiAnswers).all()).toHaveLength(0);
+  });
+});
+
+describe('Ecobase inventory-planning public API seam', () => {
+  it('rejects budget optimization without a positive budget', async () => {
+    const actions = createEcobaseInventoryPlanningActions();
+    await expect(actions.optimizeBudget(createActionContext(new MemoryDatabase(), { budget: 0 }), vi.fn())).rejects.toThrow(
+      'Ecobase budget optimizer requires a budget greater than zero.',
+    );
+  });
+});
 
 describe('Ecobase supplier-order public API seam', () => {
   it('exposes coverage queries and explicit operator-owned line updates', async () => {
@@ -293,6 +338,44 @@ describe('Ecobase supplier-order public API seam', () => {
 });
 
 describe('Ecobase supplier-order workspace API seam', () => {
+  it('updates an order supplier by company-scoped supplier selection and keeps lines in sync', async () => {
+    const db = new MemoryDatabase();
+    const actions = createEcobaseSupplierOrderActions();
+    await db.getRepository(ECOBASE_COLLECTIONS.suppliers).create({
+      values: { id: 'supplier-old', naturalKey: 'supplier:Ecofission LLC:old', company: 'Ecofission LLC', name: 'Old Supplier' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.suppliers).create({
+      values: { id: 'supplier-new', naturalKey: 'supplier:Ecofission LLC:new', company: 'Ecofission LLC', name: 'New Supplier' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.suppliers).create({
+      values: { id: 'supplier-other', naturalKey: 'supplier:Other LLC:new', company: 'Other LLC', name: 'Other Supplier' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).create({
+      values: { id: 'order-1', naturalKey: 'supplier-order:Ecofission LLC:ORDER-1', company: 'Ecofission LLC', supplierId: 'supplier-old', status: 'approval_pending' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).create({
+      values: { id: 'line-1', naturalKey: 'supplier-order-line:Ecofission LLC:ORDER-1:1', supplierOrderId: 'order-1', company: 'Ecofission LLC', supplierId: 'supplier-old', orderedQty: 5, receivedQty: 0 },
+    });
+
+    await actions.updateOrderOperatorFields(
+      createActionContext(db, { supplierOrderId: 'order-1', company: 'Ecofission LLC', supplierId: 'supplier-new', externalOrderRef: 'ORDER-1A', orderDate: '2026-06-09' }),
+      vi.fn(),
+    );
+
+    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).all().find((record) => record.id === 'order-1')).toMatchObject({
+      supplierId: 'supplier-new',
+      supplierName: 'New Supplier',
+      externalOrderRef: 'ORDER-1A',
+      orderDate: '2026-06-09',
+    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).all().find((record) => record.id === 'line-1')).toMatchObject({
+      supplierId: 'supplier-new',
+    });
+    await expect(
+      actions.updateOrderOperatorFields(createActionContext(db, { supplierOrderId: 'order-1', company: 'Ecofission LLC', supplierId: 'supplier-other' }), vi.fn()),
+    ).rejects.toThrow('Ecobase supplier-order update failed: supplier belongs to a different company.');
+  });
+
   it('creates planned orders from reorder candidates, records activity, and isolates companies', async () => {
     const db = new MemoryDatabase();
     const actions = createEcobaseSupplierOrderActions();

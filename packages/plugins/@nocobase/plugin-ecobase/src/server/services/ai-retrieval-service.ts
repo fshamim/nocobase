@@ -15,6 +15,10 @@ type AiAnswerParams = {
   period?: string;
 };
 
+type AiAnswerOptions = {
+  persist?: boolean;
+};
+
 type CoverageStatus = 'answerable' | 'answerable-with-warning' | 'blocked-by-missing-source';
 
 const APPENDIX_A_COVERAGE = [
@@ -140,7 +144,7 @@ export class EcobaseAiRetrievalService {
     };
   }
 
-  async answerQuestion(params: AiAnswerParams) {
+  async answerQuestion(params: AiAnswerParams, options: AiAnswerOptions = {}) {
     const question = asString(params.question);
     if (!question) {
       throw new Error('Ecobase AI answer failed: question is required.');
@@ -165,7 +169,9 @@ export class EcobaseAiRetrievalService {
       coverageGroup: group,
       createdAt: new Date().toISOString(),
     };
-    await this.db.getRepository(ECOBASE_COLLECTIONS.aiAnswers).create({ values: answer });
+    if (options.persist !== false) {
+      await this.db.getRepository(ECOBASE_COLLECTIONS.aiAnswers).create({ values: answer });
+    }
     return answer;
   }
 

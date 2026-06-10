@@ -12,6 +12,7 @@ import {
 } from './adapters';
 import type { SourceAdapterRegistry } from './adapters';
 import { ECOBASE_COLLECTIONS } from './collections/names';
+import { createEcobaseAiTools } from './ecobase-ai-tools';
 import { EcobaseAccountabilityService } from './services/accountability-service';
 import { EcobaseAccuracyHarnessService } from './services/accuracy-harness-service';
 import { EcobaseAiRetrievalService } from './services/ai-retrieval-service';
@@ -94,6 +95,115 @@ function validateSupplierOrderActivityModel(model: { get?: (key?: string) => unk
   }
 }
 
+function compactServerText(value: unknown) {
+  return typeof value === 'string' ? value.trim() : value === undefined || value === null ? '' : String(value);
+}
+
+function numericServerValue(value: unknown) {
+  const numeric = Number(value ?? 0);
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function orderLineMapKey(company: unknown, asin: unknown, sku: unknown) {
+  return [company, asin, sku].map((value) => compactServerText(value).toLowerCase()).join(':');
+}
+
+function firstNonEmptyServerText(values: unknown[]) {
+  return values.map(compactServerText).find((value) => value.length > 0);
+}
+
+function enrichSupplierOrderWorkspaceForBoard(workspace: Record<string, unknown>, planningRows: Array<Record<string, unknown>>) {
+  const supplierOrders = Array.isArray(workspace.supplierOrders) ? workspace.supplierOrders as Array<Record<string, unknown>> : [];
+  const supplierOrderLines = Array.isArray(workspace.supplierOrderLines) ? workspace.supplierOrderLines as Array<Record<string, unknown>> : [];
+  const suppliers = Array.isArray(workspace.suppliers) ? workspace.suppliers as Array<Record<string, unknown>> : [];
+  const activities = Array.isArray(workspace.activities) ? workspace.activities as Array<Record<string, unknown>> : [];
+  const supplierById = new Map<string, Record<string, unknown>>();
+  suppliers.forEach((supplier) => {
+    const id = compactServerText(supplier.id);
+    if (id) supplierById.set(id, supplier);
+    const supplierId = compactServerText(supplier.supplierId);
+    if (supplierId) supplierById.set(supplierId, supplier);
+  });
+  const planningById = new Map<string, Record<string, unknown>>();
+  const planningByIdentity = new Map<string, Record<string, unknown>>();
+  planningRows.forEach((row) => {
+    const planningProductId = compactServerText(row.planningProductId);
+    if (planningProductId) planningById.set(planningProductId, row);
+    planningByIdentity.set(orderLineMapKey(row.company, row.asin, row.sku), row);
+  });
+  const linesByOrderId = new Map<string, Array<Record<string, unknown>>>();
+  supplierOrderLines.forEach((line) => {
+    const supplierOrderId = compactServerText(line.supplierOrderId);
+    if (!supplierOrderId) return;
+    const lines = linesByOrderId.get(supplierOrderId) ?? [];
+    lines.push(line);
+    linesByOrderId.set(supplierOrderId, lines);
+  });
+  const activitiesByOrderId = new Map<string, Array<Record<string, unknown>>>();
+  activities.forEach((activity) => {
+    const supplierOrderId = compactServerText(activity.supplierOrderId);
+    if (!supplierOrderId) return;
+    const rows = activitiesByOrderId.get(supplierOrderId) ?? [];
+    rows.push(activity);
+    activitiesByOrderId.set(supplierOrderId, rows);
+  });
+
+  const enrichedOrders = supplierOrders.map((order) => {
+    const orderId = compactServerText(order.id);
+    const lines = linesByOrderId.get(orderId) ?? [];
+    const supplier = supplierById.get(compactServerText(order.supplierId));
+    const lineSummaries = lines.map((line) => {
+      const planningRow = planningById.get(compactServerText(line.planningProductId)) ?? planningByIdentity.get(orderLineMapKey(line.company, line.asin, line.sku));
+      return {
+        id: line.id,
+        planningProductId: line.planningProductId,
+        asin: line.asin,
+        sku: line.sku,
+        brand: line.brand,
+        orderedQty: numericServerValue(line.orderedQty),
+        receivedQty: numericServerValue(line.receivedQty),
+        openQty: Math.max(0, numericServerValue(line.orderedQty) - numericServerValue(line.receivedQty)),
+        estimatedOosDate: planningRow?.estimatedOosDate,
+        estimatedProfitRisk: planningRow?.estimatedProfitRisk,
+        actionStatus: planningRow?.actionStatus,
+        tier: planningRow?.tier,
+        productStatus: planningRow?.productStatus,
+      };
+    });
+    const planningMatches = lineSummaries.filter((line) => line.estimatedOosDate || line.estimatedProfitRisk !== undefined);
+    const riskValues = planningMatches.map((line) => numericServerValue(line.estimatedProfitRisk)).filter((value) => value > 0);
+    const oosDates = planningMatches.map((line) => compactServerText(line.estimatedOosDate)).filter(Boolean).sort();
+    const latestActivity = (activitiesByOrderId.get(orderId) ?? []).sort((left, right) => compactServerText(right.occurredAt).localeCompare(compactServerText(left.occurredAt)))[0];
+    const blockerSummary = firstNonEmptyServerText([
+      order.blockedReason,
+      latestActivity?.notes,
+      (order.payload as Record<string, unknown> | undefined)?.Remarks,
+      (order.payload as Record<string, unknown> | undefined)?.['AM Remarks'],
+      (order.payload as Record<string, unknown> | undefined)?.['COO Remarks'],
+      ...lines.flatMap((line) => [
+        (line.payload as Record<string, unknown> | undefined)?.Remarks,
+        (line.payload as Record<string, unknown> | undefined)?.['AM Remarks'],
+        (line.payload as Record<string, unknown> | undefined)?.['COO Remarks'],
+      ]),
+    ]);
+    return {
+      ...order,
+      supplierName: firstNonEmptyServerText([supplier?.name, (order.payload as Record<string, unknown> | undefined)?.Supplier, order.supplierName]),
+      lineCount: lines.length,
+      openQty: lineSummaries.reduce((total, line) => total + line.openQty, 0),
+      lineSummaries,
+      productRiskSummary: {
+        earliestOosDate: oosDates[0],
+        maxEstimatedProfitRisk: riskValues.length ? Math.max(...riskValues) : undefined,
+        mappedLineCount: planningMatches.length,
+      },
+      blockerSummary,
+    };
+  });
+
+  return { ...workspace, supplierOrders: enrichedOrders };
+}
+
 export function createEcobaseAccuracyActions() {
   return {
     checklistTemplate: async (ctx, next) => {
@@ -161,6 +271,33 @@ export function createEcobaseAiActions() {
         };
       } catch (error) {
         ctx.throw(400, error instanceof Error ? error.message : 'Ecobase AI answer failed.');
+        return;
+      }
+      await next();
+    },
+    askEphemeral: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const question = getOptionalString(values, 'question');
+      if (!question) {
+        ctx.throw(400, 'Ecobase ephemeral AI answer requires question.');
+        return;
+      }
+      const service = new EcobaseAiRetrievalService(ctx.db);
+      try {
+        ctx.body = {
+          data: await service.answerQuestion(
+            {
+              question,
+              company: getOptionalString(values, 'company'),
+              date: getOptionalString(values, 'date'),
+              period: getOptionalString(values, 'period'),
+              periodType: getOptionalString(values, 'periodType') as 'daily' | 'weekly' | 'monthly' | undefined,
+            },
+            { persist: false },
+          ),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase ephemeral AI answer failed.');
         return;
       }
       await next();
@@ -381,6 +518,29 @@ export function createEcobaseInventoryPlanningActions() {
       };
       await next();
     },
+    optimizeBudget: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const budget = getOptionalNumber(values, 'budget');
+      if (typeof budget !== 'number' || budget <= 0) {
+        ctx.throw(400, 'Ecobase budget optimizer requires a budget greater than zero.');
+        return;
+      }
+      const service = new EcobaseInventoryPlanningService(ctx.db);
+      ctx.body = {
+        data: await service.optimizeBudget({
+          company: getOptionalString(values, 'company'),
+          calculationDate: getOptionalString(values, 'calculationDate'),
+          leadTimeFreshnessDays: getOptionalNumber(values, 'leadTimeFreshnessDays'),
+          safetyBufferDays: getOptionalNumber(values, 'safetyBufferDays'),
+          orderSoonWindowDays: getOptionalNumber(values, 'orderSoonWindowDays'),
+          reorderCycleDays: getOptionalNumber(values, 'reorderCycleDays'),
+          limit: getOptionalNumber(values, 'limit'),
+          horizonDays: getOptionalNumber(values, 'horizonDays'),
+          budget,
+        }),
+      };
+      await next();
+    },
   };
 }
 
@@ -506,6 +666,41 @@ export function createEcobaseAlertActions() {
 
 export function createEcobaseSupplierOrderActions() {
   return {
+    board: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const company = getOptionalString(values, 'company');
+      const service = new EcobaseSupplierOrderService(ctx.db);
+      const workspace = await service.getWorkspace({
+        company,
+        status: getOptionalString(values, 'status'),
+        stockoutDate: getOptionalString(values, 'stockoutDate'),
+        limit: getOptionalNumber(values, 'limit'),
+      });
+      if (company) {
+        const suppliers = Array.isArray(workspace.suppliers) ? workspace.suppliers as Array<Record<string, unknown>> : [];
+        const knownSupplierIds = new Set(suppliers.flatMap((supplier) => [compactServerText(supplier.id), compactServerText(supplier.supplierId)]).filter(Boolean));
+        const supplierOrderIds = Array.isArray(workspace.supplierOrders)
+          ? (workspace.supplierOrders as Array<Record<string, unknown>>).map((order) => compactServerText(order.supplierId)).filter(Boolean)
+          : [];
+        for (const supplierId of supplierOrderIds) {
+          if (knownSupplierIds.has(supplierId)) continue;
+          const supplier = await ctx.db.getRepository(ECOBASE_COLLECTIONS.suppliers).findOne({ filterByTk: supplierId });
+          const plainSupplier = supplier
+            ? (typeof supplier.toJSON === 'function' ? supplier.toJSON() : JSON.parse(JSON.stringify(supplier))) as Record<string, unknown>
+            : undefined;
+          if (plainSupplier && compactServerText(plainSupplier.company) === company) {
+            suppliers.push(plainSupplier);
+            knownSupplierIds.add(supplierId);
+          }
+        }
+        workspace.suppliers = suppliers;
+      }
+      const planningRows = company
+        ? await new EcobaseInventoryPlanningService(ctx.db).listRows({ company, calculationDate: getOptionalString(values, 'calculationDate'), limit: 1000 })
+        : [];
+      ctx.body = { data: enrichSupplierOrderWorkspaceForBoard(workspace, planningRows as Array<Record<string, unknown>>) };
+      await next();
+    },
     workspace: async (ctx, next) => {
       const values = getValues(ctx.action.params);
       const service = new EcobaseSupplierOrderService(ctx.db);
@@ -642,6 +837,9 @@ export function createEcobaseSupplierOrderActions() {
           data: await service.updateOrderOperatorFields({
             supplierOrderId,
             company,
+            supplierId: getOptionalString(values, 'supplierId'),
+            externalOrderRef: getOptionalString(values, 'externalOrderRef'),
+            orderDate: getOptionalString(values, 'orderDate'),
             status: getOptionalString(values, 'status'),
             expectedDeliveryDate: getOptionalString(values, 'expectedDeliveryDate'),
             approvalStatus: getOptionalString(values, 'approvalStatus'),
@@ -969,7 +1167,23 @@ export class PluginEcobaseServer extends Plugin {
     this.sellerboardScheduler = undefined;
   }
 
+  private registerAiEmployeeTools() {
+    const toolsManager =
+      (this as unknown as { ai?: { toolsManager?: { registerTools?: (tools: unknown[]) => void } } }).ai?.toolsManager ??
+      (this.app as unknown as { aiManager?: { toolsManager?: { registerTools?: (tools: unknown[]) => void } } }).aiManager?.toolsManager;
+    if (typeof toolsManager?.registerTools !== 'function') {
+      this.app.log?.warn?.('Ecobase AI tools were not registered because the NocoBase AI tools manager is unavailable.');
+      return;
+    }
+    try {
+      toolsManager.registerTools(createEcobaseAiTools());
+    } catch (error) {
+      this.app.log?.warn?.('Ecobase AI tools registration failed.', error);
+    }
+  }
+
   async load() {
+    this.registerAiEmployeeTools();
     this.app.on('afterStart', async () => {
       await ensureEcobaseCollectionManagerMetadata(this.app.db);
       this.startSellerboardScheduler();
@@ -1058,7 +1272,7 @@ export class PluginEcobaseServer extends Plugin {
       ],
       'loggedIn',
     );
-    this.app.acl.allow('ecobaseInventoryPlanning', ['filters', 'refreshReadModel', 'rows', 'digestPreview'], 'loggedIn');
+    this.app.acl.allow('ecobaseInventoryPlanning', ['filters', 'refreshReadModel', 'rows', 'digestPreview', 'optimizeBudget'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.companies, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.amazonAccounts, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.sourceConnections, ['list', 'get'], 'loggedIn');
@@ -1104,7 +1318,7 @@ export class PluginEcobaseServer extends Plugin {
     this.app.acl.allow('ecobaseDashboard', ['summary', 'settings'], 'loggedIn');
     this.app.acl.allow('ecobaseOperatorWorkspace', ['workspace', 'preview', 'saveView'], 'loggedIn');
     this.app.acl.allow('ecobaseReports', ['generatePreview'], 'loggedIn');
-    this.app.acl.allow('ecobaseAi', ['answer', 'retrieveFacts', 'coverage'], 'loggedIn');
+    this.app.acl.allow('ecobaseAi', ['answer', 'askEphemeral', 'retrieveFacts', 'coverage'], 'loggedIn');
     this.app.acl.allow('ecobaseAccuracy', ['checklistTemplate', 'recordSignoff', 'evaluate'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.ruleVersions, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.alertEvaluations, ['list', 'get'], 'loggedIn');

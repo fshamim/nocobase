@@ -1,9 +1,35 @@
 import { useAPIClient } from '@nocobase/client';
-import { Alert, App, Button, Card, Input, Select, Space, Table, Tag, Tooltip, Typography } from 'antd';
-import React, { useCallback, useEffect, useState } from 'react';
+import {
+  Alert,
+  App,
+  Badge,
+  Button,
+  Card,
+  Checkbox,
+  Col,
+  Descriptions,
+  Divider,
+  Drawer,
+  Empty,
+  Form,
+  Input,
+  InputNumber,
+  Popconfirm,
+  Row,
+  Select,
+  Space,
+  Table,
+  Tabs,
+  Tag,
+  Tooltip,
+  Typography,
+} from 'antd';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useT } from '../locale';
 
 type PlainRecord = Record<string, any>;
+
+type PipelineGroup = 'before_purchase' | 'purchased_pipeline' | 'closed_archive';
 
 interface WorkspaceData {
   reorderCandidates: PlainRecord[];
@@ -16,6 +42,28 @@ interface WorkspaceData {
   rawImportRows: PlainRecord[];
   statusLanes: PlainRecord[];
 }
+
+const BEFORE_PURCHASE_STATUSES = ['draft', 'supplier_contacted', 'supplier_confirmed', 'approval_pending', 'payment_pending', 'blocked'];
+const PURCHASED_PIPELINE_STATUSES = ['paid', 'supplier_preparing', 'shipped_inbound', 'reached_fba'];
+const CLOSED_STATUSES = ['completed', 'rejected', 'cancelled'];
+const DEFAULT_HIDDEN_STATUSES = ['completed', 'rejected', 'cancelled', 'reached_fba'];
+const DIGEST_LIMIT = 16;
+
+const STATUS_COLORS: Record<string, string> = {
+  draft: 'default',
+  supplier_contacted: 'blue',
+  supplier_confirmed: 'cyan',
+  approval_pending: 'gold',
+  payment_pending: 'orange',
+  paid: 'green',
+  supplier_preparing: 'lime',
+  shipped_inbound: 'geekblue',
+  reached_fba: 'purple',
+  completed: 'default',
+  blocked: 'red',
+  rejected: 'volcano',
+  cancelled: 'default',
+};
 
 function unwrapWorkspace(response: any): WorkspaceData {
   let data = response;
@@ -38,23 +86,185 @@ function unwrapWorkspace(response: any): WorkspaceData {
   };
 }
 
-function coverageColor(state?: string) {
-  switch (state) {
-    case 'arrives_before_stockout':
-      return 'green';
-    case 'arrives_late':
-      return 'orange';
-    case 'blocked_open_order':
-      return 'red';
-    case 'incomplete_or_stale':
-      return 'gold';
-    default:
-      return 'default';
-  }
+function normalizeStatus(status: unknown) {
+  return typeof status === 'string' && status.trim() ? status.trim().toLowerCase() : 'draft';
 }
 
-function openQty(row: PlainRecord) {
-  return Math.max(0, Number(row.orderedQty ?? 0) - Number(row.receivedQty ?? 0));
+function pipelineGroupFor(status: unknown): PipelineGroup {
+  const normalized = normalizeStatus(status);
+  if (PURCHASED_PIPELINE_STATUSES.includes(normalized)) return 'purchased_pipeline';
+  if (CLOSED_STATUSES.includes(normalized)) return 'closed_archive';
+  return 'before_purchase';
+}
+
+function openQty(line: PlainRecord) {
+  return Math.max(0, Number(line.orderedQty ?? 0) - Number(line.receivedQty ?? 0));
+}
+
+function orderOpenQty(lines: PlainRecord[]) {
+  return lines.reduce((total, line) => total + openQty(line), 0);
+}
+
+function formatDate(value: unknown) {
+  return typeof value === 'string' && value ? value.slice(0, 10) : '—';
+}
+
+function formatNumber(value: unknown) {
+  const numeric = Number(value ?? 0);
+  return Number.isFinite(numeric) ? numeric.toLocaleString() : '—';
+}
+
+function ageDays(value: unknown, now = new Date()) {
+  if (typeof value !== 'string' || !value) return undefined;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return undefined;
+  return Math.max(0, Math.floor((now.getTime() - parsed.getTime()) / 86_400_000));
+}
+
+function isPastDate(value: unknown, now = new Date()) {
+  if (typeof value !== 'string' || !value) return false;
+  const parsed = new Date(`${value.slice(0, 10)}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return false;
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  return parsed.getTime() < today.getTime();
+}
+
+function compactText(value: unknown) {
+  return typeof value === 'string' ? value.trim() : value === undefined || value === null ? '' : String(value);
+}
+
+function orderSearchText(order: PlainRecord, lines: PlainRecord[], supplierName: string) {
+  return [
+    order.externalOrderRef,
+    order.id,
+    order.company,
+    supplierName,
+    order.status,
+    order.sourceStage,
+    order.approvalStatus,
+    order.paymentStatus,
+    order.shippingCarrier,
+    order.trackingId,
+    order.payload?.['Invoice No'],
+    order.payload?.invoiceNo,
+    ...lines.flatMap((line) => [line.asin, line.sku, line.brand, line.planningProductId, line.payload?.ASIN, line.payload?.SKU]),
+  ]
+    .map(compactText)
+    .join(' ')
+    .toLowerCase();
+}
+
+function attentionReasons(order: PlainRecord, lines: PlainRecord[], now = new Date()) {
+  const reasons: string[] = [];
+  const status = normalizeStatus(order.status);
+  const lastUpdateAge = ageDays(order.lastMeaningfulUpdateAt ?? order.statusUpdatedAt ?? order.orderDate, now);
+  if (status === 'blocked' || compactText(order.blockedReason)) reasons.push('blocked');
+  if (status === 'draft') reasons.push('draft order');
+  if (status === 'supplier_contacted' || status === 'supplier_confirmed') reasons.push('supplier follow-up');
+  if (status === 'approval_pending') reasons.push('approval pending');
+  if (status === 'payment_pending') reasons.push('payment pending');
+  if (status === 'approval_pending' && (lastUpdateAge ?? 0) >= 2) reasons.push('approval stale');
+  if (status === 'payment_pending' && (lastUpdateAge ?? 0) >= 2) reasons.push('payment stale');
+  if ((status === 'supplier_contacted' || status === 'supplier_confirmed') && (lastUpdateAge ?? 0) >= 3) reasons.push('follow-up due');
+  if (!CLOSED_STATUSES.includes(status) && isPastDate(order.expectedDeliveryDate, now)) reasons.push('delivery overdue');
+  if (lines.some((line) => line.unresolvedMapping || compactText(line.mappingWarning))) reasons.push('unmapped line');
+  return reasons;
+}
+
+function statusLabel(status: string, lanes: PlainRecord[]) {
+  return compactText(lanes.find((lane) => lane.key === status)?.title) || status;
+}
+
+function supplierLabel(order: PlainRecord, supplierById: Map<string, PlainRecord>) {
+  const supplier = supplierById.get(String(order.supplierId ?? ''));
+  return compactText(order.supplierName) || compactText(supplier?.name) || compactText(order.payload?.Supplier) || 'Unknown supplier';
+}
+
+function fieldEntries(payload: unknown) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return [] as Array<[string, unknown]>;
+  return Object.entries(payload as PlainRecord).filter(([, value]) => value !== undefined && value !== null && compactText(value) !== '');
+}
+
+function safeNumber(value: unknown) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : undefined;
+}
+
+function statusAccentColor(status: unknown) {
+  const normalized = normalizeStatus(status);
+  const accents: Record<string, string> = {
+    draft: '#8c8c8c',
+    supplier_contacted: '#1677ff',
+    supplier_confirmed: '#13c2c2',
+    approval_pending: '#d4b106',
+    payment_pending: '#fa8c16',
+    paid: '#52c41a',
+    supplier_preparing: '#a0d911',
+    shipped_inbound: '#2f54eb',
+    reached_fba: '#722ed1',
+    completed: '#8c8c8c',
+    blocked: '#ff4d4f',
+    rejected: '#fa541c',
+    cancelled: '#8c8c8c',
+  };
+  return accents[normalized] ?? '#d9d9d9';
+}
+
+function relativeDayText(value: unknown, now = new Date()) {
+  if (typeof value !== 'string' || !value) return '—';
+  const parsed = new Date(`${value.slice(0, 10)}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return '—';
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const diffDays = Math.round((parsed.getTime() - today.getTime()) / 86_400_000);
+  const abs = Math.abs(diffDays);
+  if (diffDays === 0) return 'today';
+  return diffDays > 0 ? `in ${abs}d` : `${abs}d ago`;
+}
+
+function etaText(value: unknown, now = new Date()) {
+  if (typeof value !== 'string' || !value) return undefined;
+  const relative = relativeDayText(value, now);
+  if (relative === '—') return undefined;
+  return relative.endsWith('ago') ? `ETA overdue ${relative.replace(' ago', '')}` : `ETA ${relative}`;
+}
+
+function openedText(order: PlainRecord) {
+  const relative = relativeDayText(order.orderDate ?? order.createdAt ?? order.payload?.Date ?? order.payload?.['Order Date']);
+  return relative === '—' ? undefined : `opened ${relative}`;
+}
+
+function waitingText(order: PlainRecord) {
+  const days = ageDays(order.statusUpdatedAt ?? order.lastMeaningfulUpdateAt ?? order.orderDate);
+  if (days === undefined) return undefined;
+  return days === 0 ? 'waiting today' : `waiting ${days}d`;
+}
+
+function riskMoneyText(value: unknown) {
+  const numeric = Number(value ?? 0);
+  if (!Number.isFinite(numeric) || numeric <= 0) return undefined;
+  return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(numeric);
+}
+
+function oosSummaryText(value: unknown) {
+  if (typeof value !== 'string' || !value) return undefined;
+  const relative = relativeDayText(value);
+  if (relative === '—') return undefined;
+  if (relative === 'today' || relative.endsWith('ago')) return 'OOS now';
+  return `OOS ${relative}`;
+}
+
+function productEssence(line: PlainRecord) {
+  const identity = [line.brand, line.asin, line.sku].map(compactText).filter(Boolean).join(' · ');
+  const qty = Number(line.orderedQty ?? line.openQty ?? 0);
+  return `${identity || compactText(line.planningProductId) || 'Unmapped product'}${Number.isFinite(qty) && qty > 0 ? ` ×${formatNumber(qty)}` : ''}`;
+}
+
+function orderCardLines(order: PlainRecord, fallbackLines: PlainRecord[]) {
+  return Array.isArray(order.lineSummaries) && order.lineSummaries.length ? order.lineSummaries : fallbackLines;
+}
+
+function blockerSummary(order: PlainRecord) {
+  return compactText(order.blockerSummary) || compactText(order.blockedReason) || compactText(order.payload?.Remarks) || compactText(order.payload?.['AM Remarks']) || compactText(order.payload?.['COO Remarks']);
 }
 
 export default function OrderManagementPage() {
@@ -62,14 +272,24 @@ export default function OrderManagementPage() {
   const api = useAPIClient();
   const { message } = App.useApp();
   const [company, setCompany] = useState('');
-  const [status, setStatus] = useState('');
-  const [stockoutDate, setStockoutDate] = useState('');
+  const [companyOptions, setCompanyOptions] = useState<Array<{ label: string; value: string }>>([]);
+  const [search, setSearch] = useState('');
+  const [statuses, setStatuses] = useState<string[]>([]);
+  const [sourceStages, setSourceStages] = useState<string[]>([]);
+  const [pipelineGroups, setPipelineGroups] = useState<PipelineGroup[]>([]);
+  const [supplierIds, setSupplierIds] = useState<string[]>([]);
+  const [hideClosed, setHideClosed] = useState(true);
+  const [hidePurchased, setHidePurchased] = useState(false);
+  const [attentionOnly, setAttentionOnly] = useState(false);
+  const [sortBy, setSortBy] = useState('attention');
   const [data, setData] = useState<WorkspaceData>(() => unwrapWorkspace({}));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
-  const [aiQuestion, setAiQuestion] = useState('');
-  const [aiAnswer, setAiAnswer] = useState<PlainRecord | null>(null);
-  const [aiLoading, setAiLoading] = useState(false);
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+  const [selectedLine, setSelectedLine] = useState<PlainRecord | null>(null);
+  const [orderForm] = Form.useForm();
+  const [lineForm] = Form.useForm();
+  const [newLineForm] = Form.useForm();
 
   const loadWorkspace = useCallback(async () => {
     const companyFilter = company.trim();
@@ -82,14 +302,9 @@ export default function OrderManagementPage() {
     setError(null);
     try {
       const response = await api.request({
-        url: 'ecobaseSupplierOrders:workspace',
+        url: 'ecobaseSupplierOrders:board',
         method: 'post',
-        data: {
-          company: companyFilter,
-          status: status.trim() || undefined,
-          stockoutDate: stockoutDate.trim() || undefined,
-          limit: 75,
-        },
+        data: { company: companyFilter, limit: 200 },
       });
       setData(unwrapWorkspace(response));
     } catch (err) {
@@ -97,211 +312,348 @@ export default function OrderManagementPage() {
     } finally {
       setLoading(false);
     }
-  }, [api, company, status, stockoutDate]);
+  }, [api, company]);
 
   useEffect(() => {
-    void loadWorkspace();
+    const loadCompanyOptions = async () => {
+      try {
+        const response = await api.request({ url: 'ecobaseInventoryPlanning:filters', method: 'post', data: {} });
+        let payload: any = response;
+        for (let i = 0; i < 4; i += 1) {
+          if (!payload || typeof payload !== 'object' || !('data' in payload)) break;
+          payload = payload.data;
+        }
+        const companies = Array.isArray(payload?.companies) ? payload.companies.map(String).filter(Boolean) : [];
+        setCompanyOptions(companies.map((value) => ({ label: value, value })));
+        if (!company.trim() && companies.length) {
+          setCompany(companies[0]);
+        }
+      } catch (err) {
+        setError(err as Error);
+      }
+    };
+    void loadCompanyOptions();
+  }, [api, company]);
+
+  useEffect(() => {
+    if (company.trim()) void loadWorkspace();
   }, [loadWorkspace]);
 
-  const createPlannedOrder = async (row: PlainRecord) => {
-    const qtyText = window.prompt(t('Ordered quantity'), '1');
-    if (qtyText === null) {
-      return;
-    }
-    const orderedQty = Number(qtyText);
-    const supplierId = window.prompt(t('Supplier ID'), row.preferredSupplierId ?? '');
-    if (supplierId === null) {
-      return;
-    }
-    const unitCostText = window.prompt(t('Unit cost'), '') || undefined;
-    const expectedDeliveryDate = window.prompt(t('Expected delivery date YYYY-MM-DD'), '') || undefined;
-    const expectedSellableDate = window.prompt(t('Expected sellable date YYYY-MM-DD'), '') || undefined;
-    await api.request({
-      url: 'ecobaseSupplierOrders:createPlannedOrder',
-      method: 'post',
-      data: {
-        company: row.company,
-        planningProductId: row.planningProductId,
-        supplierId: supplierId.trim() || undefined,
-        orderedQty,
-        unitCost: unitCostText ? Number(unitCostText) : undefined,
-        expectedDeliveryDate,
-        expectedSellableDate,
-        notes: 'Created from Ecobase order-management workspace.',
-      },
+  const supplierById = useMemo(() => {
+    const map = new Map<string, PlainRecord>();
+    data.suppliers.forEach((supplier) => {
+      if (supplier.id) map.set(String(supplier.id), supplier);
+      if (supplier.supplierId) map.set(String(supplier.supplierId), supplier);
     });
-    message.success(t('Planned supplier order created'));
+    return map;
+  }, [data.suppliers]);
+
+  const linesByOrderId = useMemo(() => {
+    const map = new Map<string, PlainRecord[]>();
+    data.supplierOrderLines.forEach((line) => {
+      const orderId = String(line.supplierOrderId ?? '');
+      if (!orderId) return;
+      const lines = map.get(orderId) ?? [];
+      lines.push(line);
+      map.set(orderId, lines);
+    });
+    return map;
+  }, [data.supplierOrderLines]);
+
+  const statusOptions = useMemo(() => {
+    const laneOptions = data.statusLanes.map((lane) => ({ label: statusLabel(String(lane.key), data.statusLanes), value: String(lane.key) }));
+    const seen = new Set(laneOptions.map((option) => option.value));
+    data.supplierOrders.forEach((order) => {
+      const status = normalizeStatus(order.status);
+      if (!seen.has(status)) {
+        seen.add(status);
+        laneOptions.push({ label: status, value: status });
+      }
+    });
+    return laneOptions;
+  }, [data.statusLanes, data.supplierOrders]);
+
+  const supplierOptions = useMemo(() => data.suppliers.map((supplier) => ({
+    label: compactText(supplier.name) || compactText(supplier.supplierId) || 'Unknown supplier',
+    value: String(supplier.id ?? supplier.supplierId),
+  })).filter((option) => option.value), [data.suppliers]);
+
+  const productOptions = useMemo(() => {
+    const options = new Map<string, { label: string; value: string }>();
+    const add = (record: PlainRecord) => {
+      const id = compactText(record.planningProductId);
+      if (!id) return;
+      const label = [record.asin ?? record.canonicalAsin, record.sku, record.brand, record.title]
+        .map(compactText)
+        .filter(Boolean)
+        .join(' · ');
+      options.set(id, { value: id, label: label || id });
+    };
+    data.reorderCandidates.forEach(add);
+    data.supplierOrderLines.forEach(add);
+    return Array.from(options.values()).sort((a, b) => a.label.localeCompare(b.label));
+  }, [data.reorderCandidates, data.supplierOrderLines]);
+
+  const sourceStageOptions = useMemo(() => Array.from(new Set(data.supplierOrders.map((order) => compactText(order.sourceStage)).filter(Boolean)))
+    .map((stage) => ({ label: stage, value: stage })), [data.supplierOrders]);
+
+  const enrichedOrders = useMemo(() => data.supplierOrders.map((order) => {
+    const id = String(order.id ?? '');
+    const lines = linesByOrderId.get(id) ?? [];
+    const cardLines = orderCardLines(order, lines);
+    const supplierName = supplierLabel(order, supplierById);
+    const reasons = attentionReasons(order, lines);
+    return {
+      ...order,
+      normalizedStatus: normalizeStatus(order.status),
+      pipelineGroup: pipelineGroupFor(order.status),
+      supplierName,
+      lineCount: Number(order.lineCount ?? lines.length),
+      openQty: Number(order.openQty ?? orderOpenQty(lines)),
+      cardLines,
+      attentionReasons: reasons,
+      needsAttention: reasons.length > 0,
+      searchText: orderSearchText(order, lines, supplierName),
+    };
+  }), [data.supplierOrders, linesByOrderId, supplierById]);
+
+  const filteredOrders = useMemo(() => {
+    const searchValue = search.trim().toLowerCase();
+    const selectedStatuses = new Set(statuses);
+    const selectedStages = new Set(sourceStages);
+    const selectedGroups = new Set(pipelineGroups);
+    const selectedSuppliers = new Set(supplierIds);
+    const visible = enrichedOrders.filter((order) => {
+      if (hideClosed && DEFAULT_HIDDEN_STATUSES.includes(order.normalizedStatus)) return false;
+      if (hidePurchased && order.pipelineGroup === 'purchased_pipeline') return false;
+      if (attentionOnly && !order.needsAttention) return false;
+      if (selectedStatuses.size && !selectedStatuses.has(order.normalizedStatus)) return false;
+      if (selectedStages.size && !selectedStages.has(compactText(order.sourceStage))) return false;
+      if (selectedGroups.size && !selectedGroups.has(order.pipelineGroup)) return false;
+      if (selectedSuppliers.size && !selectedSuppliers.has(String(order.supplierId ?? ''))) return false;
+      if (searchValue && !order.searchText.includes(searchValue)) return false;
+      return true;
+    });
+    return visible.sort((a, b) => {
+      if (sortBy === 'attention') return Number(b.needsAttention) - Number(a.needsAttention) || (b.attentionReasons.length - a.attentionReasons.length);
+      if (sortBy === 'expectedDeliveryDate') return compactText(a.expectedDeliveryDate).localeCompare(compactText(b.expectedDeliveryDate));
+      if (sortBy === 'supplier') return compactText(a.supplierName).localeCompare(compactText(b.supplierName));
+      if (sortBy === 'order') return compactText(a.externalOrderRef ?? a.id).localeCompare(compactText(b.externalOrderRef ?? b.id));
+      if (sortBy === 'openQty') return Number(b.openQty ?? 0) - Number(a.openQty ?? 0);
+      return compactText(b.lastMeaningfulUpdateAt ?? b.statusUpdatedAt).localeCompare(compactText(a.lastMeaningfulUpdateAt ?? a.statusUpdatedAt));
+    });
+  }, [attentionOnly, enrichedOrders, hideClosed, hidePurchased, pipelineGroups, search, sortBy, sourceStages, statuses, supplierIds]);
+
+  const digestOrders = useMemo(() => enrichedOrders.filter((order) => order.needsAttention)
+    .sort((a, b) => b.attentionReasons.length - a.attentionReasons.length)
+    .slice(0, DIGEST_LIMIT), [enrichedOrders]);
+
+  const boardGroups = useMemo(() => {
+    const lanes = statusOptions.map((option) => option.value);
+    return [
+      { key: 'before_purchase' as PipelineGroup, title: t('Before purchase'), statuses: BEFORE_PURCHASE_STATUSES.filter((status) => lanes.includes(status)) },
+      { key: 'purchased_pipeline' as PipelineGroup, title: t('Purchased / fulfillment pipeline'), statuses: PURCHASED_PIPELINE_STATUSES.filter((status) => lanes.includes(status)) },
+      { key: 'closed_archive' as PipelineGroup, title: t('Closed / archive'), statuses: CLOSED_STATUSES.filter((status) => lanes.includes(status)) },
+    ];
+  }, [statusOptions, t]);
+
+  const selectedOrder = useMemo(() => selectedOrderId ? enrichedOrders.find((order) => String(order.id) === selectedOrderId) ?? null : null, [enrichedOrders, selectedOrderId]);
+  const selectedOrderLines = useMemo(() => selectedOrder ? linesByOrderId.get(String(selectedOrder.id)) ?? [] : [], [linesByOrderId, selectedOrder]);
+  const selectedActivities = useMemo(() => selectedOrder ? data.activities.filter((activity) => String(activity.supplierOrderId ?? '') === String(selectedOrder.id)) : [], [data.activities, selectedOrder]);
+
+  useEffect(() => {
+    if (!selectedOrder) return;
+    orderForm.setFieldsValue({
+      supplierId: selectedOrder.supplierId,
+      externalOrderRef: selectedOrder.externalOrderRef,
+      orderDate: formatDate(selectedOrder.orderDate) === '—' ? undefined : formatDate(selectedOrder.orderDate),
+      status: selectedOrder.normalizedStatus,
+      expectedDeliveryDate: selectedOrder.expectedDeliveryDate,
+      approvalStatus: selectedOrder.approvalStatus,
+      paymentStatus: selectedOrder.paymentStatus,
+      shippingCarrier: selectedOrder.shippingCarrier,
+      trackingId: selectedOrder.trackingId,
+      blockedReason: selectedOrder.blockedReason,
+    });
+  }, [orderForm, selectedOrder]);
+
+  useEffect(() => {
+    if (!selectedLine) return;
+    lineForm.setFieldsValue({
+      planningProductId: selectedLine.planningProductId,
+      externalOrderRef: selectedOrder?.externalOrderRef,
+      orderedQty: safeNumber(selectedLine.orderedQty),
+      receivedQty: safeNumber(selectedLine.receivedQty),
+      unitCost: safeNumber(selectedLine.unitCost),
+      expectedDeliveryDate: selectedLine.expectedDeliveryDate,
+      expectedSellableDate: selectedLine.expectedSellableDate,
+      notes: undefined,
+    });
+  }, [lineForm, selectedLine, selectedOrder?.externalOrderRef]);
+
+  const openOrder = (order: PlainRecord) => {
+    setSelectedOrderId(String(order.id));
+    setSelectedLine(null);
+    lineForm.resetFields();
+    newLineForm.resetFields();
+  };
+
+  const refreshAfterMutation = async (success: string) => {
+    message.success(success);
     await loadWorkspace();
   };
 
-  const updateOrder = async (row: PlainRecord) => {
-    const statusValue = window.prompt(t('Order status'), row.status ?? 'draft');
-    if (statusValue === null) {
-      return;
-    }
-    const expectedDeliveryDate = window.prompt(t('Expected delivery date YYYY-MM-DD'), row.expectedDeliveryDate ?? '') || undefined;
-    const approvalStatus = window.prompt(t('Approval status'), row.approvalStatus ?? '') || undefined;
-    const paymentStatus = window.prompt(t('Payment status'), row.paymentStatus ?? '') || undefined;
-    const shippingCarrier = window.prompt(t('Shipping carrier'), row.shippingCarrier ?? '') || undefined;
-    const trackingId = window.prompt(t('Tracking reference'), row.trackingId ?? '') || undefined;
-    const blockedReason = window.prompt(t('Blocked reason'), row.blockedReason ?? '') || undefined;
+  const saveOrder = async () => {
+    if (!selectedOrder) return;
+    const values = await orderForm.validateFields();
     await api.request({
-      url: 'ecobaseSupplierOrders:updateOrderOperatorFields',
+      url: 'ecobaseSupplierOrders:updateOrder',
       method: 'post',
       data: {
-        supplierOrderId: row.id,
-        company: row.company,
-        status: statusValue.trim() || undefined,
-        expectedDeliveryDate,
-        approvalStatus,
-        paymentStatus,
-        shippingCarrier,
-        trackingId,
-        blockedReason,
+        supplierOrderId: selectedOrder.id,
+        company: selectedOrder.company,
+        supplierId: values.supplierId,
+        externalOrderRef: values.externalOrderRef,
+        orderDate: values.orderDate,
+        status: values.status,
+        expectedDeliveryDate: values.expectedDeliveryDate,
+        approvalStatus: values.approvalStatus,
+        paymentStatus: values.paymentStatus,
+        shippingCarrier: values.shippingCarrier,
+        trackingId: values.trackingId,
+        blockedReason: values.blockedReason,
       },
     });
-    message.success(t('Supplier order updated'));
-    await loadWorkspace();
+    await refreshAfterMutation(t('Order updated'));
   };
 
-  const receiveLine = async (row: PlainRecord) => {
-    const receivedQtyText = window.prompt(t('Received quantity'), String(row.receivedQty ?? 0));
-    if (receivedQtyText === null) {
-      return;
-    }
-    const planningProductId = window.prompt(t('Planning product ID'), row.planningProductId ?? '') || undefined;
-    const orderedQtyText = window.prompt(t('Ordered quantity'), String(row.orderedQty ?? '')) || undefined;
-    const unitCostText = window.prompt(t('Unit cost'), String(row.unitCost ?? '')) || undefined;
-    const expectedDeliveryDate = window.prompt(t('Expected delivery date YYYY-MM-DD'), row.expectedDeliveryDate ?? '') || undefined;
-    const expectedSellableDate = window.prompt(t('Expected sellable date YYYY-MM-DD'), row.expectedSellableDate ?? '') || undefined;
-    const notes = window.prompt(t('Line notes'), '') || undefined;
+  const saveLine = async () => {
+    if (!selectedLine || !selectedOrder) return;
+    const values = await lineForm.validateFields();
     await api.request({
       url: 'ecobaseSupplierOrders:updateLineOperatorFields',
       method: 'post',
       data: {
-        supplierOrderLineId: row.id,
-        company: row.company,
-        planningProductId,
-        orderedQty: orderedQtyText ? Number(orderedQtyText) : undefined,
-        receivedQty: Number(receivedQtyText),
-        unitCost: unitCostText ? Number(unitCostText) : undefined,
-        expectedDeliveryDate,
-        expectedSellableDate,
-        notes,
+        supplierOrderLineId: selectedLine.id,
+        company: selectedOrder.company,
+        planningProductId: values.planningProductId,
+        externalOrderRef: values.externalOrderRef,
+        orderedQty: values.orderedQty,
+        receivedQty: values.receivedQty,
+        unitCost: values.unitCost,
+        expectedDeliveryDate: values.expectedDeliveryDate,
+        expectedSellableDate: values.expectedSellableDate,
+        notes: values.notes,
       },
     });
-    message.success(t('Supplier order line updated'));
-    await loadWorkspace();
+    setSelectedLine(null);
+    lineForm.resetFields();
+    await refreshAfterMutation(t('Order line updated'));
   };
 
-  const addLine = async (row: PlainRecord) => {
-    const planningProductId = window.prompt(t('Planning product ID'), '');
-    if (planningProductId === null || !planningProductId.trim()) {
-      return;
-    }
-    const orderedQtyText = window.prompt(t('Ordered quantity'), '1');
-    if (orderedQtyText === null) {
-      return;
-    }
-    const unitCostText = window.prompt(t('Unit cost'), '') || undefined;
-    const expectedDeliveryDate = window.prompt(t('Expected delivery date YYYY-MM-DD'), '') || undefined;
-    const expectedSellableDate = window.prompt(t('Expected sellable date YYYY-MM-DD'), '') || undefined;
-    const notes = window.prompt(t('Line notes'), 'Added from Ecobase order-management workspace.') || undefined;
+  const addLine = async () => {
+    if (!selectedOrder) return;
+    const values = await newLineForm.validateFields();
     await api.request({
       url: 'ecobaseSupplierOrders:createOrderLine',
       method: 'post',
       data: {
-        supplierOrderId: row.id,
-        planningProductId: planningProductId.trim(),
-        orderedQty: Number(orderedQtyText),
-        unitCost: unitCostText ? Number(unitCostText) : undefined,
-        expectedDeliveryDate,
-        expectedSellableDate,
-        notes,
+        supplierOrderId: selectedOrder.id,
+        planningProductId: values.planningProductId,
+        orderedQty: values.orderedQty,
+        unitCost: values.unitCost,
+        expectedDeliveryDate: values.expectedDeliveryDate,
+        expectedSellableDate: values.expectedSellableDate,
+        notes: values.notes,
       },
     });
-    message.success(t('Supplier order line added'));
-    await loadWorkspace();
+    newLineForm.resetFields();
+    await refreshAfterMutation(t('Order line added'));
   };
 
-  const updateLeadTimeForCandidate = async (row: PlainRecord) => {
-    const supplierId = window.prompt(t('Supplier ID'), row.preferredSupplierId ?? '');
-    if (supplierId === null || !supplierId.trim()) {
-      return;
-    }
-    const leadTimeText = window.prompt(t('Confirmed lead time days'), String(row.leadTimeDays ?? ''));
-    if (leadTimeText === null) {
-      return;
-    }
-    const notes = window.prompt(t('Lead time notes'), '') || undefined;
+  const deleteLine = async (line: PlainRecord) => {
+    if (!selectedOrder) return;
     await api.request({
-      url: 'ecobaseSupplierOrders:updateSupplierLeadTime',
+      url: 'ecobaseSupplierOrders:deleteLineOperatorFields',
       method: 'post',
-      data: {
-        company: row.company,
-        supplierId: supplierId.trim(),
-        planningProductId: row.planningProductId,
-        asin: row.canonicalAsin,
-        leadTimeDays: Number(leadTimeText),
-        notes,
-      },
+      data: { supplierOrderLineId: line.id, company: selectedOrder.company },
     });
-    message.success(t('Product-specific lead time updated'));
-    await loadWorkspace();
+    await refreshAfterMutation(t('Order line removed'));
   };
 
-  const askAiEmployee = async () => {
-    const question = aiQuestion.trim();
-    if (!question) {
-      message.error(t('Enter a question for the AI employee.'));
-      return;
-    }
-    setAiLoading(true);
-    try {
-      const response = await api.request({
-        url: 'ecobaseAi:answer',
-        method: 'post',
-        data: {
-          company: company.trim() || undefined,
-          question,
-        },
-      });
-      let payload: any = response;
-      for (let i = 0; i < 4; i += 1) {
-        if (!payload || typeof payload !== 'object' || !('data' in payload)) break;
-        payload = payload.data;
-      }
-      setAiAnswer(payload);
-    } finally {
-      setAiLoading(false);
-    }
-  };
-
-  const recordActivity = async (row: PlainRecord, activityType: string) => {
-    const notes = window.prompt(t('Activity notes'), '');
-    if (notes === null) {
-      return;
-    }
-    const occurredAt = window.prompt(t('Occurred at ISO timestamp'), new Date().toISOString()) || undefined;
-    const nextFollowUpAt = window.prompt(t('Next follow-up at ISO timestamp'), '') || undefined;
-    const leadTimeDays =
-      activityType === 'lead_time_checked' ? Number(window.prompt(t('Confirmed lead time days'), '') ?? NaN) : undefined;
+  const recordActivity = async (activityType: string) => {
+    if (!selectedOrder) return;
     await api.request({
       url: 'ecobaseSupplierOrders:recordActivity',
       method: 'post',
       data: {
-        company: row.company,
-        supplierId: row.supplierId,
-        supplierOrderId: row.id,
+        company: selectedOrder.company,
+        supplierId: selectedOrder.supplierId,
+        supplierOrderId: selectedOrder.id,
         activityType,
-        occurredAt,
-        notes,
-        nextFollowUpAt,
-        leadTimeDays: Number.isFinite(leadTimeDays) ? leadTimeDays : undefined,
+        occurredAt: new Date().toISOString(),
+        notes: `${activityType} from Order Management drawer.`,
       },
     });
-    message.success(t('Supplier activity recorded'));
-    await loadWorkspace();
+    await refreshAfterMutation(t('Activity recorded'));
+  };
+
+  const renderOrderCard = (order: PlainRecord) => {
+    const cardLines = order.cardLines ?? [];
+    const visibleLines = cardLines.slice(0, 2);
+    const extraLineCount = Math.max(0, cardLines.length - visibleLines.length);
+    const risk = riskMoneyText(order.productRiskSummary?.maxEstimatedProfitRisk);
+    const oos = oosSummaryText(order.productRiskSummary?.earliestOosDate);
+    const timing = [openedText(order), waitingText(order), etaText(order.expectedDeliveryDate)].filter(Boolean).join(' · ');
+    const blocker = blockerSummary(order);
+    return (
+      <Card
+        key={order.id}
+        size="small"
+        hoverable
+        onClick={() => openOrder(order)}
+        style={{ marginBottom: 8, borderLeft: `4px solid ${statusAccentColor(order.normalizedStatus)}` }}
+      >
+        <Space direction="vertical" size={4} style={{ width: '100%' }}>
+          <Space style={{ justifyContent: 'space-between', width: '100%' }} align="start">
+            <Typography.Text strong>{order.externalOrderRef ?? t('No order ref')}</Typography.Text>
+            <Tag color={STATUS_COLORS[order.normalizedStatus] ?? 'default'}>{t(statusLabel(order.normalizedStatus, data.statusLanes))}</Tag>
+          </Space>
+          <Typography.Text ellipsis type={order.supplierName === 'Unknown supplier' ? 'secondary' : undefined}>{order.supplierName}</Typography.Text>
+          {visibleLines.map((line: PlainRecord) => (
+            <Typography.Text key={String(line.id ?? `${line.asin}:${line.sku}`)} type="secondary" ellipsis>{productEssence(line)}</Typography.Text>
+          ))}
+          {extraLineCount > 0 ? <Typography.Text type="secondary">+{extraLineCount} {t('more')}</Typography.Text> : null}
+          <Space size={4} wrap>
+            <Tag>{formatNumber(order.openQty)} {t('open')}</Tag>
+            {risk ? <Tag color="volcano">{risk}</Tag> : null}
+            {oos ? <Tag color={oos === 'OOS now' ? 'red' : 'orange'}>{oos}</Tag> : null}
+          </Space>
+          {timing ? <Typography.Text type="secondary">{timing}</Typography.Text> : null}
+          {blocker ? <Typography.Text italic ellipsis>{blocker}</Typography.Text> : null}
+          {order.attentionReasons.length ? (
+            <Space size={4} wrap>{order.attentionReasons.map((reason: string) => <Tag color={reason === 'blocked' ? 'red' : 'warning'} key={reason}>{t(reason)}</Tag>)}</Space>
+          ) : null}
+        </Space>
+      </Card>
+    );
+  };
+
+  const renderPayloadTable = (payload: unknown) => {
+    const entries = fieldEntries(payload);
+    if (!entries.length) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('No imported payload evidence')} />;
+    return (
+      <Table
+        size="small"
+        pagination={false}
+        rowKey={(row: { key: string }) => row.key}
+        dataSource={entries.map(([key, value]) => ({ key, value: compactText(value) }))}
+        columns={[
+          { title: t('Field'), dataIndex: 'key', width: 220 },
+          { title: t('Imported value'), dataIndex: 'value' },
+        ]}
+      />
+    );
   };
 
   return (
@@ -310,209 +662,291 @@ export default function OrderManagementPage() {
         <Space direction="vertical" style={{ width: '100%' }}>
           <Typography.Title level={3}>{t('Ecobase supplier order management')}</Typography.Title>
           <Typography.Paragraph type="secondary">
-            {t('Operate normalized supplier orders seeded from the order-management sheets without editing raw import rows.')}
+            {t('Operate supplier orders from draft through purchase and inbound without editing raw imported sheet rows.')}
           </Typography.Paragraph>
+          <Row gutter={[12, 12]}>
+            <Col xs={24} md={8} xl={5}>
+              <Select
+                showSearch
+                allowClear
+                placeholder={t('Company filter')}
+                value={company || undefined}
+                onChange={(value) => setCompany(value ?? '')}
+                onSearch={(value) => setCompany(value)}
+                optionFilterProp="label"
+                options={companyOptions}
+                style={{ width: '100%' }}
+              />
+            </Col>
+            <Col xs={24} md={16} xl={7}>
+              <Input placeholder={t('Search order, supplier, ASIN, SKU, tracking, invoice')} value={search} onChange={(event) => setSearch(event.target.value)} />
+            </Col>
+            <Col xs={24} md={8} xl={4}>
+              <Select value={sortBy} onChange={setSortBy} style={{ width: '100%' }} options={[
+                { value: 'attention', label: t('Sort by attention') },
+                { value: 'lastUpdate', label: t('Sort by last update') },
+                { value: 'expectedDeliveryDate', label: t('Sort by ETA') },
+                { value: 'supplier', label: t('Sort by supplier') },
+                { value: 'order', label: t('Sort by order') },
+                { value: 'openQty', label: t('Sort by open qty') },
+              ]} />
+            </Col>
+            <Col xs={24} md={8} xl={4}>
+              <Button type="primary" onClick={() => void loadWorkspace()} loading={loading} style={{ width: '100%' }}>{t('Refresh workspace')}</Button>
+            </Col>
+            <Col xs={24} md={8} xl={4}>
+              <Button onClick={() => { setHideClosed(false); setHidePurchased(false); setAttentionOnly(false); setStatuses([]); setPipelineGroups([]); }} style={{ width: '100%' }}>{t('Show all statuses')}</Button>
+            </Col>
+          </Row>
+          <Row gutter={[12, 12]}>
+            <Col xs={24} md={12} xl={6}>
+              <Select mode="multiple" allowClear placeholder={t('Statuses')} value={statuses} onChange={setStatuses} style={{ width: '100%' }} options={statusOptions} />
+            </Col>
+            <Col xs={24} md={12} xl={6}>
+              <Select mode="multiple" allowClear placeholder={t('Suppliers')} value={supplierIds} onChange={setSupplierIds} style={{ width: '100%' }} options={supplierOptions} showSearch optionFilterProp="label" />
+            </Col>
+            <Col xs={24} md={12} xl={6}>
+              <Select mode="multiple" allowClear placeholder={t('Source stage')} value={sourceStages} onChange={setSourceStages} style={{ width: '100%' }} options={sourceStageOptions} />
+            </Col>
+            <Col xs={24} md={12} xl={6}>
+              <Select mode="multiple" allowClear placeholder={t('Pipeline group')} value={pipelineGroups} onChange={setPipelineGroups} style={{ width: '100%' }} options={[
+                { value: 'before_purchase', label: t('Before purchase') },
+                { value: 'purchased_pipeline', label: t('Purchased / inbound') },
+                { value: 'closed_archive', label: t('Closed / archive') },
+              ]} />
+            </Col>
+          </Row>
           <Space wrap>
-            <Input placeholder={t('Company filter')} value={company} onChange={(event) => setCompany(event.target.value)} />
-            <Select
-              allowClear
-              placeholder={t('Status filter')}
-              style={{ minWidth: 220 }}
-              value={status || undefined}
-              onChange={(value) => setStatus(value ?? '')}
-              options={data.statusLanes.map((lane) => ({ label: lane.title ?? lane.key, value: lane.key }))}
-            />
-            <Input
-              placeholder={t('Projected OOS date YYYY-MM-DD')}
-              value={stockoutDate}
-              onChange={(event) => setStockoutDate(event.target.value)}
-            />
-            <Button type="primary" onClick={() => void loadWorkspace()} loading={loading}>
-              {t('Refresh workspace')}
-            </Button>
+            <Checkbox checked={hideClosed} onChange={(event) => setHideClosed(event.target.checked)}>{t('Hide closed / reached FBA')}</Checkbox>
+            <Checkbox checked={hidePurchased} onChange={(event) => setHidePurchased(event.target.checked)}>{t('Hide purchased pipeline')}</Checkbox>
+            <Checkbox checked={attentionOnly} onChange={(event) => setAttentionOnly(event.target.checked)}>{t('Show only needs attention')}</Checkbox>
           </Space>
-          {!company.trim() ? <Alert type="info" message={t('Enter a company filter to load company-scoped order data.')} /> : null}
-          {error ? <Alert type="error" message={error.message} /> : null}
+          {!company.trim() ? <Alert type="info" showIcon message={t('Enter a company filter to load company-scoped order data.')} /> : null}
+          {error ? <Alert type="error" showIcon message={error.message} /> : null}
         </Space>
       </Card>
 
-      <Card title={t('Order-status guide')}> 
-        <Space wrap>
-          {data.statusLanes.map((lane) => (
-            <Tooltip key={lane.key} title={lane.help}>
-              <Tag>{lane.title ?? lane.key}</Tag>
-            </Tooltip>
-          ))}
-        </Space>
-        <Typography.Paragraph type="secondary" style={{ marginTop: 12 }}>
-          {t('Draft/contacted/approval/rejected/cancelled statuses do not count as reorder coverage. Supplier-confirmed is weak evidence until the order is paid or otherwise inbound.')}
-        </Typography.Paragraph>
+      <Card title={t('Critical order digest')}>
+        {digestOrders.length ? (
+          <Row gutter={[12, 12]}>
+            {digestOrders.map((order) => (
+              <Col xs={24} md={12} xl={6} key={order.id}>
+                {renderOrderCard(order)}
+              </Col>
+            ))}
+          </Row>
+        ) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('No critical orders in the loaded workspace')} />}
       </Card>
 
-      <Card title={t('AI employee order assistant')}> 
-        <Space direction="vertical" style={{ width: '100%' }}>
-          <Typography.Paragraph type="secondary">
-            {t('Ask for reorder follow-up, supplier lead-time gaps, or whether a product already has reliable order coverage. Answers are saved with evidence references.')}
-          </Typography.Paragraph>
-          <Input.TextArea
-            rows={3}
-            placeholder={t('Example: Which urgent A-tier ASINs need supplier follow-up today?')}
-            value={aiQuestion}
-            onChange={(event) => setAiQuestion(event.target.value)}
-          />
-          <Button onClick={() => void askAiEmployee()} loading={aiLoading}>{t('Ask AI employee')}</Button>
-          {aiAnswer ? (
-            <Alert
-              type={aiAnswer.warnings?.length ? 'warning' : 'info'}
-              message={aiAnswer.response ?? t('No response returned.')}
-              description={t('Evidence references') + ': ' + JSON.stringify(aiAnswer.evidenceReferences ?? [])}
-            />
-          ) : null}
-        </Space>
-      </Card>
+      <Tabs
+        defaultActiveKey="board"
+        items={[
+          {
+            key: 'board',
+            label: t('Pipeline board'),
+            children: (
+              <Space direction="vertical" size="large" style={{ width: '100%' }}>
+                {boardGroups.map((group) => {
+                  const groupOrders = filteredOrders.filter((order) => order.pipelineGroup === group.key);
+                  if (!groupOrders.length && hideClosed && group.key === 'closed_archive') return null;
+                  if (!groupOrders.length && hidePurchased && group.key === 'purchased_pipeline') return null;
+                  return (
+                    <Card key={group.key} title={<Space><span>{group.title}</span><Badge count={groupOrders.length} showZero /></Space>}>
+                      <Row gutter={[12, 12]}>
+                        {group.statuses.map((status) => {
+                          const laneOrders = groupOrders.filter((order) => order.normalizedStatus === status);
+                          if (!laneOrders.length && DEFAULT_HIDDEN_STATUSES.includes(status) && hideClosed) return null;
+                          if (!laneOrders.length && PURCHASED_PIPELINE_STATUSES.includes(status) && hidePurchased) return null;
+                          return (
+                            <Col xs={24} md={12} xl={6} xxl={4} key={status}>
+                              <Card size="small" title={<Space><Tag color={STATUS_COLORS[status] ?? 'default'}>{t(statusLabel(status, data.statusLanes))}</Tag><Badge count={laneOrders.length} showZero /></Space>} style={{ minHeight: 180 }}>
+                                {laneOrders.length ? laneOrders.map(renderOrderCard) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('No orders')} />}
+                              </Card>
+                            </Col>
+                          );
+                        })}
+                      </Row>
+                    </Card>
+                  );
+                })}
+              </Space>
+            ),
+          },
+          {
+            key: 'table',
+            label: t('Order table'),
+            children: (
+              <Table<PlainRecord>
+                rowKey="id"
+                loading={loading}
+                dataSource={filteredOrders}
+                pagination={{ pageSize: 25 }}
+                onRow={(row) => ({ onClick: () => openOrder(row) })}
+                columns={[
+                  { title: t('Order'), key: 'order', render: (_, row) => row.externalOrderRef ?? row.id },
+                  { title: t('Status'), dataIndex: 'normalizedStatus', render: (value: string) => <Tag color={STATUS_COLORS[value] ?? 'default'}>{t(statusLabel(value, data.statusLanes))}</Tag> },
+                  { title: t('Pipeline'), dataIndex: 'pipelineGroup', render: (value: string) => t(value) },
+                  { title: t('Supplier'), dataIndex: 'supplierName' },
+                  { title: t('Source'), dataIndex: 'sourceStage' },
+                  { title: t('Approval'), dataIndex: 'approvalStatus', render: (value) => value || '—' },
+                  { title: t('Payment'), dataIndex: 'paymentStatus', render: (value) => value || '—' },
+                  { title: t('ETA'), dataIndex: 'expectedDeliveryDate', render: formatDate },
+                  { title: t('Open qty'), dataIndex: 'openQty', render: formatNumber },
+                  { title: t('Lines'), dataIndex: 'lineCount', render: formatNumber },
+                  { title: t('Attention'), dataIndex: 'attentionReasons', render: (reasons: string[]) => reasons?.length ? reasons.map((reason) => <Tag color="red" key={reason}>{t(reason)}</Tag>) : '—' },
+                ]}
+              />
+            ),
+          },
+          {
+            key: 'lines',
+            label: t('Lines'),
+            children: (
+              <Table<PlainRecord>
+                rowKey="id"
+                loading={loading}
+                dataSource={data.supplierOrderLines.filter((line) => filteredOrders.some((order) => String(order.id) === String(line.supplierOrderId)))}
+                pagination={{ pageSize: 25 }}
+                columns={[
+                  { title: t('Order ID'), dataIndex: 'supplierOrderId' },
+                  { title: t('ASIN'), dataIndex: 'asin' },
+                  { title: t('SKU'), dataIndex: 'sku' },
+                  { title: t('Brand'), dataIndex: 'brand' },
+                  { title: t('Ordered'), dataIndex: 'orderedQty', render: formatNumber },
+                  { title: t('Received'), dataIndex: 'receivedQty', render: formatNumber },
+                  { title: t('Open'), render: (_, row) => formatNumber(openQty(row)) },
+                  { title: t('Unit cost'), dataIndex: 'unitCost', render: formatNumber },
+                  { title: t('Expected delivery'), dataIndex: 'expectedDeliveryDate', render: formatDate },
+                  { title: t('Expected sellable'), dataIndex: 'expectedSellableDate', render: formatDate },
+                  { title: t('Source'), dataIndex: 'sourceStage' },
+                ]}
+              />
+            ),
+          },
+        ]}
+      />
 
-      <Card title={t('Reorder candidates and coverage')}>
-        <Table<PlainRecord>
-          rowKey="planningProductId"
-          loading={loading}
-          dataSource={data.reorderCandidates}
-          pagination={{ pageSize: 10 }}
-          columns={[
-            { title: t('Company'), dataIndex: 'company', key: 'company' },
-            { title: t('ASIN'), dataIndex: 'canonicalAsin', key: 'canonicalAsin' },
-            { title: t('Product'), dataIndex: 'title', key: 'title' },
-            {
-              title: t('Coverage'),
-              key: 'coverage',
-              render: (_, row) => <Tag color={coverageColor(row.coverage?.coverageState)}>{row.coverage?.coverageState ?? 'unknown'}</Tag>,
-            },
-            { title: t('Open qty'), dataIndex: 'openQty', key: 'openQty' },
-            { title: t('Supplier'), dataIndex: 'preferredSupplierId', key: 'preferredSupplierId' },
-            { title: t('Lead time days'), dataIndex: 'leadTimeDays', key: 'leadTimeDays' },
-            { title: t('Lead time confirmed'), dataIndex: 'leadTimeConfirmedAt', key: 'leadTimeConfirmedAt' },
-            { title: t('Latest contact'), dataIndex: 'latestContactAt', key: 'latestContactAt' },
-            {
-              title: t('Action'),
-              key: 'action',
-              render: (_, row) => (
+      <Drawer
+        open={!!selectedOrder}
+        width={980}
+        title={selectedOrder ? `${selectedOrder.externalOrderRef ?? selectedOrder.id} · ${selectedOrder.supplierName}` : t('Supplier order')}
+        onClose={() => { setSelectedOrderId(null); setSelectedLine(null); }}
+        extra={<Button onClick={() => { setSelectedOrderId(null); setSelectedLine(null); }}>{t('Close')}</Button>}
+      >
+        {selectedOrder ? (
+          <Space direction="vertical" size="large" style={{ width: '100%' }}>
+            <Descriptions bordered column={1} size="small">
+              <Descriptions.Item label={t('Status')}><Tag color={STATUS_COLORS[selectedOrder.normalizedStatus] ?? 'default'}>{t(statusLabel(selectedOrder.normalizedStatus, data.statusLanes))}</Tag></Descriptions.Item>
+              <Descriptions.Item label={t('Pipeline group')}>{t(selectedOrder.pipelineGroup)}</Descriptions.Item>
+              <Descriptions.Item label={t('Company')}>{selectedOrder.company}</Descriptions.Item>
+              <Descriptions.Item label={t('Supplier')}>{selectedOrder.supplierName}</Descriptions.Item>
+              <Descriptions.Item label={t('Source stage')}>{selectedOrder.sourceStage ?? '—'}</Descriptions.Item>
+              <Descriptions.Item label={t('Opened')}>{openedText(selectedOrder) ?? '—'}</Descriptions.Item>
+              <Descriptions.Item label={t('Waiting')}>{waitingText(selectedOrder) ?? '—'}</Descriptions.Item>
+              <Descriptions.Item label={t('Expected delivery')}>{etaText(selectedOrder.expectedDeliveryDate) ?? formatDate(selectedOrder.expectedDeliveryDate)}</Descriptions.Item>
+              <Descriptions.Item label={t('Attention')}>{selectedOrder.attentionReasons.length ? selectedOrder.attentionReasons.map((reason: string) => <Tag color="red" key={reason}>{t(reason)}</Tag>) : '—'}</Descriptions.Item>
+            </Descriptions>
+
+            <Card title={t('Edit order lifecycle')}>
+              <Form form={orderForm} layout="vertical">
+                <Row gutter={12}>
+                  <Col xs={24} md={8}><Form.Item name="externalOrderRef" label={t('Order ref')}><Input /></Form.Item></Col>
+                  <Col xs={24} md={8}><Form.Item name="supplierId" label={t('Supplier')} rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={supplierOptions} placeholder={t('Search supplier')} /></Form.Item></Col>
+                  <Col xs={24} md={8}><Form.Item name="orderDate" label={t('Opened date YYYY-MM-DD')}><Input /></Form.Item></Col>
+                  <Col xs={24} md={8}><Form.Item name="status" label={t('Status')} rules={[{ required: true }]}><Select options={statusOptions} /></Form.Item></Col>
+                  <Col xs={24} md={8}><Form.Item name="expectedDeliveryDate" label={t('Expected delivery YYYY-MM-DD')}><Input /></Form.Item></Col>
+                  <Col xs={24} md={8}><Form.Item name="approvalStatus" label={t('Approval status')}><Input /></Form.Item></Col>
+                  <Col xs={24} md={8}><Form.Item name="paymentStatus" label={t('Payment status')}><Input /></Form.Item></Col>
+                  <Col xs={24} md={8}><Form.Item name="shippingCarrier" label={t('Shipping carrier')}><Input /></Form.Item></Col>
+                  <Col xs={24} md={8}><Form.Item name="trackingId" label={t('Tracking ID')}><Input /></Form.Item></Col>
+                  <Col xs={24}><Form.Item name="blockedReason" label={t('Blocked reason')}><Input.TextArea rows={2} /></Form.Item></Col>
+                </Row>
                 <Space wrap>
-                  <Button onClick={() => void createPlannedOrder(row)}>{t('Create planned order')}</Button>
-                  <Button onClick={() => void updateLeadTimeForCandidate(row)}>{t('Update lead time')}</Button>
+                  <Button type="primary" onClick={() => void saveOrder()}>{t('Save order')}</Button>
+                  <Button onClick={() => void recordActivity('contacted_supplier')}>{t('Contacted supplier')}</Button>
+                  <Button onClick={() => void recordActivity('status_update')}>{t('Status update')}</Button>
+                  <Button onClick={() => void recordActivity('blocked')}>{t('Mark activity blocked')}</Button>
+                  <Button onClick={() => void recordActivity('unblocked')}>{t('Mark activity unblocked')}</Button>
                 </Space>
-              ),
-            },
-          ]}
-        />
-      </Card>
+              </Form>
+            </Card>
 
-      <Card title={t('Supplier orders')}>
-        <Table<PlainRecord>
-          rowKey="id"
-          loading={loading}
-          dataSource={data.supplierOrders}
-          pagination={{ pageSize: 10 }}
-          columns={[
-            { title: t('Order ref'), dataIndex: 'externalOrderRef', key: 'externalOrderRef' },
-            { title: t('Company'), dataIndex: 'company', key: 'company' },
-            { title: t('Supplier'), dataIndex: 'supplierId', key: 'supplierId' },
-            { title: t('Status'), dataIndex: 'status', key: 'status', render: (value) => <Tag>{value}</Tag> },
-            { title: t('Expected delivery'), dataIndex: 'expectedDeliveryDate', key: 'expectedDeliveryDate' },
-            { title: t('Approval'), dataIndex: 'approvalStatus', key: 'approvalStatus' },
-            { title: t('Payment'), dataIndex: 'paymentStatus', key: 'paymentStatus' },
-            { title: t('Tracking'), dataIndex: 'trackingId', key: 'trackingId' },
-            { title: t('Blocked reason'), dataIndex: 'blockedReason', key: 'blockedReason' },
-            {
-              title: t('Actions'),
-              key: 'actions',
-              render: (_, row) => (
-                <Space wrap>
-                  <Button onClick={() => void updateOrder(row)}>{t('Update order')}</Button>
-                  <Button onClick={() => void addLine(row)}>{t('Add line')}</Button>
-                  <Button onClick={() => void recordActivity(row, 'contacted_supplier')}>{t('Contacted')}</Button>
-                  <Button onClick={() => void recordActivity(row, 'status_update')}>{t('Status update')}</Button>
-                  <Button onClick={() => void recordActivity(row, 'lead_time_checked')}>{t('Lead time checked')}</Button>
-                  <Button onClick={() => void recordActivity(row, 'note')}>{t('Note')}</Button>
-                  <Button onClick={() => void recordActivity(row, 'blocked')}>{t('Blocked')}</Button>
-                  <Button onClick={() => void recordActivity(row, 'unblocked')}>{t('Unblocked')}</Button>
-                </Space>
-              ),
-            },
-          ]}
-        />
-      </Card>
+            <Card title={t('Product lines')}>
+              <Table<PlainRecord>
+                size="small"
+                rowKey="id"
+                dataSource={selectedOrderLines}
+                pagination={false}
+                columns={[
+                  { title: t('ASIN'), dataIndex: 'asin' },
+                  { title: t('SKU'), dataIndex: 'sku' },
+                  { title: t('Brand'), dataIndex: 'brand' },
+                  { title: t('Ordered'), dataIndex: 'orderedQty', render: formatNumber },
+                  { title: t('Received'), dataIndex: 'receivedQty', render: formatNumber },
+                  { title: t('Open'), render: (_, row) => formatNumber(openQty(row)) },
+                  { title: t('ETA'), dataIndex: 'expectedDeliveryDate', render: formatDate },
+                  { title: t('Sellable'), dataIndex: 'expectedSellableDate', render: formatDate },
+                  { title: t('Warning'), render: (_, row) => row.unresolvedMapping || row.mappingWarning ? <Tag color="red">{t('Unmapped')}</Tag> : '—' },
+                  { title: t('Action'), render: (_, row) => <Space><Button size="small" onClick={() => setSelectedLine(row)}>{t('Edit')}</Button><Popconfirm title={t('Remove this line?')} onConfirm={() => void deleteLine(row)}><Button size="small" danger>{t('Remove')}</Button></Popconfirm></Space> },
+                ]}
+              />
 
-      <Card title={t('Supplier order lines')}>
-        <Table<PlainRecord>
-          rowKey="id"
-          loading={loading}
-          dataSource={data.supplierOrderLines}
-          pagination={{ pageSize: 10 }}
-          columns={[
-            { title: t('Order ID'), dataIndex: 'supplierOrderId', key: 'supplierOrderId' },
-            { title: t('Planning product'), dataIndex: 'planningProductId', key: 'planningProductId' },
-            { title: t('ASIN'), dataIndex: 'asin', key: 'asin' },
-            { title: t('Ordered'), dataIndex: 'orderedQty', key: 'orderedQty' },
-            { title: t('Received'), dataIndex: 'receivedQty', key: 'receivedQty' },
-            { title: t('Open'), key: 'openQty', render: (_, row) => openQty(row) },
-            { title: t('Unit cost'), dataIndex: 'unitCost', key: 'unitCost' },
-            { title: t('Expected delivery'), dataIndex: 'expectedDeliveryDate', key: 'expectedDeliveryDate' },
-            { title: t('Expected sellable'), dataIndex: 'expectedSellableDate', key: 'expectedSellableDate' },
-            { title: t('Source'), dataIndex: 'sourceStage', key: 'sourceStage' },
-            { title: t('Action'), key: 'action', render: (_, row) => <Button onClick={() => void receiveLine(row)}>{t('Receive/update')}</Button> },
-          ]}
-        />
-      </Card>
+              {selectedLine ? (
+                <>
+                  <Divider orientation="left">{t('Edit selected line')}</Divider>
+                  <Form form={lineForm} layout="vertical">
+                    <Row gutter={12}>
+                      <Col xs={24} md={12}><Form.Item name="planningProductId" label={t('Product')}><Select showSearch optionFilterProp="label" options={productOptions} placeholder={t('Search ASIN, SKU, brand')} /></Form.Item></Col>
+                      <Col xs={24} md={6}><Form.Item name="orderedQty" label={t('Ordered qty')}><InputNumber min={0.0001} style={{ width: '100%' }} /></Form.Item></Col>
+                      <Col xs={24} md={6}><Form.Item name="receivedQty" label={t('Received qty')}><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
+                      <Col xs={24} md={6}><Form.Item name="unitCost" label={t('Unit cost')}><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
+                      <Col xs={24} md={6}><Form.Item name="expectedDeliveryDate" label={t('Expected delivery')}><Input /></Form.Item></Col>
+                      <Col xs={24} md={6}><Form.Item name="expectedSellableDate" label={t('Expected sellable')}><Input /></Form.Item></Col>
+                      <Col xs={24} md={6}><Form.Item name="externalOrderRef" label={t('Order ref')}><Input /></Form.Item></Col>
+                      <Col xs={24}><Form.Item name="notes" label={t('Line notes')}><Input.TextArea rows={2} /></Form.Item></Col>
+                    </Row>
+                    <Space><Button type="primary" onClick={() => void saveLine()}>{t('Save line')}</Button><Button onClick={() => setSelectedLine(null)}>{t('Cancel line edit')}</Button></Space>
+                  </Form>
+                  <Divider orientation="left">{t('Selected line raw evidence')}</Divider>
+                  {renderPayloadTable(selectedLine.payload)}
+                </>
+              ) : null}
 
-      <Card title={t('Supplier-product links')}>
-        <Table<PlainRecord>
-          rowKey="id"
-          loading={loading}
-          dataSource={data.supplierProductLinks}
-          pagination={{ pageSize: 10 }}
-          columns={[
-            { title: t('Company'), dataIndex: 'company', key: 'company' },
-            { title: t('Planning product'), dataIndex: 'planningProductId', key: 'planningProductId' },
-            { title: t('Supplier'), dataIndex: 'supplierId', key: 'supplierId' },
-            { title: t('Role'), dataIndex: 'role', key: 'role' },
-            { title: t('Active'), dataIndex: 'active', key: 'active', render: (value) => <Tag>{String(value)}</Tag> },
-            { title: t('Last ordered'), dataIndex: 'lastOrderedAt', key: 'lastOrderedAt' },
-          ]}
-        />
-      </Card>
+              <Divider orientation="left">{t('Add product line')}</Divider>
+              <Form form={newLineForm} layout="vertical">
+                <Row gutter={12}>
+                  <Col xs={24} md={12}><Form.Item name="planningProductId" label={t('Product')} rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={productOptions} placeholder={t('Search ASIN, SKU, brand')} /></Form.Item></Col>
+                  <Col xs={24} md={6}><Form.Item name="orderedQty" label={t('Ordered qty')} rules={[{ required: true }]}><InputNumber min={0.0001} style={{ width: '100%' }} /></Form.Item></Col>
+                  <Col xs={24} md={6}><Form.Item name="unitCost" label={t('Unit cost')}><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
+                  <Col xs={24} md={8}><Form.Item name="expectedDeliveryDate" label={t('Expected delivery')}><Input /></Form.Item></Col>
+                  <Col xs={24} md={8}><Form.Item name="expectedSellableDate" label={t('Expected sellable')}><Input /></Form.Item></Col>
+                  <Col xs={24} md={8}><Form.Item name="notes" label={t('Notes')}><Input /></Form.Item></Col>
+                </Row>
+                <Button type="primary" onClick={() => void addLine()}>{t('Add line')}</Button>
+              </Form>
+            </Card>
 
-      <Card title={t('Recent follow-up activity')}>
-        <Table<PlainRecord>
-          rowKey="id"
-          loading={loading}
-          dataSource={data.activities}
-          pagination={{ pageSize: 10 }}
-          columns={[
-            { title: t('Occurred'), dataIndex: 'occurredAt', key: 'occurredAt' },
-            { title: t('Type'), dataIndex: 'activityType', key: 'activityType' },
-            { title: t('Company'), dataIndex: 'company', key: 'company' },
-            { title: t('Supplier'), dataIndex: 'supplierId', key: 'supplierId' },
-            { title: t('Lead time days'), dataIndex: 'leadTimeDays', key: 'leadTimeDays' },
-            { title: t('Next follow-up'), dataIndex: 'nextFollowUpAt', key: 'nextFollowUpAt' },
-            { title: t('Notes'), dataIndex: 'notes', key: 'notes' },
-          ]}
-        />
-      </Card>
+            <Card title={t('Activity timeline')}>
+              <Table<PlainRecord>
+                size="small"
+                rowKey="id"
+                dataSource={selectedActivities}
+                pagination={{ pageSize: 5 }}
+                columns={[
+                  { title: t('Occurred'), dataIndex: 'occurredAt' },
+                  { title: t('Type'), dataIndex: 'activityType' },
+                  { title: t('Next follow-up'), dataIndex: 'nextFollowUpAt', render: (value) => value || '—' },
+                  { title: t('Notes'), dataIndex: 'notes', render: (value) => value || '—' },
+                ]}
+              />
+            </Card>
 
-      <Card title={t('Read-only raw import evidence')}>
-        <Table<PlainRecord>
-          rowKey="id"
-          loading={loading}
-          dataSource={data.rawImportRows}
-          pagination={{ pageSize: 10 }}
-          columns={[
-            { title: t('Import run'), dataIndex: 'importRunId', key: 'importRunId' },
-            { title: t('Source connection'), dataIndex: 'sourceConnectionId', key: 'sourceConnectionId' },
-            { title: t('Row number'), dataIndex: 'rowNumber', key: 'rowNumber' },
-            { title: t('Status'), dataIndex: 'status', key: 'status' },
-            { title: t('Warnings'), dataIndex: 'warnings', key: 'warnings', render: (value) => JSON.stringify(value ?? []) },
-          ]}
-        />
-      </Card>
+            <Card title={t('Read-only order sheet evidence')}>
+              {renderPayloadTable(selectedOrder.payload)}
+            </Card>
+          </Space>
+        ) : null}
+      </Drawer>
     </Space>
   );
 }
