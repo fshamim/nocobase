@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { ToolsOptions } from '@nocobase/ai';
 import { EcobaseAiRetrievalService } from './services/ai-retrieval-service';
+import { EcobaseDailyOperationsBriefService } from './services/daily-operations-brief-service';
 import { EcobaseInventoryPlanningService } from './services/inventory-planning-service';
 import { EcobaseSourceConnectionService } from './services/source-connection-service';
 import { EcobaseSupplierOrderService } from './services/supplier-order-service';
@@ -18,6 +19,10 @@ function limitNumber(value: unknown, defaultValue: number, max: number) {
 
 function optionalString(value: unknown) {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function toolDate(value: unknown) {
+  return optionalString(value) ?? new Date().toISOString().slice(0, 10);
 }
 
 function toolError(error: unknown, fallback: string) {
@@ -74,6 +79,149 @@ export function createEcobaseAiTools(): ToolsOptions[] {
           };
         } catch (error) {
           return toolError(error, 'Ecobase source status lookup failed.');
+        }
+      },
+    },
+    {
+      scope: 'CUSTOM',
+      defaultPermission: 'ALLOW',
+      execution: 'backend',
+      introduction: {
+        title: 'Ecobase daily operations brief',
+        about: 'Read the deterministic daily operations brief evidence pack without generating narrative or sending email.',
+      },
+      definition: {
+        name: 'ecobase_daily_operations_brief',
+        description: 'Read-only Ecobase tool. Use this to inspect the daily evidence pack, focus ranking, secondary exceptions, and data warnings. Does not send email or expose credentials.',
+        schema: z.object({
+          company: z.string().optional().describe('Optional company/legal entity filter.'),
+          date: z.string().optional().describe('Brief date in YYYY-MM-DD format.'),
+          maxItems: z.number().int().positive().max(100).optional(),
+        }),
+      },
+      invoke: async (ctx, args) => {
+        try {
+          const service = new EcobaseDailyOperationsBriefService(ctx.db);
+          const evidencePack = await service.buildEvidencePack({
+            company: optionalString(args?.company),
+            date: toolDate(args?.date),
+            timezone: 'Asia/Karachi',
+            maxItems: limitNumber(args?.maxItems, 25, 100),
+          });
+          return { status: 'success' as const, content: toToolContent(evidencePack) };
+        } catch (error) {
+          return toolError(error, 'Ecobase daily operations brief lookup failed.');
+        }
+      },
+    },
+    {
+      scope: 'CUSTOM',
+      defaultPermission: 'ALLOW',
+      execution: 'backend',
+      introduction: {
+        title: 'Ecobase product context',
+        about: 'Read bounded product-specific evidence from the daily operations brief pack.',
+      },
+      definition: {
+        name: 'ecobase_product_context',
+        description: 'Read-only Ecobase tool. Use this to inspect one product across inventory risks, supplier orders, performance trends, Buy Box risks, and warnings from bounded daily brief evidence.',
+        schema: z.object({
+          company: z.string().optional(),
+          date: z.string().optional(),
+          planningProductId: z.string().optional(),
+          asin: z.string().optional(),
+          sku: z.string().optional(),
+          maxItems: z.number().int().positive().max(100).optional(),
+        }),
+      },
+      invoke: async (ctx, args) => {
+        try {
+          const evidencePack = await new EcobaseDailyOperationsBriefService(ctx.db).buildEvidencePack({ company: optionalString(args?.company), date: toolDate(args?.date), timezone: 'Asia/Karachi', maxItems: limitNumber(args?.maxItems, 25, 100) });
+          const planningProductId = optionalString(args?.planningProductId);
+          const asin = optionalString(args?.asin)?.toUpperCase();
+          const sku = optionalString(args?.sku);
+          const matches = (item: { planningProductId?: unknown; asin?: unknown; sku?: unknown }) => Boolean(
+            (planningProductId && item.planningProductId === planningProductId) ||
+            (asin && typeof item.asin === 'string' && item.asin.toUpperCase() === asin) ||
+            (sku && item.sku === sku),
+          );
+          return { status: 'success' as const, content: toToolContent({
+            focus: evidencePack.focus,
+            inventoryRisks: evidencePack.inventoryRisks.filter(matches),
+            supplierOrderContext: evidencePack.supplierOrderContext.filter((order) => order.relatedProducts.some(matches)),
+            leadTimeIssues: evidencePack.leadTimeIssues.filter(matches),
+            performanceTrends: evidencePack.performanceTrends.filter(matches),
+            buyBoxRisks: evidencePack.buyBoxRisks.filter(matches),
+            dataWarnings: evidencePack.dataWarnings.filter(matches),
+          }) };
+        } catch (error) {
+          return toolError(error, 'Ecobase product context lookup failed.');
+        }
+      },
+    },
+    {
+      scope: 'CUSTOM',
+      defaultPermission: 'ALLOW',
+      execution: 'backend',
+      introduction: {
+        title: 'Ecobase performance trends',
+        about: 'Read performance trend exceptions surfaced by the daily operations brief evidence pack.',
+      },
+      definition: {
+        name: 'ecobase_performance_trends',
+        description: 'Read-only Ecobase tool. Use this to inspect velocity drops and profit gaps from bounded daily brief evidence.',
+        schema: z.object({ company: z.string().optional(), date: z.string().optional(), maxItems: z.number().int().positive().max(100).optional() }),
+      },
+      invoke: async (ctx, args) => {
+        try {
+          const evidencePack = await new EcobaseDailyOperationsBriefService(ctx.db).buildEvidencePack({ company: optionalString(args?.company), date: toolDate(args?.date), timezone: 'Asia/Karachi', maxItems: limitNumber(args?.maxItems, 25, 100) });
+          return { status: 'success' as const, content: toToolContent({ focus: evidencePack.focus, performanceTrends: evidencePack.performanceTrends, dataWarnings: evidencePack.dataWarnings }) };
+        } catch (error) {
+          return toolError(error, 'Ecobase performance trend lookup failed.');
+        }
+      },
+    },
+    {
+      scope: 'CUSTOM',
+      defaultPermission: 'ALLOW',
+      execution: 'backend',
+      introduction: {
+        title: 'Ecobase Buy Box trends',
+        about: 'Read Buy Box deterioration exceptions surfaced by the daily operations brief evidence pack.',
+      },
+      definition: {
+        name: 'ecobase_buybox_trends',
+        description: 'Read-only Ecobase tool. Use this to inspect Buy Box win-rate drops and baseline warnings from bounded daily brief evidence.',
+        schema: z.object({ company: z.string().optional(), date: z.string().optional(), maxItems: z.number().int().positive().max(100).optional() }),
+      },
+      invoke: async (ctx, args) => {
+        try {
+          const evidencePack = await new EcobaseDailyOperationsBriefService(ctx.db).buildEvidencePack({ company: optionalString(args?.company), date: toolDate(args?.date), timezone: 'Asia/Karachi', maxItems: limitNumber(args?.maxItems, 25, 100) });
+          return { status: 'success' as const, content: toToolContent({ focus: evidencePack.focus, buyBoxRisks: evidencePack.buyBoxRisks, dataWarnings: evidencePack.dataWarnings }) };
+        } catch (error) {
+          return toolError(error, 'Ecobase Buy Box trend lookup failed.');
+        }
+      },
+    },
+    {
+      scope: 'CUSTOM',
+      defaultPermission: 'ALLOW',
+      execution: 'backend',
+      introduction: {
+        title: 'Ecobase OKR status',
+        about: 'Read OKR and accountability exceptions surfaced by the daily operations brief evidence pack.',
+      },
+      definition: {
+        name: 'ecobase_okr_status',
+        description: 'Read-only Ecobase tool. Use this to inspect off-track OKRs, overdue tasks, inactive tasks, and link warnings from bounded daily brief evidence.',
+        schema: z.object({ company: z.string().optional(), date: z.string().optional(), maxItems: z.number().int().positive().max(100).optional() }),
+      },
+      invoke: async (ctx, args) => {
+        try {
+          const evidencePack = await new EcobaseDailyOperationsBriefService(ctx.db).buildEvidencePack({ company: optionalString(args?.company), date: toolDate(args?.date), timezone: 'Asia/Karachi', maxItems: limitNumber(args?.maxItems, 25, 100) });
+          return { status: 'success' as const, content: toToolContent({ focus: evidencePack.focus, okrAccountabilityRisks: evidencePack.okrAccountabilityRisks, dataWarnings: evidencePack.dataWarnings }) };
+        } catch (error) {
+          return toolError(error, 'Ecobase OKR status lookup failed.');
         }
       },
     },

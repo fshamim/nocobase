@@ -5,6 +5,7 @@ const AccuracyHarnessPage = lazy(() => import('./pages/AccuracyHarnessPage'));
 const AiEvidencePage = lazy(() => import('./pages/AiEvidencePage'));
 const AlertEvaluationPage = lazy(() => import('./pages/AlertEvaluationPage'));
 const CollectionsWorkspacePage = lazy(() => import('./pages/CollectionsWorkspacePage'));
+const DailyOperationsBriefPage = lazy(() => import('./pages/DailyOperationsBriefPage'));
 const ImportStatusPage = lazy(() => import('./pages/ImportStatusPage'));
 const InventoryPlanningPage = lazy(() => import('./pages/InventoryPlanningPage'));
 const ManagementDashboardPage = lazy(() => import('./pages/ManagementDashboardPage'));
@@ -38,6 +39,12 @@ export class PluginEcobaseClient extends Plugin<Record<string, unknown>> {
       title: this.t('Ecobase order management'),
       icon: 'ShoppingCartOutlined',
       Component: OrderManagementPage,
+      aclSnippet: 'pm.ecobase',
+    });
+    this.pluginSettingsManager.add('ecobase-daily-operations-brief', {
+      title: this.t('Daily Operations Brief'),
+      icon: 'MailOutlined',
+      Component: DailyOperationsBriefPage,
       aclSnippet: 'pm.ecobase',
     });
     this.pluginSettingsManager.add('debug', {

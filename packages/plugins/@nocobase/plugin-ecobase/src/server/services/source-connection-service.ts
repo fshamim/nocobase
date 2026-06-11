@@ -190,6 +190,37 @@ function repoWithDestroy(repository: EcobaseRepository, collectionName: string):
 export class EcobaseSourceConnectionService {
   constructor(private db: EcobaseDatabase) {}
 
+  async listSourceStatuses() {
+    const sourceRepo = this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections);
+    const importRunRepo = this.db.getRepository(ECOBASE_COLLECTIONS.importRuns);
+    const sources = await sourceRepo.find({ sort: ['name'] });
+    return Promise.all(sources.map(async (source) => {
+      const sourceConnectionId = getString(source, 'id');
+      if (!sourceConnectionId) {
+        throw new Error('Ecobase source status lookup failed: source connection record is missing id.');
+      }
+      const latestRun = await importRunRepo.findOne({ filter: { sourceConnectionId }, sort: ['-startedAt'] });
+      const sourceRecord = toPlainRecord(source);
+      const latestRunRecord = toPlainRecord(latestRun);
+      const company = getString(sourceRecord, 'company') ?? getString(sourceRecord, 'companyName');
+      return {
+        id: sourceConnectionId,
+        name: getString(source, 'name') ?? '(unnamed source)',
+        company: company ?? null,
+        sourceType: getString(source, 'sourceType') ?? null,
+        domain: getString(source, 'domain') ?? null,
+        active: getBoolean(source, 'active', true),
+        latestImportRunId: getString(latestRunRecord, 'id') ?? null,
+        latestRunStatus: getString(latestRunRecord, 'status') ?? null,
+        lastRunAt: getDisplayString(latestRunRecord, 'finishedAt') ?? getDisplayString(latestRunRecord, 'startedAt') ?? null,
+        importedCount: getNumber(latestRunRecord, 'normalizedCount') ?? 0,
+        skippedCount: getNumber(latestRunRecord, 'skippedCount') ?? 0,
+        errorCount: getNumber(latestRunRecord, 'errorCount') ?? 0,
+        warnings: getNumber(latestRunRecord, 'warningCount') ?? 0,
+      };
+    }));
+  }
+
   async listSellerboardSources() {
     const sourceRepo = this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections);
     const companyRepo = this.db.getRepository(ECOBASE_COLLECTIONS.companies);

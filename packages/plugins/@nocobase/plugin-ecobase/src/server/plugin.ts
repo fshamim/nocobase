@@ -20,6 +20,9 @@ import { EcobaseAlertEvaluationService } from './services/alert-evaluation-servi
 import { ensureEcobaseCollectionManagerMetadata } from './services/collection-manager-metadata-service';
 import { EcobaseComparisonService } from './services/comparison-service';
 import { EcobaseDashboardService } from './services/dashboard-service';
+import { EcobaseDailyOperationsBriefService } from './services/daily-operations-brief-service';
+import { EcobaseDailyOperationsBriefDeliveryService } from './services/daily-operations-brief-delivery-service';
+import { EcobaseDailyOperationsBriefNarrativeService, NocoBaseEcoNarrativeProvider } from './services/daily-operations-brief-narrative-service';
 import { EcobaseImportService } from './services/import-service';
 import { EcobaseInventoryPlanningService } from './services/inventory-planning-service';
 import { EcobasePlanningCalculationService } from './services/planning-calculation-service';
@@ -323,7 +326,7 @@ export function createEcobaseAiActions() {
   };
 }
 
-export function createEcobaseReportActions() {
+export function createEcobaseReportActions(app?: { pm?: { get?: (name: string) => unknown } }) {
   return {
     generatePreview: async (ctx, next) => {
       const values = getValues(ctx.action.params);
@@ -346,6 +349,84 @@ export function createEcobaseReportActions() {
         };
       } catch (error) {
         ctx.throw(400, error instanceof Error ? error.message : 'Ecobase report generation failed.');
+        return;
+      }
+      await next();
+    },
+    generateDailyOperationsBriefEvidence: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseDailyOperationsBriefService(ctx.db);
+      try {
+        ctx.body = {
+          data: await service.generateEvidence({
+            date: getOptionalString(values, 'date'),
+            company: getOptionalString(values, 'company'),
+            timezone: getOptionalString(values, 'timezone'),
+            recipient: getOptionalString(values, 'recipient'),
+            mode: getOptionalString(values, 'mode') as 'preview' | 'workflow' | 'workflow_send' | undefined,
+            maxItems: getOptionalNumber(values, 'maxItems'),
+            forceRegenerate: values.forceRegenerate === true,
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase daily operations brief evidence generation failed.');
+        return;
+      }
+      await next();
+    },
+    generateDailyOperationsBrief: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseDailyOperationsBriefNarrativeService(ctx.db, new NocoBaseEcoNarrativeProvider(app));
+      try {
+        ctx.body = {
+          data: await service.generateBrief({
+            date: getOptionalString(values, 'date'),
+            company: getOptionalString(values, 'company'),
+            timezone: getOptionalString(values, 'timezone'),
+            recipient: getOptionalString(values, 'recipient'),
+            mode: getOptionalString(values, 'mode') as 'preview' | 'workflow' | 'workflow_send' | undefined,
+            aiEmployeeUsername: getOptionalString(values, 'aiEmployeeUsername'),
+            llmService: getOptionalString(values, 'llmService'),
+            model: getOptionalString(values, 'model'),
+            maxItems: getOptionalNumber(values, 'maxItems'),
+            forceRegenerate: values.forceRegenerate === true,
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase daily operations brief generation failed.');
+        return;
+      }
+      await next();
+    },
+    markDailyOperationsBriefSent: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseDailyOperationsBriefDeliveryService(ctx.db);
+      try {
+        ctx.body = {
+          data: await service.markSent({
+            reportRunId: getOptionalString(values, 'reportRunId'),
+            deliveryProvider: getOptionalString(values, 'deliveryProvider'),
+            messageId: getOptionalString(values, 'messageId'),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase daily operations brief mark-sent failed.');
+        return;
+      }
+      await next();
+    },
+    markDailyOperationsBriefFailed: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseDailyOperationsBriefDeliveryService(ctx.db);
+      try {
+        ctx.body = {
+          data: await service.markFailed({
+            reportRunId: getOptionalString(values, 'reportRunId'),
+            error: getOptionalString(values, 'error'),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase daily operations brief mark-failed failed.');
         return;
       }
       await next();
@@ -1233,7 +1314,7 @@ export class PluginEcobaseServer extends Plugin {
     });
     this.app.resourceManager.define({
       name: 'ecobaseReports',
-      actions: createEcobaseReportActions(),
+      actions: createEcobaseReportActions(this.app),
     });
     this.app.resourceManager.define({
       name: 'ecobaseAi',
@@ -1317,7 +1398,7 @@ export class PluginEcobaseServer extends Plugin {
     this.app.acl.allow('ecobaseComparison', ['compare'], 'loggedIn');
     this.app.acl.allow('ecobaseDashboard', ['summary', 'settings'], 'loggedIn');
     this.app.acl.allow('ecobaseOperatorWorkspace', ['workspace', 'preview', 'saveView'], 'loggedIn');
-    this.app.acl.allow('ecobaseReports', ['generatePreview'], 'loggedIn');
+    this.app.acl.allow('ecobaseReports', ['generatePreview', 'generateDailyOperationsBriefEvidence', 'generateDailyOperationsBrief', 'markDailyOperationsBriefSent', 'markDailyOperationsBriefFailed'], 'loggedIn');
     this.app.acl.allow('ecobaseAi', ['answer', 'askEphemeral', 'retrieveFacts', 'coverage'], 'loggedIn');
     this.app.acl.allow('ecobaseAccuracy', ['checklistTemplate', 'recordSignoff', 'evaluate'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.ruleVersions, ['list', 'get'], 'loggedIn');

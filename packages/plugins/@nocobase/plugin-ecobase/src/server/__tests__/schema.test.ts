@@ -227,6 +227,26 @@ describe('Ecobase plugin-owned schema', () => {
     expect(field(sourceWarningPolicies, 'freshnessSlaMinutes')).toMatchObject({ type: 'integer' });
     expect(field(reportRuns, 'frequency')).toMatchObject({ type: 'string' });
     expect(field(reportRuns, 'emailStatus')).toMatchObject({ type: 'string' });
+    expect(field(reportRuns, 'briefType')).toMatchObject({ type: 'string' });
+    expect(field(reportRuns, 'idempotencyKey')).toMatchObject({ type: 'string', unique: true });
+    expect(field(reportRuns, 'evidencePack')).toMatchObject({ type: 'jsonb' });
+    expect(field(reportRuns, 'evidenceHash')).toMatchObject({ type: 'string' });
+    expect(field(reportRuns, 'focus')).toMatchObject({ type: 'string' });
+    expect(field(reportRuns, 'validationStatus')).toMatchObject({ type: 'string' });
+    expect(field(reportRuns, 'deliveryStatus')).toMatchObject({ type: 'string' });
+    expect(field(reportRuns, 'deliveredAt')).toMatchObject({ type: 'datetimeTz' });
+    expect(field(reportRuns, 'deliveryProvider')).toMatchObject({ type: 'string' });
+    expect(field(reportRuns, 'deliveryMessageId')).toMatchObject({ type: 'string' });
+    expect(field(reportRuns, 'deliveryError')).toMatchObject({ type: 'text' });
+    expect(field(reportRuns, 'subject')).toMatchObject({ type: 'string' });
+    expect(field(reportRuns, 'bodyMarkdown')).toMatchObject({ type: 'text' });
+    expect(field(reportRuns, 'bodyHtml')).toMatchObject({ type: 'text' });
+    expect(field(reportRuns, 'bodyText')).toMatchObject({ type: 'text' });
+    expect(field(reportRuns, 'aiPrompt')).toMatchObject({ type: 'jsonb' });
+    expect(field(reportRuns, 'aiRawResponse')).toMatchObject({ type: 'text' });
+    expect(field(reportRuns, 'aiResponse')).toMatchObject({ type: 'jsonb' });
+    expect(field(reportRuns, 'aiMetadata')).toMatchObject({ type: 'jsonb' });
+    expect(field(reportRuns, 'validationErrors')).toMatchObject({ type: 'jsonb' });
     expect(field(reportRuns, 'items')).toMatchObject({
       type: 'hasMany',
       target: ECOBASE_COLLECTIONS.reportItems,

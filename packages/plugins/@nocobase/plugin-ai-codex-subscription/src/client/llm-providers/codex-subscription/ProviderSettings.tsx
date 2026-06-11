@@ -18,6 +18,7 @@ type DeviceAuthSession = {
 
 type AuthStatus = {
   connected: boolean;
+  accountId?: string;
   accountLabel?: string;
   expiresAt?: string;
   connectedAt?: string;
@@ -102,12 +103,37 @@ function isCancelledRequest(error: unknown): boolean {
   );
 }
 
+function formatTimestamp(value: string | undefined, fallback: string): string {
+  if (!value) {
+    return fallback;
+  }
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date.toLocaleString() : value;
+}
+
 function formatUsageWindow(window: UsageWindow | undefined, fallback: string): string {
   if (!window) {
     return fallback;
   }
-  const reset = window.resetAt ? `, resets ${window.resetAt}` : '';
+  const reset = window.resetAt ? `, resets ${formatTimestamp(window.resetAt, window.resetAt)}` : '';
   return `${window.remainingPercent.toFixed(0)}% remaining (${window.usedPercent.toFixed(0)}% used${reset})`;
+}
+
+function nextResetAt(usage: UsagePayload['usage'] | null): string | undefined {
+  const resets = [
+    usage?.rateLimit?.primaryWindow?.resetAt,
+    usage?.codeReviewRateLimit?.primaryWindow?.resetAt,
+    usage?.rateLimit?.secondaryWindow?.resetAt,
+    usage?.codeReviewRateLimit?.secondaryWindow?.resetAt,
+  ]
+    .map((value) => (value ? Date.parse(value) : NaN))
+    .filter((value) => Number.isFinite(value) && value > Date.now())
+    .sort((left, right) => left - right);
+  return resets.length ? new Date(resets[0]).toISOString() : undefined;
+}
+
+function usageLimitReached(usage: UsagePayload['usage'] | null): boolean {
+  return Boolean(usage?.rateLimit?.limitReached || usage?.codeReviewRateLimit?.limitReached);
 }
 
 const OAuthConnectionCard: React.FC = () => {
@@ -226,7 +252,7 @@ const OAuthConnectionCard: React.FC = () => {
       stopPolling();
       cancelUsage();
     };
-  }, [cancelUsage, mockMode, refreshStatus, refreshUsage, serviceName, stopPolling]);
+  }, [serviceName, mockMode]);
 
   const startPolling = (authSessionId: string, intervalSeconds: number | undefined) => {
     stopPolling();
@@ -310,6 +336,8 @@ const OAuthConnectionCard: React.FC = () => {
 
   const pending = status?.authSession?.status === 'pending' || deviceSession?.status === 'pending';
   const activeDeviceSession = deviceSession?.status === 'pending' ? deviceSession : status?.authSession;
+  const resetAt = nextResetAt(usage);
+  const limitReached = usageLimitReached(usage);
 
   return (
     <Space direction="vertical" size="middle" style={{ width: '100%' }}>
@@ -335,10 +363,39 @@ const OAuthConnectionCard: React.FC = () => {
           {pending ? t('Waiting for device-code login…') : status?.connected ? t('Connected') : t('Disconnected')}
         </Descriptions.Item>
         <Descriptions.Item label={t('ChatGPT account')}>
-          {status?.accountLabel || <Typography.Text type="secondary">{t('Not connected')}</Typography.Text>}
+          {status?.accountId ? (
+            <Space direction="vertical" size={0}>
+              <Typography.Text copyable>{status.accountId}</Typography.Text>
+              {status.accountLabel ? <Typography.Text type="secondary">{status.accountLabel}</Typography.Text> : null}
+            </Space>
+          ) : (
+            <Typography.Text type="secondary">{t('Not connected')}</Typography.Text>
+          )}
+        </Descriptions.Item>
+        <Descriptions.Item label={t('Connected at')}>
+          {status?.connectedAt ? formatTimestamp(status.connectedAt, status.connectedAt) : <Typography.Text type="secondary">{t('Unknown')}</Typography.Text>}
         </Descriptions.Item>
         <Descriptions.Item label={t('Access expires')}>
-          {status?.expiresAt || <Typography.Text type="secondary">{t('Unknown')}</Typography.Text>}
+          {status?.expiresAt ? formatTimestamp(status.expiresAt, status.expiresAt) : <Typography.Text type="secondary">{t('Unknown')}</Typography.Text>}
+        </Descriptions.Item>
+        <Descriptions.Item label={t('Last verified')}>
+          {status?.lastVerifiedAt ? formatTimestamp(status.lastVerifiedAt, status.lastVerifiedAt) : <Typography.Text type="secondary">{t('Unknown')}</Typography.Text>}
+        </Descriptions.Item>
+        <Descriptions.Item label={t('Usage reset')}>
+          {usageLoading ? (
+            <Typography.Text type="secondary">{t('Checking usage…')}</Typography.Text>
+          ) : resetAt ? (
+            <Space direction="vertical" size={0}>
+              <Typography.Text type={limitReached ? 'danger' : undefined}>
+                {limitReached ? t('Limit reached') : t('Next reset')} {formatTimestamp(resetAt, resetAt)}
+              </Typography.Text>
+              <Typography.Text type="secondary">{t('Shown from ChatGPT usage windows')}</Typography.Text>
+            </Space>
+          ) : status?.connected ? (
+            <Typography.Text type="secondary">{usageError || t('Usage reset unavailable')}</Typography.Text>
+          ) : (
+            <Typography.Text type="secondary">{t('Connect ChatGPT to check usage')}</Typography.Text>
+          )}
         </Descriptions.Item>
         <Descriptions.Item label={t('Usage health')}>
           {usageLoading ? (
@@ -429,6 +486,9 @@ const OAuthConnectionCard: React.FC = () => {
           disabled={!serviceName || loading || mockMode}
         >
           {t('Refresh status')}
+        </Button>
+        <Button onClick={refreshUsage} disabled={!status?.connected || usageLoading || loading || mockMode}>
+          {t('Refresh usage')}
         </Button>
         <Button danger onClick={disconnect} disabled={!status?.connected || loading || pending}>
           {t('Disconnect')}
