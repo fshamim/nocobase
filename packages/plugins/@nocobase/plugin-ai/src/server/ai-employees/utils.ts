@@ -27,7 +27,6 @@ export const convertAIMessage = ({
   const message = aiMessage.content;
   const toolCalls = aiMessage.tool_calls;
   const tools = aiEmployee.skillSettings?.tools;
-  const legacySkills = aiEmployee.skillSettings?.skills;
   const autoCallEnabled = (setting: string | { name?: string; autoCall?: boolean }, toolName: string) => {
     if (typeof setting === 'string') {
       return false;
@@ -80,10 +79,7 @@ export const convertAIMessage = ({
     values.toolCalls = toolCalls as any;
     values.metadata.autoCallTools = toolCalls
       .filter((tool: { name: string }) => {
-        return (
-          tools?.some((s: string | { name?: string; autoCall?: boolean }) => autoCallEnabled(s, tool.name)) ||
-          legacySkills?.some((s: string | { name?: string; autoCall?: boolean }) => autoCallEnabled(s, tool.name))
-        );
+        return tools?.some((s: string | { name?: string; autoCall?: boolean }) => autoCallEnabled(s, tool.name));
       })
       .map((tool: { name: string }) => tool.name);
   }
