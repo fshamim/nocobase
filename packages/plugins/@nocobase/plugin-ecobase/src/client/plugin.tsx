@@ -1,4 +1,7 @@
+import React, { useMemo } from 'react';
 import { Plugin, lazy } from '@nocobase/client';
+import { Layout, Menu, Typography } from 'antd';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { ecobaseClientCollections } from './ecobase-collections';
 
 const AccuracyHarnessPage = lazy(() => import('./pages/AccuracyHarnessPage'));
@@ -14,9 +17,105 @@ const OrderManagementPage = lazy(() => import('./pages/OrderManagementPage'));
 const ReportPreviewPage = lazy(() => import('./pages/ReportPreviewPage'));
 const SellerboardSourcesPage = lazy(() => import('./pages/SellerboardSourcesPage'));
 
+const ECOBASE_WORKSPACE_ROOT = '/admin/ecobase';
+
+const ecobaseWorkspacePages = [
+  {
+    key: 'daily-operations-brief',
+    label: 'Daily Operations Brief',
+    path: `${ECOBASE_WORKSPACE_ROOT}/daily-operations-brief`,
+    Component: DailyOperationsBriefPage,
+  },
+  {
+    key: 'inventory-planning',
+    label: 'Inventory Planning',
+    path: `${ECOBASE_WORKSPACE_ROOT}/inventory-planning`,
+    Component: InventoryPlanningPage,
+  },
+  {
+    key: 'order-management',
+    label: 'Order Management',
+    path: `${ECOBASE_WORKSPACE_ROOT}/order-management`,
+    Component: OrderManagementPage,
+  },
+  {
+    key: 'management-dashboard',
+    label: 'BI Dashboard',
+    path: `${ECOBASE_WORKSPACE_ROOT}/management-dashboard`,
+    Component: ManagementDashboardPage,
+  },
+  {
+    key: 'import-status',
+    label: 'Import & Source Status',
+    path: `${ECOBASE_WORKSPACE_ROOT}/import-status`,
+    Component: ImportStatusPage,
+  },
+];
+
+const defaultEcobaseWorkspacePage = ecobaseWorkspacePages[0];
+
+const EcobaseWorkspacePage = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const activePage =
+    ecobaseWorkspacePages.find(
+      (page) => location.pathname === page.path || location.pathname.startsWith(`${page.path}/`),
+    ) ?? defaultEcobaseWorkspacePage;
+  const ActivePageComponent = activePage.Component;
+  const menuItems = useMemo(() => ecobaseWorkspacePages.map((page) => ({ key: page.key, label: page.label })), []);
+
+  return (
+    <Layout style={{ minHeight: 'calc(100vh - 64px)', background: 'transparent' }}>
+      <Layout.Sider theme="light" width={260} style={{ borderRight: '1px solid #f0f0f0' }}>
+        <div style={{ padding: '16px 20px 8px' }}>
+          <Typography.Title level={4} style={{ margin: 0 }}>
+            EcoBase
+          </Typography.Title>
+          <Typography.Text type="secondary">Operations workspace</Typography.Text>
+        </div>
+        <Menu
+          mode="inline"
+          selectedKeys={[activePage.key]}
+          items={menuItems}
+          onClick={({ key }) => {
+            const targetPage = ecobaseWorkspacePages.find((page) => page.key === key);
+            if (!targetPage) {
+              throw new Error(`Unknown EcoBase workspace page key: ${String(key)}`);
+            }
+            navigate(targetPage.path);
+          }}
+        />
+      </Layout.Sider>
+      <Layout.Content style={{ padding: 24, minWidth: 0 }}>
+        <ActivePageComponent />
+      </Layout.Content>
+    </Layout>
+  );
+};
+
+const ecobaseWorkspaceRoutes = [
+  {
+    name: 'admin.ecobase.workspace',
+    path: `${ECOBASE_WORKSPACE_ROOT}/*`,
+    Component: EcobaseWorkspacePage,
+  },
+  ...ecobaseWorkspacePages.map((page) => ({
+    name: `admin.ecobase.${page.key}`,
+    path: page.path,
+    Component: EcobaseWorkspacePage,
+  })),
+];
+
 export class PluginEcobaseClient extends Plugin<Record<string, unknown>> {
   async load() {
     this.dataSourceManager.getDataSource('main')?.collectionManager.addCollections(ecobaseClientCollections);
+
+    for (const route of ecobaseWorkspaceRoutes) {
+      this.app.router.add(route.name, {
+        path: route.path,
+        Component: route.Component,
+      });
+    }
 
     this.pluginSettingsManager.add('ecobase', {
       title: this.t('Ecobase BI'),
