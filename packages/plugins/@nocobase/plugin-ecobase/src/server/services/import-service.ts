@@ -1,5 +1,7 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { analyzeCsvFiles, targetForCsvShape } from '../adapters/amazon-operations-csv-adapter';
 import type { AdapterStreamItem, NormalizedRecord, SourceAdapter, SourceAdapterRegistry } from '../adapters';
+import type { CsvSourceFile } from '../adapters/csv-utils';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { EcobaseAccountabilityService } from './accountability-service';
 import { EcobaseDataWarningService } from './data-warning-service';
@@ -43,6 +45,7 @@ const NORMALIZED_RECORD_COLLECTIONS: Record<string, string> = {
 };
 
 const ACCOUNTABILITY_RECORD_KINDS = new Set(['clickup_task_snapshot', 'task_link', 'okr', 'okr_metric_snapshot']);
+const CSV_BUNDLE_SYNC_ROW_LIMIT = 1000;
 
 export interface EcobaseRepository {
   find(params?: RepositoryFindParams): Promise<unknown[]>;
@@ -63,6 +66,28 @@ export interface RunNoopImportParams {
   preserveAuditRun?: boolean;
   skipIfNoNewerData?: boolean;
   skipExistingNormalizedKinds?: string[];
+  runtimeConfig?: Record<string, unknown>;
+  summary?: Record<string, unknown>;
+}
+
+type QueuedImportRun = {
+  id: string;
+  startedAt: Date;
+  idempotencyKey: string;
+};
+
+type RunAdapterImportParams = RunNoopImportParams & {
+  adapterName: string;
+  queuedImportRun?: QueuedImportRun;
+};
+
+export interface RunCsvBundleImportParams {
+  sourceConnectionId: string;
+  adapterName: string;
+  sourceIdentifier?: string;
+  sourceVersion?: string;
+  defaultCompany?: string;
+  files: CsvSourceFile[];
 }
 
 export interface RunScheduledSellerboardImportsParams {
@@ -73,6 +98,8 @@ export interface RunScheduledSellerboardImportsParams {
 export interface SourceStatusView {
   sourceConnectionId: string;
   connectionName: string;
+  companyId: string | null;
+  companyName: string | null;
   sourceType: string;
   domain: string;
   active: boolean;
@@ -156,6 +183,35 @@ function getConfig(record: unknown): Record<string, unknown> {
   return isRecord(config) ? config : {};
 }
 
+function mergeConfig(record: unknown, runtimeConfig?: Record<string, unknown>): Record<string, unknown> {
+  return { ...getConfig(record), ...(runtimeConfig ?? {}) };
+}
+
+function sha256(value: string) {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function bundleHash(files: Array<{ checksum: string }>) {
+  return sha256(
+    files
+      .map((file) => file.checksum)
+      .sort()
+      .join('\n'),
+  );
+}
+
+function latestCsvBundleFiles(importRun: unknown): Array<Record<string, unknown>> {
+  const summary = toPlainRecord(toPlainRecord(importRun).summary);
+  const csvBundle = toPlainRecord(summary.csvBundle);
+  return Array.isArray(csvBundle.files) ? csvBundle.files.filter(isRecord) : [];
+}
+
+function csvBundleFileKey(file: Record<string, unknown>) {
+  const name = typeof file.name === 'string' ? file.name : '';
+  const checksum = typeof file.checksum === 'string' ? file.checksum : '';
+  return `${name}:${checksum}`;
+}
+
 function getDateString(record: unknown, key: string): string | null {
   const value = toPlainRecord(record)[key];
   if (value instanceof Date) {
@@ -234,7 +290,195 @@ export class EcobaseImportService {
     return this.runAdapterImport({ adapterName: 'noop-test', ...params });
   }
 
-  async runAdapterImport(params: RunNoopImportParams & { adapterName: string }) {
+  analyzeCsvBundle(files: CsvSourceFile[]) {
+    this.validateCsvBundleFiles(files);
+    return analyzeCsvFiles(files);
+  }
+
+  async runCsvBundleImport(params: RunCsvBundleImportParams) {
+    this.validateCsvBundleFiles(params.files);
+    const sourceConnectionRepo = this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections);
+    const importRunRepo = this.db.getRepository(ECOBASE_COLLECTIONS.importRuns);
+    const sourceConnection = await sourceConnectionRepo.findOne({ filterByTk: params.sourceConnectionId });
+    if (!sourceConnection) {
+      throw new Error(
+        `Ecobase CSV bundle import failed: source connection "${params.sourceConnectionId}" was not found.`,
+      );
+    }
+    const adapter = this.registry.get(params.adapterName);
+    validateSourceConnectionForAdapter(sourceConnection, adapter);
+
+    const analysis = analyzeCsvFiles(params.files);
+    const rejected = analysis.files.filter((file) => !file.importable);
+    if (rejected.length > 0) {
+      throw new Error(
+        `Ecobase CSV bundle import failed: non-importable files were selected: ${rejected
+          .map((file) => `${file.name} (${file.detectedShape})`)
+          .join(', ')}.`,
+      );
+    }
+
+    const mismatched = analysis.files.filter((file) => {
+      const target = targetForCsvShape(file.detectedShape);
+      return (
+        !target ||
+        target.adapterName !== params.adapterName ||
+        target.sourceType !== adapter.metadata.sourceType ||
+        !adapter.metadata.supportedDomains.includes(target.domain)
+      );
+    });
+    if (mismatched.length > 0) {
+      throw new Error(
+        `Ecobase CSV bundle import failed: files do not match adapter "${params.adapterName}": ${mismatched
+          .map((file) => `${file.name} (${file.detectedShape})`)
+          .join(', ')}.`,
+      );
+    }
+
+    const analyzedByName = new Map(analysis.files.map((file) => [file.name, file]));
+    const latestSuccessfulRun = await importRunRepo.findOne({
+      filter: {
+        sourceConnectionId: params.sourceConnectionId,
+        adapterName: adapter.metadata.name,
+        sourceIdentifier: params.sourceIdentifier ?? 'manual-csv-bundle',
+        status: 'success',
+      },
+      sort: ['-startedAt'],
+    });
+    const previousFiles = new Set(latestCsvBundleFiles(latestSuccessfulRun).map(csvBundleFileKey));
+    const changedFiles = params.files.filter((file) => {
+      const analyzed = analyzedByName.get(file.name);
+      return !analyzed || !previousFiles.has(csvBundleFileKey(analyzed));
+    });
+    const manifestFiles = analysis.files.map((file) => ({
+      name: file.name,
+      checksum: file.checksum,
+      detectedShape: file.detectedShape,
+      rowCount: file.rowCount,
+      adapterName: file.adapterName,
+      sourceType: file.sourceType,
+      domain: file.domain,
+      changed: changedFiles.some((changedFile) => changedFile.name === file.name),
+    }));
+    const csvBundle = {
+      bundleHash: bundleHash(manifestFiles),
+      files: manifestFiles,
+    };
+
+    const sourceIdentifier = params.sourceIdentifier ?? 'manual-csv-bundle';
+    const sourceVersion = params.sourceVersion ?? new Date().toISOString().slice(0, 10);
+    if (changedFiles.length === 0) {
+      return this.createSkippedImportRun(importRunRepo, {
+        sourceConnectionId: params.sourceConnectionId,
+        adapterName: adapter.metadata.name,
+        sourceIdentifier,
+        sourceVersion,
+        idempotencyKey: `${
+          params.sourceConnectionId
+        }:${sourceIdentifier}:${sourceVersion}:csv-bundle-skipped:${randomUUID()}`,
+        startedAt: new Date(),
+        errorMessage: 'Ecobase CSV bundle skipped: uploaded files are unchanged since the latest successful import.',
+        summary: { csvBundle },
+      });
+    }
+
+    const expectedRowCounts = Object.fromEntries(
+      changedFiles.map((file) => [file.name, analyzedByName.get(file.name)?.rowCount ?? file.expectedRowCount]),
+    );
+    const importParams: RunAdapterImportParams = {
+      sourceConnectionId: params.sourceConnectionId,
+      adapterName: adapter.metadata.name,
+      sourceIdentifier,
+      sourceVersion,
+      preserveAuditRun: true,
+      runtimeConfig: {
+        files: changedFiles.map((file) => ({
+          ...file,
+          expectedRowCount: analyzedByName.get(file.name)?.rowCount ?? file.expectedRowCount,
+        })),
+        expectedRowCounts,
+        defaultCompany: params.defaultCompany,
+        uploadManifest: csvBundle,
+      },
+      summary: { csvBundle },
+    };
+
+    const changedRowCount = changedFiles.reduce(
+      (sum, file) => sum + (analyzedByName.get(file.name)?.rowCount ?? file.expectedRowCount ?? 0),
+      0,
+    );
+    if (changedRowCount > CSV_BUNDLE_SYNC_ROW_LIMIT) {
+      return this.queueAdapterImport(importParams);
+    }
+
+    return this.runAdapterImport(importParams);
+  }
+
+  private async queueAdapterImport(params: RunAdapterImportParams) {
+    const sourceConnectionRepo = this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections);
+    const importRunRepo = this.db.getRepository(ECOBASE_COLLECTIONS.importRuns);
+    const sourceConnection = await sourceConnectionRepo.findOne({ filterByTk: params.sourceConnectionId });
+
+    if (!sourceConnection) {
+      throw new Error(`Ecobase import failed: source connection "${params.sourceConnectionId}" was not found.`);
+    }
+
+    const adapter = this.registry.get(params.adapterName);
+    validateSourceConnectionForAdapter(sourceConnection, adapter);
+
+    const startedAt = new Date();
+    const sourceIdentifier = params.sourceIdentifier ?? adapter.metadata.name;
+    const sourceVersion = params.sourceVersion ?? startedAt.toISOString();
+    const baseIdempotencyKey =
+      params.idempotencyKey ?? `${params.sourceConnectionId}:${sourceIdentifier}:${sourceVersion}`;
+    const existingRun = await importRunRepo.findOne({ filter: { idempotencyKey: baseIdempotencyKey } });
+    const idempotencyKey = existingRun ? `${baseIdempotencyKey}:audit:${randomUUID()}` : baseIdempotencyKey;
+    const queuedRun = await importRunRepo.create({
+      values: {
+        sourceConnectionId: params.sourceConnectionId,
+        adapterName: adapter.metadata.name,
+        sourceIdentifier,
+        sourceVersion,
+        idempotencyKey,
+        startedAt,
+        status: 'pending',
+        rowCount: 0,
+        normalizedCount: 0,
+        warningCount: 0,
+        errorCount: 0,
+        summary: params.summary ?? {},
+      },
+    });
+    const queuedRunId = getString(queuedRun, 'id');
+    if (!queuedRunId) {
+      throw new Error('Ecobase import failed: queued import run was created without an id.');
+    }
+
+    setImmediate(() => {
+      void this.runAdapterImport({
+        ...params,
+        sourceIdentifier,
+        sourceVersion,
+        idempotencyKey,
+        queuedImportRun: { id: queuedRunId, startedAt, idempotencyKey },
+      }).catch(async (error) => {
+        await importRunRepo.update({
+          filterByTk: queuedRunId,
+          values: {
+            finishedAt: new Date(),
+            status: 'failed',
+            errorCount: 1,
+            errorMessage:
+              error instanceof Error ? error.message : 'Ecobase import failed: queued import threw a non-Error value.',
+          },
+        });
+      });
+    });
+
+    return toPlainRecord(queuedRun);
+  }
+
+  async runAdapterImport(params: RunAdapterImportParams) {
     if (!params.sourceConnectionId) {
       throw new Error('Ecobase import failed: sourceConnectionId is required.');
     }
@@ -251,12 +495,14 @@ export class EcobaseImportService {
     const adapter = this.registry.get(params.adapterName);
     validateSourceConnectionForAdapter(sourceConnection, adapter);
 
-    const startedAt = new Date();
+    const startedAt = params.queuedImportRun?.startedAt ?? new Date();
     const sourceIdentifier = params.sourceIdentifier ?? adapter.metadata.name;
     const sourceVersion = params.sourceVersion ?? startedAt.toISOString();
     const baseIdempotencyKey =
       params.idempotencyKey ?? `${params.sourceConnectionId}:${sourceIdentifier}:${sourceVersion}`;
-    const existingRun = await importRunRepo.findOne({ filter: { idempotencyKey: baseIdempotencyKey } });
+    const existingRun = params.queuedImportRun
+      ? null
+      : await importRunRepo.findOne({ filter: { idempotencyKey: baseIdempotencyKey } });
 
     if (params.skipIfNoNewerData && existingRun && getString(existingRun, 'status') === 'success') {
       return this.createSkippedImportRun(importRunRepo, {
@@ -273,24 +519,26 @@ export class EcobaseImportService {
       return toPlainRecord(existingRun);
     }
 
-    const idempotencyKey = existingRun ? `${baseIdempotencyKey}:audit:${randomUUID()}` : baseIdempotencyKey;
+    const idempotencyKey = params.queuedImportRun?.idempotencyKey ?? (existingRun ? `${baseIdempotencyKey}:audit:${randomUUID()}` : baseIdempotencyKey);
 
-    const pendingRun = await importRunRepo.create({
-      values: {
-        sourceConnectionId: params.sourceConnectionId,
-        adapterName: adapter.metadata.name,
-        sourceIdentifier,
-        sourceVersion,
-        idempotencyKey,
-        startedAt,
-        status: 'pending',
-        rowCount: 0,
-        normalizedCount: 0,
-        warningCount: 0,
-        errorCount: 0,
-      },
-    });
-    const importRunId = getString(pendingRun, 'id');
+    const pendingRun = params.queuedImportRun
+      ? await importRunRepo.findOne({ filterByTk: params.queuedImportRun.id })
+      : await importRunRepo.create({
+          values: {
+            sourceConnectionId: params.sourceConnectionId,
+            adapterName: adapter.metadata.name,
+            sourceIdentifier,
+            sourceVersion,
+            idempotencyKey,
+            startedAt,
+            status: 'pending',
+            rowCount: 0,
+            normalizedCount: 0,
+            warningCount: 0,
+            errorCount: 0,
+          },
+        });
+    const importRunId = params.queuedImportRun?.id ?? getString(pendingRun, 'id');
 
     if (!importRunId) {
       throw new Error('Ecobase import failed: import run was created without an id.');
@@ -316,7 +564,7 @@ export class EcobaseImportService {
         sourceIdentifier,
         sourceVersion,
         idempotencyKey,
-        config: getConfig(sourceConnection),
+        config: mergeConfig(sourceConnection, params.runtimeConfig),
         secretRef: getString(sourceConnection, 'secretRef'),
       })) {
         if (item.type === 'record') {
@@ -324,7 +572,12 @@ export class EcobaseImportService {
           const fileName = getSourceFileName(item.sourceKey);
           rowCount += 1;
           const rawRow = await this.createRawRow(rawImportRowRepo, importRunId, item);
-          const result = await this.upsertNormalizedRecords(records, importRunId, supplierOrderService, skipExistingNormalizedKinds);
+          const result = await this.upsertNormalizedRecords(
+            records,
+            importRunId,
+            supplierOrderService,
+            skipExistingNormalizedKinds,
+          );
           normalizedCount += result.normalizedCount;
           updateFileSummary(fileSummaries, fileName, { rowCount: 1, normalizedCount: result.normalizedCount });
           supplierOrderTouched = supplierOrderTouched || result.supplierOrderTouched;
@@ -400,15 +653,22 @@ export class EcobaseImportService {
     }
 
     if (!errorMessage && normalizedCount > 0) {
-      await new EcobasePlanningProductService(this.db).syncFromRawListings();
-      if (supplierOrderTouched) {
-        await supplierOrderService.reconcileAfterImport(importRunId);
-      }
-      if (accountabilityTouched) {
-        await new EcobaseAccountabilityService(this.db).evaluateAccountability({
-          sourceConnectionId: params.sourceConnectionId,
-          evaluationDate: sourceVersion.slice(0, 10),
-        });
+      try {
+        await new EcobasePlanningProductService(this.db).syncFromRawListings();
+        if (supplierOrderTouched) {
+          await supplierOrderService.reconcileAfterImport(importRunId);
+        }
+        if (accountabilityTouched) {
+          await new EcobaseAccountabilityService(this.db).evaluateAccountability({
+            sourceConnectionId: params.sourceConnectionId,
+            evaluationDate: sourceVersion.slice(0, 10),
+          });
+        }
+      } catch (error) {
+        statusMessage = error instanceof Error
+          ? `Ecobase import completed with a post-import reconciliation warning: ${error.message}`
+          : 'Ecobase import completed with a post-import reconciliation warning: reconciliation threw a non-Error value.';
+        errorCount += 1;
       }
     }
 
@@ -424,7 +684,7 @@ export class EcobaseImportService {
         warningCount,
         errorCount,
         errorMessage: errorMessage ?? statusMessage ?? (normalizedCount > 0 ? firstErrorIssueMessage : null),
-        summary: { files: fileSummaries },
+        summary: { files: fileSummaries, ...(params.summary ?? {}) },
       },
     });
 
@@ -434,6 +694,7 @@ export class EcobaseImportService {
 
   async listSourceStatuses(): Promise<SourceStatusView[]> {
     const sourceConnectionRepo = this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections);
+    const companyRepo = this.db.getRepository(ECOBASE_COLLECTIONS.companies);
     const importRunRepo = this.db.getRepository(ECOBASE_COLLECTIONS.importRuns);
     const sourceConnections = await sourceConnectionRepo.find({ sort: ['name'] });
     const warningService = new EcobaseDataWarningService(this.db);
@@ -449,10 +710,14 @@ export class EcobaseImportService {
           sort: ['-startedAt'],
         });
         const warningAssessment = await warningService.assessSourceConnection(sourceConnectionId);
+        const companyId = getString(sourceConnection, 'companyId') ?? null;
+        const company = companyId ? await companyRepo.findOne({ filterByTk: companyId }) : null;
 
         return {
           sourceConnectionId,
           connectionName: getString(sourceConnection, 'name') ?? '(unnamed source)',
+          companyId,
+          companyName: getString(company, 'name') ?? null,
           sourceType: getString(sourceConnection, 'sourceType') ?? '(unknown source type)',
           domain: getString(sourceConnection, 'domain') ?? '(unknown domain)',
           active: getBoolean(sourceConnection, 'active', true),
@@ -528,7 +793,9 @@ export class EcobaseImportService {
       const latestScheduledStartedAt = getDateString(latestScheduledRun, 'startedAt');
       if (latestScheduledStartedAt && schedule.refreshIntervalMinutes) {
         if (
-          (latestScheduledStatus === 'success' || latestScheduledStatus === 'stale' || latestScheduledStatus === 'skipped') &&
+          (latestScheduledStatus === 'success' ||
+            latestScheduledStatus === 'stale' ||
+            latestScheduledStatus === 'skipped') &&
           !this.retryDue(now, latestScheduledStartedAt, schedule.refreshIntervalMinutes)
         ) {
           results.push({
@@ -565,7 +832,11 @@ export class EcobaseImportService {
       });
       const latestStatus = getString(latestForVersion, 'status');
       const latestStartedAt = getDateString(latestForVersion, 'startedAt');
-      if (latestStartedAt && latestStatus !== 'success' && !this.retryDue(now, latestStartedAt, schedule.retryIntervalMinutes)) {
+      if (
+        latestStartedAt &&
+        latestStatus !== 'success' &&
+        !this.retryDue(now, latestStartedAt, schedule.retryIntervalMinutes)
+      ) {
         results.push({
           sourceConnectionId,
           status: 'waiting_retry',
@@ -602,12 +873,16 @@ export class EcobaseImportService {
       '00:00';
     const match = dailyRefreshTime.match(/^(\d{2}):(\d{2})$/);
     if (!match) {
-      throw new Error(`Ecobase scheduled Sellerboard import failed: dailyRefreshTime "${dailyRefreshTime}" must use HH:mm.`);
+      throw new Error(
+        `Ecobase scheduled Sellerboard import failed: dailyRefreshTime "${dailyRefreshTime}" must use HH:mm.`,
+      );
     }
     const hours = Number(match[1]);
     const minutes = Number(match[2]);
     if (hours > 23 || minutes > 59) {
-      throw new Error(`Ecobase scheduled Sellerboard import failed: dailyRefreshTime "${dailyRefreshTime}" is outside 00:00-23:59.`);
+      throw new Error(
+        `Ecobase scheduled Sellerboard import failed: dailyRefreshTime "${dailyRefreshTime}" is outside 00:00-23:59.`,
+      );
     }
     const refreshIntervalMinutes =
       typeof schedule.refreshIntervalMinutes === 'number'
@@ -630,7 +905,13 @@ export class EcobaseImportService {
     if (!Number.isFinite(retryIntervalMinutes) || retryIntervalMinutes <= 0) {
       throw new Error('Ecobase scheduled Sellerboard import failed: retryIntervalMinutes must be a positive number.');
     }
-    return { enabled, dailyRefreshTime, dailyMinuteOfDay: hours * 60 + minutes, refreshIntervalMinutes, retryIntervalMinutes };
+    return {
+      enabled,
+      dailyRefreshTime,
+      dailyMinuteOfDay: hours * 60 + minutes,
+      refreshIntervalMinutes,
+      retryIntervalMinutes,
+    };
   }
 
   private retryDue(now: Date, latestStartedAt: string, retryIntervalMinutes: number) {
@@ -639,6 +920,33 @@ export class EcobaseImportService {
       return true;
     }
     return now.getTime() - previous.getTime() >= retryIntervalMinutes * 60 * 1000;
+  }
+
+  private validateCsvBundleFiles(files: CsvSourceFile[]) {
+    if (!Array.isArray(files) || files.length === 0) {
+      throw new Error('Ecobase CSV bundle import failed: at least one CSV file is required.');
+    }
+    if (files.length > 20) {
+      throw new Error('Ecobase CSV bundle import failed: at most 20 CSV files can be uploaded at once.');
+    }
+    const names = new Set<string>();
+    let totalBytes = 0;
+    for (const file of files) {
+      if (!file.name || file.name.trim().length === 0) {
+        throw new Error('Ecobase CSV bundle import failed: every uploaded file must have a name.');
+      }
+      if (names.has(file.name)) {
+        throw new Error(`Ecobase CSV bundle import failed: duplicate file name "${file.name}".`);
+      }
+      names.add(file.name);
+      if (typeof file.content !== 'string' || file.content.length === 0) {
+        throw new Error(`Ecobase CSV bundle import failed: file "${file.name}" is empty.`);
+      }
+      totalBytes += Buffer.byteLength(file.content, 'utf8');
+    }
+    if (totalBytes > 25 * 1024 * 1024) {
+      throw new Error('Ecobase CSV bundle import failed: upload size exceeds the 25 MB limit.');
+    }
   }
 
   private async createSkippedImportRun(
@@ -650,6 +958,8 @@ export class EcobaseImportService {
       sourceVersion: string;
       idempotencyKey: string;
       startedAt: Date;
+      errorMessage?: string;
+      summary?: Record<string, unknown>;
     },
   ) {
     const finishedAt = new Date();
@@ -662,7 +972,10 @@ export class EcobaseImportService {
         normalizedCount: 0,
         warningCount: 1,
         errorCount: 0,
-        errorMessage: 'Ecobase daily snapshot skipped: no newer source data since the last successful import.',
+        errorMessage:
+          values.errorMessage ??
+          'Ecobase daily snapshot skipped: no newer source data since the last successful import.',
+        summary: values.summary,
       },
     });
     return toPlainRecord(skippedRun);
@@ -697,9 +1010,12 @@ export class EcobaseImportService {
     let accountabilityTouched = false;
 
     for (const record of records) {
-      const customResult = await supplierOrderService.applyImportRecord(record as { kind: string; data: Record<string, unknown> }, importRunId);
+      const customResult = await supplierOrderService.applyImportRecord(
+        record as { kind: string; data: Record<string, unknown> },
+        importRunId,
+      );
       if (customResult.handled) {
-        supplierOrderTouched = true;
+        supplierOrderTouched = supplierOrderTouched || customResult.requiresReconcile === true;
         normalizedCount += 1;
         warnings.push(...customResult.warnings);
         sample = sample ?? customResult.sample;
@@ -724,7 +1040,10 @@ export class EcobaseImportService {
       }
       if (record.kind === 'planning_parameter') {
         const context = 'Ecobase import failed: planning_parameter';
-        const leadTimeDays = validateSupplierLeadTimeDays(getOptionalNumberField(values, 'leadTimeDays', context), context);
+        const leadTimeDays = validateSupplierLeadTimeDays(
+          getOptionalNumberField(values, 'leadTimeDays', context),
+          context,
+        );
         if (leadTimeDays !== undefined) {
           values.leadTimeDays = leadTimeDays;
         }

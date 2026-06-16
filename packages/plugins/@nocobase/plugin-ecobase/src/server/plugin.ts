@@ -11,6 +11,7 @@ import {
   sellerboardCsvAdapter,
 } from './adapters';
 import type { SourceAdapterRegistry } from './adapters';
+import type { CsvSourceFile } from './adapters/csv-utils';
 import { ECOBASE_COLLECTIONS } from './collections/names';
 import { createEcobaseAiTools } from './ecobase-ai-tools';
 import { EcobaseAccountabilityService } from './services/accountability-service';
@@ -61,6 +62,29 @@ function getOptionalId(values: Record<string, unknown>, key: string): string | n
 function getOptionalNumber(values: Record<string, unknown>, key: string): number | undefined {
   const value = values[key];
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function getCsvFiles(values: Record<string, unknown>): CsvSourceFile[] {
+  const files = values.files;
+  if (!Array.isArray(files)) {
+    return [];
+  }
+  return files.flatMap((file): CsvSourceFile[] => {
+    if (typeof file !== 'object' || file === null) {
+      return [];
+    }
+    const record = file as Record<string, unknown>;
+    const name = typeof record.name === 'string' ? record.name : '';
+    const content = typeof record.content === 'string' ? record.content : '';
+    const csvFile: CsvSourceFile = { name, content };
+    if (typeof record.expectedRowCount === 'number') {
+      csvFile.expectedRowCount = record.expectedRowCount;
+    }
+    if (typeof record.snapshotDate === 'string') {
+      csvFile.snapshotDate = record.snapshotDate;
+    }
+    return [csvFile];
+  });
 }
 
 function getActorId(ctx: { state?: Record<string, unknown> }) {
@@ -1168,6 +1192,54 @@ export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
       ctx.body = { data: registry.list() };
       await next();
     },
+    analyzeCsvBundle: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseImportService(ctx.db, registry);
+      try {
+        ctx.body = { data: service.analyzeCsvBundle(getCsvFiles(values)) };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase CSV bundle analysis failed.');
+        return;
+      }
+      await next();
+    },
+    runCsvBundle: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const sourceConnectionId = getOptionalString(values, 'sourceConnectionId');
+      const adapterName = getOptionalString(values, 'adapterName');
+      if (!sourceConnectionId || !adapterName) {
+        ctx.throw(400, 'Ecobase CSV bundle import requires sourceConnectionId and adapterName.');
+        return;
+      }
+      const service = new EcobaseImportService(ctx.db, registry);
+      try {
+        ctx.body = {
+          data: await service.runCsvBundleImport({
+            sourceConnectionId,
+            adapterName,
+            sourceIdentifier: getOptionalString(values, 'sourceIdentifier'),
+            sourceVersion: getOptionalString(values, 'sourceVersion'),
+            defaultCompany: getOptionalString(values, 'defaultCompany'),
+            files: getCsvFiles(values),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase CSV bundle import failed.');
+        return;
+      }
+      await next();
+    },
+    saveCsvSourceConnection: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseSourceConnectionService(ctx.db);
+      try {
+        ctx.body = { data: await service.saveCsvSourceConnection(values) };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase CSV source save failed.');
+        return;
+      }
+      await next();
+    },
     listSellerboardSources: async (ctx, next) => {
       const service = new EcobaseSourceConnectionService(ctx.db);
       ctx.body = { data: await service.listSellerboardSources() };
@@ -1335,6 +1407,9 @@ export class PluginEcobaseServer extends Plugin {
         'runNoop',
         'status',
         'adapters',
+        'analyzeCsvBundle',
+        'runCsvBundle',
+        'saveCsvSourceConnection',
         'listSellerboardSources',
         'saveSellerboardSource',
         'deleteSellerboardSource',

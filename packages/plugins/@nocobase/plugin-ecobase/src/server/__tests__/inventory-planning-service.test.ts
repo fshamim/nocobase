@@ -461,11 +461,17 @@ describe('EcobaseInventoryPlanningService', () => {
     });
   });
 
-  it('derives fallback row company from Sellerboard source connection and classifies every tier', async () => {
+  it('derives fallback row company from the source connection company and classifies every tier', async () => {
     const db = new MemoryDatabase();
+    await createRecord(db, ECOBASE_COLLECTIONS.companies, {
+      id: 'company-ecofission',
+      name: 'Ecofission LLC',
+      active: true,
+    });
     await createRecord(db, ECOBASE_COLLECTIONS.sourceConnections, {
       id: 'source-ecofission',
-      name: 'Ecofission LLC Sellerboard',
+      name: 'Smoke CSV Source 1',
+      companyId: 'company-ecofission',
       sourceType: 'sellerboard',
     });
     await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
@@ -516,6 +522,7 @@ describe('EcobaseInventoryPlanningService', () => {
     const [row] = await service.listRows({ company: 'Ecofission LLC', calculationDate: '2026-06-07' });
 
     expect(filters.companies).toContain('Ecofission LLC');
+    expect(filters.companies).not.toContain('Smoke CSV Source 1');
     expect(row).toMatchObject({
       company: 'Ecofission LLC',
       tier: 'B',
@@ -527,6 +534,50 @@ describe('EcobaseInventoryPlanningService', () => {
       monthToDateUnitsSold: 24,
       monthToDateProfit: 180,
     });
+  });
+
+  it('does not expose unassigned source connection names as company filter options', async () => {
+    const db = new MemoryDatabase();
+    await createRecord(db, ECOBASE_COLLECTIONS.companies, {
+      id: 'company-ecofission',
+      name: 'Ecofission LLC',
+      active: true,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.sourceConnections, {
+      id: 'source-ecofission',
+      name: 'Smoke CSV Source 2',
+      companyId: 'company-ecofission',
+      sourceType: 'google_sheets',
+      domain: 'order_management',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.sourceConnections, {
+      id: 'source-all-companies-order-management',
+      name: 'All Companies Order Management Smoke',
+      sourceType: 'google_sheets',
+      domain: 'order_management',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.sourceConnections, {
+      id: 'source-order-management-qa',
+      name: 'Order Management Google Sheets QA',
+      sourceType: 'google_sheets',
+      domain: 'order_management',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
+      naturalKey: 'inventory-unscoped-source',
+      sourceConnectionId: 'source-all-companies-order-management',
+      snapshotDate: '2026-06-07',
+      asin: 'B000UNSCOPED',
+      sku: 'UNSCOPED-SKU',
+      stock: 3,
+      salesVelocity: 1,
+    });
+
+    const service = new EcobaseInventoryPlanningService(db);
+    const filters = await service.filterOptions();
+    const rows = await service.listRows({ calculationDate: '2026-06-07' });
+
+    expect(filters.companies).toEqual(['Ecofission LLC']);
+    expect(rows).toEqual([]);
   });
 
   it('materializes inventory planning rows for NocoBase editable collection blocks', async () => {

@@ -1,5 +1,11 @@
 import { createHash } from 'node:crypto';
-import type { AdapterStreamItem, NormalizedRecord, SourceAdapter, SourceAdapterImportInput } from './types';
+import type {
+  AdapterStreamItem,
+  EcobaseSourceType,
+  NormalizedRecord,
+  SourceAdapter,
+  SourceAdapterImportInput,
+} from './types';
 import { CsvRowReader, CsvSourceFile, normalizedHeaderSet, normalizeHeader, parseCsv } from './csv-utils';
 
 interface FileConfig {
@@ -8,7 +14,7 @@ interface FileConfig {
   snapshotDate?: string;
 }
 
-type CsvShape =
+export type CsvShape =
   | 'master-stock'
   | 'profit-planning'
   | 'profit-tracker'
@@ -23,6 +29,30 @@ type CsvShape =
   | 'pre-order-sheet'
   | 'unknown';
 
+export interface CsvFileAnalysis {
+  name: string;
+  checksum: string;
+  rowCount: number;
+  detectedShape: CsvShape;
+  adapterName: string | null;
+  sourceType: EcobaseSourceType | null;
+  domain: string | null;
+  importable: boolean;
+  warnings: string[];
+}
+
+export interface CsvBundleAnalysisGroup {
+  adapterName: string;
+  sourceType: EcobaseSourceType;
+  domain: string;
+  files: string[];
+}
+
+export interface CsvBundleAnalysis {
+  files: CsvFileAnalysis[];
+  groups: CsvBundleAnalysisGroup[];
+}
+
 function asFileConfig(config: Record<string, unknown>): FileConfig {
   return config as FileConfig;
 }
@@ -35,7 +65,7 @@ function has(headers: Set<string>, name: string) {
   return headers.has(normalizeHeader(name));
 }
 
-function detectShape(headers: string[]): CsvShape {
+export function detectCsvShape(headers: string[]): CsvShape {
   const normalized = normalizedHeaderSet(headers);
   if (has(normalized, 'Featured Offer (Buy Box) Percentage')) return 'buybox';
   if (has(normalized, 'Current Week') && has(normalized, 'Refund Units')) return 'profit-tracker';
@@ -62,6 +92,82 @@ function detectShape(headers: string[]): CsvShape {
   )
     return 'pre-order-sheet';
   return 'unknown';
+}
+
+function csvFileChecksum(content: string) {
+  return createHash('sha256').update(content).digest('hex');
+}
+
+export function targetForCsvShape(shape: CsvShape): Omit<CsvBundleAnalysisGroup, 'files'> | null {
+  if (shape === 'unknown') {
+    return null;
+  }
+  if (
+    shape === 'order-details' ||
+    shape === 'purchase-orders' ||
+    shape === 'pre-order-sheet' ||
+    shape === 'supplier-ids'
+  ) {
+    return { adapterName: 'google-sheets-migration-csv', sourceType: 'google_sheets', domain: 'order_management' };
+  }
+  if (
+    shape === 'sellerboard-dashboard-goods' ||
+    shape === 'sellerboard-dashboard-totals' ||
+    shape === 'sellerboard-stock'
+  ) {
+    return { adapterName: 'sellerboard-csv', sourceType: 'sellerboard', domain: 'amazon_operations' };
+  }
+  return { adapterName: 'amazon-operations-csv', sourceType: 'seller_central_file', domain: 'amazon_operations' };
+}
+
+export function analyzeCsvFile(file: CsvSourceFile): CsvFileAnalysis {
+  const warnings: string[] = [];
+  if (!file.name || file.name.trim().length === 0) {
+    warnings.push('CSV file name is required.');
+  }
+  if (!file.content || file.content.trim().length === 0) {
+    warnings.push('CSV file content is empty.');
+  }
+  const parsed = parseCsv(file.content ?? '');
+  const detectedShape = detectCsvShape(parsed.headers);
+  const target = targetForCsvShape(detectedShape);
+  if (!target) {
+    warnings.push(`Ecobase could not identify the CSV shape for ${file.name || '(unnamed file)'}.`);
+  }
+  if (typeof file.expectedRowCount === 'number' && file.expectedRowCount !== parsed.rows.length) {
+    warnings.push(`Expected ${file.expectedRowCount} rows but parsed ${parsed.rows.length}.`);
+  }
+  return {
+    name: file.name,
+    checksum: csvFileChecksum(file.content ?? ''),
+    rowCount: parsed.rows.length,
+    detectedShape,
+    adapterName: target?.adapterName ?? null,
+    sourceType: target?.sourceType ?? null,
+    domain: target?.domain ?? null,
+    importable: Boolean(target) && warnings.every((warning) => !warning.includes('content is empty')),
+    warnings,
+  };
+}
+
+export function analyzeCsvFiles(files: CsvSourceFile[]): CsvBundleAnalysis {
+  const analyzedFiles = files.map(analyzeCsvFile);
+  const groups = new Map<string, CsvBundleAnalysisGroup>();
+  for (const file of analyzedFiles) {
+    if (!file.importable || !file.adapterName || !file.sourceType || !file.domain) {
+      continue;
+    }
+    const key = `${file.adapterName}:${file.sourceType}:${file.domain}`;
+    const group = groups.get(key) ?? {
+      adapterName: file.adapterName,
+      sourceType: file.sourceType,
+      domain: file.domain,
+      files: [],
+    };
+    group.files.push(file.name);
+    groups.set(key, group);
+  }
+  return { files: analyzedFiles, groups: [...groups.values()] };
 }
 
 function getSnapshotDate(file: CsvSourceFile, input: SourceAdapterImportInput, row: CsvRowReader) {
@@ -370,10 +476,10 @@ function supplierExternalCode(row: CsvRowReader) {
 }
 
 function supplierIdentityRecord(input: SourceAdapterImportInput, row: CsvRowReader): NormalizedRecord[] {
-  const company = companyOf(input, row) ?? '__global__';
+  const company = companyOf(input, row);
   const supplierName = row.string('Supplier', 'Supplier ', 'Supplier Name');
   const supplierId = supplierExternalCode(row);
-  if (!supplierName && !supplierId) {
+  if (!company || (!supplierName && !supplierId)) {
     return [];
   }
 
@@ -386,7 +492,7 @@ function supplierIdentityRecord(input: SourceAdapterImportInput, row: CsvRowRead
         externalSupplierCode: supplierId,
         sourceSystem: 'supplier_ids',
         sourceConnectionId: input.sourceConnectionId,
-        observedAt: input.sourceVersion,
+        observedAt: isoDateTime(input.sourceVersion),
         leadTimeDays: row.number('Lead time(day)', 'Manuf. time days'),
         payload: row.payload(),
       },
@@ -425,7 +531,9 @@ function compactReference(value: string, maxLength = 180) {
 }
 
 function sourceOrderLineRef(row: CsvRowReader, fallback: string) {
-  return compactReference([row.string('Order ID'), canonicalAsin(row), row.string('SKU')].filter(Boolean).join(':') || fallback);
+  return compactReference(
+    [row.string('Order ID'), canonicalAsin(row), row.string('SKU')].filter(Boolean).join(':') || fallback,
+  );
 }
 
 function lower(value: string | undefined) {
@@ -453,7 +561,9 @@ function purchaseOrderStatus(row: CsvRowReader) {
     lower(row.string('Blocked Reason')),
     lower(row.string('Tracking ID', 'Tracking #')),
     lower(row.string('Shipping Carrier', 'Carrier')),
-  ].filter(Boolean).join(' ');
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   if (hasAny(combined, ['cancel'])) return 'cancelled';
   if (hasAny(combined, ['reject'])) return 'rejected';
@@ -467,8 +577,17 @@ function purchaseOrderStatus(row: CsvRowReader) {
     return 'shipped_inbound';
   }
   if (hasAny(combined, ['prep', 'production', 'manufactur'])) return 'supplier_preparing';
-  if (hasAny(paymentStatus, ['completed', 'paid']) || hasAny(orderStatus, ['completed', 'complete']) || row.string('Date of Payment')) return 'paid';
-  if (hasAny(paymentStatus, ['pending', 'due', 'not paid']) || hasAny(invoiceStatus, ['uploaded', 'invoice']) || hasAny(orderStatus, ['placed'])) {
+  if (
+    hasAny(paymentStatus, ['completed', 'paid']) ||
+    hasAny(orderStatus, ['completed', 'complete']) ||
+    row.string('Date of Payment')
+  )
+    return 'paid';
+  if (
+    hasAny(paymentStatus, ['pending', 'due', 'not paid']) ||
+    hasAny(invoiceStatus, ['uploaded', 'invoice']) ||
+    hasAny(orderStatus, ['placed'])
+  ) {
     return 'payment_pending';
   }
   if (hasAny(combined, ['confirm'])) return 'supplier_confirmed';
@@ -481,7 +600,14 @@ function orderDetailsStatus(row: CsvRowReader) {
   const poStatus = lower(row.string('PO Status'));
   const amStatus = lower(row.string('AM Status'));
   const cooStatus = lower(row.string('COO status'));
-  const combined = [orderStatus, poStatus, amStatus, cooStatus, lower(row.string('Remarks')), lower(row.string('AM Remarks'))]
+  const combined = [
+    orderStatus,
+    poStatus,
+    amStatus,
+    cooStatus,
+    lower(row.string('Remarks')),
+    lower(row.string('AM Remarks')),
+  ]
     .filter(Boolean)
     .join(' ');
   if (hasAny(combined, ['cancel'])) return 'cancelled';
@@ -589,7 +715,15 @@ function purchaseOrderRecord(
         paymentStatus: row.string('Payment Status', 'Payment Status '),
         shippingCarrier: row.string('Shipping Carrier', 'Carrier'),
         trackingId: row.string('Tracking ID', 'Tracking #'),
-        expectedDeliveryDate: firstDate(row, 'Expected Delivery', 'Expected Delivery Date', 'Exp. Delivery Date', 'Exp. Delivery Date ', 'ETA', 'Arrival to Amazon'),
+        expectedDeliveryDate: firstDate(
+          row,
+          'Expected Delivery',
+          'Expected Delivery Date',
+          'Exp. Delivery Date',
+          'Exp. Delivery Date ',
+          'ETA',
+          'Arrival to Amazon',
+        ),
         blockedReason: row.string('Blocked Reason'),
         orderDate: firstDate(row, 'Timestamp', 'Order Date'),
         statusUpdatedAt: firstDateTime(row, 'OR Status Date', 'Timestamp', 'Updated At'),
@@ -857,7 +991,7 @@ export async function* importCsvFiles(input: SourceAdapterImportInput): AsyncIte
       };
     }
 
-    const shape = detectShape(parsed.headers);
+    const shape = detectCsvShape(parsed.headers);
     if (shape === 'unknown') {
       yield {
         type: 'rowIssue',

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createSourceAdapterRegistry, noopTestAdapter } from '../adapters';
+import { createSourceAdapterRegistry, googleSheetsMigrationCsvAdapter, noopTestAdapter } from '../adapters';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { createEcobaseAiTools } from '../ecobase-ai-tools';
 import { createEcobaseAiActions, createEcobaseAlertActions, createEcobaseImportActions, createEcobaseInventoryPlanningActions, createEcobaseSupplierOrderActions } from '../plugin';
@@ -454,9 +454,21 @@ describe('Ecobase supplier-order workspace API seam', () => {
       },
     });
 
+    await expect(
+      actions.createPlannedOrder(
+        createActionContext(db, {
+          company: 'Ecofission LLC',
+          planningProductId: '22222222-2222-4222-8222-222222222222',
+          orderedQty: 12,
+        }),
+        vi.fn(),
+      ),
+    ).rejects.toThrow('Ecobase planned order failed: supplier selection is required.');
+
     const createOrderContext = createActionContext(db, {
       company: 'Ecofission LLC',
       planningProductId: '22222222-2222-4222-8222-222222222222',
+      supplierId: '44444444-4444-4444-8444-444444444444',
       orderedQty: 12,
       expectedDeliveryDate: '2025-07-18',
       expectedSellableDate: '2025-07-19',
@@ -691,6 +703,39 @@ describe('Ecobase import public API seam', () => {
       status: 400,
       message: 'Ecobase no-op import requires sourceConnectionId.',
     });
+  });
+
+  it('analyzes CSV bundles and creates matching manual CSV source connections', async () => {
+    const db = new MemoryDatabase();
+    const actions = createEcobaseImportActions(createSourceAdapterRegistry([googleSheetsMigrationCsvAdapter]));
+    const analyzeContext = createActionContext(db, {
+      files: [{ name: 'Supplier IDs.csv', content: 'Company,SR ID,Supplier Name\nEcofission LLC,SRO-36,3Dmatsusa' }],
+    });
+    await actions.analyzeCsvBundle(analyzeContext, vi.fn());
+
+    expect(analyzeContext.body.data).toMatchObject({
+      files: [expect.objectContaining({ detectedShape: 'supplier-ids', adapterName: 'google-sheets-migration-csv', importable: true })],
+      groups: [expect.objectContaining({ adapterName: 'google-sheets-migration-csv', sourceType: 'google_sheets', domain: 'order_management' })],
+    });
+
+    const saveContext = createActionContext(db, {
+      name: 'Order CSV upload',
+      companyName: 'Ecofission LLC',
+      sourceType: 'google_sheets',
+      domain: 'order_management',
+    });
+    await actions.saveCsvSourceConnection(saveContext, vi.fn());
+
+    expect(saveContext.body.data).toMatchObject({
+      name: 'Order CSV upload',
+      sourceType: 'google_sheets',
+      domain: 'order_management',
+      config: { manualCsvBundle: true },
+      active: true,
+    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.companies).all()).toEqual([
+      expect.objectContaining({ name: 'Ecofission LLC' }),
+    ]);
   });
 
   it('lists available adapters through the public action', async () => {

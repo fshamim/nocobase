@@ -29,6 +29,15 @@ type SaveSellerboardSourceParams = {
   scheduleEnabled?: boolean;
 };
 
+type SaveCsvSourceConnectionParams = {
+  name?: string;
+  companyName?: string;
+  sourceType?: string;
+  domain?: string;
+  freshnessSlaMinutes?: number;
+  active?: boolean;
+};
+
 function getString(record: unknown, key: string): string | undefined {
   const value = toPlainRecord(record)[key];
   return typeof value === 'string' ? value : undefined;
@@ -192,6 +201,7 @@ export class EcobaseSourceConnectionService {
 
   async listSourceStatuses() {
     const sourceRepo = this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections);
+    const companyRepo = this.db.getRepository(ECOBASE_COLLECTIONS.companies);
     const importRunRepo = this.db.getRepository(ECOBASE_COLLECTIONS.importRuns);
     const sources = await sourceRepo.find({ sort: ['name'] });
     return Promise.all(sources.map(async (source) => {
@@ -202,11 +212,12 @@ export class EcobaseSourceConnectionService {
       const latestRun = await importRunRepo.findOne({ filter: { sourceConnectionId }, sort: ['-startedAt'] });
       const sourceRecord = toPlainRecord(source);
       const latestRunRecord = toPlainRecord(latestRun);
-      const company = getString(sourceRecord, 'company') ?? getString(sourceRecord, 'companyName');
+      const companyId = getString(sourceRecord, 'companyId');
+      const company = companyId ? await companyRepo.findOne({ filterByTk: companyId }) : null;
       return {
         id: sourceConnectionId,
         name: getString(source, 'name') ?? '(unnamed source)',
-        company: company ?? null,
+        company: getString(company, 'name') ?? null,
         sourceType: getString(source, 'sourceType') ?? null,
         domain: getString(source, 'domain') ?? null,
         active: getBoolean(source, 'active', true),
@@ -299,6 +310,44 @@ export class EcobaseSourceConnectionService {
         };
       }),
     );
+  }
+
+  async saveCsvSourceConnection(params: SaveCsvSourceConnectionParams) {
+    const sourceType = params.sourceType?.trim();
+    const domain = params.domain?.trim();
+    if (!sourceType || !['seller_central_file', 'google_sheets', 'sellerboard'].includes(sourceType)) {
+      throw new Error('Ecobase CSV source save failed: sourceType must be seller_central_file, google_sheets, or sellerboard.');
+    }
+    if (!domain || !['amazon_operations', 'order_management', 'foundation', 'accountability'].includes(domain)) {
+      throw new Error('Ecobase CSV source save failed: domain must be amazon_operations, order_management, foundation, or accountability.');
+    }
+    const sourceRepo = this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections);
+    const companyRepo = this.db.getRepository(ECOBASE_COLLECTIONS.companies);
+    const companyName = params.companyName?.trim();
+    let companyId: string | undefined;
+    if (companyName) {
+      let company = await companyRepo.findOne({ filter: { name: companyName } });
+      if (!company) {
+        company = await companyRepo.create({ values: { id: randomUUID(), name: companyName, timezone: 'Asia/Karachi', active: true } });
+      }
+      companyId = getString(company, 'id');
+      if (!companyId) {
+        throw new Error('Ecobase CSV source save failed: company record is missing id.');
+      }
+    }
+    const defaultName = `${sourceType} ${domain} CSV source`;
+    return sourceRepo.create({
+      values: {
+        id: randomUUID(),
+        name: params.name?.trim() || defaultName,
+        companyId,
+        sourceType,
+        domain,
+        config: { manualCsvBundle: true },
+        freshnessSlaMinutes: params.freshnessSlaMinutes ?? 1440,
+        active: params.active !== false,
+      },
+    });
   }
 
   async saveSellerboardSource(params: SaveSellerboardSourceParams) {

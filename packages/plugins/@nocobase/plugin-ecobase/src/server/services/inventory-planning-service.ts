@@ -81,6 +81,15 @@ function payloadString(record: PlainRecord, keys: string[]): string | undefined 
   return undefined;
 }
 
+function configString(record: PlainRecord, keys: string[]): string | undefined {
+  const config = toPlainRecord(record.config);
+  for (const key of keys) {
+    const nested = asString(config[key]);
+    if (nested) return nested;
+  }
+  return undefined;
+}
+
 function payloadNumber(record: PlainRecord, keys: string[]): number | undefined {
   const values = payload(record);
   for (const key of keys) {
@@ -289,15 +298,19 @@ function selectSupplierLink(links: PlainRecord[]) {
   );
 }
 
-function companyLabelFromSourceConnection(connection: PlainRecord) {
-  const explicit = asString(connection.company) ?? payloadString(connection, ['company', 'Company']);
-  if (explicit) return explicit;
-  const name = asString(connection.name);
-  if (!name) return undefined;
-  return name
-    .replace(/^Sellerboard\s*-\s*/i, '')
-    .replace(/\s*Sellerboard$/i, '')
-    .trim();
+function companyNameFromRelation(value: unknown) {
+  const relation = toPlainRecord(value);
+  return asString(relation.name);
+}
+
+function companyLabelFromSourceConnection(connection: PlainRecord, companyNamesById: Map<string, string>) {
+  const relationName = companyNameFromRelation(connection.company);
+  if (relationName) return relationName;
+
+  const companyId = asString(connection.companyId);
+  if (companyId) return companyNamesById.get(companyId);
+
+  return configString(connection, ['company', 'Company', 'defaultCompany']);
 }
 
 function companyFromRecord(record: PlainRecord, sourceConnectionCompanies: Map<string, string>) {
@@ -854,10 +867,10 @@ export class EcobaseInventoryPlanningService {
   }
 
   private fallbackProductKey(record: PlainRecord, sourceConnectionCompanies: Map<string, string>) {
-    const company = companyFromRecord(record, sourceConnectionCompanies) ?? 'all-companies';
+    const company = companyFromRecord(record, sourceConnectionCompanies);
     const asin = asString(record.asin) ?? payloadString(record, ['ASIN', 'asin']);
     const sku = asString(record.sku) ?? payloadString(record, ['SKU', 'sku']);
-    return asin || sku ? `${company}:${asin ?? ''}:${sku ?? ''}` : undefined;
+    return company && (asin || sku) ? `${company}:${asin ?? ''}:${sku ?? ''}` : undefined;
   }
 
   private async buildFallbackRow(params: {
@@ -871,9 +884,12 @@ export class EcobaseInventoryPlanningService {
     reorderCycleDays: number;
   }) {
     const company = companyFromRecord(params.inventory, params.sourceConnectionCompanies) ?? companyFromRecord(params.parameter, params.sourceConnectionCompanies);
+    if (!company) {
+      throw new Error('Ecobase inventory planning fallback failed: company scope is required.');
+    }
     const asin = asString(params.inventory.asin) ?? asString(params.parameter.asin) ?? payloadString(params.inventory, ['ASIN']);
     const sku = asString(params.inventory.sku) ?? asString(params.parameter.sku) ?? payloadString(params.inventory, ['SKU']);
-    const planningProductId = `fallback:${company ?? 'all'}:${asin ?? ''}:${sku ?? ''}`;
+    const planningProductId = `fallback:${company}:${asin ?? ''}:${sku ?? ''}`;
     const stockBuckets = this.stockBuckets(params.inventory, {});
     const salesVelocity = asNumber(params.inventory.salesVelocity) ?? payloadNumber(params.inventory, ['Estimated Sales Velocity', 'Exp Sales Vel', 'Sales Velocity']);
     const importedLeadTimeDays = asNumber(params.parameter.leadTimeDays) ?? payloadNumber(params.parameter, ['Lead Time', 'Avg Lead Time', 'Lead time(day)', 'Manuf. time days']);
@@ -1183,10 +1199,16 @@ export class EcobaseInventoryPlanningService {
 
   private async sourceConnectionCompanies() {
     const connections = (await this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).find({})).map(toPlainRecord);
+    const companyRows = (await this.db.getRepository(ECOBASE_COLLECTIONS.companies).find({})).map(toPlainRecord);
+    const companyNamesById = new Map(
+      companyRows
+        .map((company) => [asString(company.id), asString(company.name)] as const)
+        .filter((entry): entry is [string, string] => Boolean(entry[0] && entry[1])),
+    );
     const companies = new Map<string, string>();
     for (const connection of connections) {
       const id = asString(connection.id);
-      const label = companyLabelFromSourceConnection(connection);
+      const label = companyLabelFromSourceConnection(connection, companyNamesById);
       if (id && label) {
         companies.set(id, label);
       }
@@ -1299,12 +1321,9 @@ export class EcobaseInventoryPlanningService {
     const supplierName = asString(supplier.name) ?? asString(parameter.supplier);
     const scoped = (filter: PlainRecord) => ({ ...filter, ...(company ? { company } : {}) });
     const findScoped = async (base: PlainRecord) => {
-      const rows = (await leadTimeRepo.find({ filter: scoped(base), sort: ['-confirmedAt'], limit: 100 })).map(toPlainRecord);
-      if (planningProductId) {
-        const productSpecific = rows.find((row) => asString(row.planningProductId) === planningProductId);
-        if (productSpecific) return productSpecific;
-      }
-      return rows.find((row) => !asString(row.planningProductId)) ?? {};
+      if (!planningProductId) return {};
+      const rows = (await leadTimeRepo.find({ filter: scoped({ ...base, planningProductId }), sort: ['-confirmedAt'], limit: 1 })).map(toPlainRecord);
+      return rows[0] ?? {};
     };
     const bySupplierRef = supplierRefId ? await findScoped({ supplierRefId }) : {};
     if (asString(bySupplierRef.id) || typeof bySupplierRef.leadTimeDays === 'number') return bySupplierRef;

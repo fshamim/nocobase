@@ -83,6 +83,7 @@ export interface SupplierOrderImportResult {
   handled: boolean;
   warnings: SupplierOrderImportWarning[];
   sample?: Record<string, unknown>;
+  requiresReconcile?: boolean;
 }
 
 export interface SupplierOrderCoverageLine {
@@ -294,7 +295,7 @@ function toPlainRecord(value: unknown): PlainRecord {
 
 function asString(value: unknown): string | undefined {
   if (value instanceof Date) {
-    return value.toISOString();
+    return Number.isNaN(value.getTime()) ? undefined : value.toISOString();
   }
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 }
@@ -317,23 +318,6 @@ function compactNaturalKey(prefix: string, rawKey: string) {
   return `${prefix}:hash:${createHash('sha256').update(rawKey).digest('hex')}`;
 }
 
-function stableUuid(value: string) {
-  const hex = createHash('sha1').update(value).digest('hex').slice(0, 32);
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-${((parseInt(hex.slice(16, 18), 16) & 0x3f) | 0x80)
-    .toString(16)
-    .padStart(2, '0')}${hex.slice(18, 20)}-${hex.slice(20, 32)}`;
-}
-
-function fallbackPlanningProductParts(planningProductId: string | undefined) {
-  if (!planningProductId?.startsWith('fallback:')) return null;
-  const parts = planningProductId.slice('fallback:'.length).split(':');
-  if (parts.length < 3) return null;
-  const sku = parts.pop() ?? '';
-  const asin = parts.pop() ?? '';
-  const company = parts.join(':');
-  return { company, asin, sku };
-}
-
 function truncateText(value: string | undefined, maxLength = 255) {
   if (!value || value.length <= maxLength) {
     return value;
@@ -347,6 +331,10 @@ function supplierOrderLineNaturalKey(orderNaturalKey: string | undefined, source
 
 function asNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function asRecordId(value: unknown): string | number | undefined {
+  return typeof value === 'string' || typeof value === 'number' ? value : undefined;
 }
 
 function asBoolean(value: unknown): boolean | undefined {
@@ -420,6 +408,14 @@ function isoDateTime(value: string | Date): string {
 function maybeIsoDate(value: unknown): string | undefined {
   const text = asString(value);
   return text ? isoDate(text) : undefined;
+}
+
+function safeIsoDate(value: unknown): string | undefined {
+  try {
+    return maybeIsoDate(value);
+  } catch {
+    return undefined;
+  }
 }
 
 function maybeIsoDateTime(value: unknown): string | undefined {
@@ -658,7 +654,6 @@ export class EcobaseSupplierOrderService {
         .filter((entry): entry is [string, string] => Boolean(entry[0] && entry[1])),
     );
     const productLeadTimeBySupplierAndProduct = new Map<string, PlainRecord>();
-    const defaultLeadTimeBySupplier = new Map<string, PlainRecord>();
     const productLeadTimeBySupplierNameAndAsin = new Map<string, PlainRecord>();
     for (const leadTime of leadTimes) {
       const supplierId = asString(leadTime.supplierRefId);
@@ -668,8 +663,6 @@ export class EcobaseSupplierOrderService {
       const asin = asString(leadTime.asin);
       if (supplierId && planningProductId) {
         productLeadTimeBySupplierAndProduct.set(`${supplierId}:${planningProductId}`, leadTime);
-      } else if (supplierId) {
-        defaultLeadTimeBySupplier.set(supplierId, leadTime);
       }
       if (company && supplierName && asin) {
         productLeadTimeBySupplierNameAndAsin.set(`${company}:${supplierName}:${asin}`, leadTime);
@@ -698,8 +691,7 @@ export class EcobaseSupplierOrderService {
         ? productLeadTimeBySupplierAndProduct.get(`${supplierId}:${planningProductId}`) ??
           (supplierName && canonicalAsin
             ? productLeadTimeBySupplierNameAndAsin.get(`${product.company}:${supplierName}:${canonicalAsin}`)
-            : undefined) ??
-          defaultLeadTimeBySupplier.get(supplierId)
+            : undefined)
         : undefined;
       reorderCandidates.push({
         planningProductId,
@@ -745,9 +737,9 @@ export class EcobaseSupplierOrderService {
     const planningProduct = await this.ensurePlanningProduct(params.planningProductId, params.company, 'Ecobase planned order failed');
 
     const planningProductId = asString(planningProduct.id) ?? params.planningProductId;
-    const supplierId = params.supplierId ?? (await this.resolveDefaultSupplierId(planningProductId));
+    const supplierId = params.supplierId;
     if (!supplierId) {
-      throw new Error('Ecobase planned order failed: supplier selection is required because no preferred/latest supplier exists.');
+      throw new Error('Ecobase planned order failed: supplier selection is required.');
     }
     if (!isUuid(supplierId)) {
       throw new Error('Ecobase planned order failed: selected supplier must be chosen from the supplier lookup.');
@@ -908,6 +900,7 @@ export class EcobaseSupplierOrderService {
           status: result.order.status,
           sourceStage: result.order.sourceStage,
         },
+        requiresReconcile: true,
       };
     }
 
@@ -942,45 +935,9 @@ export class EcobaseSupplierOrderService {
 
   async reconcileAfterImport(importRunId: string) {
     const orderLineRepo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines);
-    const allLines = (await orderLineRepo.find()).map(toPlainRecord);
+    const importedLines = (await orderLineRepo.find({ filter: { lastImportRunId: importRunId } })).map(toPlainRecord);
     const affectedPlanningProductIds = new Set<string>();
 
-    for (const line of allLines) {
-      const lineId = asString(line.id);
-      if (!lineId) {
-        continue;
-      }
-      const company = asString(line.company);
-      if (!company) {
-        continue;
-      }
-
-      const resolved = await this.resolvePlanningProduct({
-        company,
-        asin: asString(line.asin),
-        sku: asString(line.sku),
-      });
-
-      const updateValues: PlainRecord = {};
-      if (resolved.planningProductId) {
-        updateValues.planningProductId = resolved.planningProductId;
-        updateValues.unresolvedMapping = false;
-        updateValues.mappingWarning = null;
-        affectedPlanningProductIds.add(resolved.planningProductId);
-      }
-
-      const derived = await this.deriveExpectedSellableDate({
-        line,
-        order: await this.findSupplierOrder(asString(line.supplierOrderId) ?? ''),
-      });
-      Object.assign(updateValues, derived.values);
-
-      if (Object.keys(updateValues).length > 0) {
-        await orderLineRepo.update({ filterByTk: lineId, values: updateValues });
-      }
-    }
-
-    const importedLines = (await orderLineRepo.find({ filter: { lastImportRunId: importRunId } })).map(toPlainRecord);
     importedLines.forEach((line) => {
       const planningProductId = asString(line.planningProductId);
       if (planningProductId) {
@@ -1531,14 +1488,14 @@ export class EcobaseSupplierOrderService {
   }
 
   private toSupplierIdentityRecord(data: PlainRecord): SupplierIdentityRecord {
-    const company = asString(data.company) ?? '__global__';
+    const company = asString(data.company);
     const supplierName = asString(data.supplierName) ?? asString(data.externalSupplierName);
     const externalSupplierCode = asString(data.externalSupplierCode);
     const sourceSystem = asString(data.sourceSystem);
     const sourceConnectionId = asString(data.sourceConnectionId);
-    if ((!supplierName && !externalSupplierCode) || !sourceSystem || !sourceConnectionId) {
+    if (!company || (!supplierName && !externalSupplierCode) || !sourceSystem || !sourceConnectionId) {
       throw new Error(
-        'Ecobase supplier identity import failed: supplierName or externalSupplierCode, sourceSystem, and sourceConnectionId are required.',
+        'Ecobase supplier identity import failed: company, supplierName or externalSupplierCode, sourceSystem, and sourceConnectionId are required.',
       );
     }
     return {
@@ -1854,7 +1811,7 @@ export class EcobaseSupplierOrderService {
       };
     }
 
-    const expectedDeliveryDate = asString(line.expectedDeliveryDate) ?? asString(order.expectedDeliveryDate);
+    const expectedDeliveryDate = safeIsoDate(line.expectedDeliveryDate) ?? safeIsoDate(order.expectedDeliveryDate);
     if (expectedDeliveryDate) {
       return {
         values: {
@@ -1887,7 +1844,7 @@ export class EcobaseSupplierOrderService {
         leadTime = undefined;
       }
     }
-    const baseDate = asString(order.orderDate) ?? asString(order.statusUpdatedAt)?.slice(0, 10);
+    const baseDate = safeIsoDate(order.orderDate) ?? safeIsoDate(order.statusUpdatedAt);
     if (typeof leadTime === 'number' && baseDate) {
       return {
         values: {
@@ -1931,32 +1888,11 @@ export class EcobaseSupplierOrderService {
   }
 
   private async ensurePlanningProduct(planningProductId: string, expectedCompany: string | undefined, errorPrefix: string) {
-    const productRepo = this.db.getRepository(ECOBASE_COLLECTIONS.planningProducts);
-    let product = toPlainRecord(await productRepo.findOne({ filterByTk: planningProductId }));
-    if (!asString(product.id)) {
-      const fallback = fallbackPlanningProductParts(planningProductId);
-      if (fallback?.asin) {
-        const company = expectedCompany ?? fallback.company;
-        const naturalKey = compactNaturalKey('planning-product', `${company}:${fallback.asin}`);
-        product = toPlainRecord(await productRepo.findOne({ filter: { naturalKey } }));
-        if (!asString(product.id)) {
-          const productId = stableUuid(naturalKey);
-          product = toPlainRecord(
-            await productRepo.create({
-              values: {
-                id: productId,
-                naturalKey,
-                company,
-                canonicalAsin: fallback.asin,
-                listingCount: 1,
-                mappingStatus: 'auto_mapped',
-                auditSummary: { source: 'inventory_planning_fallback', fallbackPlanningProductId: planningProductId, sku: fallback.sku },
-              },
-            }),
-          );
-        }
-      }
+    if (planningProductId.startsWith('fallback:')) {
+      throw new Error(`${errorPrefix}: planning product must be selected from a persisted planning-product record.`);
     }
+
+    const product = toPlainRecord(await this.db.getRepository(ECOBASE_COLLECTIONS.planningProducts).findOne({ filterByTk: planningProductId }));
     if (!asString(product.id)) {
       throw new Error(`${errorPrefix}: planning product "${planningProductId}" was not found.`);
     }
@@ -1964,20 +1900,6 @@ export class EcobaseSupplierOrderService {
       throw new Error(`${errorPrefix}: planning product belongs to a different company.`);
     }
     return product;
-  }
-
-  private async resolveDefaultSupplierId(planningProductId: string) {
-    const links = (await this.db.getRepository(ECOBASE_COLLECTIONS.supplierProductLinks).find({
-      filter: { planningProductId },
-      sort: ['role'],
-    })).map(toPlainRecord);
-    const activeLinks = links.filter((link) => asBoolean(link.active) !== false);
-    const preferred =
-      activeLinks.find((link) => asString(link.role) === 'preferred') ??
-      activeLinks.find((link) => asString(link.role) === 'latest_history') ??
-      activeLinks.find((link) => asString(link.role) === 'discovered') ??
-      activeLinks.find((link) => asString(link.role) === 'candidate');
-    return asString(preferred?.supplierId);
   }
 
   private async refreshSupplierProductLinks(planningProductId: string) {
@@ -2003,8 +1925,8 @@ export class EcobaseSupplierOrderService {
     const preferredSupplierId = asString(preferredLinks[0]?.supplierId);
 
     for (const link of existingLinks) {
-      const linkId = asString(link.id);
-      if (linkId && ['candidate', 'latest_history', 'discovered'].includes(asString(link.role) ?? '')) {
+      const linkId = asRecordId(link.id);
+      if (linkId !== undefined && ['candidate', 'latest_history', 'discovered'].includes(asString(link.role) ?? '')) {
         await linkRepo.update({ filterByTk: linkId, values: { active: false, lastImportRunId: link.lastImportRunId } });
       }
     }
@@ -2118,8 +2040,9 @@ export class EcobaseSupplierOrderService {
       payload: params.importPayload,
     };
 
-    if (asString(existing.id)) {
-      await repo.update({ filterByTk: asString(existing.id), values });
+    const existingId = asRecordId(existing.id);
+    if (existingId !== undefined) {
+      await repo.update({ filterByTk: existingId, values });
       return;
     }
     await repo.create({ values });
@@ -2215,7 +2138,7 @@ export class EcobaseSupplierOrderService {
       ? identityRows.find(
           (record) =>
             asString(record.externalSupplierCode) === identity.externalSupplierCode &&
-            (asString(record.company) === identity.company || asString(record.company) === '__global__') &&
+            asString(record.company) === identity.company &&
             asString(record.externalSupplierName),
         )
       : undefined;

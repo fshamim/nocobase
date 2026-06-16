@@ -602,10 +602,10 @@ export default function InventoryPlanningPage() {
         }),
     );
     const actionableStatuses = new Set(['draft', 'supplier_contacted', 'supplier_confirmed', 'approval_pending', 'payment_pending', 'paid', 'supplier_preparing']);
-    const supplierId = isUuid(row.supplierId) ? row.supplierId : suppliers.find((supplier: PlainRecord) => supplier.name === row.supplierName)?.id;
-    const matchingOrder = supplierOrders.find((order: PlainRecord) =>
-      (!supplierId || order.supplierId === supplierId) && actionableStatuses.has(order.status),
-    ) ?? supplierOrders.find((order: PlainRecord) => actionableStatuses.has(order.status));
+    const supplierId = isUuid(row.supplierId) ? row.supplierId : undefined;
+    const matchingOrder = supplierId
+      ? supplierOrders.find((order: PlainRecord) => order.supplierId === supplierId && actionableStatuses.has(order.status))
+      : undefined;
     setActionValues((current) => current ? {
       ...current,
       draftSupplierId: current.draftSupplierId || supplierId || '',

@@ -493,14 +493,10 @@ export class EcobasePlanningCalculationService {
         ...(company ? { company } : {}),
       });
       const productScope = (identity: Record<string, string>) => scopedFilter({ ...identity, scope: 'product', ...(asin ? { asin } : sku ? { sku } : {}) });
-      const defaultScope = (identity: Record<string, string>) => scopedFilter({ ...identity, scope: 'default' });
       const byProductId = supplierId && (asin || sku) ? await leadTimeRepo.findOne({ filter: productScope({ supplierId }) }) : null;
       const byProductName =
         !byProductId && supplierName && (asin || sku) ? await leadTimeRepo.findOne({ filter: productScope({ supplierName }) }) : null;
-      const byDefaultId = supplierId ? await leadTimeRepo.findOne({ filter: defaultScope({ supplierId }) }) : null;
-      const byDefaultName =
-        !byDefaultId && supplierName ? await leadTimeRepo.findOne({ filter: defaultScope({ supplierName }) }) : null;
-      const leadTimeDays = asNumber(toPlainRecord(byProductId ?? byProductName ?? byDefaultId ?? byDefaultName).leadTimeDays);
+      const leadTimeDays = asNumber(toPlainRecord(byProductId ?? byProductName).leadTimeDays);
       if (typeof leadTimeDays === 'number') {
         return leadTimeDays;
       }

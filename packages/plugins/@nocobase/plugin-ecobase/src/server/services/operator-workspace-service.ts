@@ -138,7 +138,7 @@ function sourceCompanyId(source: PlainRecord) {
 
 function sourceCompanyName(source: PlainRecord, companiesById: Map<string, PlainRecord>) {
   const relation = asRecord(source.company);
-  return asString(source.companyName) ?? asString(source.company) ?? asString(relation.name) ?? asString(companiesById.get(String(sourceCompanyId(source) ?? ''))?.name);
+  return asString(relation.name) ?? asString(companiesById.get(String(sourceCompanyId(source) ?? ''))?.name);
 }
 
 function toPlainRecord(value: unknown): PlainRecord {
@@ -312,7 +312,7 @@ export class EcobaseOperatorWorkspaceService {
       ? companies.find((company) => company.name === requestedCompany || company.id === requestedCompany)
       : undefined;
     const requestedCompanyId = asString(companyByRequestedValue?.id);
-    const requestedCompanyName = asString(companyByRequestedValue?.name) ?? requestedCompany;
+    const requestedCompanyName = asString(companyByRequestedValue?.name);
     const sourceConnections = await this.findAll(ECOBASE_COLLECTIONS.sourceConnections);
     const scopedSources = sourceConnections.filter((source) => {
       const id = asString(source.id);
@@ -321,10 +321,10 @@ export class EcobaseOperatorWorkspaceService {
       if (requestedSourceConnectionId && id !== requestedSourceConnectionId) {
         return false;
       }
-      if (requestedCompany && companyId !== requestedCompanyId && companyName !== requestedCompanyName) {
+      if (requestedCompany && (!requestedCompanyId || (companyId !== requestedCompanyId && companyName !== requestedCompanyName))) {
         return false;
       }
-      return Boolean(requestedSourceConnectionId || requestedCompany);
+      return Boolean(requestedSourceConnectionId || requestedCompanyId);
     });
     const sourceIds = new Set(scopedSources.map((source) => asString(source.id)).filter((id): id is string => Boolean(id)));
     if (requestedSourceConnectionId && sourceIds.size === 0) {

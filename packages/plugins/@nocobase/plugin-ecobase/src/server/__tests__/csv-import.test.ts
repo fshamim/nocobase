@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   amazonOperationsCsvAdapter,
   amazonSpApiAccessCheckAdapter,
+  analyzeCsvFiles,
   createSourceAdapterRegistry,
   googleSheetsMigrationCsvAdapter,
   sellerboardApiAdapter,
@@ -711,7 +712,9 @@ describe('Ecobase current Amazon operations CSV import', () => {
       db
         .getRepository(ECOBASE_COLLECTIONS.supplierOrderLines)
         .all()
-        .filter((record) => ['OD-OLD', 'OD-NEW'].some((orderId) => String(record.sourceOrderLineRef).startsWith(orderId)))
+        .filter((record) =>
+          ['OD-OLD', 'OD-NEW'].some((orderId) => String(record.sourceOrderLineRef).startsWith(orderId)),
+        )
         .every((record) => record.receivedQty === 0),
     ).toBe(true);
 
@@ -757,6 +760,20 @@ describe('Ecobase current Amazon operations CSV import', () => {
     expect(coverage.linkedSupplierOrderIds).toContain(String(purchaseOrder.id));
     expect(coverage.linkedSupplierOrderLineIds).toHaveLength(1);
     expect(await supplierOrderService.getPrepBufferDays('Ecofission LLC')).toBe(0);
+
+    const existingLatestHistoryLink = db
+      .getRepository(ECOBASE_COLLECTIONS.supplierProductLinks)
+      .all()
+      .find(
+        (record) =>
+          record.planningProductId === planningProductId &&
+          record.role === 'latest_history' &&
+          record.supplierId === supplierB.id,
+      );
+    if (!existingLatestHistoryLink) {
+      throw new Error('Expected latest-history supplier product link before rerun.');
+    }
+    existingLatestHistoryLink.id = 42;
 
     const countsBeforeRerun = {
       identities: db.getRepository(ECOBASE_COLLECTIONS.supplierExternalIdentities).all().length,
@@ -815,6 +832,7 @@ describe('Ecobase current Amazon operations CSV import', () => {
       filterByTk: 'source-1',
       values: {
         config: {
+          defaultCompany: 'Ecofission LLC',
           files: [{ name: 'Supplier IDs.csv', content: duplicateSupplierIdsCsv, expectedRowCount: 3 }],
         },
       },
@@ -832,10 +850,12 @@ describe('Ecobase current Amazon operations CSV import', () => {
     const suppliers = db.getRepository(ECOBASE_COLLECTIONS.suppliers).all();
     expect(suppliers.find((record) => record.name === 'harkersonline')).toMatchObject({ supplierId: undefined });
     expect(suppliers.find((record) => record.name === 'kiki-health')).toMatchObject({ supplierId: undefined });
-    expect(suppliers.find((record) => record.name === 'New england quilt supply')).toMatchObject({ supplierId: 'SRO-12801' });
+    expect(suppliers.find((record) => record.name === 'New england quilt supply')).toMatchObject({
+      supplierId: 'SRO-12801',
+    });
   });
 
-  it('links order-details supplier codes through Supplier IDs and leaves unknown supplier lead time missing', async () => {
+  it('links order-details supplier codes through company-scoped Supplier IDs and leaves unknown supplier lead time missing', async () => {
     const { db, service } = createService('google_sheets', 'order_management');
     const sourceConnectionRepo = db.getRepository(ECOBASE_COLLECTIONS.sourceConnections);
 
@@ -843,6 +863,7 @@ describe('Ecobase current Amazon operations CSV import', () => {
       filterByTk: 'source-1',
       values: {
         config: {
+          defaultCompany: 'Ecofission LLC',
           files: [{ name: 'Supplier IDs.csv', content: globalSupplierIdsCsv, expectedRowCount: 1 }],
         },
       },
@@ -850,7 +871,7 @@ describe('Ecobase current Amazon operations CSV import', () => {
     const supplierRun = await service.runAdapterImport({
       sourceConnectionId: 'source-1',
       adapterName: 'google-sheets-migration-csv',
-      sourceIdentifier: 'global-supplier-ids',
+      sourceIdentifier: 'company-scoped-supplier-ids',
       sourceVersion: '2025-07-01',
       preserveAuditRun: true,
     });
@@ -874,10 +895,13 @@ describe('Ecobase current Amazon operations CSV import', () => {
     expect(orderRun).toMatchObject({ status: 'success', rowCount: 2, normalizedCount: 2, warningCount: 3 });
 
     const suppliers = db.getRepository(ECOBASE_COLLECTIONS.suppliers).all();
-    const globalSupplier = suppliers.find((record) => record.supplierId === 'SRO-ESS' && record.company === '__global__');
-    const linkedSupplier = suppliers.find((record) => record.supplierId === 'SRO-ESS' && record.company === 'Ecofission LLC');
-    const unknownSupplier = suppliers.find((record) => record.supplierId === 'SRO-MISSING' && record.company === 'Ecofission LLC');
-    expect(globalSupplier).toMatchObject({ name: 'Essence Supplier' });
+    const linkedSupplier = suppliers.find(
+      (record) => record.supplierId === 'SRO-ESS' && record.company === 'Ecofission LLC',
+    );
+    const unknownSupplier = suppliers.find(
+      (record) => record.supplierId === 'SRO-MISSING' && record.company === 'Ecofission LLC',
+    );
+    expect(suppliers.some((record) => record.company === '__global__')).toBe(false);
     expect(linkedSupplier).toMatchObject({ name: 'Essence Supplier' });
     expect(unknownSupplier).toBeUndefined();
     expect(db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).all()).toHaveLength(1);
@@ -1206,6 +1230,138 @@ describe('Ecobase current Amazon operations CSV import', () => {
     ]);
   });
 
+  it('analyzes mixed CSV bundles before import', () => {
+    const analysis = analyzeCsvFiles([
+      { name: 'OrderDetails.csv', content: orderDetailsDetailedCsv },
+      { name: 'Purchase Orders.csv', content: purchaseOrdersDetailedCsv },
+      { name: 'Buybox.csv', content: buyboxCsv },
+      { name: 'Unknown.csv', content: 'Not,A,Known,Shape\n1,2,3,4' },
+    ]);
+
+    expect(analysis.files).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'OrderDetails.csv',
+          detectedShape: 'order-details',
+          adapterName: 'google-sheets-migration-csv',
+          sourceType: 'google_sheets',
+          domain: 'order_management',
+          importable: true,
+        }),
+        expect.objectContaining({
+          name: 'Purchase Orders.csv',
+          detectedShape: 'purchase-orders',
+          adapterName: 'google-sheets-migration-csv',
+          sourceType: 'google_sheets',
+          domain: 'order_management',
+          importable: true,
+        }),
+        expect.objectContaining({
+          name: 'Buybox.csv',
+          detectedShape: 'buybox',
+          adapterName: 'amazon-operations-csv',
+          sourceType: 'seller_central_file',
+          domain: 'amazon_operations',
+          importable: true,
+        }),
+        expect.objectContaining({
+          name: 'Unknown.csv',
+          detectedShape: 'unknown',
+          adapterName: null,
+          sourceType: null,
+          domain: null,
+          importable: false,
+        }),
+      ]),
+    );
+    expect(analysis.groups).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          adapterName: 'google-sheets-migration-csv',
+          sourceType: 'google_sheets',
+          domain: 'order_management',
+          files: ['OrderDetails.csv', 'Purchase Orders.csv'],
+        }),
+        expect.objectContaining({
+          adapterName: 'amazon-operations-csv',
+          sourceType: 'seller_central_file',
+          domain: 'amazon_operations',
+          files: ['Buybox.csv'],
+        }),
+      ]),
+    );
+  });
+
+  it('imports CSV bundles without storing uploaded content in source connection config and skips unchanged re-uploads', async () => {
+    const { db, service } = createService();
+    const sourceConnection = db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).all()[0];
+    expect(sourceConnection.config).toEqual({});
+
+    const first = await service.runCsvBundleImport({
+      sourceConnectionId: 'source-1',
+      adapterName: 'amazon-operations-csv',
+      sourceIdentifier: 'manual-buybox-bundle',
+      sourceVersion: '2025-07-01',
+      files: [{ name: 'Buybox.csv', content: buyboxCsv }],
+    });
+    const second = await service.runCsvBundleImport({
+      sourceConnectionId: 'source-1',
+      adapterName: 'amazon-operations-csv',
+      sourceIdentifier: 'manual-buybox-bundle',
+      sourceVersion: '2025-07-01',
+      files: [{ name: 'Buybox.csv', content: buyboxCsv }],
+    });
+
+    expect(first).toMatchObject({ status: 'success', rowCount: 1, normalizedCount: 1, warningCount: 0 });
+    expect(second).toMatchObject({ status: 'skipped', rowCount: 0, normalizedCount: 0, warningCount: 1 });
+    expect(sourceConnection.config).toEqual({});
+    expect(db.getRepository(ECOBASE_COLLECTIONS.trafficSnapshots).all()).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).all()).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.importRuns).all()).toHaveLength(2);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.importRuns).all()[0].summary).toMatchObject({
+      csvBundle: {
+        files: [expect.objectContaining({ name: 'Buybox.csv', detectedShape: 'buybox', changed: true })],
+      },
+    });
+  });
+
+  it('imports only changed files from CSV bundle re-uploads', async () => {
+    const { db, service } = createService();
+    const changedBuyboxCsv = `${buyboxCsv}\nEcofission LLC,B0CHANGED,Changed Product,10,11,55%,2,$20.00,20%`;
+    await service.runCsvBundleImport({
+      sourceConnectionId: 'source-1',
+      adapterName: 'amazon-operations-csv',
+      sourceIdentifier: 'manual-buybox-bundle',
+      sourceVersion: '2025-07-01',
+      files: [{ name: 'Buybox.csv', content: buyboxCsv }],
+    });
+    const changed = await service.runCsvBundleImport({
+      sourceConnectionId: 'source-1',
+      adapterName: 'amazon-operations-csv',
+      sourceIdentifier: 'manual-buybox-bundle',
+      sourceVersion: '2025-07-02',
+      files: [{ name: 'Buybox.csv', content: changedBuyboxCsv }],
+    });
+
+    expect(changed).toMatchObject({ status: 'success', rowCount: 2, normalizedCount: 2, warningCount: 0 });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.trafficSnapshots).all()).toHaveLength(2);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).all()).toHaveLength(3);
+  });
+
+  it('rejects CSV bundle adapter mismatches before writing import rows', async () => {
+    const { db, service } = createService('google_sheets', 'order_management');
+    await expect(
+      service.runCsvBundleImport({
+        sourceConnectionId: 'source-1',
+        adapterName: 'google-sheets-migration-csv',
+        sourceIdentifier: 'manual-mismatch-bundle',
+        sourceVersion: '2025-07-01',
+        files: [{ name: 'Buybox.csv', content: buyboxCsv }],
+      }),
+    ).rejects.toThrow('files do not match adapter "google-sheets-migration-csv"');
+    expect(db.getRepository(ECOBASE_COLLECTIONS.importRuns).all()).toHaveLength(0);
+  });
+
   it('preserves distinct import-run audit trails while normalized records are idempotently updated', async () => {
     const { db, service } = createService();
     db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
@@ -1279,7 +1435,7 @@ describe('Ecobase current Amazon operations CSV import', () => {
       sourceConnectionId: 'source-1',
       adapterName: 'google-sheets-migration-csv',
       sourceIdentifier: 'supplier-ids',
-      sourceVersion: '2025-07-01',
+      sourceVersion: 'manual-supplier-ids-v1',
       preserveAuditRun: true,
     });
 
@@ -1297,13 +1453,64 @@ describe('Ecobase current Amazon operations CSV import', () => {
     ]);
   });
 
+  it('marks the import run partial when post-import reconciliation fails after rows were saved', async () => {
+    const { db, service } = createService('google_sheets', 'order_management');
+    db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
+      filterByTk: 'source-1',
+      values: {
+        config: {
+          files: [
+            {
+              name: 'Purchase Orders.csv',
+              content:
+                'Timestamp,Order ID,SR ID ,Supplier,Company,Exp. Cost ,Payment Status ,Total units\n17/06/2023 03:46:51,OD-POST,SRO-1,Supplier,Ecofission LLC,190,Paid,200',
+              expectedRowCount: 1,
+            },
+          ],
+        },
+      },
+    });
+    const spy = vi
+      .spyOn(EcobaseSupplierOrderService.prototype, 'reconcileAfterImport')
+      .mockRejectedValueOnce(new Error('post-import reconciliation failed for smoke test'));
+
+    try {
+      const run = await service.runAdapterImport({
+        sourceConnectionId: 'source-1',
+        adapterName: 'google-sheets-migration-csv',
+        sourceIdentifier: 'purchase-orders-post-import-failure',
+        sourceVersion: '2025-07-01',
+        preserveAuditRun: true,
+      });
+
+      expect(run).toMatchObject({
+        status: 'partial',
+        rowCount: 1,
+        normalizedCount: 1,
+        errorCount: 1,
+        errorMessage:
+          'Ecobase import completed with a post-import reconciliation warning: post-import reconciliation failed for smoke test',
+      });
+      expect(db.getRepository(ECOBASE_COLLECTIONS.importRuns).all()[0]).toEqual(
+        expect.objectContaining({ status: 'partial', finishedAt: expect.any(Date) }),
+      );
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('treats scheduled rolling Sellerboard reports as fresh when they include the previous completed day', async () => {
     const { db, service } = createService('sellerboard');
     await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
       filterByTk: 'source-1',
       values: {
         config: {
-          schedule: { enabled: true, dailyRefreshTime: '00:00', refreshIntervalMinutes: 1440, retryIntervalMinutes: 60 },
+          schedule: {
+            enabled: true,
+            dailyRefreshTime: '00:00',
+            refreshIntervalMinutes: 1440,
+            retryIntervalMinutes: 60,
+          },
           reportUrls: [
             {
               name: 'Profit Dashboard Data',
@@ -1316,8 +1523,9 @@ describe('Ecobase current Amazon operations CSV import', () => {
     });
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response('Date,Orders,SalesOrganic,NetProfit\n06/06/2026,1,10,4\n07/06/2026,2,20,8', { status: 200 }),
+      vi.fn(
+        async () =>
+          new Response('Date,Orders,SalesOrganic,NetProfit\n06/06/2026,1,10,4\n07/06/2026,2,20,8', { status: 200 }),
       ),
     );
 
@@ -1368,7 +1576,13 @@ describe('Ecobase current Amazon operations CSV import', () => {
     const secondRun = runs[1];
 
     expect(firstRun).toMatchObject({ normalizedCount: 4 });
-    expect(secondRun).toMatchObject({ status: 'success', rowCount: 3, normalizedCount: 2, warningCount: 0, errorCount: 0 });
+    expect(secondRun).toMatchObject({
+      status: 'success',
+      rowCount: 3,
+      normalizedCount: 2,
+      warningCount: 0,
+      errorCount: 0,
+    });
     expect(db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).all()).toHaveLength(3);
     expect(
       db
@@ -1384,9 +1598,18 @@ describe('Ecobase current Amazon operations CSV import', () => {
       filterByTk: 'source-1',
       values: {
         config: {
-          schedule: { enabled: true, dailyRefreshTime: '00:00', refreshIntervalMinutes: 1440, retryIntervalMinutes: 60 },
+          schedule: {
+            enabled: true,
+            dailyRefreshTime: '00:00',
+            refreshIntervalMinutes: 1440,
+            retryIntervalMinutes: 60,
+          },
           reportUrls: [
-            { name: 'Profit Dashboard Data', category: 'profit_dashboard', url: 'https://sellerboard.test/profit-dashboard.csv' },
+            {
+              name: 'Profit Dashboard Data',
+              category: 'profit_dashboard',
+              url: 'https://sellerboard.test/profit-dashboard.csv',
+            },
             { name: 'Stock Daily Data', category: 'stock_daily', url: 'https://sellerboard.test/stock.csv' },
           ],
         },
