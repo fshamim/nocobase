@@ -318,8 +318,10 @@ export class EcobaseSourceConnectionService {
     if (!sourceType || !['seller_central_file', 'google_sheets', 'sellerboard'].includes(sourceType)) {
       throw new Error('Ecobase CSV source save failed: sourceType must be seller_central_file, google_sheets, or sellerboard.');
     }
-    if (!domain || !['amazon_operations', 'order_management', 'foundation', 'accountability'].includes(domain)) {
-      throw new Error('Ecobase CSV source save failed: domain must be amazon_operations, order_management, foundation, or accountability.');
+    if (!domain || !['amazon_operations', 'order_management', 'supplier_management', 'foundation', 'accountability'].includes(domain)) {
+      throw new Error(
+        'Ecobase CSV source save failed: domain must be amazon_operations, order_management, supplier_management, foundation, or accountability.',
+      );
     }
     const sourceRepo = this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections);
     const companyRepo = this.db.getRepository(ECOBASE_COLLECTIONS.companies);

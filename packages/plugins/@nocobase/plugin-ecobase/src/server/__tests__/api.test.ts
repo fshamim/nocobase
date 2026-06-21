@@ -2,7 +2,14 @@ import { describe, expect, it, vi } from 'vitest';
 import { createSourceAdapterRegistry, googleSheetsMigrationCsvAdapter, noopTestAdapter } from '../adapters';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { createEcobaseAiTools } from '../ecobase-ai-tools';
-import { createEcobaseAiActions, createEcobaseAlertActions, createEcobaseImportActions, createEcobaseInventoryPlanningActions, createEcobaseSupplierOrderActions } from '../plugin';
+import {
+  createEcobaseAiActions,
+  createEcobaseAlertActions,
+  createEcobaseImportActions,
+  createEcobaseInventoryPlanningActions,
+  createEcobaseSupplierManagementActions,
+  createEcobaseSupplierOrderActions,
+} from '../plugin';
 import { EcobaseDatabase, EcobaseRepository } from '../services/import-service';
 
 interface FindParams {
@@ -119,7 +126,10 @@ describe('Ecobase AI public API seam', () => {
   it('answers ephemerally without creating an aiAnswers audit row', async () => {
     const db = new MemoryDatabase();
     const actions = createEcobaseAiActions();
-    const context = createActionContext(db, { question: 'Which supplier should I contact first?', company: 'Ecofission LLC' });
+    const context = createActionContext(db, {
+      question: 'Which supplier should I contact first?',
+      company: 'Ecofission LLC',
+    });
 
     await actions.askEphemeral(context, vi.fn());
 
@@ -136,15 +146,32 @@ describe('Ecobase AI public API seam', () => {
     const tools = createEcobaseAiTools();
     expect(tools.map((tool) => tool.definition.name)).toEqual([
       'ecobase_source_status',
+      'ecobase_daily_operations_brief',
+      'ecobase_product_context',
+      'ecobase_performance_trends',
+      'ecobase_buybox_trends',
+      'ecobase_okr_status',
       'ecobase_inventory_digest',
       'ecobase_optimize_budget',
       'ecobase_supplier_orders',
       'ecobase_retrieve_facts',
       'ecobase_answer_ephemeral',
     ]);
-    expect(tools.every((tool) => tool.scope === 'CUSTOM' && tool.defaultPermission === 'ALLOW' && tool.execution === 'backend')).toBe(true);
+    expect(
+      tools.every(
+        (tool) => tool.scope === 'CUSTOM' && tool.defaultPermission === 'ALLOW' && tool.execution === 'backend',
+      ),
+    ).toBe(true);
 
-    const result = await tools[5].invoke({ db } as any, { question: 'What is stale?', company: 'Ecofission LLC' }, 'tool-call-1');
+    const answerTool = tools.find((tool) => tool.definition.name === 'ecobase_answer_ephemeral');
+    if (!answerTool) {
+      throw new Error('Expected ecobase_answer_ephemeral tool to be registered.');
+    }
+    const result = await answerTool.invoke(
+      { db } as any,
+      { question: 'What is stale?', company: 'Ecofission LLC' },
+      'tool-call-1',
+    );
     expect(result.status).toBe('success');
     expect(db.getRepository(ECOBASE_COLLECTIONS.aiAnswers).all()).toHaveLength(0);
   });
@@ -153,9 +180,9 @@ describe('Ecobase AI public API seam', () => {
 describe('Ecobase inventory-planning public API seam', () => {
   it('rejects budget optimization without a positive budget', async () => {
     const actions = createEcobaseInventoryPlanningActions();
-    await expect(actions.optimizeBudget(createActionContext(new MemoryDatabase(), { budget: 0 }), vi.fn())).rejects.toThrow(
-      'Ecobase budget optimizer requires a budget greater than zero.',
-    );
+    await expect(
+      actions.optimizeBudget(createActionContext(new MemoryDatabase(), { budget: 0 }), vi.fn()),
+    ).rejects.toThrow('Ecobase budget optimizer requires a budget greater than zero.');
   });
 });
 
@@ -313,10 +340,24 @@ describe('Ecobase supplier-order public API seam', () => {
     });
 
     await db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).create({
-      values: { id: 1, naturalKey: 'legacy-order-1', company: 'Ecofission LLC', supplierId: 'supplier-1', status: 'planned' },
+      values: {
+        id: 1,
+        naturalKey: 'legacy-order-1',
+        company: 'Ecofission LLC',
+        supplierId: 'supplier-1',
+        status: 'planned',
+      },
     });
     await db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).create({
-      values: { id: 1, naturalKey: 'legacy-line-1', supplierOrderId: 1, company: 'Ecofission LLC', supplierId: 'supplier-1', orderedQty: 1, receivedQty: 0 },
+      values: {
+        id: 1,
+        naturalKey: 'legacy-line-1',
+        supplierOrderId: 1,
+        company: 'Ecofission LLC',
+        supplierId: 'supplier-1',
+        orderedQty: 1,
+        receivedQty: 0,
+      },
     });
     await actions.updateOrderOperatorFields(
       createActionContext(db, { supplierOrderId: 1, company: 'Ecofission LLC', status: 'confirmed' }),
@@ -326,11 +367,21 @@ describe('Ecobase supplier-order public API seam', () => {
       createActionContext(db, { supplierOrderLineId: 1, company: 'Ecofission LLC', receivedQty: 1 }),
       vi.fn(),
     );
-    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).all().find((record) => record.id === 1)).toMatchObject({
+    expect(
+      db
+        .getRepository(ECOBASE_COLLECTIONS.supplierOrders)
+        .all()
+        .find((record) => record.id === 1),
+    ).toMatchObject({
       status: 'supplier_confirmed',
       statusSource: 'manual',
     });
-    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).all().find((record) => record.id === 1)).toMatchObject({
+    expect(
+      db
+        .getRepository(ECOBASE_COLLECTIONS.supplierOrderLines)
+        .all()
+        .find((record) => record.id === 1),
+    ).toMatchObject({
       receivedQty: 1,
       receivedQtySource: 'manual',
     });
@@ -342,37 +393,89 @@ describe('Ecobase supplier-order workspace API seam', () => {
     const db = new MemoryDatabase();
     const actions = createEcobaseSupplierOrderActions();
     await db.getRepository(ECOBASE_COLLECTIONS.suppliers).create({
-      values: { id: 'supplier-old', naturalKey: 'supplier:Ecofission LLC:old', company: 'Ecofission LLC', name: 'Old Supplier' },
+      values: {
+        id: 'supplier-old',
+        naturalKey: 'supplier:Ecofission LLC:old',
+        company: 'Ecofission LLC',
+        name: 'Old Supplier',
+      },
     });
     await db.getRepository(ECOBASE_COLLECTIONS.suppliers).create({
-      values: { id: 'supplier-new', naturalKey: 'supplier:Ecofission LLC:new', company: 'Ecofission LLC', name: 'New Supplier' },
+      values: {
+        id: 'supplier-new',
+        naturalKey: 'supplier:Ecofission LLC:new',
+        company: 'Ecofission LLC',
+        name: 'New Supplier',
+      },
     });
     await db.getRepository(ECOBASE_COLLECTIONS.suppliers).create({
-      values: { id: 'supplier-other', naturalKey: 'supplier:Other LLC:new', company: 'Other LLC', name: 'Other Supplier' },
+      values: {
+        id: 'supplier-other',
+        naturalKey: 'supplier:Other LLC:new',
+        company: 'Other LLC',
+        name: 'Other Supplier',
+      },
     });
     await db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).create({
-      values: { id: 'order-1', naturalKey: 'supplier-order:Ecofission LLC:ORDER-1', company: 'Ecofission LLC', supplierId: 'supplier-old', status: 'approval_pending' },
+      values: {
+        id: 'order-1',
+        naturalKey: 'supplier-order:Ecofission LLC:ORDER-1',
+        company: 'Ecofission LLC',
+        supplierId: 'supplier-old',
+        status: 'approval_pending',
+      },
     });
     await db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).create({
-      values: { id: 'line-1', naturalKey: 'supplier-order-line:Ecofission LLC:ORDER-1:1', supplierOrderId: 'order-1', company: 'Ecofission LLC', supplierId: 'supplier-old', orderedQty: 5, receivedQty: 0 },
+      values: {
+        id: 'line-1',
+        naturalKey: 'supplier-order-line:Ecofission LLC:ORDER-1:1',
+        supplierOrderId: 'order-1',
+        company: 'Ecofission LLC',
+        supplierId: 'supplier-old',
+        orderedQty: 5,
+        receivedQty: 0,
+      },
     });
 
     await actions.updateOrderOperatorFields(
-      createActionContext(db, { supplierOrderId: 'order-1', company: 'Ecofission LLC', supplierId: 'supplier-new', externalOrderRef: 'ORDER-1A', orderDate: '2026-06-09' }),
+      createActionContext(db, {
+        supplierOrderId: 'order-1',
+        company: 'Ecofission LLC',
+        supplierId: 'supplier-new',
+        externalOrderRef: 'ORDER-1A',
+        orderDate: '2026-06-09',
+      }),
       vi.fn(),
     );
 
-    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).all().find((record) => record.id === 'order-1')).toMatchObject({
+    expect(
+      db
+        .getRepository(ECOBASE_COLLECTIONS.supplierOrders)
+        .all()
+        .find((record) => record.id === 'order-1'),
+    ).toMatchObject({
       supplierId: 'supplier-new',
       supplierName: 'New Supplier',
       externalOrderRef: 'ORDER-1A',
       orderDate: '2026-06-09',
     });
-    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).all().find((record) => record.id === 'line-1')).toMatchObject({
+    expect(
+      db
+        .getRepository(ECOBASE_COLLECTIONS.supplierOrderLines)
+        .all()
+        .find((record) => record.id === 'line-1'),
+    ).toMatchObject({
       supplierId: 'supplier-new',
     });
     await expect(
-      actions.updateOrderOperatorFields(createActionContext(db, { supplierOrderId: 'order-1', company: 'Ecofission LLC', supplierId: 'supplier-other' }), vi.fn()),
+      actions.updateOrderOperatorFields(
+        createActionContext(db, {
+          supplierOrderId: 'order-1',
+          company: 'Ecofission LLC',
+          supplierId: 'supplier-other',
+        }),
+        vi.fn(),
+      ),
     ).rejects.toThrow('Ecobase supplier-order update failed: supplier belongs to a different company.');
   });
 
@@ -380,7 +483,15 @@ describe('Ecobase supplier-order workspace API seam', () => {
     const db = new MemoryDatabase();
     const actions = createEcobaseSupplierOrderActions();
     await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).create({
-      values: { id: '11111111-1111-4111-8111-111111111111', name: 'Order sheet', company: 'Ecofission LLC', sourceType: 'google_sheets', domain: 'order_management', config: {}, active: true },
+      values: {
+        id: '11111111-1111-4111-8111-111111111111',
+        name: 'Order sheet',
+        company: 'Ecofission LLC',
+        sourceType: 'google_sheets',
+        domain: 'order_management',
+        config: {},
+        active: true,
+      },
     });
     await db.getRepository(ECOBASE_COLLECTIONS.importRuns).create({
       values: { id: 'eco-import-run', sourceConnectionId: '11111111-1111-4111-8111-111111111111', status: 'success' },
@@ -414,7 +525,8 @@ describe('Ecobase supplier-order workspace API seam', () => {
     await db.getRepository(ECOBASE_COLLECTIONS.supplierProductLinks).create({
       values: {
         id: '55555555-5555-4555-8555-555555555555',
-        naturalKey: 'supplier-product-link:Ecofission LLC:22222222-2222-4222-8222-222222222222:44444444-4444-4444-8444-444444444444:preferred',
+        naturalKey:
+          'supplier-product-link:Ecofission LLC:22222222-2222-4222-8222-222222222222:44444444-4444-4444-8444-444444444444:preferred',
         company: 'Ecofission LLC',
         planningProductId: '22222222-2222-4222-8222-222222222222',
         supplierId: '44444444-4444-4444-8444-444444444444',
@@ -423,10 +535,20 @@ describe('Ecobase supplier-order workspace API seam', () => {
       },
     });
     await db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).create({
-      values: { id: 'raw-row-eco-company', importRunId: 'eco-import-run', rowNumber: 1, payload: { company: 'Ecofission LLC' } },
+      values: {
+        id: 'raw-row-eco-company',
+        importRunId: 'eco-import-run',
+        rowNumber: 1,
+        payload: { company: 'Ecofission LLC' },
+      },
     });
     await db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).create({
-      values: { id: 'raw-row-other-company', importRunId: 'other-import-run', rowNumber: 2, payload: { company: 'Other LLC' } },
+      values: {
+        id: 'raw-row-other-company',
+        importRunId: 'other-import-run',
+        rowNumber: 2,
+        payload: { company: 'Other LLC' },
+      },
     });
 
     const unscopedWorkspace = createActionContext(db, { stockoutDate: '2025-07-20' });
@@ -489,7 +611,12 @@ describe('Ecobase supplier-order workspace API seam', () => {
       createActionContext(db, { supplierOrderLineId: lineId, company: 'Ecofission LLC', receivedQty: 5 }),
       vi.fn(),
     );
-    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).all().find((record) => record.id === lineId)).toMatchObject({
+    expect(
+      db
+        .getRepository(ECOBASE_COLLECTIONS.supplierOrderLines)
+        .all()
+        .find((record) => record.id === lineId),
+    ).toMatchObject({
       receivedQty: 5,
       receivedQtySource: 'manual',
     });
@@ -503,6 +630,8 @@ describe('Ecobase supplier-order workspace API seam', () => {
         activityType: 'contacted_supplier',
         occurredAt: '2025-07-10T09:30:00.000Z',
         notes: 'supplier contacted',
+        nextFollowUpAt: '2025-07-12T09:30:00.000Z',
+        contactEstablished: false,
       }),
       vi.fn(),
     );
@@ -518,6 +647,12 @@ describe('Ecobase supplier-order workspace API seam', () => {
       }),
       vi.fn(),
     );
+    expect(await db.getRepository(ECOBASE_COLLECTIONS.suppliers).findOne({ filterByTk: '44444444-4444-4444-8444-444444444444' })).toMatchObject({
+      lastContactedAt: '2025-07-10T09:30:00.000Z',
+      nextFollowUpAt: '2025-07-12T09:30:00.000Z',
+      contactEstablished: false,
+      approvalStatus: 'contacting',
+    });
     expect(db.getRepository(ECOBASE_COLLECTIONS.supplierLeadTimes).all()).toEqual([
       expect.objectContaining({
         supplierRefId: '44444444-4444-4444-8444-444444444444',
@@ -538,8 +673,20 @@ describe('Ecobase supplier-order workspace API seam', () => {
         vi.fn(),
       );
     }
-    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities).all().map((activity) => activity.activityType)).toEqual(
-      expect.arrayContaining(['contacted_supplier', 'lead_time_checked', 'status_update', 'note', 'blocked', 'unblocked']),
+    expect(
+      db
+        .getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities)
+        .all()
+        .map((activity) => activity.activityType),
+    ).toEqual(
+      expect.arrayContaining([
+        'contacted_supplier',
+        'lead_time_checked',
+        'status_update',
+        'note',
+        'blocked',
+        'unblocked',
+      ]),
     );
     await expect(
       actions.recordActivity(
@@ -714,8 +861,20 @@ describe('Ecobase import public API seam', () => {
     await actions.analyzeCsvBundle(analyzeContext, vi.fn());
 
     expect(analyzeContext.body.data).toMatchObject({
-      files: [expect.objectContaining({ detectedShape: 'supplier-ids', adapterName: 'google-sheets-migration-csv', importable: true })],
-      groups: [expect.objectContaining({ adapterName: 'google-sheets-migration-csv', sourceType: 'google_sheets', domain: 'order_management' })],
+      files: [
+        expect.objectContaining({
+          detectedShape: 'supplier-ids',
+          adapterName: 'google-sheets-migration-csv',
+          importable: true,
+        }),
+      ],
+      groups: [
+        expect.objectContaining({
+          adapterName: 'google-sheets-migration-csv',
+          sourceType: 'google_sheets',
+          domain: 'order_management',
+        }),
+      ],
     });
 
     const saveContext = createActionContext(db, {
@@ -944,5 +1103,186 @@ describe('Ecobase alert public API seam', () => {
         }),
       ]),
     );
+  });
+});
+
+describe('Ecobase supplier-management public API seam', () => {
+  it('refreshes money-first supplier attention and exposes lookup-based mutation actions', async () => {
+    const db = new MemoryDatabase();
+    const supplierA = await db.getRepository(ECOBASE_COLLECTIONS.suppliers).create({
+      values: {
+        id: 'supplier-a',
+        naturalKey: 'supplier:Money LLC:name:high value',
+        sourceConnectionId: 'source-a',
+        supplierId: 'S-A',
+        name: 'High Value Supplier',
+        normalizedName: 'high value supplier',
+        company: 'Money LLC',
+        active: true,
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.suppliers).create({
+      values: {
+        id: 'supplier-b',
+        naturalKey: 'supplier:Money LLC:name:blocked low value',
+        sourceConnectionId: 'source-b',
+        supplierId: 'S-B',
+        name: 'Blocked Low Value Supplier',
+        normalizedName: 'blocked low value supplier',
+        company: 'Money LLC',
+        active: true,
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.planningProducts).create({
+      values: {
+        id: 'product-a',
+        naturalKey: 'planning-product:Money LLC:B0MONEY',
+        company: 'Money LLC',
+        canonicalAsin: 'B0MONEY',
+        title: 'Money Product',
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.supplierProductLinks).create({
+      values: {
+        naturalKey: 'supplier-product-link:Money LLC:product-a:supplier-a:latest_history:test',
+        company: 'Money LLC',
+        planningProductId: 'product-a',
+        supplierId: 'supplier-a',
+        role: 'latest_history',
+        source: 'test',
+        active: true,
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.inventoryPlanningRows).create({
+      values: {
+        id: 'row-a',
+        naturalKey: 'inventory-planning-row:Money LLC:B0MONEY:2025-07-10',
+        company: 'Money LLC',
+        planningProductId: 'product-a',
+        asin: 'B0MONEY',
+        supplierId: 'supplier-a',
+        actionStatus: 'order_now',
+        estimatedOosDate: '2025-07-15',
+        estimatedProfitRisk: 5000,
+        leadTimeFreshness: 'missing',
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.supplierLeadTimes).create({
+      values: {
+        naturalKey: 'supplier-lead-time:Money LLC:supplier-a:product-a',
+        sourceConnectionId: 'source-a',
+        supplierRefId: 'supplier-a',
+        supplierName: 'High Value Supplier',
+        company: 'Money LLC',
+        planningProductId: 'product-a',
+        asin: 'B0MONEY',
+        scope: 'product',
+        leadTimeDays: 14,
+        confirmedAt: '2025-04-01T00:00:00.000Z',
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).create({
+      values: {
+        id: 'order-a',
+        naturalKey: 'supplier-order:Money LLC:HIGH-1',
+        sourceConnectionId: 'source-a',
+        company: 'Money LLC',
+        supplierId: 'supplier-a',
+        sourceStage: 'order_detail',
+        status: 'received',
+        externalOrderRef: 'HIGH-1',
+        orderDate: '2025-06-01',
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).create({
+      values: {
+        id: 'line-a',
+        naturalKey: 'supplier-order-line:Money LLC:HIGH-1:B0DIRECT:SKU-DIRECT',
+        supplierOrderId: 'order-a',
+        company: 'Money LLC',
+        supplierId: 'supplier-a',
+        asin: 'B0DIRECT',
+        sku: 'SKU-DIRECT',
+        brand: 'Direct Brand',
+        orderedQty: 12,
+        receivedQty: 12,
+        unitCost: 4.5,
+        sourceOrderLineRef: 'HIGH-1:B0DIRECT:SKU-DIRECT',
+        sourceStage: 'order_detail',
+        observedAt: '2025-06-01T00:00:00.000Z',
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).create({
+      values: {
+        id: 'order-b',
+        naturalKey: 'supplier-order:Money LLC:LOW-1',
+        sourceConnectionId: 'source-b',
+        company: 'Money LLC',
+        supplierId: 'supplier-b',
+        sourceStage: 'purchase_order',
+        status: 'blocked',
+        externalOrderRef: 'LOW-1',
+        expectedDeliveryDate: '2025-07-01',
+      },
+    });
+
+    const actions = createEcobaseSupplierManagementActions();
+    const refreshContext = createActionContext(db, { company: 'Money LLC', calculationDate: '2025-07-10' });
+    await actions.refreshAttentionRows(refreshContext, vi.fn());
+    expect(refreshContext.body.data.rows[0]).toMatchObject({
+      supplierId: 'supplier-a',
+      totalEstimatedProfitRisk: 5000,
+      attentionStatus: 'urgent',
+      staleLeadTimeCount: 1,
+      contactSoon: true,
+      recommendedAction: 'Contact supplier soon and update lead time',
+    });
+
+    const supplierOptionsContext = createActionContext(db, { company: 'Money LLC', search: 'high' });
+    await actions.supplierOptions(supplierOptionsContext, vi.fn());
+    expect(supplierOptionsContext.body.data).toEqual([
+      expect.objectContaining({ value: 'supplier-a', label: 'High Value Supplier' }),
+    ]);
+
+    const productOptionsContext = createActionContext(db, { company: 'Money LLC', search: 'B0DIRECT' });
+    await actions.productOptions(productOptionsContext, vi.fn());
+    expect(productOptionsContext.body.data).toEqual([
+      expect.objectContaining({ value: 'history:B0DIRECT:SKU-DIRECT', asin: 'B0DIRECT', sku: 'SKU-DIRECT' }),
+    ]);
+
+    const updateContext = createActionContext(db, {
+      company: 'Money LLC',
+      supplierId: 'supplier-a',
+      receivedEmail: 'ops@example.com',
+      activityNotes: 'Confirmed preferred supplier contact.',
+    });
+    await actions.updateSupplierProfile(updateContext, vi.fn());
+    expect(updateContext.body.data.receivedEmail).toBe('ops@example.com');
+    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities).all()).toEqual(
+      expect.arrayContaining([expect.objectContaining({ supplierId: 'supplier-a', activityType: 'note' })]),
+    );
+
+    const detailContext = createActionContext(db, { company: 'Money LLC', supplierId: 'supplier-a', calculationDate: '2025-07-10' });
+    await actions.detail(detailContext, vi.fn());
+    expect(detailContext.body.data.productLinks).toEqual([
+      expect.objectContaining({ planningProductId: 'product-a', role: 'latest_history' }),
+    ]);
+    expect(detailContext.body.data.knownSupplierProducts).toEqual([
+      expect.objectContaining({ asin: 'B0DIRECT', sku: 'SKU-DIRECT', orderCount: 1, totalOrderedQty: 12 }),
+    ]);
+
+    const createOrderContext = createActionContext(db, {
+      company: 'Money LLC',
+      supplierId: supplierA.id,
+      externalOrderRef: 'SUP-PO-1',
+      status: 'draft',
+    });
+    await actions.createSupplierOrder(createOrderContext, vi.fn());
+    expect(createOrderContext.body.data).toMatchObject({
+      company: 'Money LLC',
+      supplierId: 'supplier-a',
+      externalOrderRef: 'SUP-PO-1',
+      sourceStage: 'manual',
+    });
   });
 });

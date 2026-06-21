@@ -12,13 +12,19 @@ const OPERATOR_DASHBOARD_COLLECTIONS = [
   ECOBASE_COLLECTIONS.inventoryPlanningRows,
   ECOBASE_COLLECTIONS.planningCalculationSnapshots,
   ECOBASE_COLLECTIONS.alerts,
+  ECOBASE_COLLECTIONS.suppliers,
+  ECOBASE_COLLECTIONS.supplierAttentionRows,
+  ECOBASE_COLLECTIONS.supplierProductLinks,
   ECOBASE_COLLECTIONS.supplierOrders,
   ECOBASE_COLLECTIONS.supplierOrderLines,
+  ECOBASE_COLLECTIONS.supplierOrderActivities,
   ECOBASE_COLLECTIONS.supplierLeadTimes,
 ];
 
 type Repository = {
-  findOne(options: Record<string, unknown>): Promise<{ load?: (options?: Record<string, unknown>) => Promise<unknown> } | null>;
+  findOne(
+    options: Record<string, unknown>,
+  ): Promise<{ load?: (options?: Record<string, unknown>) => Promise<unknown> } | null>;
   find(options: Record<string, unknown>): Promise<Array<{ get?: (key: string) => unknown; name?: string }>>;
   create(options: Record<string, unknown>): Promise<unknown>;
 };
@@ -58,7 +64,9 @@ export async function ensureEcobaseCollectionManagerMetadata(db: Database) {
   }
 
   for (const collectionName of OPERATOR_DASHBOARD_COLLECTIONS) {
-    const collection = db.getCollection(collectionName) as { name: string; options?: Record<string, unknown> } | undefined;
+    const collection = db.getCollection(collectionName) as
+      | { name: string; options?: Record<string, unknown> }
+      | undefined;
     if (!collection) {
       throw new Error(`Ecobase collection manager metadata sync failed: missing collection ${collectionName}.`);
     }

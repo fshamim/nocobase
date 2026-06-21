@@ -15,6 +15,7 @@ export const ECOBASE_COLLECTIONS = {
   planningParameters: 'ecobasePlanningParameters',
   suppliers: 'ecobaseSuppliers',
   supplierLeadTimes: 'ecobaseSupplierLeadTimes',
+  supplierAttentionRows: 'ecobaseSupplierAttentionRows',
   supplierExternalIdentities: 'ecobaseSupplierExternalIdentities',
   supplierProductLinks: 'ecobaseSupplierProductLinks',
   supplierOrders: 'ecobaseSupplierOrders',

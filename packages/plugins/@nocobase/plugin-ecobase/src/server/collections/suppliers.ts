@@ -1,6 +1,10 @@
 import { defineCollection } from '@nocobase/database';
 import { ECOBASE_COLLECTIONS } from './names';
 
+function textField(name: string, title: string, interfaceName = 'input') {
+  return { name, type: 'string', interface: interfaceName, uiSchema: { title } };
+}
+
 export default defineCollection({
   migrationRules: ['schema-only'],
   autoGenId: false,
@@ -24,10 +28,89 @@ export default defineCollection({
       allowNull: false,
       index: true,
     },
-    { name: 'supplierId', type: 'string', interface: 'input', uiSchema: { title: 'Supplier ID' }, index: true },
-    { name: 'name', type: 'string', interface: 'input', uiSchema: { title: 'Name' }, index: true },
+    textField('supplierId', 'SR ID'),
+    { name: 'name', type: 'string', interface: 'input', uiSchema: { title: 'Supplier Name' }, index: true },
     { name: 'normalizedName', type: 'string', interface: 'input', uiSchema: { title: 'Normalized Name' }, index: true },
-    { name: 'company', type: 'string', interface: 'input', uiSchema: { title: 'Company' }, index: true },
+    { name: 'company', type: 'string', interface: 'input', uiSchema: { title: 'Reached Via / Company' }, index: true },
+    textField('asin', 'ASIN'),
+    textField('prPortalLink', 'PR Portal Link', 'url'),
+    textField('contactName', 'Contact Person'),
+    textField('reachedVia', 'Reached Via'),
+    textField('receivedEmail', 'Received Email', 'email'),
+    { name: 'remarks', type: 'text', interface: 'textarea', uiSchema: { title: 'Remarks' } },
+    textField('moq', 'MOQ'),
+    textField('designation', 'Designation'),
+    textField('supplierType', 'Supplier Type'),
+    textField('presenceOnAmazon', 'Presence on Amazon'),
+    textField('currentStatus', 'Current Status'),
+    textField('supplierStatus', 'Status'),
+    textField('activeStatus', 'Active Status'),
+    textField('emailDone', 'Email Done?'),
+    textField('callDone', 'Call Done?'),
+    textField('wholesalePriceList', 'Wholesale Price List', 'url'),
+    { name: 'dateOfUpdate', type: 'date', interface: 'date', uiSchema: { title: 'Date of Update' } },
+    {
+      name: 'approvalStatus',
+      type: 'string',
+      interface: 'select',
+      uiSchema: {
+        title: 'Approval Status',
+        enum: [
+          { label: 'New', value: 'new' },
+          { label: 'Contacting', value: 'contacting' },
+          { label: 'Analyzing', value: 'analyzing' },
+          { label: 'Approved', value: 'approved' },
+          { label: 'Rejected', value: 'rejected' },
+        ],
+      },
+      allowNull: false,
+      defaultValue: 'new',
+      index: true,
+    },
+    {
+      name: 'accountStatus',
+      type: 'string',
+      interface: 'select',
+      uiSchema: {
+        title: 'Account Status',
+        enum: [
+          { label: 'Not started', value: 'not_started' },
+          { label: 'Submitted', value: 'submitted' },
+          { label: 'Approved', value: 'approved' },
+          { label: 'Rejected', value: 'rejected' },
+        ],
+      },
+      allowNull: false,
+      defaultValue: 'not_started',
+      index: true,
+    },
+    {
+      name: 'analysisStatus',
+      type: 'string',
+      interface: 'select',
+      uiSchema: {
+        title: 'Analysis Status',
+        enum: [
+          { label: 'Not started', value: 'not_started' },
+          { label: 'In progress', value: 'in_progress' },
+          { label: 'Done', value: 'done' },
+        ],
+      },
+      allowNull: false,
+      defaultValue: 'not_started',
+      index: true,
+    },
+    { name: 'nextFollowUpAt', type: 'datetimeTz', interface: 'datetime', uiSchema: { title: 'Next Follow-Up At' } },
+    { name: 'lastContactedAt', type: 'datetimeTz', interface: 'datetime', uiSchema: { title: 'Last Contacted At' } },
+    {
+      name: 'contactEstablished',
+      type: 'boolean',
+      interface: 'checkbox',
+      uiSchema: { title: 'Contact Established' },
+      allowNull: false,
+      defaultValue: false,
+    },
+    { name: 'approvalNotes', type: 'text', interface: 'textarea', uiSchema: { title: 'Approval Notes' } },
     {
       name: 'active',
       type: 'boolean',

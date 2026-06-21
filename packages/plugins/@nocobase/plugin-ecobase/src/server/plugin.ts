@@ -23,7 +23,10 @@ import { EcobaseComparisonService } from './services/comparison-service';
 import { EcobaseDashboardService } from './services/dashboard-service';
 import { EcobaseDailyOperationsBriefService } from './services/daily-operations-brief-service';
 import { EcobaseDailyOperationsBriefDeliveryService } from './services/daily-operations-brief-delivery-service';
-import { EcobaseDailyOperationsBriefNarrativeService, NocoBaseEcoNarrativeProvider } from './services/daily-operations-brief-narrative-service';
+import {
+  EcobaseDailyOperationsBriefNarrativeService,
+  NocoBaseEcoNarrativeProvider,
+} from './services/daily-operations-brief-narrative-service';
 import { EcobaseImportService } from './services/import-service';
 import { EcobaseInventoryPlanningService } from './services/inventory-planning-service';
 import { EcobasePlanningCalculationService } from './services/planning-calculation-service';
@@ -31,6 +34,7 @@ import { EcobasePlanningProductService } from './services/planning-product-servi
 import { EcobaseOperatorWorkspaceService } from './services/operator-workspace-service';
 import { EcobaseReportService } from './services/report-service';
 import { EcobaseSourceConnectionService } from './services/source-connection-service';
+import { EcobaseSupplierManagementService } from './services/supplier-management-service';
 import {
   EcobaseSupplierOrderService,
   validateSupplierLeadTimeDays,
@@ -139,11 +143,20 @@ function firstNonEmptyServerText(values: unknown[]) {
   return values.map(compactServerText).find((value) => value.length > 0);
 }
 
-function enrichSupplierOrderWorkspaceForBoard(workspace: Record<string, unknown>, planningRows: Array<Record<string, unknown>>) {
-  const supplierOrders = Array.isArray(workspace.supplierOrders) ? workspace.supplierOrders as Array<Record<string, unknown>> : [];
-  const supplierOrderLines = Array.isArray(workspace.supplierOrderLines) ? workspace.supplierOrderLines as Array<Record<string, unknown>> : [];
-  const suppliers = Array.isArray(workspace.suppliers) ? workspace.suppliers as Array<Record<string, unknown>> : [];
-  const activities = Array.isArray(workspace.activities) ? workspace.activities as Array<Record<string, unknown>> : [];
+function enrichSupplierOrderWorkspaceForBoard(
+  workspace: Record<string, unknown>,
+  planningRows: Array<Record<string, unknown>>,
+) {
+  const supplierOrders = Array.isArray(workspace.supplierOrders)
+    ? (workspace.supplierOrders as Array<Record<string, unknown>>)
+    : [];
+  const supplierOrderLines = Array.isArray(workspace.supplierOrderLines)
+    ? (workspace.supplierOrderLines as Array<Record<string, unknown>>)
+    : [];
+  const suppliers = Array.isArray(workspace.suppliers) ? (workspace.suppliers as Array<Record<string, unknown>>) : [];
+  const activities = Array.isArray(workspace.activities)
+    ? (workspace.activities as Array<Record<string, unknown>>)
+    : [];
   const supplierById = new Map<string, Record<string, unknown>>();
   suppliers.forEach((supplier) => {
     const id = compactServerText(supplier.id);
@@ -180,7 +193,9 @@ function enrichSupplierOrderWorkspaceForBoard(workspace: Record<string, unknown>
     const lines = linesByOrderId.get(orderId) ?? [];
     const supplier = supplierById.get(compactServerText(order.supplierId));
     const lineSummaries = lines.map((line) => {
-      const planningRow = planningById.get(compactServerText(line.planningProductId)) ?? planningByIdentity.get(orderLineMapKey(line.company, line.asin, line.sku));
+      const planningRow =
+        planningById.get(compactServerText(line.planningProductId)) ??
+        planningByIdentity.get(orderLineMapKey(line.company, line.asin, line.sku));
       return {
         id: line.id,
         planningProductId: line.planningProductId,
@@ -197,10 +212,19 @@ function enrichSupplierOrderWorkspaceForBoard(workspace: Record<string, unknown>
         productStatus: planningRow?.productStatus,
       };
     });
-    const planningMatches = lineSummaries.filter((line) => line.estimatedOosDate || line.estimatedProfitRisk !== undefined);
-    const riskValues = planningMatches.map((line) => numericServerValue(line.estimatedProfitRisk)).filter((value) => value > 0);
-    const oosDates = planningMatches.map((line) => compactServerText(line.estimatedOosDate)).filter(Boolean).sort();
-    const latestActivity = (activitiesByOrderId.get(orderId) ?? []).sort((left, right) => compactServerText(right.occurredAt).localeCompare(compactServerText(left.occurredAt)))[0];
+    const planningMatches = lineSummaries.filter(
+      (line) => line.estimatedOosDate || line.estimatedProfitRisk !== undefined,
+    );
+    const riskValues = planningMatches
+      .map((line) => numericServerValue(line.estimatedProfitRisk))
+      .filter((value) => value > 0);
+    const oosDates = planningMatches
+      .map((line) => compactServerText(line.estimatedOosDate))
+      .filter(Boolean)
+      .sort();
+    const latestActivity = (activitiesByOrderId.get(orderId) ?? []).sort((left, right) =>
+      compactServerText(right.occurredAt).localeCompare(compactServerText(left.occurredAt)),
+    )[0];
     const blockerSummary = firstNonEmptyServerText([
       order.blockedReason,
       latestActivity?.notes,
@@ -215,7 +239,11 @@ function enrichSupplierOrderWorkspaceForBoard(workspace: Record<string, unknown>
     ]);
     return {
       ...order,
-      supplierName: firstNonEmptyServerText([supplier?.name, (order.payload as Record<string, unknown> | undefined)?.Supplier, order.supplierName]),
+      supplierName: firstNonEmptyServerText([
+        supplier?.name,
+        (order.payload as Record<string, unknown> | undefined)?.Supplier,
+        order.supplierName,
+      ]),
       lineCount: lines.length,
       openQty: lineSummaries.reduce((total, line) => total + line.openQty, 0),
       lineSummaries,
@@ -244,9 +272,16 @@ export function createEcobaseAccuracyActions() {
         ctx.body = {
           data: await service.recordSignoff({
             company: getOptionalString(values, 'company'),
-            status: getOptionalString(values, 'status') as 'draft' | 'data-quality-signed-off' | 'blocked/not-accepted-for-contract-delivery' | undefined,
+            status: getOptionalString(values, 'status') as
+              | 'draft'
+              | 'data-quality-signed-off'
+              | 'blocked/not-accepted-for-contract-delivery'
+              | undefined,
             signedOffBy: getOptionalString(values, 'signedOffBy'),
-            checklist: typeof values.checklist === 'object' && values.checklist !== null ? values.checklist as Record<string, unknown> : undefined,
+            checklist:
+              typeof values.checklist === 'object' && values.checklist !== null
+                ? (values.checklist as Record<string, unknown>)
+                : undefined,
             credentialBlockers: Array.isArray(values.credentialBlockers) ? values.credentialBlockers : undefined,
             notes: getOptionalString(values, 'notes'),
           }),
@@ -266,7 +301,9 @@ export function createEcobaseAccuracyActions() {
       }
       const service = new EcobaseAccuracyHarnessService(ctx.db);
       try {
-        ctx.body = { data: await service.evaluate({ company: getOptionalString(values, 'company'), dataQualitySignoffId }) };
+        ctx.body = {
+          data: await service.evaluate({ company: getOptionalString(values, 'company'), dataQualitySignoffId }),
+        };
       } catch (error) {
         ctx.throw(400, error instanceof Error ? error.message : 'Ecobase accuracy evaluation failed.');
         return;
@@ -393,7 +430,10 @@ export function createEcobaseReportActions(app?: { pm?: { get?: (name: string) =
           }),
         };
       } catch (error) {
-        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase daily operations brief evidence generation failed.');
+        ctx.throw(
+          400,
+          error instanceof Error ? error.message : 'Ecobase daily operations brief evidence generation failed.',
+        );
         return;
       }
       await next();
@@ -540,7 +580,10 @@ export function createEcobaseComparisonActions() {
       }
       const groupBy = getOptionalString(values, 'groupBy');
       if (groupBy && !['company', 'account', 'planning_product', 'raw_listing_sku', 'tier'].includes(groupBy)) {
-        ctx.throw(400, 'Ecobase comparison groupBy must be company, account, planning_product, raw_listing_sku, or tier.');
+        ctx.throw(
+          400,
+          'Ecobase comparison groupBy must be company, account, planning_product, raw_listing_sku, or tier.',
+        );
         return;
       }
 
@@ -782,16 +825,28 @@ export function createEcobaseSupplierOrderActions() {
         limit: getOptionalNumber(values, 'limit'),
       });
       if (company) {
-        const suppliers = Array.isArray(workspace.suppliers) ? workspace.suppliers as Array<Record<string, unknown>> : [];
-        const knownSupplierIds = new Set(suppliers.flatMap((supplier) => [compactServerText(supplier.id), compactServerText(supplier.supplierId)]).filter(Boolean));
+        const suppliers = Array.isArray(workspace.suppliers)
+          ? (workspace.suppliers as Array<Record<string, unknown>>)
+          : [];
+        const knownSupplierIds = new Set(
+          suppliers
+            .flatMap((supplier) => [compactServerText(supplier.id), compactServerText(supplier.supplierId)])
+            .filter(Boolean),
+        );
         const supplierOrderIds = Array.isArray(workspace.supplierOrders)
-          ? (workspace.supplierOrders as Array<Record<string, unknown>>).map((order) => compactServerText(order.supplierId)).filter(Boolean)
+          ? (workspace.supplierOrders as Array<Record<string, unknown>>)
+              .map((order) => compactServerText(order.supplierId))
+              .filter(Boolean)
           : [];
         for (const supplierId of supplierOrderIds) {
           if (knownSupplierIds.has(supplierId)) continue;
-          const supplier = await ctx.db.getRepository(ECOBASE_COLLECTIONS.suppliers).findOne({ filterByTk: supplierId });
+          const supplier = await ctx.db
+            .getRepository(ECOBASE_COLLECTIONS.suppliers)
+            .findOne({ filterByTk: supplierId });
           const plainSupplier = supplier
-            ? (typeof supplier.toJSON === 'function' ? supplier.toJSON() : JSON.parse(JSON.stringify(supplier))) as Record<string, unknown>
+            ? ((typeof supplier.toJSON === 'function'
+                ? supplier.toJSON()
+                : JSON.parse(JSON.stringify(supplier))) as Record<string, unknown>)
             : undefined;
           if (plainSupplier && compactServerText(plainSupplier.company) === company) {
             suppliers.push(plainSupplier);
@@ -801,9 +856,15 @@ export function createEcobaseSupplierOrderActions() {
         workspace.suppliers = suppliers;
       }
       const planningRows = company
-        ? await new EcobaseInventoryPlanningService(ctx.db).listRows({ company, calculationDate: getOptionalString(values, 'calculationDate'), limit: 1000 })
+        ? await new EcobaseInventoryPlanningService(ctx.db).listRows({
+            company,
+            calculationDate: getOptionalString(values, 'calculationDate'),
+            limit: 1000,
+          })
         : [];
-      ctx.body = { data: enrichSupplierOrderWorkspaceForBoard(workspace, planningRows as Array<Record<string, unknown>>) };
+      ctx.body = {
+        data: enrichSupplierOrderWorkspaceForBoard(workspace, planningRows as Array<Record<string, unknown>>),
+      };
       await next();
     },
     workspace: async (ctx, next) => {
@@ -857,7 +918,10 @@ export function createEcobaseSupplierOrderActions() {
       const planningProductId = getOptionalString(values, 'planningProductId');
       const orderedQty = getOptionalNumber(values, 'orderedQty');
       if (!supplierOrderId || !planningProductId || orderedQty === undefined) {
-        ctx.throw(400, 'Ecobase supplier-order line create requires supplierOrderId, planningProductId, and orderedQty.');
+        ctx.throw(
+          400,
+          'Ecobase supplier-order line create requires supplierOrderId, planningProductId, and orderedQty.',
+        );
         return;
       }
 
@@ -903,6 +967,7 @@ export function createEcobaseSupplierOrderActions() {
             notes: getOptionalString(values, 'notes'),
             nextFollowUpAt: getOptionalString(values, 'nextFollowUpAt'),
             leadTimeDays: getOptionalNumber(values, 'leadTimeDays'),
+            contactEstablished: typeof values.contactEstablished === 'boolean' ? values.contactEstablished : undefined,
             source: getOptionalString(values, 'source'),
             actor: getActorId(ctx),
           }),
@@ -1042,6 +1107,220 @@ export function createEcobaseSupplierOrderActions() {
         ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier-order line delete failed.');
         return;
       }
+      await next();
+    },
+  };
+}
+
+export function createEcobaseSupplierManagementActions() {
+  return {
+    refreshAttentionRows: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseSupplierManagementService(ctx.db);
+      try {
+        ctx.body = {
+          data: await service.refreshSupplierAttentionRows({
+            company: getOptionalString(values, 'company'),
+            calculationDate: getOptionalString(values, 'calculationDate'),
+            limit: getOptionalNumber(values, 'limit'),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier attention refresh failed.');
+        return;
+      }
+      await next();
+    },
+    rows: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseSupplierManagementService(ctx.db);
+      ctx.body = {
+        data: await service.listSupplierAttentionRows({
+          company: getOptionalString(values, 'company'),
+          calculationDate: getOptionalString(values, 'calculationDate'),
+          limit: getOptionalNumber(values, 'limit'),
+        }),
+      };
+      await next();
+    },
+    summary: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseSupplierManagementService(ctx.db);
+      ctx.body = {
+        data: await service.summary({
+          company: getOptionalString(values, 'company'),
+          calculationDate: getOptionalString(values, 'calculationDate'),
+        }),
+      };
+      await next();
+    },
+    detail: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseSupplierManagementService(ctx.db);
+      try {
+        ctx.body = {
+          data: await service.getSupplierDetail({
+            company: getOptionalString(values, 'company'),
+            supplierId: getOptionalString(values, 'supplierId'),
+            calculationDate: getOptionalString(values, 'calculationDate'),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier detail failed.');
+        return;
+      }
+      await next();
+    },
+    createSupplier: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseSupplierManagementService(ctx.db);
+      try {
+        ctx.body = {
+          data: await service.createSupplier({
+            ...values,
+            company: getOptionalString(values, 'company'),
+            name: getOptionalString(values, 'name'),
+            supplierCode: getOptionalString(values, 'supplierCode'),
+            actor: getActorId(ctx),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier create failed.');
+        return;
+      }
+      await next();
+    },
+    updateSupplierProfile: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseSupplierManagementService(ctx.db);
+      try {
+        ctx.body = {
+          data: await service.updateSupplierProfile({
+            ...values,
+            company: getOptionalString(values, 'company'),
+            supplierId: getOptionalString(values, 'supplierId'),
+            name: getOptionalString(values, 'name'),
+            active: typeof values.active === 'boolean' ? values.active : undefined,
+            activityNotes: getOptionalString(values, 'activityNotes'),
+            actor: getActorId(ctx),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier profile update failed.');
+        return;
+      }
+      await next();
+    },
+    createSupplierOrder: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseSupplierManagementService(ctx.db);
+      try {
+        ctx.body = {
+          data: await service.createSupplierOrder({
+            company: getOptionalString(values, 'company'),
+            supplierId: getOptionalString(values, 'supplierId'),
+            externalOrderRef: getOptionalString(values, 'externalOrderRef'),
+            orderDate: getOptionalString(values, 'orderDate'),
+            expectedDeliveryDate: getOptionalString(values, 'expectedDeliveryDate'),
+            status: getOptionalString(values, 'status'),
+            approvalStatus: getOptionalString(values, 'approvalStatus'),
+            paymentStatus: getOptionalString(values, 'paymentStatus'),
+            shippingCarrier: getOptionalString(values, 'shippingCarrier'),
+            trackingId: getOptionalString(values, 'trackingId'),
+            blockedReason: getOptionalString(values, 'blockedReason'),
+            notes: getOptionalString(values, 'notes'),
+            actor: getActorId(ctx),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier order create failed.');
+        return;
+      }
+      await next();
+    },
+    recordActivity: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseSupplierManagementService(ctx.db);
+      try {
+        ctx.body = {
+          data: await service.recordSupplierActivity({
+            company: getOptionalString(values, 'company'),
+            supplierId: getOptionalString(values, 'supplierId'),
+            supplierOrderId: getOptionalString(values, 'supplierOrderId'),
+            activityType: getOptionalString(values, 'activityType'),
+            occurredAt: getOptionalString(values, 'occurredAt'),
+            notes: getOptionalString(values, 'notes'),
+            nextFollowUpAt: getOptionalString(values, 'nextFollowUpAt'),
+            leadTimeDays: getOptionalNumber(values, 'leadTimeDays'),
+            contactEstablished: typeof values.contactEstablished === 'boolean' ? values.contactEstablished : undefined,
+            source: getOptionalString(values, 'source'),
+            actor: getActorId(ctx),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier activity failed.');
+        return;
+      }
+      await next();
+    },
+    updateProductLeadTime: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseSupplierManagementService(ctx.db);
+      try {
+        ctx.body = {
+          data: await service.updateSupplierProductLeadTime({
+            company: getOptionalString(values, 'company'),
+            supplierId: getOptionalString(values, 'supplierId'),
+            planningProductId: getOptionalString(values, 'planningProductId'),
+            asin: getOptionalString(values, 'asin'),
+            sku: getOptionalString(values, 'sku'),
+            leadTimeDays: getOptionalNumber(values, 'leadTimeDays'),
+            confirmedAt: getOptionalString(values, 'confirmedAt'),
+            notes: getOptionalString(values, 'notes'),
+            actor: getActorId(ctx),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier lead-time update failed.');
+        return;
+      }
+      await next();
+    },
+    supplierOptions: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseSupplierManagementService(ctx.db);
+      ctx.body = {
+        data: await service.supplierOptions({
+          company: getOptionalString(values, 'company'),
+          search: getOptionalString(values, 'search'),
+          limit: getOptionalNumber(values, 'limit'),
+        }),
+      };
+      await next();
+    },
+    productOptions: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseSupplierManagementService(ctx.db);
+      ctx.body = {
+        data: await service.productOptions({
+          company: getOptionalString(values, 'company'),
+          search: getOptionalString(values, 'search'),
+          limit: getOptionalNumber(values, 'limit'),
+        }),
+      };
+      await next();
+    },
+    orderOptions: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseSupplierManagementService(ctx.db);
+      ctx.body = {
+        data: await service.orderOptions({
+          company: getOptionalString(values, 'company'),
+          supplierId: getOptionalString(values, 'supplierId'),
+          search: getOptionalString(values, 'search'),
+          limit: getOptionalNumber(values, 'limit'),
+        }),
+      };
       await next();
     },
   };
@@ -1322,10 +1601,14 @@ export class PluginEcobaseServer extends Plugin {
 
   private registerAiEmployeeTools() {
     const toolsManager =
-      (this as unknown as { ai?: { toolsManager?: { registerTools?: (tools: unknown[]) => void } } }).ai?.toolsManager ??
-      (this.app as unknown as { aiManager?: { toolsManager?: { registerTools?: (tools: unknown[]) => void } } }).aiManager?.toolsManager;
+      (this as unknown as { ai?: { toolsManager?: { registerTools?: (tools: unknown[]) => void } } }).ai
+        ?.toolsManager ??
+      (this.app as unknown as { aiManager?: { toolsManager?: { registerTools?: (tools: unknown[]) => void } } })
+        .aiManager?.toolsManager;
     if (typeof toolsManager?.registerTools !== 'function') {
-      this.app.log?.warn?.('Ecobase AI tools were not registered because the NocoBase AI tools manager is unavailable.');
+      this.app.log?.warn?.(
+        'Ecobase AI tools were not registered because the NocoBase AI tools manager is unavailable.',
+      );
       return;
     }
     try {
@@ -1363,6 +1646,10 @@ export class PluginEcobaseServer extends Plugin {
     this.app.resourceManager.define({
       name: 'ecobaseSupplierOrders',
       actions: createEcobaseSupplierOrderActions(),
+    });
+    this.app.resourceManager.define({
+      name: 'ecobaseSupplierManagement',
+      actions: createEcobaseSupplierManagementActions(),
     });
     this.app.resourceManager.define({
       name: 'ecobaseAlertEvaluation',
@@ -1428,7 +1715,11 @@ export class PluginEcobaseServer extends Plugin {
       ],
       'loggedIn',
     );
-    this.app.acl.allow('ecobaseInventoryPlanning', ['filters', 'refreshReadModel', 'rows', 'digestPreview', 'optimizeBudget'], 'loggedIn');
+    this.app.acl.allow(
+      'ecobaseInventoryPlanning',
+      ['filters', 'refreshReadModel', 'rows', 'digestPreview', 'optimizeBudget'],
+      'loggedIn',
+    );
     this.app.acl.allow(ECOBASE_COLLECTIONS.companies, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.amazonAccounts, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.sourceConnections, ['list', 'get'], 'loggedIn');
@@ -1445,6 +1736,7 @@ export class PluginEcobaseServer extends Plugin {
     this.app.acl.allow(ECOBASE_COLLECTIONS.planningParameters, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.suppliers, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.supplierLeadTimes, ['list', 'get'], 'loggedIn');
+    this.app.acl.allow(ECOBASE_COLLECTIONS.supplierAttentionRows, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.supplierExternalIdentities, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(
       'ecobaseSupplierOrders',
@@ -1461,6 +1753,24 @@ export class PluginEcobaseServer extends Plugin {
       ],
       'loggedIn',
     );
+    this.app.acl.allow(
+      'ecobaseSupplierManagement',
+      [
+        'refreshAttentionRows',
+        'rows',
+        'summary',
+        'detail',
+        'createSupplier',
+        'updateSupplierProfile',
+        'createSupplierOrder',
+        'recordActivity',
+        'updateProductLeadTime',
+        'supplierOptions',
+        'productOptions',
+        'orderOptions',
+      ],
+      'loggedIn',
+    );
     this.app.acl.allow(ECOBASE_COLLECTIONS.supplierProductLinks, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.supplierOrders, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.supplierOrderLines, ['list', 'get'], 'loggedIn');
@@ -1473,7 +1783,17 @@ export class PluginEcobaseServer extends Plugin {
     this.app.acl.allow('ecobaseComparison', ['compare'], 'loggedIn');
     this.app.acl.allow('ecobaseDashboard', ['summary', 'settings'], 'loggedIn');
     this.app.acl.allow('ecobaseOperatorWorkspace', ['workspace', 'preview', 'saveView'], 'loggedIn');
-    this.app.acl.allow('ecobaseReports', ['generatePreview', 'generateDailyOperationsBriefEvidence', 'generateDailyOperationsBrief', 'markDailyOperationsBriefSent', 'markDailyOperationsBriefFailed'], 'loggedIn');
+    this.app.acl.allow(
+      'ecobaseReports',
+      [
+        'generatePreview',
+        'generateDailyOperationsBriefEvidence',
+        'generateDailyOperationsBrief',
+        'markDailyOperationsBriefSent',
+        'markDailyOperationsBriefFailed',
+      ],
+      'loggedIn',
+    );
     this.app.acl.allow('ecobaseAi', ['answer', 'askEphemeral', 'retrieveFacts', 'coverage'], 'loggedIn');
     this.app.acl.allow('ecobaseAccuracy', ['checklistTemplate', 'recordSignoff', 'evaluate'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.ruleVersions, ['list', 'get'], 'loggedIn');

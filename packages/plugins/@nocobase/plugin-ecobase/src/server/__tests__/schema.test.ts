@@ -28,6 +28,7 @@ import ruleVersions from '../collections/rule-versions';
 import sourceAccessAudits from '../collections/source-access-audits';
 import sourceConnections from '../collections/source-connections';
 import sourceWarningPolicies from '../collections/source-warning-policies';
+import supplierAttentionRows from '../collections/supplier-attention-rows';
 import supplierExternalIdentities from '../collections/supplier-external-identities';
 import supplierLeadTimes from '../collections/supplier-lead-times';
 import supplierOrderActivities from '../collections/supplier-order-activities';
@@ -82,6 +83,7 @@ describe('Ecobase plugin-owned schema', () => {
     expect(planningParameters.name).toBe(ECOBASE_COLLECTIONS.planningParameters);
     expect(suppliers.name).toBe(ECOBASE_COLLECTIONS.suppliers);
     expect(supplierLeadTimes.name).toBe(ECOBASE_COLLECTIONS.supplierLeadTimes);
+    expect(supplierAttentionRows.name).toBe(ECOBASE_COLLECTIONS.supplierAttentionRows);
     expect(supplierExternalIdentities.name).toBe(ECOBASE_COLLECTIONS.supplierExternalIdentities);
     expect(supplierProductLinks.name).toBe(ECOBASE_COLLECTIONS.supplierProductLinks);
     expect(supplierOrders.name).toBe(ECOBASE_COLLECTIONS.supplierOrders);
@@ -117,6 +119,7 @@ describe('Ecobase plugin-owned schema', () => {
       planningProductListings,
       planningProductMappingAudits,
       suppliers,
+      supplierAttentionRows,
       supplierOrders,
       supplierOrderLines,
       supplierOrderActivities,
@@ -190,7 +193,17 @@ describe('Ecobase plugin-owned schema', () => {
     expect(field(planningParameters, 'safetyBufferDays')).toMatchObject({ type: 'double' });
     expect(field(suppliers, 'id')).toMatchObject({ type: 'uuid', primaryKey: true });
     expect(field(suppliers, 'naturalKey')).toMatchObject({ type: 'string', unique: true });
+    expect(field(suppliers, 'receivedEmail')).toMatchObject({ type: 'string' });
+    expect(field(suppliers, 'prPortalLink')).toMatchObject({ type: 'string' });
+    expect(suppliers.fields.find((candidate) => candidate.name === 'portalPassword')).toBeUndefined();
+    expect(field(suppliers, 'approvalStatus')).toMatchObject({ type: 'string', defaultValue: 'new' });
+    expect(field(suppliers, 'contactEstablished')).toMatchObject({ type: 'boolean', defaultValue: false });
     expect(field(supplierLeadTimes, 'leadTimeDays')).toMatchObject({ type: 'double' });
+    expect(field(supplierAttentionRows, 'naturalKey')).toMatchObject({ type: 'string', unique: true });
+    expect(field(supplierAttentionRows, 'supplierId')).toMatchObject({ type: 'uuid', autoFill: false });
+    expect(field(supplierAttentionRows, 'totalEstimatedProfitRisk')).toMatchObject({ type: 'double' });
+    expect(field(supplierAttentionRows, 'reasonCodes')).toMatchObject({ type: 'jsonb' });
+    expect(field(supplierAttentionRows, 'contactSoon')).toMatchObject({ type: 'boolean', defaultValue: false });
     expect(field(supplierExternalIdentities, 'supplierId')).toMatchObject({ type: 'uuid', autoFill: false });
     expect(field(supplierProductLinks, 'planningProductId')).toMatchObject({ type: 'uuid', autoFill: false });
     expect(field(supplierOrders, 'id')).toMatchObject({ type: 'uuid', primaryKey: true });

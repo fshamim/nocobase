@@ -23,6 +23,8 @@ export type CsvShape =
   | 'sellerboard-dashboard-goods'
   | 'sellerboard-dashboard-totals'
   | 'sellerboard-stock'
+  | 'supplier-analysis-tracker'
+  | 'supplier-analysis-2026'
   | 'supplier-ids'
   | 'order-details'
   | 'purchase-orders'
@@ -77,6 +79,10 @@ export function detectCsvShape(headers: string[]): CsvShape {
     return 'sellerboard-dashboard-totals';
   if (has(normalized, 'FBA/FBM Stock') && has(normalized, 'Company')) return 'master-stock';
   if (has(normalized, 'FBA/FBM Stock') && has(normalized, 'ROI, %')) return 'sellerboard-stock';
+  if (has(normalized, 'SR ID') && has(normalized, 'Supplier Name') && has(normalized, 'Wholesale Price List'))
+    return 'supplier-analysis-tracker';
+  if (has(normalized, 'SR ID') && has(normalized, 'Supplier Name') && has(normalized, 'Supplier Type'))
+    return 'supplier-analysis-2026';
   if (has(normalized, 'SR ID') && has(normalized, 'Supplier Name')) return 'supplier-ids';
   if (has(normalized, 'Order ID') && has(normalized, 'Lead time(day)')) return 'order-details';
   if (has(normalized, 'Timestamp') && has(normalized, 'Order ID') && has(normalized, 'Payment Status'))
@@ -109,6 +115,9 @@ export function targetForCsvShape(shape: CsvShape): Omit<CsvBundleAnalysisGroup,
     shape === 'supplier-ids'
   ) {
     return { adapterName: 'google-sheets-migration-csv', sourceType: 'google_sheets', domain: 'order_management' };
+  }
+  if (shape === 'supplier-analysis-tracker' || shape === 'supplier-analysis-2026') {
+    return { adapterName: 'google-sheets-migration-csv', sourceType: 'google_sheets', domain: 'supplier_management' };
   }
   if (
     shape === 'sellerboard-dashboard-goods' ||
@@ -190,9 +199,16 @@ function isoDate(value: string) {
   if (isoDateOnly) {
     return `${isoDateOnly[1]}-${isoDateOnly[2]}-${isoDateOnly[3]}`;
   }
-  const dayMonthYear = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?$/);
-  if (dayMonthYear) {
-    return `${dayMonthYear[3]}-${dayMonthYear[2].padStart(2, '0')}-${dayMonthYear[1].padStart(2, '0')}`;
+  const slashDate = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?$/);
+  if (slashDate) {
+    const first = Number(slashDate[1]);
+    const second = Number(slashDate[2]);
+    const day = second > 12 ? slashDate[2] : slashDate[1];
+    const month = second > 12 ? slashDate[1] : slashDate[2];
+    if (first > 12) {
+      return `${slashDate[3]}-${slashDate[2].padStart(2, '0')}-${slashDate[1].padStart(2, '0')}`;
+    }
+    return `${slashDate[3]}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
   }
   const parsed = new Date(trimmed);
   if (Number.isNaN(parsed.getTime())) {
@@ -207,15 +223,22 @@ function productLeadTimeDays(row: CsvRowReader) {
 
 function isoDateTime(value: string) {
   const trimmed = value.trim();
-  const dayMonthYear = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
-  if (dayMonthYear) {
-    const hour = (dayMonthYear[4] ?? '00').padStart(2, '0');
-    const minute = (dayMonthYear[5] ?? '00').padStart(2, '0');
-    const second = (dayMonthYear[6] ?? '00').padStart(2, '0');
-    return `${dayMonthYear[3]}-${dayMonthYear[2].padStart(2, '0')}-${dayMonthYear[1].padStart(
-      2,
-      '0',
-    )}T${hour}:${minute}:${second}.000Z`;
+  const slashDate = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+  if (slashDate) {
+    const first = Number(slashDate[1]);
+    const second = Number(slashDate[2]);
+    const day = second > 12 ? slashDate[2] : slashDate[1];
+    const month = second > 12 ? slashDate[1] : slashDate[2];
+    const hour = (slashDate[4] ?? '00').padStart(2, '0');
+    const minute = (slashDate[5] ?? '00').padStart(2, '0');
+    const secondPart = (slashDate[6] ?? '00').padStart(2, '0');
+    if (first > 12) {
+      return `${slashDate[3]}-${slashDate[2].padStart(2, '0')}-${slashDate[1].padStart(
+        2,
+        '0',
+      )}T${hour}:${minute}:${secondPart}.000Z`;
+    }
+    return `${slashDate[3]}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${hour}:${minute}:${secondPart}.000Z`;
   }
   if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
     return `${trimmed}T00:00:00.000Z`;
@@ -473,6 +496,98 @@ function supplierRecords(input: SourceAdapterImportInput, row: CsvRowReader, sou
 function supplierExternalCode(row: CsvRowReader) {
   const value = row.string('SR ID', 'SR ID ');
   return value && value.toLowerCase() !== 'duplicate' ? value : undefined;
+}
+
+function yesNoBoolean(value: string | undefined) {
+  if (!value) return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (['yes', 'active', 'approved', 'completed'].includes(normalized)) return true;
+  if (['no', 'inactive', 'rejected', 'cancelled', 'canceled'].includes(normalized)) return false;
+  return undefined;
+}
+
+function supplierManagementCompany(input: SourceAdapterImportInput, row: CsvRowReader) {
+  return companyOf(input, row) ?? row.string('Reached Via');
+}
+
+function supplierApprovalStatus(row: CsvRowReader) {
+  const status = lower(row.string('Status', 'Current Status'));
+  const activeStatus = lower(row.string('Active Status'));
+  const emailDone = lower(row.string('Email Done?'));
+  const callDone = lower(row.string('Call Done?'));
+  const respondedBy = lower(row.string('Responded By'));
+  if (hasAny(status, ['approved', 'completed', 'cleared'])) return 'approved';
+  if (hasAny(status, ['rejected', 'cancelled', 'canceled', 'inactive'])) return 'rejected';
+  if (hasAny(status, ['analysis', 'analysed', 'analyzed']) || respondedBy) return 'analyzing';
+  if (hasAny(status, ['progress', 'submitted', 'sent']) || activeStatus === 'yes' || emailDone === 'yes' || callDone === 'yes') {
+    return 'contacting';
+  }
+  return 'new';
+}
+
+function supplierAccountStatus(row: CsvRowReader) {
+  const status = lower(row.string('Status', 'Current Status'));
+  if (hasAny(status, ['approved', 'completed', 'cleared'])) return 'approved';
+  if (hasAny(status, ['rejected', 'cancelled', 'canceled'])) return 'rejected';
+  if (hasAny(status, ['submitted', 'progress', 'sent'])) return 'submitted';
+  return 'not_started';
+}
+
+function supplierAnalysisStatus(row: CsvRowReader) {
+  if (row.number('TNOP Analysed') || row.number('Prof. Products') || row.string('Remarks SA')) return 'done';
+  if (lower(row.string('Responded By')) || lower(row.string('Feedback'))) return 'in_progress';
+  return 'not_started';
+}
+
+function supplierManagementRecord(input: SourceAdapterImportInput, row: CsvRowReader, sourceKey: string): NormalizedRecord[] {
+  const company = supplierManagementCompany(input, row);
+  const supplierName = row.string('Supplier Name');
+  const supplierId = supplierExternalCode(row);
+  if (!company || (!supplierName && !supplierId)) {
+    return [];
+  }
+  const statusActive = yesNoBoolean(row.string('Active Status'));
+  const currentStatusActive = yesNoBoolean(row.string('Current Status'));
+  const active = statusActive ?? currentStatusActive ?? true;
+  const contacted = lower(row.string('Email Done?')) === 'yes' || lower(row.string('Call Done?')) === 'yes';
+  return [
+    {
+      kind: 'supplier',
+      data: {
+        naturalKey: naturalKey(input, 'supplier', [company, supplierId ?? supplierName ?? sourceKey]),
+        sourceConnectionId: input.sourceConnectionId,
+        supplierId,
+        name: supplierName,
+        company,
+        asin: canonicalAsin(row),
+        prPortalLink: row.string('PR Portal Link'),
+        contactName: row.string('Contact Person'),
+        reachedVia: row.string('Reached Via'),
+        receivedEmail: row.string('Recieved Email', 'Received Email'),
+        remarks: row.string('Remarks'),
+        moq: row.string('MOQ'),
+        designation: row.string('Designation'),
+        supplierType: row.string('Supplier Type'),
+        presenceOnAmazon: row.string('Presence on Amazon'),
+        currentStatus: row.string('Current Status'),
+        supplierStatus: row.string('Status'),
+        activeStatus: row.string('Active Status'),
+        emailDone: row.string('Email Done?'),
+        callDone: row.string('Call Done?'),
+        wholesalePriceList: row.string('Wholesale Price List'),
+        dateOfUpdate: firstDate(row, 'Date of Update'),
+        approvalStatus: supplierApprovalStatus(row),
+        accountStatus: supplierAccountStatus(row),
+        analysisStatus: supplierAnalysisStatus(row),
+        lastContactedAt: contacted ? firstDateTime(row, 'Timestamp', 'Date of Update') : undefined,
+        contactEstablished: contacted,
+        approvalNotes: row.string('Remarks SA', 'Feedback', 'Remarks'),
+        active,
+        lastSeenAt: new Date().toISOString(),
+        payload: row.payload(),
+      },
+    },
+  ];
 }
 
 function supplierIdentityRecord(input: SourceAdapterImportInput, row: CsvRowReader): NormalizedRecord[] {
@@ -944,6 +1059,9 @@ function recordsForShape(
   if (shape === 'sellerboard-dashboard-goods' || shape === 'sellerboard-dashboard-totals') {
     return [dailyFactRecord(input, row, snapshotDate, sourceKey), trafficRecord(input, row, snapshotDate, sourceKey)];
   }
+  if (shape === 'supplier-analysis-tracker' || shape === 'supplier-analysis-2026') {
+    return supplierManagementRecord(input, row, sourceKey);
+  }
   if (shape === 'supplier-ids') {
     return supplierIdentityRecord(input, row);
   }
@@ -1072,7 +1190,7 @@ export const googleSheetsMigrationCsvAdapter: SourceAdapter = {
     name: 'google-sheets-migration-csv',
     title: 'Google Sheets migration CSV',
     sourceType: 'google_sheets',
-    supportedDomains: ['amazon_operations', 'foundation', 'order_management'],
+    supportedDomains: ['amazon_operations', 'foundation', 'order_management', 'supplier_management'],
     version: '1.0.0',
   },
   import: importCsvFiles,

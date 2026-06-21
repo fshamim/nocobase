@@ -145,6 +145,7 @@ export interface RecordSupplierOrderActivityParams {
   notes?: string;
   nextFollowUpAt?: string;
   leadTimeDays?: number;
+  contactEstablished?: boolean;
   source?: string;
 }
 
@@ -655,6 +656,7 @@ export class EcobaseSupplierOrderService {
     );
     const productLeadTimeBySupplierAndProduct = new Map<string, PlainRecord>();
     const productLeadTimeBySupplierNameAndAsin = new Map<string, PlainRecord>();
+    const defaultLeadTimeBySupplier = new Map<string, PlainRecord>();
     for (const leadTime of leadTimes) {
       const supplierId = asString(leadTime.supplierRefId);
       const planningProductId = asString(leadTime.planningProductId);
@@ -663,6 +665,9 @@ export class EcobaseSupplierOrderService {
       const asin = asString(leadTime.asin);
       if (supplierId && planningProductId) {
         productLeadTimeBySupplierAndProduct.set(`${supplierId}:${planningProductId}`, leadTime);
+      }
+      if (supplierId && asString(leadTime.scope) === 'default') {
+        defaultLeadTimeBySupplier.set(supplierId, leadTime);
       }
       if (company && supplierName && asin) {
         productLeadTimeBySupplierNameAndAsin.set(`${company}:${supplierName}:${asin}`, leadTime);
@@ -691,7 +696,8 @@ export class EcobaseSupplierOrderService {
         ? productLeadTimeBySupplierAndProduct.get(`${supplierId}:${planningProductId}`) ??
           (supplierName && canonicalAsin
             ? productLeadTimeBySupplierNameAndAsin.get(`${product.company}:${supplierName}:${canonicalAsin}`)
-            : undefined)
+            : undefined) ??
+          defaultLeadTimeBySupplier.get(supplierId)
         : undefined;
       reorderCandidates.push({
         planningProductId,
@@ -1262,6 +1268,17 @@ export class EcobaseSupplierOrderService {
       record = await activityRepo.create({ values: { id: randomUUID(), ...values } });
     }
 
+    if (activityType === 'contacted_supplier') {
+      const supplierValues: Record<string, unknown> = {
+        lastContactedAt: occurredAt,
+        contactEstablished: params.contactEstablished !== false,
+        approvalStatus: 'contacting',
+      };
+      const nextFollowUpAt = maybeIsoDateTime(params.nextFollowUpAt);
+      if (nextFollowUpAt) supplierValues.nextFollowUpAt = nextFollowUpAt;
+      await this.db.getRepository(ECOBASE_COLLECTIONS.suppliers).update({ filterByTk: params.supplierId, values: supplierValues });
+    }
+
     if (activityType === 'lead_time_checked' && typeof leadTimeDays === 'number') {
       await this.upsertLeadTime({
         supplierId: params.supplierId,
@@ -1322,13 +1339,18 @@ export class EcobaseSupplierOrderService {
       payload: {
         source: 'operator',
         actor: params.actor,
-        scope: leadTimePlanningProductId ? 'product' : 'default',
       },
     });
 
     return this.db.getRepository(ECOBASE_COLLECTIONS.supplierLeadTimes).findOne({
       filter: {
-        naturalKey: `supplier-lead-time:${params.company}:${params.supplierId}:${leadTimePlanningProductId ? `product:${leadTimePlanningProductId}` : 'default'}`,
+        naturalKey: this.leadTimeNaturalKey({
+          company: params.company,
+          supplierId: params.supplierId,
+          planningProductId: leadTimePlanningProductId,
+          asin: params.asin ?? asString(product.canonicalAsin),
+          sku: params.sku,
+        }),
       },
     });
   }
@@ -2247,6 +2269,15 @@ export class EcobaseSupplierOrderService {
     return supplier;
   }
 
+  private leadTimeNaturalKey(params: { company: string; supplierId: string; planningProductId?: string; asin?: string; sku?: string }) {
+    const scope = params.planningProductId
+      ? `product:${params.planningProductId}`
+      : params.asin || params.sku
+        ? `product-key:${params.asin ?? ''}:${params.sku ?? ''}`
+        : 'default';
+    return `supplier-lead-time:${params.company}:${params.supplierId}:${scope}`;
+  }
+
   private async upsertLeadTime(params: {
     supplierId: string;
     company: string;
@@ -2264,8 +2295,7 @@ export class EcobaseSupplierOrderService {
     notes?: string;
   }) {
     const repo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierLeadTimes);
-    const scope = params.planningProductId ? `product:${params.planningProductId}` : 'default';
-    const naturalKey = `supplier-lead-time:${params.company}:${params.supplierId}:${scope}`;
+    const naturalKey = this.leadTimeNaturalKey(params);
     const existing = toPlainRecord(await repo.findOne({ filter: { naturalKey } }));
     const values = {
       naturalKey,
@@ -2277,7 +2307,7 @@ export class EcobaseSupplierOrderService {
       planningProductId: params.planningProductId,
       asin: params.asin,
       sku: params.sku,
-      scope: params.planningProductId ? 'product' : 'default',
+      scope: params.planningProductId || params.asin || params.sku ? 'product' : 'default',
       leadTimeDays: validateSupplierLeadTimeDays(params.leadTimeDays, 'Ecobase supplier lead-time upsert failed'),
       confirmedAt: params.confirmedAt,
       source: params.source,

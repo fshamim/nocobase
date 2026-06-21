@@ -212,6 +212,24 @@ const remainingShapeSamples = [
     domain: 'order_management',
     adapterName: 'google-sheets-migration-csv',
   },
+  {
+    name: 'Supplier Analysis Tracker.csv',
+    content:
+      'Timestamp,SR ID,Supplier Name,ASIN,Wholesale Price List,Product Catalog,MAP agreement,Market,SR by,PR Portal Link,Username,pass,Contact Person,Reached Via,Recieved Email,Remarks,MOQ,Designation,Category,Amazon Allow,SA By,Status,Active Status,Easy Move(Sister Company ),Bulk Upload,Date of Update,Total NOP,TNOP Analysed,Prof. Products,Inv. margin >0.00%,Inv.margin>4.99%,Inv.margin>8.99%,Cleared POs Amount,Sheet Link,Remarks SA,Used ,Tasks Submitted\n9/21/2023 20:14:39,SRO-7036,locnproducts,B08838XBQN,https://price-list.test,https://catalog.test,https://map.test,USA,Nabeel Uddin,https://portal.test,source@example.com,secret,Danielle Townes,Ecofission LLC,locnproducts1@gmail.com,Initial note,$200,Sales Rep,Home,Yes,Analyst,Completed,Yes,Yes,Yes,5/20/2026,10,8,3,4,5,6,1200,https://sheet.test,SA note,Yes,Submitted',
+    expectedCollection: ECOBASE_COLLECTIONS.suppliers,
+    sourceType: 'google_sheets',
+    domain: 'supplier_management',
+    adapterName: 'google-sheets-migration-csv',
+  },
+  {
+    name: 'Supplier 2026.csv',
+    content:
+      'SR ID,Supplier Name,ASIN,PR Portal Link,Username,pass,Contact Person,Reached Via,Recieved Email,Designation,Supplier Type,Presence on Amazon,Current Status,Email Done?,Call Done?,Status,Date of Update,Remarks,Responded By,EF Sent Status,SS Sent Status,MX Sent Status,RH Sent Status,Feedback,Remarks ( Analysed / facing any issue ) \nSRO-5674,Higher standards,B0763TXC3B,https://portal.test,source@example.com,secret,Chad,Ecofission LLC,chad@example.com,Sales REP,Brand Approved,Excellent,Inactive,Yes,No,Rejected,5/20/2026,Gated issue,Ali,Email Sent,,,,Feedback note,Analysis note',
+    expectedCollection: ECOBASE_COLLECTIONS.suppliers,
+    sourceType: 'google_sheets',
+    domain: 'supplier_management',
+    adapterName: 'google-sheets-migration-csv',
+  },
 ];
 
 function createService(sourceType = 'seller_central_file', domain = 'amazon_operations') {
@@ -642,6 +660,51 @@ describe('Ecobase current Amazon operations CSV import', () => {
       }
       expect(db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).all(), sample.name).toHaveLength(1);
     }
+  });
+
+  it('imports Supplier Analysis Tracker fields into suppliers', async () => {
+    const { db, service } = createService('google_sheets', 'supplier_management');
+    db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
+      filterByTk: 'source-1',
+      values: {
+        config: {
+          files: [
+            {
+              name: 'Supplier Analysis Tracker.csv',
+              content:
+                'Timestamp,SR ID,Supplier Name,ASIN,Wholesale Price List,Product Catalog,MAP agreement,Market,SR by,PR Portal Link,Username,pass,Contact Person,Reached Via,Recieved Email,Remarks,MOQ,Designation,Category,Amazon Allow,SA By,Status,Active Status,Easy Move(Sister Company ),Bulk Upload,Date of Update,Total NOP,TNOP Analysed,Prof. Products,Inv. margin >0.00%,Inv.margin>4.99%,Inv.margin>8.99%,Cleared POs Amount,Sheet Link,Remarks SA,Used ,Tasks Submitted\n9/21/2023 20:14:39,SRO-7036,locnproducts,B08838XBQN,https://price-list.test,https://catalog.test,https://map.test,USA,Nabeel Uddin,https://portal.test,source@example.com,secret,Danielle Townes,Ecofission LLC,locnproducts1@gmail.com,Initial note,$200,Sales Rep,Home,Yes,Analyst,Completed,Yes,Yes,Yes,5/20/2026,10,8,3,4,5,6,1200,https://sheet.test,SA note,Yes,Submitted',
+            },
+          ],
+        },
+      },
+    });
+
+    const run = await service.runAdapterImport({
+      sourceConnectionId: 'source-1',
+      adapterName: 'google-sheets-migration-csv',
+      sourceIdentifier: 'supplier-analysis-tracker',
+      sourceVersion: '2026-05-20',
+      preserveAuditRun: true,
+    });
+
+    expect(run).toMatchObject({ status: 'success', rowCount: 1, normalizedCount: 1, warningCount: 0 });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.suppliers).all()).toEqual([
+      expect.objectContaining({
+        supplierId: 'SRO-7036',
+        name: 'locnproducts',
+        company: 'Ecofission LLC',
+        asin: 'B08838XBQN',
+        prPortalLink: 'https://portal.test',
+        contactName: 'Danielle Townes',
+        receivedEmail: 'locnproducts1@gmail.com',
+        moq: '$200',
+        active: true,
+        approvalStatus: 'approved',
+        accountStatus: 'approved',
+        analysisStatus: 'done',
+        dateOfUpdate: '2026-05-20',
+      }),
+    ]);
   });
 
   it('normalizes supplier-order sheets into supplier identities, history links, and coverage read models', async () => {

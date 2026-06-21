@@ -16,6 +16,7 @@ const ManagementDashboardPage = lazy(() => import('./pages/ManagementDashboardPa
 const OrderManagementPage = lazy(() => import('./pages/OrderManagementPage'));
 const ReportPreviewPage = lazy(() => import('./pages/ReportPreviewPage'));
 const SellerboardSourcesPage = lazy(() => import('./pages/SellerboardSourcesPage'));
+const SupplierManagementPage = lazy(() => import('./pages/SupplierManagementPage'));
 
 const ECOBASE_WORKSPACE_ROOT = '/admin/ecobase';
 
@@ -37,6 +38,12 @@ const ecobaseWorkspacePages = [
     label: 'Order Management',
     path: `${ECOBASE_WORKSPACE_ROOT}/order-management`,
     Component: OrderManagementPage,
+  },
+  {
+    key: 'supplier-management',
+    label: 'Supplier Management',
+    path: `${ECOBASE_WORKSPACE_ROOT}/supplier-management`,
+    Component: SupplierManagementPage,
   },
   {
     key: 'management-dashboard',

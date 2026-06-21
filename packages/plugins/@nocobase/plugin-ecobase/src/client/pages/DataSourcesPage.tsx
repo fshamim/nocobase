@@ -417,7 +417,7 @@ export default function DataSourcesPage() {
             <p>{t('Drop CSV files here or click to select files')}</p>
             <p>
               {t(
-                'OrderDetails, Purchase Orders, Pre-Order Sheet, Supplier IDs, Buybox, MasterStock, and Sellerboard/Amazon operation CSVs are supported.',
+                'OrderDetails, Purchase Orders, Pre-Order Sheet, Supplier IDs, Supplier Analysis Tracker, Supplier 2026, Buybox, MasterStock, and Sellerboard/Amazon operation CSVs are supported.',
               )}
             </p>
           </Upload.Dragger>
