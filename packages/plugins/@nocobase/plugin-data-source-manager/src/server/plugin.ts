@@ -360,7 +360,9 @@ export class PluginDataSourceManagerServer extends Plugin {
     });
 
     this.app.resourceManager.use(loadDataSourceTablesIntoCollections);
-    registerDataSourceManagerMcpPostProcessors(this.ai.mcpToolsManager);
+    if (this.ai?.mcpToolsManager) {
+      registerDataSourceManagerMcpPostProcessors(this.ai.mcpToolsManager);
+    }
 
     this.app.use(async function handleAppendDataSourceCollection(ctx, next) {
       await next();

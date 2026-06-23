@@ -4,8 +4,10 @@ import type { AdapterStreamItem, NormalizedRecord, SourceAdapter, SourceAdapterR
 import type { CsvSourceFile } from '../adapters/csv-utils';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { EcobaseAccountabilityService } from './accountability-service';
+import { EcobaseBronzeImportService } from './bronze-import-service';
 import { EcobaseDataWarningService } from './data-warning-service';
 import type { EcobaseDataWarning } from './data-warning-service';
+import { EcobaseMedallionNormalizationService, type NormalizePendingResult } from './medallion-normalization-service';
 import { EcobasePlanningProductService } from './planning-product-service';
 import { EcobaseSupplierOrderService, validateSupplierLeadTimeDays } from './supplier-order-service';
 
@@ -79,6 +81,7 @@ type QueuedImportRun = {
 type RunAdapterImportParams = RunNoopImportParams & {
   adapterName: string;
   queuedImportRun?: QueuedImportRun;
+  startedAt?: Date;
 };
 
 export interface RunCsvBundleImportParams {
@@ -93,6 +96,17 @@ export interface RunCsvBundleImportParams {
 export interface RunScheduledSellerboardImportsParams {
   now?: string;
   sourceConnectionId?: string;
+}
+
+export interface RunMedallionPipelineParams {
+  sourceConnectionId?: string;
+  sourceVersion?: string;
+}
+
+export interface RunMedallionPipelineResult {
+  imports: Record<string, unknown>[];
+  normalization: NormalizePendingResult;
+  failures: string[];
 }
 
 export interface SourceStatusView {
@@ -187,6 +201,19 @@ function mergeConfig(record: unknown, runtimeConfig?: Record<string, unknown>): 
   return { ...getConfig(record), ...(runtimeConfig ?? {}) };
 }
 
+function inlineCsvFiles(config: Record<string, unknown>): CsvSourceFile[] {
+  const files = config.files;
+  if (!Array.isArray(files)) return [];
+  return files.flatMap((file): CsvSourceFile[] => {
+    const record = toPlainRecord(file);
+    if (typeof record.name !== 'string' || typeof record.content !== 'string') return [];
+    const csvFile: CsvSourceFile = { name: record.name, content: record.content };
+    if (typeof record.expectedRowCount === 'number') csvFile.expectedRowCount = record.expectedRowCount;
+    if (typeof record.snapshotDate === 'string') csvFile.snapshotDate = record.snapshotDate;
+    return [csvFile];
+  });
+}
+
 function sha256(value: string) {
   return createHash('sha256').update(value).digest('hex');
 }
@@ -256,6 +283,18 @@ function updateFileSummary(
     warningCount: current.warningCount + (update.warningCount ?? 0),
     sampleMappedRecord: current.sampleMappedRecord ?? update.sampleMappedRecord,
   };
+}
+
+function defaultAdapterNameForSourceConnection(sourceConnection: unknown) {
+  const config = getConfig(sourceConnection);
+  const configured = typeof config.adapterName === 'string' ? config.adapterName : undefined;
+  if (configured) return configured;
+  const sourceType = getString(sourceConnection, 'sourceType');
+  if (sourceType === 'sellerboard') return 'sellerboard-api';
+  if (sourceType === 'google_sheets') return 'google-sheets-migration-csv';
+  if (sourceType === 'seller_central_file') return 'amazon-operations-csv';
+  if (sourceType === 'noop_test') return 'noop-test';
+  return undefined;
 }
 
 function validateSourceConnectionForAdapter(sourceConnection: unknown, adapter: SourceAdapter) {
@@ -478,6 +517,46 @@ export class EcobaseImportService {
     return toPlainRecord(queuedRun);
   }
 
+  async runMedallionPipeline(params: RunMedallionPipelineParams = {}): Promise<RunMedallionPipelineResult> {
+    const sourceConnectionRepo = this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections);
+    const sourceConnections = await sourceConnectionRepo.find({
+      filter: { active: true, ...(params.sourceConnectionId ? { id: params.sourceConnectionId } : {}) },
+      sort: ['name'],
+    });
+    const imports: Record<string, unknown>[] = [];
+    const failures: string[] = [];
+    const sourceVersion = params.sourceVersion ?? new Date().toISOString().slice(0, 10);
+
+    for (const sourceConnection of sourceConnections) {
+      const sourceConnectionId = getString(sourceConnection, 'id');
+      const adapterName = defaultAdapterNameForSourceConnection(sourceConnection);
+      if (!sourceConnectionId || !adapterName) {
+        failures.push(`Ecobase medallion pipeline skipped a source connection with unsupported sourceType.`);
+        continue;
+      }
+      try {
+        imports.push(
+          await this.runAdapterImport({
+            sourceConnectionId,
+            adapterName,
+            sourceIdentifier: adapterName === 'sellerboard-api' ? 'sellerboard-scheduled' : 'medallion-pipeline',
+            sourceVersion,
+            preserveAuditRun: true,
+          }),
+        );
+      } catch (error) {
+        failures.push(
+          error instanceof Error ? error.message : 'Ecobase medallion pipeline failed with a non-Error value.',
+        );
+      }
+    }
+
+    const normalization = await new EcobaseMedallionNormalizationService(this.db).normalizePending({
+      sourceConnectionId: params.sourceConnectionId,
+    });
+    return { imports, normalization, failures };
+  }
+
   async runAdapterImport(params: RunAdapterImportParams) {
     if (!params.sourceConnectionId) {
       throw new Error('Ecobase import failed: sourceConnectionId is required.');
@@ -495,7 +574,7 @@ export class EcobaseImportService {
     const adapter = this.registry.get(params.adapterName);
     validateSourceConnectionForAdapter(sourceConnection, adapter);
 
-    const startedAt = params.queuedImportRun?.startedAt ?? new Date();
+    const startedAt = params.queuedImportRun?.startedAt ?? params.startedAt ?? new Date();
     const sourceIdentifier = params.sourceIdentifier ?? adapter.metadata.name;
     const sourceVersion = params.sourceVersion ?? startedAt.toISOString();
     const baseIdempotencyKey =
@@ -519,7 +598,9 @@ export class EcobaseImportService {
       return toPlainRecord(existingRun);
     }
 
-    const idempotencyKey = params.queuedImportRun?.idempotencyKey ?? (existingRun ? `${baseIdempotencyKey}:audit:${randomUUID()}` : baseIdempotencyKey);
+    const idempotencyKey =
+      params.queuedImportRun?.idempotencyKey ??
+      (existingRun ? `${baseIdempotencyKey}:audit:${randomUUID()}` : baseIdempotencyKey);
 
     const pendingRun = params.queuedImportRun
       ? await importRunRepo.findOne({ filterByTk: params.queuedImportRun.id })
@@ -554,19 +635,31 @@ export class EcobaseImportService {
     let finalStatusOverride: string | null = null;
     const skipExistingNormalizedKinds = new Set(params.skipExistingNormalizedKinds ?? []);
     const fileSummaries: Record<string, ImportFileSummary> = {};
+    let medallionNormalization: NormalizePendingResult | null = null;
     const supplierOrderService = new EcobaseSupplierOrderService(this.db);
+    const bronzeService = new EcobaseBronzeImportService(this.db);
+    const adapterConfig = mergeConfig(sourceConnection, params.runtimeConfig);
+    const bronzeContext = {
+      importRunId,
+      sourceConnectionId: params.sourceConnectionId,
+      sourceIdentifier,
+      sourceVersion,
+      adapter,
+    };
     let supplierOrderTouched = false;
     let accountabilityTouched = false;
 
     try {
+      await bronzeService.createSourceFiles(bronzeContext, inlineCsvFiles(adapterConfig));
       for await (const item of adapter.import({
         sourceConnectionId: params.sourceConnectionId,
         sourceIdentifier,
         sourceVersion,
         idempotencyKey,
-        config: mergeConfig(sourceConnection, params.runtimeConfig),
+        config: adapterConfig,
         secretRef: getString(sourceConnection, 'secretRef'),
       })) {
+        await bronzeService.createSourceRecord(bronzeContext, item);
         if (item.type === 'record') {
           const records = Array.isArray(item.record) ? item.record : [item.record];
           const fileName = getSourceFileName(item.sourceKey);
@@ -665,9 +758,25 @@ export class EcobaseImportService {
           });
         }
       } catch (error) {
-        statusMessage = error instanceof Error
-          ? `Ecobase import completed with a post-import reconciliation warning: ${error.message}`
-          : 'Ecobase import completed with a post-import reconciliation warning: reconciliation threw a non-Error value.';
+        statusMessage =
+          error instanceof Error
+            ? `Ecobase import completed with a post-import reconciliation warning: ${error.message}`
+            : 'Ecobase import completed with a post-import reconciliation warning: reconciliation threw a non-Error value.';
+        errorCount += 1;
+      }
+    }
+
+    if (!errorMessage && rowCount > 0) {
+      try {
+        medallionNormalization = await new EcobaseMedallionNormalizationService(this.db).normalizePending({
+          sourceConnectionId: params.sourceConnectionId,
+        });
+        errorCount += medallionNormalization.failed;
+      } catch (error) {
+        statusMessage =
+          error instanceof Error
+            ? `Ecobase import completed with a medallion normalization warning: ${error.message}`
+            : 'Ecobase import completed with a medallion normalization warning: normalization threw a non-Error value.';
         errorCount += 1;
       }
     }
@@ -684,7 +793,7 @@ export class EcobaseImportService {
         warningCount,
         errorCount,
         errorMessage: errorMessage ?? statusMessage ?? (normalizedCount > 0 ? firstErrorIssueMessage : null),
-        summary: { files: fileSummaries, ...(params.summary ?? {}) },
+        summary: { files: fileSummaries, medallionNormalization, ...(params.summary ?? {}) },
       },
     });
 
@@ -855,6 +964,7 @@ export class EcobaseImportService {
         sourceVersion,
         idempotencyKey: `${sourceConnectionId}:sellerboard-scheduled:${sourceVersion}`,
         preserveAuditRun: true,
+        startedAt: now,
         skipIfNoNewerData: !schedule.refreshIntervalMinutes,
         skipExistingNormalizedKinds: ['listing_daily_fact', 'traffic_snapshot'],
       });

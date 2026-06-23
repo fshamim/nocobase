@@ -29,10 +29,15 @@ import {
 } from './services/daily-operations-brief-narrative-service';
 import { EcobaseImportService } from './services/import-service';
 import { EcobaseInventoryPlanningService } from './services/inventory-planning-service';
+import { EcobaseMedallionNormalizationService } from './services/medallion-normalization-service';
+import { EcobaseMedallionOrderService } from './services/medallion-order-service';
+import { EcobaseMedallionWorkflowService } from './services/medallion-workflow-service';
 import { EcobasePlanningCalculationService } from './services/planning-calculation-service';
 import { EcobasePlanningProductService } from './services/planning-product-service';
 import { EcobaseOperatorWorkspaceService } from './services/operator-workspace-service';
 import { EcobaseReportService } from './services/report-service';
+import { EcobaseSilverDataService } from './services/silver-data-service';
+import type { SilverFocus } from './services/silver-data-service';
 import { EcobaseSourceConnectionService } from './services/source-connection-service';
 import { EcobaseSupplierManagementService } from './services/supplier-management-service';
 import {
@@ -66,6 +71,20 @@ function getOptionalId(values: Record<string, unknown>, key: string): string | n
 function getOptionalNumber(values: Record<string, unknown>, key: string): number | undefined {
   const value = values[key];
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function getOptionalRecord(values: Record<string, unknown>, key: string): Record<string, unknown> | undefined {
+  const value = values[key];
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function getOptionalRecordArray(values: Record<string, unknown>, key: string): Record<string, unknown>[] | undefined {
+  const value = values[key];
+  return Array.isArray(value)
+    ? value.filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
+    : undefined;
 }
 
 function getCsvFiles(values: Record<string, unknown>): CsvSourceFile[] {
@@ -569,6 +588,245 @@ export function createEcobaseOperatorWorkspaceActions() {
   };
 }
 
+export function createEcobaseSilverDataActions() {
+  return {
+    search: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseSilverDataService(ctx.db);
+      ctx.body = {
+        data: await service.search({
+          query: getOptionalString(values, 'query'),
+          limit: getOptionalNumber(values, 'limit'),
+        }),
+      };
+      await next();
+    },
+    lookup: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseSilverDataService(ctx.db);
+      try {
+        ctx.body = {
+          data: await service.lookup({
+            type: getOptionalString(values, 'type') as SilverFocus['type'] | undefined,
+            query: getOptionalString(values, 'query'),
+            limit: getOptionalNumber(values, 'limit'),
+            dateFrom: getOptionalString(values, 'dateFrom'),
+            dateTo: getOptionalString(values, 'dateTo'),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase Silver Data lookup failed.');
+        return;
+      }
+      await next();
+    },
+    context: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseSilverDataService(ctx.db);
+      ctx.body = {
+        data: await service.context({
+          focus: getSilverFocus(values),
+          query: getOptionalString(values, 'query'),
+          pageSize: getOptionalNumber(values, 'pageSize'),
+          dateFrom: getOptionalString(values, 'dateFrom'),
+          dateTo: getOptionalString(values, 'dateTo'),
+        }),
+      };
+      await next();
+    },
+    record: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseSilverDataService(ctx.db);
+      try {
+        ctx.body = { data: await service.record(requiredSilverFocus(values, 'record')) };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase Silver Data record failed.');
+        return;
+      }
+      await next();
+    },
+    updateRecord: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseSilverDataService(ctx.db);
+      try {
+        ctx.body = {
+          data: await service.updateRecord({
+            ...requiredSilverFocus(values, 'update'),
+            values: getOptionalRecord(values, 'values') ?? {},
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase Silver Data update failed.');
+        return;
+      }
+      await next();
+    },
+    addComment: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseSilverDataService(ctx.db);
+      try {
+        ctx.body = {
+          data: await service.addComment({
+            ...requiredSilverFocus(values, 'comment'),
+            body: getOptionalString(values, 'body'),
+            commentType: getOptionalString(values, 'commentType'),
+            followUpAt: getOptionalString(values, 'followUpAt'),
+            actorUserId: getActorId(ctx),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase Silver Data comment failed.');
+        return;
+      }
+      await next();
+    },
+  };
+}
+
+function getSilverFocus(values: Record<string, unknown>) {
+  const focus = getOptionalRecord(values, 'focus') ?? values;
+  const type = getOptionalString(focus, 'type');
+  const id = getOptionalString(focus, 'id');
+  return type && id ? { type: type as SilverFocus['type'], id } : undefined;
+}
+
+function requiredSilverFocus(values: Record<string, unknown>, actionName: string) {
+  const focus = getSilverFocus(values);
+  if (!focus) {
+    throw new Error(`Ecobase Silver Data ${actionName} failed: type and id are required.`);
+  }
+  return focus;
+}
+
+export function createEcobaseMedallionWorkflowActions() {
+  return {
+    createComment: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseMedallionWorkflowService(ctx.db);
+      try {
+        ctx.body = {
+          data: await service.createActivityComment({
+            entityType: getOptionalString(values, 'entityType') ?? '',
+            entityId: getOptionalString(values, 'entityId') ?? '',
+            actorType: getOptionalString(values, 'actorType') ?? 'operator',
+            actorUserId: getOptionalString(values, 'actorUserId') ?? getActorId(ctx),
+            actorAiEmployeeId: getOptionalString(values, 'actorAiEmployeeId'),
+            commentType: getOptionalString(values, 'commentType') ?? 'note',
+            body: getOptionalString(values, 'body') ?? '',
+            followUpAt: getOptionalString(values, 'followUpAt'),
+            contextSnapshotJson: getOptionalRecord(values, 'contextSnapshotJson'),
+            workflowAction: getOptionalRecord(values, 'workflowAction'),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase medallion comment create failed.');
+        return;
+      }
+      await next();
+    },
+    createTask: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseMedallionWorkflowService(ctx.db);
+      try {
+        ctx.body = {
+          data: await service.createTask({
+            title: getOptionalString(values, 'title') ?? '',
+            description: getOptionalString(values, 'description'),
+            status: getOptionalString(values, 'status'),
+            priority: getOptionalString(values, 'priority'),
+            dueAt: getOptionalString(values, 'dueAt'),
+            assignedToUserId: getOptionalString(values, 'assignedToUserId'),
+            assignedToAiEmployeeId: getOptionalString(values, 'assignedToAiEmployeeId'),
+            parentTaskId: getOptionalString(values, 'parentTaskId'),
+            sourceCommentId: getOptionalString(values, 'sourceCommentId'),
+            links: getOptionalRecordArray(values, 'links'),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase medallion task create failed.');
+        return;
+      }
+      await next();
+    },
+    proposeAction: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseMedallionWorkflowService(ctx.db);
+      try {
+        ctx.body = {
+          data: await service.proposeAction({
+            title: getOptionalString(values, 'title') ?? '',
+            actionType: getOptionalString(values, 'actionType') ?? '',
+            actionPayloadJson: getOptionalRecord(values, 'actionPayloadJson'),
+            proposedByType: getOptionalString(values, 'proposedByType') as 'ai_employee' | 'workflow' | 'operator',
+            proposedById: getOptionalString(values, 'proposedById'),
+            assignedReviewerId: getOptionalString(values, 'assignedReviewerId'),
+            priority: getOptionalString(values, 'priority'),
+            dueAt: getOptionalString(values, 'dueAt'),
+            contextSummary: getOptionalString(values, 'contextSummary'),
+            evidenceJson: getOptionalRecord(values, 'evidenceJson'),
+            riskSummary: getOptionalString(values, 'riskSummary'),
+            links: getOptionalRecordArray(values, 'links'),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase medallion action proposal failed.');
+        return;
+      }
+      await next();
+    },
+    approveAndExecute: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseMedallionWorkflowService(ctx.db);
+      try {
+        ctx.body = {
+          data: await service.approveAndExecute(
+            getOptionalString(values, 'approvalId') ?? '',
+            getOptionalString(values, 'approvedByUserId') ?? getActorId(ctx) ?? '',
+          ),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase medallion approval execution failed.');
+        return;
+      }
+      await next();
+    },
+    rejectApproval: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseMedallionWorkflowService(ctx.db);
+      try {
+        ctx.body = {
+          data: await service.rejectApproval(
+            getOptionalString(values, 'approvalId') ?? '',
+            getOptionalString(values, 'rejectedReason') ?? '',
+          ),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase medallion approval rejection failed.');
+        return;
+      }
+      await next();
+    },
+    setActionPolicy: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseMedallionWorkflowService(ctx.db);
+      try {
+        ctx.body = {
+          data: await service.setActionPolicy({
+            actionType: getOptionalString(values, 'actionType') ?? '',
+            requiresHumanApproval:
+              values.requiresHumanApproval === undefined ? undefined : values.requiresHumanApproval === true,
+            autoExecutable: values.autoExecutable === undefined ? undefined : values.autoExecutable === true,
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase medallion action policy save failed.');
+        return;
+      }
+      await next();
+    },
+  };
+}
+
 export function createEcobaseComparisonActions() {
   return {
     compare: async (ctx, next) => {
@@ -941,6 +1199,77 @@ export function createEcobaseSupplierOrderActions() {
         };
       } catch (error) {
         ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier-order line create failed.');
+        return;
+      }
+      await next();
+    },
+    createMedallionDraftOrder: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const companyId = getOptionalString(values, 'companyId');
+      const supplierId = getOptionalString(values, 'supplierId');
+      const orderDate = getOptionalString(values, 'orderDate');
+      if (!companyId || !supplierId || !orderDate) {
+        ctx.throw(400, 'Ecobase medallion draft order create requires companyId, supplierId, and orderDate.');
+        return;
+      }
+      try {
+        ctx.body = {
+          data: await new EcobaseMedallionOrderService(ctx.db).createDraftOrder({
+            companyId,
+            supplierId,
+            supplierAccountId: getOptionalString(values, 'supplierAccountId'),
+            orderDate,
+            orderIntent: getOptionalString(values, 'orderIntent'),
+            fulfillmentRoute: getOptionalString(values, 'fulfillmentRoute'),
+            expectedDeliveryDate: getOptionalString(values, 'expectedDeliveryDate'),
+            remarks: getOptionalString(values, 'remarks'),
+            actorUserId: getActorId(ctx),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase medallion draft order create failed.');
+        return;
+      }
+      await next();
+    },
+    addMedallionOrderLine: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const orderId = getOptionalString(values, 'orderId');
+      const companyProductId = getOptionalString(values, 'companyProductId');
+      const supplierProductId = getOptionalString(values, 'supplierProductId');
+      const orderedQty = getOptionalNumber(values, 'orderedQty');
+      if (!orderId || !companyProductId || !supplierProductId || orderedQty === undefined) {
+        ctx.throw(
+          400,
+          'Ecobase medallion order line create requires orderId, companyProductId, supplierProductId, and orderedQty.',
+        );
+        return;
+      }
+      try {
+        ctx.body = {
+          data: await new EcobaseMedallionOrderService(ctx.db).createOrderLine({
+            orderId,
+            companyProductId,
+            supplierProductId,
+            orderedQty,
+            confirmedQty: getOptionalNumber(values, 'confirmedQty'),
+            unitCost: getOptionalNumber(values, 'unitCost'),
+            expectedSellPrice: getOptionalNumber(values, 'expectedSellPrice'),
+            expectedMargin: getOptionalNumber(values, 'expectedMargin'),
+            expectedProfit: getOptionalNumber(values, 'expectedProfit'),
+            supplierPackSize: getOptionalNumber(values, 'supplierPackSize'),
+            fbaExpectedPackSize: getOptionalNumber(values, 'fbaExpectedPackSize'),
+            prepInstruction: getOptionalString(values, 'prepInstruction'),
+            expectedDeliveryDate: getOptionalString(values, 'expectedDeliveryDate'),
+            expectedSellableDate: getOptionalString(values, 'expectedSellableDate'),
+            upc: getOptionalString(values, 'upc'),
+            mapPrice: getOptionalNumber(values, 'mapPrice'),
+            productAnalysisStatus: getOptionalString(values, 'productAnalysisStatus'),
+            priority: getOptionalString(values, 'priority'),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase medallion order line create failed.');
         return;
       }
       await next();
@@ -1471,6 +1800,37 @@ export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
       ctx.body = { data: registry.list() };
       await next();
     },
+    normalizeBronzeToSilver: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      try {
+        ctx.body = {
+          data: await new EcobaseMedallionNormalizationService(ctx.db).normalizePending({
+            sourceConnectionId: getOptionalString(values, 'sourceConnectionId'),
+            limit: getOptionalNumber(values, 'limit'),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase bronze-to-silver normalization failed.');
+        return;
+      }
+      await next();
+    },
+    runMedallionPipeline: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseImportService(ctx.db, registry);
+      try {
+        ctx.body = {
+          data: await service.runMedallionPipeline({
+            sourceConnectionId: getOptionalString(values, 'sourceConnectionId'),
+            sourceVersion: getOptionalString(values, 'sourceVersion'),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase medallion pipeline failed.');
+        return;
+      }
+      await next();
+    },
     analyzeCsvBundle: async (ctx, next) => {
       const values = getValues(ctx.action.params);
       const service = new EcobaseImportService(ctx.db, registry);
@@ -1600,11 +1960,13 @@ export class PluginEcobaseServer extends Plugin {
   }
 
   private registerAiEmployeeTools() {
-    const toolsManager =
-      (this as unknown as { ai?: { toolsManager?: { registerTools?: (tools: unknown[]) => void } } }).ai
-        ?.toolsManager ??
-      (this.app as unknown as { aiManager?: { toolsManager?: { registerTools?: (tools: unknown[]) => void } } })
-        .aiManager?.toolsManager;
+    type AiToolsHost = { ai?: { toolsManager?: { registerTools?: (tools: unknown[]) => void } } };
+    type AiManagerHost = { aiManager?: { toolsManager?: { registerTools?: (tools: unknown[]) => void } } };
+    const self = this as unknown;
+    const app = this.app as unknown;
+    const directToolsManager = (self as AiToolsHost).ai?.toolsManager;
+    const appToolsManager = (app as AiManagerHost).aiManager?.toolsManager;
+    const toolsManager = directToolsManager ?? appToolsManager;
     if (typeof toolsManager?.registerTools !== 'function') {
       this.app.log?.warn?.(
         'Ecobase AI tools were not registered because the NocoBase AI tools manager is unavailable.',
@@ -1652,6 +2014,14 @@ export class PluginEcobaseServer extends Plugin {
       actions: createEcobaseSupplierManagementActions(),
     });
     this.app.resourceManager.define({
+      name: 'ecobaseMedallionWorkflow',
+      actions: createEcobaseMedallionWorkflowActions(),
+    });
+    this.app.resourceManager.define({
+      name: 'ecobaseSilverData',
+      actions: createEcobaseSilverDataActions(),
+    });
+    this.app.resourceManager.define({
       name: 'ecobaseAlertEvaluation',
       actions: createEcobaseAlertActions(),
     });
@@ -1694,6 +2064,8 @@ export class PluginEcobaseServer extends Plugin {
         'runNoop',
         'status',
         'adapters',
+        'normalizeBronzeToSilver',
+        'runMedallionPipeline',
         'analyzeCsvBundle',
         'runCsvBundle',
         'saveCsvSourceConnection',
@@ -1745,6 +2117,8 @@ export class PluginEcobaseServer extends Plugin {
         'getCoverage',
         'createPlannedOrder',
         'createOrderLine',
+        'createMedallionDraftOrder',
+        'addMedallionOrderLine',
         'updateOrderOperatorFields',
         'updateLineOperatorFields',
         'deleteLineOperatorFields',
@@ -1769,6 +2143,16 @@ export class PluginEcobaseServer extends Plugin {
         'productOptions',
         'orderOptions',
       ],
+      'loggedIn',
+    );
+    this.app.acl.allow(
+      'ecobaseMedallionWorkflow',
+      ['createComment', 'createTask', 'proposeAction', 'approveAndExecute', 'rejectApproval', 'setActionPolicy'],
+      'loggedIn',
+    );
+    this.app.acl.allow(
+      'ecobaseSilverData',
+      ['search', 'lookup', 'context', 'record', 'updateRecord', 'addComment'],
       'loggedIn',
     );
     this.app.acl.allow(ECOBASE_COLLECTIONS.supplierProductLinks, ['list', 'get'], 'loggedIn');

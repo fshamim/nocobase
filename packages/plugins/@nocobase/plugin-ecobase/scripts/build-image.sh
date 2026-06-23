@@ -62,7 +62,7 @@ case "${build_mode}" in
     trap cleanup EXIT
 
     package_overlay_plugin "@nocobase/plugin-ecobase" "--no-dts"
-    package_overlay_plugin "@nocobase/plugin-ai-codex-subscription"
+    package_overlay_plugin "@nocobase/plugin-ai-codex-subscription" "--no-dts"
 
     echo "[ecobase-image] building overlay image ${image_tag} from base ${base_image}"
     docker build \

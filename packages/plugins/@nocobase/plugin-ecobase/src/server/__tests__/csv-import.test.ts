@@ -256,6 +256,150 @@ function createService(sourceType = 'seller_central_file', domain = 'amazon_oper
   return { db, service };
 }
 
+describe('Ecobase bronze import write path', () => {
+  it('writes inline CSV files into bronze and automatically normalizes them into silver', async () => {
+    const { db, service } = createService('google_sheets', 'amazon_operations');
+    db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
+      filterByTk: 'source-1',
+      values: {
+        config: {
+          defaultCompany: 'Ecofission LLC',
+          files: [{ name: 'MasterStock.csv', content: masterStockCsv, expectedRowCount: 2 }],
+        },
+      },
+    });
+
+    await service.runAdapterImport({
+      sourceConnectionId: 'source-1',
+      adapterName: 'google-sheets-migration-csv',
+      sourceIdentifier: 'bronze-master-stock',
+      sourceVersion: '2026-06-22',
+      preserveAuditRun: true,
+    });
+
+    const bronzeFiles = db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceFiles).all();
+    const bronzeRecords = db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all();
+
+    expect(bronzeFiles).toHaveLength(1);
+    expect(bronzeFiles[0]).toMatchObject({
+      sourceConnectionId: 'source-1',
+      fileName: 'MasterStock.csv',
+    });
+    expect(bronzeFiles[0].contentHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(bronzeRecords).toHaveLength(2);
+    expect(bronzeRecords[0]).toMatchObject({
+      sourceConnectionId: 'source-1',
+      sourceType: 'google_sheets',
+      sourceDataset: 'MasterStock.csv',
+      normalizationStatus: 'normalized',
+    });
+    expect(bronzeRecords[0].rowHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(bronzeRecords[0].retentionUntil).toBe('2028-06-22T00:00:00.000Z');
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).all()).toHaveLength(2);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).all()).toHaveLength(2);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverNormalizationLinks).all().length).toBeGreaterThan(0);
+  });
+
+  it('keeps invalid source rows in bronze instead of rejecting the whole import', async () => {
+    const { db, service } = createService('google_sheets', 'amazon_operations');
+    db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
+      filterByTk: 'source-1',
+      values: {
+        config: {
+          defaultCompany: 'Ecofission LLC',
+          files: [{ name: 'Unknown.csv', content: 'Unknown Header\nvalue', expectedRowCount: 1 }],
+        },
+      },
+    });
+
+    const run = await service.runAdapterImport({
+      sourceConnectionId: 'source-1',
+      adapterName: 'google-sheets-migration-csv',
+      sourceIdentifier: 'bronze-unknown',
+      sourceVersion: '2026-06-22',
+      preserveAuditRun: true,
+    });
+    const bronzeRecords = db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all();
+
+    expect(run.status).toBe('failed');
+    expect(bronzeRecords).toHaveLength(1);
+    expect(bronzeRecords[0]).toMatchObject({
+      sourceDataset: 'Unknown.csv',
+      sourceRecordKey: 'Unknown.csv',
+      normalizationStatus: 'failed',
+      payload: { fileName: 'Unknown.csv', headerCount: 1 },
+    });
+  });
+
+  it('runs active Google Sheets sources through bronze and silver in one pipeline call', async () => {
+    const { db, service } = createService('google_sheets', 'order_management');
+    const sourceConnectionRepo = db.getRepository(ECOBASE_COLLECTIONS.sourceConnections);
+    sourceConnectionRepo.update({
+      filterByTk: 'source-1',
+      values: {
+        name: 'Order source',
+        config: {
+          defaultCompany: 'Ecofission LLC',
+          files: [{ name: 'OrderDetails.csv', content: orderDetailsDetailedCsv, expectedRowCount: 2 }],
+        },
+      },
+    });
+    await sourceConnectionRepo.create({
+      values: {
+        id: 'supplier-source',
+        name: 'Supplier source',
+        sourceType: 'google_sheets',
+        domain: 'supplier_management',
+        config: {
+          defaultCompany: 'Ecofission LLC',
+          files: [
+            { name: 'Supplier Analysis Tracker.csv', content: remainingShapeSamples[8].content, expectedRowCount: 1 },
+          ],
+        },
+        active: true,
+      },
+    });
+
+    const result = await service.runMedallionPipeline({ sourceVersion: '2026-06-22' });
+
+    expect(result.failures).toEqual([]);
+    expect(result.imports).toHaveLength(2);
+    expect(result.normalization.failed).toBe(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toHaveLength(3);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toEqual(
+      expect.arrayContaining([expect.objectContaining({ normalizationStatus: 'normalized' })]),
+    );
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).all()).toHaveLength(2);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).all().length).toBeGreaterThan(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).all().length).toBeGreaterThan(0);
+  });
+
+  it('does not duplicate identical bronze rows for audit re-runs', async () => {
+    const { db, service } = createService('google_sheets', 'amazon_operations');
+    db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
+      filterByTk: 'source-1',
+      values: {
+        config: {
+          defaultCompany: 'Ecofission LLC',
+          files: [{ name: 'MasterStock.csv', content: masterStockCsv, expectedRowCount: 2 }],
+        },
+      },
+    });
+
+    for (const index of [1, 2]) {
+      await service.runAdapterImport({
+        sourceConnectionId: 'source-1',
+        adapterName: 'google-sheets-migration-csv',
+        sourceIdentifier: `bronze-master-stock-${index}`,
+        sourceVersion: '2026-06-22',
+        preserveAuditRun: true,
+      });
+    }
+
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toHaveLength(2);
+  });
+});
+
 async function seedSupplierOrderSlice() {
   const { db, service } = createService('google_sheets', 'order_management');
   const sourceConnectionRepo = db.getRepository(ECOBASE_COLLECTIONS.sourceConnections);
@@ -694,15 +838,81 @@ describe('Ecobase current Amazon operations CSV import', () => {
         name: 'locnproducts',
         company: 'Ecofission LLC',
         asin: 'B08838XBQN',
+        normalizedName: 'locnproducts',
+        market: 'USA',
+        srBy: 'Nabeel Uddin',
+        wholesalePriceList: 'https://price-list.test',
+        productCatalog: 'https://catalog.test',
+        mapAgreement: 'https://map.test',
         prPortalLink: 'https://portal.test',
+        portalUsername: 'source@example.com',
+        portalPassword: 'secret',
         contactName: 'Danielle Townes',
         receivedEmail: 'locnproducts1@gmail.com',
         moq: '$200',
+        category: 'Home',
+        amazonAllow: 'Yes',
+        saBy: 'Analyst',
+        easyMoveSisterCompany: 'Yes',
+        bulkUpload: 'Yes',
+        totalNop: '10',
+        tnopAnalysed: '8',
+        profitableProducts: '3',
+        inventoryMarginPositiveAmount: '4',
+        inventoryMarginFivePercentAmount: '5',
+        inventoryMarginNinePercentAmount: '6',
+        clearedPosAmount: '1200',
+        sheetLink: 'https://sheet.test',
+        remarksSa: 'SA note',
+        used: 'Yes',
+        tasksSubmitted: 'Submitted',
+        timestamp: '2023-09-21T20:14:39.000Z',
         active: true,
         approvalStatus: 'approved',
         accountStatus: 'approved',
         analysisStatus: 'done',
         dateOfUpdate: '2026-05-20',
+      }),
+    ]);
+  });
+
+  it('imports Supplier 2026 status fields into suppliers', async () => {
+    const { db, service } = createService('google_sheets', 'supplier_management');
+    db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
+      filterByTk: 'source-1',
+      values: {
+        config: {
+          files: [
+            {
+              name: 'Supplier 2026.csv',
+              content:
+                'SR ID,Supplier Name,ASIN,PR Portal Link,Username,pass,Contact Person,Reached Via,Recieved Email,Designation,Supplier Type,Presence on Amazon,Current Status,Email Done?,Call Done?,Status,Date of Update,Remarks,Responded By,EF Sent Status,SS Sent Status,MX Sent Status,RH Sent Status,Feedback,Remarks ( Analysed / facing any issue ) \nSRO-5674,Higher standards,B0763TXC3B,https://portal.test,user@example.com,secret,Ali,Ecofission LLC,supplier@example.com,Manager,Wholesale,Yes,Active,Yes,No,Submitted,5/20/2026,Need W9,Rafay,Email Sent,Email Sent,,Pending,Supplier emailed again.,Facing W9 issue',
+            },
+          ],
+        },
+      },
+    });
+
+    const run = await service.runAdapterImport({
+      sourceConnectionId: 'source-1',
+      adapterName: 'google-sheets-migration-csv',
+      sourceIdentifier: 'supplier-2026',
+      sourceVersion: '2026-05-20',
+      preserveAuditRun: true,
+    });
+
+    expect(run).toMatchObject({ status: 'success', rowCount: 1, normalizedCount: 1, warningCount: 0 });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.suppliers).all()).toEqual([
+      expect.objectContaining({
+        supplierId: 'SRO-5674',
+        portalUsername: 'user@example.com',
+        portalPassword: 'secret',
+        respondedBy: 'Rafay',
+        efSentStatus: 'Email Sent',
+        ssSentStatus: 'Email Sent',
+        rhSentStatus: 'Pending',
+        feedback: 'Supplier emailed again.',
+        analysisIssueRemarks: 'Facing W9 issue',
       }),
     ]);
   });
@@ -1407,7 +1617,7 @@ describe('Ecobase current Amazon operations CSV import', () => {
     });
 
     expect(changed).toMatchObject({ status: 'success', rowCount: 2, normalizedCount: 2, warningCount: 0 });
-    expect(db.getRepository(ECOBASE_COLLECTIONS.trafficSnapshots).all()).toHaveLength(2);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.trafficSnapshots).all()).toHaveLength(3);
     expect(db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).all()).toHaveLength(3);
   });
 

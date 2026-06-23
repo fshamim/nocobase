@@ -16,6 +16,7 @@ const ManagementDashboardPage = lazy(() => import('./pages/ManagementDashboardPa
 const OrderManagementPage = lazy(() => import('./pages/OrderManagementPage'));
 const ReportPreviewPage = lazy(() => import('./pages/ReportPreviewPage'));
 const SellerboardSourcesPage = lazy(() => import('./pages/SellerboardSourcesPage'));
+const SilverDataPage = lazy(() => import('./pages/SilverDataPage'));
 const SupplierManagementPage = lazy(() => import('./pages/SupplierManagementPage'));
 
 const ECOBASE_WORKSPACE_ROOT = '/admin/ecobase';
@@ -26,6 +27,12 @@ const ecobaseWorkspacePages = [
     label: 'Daily Operations Brief',
     path: `${ECOBASE_WORKSPACE_ROOT}/daily-operations-brief`,
     Component: DailyOperationsBriefPage,
+  },
+  {
+    key: 'silver-data',
+    label: 'Silver Data',
+    path: `${ECOBASE_WORKSPACE_ROOT}/silver-data`,
+    Component: SilverDataPage,
   },
   {
     key: 'inventory-planning',

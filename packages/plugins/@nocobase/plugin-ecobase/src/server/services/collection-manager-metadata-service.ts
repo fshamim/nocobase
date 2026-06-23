@@ -2,6 +2,30 @@ import type Database from '@nocobase/database';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 
 const OPERATOR_DASHBOARD_COLLECTIONS = [
+  ECOBASE_COLLECTIONS.bronzeSourceFiles,
+  ECOBASE_COLLECTIONS.bronzeSourceRecords,
+  ECOBASE_COLLECTIONS.silverCompanies,
+  ECOBASE_COLLECTIONS.silverAmazonAccounts,
+  ECOBASE_COLLECTIONS.silverProducts,
+  ECOBASE_COLLECTIONS.silverCompanyProducts,
+  ECOBASE_COLLECTIONS.silverSuppliers,
+  ECOBASE_COLLECTIONS.silverSupplierAccounts,
+  ECOBASE_COLLECTIONS.silverSupplierProducts,
+  ECOBASE_COLLECTIONS.silverCompanyProductSuppliers,
+  ECOBASE_COLLECTIONS.silverOrders,
+  ECOBASE_COLLECTIONS.silverOrderLines,
+  ECOBASE_COLLECTIONS.silverInvoices,
+  ECOBASE_COLLECTIONS.silverActivityComments,
+  ECOBASE_COLLECTIONS.silverTasks,
+  ECOBASE_COLLECTIONS.silverTaskLinks,
+  ECOBASE_COLLECTIONS.silverHumanApprovals,
+  ECOBASE_COLLECTIONS.silverHumanApprovalLinks,
+  ECOBASE_COLLECTIONS.silverWorkflowActionPolicies,
+  ECOBASE_COLLECTIONS.silverTargets,
+  ECOBASE_COLLECTIONS.silverInventorySnapshots,
+  ECOBASE_COLLECTIONS.silverListingDailyFacts,
+  ECOBASE_COLLECTIONS.silverTrafficSnapshots,
+  ECOBASE_COLLECTIONS.silverNormalizationLinks,
   ECOBASE_COLLECTIONS.sourceConnections,
   ECOBASE_COLLECTIONS.importRuns,
   ECOBASE_COLLECTIONS.rawImportRows,
@@ -57,10 +81,10 @@ function buildCollectionValues(collection: { name: string; options?: Record<stri
 }
 
 export async function ensureEcobaseCollectionManagerMetadata(db: Database) {
-  const collectionsRepository = db.getRepository('collections') as unknown as Repository | undefined;
-  const fieldsRepository = db.getRepository('fields') as unknown as Repository | undefined;
+  const collectionsRepository = getOptionalRepository(db, 'collections');
+  const fieldsRepository = getOptionalRepository(db, 'fields');
   if (!collectionsRepository || !fieldsRepository) {
-    throw new Error('Ecobase collection manager metadata sync requires the data-source-main plugin repositories.');
+    return;
   }
 
   for (const collectionName of OPERATOR_DASHBOARD_COLLECTIONS) {
@@ -89,5 +113,13 @@ export async function ensureEcobaseCollectionManagerMetadata(db: Database) {
       await fieldsRepository.create({ values: { ...field, collectionName } });
     }
     await existingCollection.load?.({ skipExist: false });
+  }
+}
+
+function getOptionalRepository(db: Database, name: string) {
+  try {
+    return db.getRepository(name) as unknown as Repository | undefined;
+  } catch {
+    return undefined;
   }
 }

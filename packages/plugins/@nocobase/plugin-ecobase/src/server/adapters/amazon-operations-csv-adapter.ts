@@ -519,7 +519,12 @@ function supplierApprovalStatus(row: CsvRowReader) {
   if (hasAny(status, ['approved', 'completed', 'cleared'])) return 'approved';
   if (hasAny(status, ['rejected', 'cancelled', 'canceled', 'inactive'])) return 'rejected';
   if (hasAny(status, ['analysis', 'analysed', 'analyzed']) || respondedBy) return 'analyzing';
-  if (hasAny(status, ['progress', 'submitted', 'sent']) || activeStatus === 'yes' || emailDone === 'yes' || callDone === 'yes') {
+  if (
+    hasAny(status, ['progress', 'submitted', 'sent']) ||
+    activeStatus === 'yes' ||
+    emailDone === 'yes' ||
+    callDone === 'yes'
+  ) {
     return 'contacting';
   }
   return 'new';
@@ -539,11 +544,16 @@ function supplierAnalysisStatus(row: CsvRowReader) {
   return 'not_started';
 }
 
-function supplierManagementRecord(input: SourceAdapterImportInput, row: CsvRowReader, sourceKey: string): NormalizedRecord[] {
+function supplierManagementRecord(
+  input: SourceAdapterImportInput,
+  row: CsvRowReader,
+  sourceKey: string,
+): NormalizedRecord[] {
   const company = supplierManagementCompany(input, row);
   const supplierName = row.string('Supplier Name');
   const supplierId = supplierExternalCode(row);
-  if (!company || (!supplierName && !supplierId)) {
+  const displayName = supplierName ?? supplierId;
+  if (!company || !displayName) {
     return [];
   }
   const statusActive = yesNoBoolean(row.string('Active Status'));
@@ -554,19 +564,32 @@ function supplierManagementRecord(input: SourceAdapterImportInput, row: CsvRowRe
     {
       kind: 'supplier',
       data: {
-        naturalKey: naturalKey(input, 'supplier', [company, supplierId ?? supplierName ?? sourceKey]),
+        naturalKey: naturalKey(input, 'supplier', [company, supplierId ?? displayName ?? sourceKey]),
         sourceConnectionId: input.sourceConnectionId,
         supplierId,
-        name: supplierName,
+        name: displayName,
+        normalizedName: displayName
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, ' ')
+          .trim(),
         company,
         asin: canonicalAsin(row),
+        market: row.string('Market'),
+        srBy: row.string('SR by'),
+        wholesalePriceList: row.string('Wholesale Price List'),
+        productCatalog: row.string('Product Catalog'),
+        mapAgreement: row.string('MAP agreement'),
         prPortalLink: row.string('PR Portal Link'),
+        portalUsername: row.string('Username'),
+        portalPassword: row.string('pass'),
         contactName: row.string('Contact Person'),
         reachedVia: row.string('Reached Via'),
         receivedEmail: row.string('Recieved Email', 'Received Email'),
         remarks: row.string('Remarks'),
         moq: row.string('MOQ'),
         designation: row.string('Designation'),
+        category: row.string('Category'),
+        amazonAllow: row.string('Amazon Allow'),
         supplierType: row.string('Supplier Type'),
         presenceOnAmazon: row.string('Presence on Amazon'),
         currentStatus: row.string('Current Status'),
@@ -574,7 +597,28 @@ function supplierManagementRecord(input: SourceAdapterImportInput, row: CsvRowRe
         activeStatus: row.string('Active Status'),
         emailDone: row.string('Email Done?'),
         callDone: row.string('Call Done?'),
-        wholesalePriceList: row.string('Wholesale Price List'),
+        respondedBy: row.string('Responded By'),
+        efSentStatus: row.string('EF Sent Status'),
+        ssSentStatus: row.string('SS Sent Status'),
+        mxSentStatus: row.string('MX Sent Status'),
+        rhSentStatus: row.string('RH Sent Status'),
+        feedback: row.string('Feedback'),
+        saBy: row.string('SA By'),
+        easyMoveSisterCompany: row.string('Easy Move(Sister Company )'),
+        bulkUpload: row.string('Bulk Upload'),
+        totalNop: row.string('Total NOP'),
+        tnopAnalysed: row.string('TNOP Analysed'),
+        profitableProducts: row.string('Prof. Products'),
+        inventoryMarginPositiveAmount: row.string('Inv. margin >0.00%'),
+        inventoryMarginFivePercentAmount: row.string('Inv.margin>4.99%'),
+        inventoryMarginNinePercentAmount: row.string('Inv.margin>8.99%'),
+        clearedPosAmount: row.string('Cleared POs Amount'),
+        sheetLink: row.string('Sheet Link'),
+        remarksSa: row.string('Remarks SA'),
+        analysisIssueRemarks: row.string('Remarks ( Analysed / facing any issue )'),
+        used: row.string('Used ', 'Used'),
+        tasksSubmitted: row.string('Tasks Submitted'),
+        timestamp: firstDateTime(row, 'Timestamp'),
         dateOfUpdate: firstDate(row, 'Date of Update'),
         approvalStatus: supplierApprovalStatus(row),
         accountStatus: supplierAccountStatus(row),
@@ -1128,7 +1172,7 @@ export async function* importCsvFiles(input: SourceAdapterImportInput): AsyncIte
     for (const [index, row] of parsed.rows.entries()) {
       const reader = new CsvRowReader(row);
       const rowNumber = index + 2;
-      const sourceKey = `${file.name}:${sourceKeyFor(reader, String(rowNumber))}`;
+      const sourceKey = compactReference(`${file.name}:${sourceKeyFor(reader, String(rowNumber))}`);
       if (
         !reader.string('ASIN', 'ASIN ', 'SKU', 'Order ID', 'SR ID', 'SR ID ') &&
         shape !== 'sellerboard-dashboard-totals'

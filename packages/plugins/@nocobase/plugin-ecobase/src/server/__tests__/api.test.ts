@@ -7,6 +7,8 @@ import {
   createEcobaseAlertActions,
   createEcobaseImportActions,
   createEcobaseInventoryPlanningActions,
+  createEcobaseMedallionWorkflowActions,
+  createEcobaseSilverDataActions,
   createEcobaseSupplierManagementActions,
   createEcobaseSupplierOrderActions,
 } from '../plugin';
@@ -187,6 +189,89 @@ describe('Ecobase inventory-planning public API seam', () => {
 });
 
 describe('Ecobase supplier-order public API seam', () => {
+  it('creates medallion draft orders and lines through the API seam', async () => {
+    const db = new MemoryDatabase();
+    const actions = createEcobaseSupplierOrderActions();
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
+      values: { id: 'company-1', companyKey: 'SAM', name: 'SampleAM' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).create({
+      values: { id: 'supplier-1', normalizedName: 'acme', displayName: 'Acme' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+      values: { id: 'product-1', asin: 'B001', sku: 'SKU-1' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+      values: { id: 'company-product-1', companyId: 'company-1', productId: 'product-1', amazonAccountId: 'account-1' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).create({
+      values: { id: 'supplier-product-1', supplierId: 'supplier-1', productId: 'product-1' },
+    });
+
+    const orderContext = createActionContext(db, {
+      companyId: 'company-1',
+      supplierId: 'supplier-1',
+      orderDate: '2026-06-22',
+      expectedDeliveryDate: '2026-07-01',
+    });
+    await actions.createMedallionDraftOrder(orderContext, vi.fn());
+    const order = orderContext.body?.data as Record<string, unknown>;
+
+    const lineContext = createActionContext(db, {
+      orderId: order.id,
+      companyProductId: 'company-product-1',
+      supplierProductId: 'supplier-product-1',
+      orderedQty: 8,
+      unitCost: 2.5,
+      expectedSellableDate: '2026-07-05',
+    });
+    await actions.addMedallionOrderLine(lineContext, vi.fn());
+
+    expect(orderContext.body).toMatchObject({
+      data: expect.objectContaining({ orderRef: 'SAM062226A', lifecycleStatus: 'draft' }),
+    });
+    expect(lineContext.body).toMatchObject({
+      data: expect.objectContaining({ orderId: order.id, orderedQty: 8, expectedSellableDate: '2026-07-05' }),
+    });
+  });
+
+  it('creates comments, approvals, and deterministic workflow execution through API seam', async () => {
+    const db = new MemoryDatabase();
+    const actions = createEcobaseMedallionWorkflowActions();
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+      values: {
+        id: 'order-1',
+        companyId: 'company-1',
+        supplierId: 'supplier-1',
+        orderRef: 'SAM062226A',
+        orderDate: '2026-06-22',
+        dailySequenceLetter: 'A',
+        lifecycleStatus: 'draft',
+      },
+    });
+
+    const commentContext = createActionContext(db, {
+      entityType: 'order',
+      entityId: 'order-1',
+      actorType: 'operator',
+      commentType: 'status_update',
+      body: 'Supplier confirmed.',
+      workflowAction: {
+        title: 'Confirm order',
+        actionType: 'update_order_status',
+        actionPayloadJson: { orderId: 'order-1', lifecycleStatus: 'confirmed' },
+      },
+    });
+    await actions.createComment(commentContext, vi.fn());
+    const approval = commentContext.body?.data.approval as Record<string, unknown>;
+    expect({ ...approval }).toMatchObject({ actionType: 'update_order_status', status: 'pending' });
+
+    const executeContext = createActionContext(db, { approvalId: approval.id, approvedByUserId: 'reviewer-1' });
+    await actions.approveAndExecute(executeContext, vi.fn());
+    expect(executeContext.body).toMatchObject({ data: expect.objectContaining({ status: 'executed' }) });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).all()[0]).toMatchObject({ lifecycleStatus: 'confirmed' });
+  });
+
   it('exposes coverage queries and explicit operator-owned line updates', async () => {
     const db = new MemoryDatabase();
     await db.getRepository(ECOBASE_COLLECTIONS.planningProducts).create({
@@ -647,7 +732,11 @@ describe('Ecobase supplier-order workspace API seam', () => {
       }),
       vi.fn(),
     );
-    expect(await db.getRepository(ECOBASE_COLLECTIONS.suppliers).findOne({ filterByTk: '44444444-4444-4444-8444-444444444444' })).toMatchObject({
+    expect(
+      await db
+        .getRepository(ECOBASE_COLLECTIONS.suppliers)
+        .findOne({ filterByTk: '44444444-4444-4444-8444-444444444444' }),
+    ).toMatchObject({
       lastContactedAt: '2025-07-10T09:30:00.000Z',
       nextFollowUpAt: '2025-07-12T09:30:00.000Z',
       contactEstablished: false,
@@ -805,6 +894,38 @@ describe('Ecobase import public API seam', () => {
     });
     expect(statusNext).toHaveBeenCalledOnce();
     expect(db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).all()).toEqual([]);
+  });
+
+  it('normalizes pending bronze rows through resource actions', async () => {
+    const db = new MemoryDatabase();
+    await db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).create({
+      values: {
+        id: 'bronze-1',
+        sourceConnectionId: 'source-1',
+        importRunId: 'import-1',
+        sourceType: 'google_sheets',
+        sourceDataset: 'MasterStock.csv',
+        sourceRecordKey: 'MasterStock.csv:B00PUSNY5A:W101',
+        rowHash: 'hash-1',
+        payload: {
+          Company: 'Ecofission LLC',
+          ASIN: 'B00PUSNY5A',
+          SKU: 'W101',
+          'FBA/FBM Stock': '386',
+        },
+        normalizationStatus: 'pending',
+      },
+    });
+    const actions = createEcobaseImportActions(createSourceAdapterRegistry([noopTestAdapter]));
+    const context = createActionContext(db, { sourceConnectionId: 'source-1', limit: 10 });
+    const next = vi.fn();
+
+    await actions.normalizeBronzeToSilver(context, next);
+
+    expect(context.body).toMatchObject({ data: { normalized: 1, failed: 0 } });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).all()).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()[0].normalizationStatus).toBe('normalized');
+    expect(next).toHaveBeenCalledOnce();
   });
 
   it('exposes missing required source warnings through the status action', async () => {
@@ -1262,7 +1383,11 @@ describe('Ecobase supplier-management public API seam', () => {
       expect.arrayContaining([expect.objectContaining({ supplierId: 'supplier-a', activityType: 'note' })]),
     );
 
-    const detailContext = createActionContext(db, { company: 'Money LLC', supplierId: 'supplier-a', calculationDate: '2025-07-10' });
+    const detailContext = createActionContext(db, {
+      company: 'Money LLC',
+      supplierId: 'supplier-a',
+      calculationDate: '2025-07-10',
+    });
     await actions.detail(detailContext, vi.fn());
     expect(detailContext.body.data.productLinks).toEqual([
       expect.objectContaining({ planningProductId: 'product-a', role: 'latest_history' }),
@@ -1284,5 +1409,423 @@ describe('Ecobase supplier-management public API seam', () => {
       externalOrderRef: 'SUP-PO-1',
       sourceStage: 'manual',
     });
+  });
+});
+
+describe('Ecobase Silver Data operator API', () => {
+  async function seedSilverData(db: MemoryDatabase) {
+    await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+      values: { id: 'product-1', asin: 'B00HHCWH0K', sku: '450316', title: 'Copper Wire', brand: 'Muxtex' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+      values: { id: 'product-2', asin: 'B07YQ9JYMY', sku: 'B-104C', title: 'Pool Set', brand: 'Aramith' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
+      values: { id: 'company-1', name: 'Muxtex INC', companyKey: 'muxtex' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+      values: { id: 'company-product-1', companyId: 'company-1', productId: 'product-1', lifecycleStatus: 'active' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+      values: { id: 'company-product-2', companyId: 'company-1', productId: 'product-2', lifecycleStatus: 'active' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).create({
+      values: { id: 'supplier-1', displayName: 'edhoy', normalizedName: 'edhoy', approvalStatus: 'approved' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).create({
+      values: { id: 'supplier-product-1', supplierId: 'supplier-1', productId: 'product-1', supplierSku: 'ED-450316' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).create({
+      values: { id: 'supplier-product-2', supplierId: 'supplier-1', productId: 'product-2', supplierSku: 'ED-B104C' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+      values: {
+        id: 'order-1',
+        companyId: 'company-1',
+        supplierId: 'supplier-1',
+        orderRef: 'MX21324A',
+        trackingId: 'TRK-1',
+        orderDate: '2026-06-10',
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+      values: {
+        id: 'order-2',
+        companyId: 'company-1',
+        supplierId: 'supplier-1',
+        orderRef: 'MX99999A',
+        trackingId: 'TRK-2',
+        orderDate: '2026-05-20',
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+      values: {
+        id: 'order-line-1',
+        orderId: 'order-1',
+        companyProductId: 'company-product-1',
+        supplierProductId: 'supplier-product-1',
+        orderedQty: 12,
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+      values: {
+        id: 'order-line-2',
+        orderId: 'order-1',
+        companyProductId: 'company-product-2',
+        supplierProductId: 'supplier-product-2',
+        orderedQty: 4,
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverInvoices).create({
+      values: { id: 'invoice-1', orderId: 'order-1', invoiceNumber: 'INV-10481', status: 'waiting' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverTasks).create({
+      values: { id: 'task-1', title: 'Follow up edhoy', status: 'open' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverTaskLinks).create({
+      values: { id: 'task-link-1', taskId: 'task-1', entityType: 'supplier', entityId: 'supplier-1' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverHumanApprovals).create({
+      values: { id: 'approval-1', title: 'Approve order change', actionType: 'update_order', status: 'pending' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverHumanApprovalLinks).create({
+      values: { id: 'approval-link-1', humanApprovalId: 'approval-1', entityType: 'order', entityId: 'order-1' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverTargets).create({
+      values: {
+        id: 'target-1',
+        entityType: 'product',
+        entityId: 'product-1',
+        metric: 'profit',
+        periodType: 'month',
+        periodStart: '2026-06-01',
+        periodEnd: '2026-06-30',
+        targetValue: 100,
+      },
+    });
+  }
+
+  it('searches across product, supplier, order, and invoice keys', async () => {
+    const db = new MemoryDatabase();
+    await seedSilverData(db);
+    const actions = createEcobaseSilverDataActions();
+    const context = createActionContext(db, { query: '450316' });
+
+    await actions.search(context, vi.fn());
+
+    expect(context.body?.data).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'product', id: 'product-1' }),
+        expect.objectContaining({ type: 'orderLine', id: 'order-line-1' }),
+      ]),
+    );
+
+    const supplierContext = createActionContext(db, { query: 'edhoy' });
+    await actions.search(supplierContext, vi.fn());
+    expect(supplierContext.body?.data).toEqual(
+      expect.arrayContaining([expect.objectContaining({ type: 'supplier', id: 'supplier-1' })]),
+    );
+
+    const orderContext = createActionContext(db, { query: 'MX21324A' });
+    await actions.search(orderContext, vi.fn());
+    expect(orderContext.body?.data).toEqual(
+      expect.arrayContaining([expect.objectContaining({ type: 'order', id: 'order-1' })]),
+    );
+
+    const invoiceContext = createActionContext(db, { query: 'INV-10481' });
+    await actions.search(invoiceContext, vi.fn());
+    expect(invoiceContext.body?.data).toEqual(
+      expect.arrayContaining([expect.objectContaining({ type: 'invoice', id: 'invoice-1' })]),
+    );
+  });
+
+  it('looks up bounded entity types without global cross-table matches', async () => {
+    const db = new MemoryDatabase();
+    await seedSilverData(db);
+    const actions = createEcobaseSilverDataActions();
+
+    const supplierContext = createActionContext(db, { type: 'supplier', query: 'edhoy' });
+    await actions.lookup(supplierContext, vi.fn());
+    expect(supplierContext.body?.data).toEqual([expect.objectContaining({ type: 'supplier', id: 'supplier-1' })]);
+
+    const productContext = createActionContext(db, { type: 'product', query: '450316' });
+    await actions.lookup(productContext, vi.fn());
+    expect(productContext.body?.data).toEqual([expect.objectContaining({ type: 'product', id: 'product-1' })]);
+
+    const orderContext = createActionContext(db, { type: 'order', query: 'MX21324A' });
+    await actions.lookup(orderContext, vi.fn());
+    expect(orderContext.body?.data).toEqual([expect.objectContaining({ type: 'order', id: 'order-1' })]);
+  });
+
+  it('applies date filters to bounded lookup and linked context', async () => {
+    const db = new MemoryDatabase();
+    await seedSilverData(db);
+    const actions = createEcobaseSilverDataActions();
+
+    const lookup = createActionContext(db, {
+      type: 'order',
+      query: 'MX',
+      dateFrom: '2026-06-10',
+      dateTo: '2026-06-10',
+    });
+    await actions.lookup(lookup, vi.fn());
+    expect(lookup.body?.data).toEqual([expect.objectContaining({ type: 'order', id: 'order-1' })]);
+
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
+      values: { id: 'company-2', name: 'Other LLC', companyKey: 'other' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+      values: {
+        id: 'order-3',
+        companyId: 'company-2',
+        supplierId: 'supplier-1',
+        orderRef: 'OT11111A',
+        orderDate: '2026-06-10',
+      },
+    });
+
+    const context = createActionContext(db, {
+      focus: { type: 'company', id: 'company-1' },
+      dateFrom: '2026-06-10',
+      dateTo: '2026-06-10',
+      pageSize: 100,
+    });
+    await actions.context(context, vi.fn());
+
+    const sections = context.body?.data.sections as Array<{ key: string; rows: Record<string, unknown>[] }>;
+    const ids = (key: string) => sections.find((section) => section.key === key)?.rows.map((row) => row.id) ?? [];
+    expect(ids('companies')).toEqual(['company-1']);
+    expect(ids('orders')).toEqual(['order-1']);
+    expect(ids('orders')).not.toContain('order-2');
+    expect(ids('orders')).not.toContain('order-3');
+    expect(ids('orderLines')).toEqual(expect.arrayContaining(['order-line-1', 'order-line-2']));
+  });
+
+  it('resolves search matches into linked records without unrelated same-order products', async () => {
+    const db = new MemoryDatabase();
+    await seedSilverData(db);
+    const actions = createEcobaseSilverDataActions();
+    const context = createActionContext(db, { query: '450316', pageSize: 100 });
+
+    await actions.context(context, vi.fn());
+
+    const sections = context.body?.data.sections as Array<{ key: string; rows: Record<string, unknown>[] }>;
+    const ids = (key: string) => sections.find((section) => section.key === key)?.rows.map((row) => row.id) ?? [];
+    expect(ids('products')).toContain('product-1');
+    expect(ids('companyProducts')).toContain('company-product-1');
+    expect(ids('supplierProducts')).toContain('supplier-product-1');
+    expect(ids('orderLines')).toContain('order-line-1');
+    expect(ids('orders')).toContain('order-1');
+    expect(ids('products')).not.toContain('product-2');
+    expect(ids('orderLines')).not.toContain('order-line-2');
+  });
+
+  it('keeps order focus scoped to the selected order only', async () => {
+    const db = new MemoryDatabase();
+    await seedSilverData(db);
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+      values: {
+        id: 'order-line-3',
+        orderId: 'order-2',
+        companyProductId: 'company-product-1',
+        supplierProductId: 'supplier-product-1',
+        orderedQty: 2,
+      },
+    });
+    const actions = createEcobaseSilverDataActions();
+    const context = createActionContext(db, { focus: { type: 'order', id: 'order-1' }, pageSize: 100 });
+
+    await actions.context(context, vi.fn());
+
+    const sections = context.body?.data.sections as Array<{ key: string; rows: Record<string, unknown>[] }>;
+    const ids = (key: string) => sections.find((section) => section.key === key)?.rows.map((row) => row.id) ?? [];
+    expect(ids('orders')).toEqual(['order-1']);
+    expect(ids('orderLines')).toEqual(expect.arrayContaining(['order-line-1', 'order-line-2']));
+    expect(ids('orderLines')).not.toContain('order-line-3');
+  });
+
+  it('keeps supplier focus scoped to the selected supplier', async () => {
+    const db = new MemoryDatabase();
+    await seedSilverData(db);
+    await db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).create({
+      values: { id: 'supplier-2', displayName: 'Delphi Glass', normalizedName: 'delphi glass' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).create({
+      values: { id: 'supplier-product-3', supplierId: 'supplier-2', productId: 'product-1', supplierSku: 'DG-450316' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+      values: { id: 'order-3', companyId: 'company-1', supplierId: 'supplier-2', orderRef: 'DG11111A' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+      values: {
+        id: 'order-line-3',
+        orderId: 'order-3',
+        companyProductId: 'company-product-1',
+        supplierProductId: 'supplier-product-3',
+        orderedQty: 2,
+      },
+    });
+    const actions = createEcobaseSilverDataActions();
+    const context = createActionContext(db, { focus: { type: 'supplier', id: 'supplier-1' }, pageSize: 100 });
+
+    await actions.context(context, vi.fn());
+
+    const sections = context.body?.data.sections as Array<{ key: string; rows: Record<string, unknown>[] }>;
+    const ids = (key: string) => sections.find((section) => section.key === key)?.rows.map((row) => row.id) ?? [];
+    expect(ids('suppliers')).toEqual(['supplier-1']);
+    expect(ids('supplierProducts')).toEqual(expect.arrayContaining(['supplier-product-1', 'supplier-product-2']));
+    expect(ids('supplierProducts')).not.toContain('supplier-product-3');
+    expect(ids('orderLines')).not.toContain('order-line-3');
+
+    const searchContext = createActionContext(db, { query: 'edhoy', pageSize: 100 });
+    await actions.context(searchContext, vi.fn());
+    const searchSections = searchContext.body?.data.sections as Array<{ key: string; rows: Record<string, unknown>[] }>;
+    const searchIds = (key: string) =>
+      searchSections.find((section) => section.key === key)?.rows.map((row) => row.id) ?? [];
+    expect(searchIds('suppliers')).toEqual(['supplier-1']);
+    expect(searchIds('supplierProducts')).not.toContain('supplier-product-3');
+  });
+
+  it('keeps order-line focus scoped to the selected line and its order', async () => {
+    const db = new MemoryDatabase();
+    await seedSilverData(db);
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+      values: {
+        id: 'order-line-3',
+        orderId: 'order-2',
+        companyProductId: 'company-product-1',
+        supplierProductId: 'supplier-product-1',
+        orderedQty: 2,
+      },
+    });
+    const actions = createEcobaseSilverDataActions();
+    const context = createActionContext(db, { focus: { type: 'orderLine', id: 'order-line-1' }, pageSize: 100 });
+
+    await actions.context(context, vi.fn());
+
+    const sections = context.body?.data.sections as Array<{ key: string; rows: Record<string, unknown>[] }>;
+    const ids = (key: string) => sections.find((section) => section.key === key)?.rows.map((row) => row.id) ?? [];
+    expect(ids('products')).toEqual(['product-1']);
+    expect(ids('orders')).toEqual(['order-1']);
+    expect(ids('orderLines')).toEqual(['order-line-1']);
+    expect(ids('invoices')).toEqual(['invoice-1']);
+  });
+
+  it('resolves invoice focus through its order lines and products', async () => {
+    const db = new MemoryDatabase();
+    await seedSilverData(db);
+    const actions = createEcobaseSilverDataActions();
+    const context = createActionContext(db, { focus: { type: 'invoice', id: 'invoice-1' }, pageSize: 100 });
+
+    await actions.context(context, vi.fn());
+
+    const sections = context.body?.data.sections as Array<{ key: string; rows: Record<string, unknown>[] }>;
+    const ids = (key: string) => sections.find((section) => section.key === key)?.rows.map((row) => row.id) ?? [];
+    expect(ids('invoices')).toEqual(['invoice-1']);
+    expect(ids('orders')).toEqual(['order-1']);
+    expect(ids('products')).toEqual(expect.arrayContaining(['product-1', 'product-2']));
+    expect(ids('orderLines')).toEqual(expect.arrayContaining(['order-line-1', 'order-line-2']));
+  });
+
+  it('keeps exact order search scoped to the matched order only', async () => {
+    const db = new MemoryDatabase();
+    await seedSilverData(db);
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+      values: {
+        id: 'order-line-3',
+        orderId: 'order-2',
+        companyProductId: 'company-product-1',
+        supplierProductId: 'supplier-product-1',
+        orderedQty: 2,
+      },
+    });
+    const actions = createEcobaseSilverDataActions();
+    const context = createActionContext(db, { query: 'MX21324A', pageSize: 100 });
+
+    await actions.context(context, vi.fn());
+
+    const sections = context.body?.data.sections as Array<{ key: string; rows: Record<string, unknown>[] }>;
+    const ids = (key: string) => sections.find((section) => section.key === key)?.rows.map((row) => row.id) ?? [];
+    expect(ids('orders')).toEqual(['order-1']);
+    expect(ids('orderLines')).toEqual(expect.arrayContaining(['order-line-1', 'order-line-2']));
+    expect(ids('orderLines')).not.toContain('order-line-3');
+  });
+
+  it('resolves company focus into only that company products and orders', async () => {
+    const db = new MemoryDatabase();
+    await seedSilverData(db);
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
+      values: { id: 'company-2', name: 'Other LLC', companyKey: 'other' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+      values: { id: 'company-product-3', companyId: 'company-2', productId: 'product-1', lifecycleStatus: 'active' },
+    });
+    const actions = createEcobaseSilverDataActions();
+    const context = createActionContext(db, { focus: { type: 'company', id: 'company-1' }, pageSize: 100 });
+
+    await actions.context(context, vi.fn());
+
+    const sections = context.body?.data.sections as Array<{ key: string; rows: Record<string, unknown>[] }>;
+    const ids = (key: string) => sections.find((section) => section.key === key)?.rows.map((row) => row.id) ?? [];
+    expect(ids('companies')).toEqual(['company-1']);
+    expect(ids('products')).toEqual(expect.arrayContaining(['product-1', 'product-2']));
+    expect(ids('companyProducts')).toEqual(expect.arrayContaining(['company-product-1', 'company-product-2']));
+    expect(ids('companyProducts')).not.toContain('company-product-3');
+    expect(ids('orders')).toEqual(expect.arrayContaining(['order-1', 'order-2']));
+    expect(ids('orderLines')).toEqual(expect.arrayContaining(['order-line-1', 'order-line-2']));
+  });
+
+  it('resolves product focus into related orders, lines, supplier, tasks, approvals, and targets', async () => {
+    const db = new MemoryDatabase();
+    await seedSilverData(db);
+    const actions = createEcobaseSilverDataActions();
+    const context = createActionContext(db, { focus: { type: 'product', id: 'product-1' } });
+
+    await actions.context(context, vi.fn());
+
+    const sections = context.body?.data.sections as Array<{ key: string; rows: Record<string, unknown>[] }>;
+    const ids = (key: string) => sections.find((section) => section.key === key)?.rows.map((row) => row.id) ?? [];
+    expect(ids('companyProducts')).toContain('company-product-1');
+    expect(ids('supplierProducts')).toContain('supplier-product-1');
+    expect(ids('orderLines')).toContain('order-line-1');
+    expect(ids('orders')).toContain('order-1');
+    expect(ids('invoices')).toContain('invoice-1');
+    expect(ids('tasks')).toContain('task-1');
+    expect(ids('approvals')).toContain('approval-1');
+    expect(ids('targets')).toContain('target-1');
+    expect(ids('products')).not.toContain('product-2');
+    expect(ids('orders')).not.toContain('order-2');
+    expect(ids('orderLines')).not.toContain('order-line-2');
+  });
+
+  it('rejects read-only updates and links drawer comments to the selected entity', async () => {
+    const db = new MemoryDatabase();
+    await seedSilverData(db);
+    const actions = createEcobaseSilverDataActions();
+
+    const rejected = createActionContext(db, { type: 'product', id: 'product-1', values: { id: 'bad' } });
+    await expect(actions.updateRecord(rejected, vi.fn())).rejects.toThrow('read-only fields rejected: id');
+
+    const update = createActionContext(db, {
+      type: 'product',
+      id: 'product-1',
+      values: { title: 'Updated Copper Wire' },
+    });
+    await actions.updateRecord(update, vi.fn());
+    expect(update.body?.data.record.title).toBe('Updated Copper Wire');
+
+    const comment = createActionContext(db, {
+      type: 'product',
+      id: 'product-1',
+      body: 'Operator confirmed SKU mapping.',
+    });
+    await actions.addComment(comment, vi.fn());
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).all()).toEqual([
+      expect.objectContaining({
+        entityType: 'product',
+        entityId: 'product-1',
+        body: 'Operator confirmed SKU mapping.',
+      }),
+    ]);
   });
 });

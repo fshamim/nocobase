@@ -99,7 +99,7 @@ export default defineCollection({
     { name: 'approvalStatus', type: 'string', interface: 'input', uiSchema: { title: 'Approval Status' } },
     { name: 'paymentStatus', type: 'string', interface: 'input', uiSchema: { title: 'Payment Status' } },
     { name: 'shippingCarrier', type: 'string', interface: 'input', uiSchema: { title: 'Shipping Carrier' } },
-    { name: 'trackingId', type: 'string', interface: 'input', uiSchema: { title: 'Tracking ID' } },
+    { name: 'trackingId', type: 'text', interface: 'textarea', uiSchema: { title: 'Tracking ID' } },
     { name: 'blockedReason', type: 'text', interface: 'textarea', uiSchema: { title: 'Blocked Reason' } },
     { name: 'payload', type: 'jsonb', interface: 'json', uiSchema: { title: 'Payload' }, defaultValue: {} },
     {

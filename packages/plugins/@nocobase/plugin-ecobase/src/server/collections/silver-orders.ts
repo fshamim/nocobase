@@ -1,0 +1,65 @@
+import { defineCollection } from '@nocobase/database';
+import { ECOBASE_COLLECTIONS } from './names';
+
+export default defineCollection({
+  migrationRules: ['schema-only'],
+  autoGenId: false,
+  name: ECOBASE_COLLECTIONS.silverOrders,
+  title: 'Silver orders',
+  fields: [
+    { name: 'id', type: 'uuid', primaryKey: true },
+    {
+      name: 'company',
+      type: 'belongsTo',
+      target: ECOBASE_COLLECTIONS.silverCompanies,
+      foreignKey: 'companyId',
+      targetKey: 'id',
+      onDelete: 'CASCADE',
+    },
+    {
+      name: 'supplier',
+      type: 'belongsTo',
+      target: ECOBASE_COLLECTIONS.silverSuppliers,
+      foreignKey: 'supplierId',
+      targetKey: 'id',
+      onDelete: 'RESTRICT',
+    },
+    {
+      name: 'supplierAccount',
+      type: 'belongsTo',
+      target: ECOBASE_COLLECTIONS.silverSupplierAccounts,
+      foreignKey: 'supplierAccountId',
+      targetKey: 'id',
+      onDelete: 'SET NULL',
+    },
+    { name: 'orderRef', type: 'string', allowNull: false },
+    { name: 'orderDate', type: 'string', allowNull: false },
+    { name: 'dailySequenceLetter', type: 'string', allowNull: false },
+    { name: 'orderIntent', type: 'string', allowNull: false, defaultValue: 'unknown' },
+    { name: 'createdByUserId', type: 'uuid', autoFill: false },
+    { name: 'supplierAnalysisByUserId', type: 'uuid', autoFill: false },
+    { name: 'lifecyclePhase', type: 'string' },
+    { name: 'lifecycleStatus', type: 'string' },
+    { name: 'nextAction', type: 'string' },
+    { name: 'nextActionDueAt', type: 'datetimeTz' },
+    { name: 'nextActionOwnerId', type: 'uuid', autoFill: false },
+    { name: 'fulfillmentRoute', type: 'string', allowNull: false, defaultValue: 'unknown' },
+    { name: 'expectedDeliveryDate', type: 'string' },
+    { name: 'expectedCost', type: 'double' },
+    { name: 'actualCost', type: 'double' },
+    { name: 'costDifferenceNote', type: 'text' },
+    { name: 'shippingCarrier', type: 'string' },
+    { name: 'trackingId', type: 'text' },
+    { name: 'remarks', type: 'text' },
+  ],
+  indexes: [
+    {
+      unique: true,
+      fields: ['companyId', 'orderRef'],
+    },
+    {
+      unique: true,
+      fields: ['companyId', 'orderDate', 'dailySequenceLetter'],
+    },
+  ],
+});
