@@ -24,6 +24,7 @@ export type InventoryPlanningActionStatus =
   | 'excluded'
   | 'missing_velocity'
   | 'missing_lead_time'
+  | 'stale_lead_time'
   | 'overdue'
   | 'order_today'
   | 'order_soon'
@@ -113,6 +114,13 @@ function isoDate(value: string | Date) {
   return new Date(normalized).toISOString().slice(0, 10);
 }
 
+function dateOnly(value: unknown) {
+  const text = asString(value);
+  if (!text) return undefined;
+  const date = new Date(text.includes('T') ? text : `${text}T00:00:00.000Z`);
+  return Number.isFinite(date.getTime()) ? date.toISOString().slice(0, 10) : undefined;
+}
+
 function diffDays(left: string, right: string) {
   const leftDate = new Date(`${left}T00:00:00.000Z`).getTime();
   const rightDate = new Date(`${right}T00:00:00.000Z`).getTime();
@@ -131,7 +139,14 @@ function daysSince(date: string | undefined, today: string) {
 
 function isPlanningExcluded(status: string | undefined) {
   const normalized = status?.trim().toLowerCase();
-  return normalized === 'not selling' || normalized === 'hold' || normalized === 'one time' || normalized === 'inactive' || normalized === 'discontinued' || normalized === 'do not reorder';
+  return (
+    normalized === 'not selling' ||
+    normalized === 'hold' ||
+    normalized === 'one time' ||
+    normalized === 'inactive' ||
+    normalized === 'discontinued' ||
+    normalized === 'do not reorder'
+  );
 }
 
 function derivedProductStatus(importedStatus: string | undefined, stockBuckets: PlainRecord) {
@@ -174,7 +189,8 @@ function isActivePurchasedPipelineStatus(status: string | undefined) {
 
 function isActivePurchasedPipelineDate(line: PlainRecord, order: PlainRecord, calculationDate?: string) {
   if (!calculationDate) return true;
-  const expectedSellableDate = asString(line.expectedSellableDate) ?? asString(line.expectedDeliveryDate) ?? asString(order.expectedDeliveryDate);
+  const expectedSellableDate =
+    asString(line.expectedSellableDate) ?? asString(line.expectedDeliveryDate) ?? asString(order.expectedDeliveryDate);
   if (!expectedSellableDate) return true;
   return diffDays(isoDate(expectedSellableDate), calculationDate) >= -PURCHASED_PIPELINE_GRACE_DAYS;
 }
@@ -184,6 +200,7 @@ function actionRank(status: InventoryPlanningActionStatus) {
     overdue: 0,
     order_today: 1,
     missing_lead_time: 2,
+    stale_lead_time: 2,
     order_soon: 3,
     already_ordered: 4,
     watch: 5,
@@ -191,6 +208,23 @@ function actionRank(status: InventoryPlanningActionStatus) {
     missing_velocity: 7,
     excluded: 8,
   }[status];
+}
+
+function riskQueueRank(status: unknown) {
+  if (
+    status === 'overdue' ||
+    status === 'order_today' ||
+    status === 'missing_lead_time' ||
+    status === 'stale_lead_time' ||
+    status === 'order_soon'
+  ) {
+    return 0;
+  }
+  if (status === 'already_ordered') return 1;
+  if (status === 'watch' || status === 'missing_velocity') return 2;
+  if (status === 'sufficient_stock') return 3;
+  if (status === 'excluded') return 4;
+  return 5;
 }
 
 async function findRecords(db: EcobaseDatabase, collection: string, filter: PlainRecord) {
@@ -207,10 +241,16 @@ function sortableDateValue(value: unknown) {
 }
 
 function supplierOrderSortValue(line: PlainRecord, order: PlainRecord) {
-  return sortableDateValue(order.lastMeaningfulUpdateAt ?? order.statusUpdatedAt ?? line.observedAt ?? order.orderDate ?? '');
+  return sortableDateValue(
+    order.lastMeaningfulUpdateAt ?? order.statusUpdatedAt ?? line.observedAt ?? order.orderDate ?? '',
+  );
 }
 
-function summarizeSupplierOrderState(lines: PlainRecord[], supplierOrderById: Map<string, PlainRecord>, calculationDate?: string) {
+function summarizeSupplierOrderState(
+  lines: PlainRecord[],
+  supplierOrderById: Map<string, PlainRecord>,
+  calculationDate?: string,
+) {
   let purchasedOpenQty = 0;
   let placedNotPurchasedOpenQty = 0;
   let latestPlaced: { line: PlainRecord; order: PlainRecord; sortValue: string } | undefined;
@@ -245,34 +285,42 @@ function summarizeSupplierOrderState(lines: PlainRecord[], supplierOrderById: Ma
     if (openQty <= 0 || !isReliableSupplierOrderCoverageStatus(status)) continue;
     const sortValue = supplierOrderSortValue(line, order);
     const newerRecoveryCycleStarted = latestPlaced && latestPlaced.sortValue > sortValue;
-    if (newerRecoveryCycleStarted || !isActivePurchasedPipelineStatus(status) || !isActivePurchasedPipelineDate(line, order, calculationDate)) continue;
+    if (
+      newerRecoveryCycleStarted ||
+      !isActivePurchasedPipelineStatus(status) ||
+      !isActivePurchasedPipelineDate(line, order, calculationDate)
+    )
+      continue;
     purchasedOpenQty += openQty;
     if (!latestPurchased || sortValue > latestPurchased.sortValue) {
       latestPurchased = { line, order, sortValue };
     }
   }
 
-  const state = purchasedOpenQty > 0
-    ? 'purchased_pipeline'
-    : placedNotPurchasedOpenQty > 0
-      ? 'placed_not_purchased'
-      : historySelected
-        ? 'closed_history'
-        : 'no_open_order';
-  const reference = state === 'purchased_pipeline'
-    ? latestPurchased
-    : state === 'placed_not_purchased'
-      ? latestPlaced
-      : historySelected
-        ? { line: historySelected.line, order: historySelected.order }
-        : undefined;
+  const state =
+    purchasedOpenQty > 0
+      ? 'purchased_pipeline'
+      : placedNotPurchasedOpenQty > 0
+        ? 'placed_not_purchased'
+        : historySelected
+          ? 'closed_history'
+          : 'no_open_order';
+  const reference =
+    state === 'purchased_pipeline'
+      ? latestPurchased
+      : state === 'placed_not_purchased'
+        ? latestPlaced
+        : historySelected
+          ? { line: historySelected.line, order: historySelected.order }
+          : undefined;
   return {
     supplierOrderState: state,
     supplierOrderStatus: asString(reference?.order.status),
     supplierOrderRef: asString(reference?.order.externalOrderRef) ?? asString(reference?.order.id),
-    supplierOrderOpenQty: asNumber(reference?.line.orderedQty) !== undefined
-      ? Math.max((asNumber(reference?.line.orderedQty) ?? 0) - (asNumber(reference?.line.receivedQty) ?? 0), 0)
-      : undefined,
+    supplierOrderOpenQty:
+      asNumber(reference?.line.orderedQty) !== undefined
+        ? Math.max((asNumber(reference?.line.orderedQty) ?? 0) - (asNumber(reference?.line.receivedQty) ?? 0), 0)
+        : undefined,
     supplierOrderPurchasedOpenQty: purchasedOpenQty,
     supplierOrderPlacedNotPurchasedOpenQty: placedNotPurchasedOpenQty,
   };
@@ -322,13 +370,19 @@ function companyFromRecord(record: PlainRecord, sourceConnectionCompanies: Map<s
 
 function stableUuid(value: string) {
   const hex = createHash('sha1').update(value).digest('hex').slice(0, 32);
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-${((parseInt(hex.slice(16, 18), 16) & 0x3f) | 0x80)
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-${(
+    (parseInt(hex.slice(16, 18), 16) & 0x3f) |
+    0x80
+  )
     .toString(16)
     .padStart(2, '0')}${hex.slice(18, 20)}-${hex.slice(20, 32)}`;
 }
 
 function productIdentity(row: PlainRecord) {
-  return asString(row.planningProductId) ?? `${asString(row.company) ?? ''}:${asString(row.asin) ?? ''}:${asString(row.sku) ?? ''}`;
+  return (
+    asString(row.planningProductId) ??
+    `${asString(row.company) ?? ''}:${asString(row.asin) ?? ''}:${asString(row.sku) ?? ''}`
+  );
 }
 
 function lineMatchesRow(line: PlainRecord, row: PlainRecord) {
@@ -340,8 +394,8 @@ function lineMatchesRow(line: PlainRecord, row: PlainRecord) {
   const lineSku = asString(line.sku);
   return Boolean(
     (rowPlanningProductId && linePlanningProductId && rowPlanningProductId === linePlanningProductId) ||
-    (rowAsin && lineAsin && rowAsin === lineAsin) ||
-    (rowSku && lineSku && rowSku === lineSku)
+      (rowAsin && lineAsin && rowAsin === lineAsin) ||
+      (rowSku && lineSku && rowSku === lineSku),
   );
 }
 
@@ -356,7 +410,7 @@ function urgencyWeight(row: PlainRecord) {
     (status === 'overdue' ? 50 : 0) +
     (status === 'order_today' ? 35 : 0) +
     (status === 'order_soon' ? 15 : 0) +
-    (status === 'missing_lead_time' ? 5 : 0) +
+    (status === 'missing_lead_time' || status === 'stale_lead_time' ? 5 : 0) +
     (tier === 'A' ? 20 : tier === 'B' ? 10 : tier === 'C' ? 3 : 0)
   );
 }
@@ -365,7 +419,8 @@ function recommendedActionForStatus(status: unknown) {
   const normalized = asString(status);
   if (normalized === 'payment_pending') return 'pay';
   if (normalized === 'blocked') return 'review_blocker';
-  if (['draft', 'supplier_contacted', 'supplier_confirmed', 'approval_pending'].includes(normalized ?? '')) return 'approve';
+  if (['draft', 'supplier_contacted', 'supplier_confirmed', 'approval_pending'].includes(normalized ?? ''))
+    return 'approve';
   return 'review';
 }
 
@@ -396,6 +451,12 @@ const INVENTORY_PLANNING_ROW_FIELDS = [
   'prepStock',
   'awdStock',
   'openOrderCoverageQty',
+  'supplierOrderState',
+  'supplierOrderStatus',
+  'supplierOrderRef',
+  'supplierOrderOpenQty',
+  'supplierOrderPurchasedOpenQty',
+  'supplierOrderPlacedNotPurchasedOpenQty',
   'stuck',
   'daysOfCover',
   'estimatedOosDate',
@@ -418,6 +479,12 @@ export class EcobaseInventoryPlanningService {
   constructor(private db: EcobaseDatabase) {}
 
   async listRows(query: InventoryPlanningQuery = {}) {
+    const goldRows = await this.readGoldRows(query);
+    if (goldRows.length > 0) return goldRows;
+    return this.calculateRows(query);
+  }
+
+  private async calculateRows(query: InventoryPlanningQuery = {}) {
     const calculationDate = isoDate(query.calculationDate ?? new Date());
     const safetyBufferDays = query.safetyBufferDays ?? DEFAULT_SAFETY_BUFFER_DAYS;
     const orderSoonWindowDays = query.orderSoonWindowDays ?? DEFAULT_ORDER_SOON_WINDOW_DAYS;
@@ -471,22 +538,57 @@ export class EcobaseInventoryPlanningService {
       );
     }
 
-    return rows
-      .sort((left, right) => {
-        const action = actionRank(left.actionStatus as InventoryPlanningActionStatus) - actionRank(right.actionStatus as InventoryPlanningActionStatus);
-        if (action !== 0) return action;
-        const tier = tierRank(left.tier) - tierRank(right.tier);
-        if (tier !== 0) return tier;
-        return (asNumber(right.estimatedProfitRisk) ?? 0) - (asNumber(left.estimatedProfitRisk) ?? 0);
+    return this.sortPlanningRows(rows).slice(0, query.limit ?? rows.length);
+  }
+
+  private async readGoldRows(query: InventoryPlanningQuery = {}) {
+    const calculationDate = isoDate(query.calculationDate ?? new Date());
+    const filter: PlainRecord = { calculationDate };
+    if (query.company) filter.company = query.company;
+    const rows = (
+      await this.db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).find({
+        filter,
+        sort: ['-estimatedProfitRisk'],
       })
-      .slice(0, query.limit ?? rows.length);
+    ).map(toPlainRecord);
+    return this.sortPlanningRows(rows).slice(0, query.limit ?? rows.length);
+  }
+
+  private sortPlanningRows(rows: PlainRecord[]) {
+    return [...rows].sort((left, right) => {
+      const queue = riskQueueRank(left.actionStatus) - riskQueueRank(right.actionStatus);
+      if (queue !== 0) return queue;
+      const risk = (asNumber(right.estimatedProfitRisk) ?? 0) - (asNumber(left.estimatedProfitRisk) ?? 0);
+      if (risk !== 0) return risk;
+      const action =
+        actionRank(left.actionStatus as InventoryPlanningActionStatus) -
+        actionRank(right.actionStatus as InventoryPlanningActionStatus);
+      if (action !== 0) return action;
+      const tier = tierRank(left.tier) - tierRank(right.tier);
+      if (tier !== 0) return tier;
+      return (asNumber(right.suggestedReorderQty) ?? 0) - (asNumber(left.suggestedReorderQty) ?? 0);
+    });
   }
 
   async digestPreview(query: InventoryPlanningQuery = {}) {
     const rows = await this.listRows(query);
-    const urgentRows = this.sortDigestRows(rows.filter((row) => ['overdue', 'order_today', 'order_soon', 'missing_lead_time'].includes(String(row.actionStatus)) && row.supplierOrderState !== 'purchased_pipeline'));
+    const urgentRows = await this.withLatestSupplierOrderActivity(
+      this.sortDigestRows(
+        rows.filter(
+          (row) =>
+            ['overdue', 'order_today', 'order_soon', 'missing_lead_time', 'stale_lead_time'].includes(
+              String(row.actionStatus),
+            ) && row.supplierOrderState !== 'purchased_pipeline',
+        ),
+      ),
+    );
     const supplierActionItems = this.sortDigestRows(
-      urgentRows.filter((row) => !asString(row.supplierName) || row.leadTimeFreshness !== 'fresh' || row.actionStatus === 'missing_lead_time'),
+      urgentRows.filter(
+        (row) =>
+          !asString(row.supplierName) ||
+          row.leadTimeFreshness !== 'fresh' ||
+          ['missing_lead_time', 'stale_lead_time'].includes(String(row.actionStatus)),
+      ),
     );
     return {
       generatedAt: new Date().toISOString(),
@@ -505,7 +607,9 @@ export class EcobaseInventoryPlanningService {
       },
       sections: {
         orderNow: urgentRows,
-        suppliersToContactFirst: this.rankSuppliers(supplierActionItems.length > 0 ? supplierActionItems : urgentRows).slice(0, 10),
+        suppliersToContactFirst: this.rankSuppliers(
+          supplierActionItems.length > 0 ? supplierActionItems : urgentRows,
+        ).slice(0, 10),
         supplierActionItems: supplierActionItems.slice(0, 25),
         staleLeadTimes: urgentRows.filter((row) => row.leadTimeFreshness !== 'fresh').slice(0, 25),
       },
@@ -521,24 +625,35 @@ export class EcobaseInventoryPlanningService {
     const horizonDays = Math.max(Math.round(query.horizonDays ?? 30), 1);
     const rows = await this.listRows({ ...query, calculationDate, limit: query.limit ?? 500 });
     const urgentRows = this.sortDigestRows(
-      rows.filter((row) => ['overdue', 'order_today', 'order_soon', 'missing_lead_time'].includes(String(row.actionStatus)) && row.supplierOrderState !== 'purchased_pipeline'),
+      rows.filter(
+        (row) =>
+          ['overdue', 'order_today', 'order_soon', 'missing_lead_time', 'stale_lead_time'].includes(
+            String(row.actionStatus),
+          ) && row.supplierOrderState !== 'purchased_pipeline',
+      ),
     );
     const orderFilter = query.company ? { company: query.company } : {};
-    const supplierOrders = (await this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).find({
-      filter: orderFilter,
-      sort: ['-lastMeaningfulUpdateAt'],
-      limit: 1000,
-    })).map(toPlainRecord);
-    const supplierOrderLines = (await this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).find({
-      filter: orderFilter,
-      sort: ['-observedAt'],
-      limit: 5000,
-    })).map(toPlainRecord);
-    const suppliers = (await this.db.getRepository(ECOBASE_COLLECTIONS.suppliers).find({
-      filter: orderFilter,
-      sort: ['company', 'name'],
-      limit: 2000,
-    })).map(toPlainRecord);
+    const supplierOrders = (
+      await this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).find({
+        filter: orderFilter,
+        sort: ['-lastMeaningfulUpdateAt'],
+        limit: 1000,
+      })
+    ).map(toPlainRecord);
+    const supplierOrderLines = (
+      await this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).find({
+        filter: orderFilter,
+        sort: ['-observedAt'],
+        limit: 5000,
+      })
+    ).map(toPlainRecord);
+    const suppliers = (
+      await this.db.getRepository(ECOBASE_COLLECTIONS.suppliers).find({
+        filter: orderFilter,
+        sort: ['company', 'name'],
+        limit: 2000,
+      })
+    ).map(toPlainRecord);
     const supplierNameById = new Map(
       suppliers
         .map((supplier) => [asString(supplier.id), asString(supplier.name)] as const)
@@ -551,7 +666,13 @@ export class EcobaseInventoryPlanningService {
     );
     const ordersByCompanyAndRef = new Map(
       supplierOrders
-        .map((order) => [`${asString(order.company) ?? ''}:${asString(order.externalOrderRef) ?? asString(order.id) ?? ''}`, order] as const)
+        .map(
+          (order) =>
+            [
+              `${asString(order.company) ?? ''}:${asString(order.externalOrderRef) ?? asString(order.id) ?? ''}`,
+              order,
+            ] as const,
+        )
         .filter(([key]) => !key.endsWith(':')),
     );
     const linesByOrderId = new Map<string, PlainRecord[]>();
@@ -563,13 +684,21 @@ export class EcobaseInventoryPlanningService {
       linesByOrderId.set(orderId, current);
     }
 
-    const candidates = new Map<string, PlainRecord & { rows: PlainRecord[]; lineIds: Set<string>; reasonSet: Set<string>; urgency: number }>();
+    const candidates = new Map<
+      string,
+      PlainRecord & { rows: PlainRecord[]; lineIds: Set<string>; reasonSet: Set<string>; urgency: number }
+    >();
     const latestLineForRow = (row: PlainRecord) => supplierOrderLines.find((line) => lineMatchesRow(line, row));
-    const addCandidateRow = (candidate: PlainRecord & { rows: PlainRecord[]; lineIds: Set<string>; reasonSet: Set<string>; urgency: number }, row: PlainRecord) => {
+    const addCandidateRow = (
+      candidate: PlainRecord & { rows: PlainRecord[]; lineIds: Set<string>; reasonSet: Set<string>; urgency: number },
+      row: PlainRecord,
+    ) => {
       const identity = productIdentity(row);
       if (!candidate.rows.some((existing) => productIdentity(existing) === identity)) {
         candidate.rows.push(row);
-        candidate.protectedProfit = Math.round(((asNumber(candidate.protectedProfit) ?? 0) + (asNumber(row.estimatedProfitRisk) ?? 0)) * 100) / 100;
+        candidate.protectedProfit =
+          Math.round(((asNumber(candidate.protectedProfit) ?? 0) + (asNumber(row.estimatedProfitRisk) ?? 0)) * 100) /
+          100;
       }
       candidate.urgency = Math.max(candidate.urgency, urgencyWeight(row));
       const actionStatus = asString(row.actionStatus);
@@ -582,7 +711,9 @@ export class EcobaseInventoryPlanningService {
     for (const row of urgentRows) {
       const supplierOrderRef = asString(row.supplierOrderRef);
       const company = asString(row.company) ?? '';
-      const existingOrder = supplierOrderRef ? ordersByCompanyAndRef.get(`${company}:${supplierOrderRef}`) ?? orderById.get(supplierOrderRef) : undefined;
+      const existingOrder = supplierOrderRef
+        ? ordersByCompanyAndRef.get(`${company}:${supplierOrderRef}`) ?? orderById.get(supplierOrderRef)
+        : undefined;
       if (existingOrder && row.supplierOrderState === 'placed_not_purchased') {
         const orderId = asString(existingOrder.id) ?? supplierOrderRef;
         const key = `order:${orderId}`;
@@ -611,7 +742,8 @@ export class EcobaseInventoryPlanningService {
               brand: asString(line.brand),
               openQty: quantity,
               unitCost,
-              lineSpend: typeof unitCost === 'number' && unitCost > 0 ? Math.round(quantity * unitCost * 100) / 100 : undefined,
+              lineSpend:
+                typeof unitCost === 'number' && unitCost > 0 ? Math.round(quantity * unitCost * 100) / 100 : undefined,
             });
           }
           candidate = {
@@ -623,7 +755,8 @@ export class EcobaseInventoryPlanningService {
             supplierOrderStatus: asString(existingOrder.status),
             company,
             supplierId: asString(existingOrder.supplierId),
-            supplierName: supplierNameById.get(asString(existingOrder.supplierId) ?? '') ?? asString(existingOrder.supplierName),
+            supplierName:
+              supplierNameById.get(asString(existingOrder.supplierId) ?? '') ?? asString(existingOrder.supplierName),
             spend: missingCost || spend <= 0 ? undefined : Math.round(spend * 100) / 100,
             openQty: openQuantity,
             protectedProfit: 0,
@@ -646,9 +779,15 @@ export class EcobaseInventoryPlanningService {
       const suggestedQty = asNumber(row.suggestedReorderQty) ?? 0;
       const historyLine = latestLineForRow(row);
       const unitCost = asNumber(historyLine?.unitCost);
-      const spend = suggestedQty > 0 && typeof unitCost === 'number' && unitCost > 0 ? suggestedQty * unitCost : undefined;
+      const spend =
+        suggestedQty > 0 && typeof unitCost === 'number' && unitCost > 0 ? suggestedQty * unitCost : undefined;
       const key = `product:${productIdentity(row)}`;
-      const candidate: PlainRecord & { rows: PlainRecord[]; lineIds: Set<string>; reasonSet: Set<string>; urgency: number } = {
+      const candidate: PlainRecord & {
+        rows: PlainRecord[];
+        lineIds: Set<string>;
+        reasonSet: Set<string>;
+        urgency: number;
+      } = {
         key,
         candidateType: 'planning_product',
         recommendedAction: spend ? 'create_order' : 'recover_supplier_or_cost',
@@ -759,12 +898,24 @@ export class EcobaseInventoryPlanningService {
   async filterOptions() {
     const sourceConnectionCompanies = await this.sourceConnectionCompanies();
     const rows = await this.listRows({ limit: 500 });
-    const companies = [...new Set([...sourceConnectionCompanies.values(), ...rows.map((row) => asString(row.company)).filter(Boolean)])].sort();
+    const companies = [
+      ...new Set([...sourceConnectionCompanies.values(), ...rows.map((row) => asString(row.company)).filter(Boolean)]),
+    ].sort();
     const productStatuses = [...new Set(rows.map((row) => asString(row.productStatus)).filter(Boolean))].sort();
     return {
       companies,
       productStatuses,
-      actionStatuses: ['overdue', 'order_today', 'missing_lead_time', 'order_soon', 'already_ordered', 'watch', 'sufficient_stock', 'excluded'],
+      actionStatuses: [
+        'overdue',
+        'order_today',
+        'missing_lead_time',
+        'stale_lead_time',
+        'order_soon',
+        'already_ordered',
+        'watch',
+        'sufficient_stock',
+        'excluded',
+      ],
       tiers: ['A', 'B', 'C'],
       leadTimeFreshness: ['fresh', 'stale', 'missing'],
     };
@@ -772,8 +923,8 @@ export class EcobaseInventoryPlanningService {
 
   async refreshReadModel(query: InventoryPlanningQuery = {}) {
     const calculationDate = isoDate(query.calculationDate ?? new Date());
-    const rows = await this.listRows({ ...query, calculationDate, limit: query.limit ?? 500 });
-    const repository = this.db.getRepository(ECOBASE_COLLECTIONS.inventoryPlanningRows);
+    const rows = await this.calculateRows({ ...query, calculationDate, limit: query.limit ?? 500 });
+    const repository = this.db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows);
     const refreshedAt = new Date().toISOString();
     let created = 0;
     let updated = 0;
@@ -843,27 +994,21 @@ export class EcobaseInventoryPlanningService {
       const key = this.fallbackProductKey(inventory, sourceConnectionCompanies);
       if (!key || seen.has(key)) continue;
       seen.add(key);
-      rows.push(await this.buildFallbackRow({
-        inventory,
-        parameter: parameterByProduct.get(key) ?? {},
-        sourceConnectionCompanies,
-        calculationDate: params.calculationDate,
-        leadTimeFreshnessDays: params.leadTimeFreshnessDays,
-        orderSoonWindowDays: params.orderSoonWindowDays,
-        safetyBufferDays: params.safetyBufferDays,
-        reorderCycleDays: params.reorderCycleDays,
-      }));
+      rows.push(
+        await this.buildFallbackRow({
+          inventory,
+          parameter: parameterByProduct.get(key) ?? {},
+          sourceConnectionCompanies,
+          calculationDate: params.calculationDate,
+          leadTimeFreshnessDays: params.leadTimeFreshnessDays,
+          orderSoonWindowDays: params.orderSoonWindowDays,
+          safetyBufferDays: params.safetyBufferDays,
+          reorderCycleDays: params.reorderCycleDays,
+        }),
+      );
     }
 
-    return rows
-      .sort((left, right) => {
-        const action = actionRank(left.actionStatus as InventoryPlanningActionStatus) - actionRank(right.actionStatus as InventoryPlanningActionStatus);
-        if (action !== 0) return action;
-        const tier = tierRank(left.tier) - tierRank(right.tier);
-        if (tier !== 0) return tier;
-        return (asNumber(right.estimatedProfitRisk) ?? 0) - (asNumber(left.estimatedProfitRisk) ?? 0);
-      })
-      .slice(0, params.limit ?? rows.length);
+    return this.sortPlanningRows(rows).slice(0, params.limit ?? rows.length);
   }
 
   private fallbackProductKey(record: PlainRecord, sourceConnectionCompanies: Map<string, string>) {
@@ -883,49 +1028,78 @@ export class EcobaseInventoryPlanningService {
     safetyBufferDays: number;
     reorderCycleDays: number;
   }) {
-    const company = companyFromRecord(params.inventory, params.sourceConnectionCompanies) ?? companyFromRecord(params.parameter, params.sourceConnectionCompanies);
+    const company =
+      companyFromRecord(params.inventory, params.sourceConnectionCompanies) ??
+      companyFromRecord(params.parameter, params.sourceConnectionCompanies);
     if (!company) {
       throw new Error('Ecobase inventory planning fallback failed: company scope is required.');
     }
-    const asin = asString(params.inventory.asin) ?? asString(params.parameter.asin) ?? payloadString(params.inventory, ['ASIN']);
-    const sku = asString(params.inventory.sku) ?? asString(params.parameter.sku) ?? payloadString(params.inventory, ['SKU']);
+    const asin =
+      asString(params.inventory.asin) ?? asString(params.parameter.asin) ?? payloadString(params.inventory, ['ASIN']);
+    const sku =
+      asString(params.inventory.sku) ?? asString(params.parameter.sku) ?? payloadString(params.inventory, ['SKU']);
     const planningProductId = `fallback:${company}:${asin ?? ''}:${sku ?? ''}`;
     const stockBuckets = this.stockBuckets(params.inventory, {});
-    const salesVelocity = asNumber(params.inventory.salesVelocity) ?? payloadNumber(params.inventory, ['Estimated Sales Velocity', 'Exp Sales Vel', 'Sales Velocity']);
-    const importedLeadTimeDays = asNumber(params.parameter.leadTimeDays) ?? payloadNumber(params.parameter, ['Lead Time', 'Avg Lead Time', 'Lead time(day)', 'Manuf. time days']);
+    const salesVelocity =
+      asNumber(params.inventory.salesVelocity) ??
+      payloadNumber(params.inventory, ['Estimated Sales Velocity', 'Exp Sales Vel', 'Sales Velocity']);
+    const importedLeadTimeDays =
+      asNumber(params.parameter.leadTimeDays) ??
+      payloadNumber(params.parameter, ['Lead Time', 'Avg Lead Time', 'Lead time(day)', 'Manuf. time days']);
     const orderHistorySupplier = !asString(params.parameter.supplier)
       ? await this.findOrderHistorySupplier({ company, asin, sku })
       : {};
-    const orderHistoryLeadTime = typeof importedLeadTimeDays !== 'number' && asString(orderHistorySupplier.supplierId)
-      ? await this.findLeadTime(
-          { id: asString(orderHistorySupplier.supplierId), name: asString(orderHistorySupplier.supplierName) },
-          {},
-          {},
-          company,
-        )
-      : {};
-    const leadTimeDays = importedLeadTimeDays ?? asNumber(orderHistoryLeadTime.leadTimeDays);
+    const orderHistoryLeadTime =
+      typeof importedLeadTimeDays !== 'number' && asString(orderHistorySupplier.supplierId)
+        ? await this.findLeadTime(
+            { id: asString(orderHistorySupplier.supplierId), name: asString(orderHistorySupplier.supplierName) },
+            {},
+            {},
+            company,
+            undefined,
+            asin,
+            sku,
+          )
+        : {};
+    const orderHistoryLines = await this.findOrderLinesByProduct({ company, asin, sku });
+    const orderHistoryDerivedLeadTime = this.leadTimeFromOrderHistory(
+      orderHistoryLines,
+      await this.supplierOrdersByLine(orderHistoryLines),
+    );
+    const leadTimeDays =
+      importedLeadTimeDays ?? asNumber(orderHistoryLeadTime.leadTimeDays) ?? orderHistoryDerivedLeadTime.leadTimeDays;
     const recommendedBestQty =
       asNumber(params.inventory.recommendedReorderQuantity) ??
       payloadNumber(params.inventory, ['Recommended quantity for  reordering']) ??
       payloadNumber(params.parameter, ['recommendedBestQty', 'Rec.Best Qty', 'Rec. Best Qty']);
-    const profitPerUnit = asNumber(params.parameter.profitPerUnit) ?? payloadNumber(params.parameter, ['profitPerUnit', 'Profit Per Unit', 'Per.Unit Profit']);
-    const importedProfitRisk = payloadNumber(params.inventory, ['Missed profit (est)', 'Profit forecast (30 days)', 'profitForecast30Days']) ?? payloadNumber(params.parameter, ['Missed profit (est)', 'Profit forecast (30 days)', 'profitForecast30Days']);
+    const profitPerUnit =
+      asNumber(params.parameter.profitPerUnit) ??
+      payloadNumber(params.parameter, ['profitPerUnit', 'Profit Per Unit', 'Per.Unit Profit']);
+    const importedProfitRisk =
+      payloadNumber(params.inventory, ['Missed profit (est)', 'Profit forecast (30 days)', 'profitForecast30Days']) ??
+      payloadNumber(params.parameter, ['Missed profit (est)', 'Profit forecast (30 days)', 'profitForecast30Days']);
     const { tier, tierScore } = tierFor(profitPerUnit, recommendedBestQty);
-    const daysOfCover = salesVelocity && salesVelocity > 0 ? stockBuckets.currentPlanningStock / salesVelocity : undefined;
+    const daysOfCover =
+      salesVelocity && salesVelocity > 0 ? stockBuckets.currentPlanningStock / salesVelocity : undefined;
     const estimatedOosDate = typeof daysOfCover === 'number' ? addDays(params.calculationDate, daysOfCover) : undefined;
     const latestSafeReorderDate =
       typeof leadTimeDays === 'number' && estimatedOosDate
         ? addDays(estimatedOosDate, -(leadTimeDays + params.safetyBufferDays))
         : undefined;
-    const daysUntilSafeReorder = latestSafeReorderDate ? diffDays(latestSafeReorderDate, params.calculationDate) : undefined;
+    const daysUntilSafeReorder = latestSafeReorderDate
+      ? diffDays(latestSafeReorderDate, params.calculationDate)
+      : undefined;
     const productStatus = derivedProductStatus(
       payloadString(params.parameter, ['productStatus', 'Product Status', 'Product Status ', 'status', 'Status']) ??
-      payloadString(params.inventory, ['productStatus', 'Product Status', 'Product Status ', 'status', 'Status']),
+        payloadString(params.inventory, ['productStatus', 'Product Status', 'Product Status ', 'status', 'Status']),
       stockBuckets,
     );
     const planningExcluded = isPlanningExcluded(productStatus);
-    const leadTimeConfirmedAt = asString(orderHistoryLeadTime.confirmedAt) ?? asString(params.parameter.confirmedAt) ?? payloadString(params.parameter, ['confirmedAt', 'Lead Time Confirmed At']);
+    const leadTimeConfirmedAt =
+      asString(orderHistoryLeadTime.confirmedAt) ??
+      orderHistoryDerivedLeadTime.confirmedAt ??
+      asString(params.parameter.confirmedAt) ??
+      payloadString(params.parameter, ['confirmedAt', 'Lead Time Confirmed At']);
     const leadTimeAgeDays = daysSince(leadTimeConfirmedAt, params.calculationDate);
     const leadTimeFreshness =
       typeof leadTimeDays !== 'number'
@@ -933,7 +1107,12 @@ export class EcobaseInventoryPlanningService {
         : typeof leadTimeAgeDays === 'number' && leadTimeAgeDays > params.leadTimeFreshnessDays
           ? 'stale'
           : 'fresh';
-    const supplierOrderState = await this.supplierOrderStateForProduct({ company, asin, sku, calculationDate: params.calculationDate });
+    const supplierOrderState = await this.supplierOrderStateForProduct({
+      company,
+      asin,
+      sku,
+      calculationDate: params.calculationDate,
+    });
     const openOrderCoverageQty = supplierOrderState.supplierOrderPurchasedOpenQty;
     const expectedSellableDate = await this.earliestFallbackExpectedSellableDate({ company, asin, sku });
     const suggestedReorderQty = this.suggestedReorderQuantity({
@@ -964,14 +1143,19 @@ export class EcobaseInventoryPlanningService {
       typeof riskDays === 'number' && typeof profitPerUnit === 'number' && typeof salesVelocity === 'number'
         ? 'uncovered_oos_days × sales_velocity × profit_per_unit'
         : 'imported_missed_profit_or_30_day_profit_forecast';
-    const supplierName = asString(params.parameter.supplier) ?? payloadString(params.parameter, ['Supplier Name', 'Supplier']) ?? asString(orderHistorySupplier.supplierName);
+    const supplierName =
+      asString(params.parameter.supplier) ??
+      payloadString(params.parameter, ['Supplier Name', 'Supplier']) ??
+      asString(orderHistorySupplier.supplierName);
 
     return {
       planningProductId,
       company,
       asin,
       sku,
-      title: payloadString(params.inventory, ['Title', 'Product Name', 'Product']) ?? payloadString(params.parameter, ['Title', 'Product Name', 'Product']),
+      title:
+        payloadString(params.inventory, ['Title', 'Product Name', 'Product']) ??
+        payloadString(params.parameter, ['Title', 'Product Name', 'Product']),
       brand: payloadString(params.parameter, ['Brand', 'brand']),
       productStatus,
       planningExcluded,
@@ -997,7 +1181,9 @@ export class EcobaseInventoryPlanningService {
       suggestedReorderQty,
       supplierId: asString(params.parameter.supplierId) ?? asString(orderHistorySupplier.supplierId),
       supplierName,
-      supplierSource: asString(orderHistorySupplier.supplierName) ? 'order_details_history' : 'planning_parameter_fallback',
+      supplierSource: asString(orderHistorySupplier.supplierName)
+        ? 'order_details_history'
+        : 'planning_parameter_fallback',
       supplierRole: asString(orderHistorySupplier.supplierName) ? 'latest_order_history' : 'latest_history',
       supplierConfidence: asString(orderHistorySupplier.supplierName) ? 'medium' : 'low',
       leadTimeDays,
@@ -1009,12 +1195,28 @@ export class EcobaseInventoryPlanningService {
       expectedSellableDate,
       estimatedProfitRisk,
       estimatedProfitRiskBasis,
-      monthToDateRevenue: payloadNumber(params.inventory, ['MTD Revenue ', 'MTD Revenue', 'mtdRevenue', 'monthToDateRevenue']),
-      monthToDateUnitsSold: payloadNumber(params.inventory, ['MTD Unit Sold', 'MTD Units Sold', 'mtdUnitSold', 'monthToDateUnitsSold']),
-      monthToDateProfit: payloadNumber(params.inventory, ['MTD Profit ', 'MTD Profit', 'mtdProfit', 'monthToDateProfit']),
+      monthToDateRevenue: payloadNumber(params.inventory, [
+        'MTD Revenue ',
+        'MTD Revenue',
+        'mtdRevenue',
+        'monthToDateRevenue',
+      ]),
+      monthToDateUnitsSold: payloadNumber(params.inventory, [
+        'MTD Unit Sold',
+        'MTD Units Sold',
+        'mtdUnitSold',
+        'monthToDateUnitsSold',
+      ]),
+      monthToDateProfit: payloadNumber(params.inventory, [
+        'MTD Profit ',
+        'MTD Profit',
+        'mtdProfit',
+        'monthToDateProfit',
+      ]),
       digestPriority: this.digestPriority(actionStatus, tier),
       evidence: {
-        fallbackReason: 'planningProducts table is empty; row derived from inventory_snapshot and planning_parameter records.',
+        fallbackReason:
+          'planningProducts table is empty; row derived from inventory_snapshot and planning_parameter records.',
         leadTimeAgeDays,
         stockBuckets,
         estimatedProfitRiskBasis,
@@ -1035,15 +1237,7 @@ export class EcobaseInventoryPlanningService {
     const inventoryRows = await findRecords(this.db, ECOBASE_COLLECTIONS.inventorySnapshots, { planningProductId });
     const parameterRows = await findRecords(this.db, ECOBASE_COLLECTIONS.planningParameters, { planningProductId });
     const supplierLinks = await findRecords(this.db, ECOBASE_COLLECTIONS.supplierProductLinks, { planningProductId });
-    const orderLines = await findRecords(this.db, ECOBASE_COLLECTIONS.supplierOrderLines, { planningProductId });
-    const supplierOrderRepo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrders);
-    const supplierOrderById = new Map<string, PlainRecord>();
-    for (const line of orderLines) {
-      const supplierOrderId = asString(line.supplierOrderId);
-      if (supplierOrderId && !supplierOrderById.has(supplierOrderId)) {
-        supplierOrderById.set(supplierOrderId, toPlainRecord(await supplierOrderRepo.findOne({ filterByTk: supplierOrderId })));
-      }
-    }
+    let orderLines = await findRecords(this.db, ECOBASE_COLLECTIONS.supplierOrderLines, { planningProductId });
     const latestInventory = latestByDate(inventoryRows, 'snapshotDate') ?? {};
     const latestParameter = latestByDate(parameterRows, 'lastImportRunId') ?? parameterRows[0] ?? {};
     const supplierLink = selectSupplierLink(supplierLinks) ?? {};
@@ -1051,25 +1245,48 @@ export class EcobaseInventoryPlanningService {
     const stockBuckets = this.stockBuckets(latestInventory, params.calculation);
     const productStatus = derivedProductStatus(
       payloadString(latestParameter, ['productStatus', 'Product Status', 'Product Status ', 'status', 'Status']) ??
-      payloadString(latestInventory, ['productStatus', 'Product Status', 'Product Status ', 'status', 'Status']) ??
-      asString(params.product.status),
+        payloadString(latestInventory, ['productStatus', 'Product Status', 'Product Status ', 'status', 'Status']) ??
+        asString(params.product.status),
       stockBuckets,
     );
     const excluded = isPlanningExcluded(productStatus);
-    const supplierOrderState = summarizeSupplierOrderState(orderLines, supplierOrderById, params.calculationDate);
-    const openOrderCoverageQty = supplierOrderState.supplierOrderPurchasedOpenQty;
     const salesVelocity = asNumber(params.calculation.salesVelocity);
     const calculationTier = asString(params.calculation.tier);
     const fallbackTier = tierFor(
       asNumber(params.calculation.profitPerUnit),
       asNumber(params.calculation.recommendedBestQty),
     );
-    const asin = asString(params.product.canonicalAsin) ?? asString(latestInventory.asin) ?? asString(latestParameter.asin);
+    const asin =
+      asString(params.product.canonicalAsin) ?? asString(latestInventory.asin) ?? asString(latestParameter.asin);
     const sku = asString(latestInventory.sku) ?? asString(latestParameter.sku);
-    const orderHistorySupplier = !asString(supplier.name) && !asString(latestParameter.supplier)
-      ? await this.findOrderHistorySupplier({ company, asin, sku })
-      : {};
-    let leadTime = await this.findLeadTime(supplier, supplierLink, latestParameter, company, planningProductId);
+    const orderLinesById = new Map(
+      orderLines.map((line) => [
+        asString(line.id) ?? `${asString(line.supplierOrderId) ?? ''}:${asString(line.sourceOrderLineRef) ?? ''}`,
+        line,
+      ]),
+    );
+    for (const line of await this.findOrderLinesByProduct({ company, asin, sku })) {
+      const id =
+        asString(line.id) ?? `${asString(line.supplierOrderId) ?? ''}:${asString(line.sourceOrderLineRef) ?? ''}`;
+      orderLinesById.set(id, line);
+    }
+    orderLines = [...orderLinesById.values()];
+    const supplierOrderById = await this.supplierOrdersByLine(orderLines);
+    const supplierOrderState = summarizeSupplierOrderState(orderLines, supplierOrderById, params.calculationDate);
+    const openOrderCoverageQty = supplierOrderState.supplierOrderPurchasedOpenQty;
+    const orderHistorySupplier =
+      !asString(supplier.name) && !asString(latestParameter.supplier)
+        ? await this.findOrderHistorySupplier({ company, asin, sku })
+        : {};
+    let leadTime = await this.findLeadTime(
+      supplier,
+      supplierLink,
+      latestParameter,
+      company,
+      planningProductId,
+      asin,
+      sku,
+    );
     if (typeof asNumber(leadTime.leadTimeDays) !== 'number' && asString(orderHistorySupplier.supplierId)) {
       leadTime = await this.findLeadTime(
         { id: asString(orderHistorySupplier.supplierId), name: asString(orderHistorySupplier.supplierName) },
@@ -1077,10 +1294,16 @@ export class EcobaseInventoryPlanningService {
         {},
         company,
         planningProductId,
+        asin,
+        sku,
       );
     }
-    const leadTimeDays = asNumber(leadTime.leadTimeDays) ?? asNumber(params.calculation.leadTimeDays);
-    const leadTimeConfirmedAt = asString(leadTime.confirmedAt);
+    const orderHistoryLeadTime = this.leadTimeFromOrderHistory(orderLines, supplierOrderById);
+    const leadTimeDays =
+      asNumber(leadTime.leadTimeDays) ??
+      asNumber(orderHistoryLeadTime.leadTimeDays) ??
+      asNumber(params.calculation.leadTimeDays);
+    const leadTimeConfirmedAt = asString(leadTime.confirmedAt) ?? orderHistoryLeadTime.confirmedAt;
     const leadTimeAgeDays = daysSince(leadTimeConfirmedAt, params.calculationDate);
     const leadTimeFreshness =
       typeof leadTimeDays !== 'number'
@@ -1089,12 +1312,18 @@ export class EcobaseInventoryPlanningService {
           ? 'stale'
           : 'fresh';
     const calculationSafeReorderDate = asString(params.calculation.restockDeadlineImproved);
+    const calculationOosDate = asString(params.calculation.oosDate);
     const derivedSafeReorderDate =
-      !calculationSafeReorderDate && typeof leadTimeDays === 'number' && asString(params.calculation.oosDate)
-        ? addDays(asString(params.calculation.oosDate)!, -(leadTimeDays + (asNumber(params.calculation.safetyBufferDays) ?? DEFAULT_SAFETY_BUFFER_DAYS)))
+      !calculationSafeReorderDate && typeof leadTimeDays === 'number' && calculationOosDate
+        ? addDays(
+            calculationOosDate,
+            -(leadTimeDays + (asNumber(params.calculation.safetyBufferDays) ?? DEFAULT_SAFETY_BUFFER_DAYS)),
+          )
         : undefined;
     const latestSafeReorderDate = calculationSafeReorderDate ?? derivedSafeReorderDate;
-    const daysUntilSafeReorder = latestSafeReorderDate ? diffDays(latestSafeReorderDate, params.calculationDate) : undefined;
+    const daysUntilSafeReorder = latestSafeReorderDate
+      ? diffDays(latestSafeReorderDate, params.calculationDate)
+      : undefined;
     const suggestedReorderQty = this.suggestedReorderQuantity({
       salesVelocity,
       leadTimeDays,
@@ -1111,11 +1340,14 @@ export class EcobaseInventoryPlanningService {
       orderSoonWindowDays: params.orderSoonWindowDays,
       openOrderCoverageQty,
     });
-    const supplierName = asString(supplier.name) ?? asString(leadTime.supplierName) ?? asString(latestParameter.supplier) ?? asString(orderHistorySupplier.supplierName);
+    const supplierName =
+      asString(supplier.name) ??
+      asString(leadTime.supplierName) ??
+      asString(latestParameter.supplier) ??
+      asString(orderHistorySupplier.supplierName);
     const estimatedProfitRisk = asNumber(params.calculation.estimatedProfitRisk);
-    const estimatedProfitRiskBasis = typeof estimatedProfitRisk === 'number'
-      ? 'planning_calculation_estimated_profit_risk'
-      : 'not_available';
+    const estimatedProfitRiskBasis =
+      typeof estimatedProfitRisk === 'number' ? 'planning_calculation_estimated_profit_risk' : 'not_available';
 
     return {
       planningProductId,
@@ -1123,7 +1355,8 @@ export class EcobaseInventoryPlanningService {
       asin,
       sku,
       title: asString(params.product.title),
-      brand: payloadString(supplierLink, ['latestBrand', 'brand']) ?? payloadString(latestParameter, ['Brand', 'brand']),
+      brand:
+        payloadString(supplierLink, ['latestBrand', 'brand']) ?? payloadString(latestParameter, ['Brand', 'brand']),
       productStatus,
       planningExcluded: excluded,
       tier: calculationTier && calculationTier !== 'unclassified' ? calculationTier : fallbackTier.tier,
@@ -1146,11 +1379,20 @@ export class EcobaseInventoryPlanningService {
       daysUntilSafeReorder,
       actionStatus,
       suggestedReorderQty,
-      supplierId: asString(supplier.id) ?? asString(supplierLink.supplierId) ?? asString(latestParameter.supplierId) ?? asString(orderHistorySupplier.supplierId),
+      supplierId:
+        asString(supplier.id) ??
+        asString(supplierLink.supplierId) ??
+        asString(latestParameter.supplierId) ??
+        asString(orderHistorySupplier.supplierId),
       supplierName,
-      supplierSource: asString(supplierLink.source) ?? (asString(orderHistorySupplier.supplierName) ? 'order_details_history' : 'planning_parameter'),
-      supplierRole: asString(supplierLink.role) ?? (asString(orderHistorySupplier.supplierName) ? 'latest_order_history' : 'latest_history'),
-      supplierConfidence: asString(supplierLink.confidence) ?? (asString(orderHistorySupplier.supplierName) ? 'medium' : 'medium'),
+      supplierSource:
+        asString(supplierLink.source) ??
+        (asString(orderHistorySupplier.supplierName) ? 'order_details_history' : 'planning_parameter'),
+      supplierRole:
+        asString(supplierLink.role) ??
+        (asString(orderHistorySupplier.supplierName) ? 'latest_order_history' : 'latest_history'),
+      supplierConfidence:
+        asString(supplierLink.confidence) ?? (asString(orderHistorySupplier.supplierName) ? 'medium' : 'medium'),
       leadTimeDays,
       leadTimeConfirmedAt,
       leadTimeFreshness,
@@ -1160,10 +1402,25 @@ export class EcobaseInventoryPlanningService {
       expectedSellableDate: this.earliestExpectedSellableDate(orderLines),
       estimatedProfitRisk,
       estimatedProfitRiskBasis,
-      monthToDateRevenue: payloadNumber(latestInventory, ['MTD Revenue ', 'MTD Revenue', 'mtdRevenue', 'monthToDateRevenue']),
-      monthToDateUnitsSold: payloadNumber(latestInventory, ['MTD Unit Sold', 'MTD Units Sold', 'mtdUnitSold', 'monthToDateUnitsSold']),
-      monthToDateProfit: payloadNumber(latestInventory, ['MTD Profit ', 'MTD Profit', 'mtdProfit', 'monthToDateProfit']) ?? asNumber(params.calculation.achievedProfitMtd),
-      digestPriority: this.digestPriority(actionStatus, calculationTier && calculationTier !== 'unclassified' ? calculationTier : fallbackTier.tier),
+      monthToDateRevenue: payloadNumber(latestInventory, [
+        'MTD Revenue ',
+        'MTD Revenue',
+        'mtdRevenue',
+        'monthToDateRevenue',
+      ]),
+      monthToDateUnitsSold: payloadNumber(latestInventory, [
+        'MTD Unit Sold',
+        'MTD Units Sold',
+        'mtdUnitSold',
+        'monthToDateUnitsSold',
+      ]),
+      monthToDateProfit:
+        payloadNumber(latestInventory, ['MTD Profit ', 'MTD Profit', 'mtdProfit', 'monthToDateProfit']) ??
+        asNumber(params.calculation.achievedProfitMtd),
+      digestPriority: this.digestPriority(
+        actionStatus,
+        calculationTier && calculationTier !== 'unclassified' ? calculationTier : fallbackTier.tier,
+      ),
       evidence: {
         calculation: params.calculation.evidence,
         productStatusSource: productStatus === 'Active' ? 'default' : 'backend_sheet_or_import_payload',
@@ -1182,7 +1439,10 @@ export class EcobaseInventoryPlanningService {
     const reservedStock = asNumber(inventory.reserved) ?? 0;
     const inboundStock = asNumber(inventory.inbound) ?? 0;
     const orderedStock = asNumber(inventory.ordered) ?? 0;
-    const prepStock = asNumber(inventory.prepStock) ?? payloadNumber(inventory, ['Prep Stock', 'Prep Center Stock', 'FBA prep. stock Prep center 1 stock']) ?? 0;
+    const prepStock =
+      asNumber(inventory.prepStock) ??
+      payloadNumber(inventory, ['Prep Stock', 'Prep Center Stock', 'FBA prep. stock Prep center 1 stock']) ??
+      0;
     const awdStock = payloadNumber(inventory, ['AWD Stock', 'awdStock']) ?? 0;
     const pipelineStock = inboundStock + orderedStock + prepStock + awdStock;
     return {
@@ -1198,7 +1458,9 @@ export class EcobaseInventoryPlanningService {
   }
 
   private async sourceConnectionCompanies() {
-    const connections = (await this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).find({})).map(toPlainRecord);
+    const connections = (await this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).find({})).map(
+      toPlainRecord,
+    );
     const companyRows = (await this.db.getRepository(ECOBASE_COLLECTIONS.companies).find({})).map(toPlainRecord);
     const companyNamesById = new Map(
       companyRows
@@ -1223,7 +1485,9 @@ export class EcobaseInventoryPlanningService {
     const repository = this.db.getRepository(collection);
     const limit = params.limit;
     if (!params.company) {
-      return (await repository.find({ ...(params.sort ? { sort: params.sort } : {}), ...(limit ? { limit } : {}) })).map(toPlainRecord);
+      return (
+        await repository.find({ ...(params.sort ? { sort: params.sort } : {}), ...(limit ? { limit } : {}) })
+      ).map(toPlainRecord);
     }
 
     const matchingSourceConnectionIds = [...params.sourceConnectionCompanies.entries()]
@@ -1231,9 +1495,14 @@ export class EcobaseInventoryPlanningService {
       .map(([id]) => id);
     const records = new Map<string, PlainRecord>();
     const addRecords = async (filter: PlainRecord) => {
-      const found = (await repository.find({ filter, ...(params.sort ? { sort: params.sort } : {}), ...(limit ? { limit } : {}) })).map(toPlainRecord);
+      const found = (
+        await repository.find({ filter, ...(params.sort ? { sort: params.sort } : {}), ...(limit ? { limit } : {}) })
+      ).map(toPlainRecord);
       for (const record of found) {
-        const key = asString(record.id) ?? this.fallbackProductKey(record, params.sourceConnectionCompanies) ?? JSON.stringify(record);
+        const key =
+          asString(record.id) ??
+          this.fallbackProductKey(record, params.sourceConnectionCompanies) ??
+          JSON.stringify(record);
         records.set(key, record);
       }
     };
@@ -1251,23 +1520,104 @@ export class EcobaseInventoryPlanningService {
     const parameterSupplierId = asString(parameter.supplierId);
     const byLinkId = linkSupplierId ? toPlainRecord(await supplierRepo.findOne({ filterByTk: linkSupplierId })) : {};
     if (asString(byLinkId.id)) return byLinkId;
-    const byParameterId = parameterSupplierId ? toPlainRecord(await supplierRepo.findOne({ filterByTk: parameterSupplierId })) : {};
+    const byParameterId = parameterSupplierId
+      ? toPlainRecord(await supplierRepo.findOne({ filterByTk: parameterSupplierId }))
+      : {};
     if (asString(byParameterId.id)) return byParameterId;
     const supplierName = asString(parameter.supplier);
-    return supplierName ? toPlainRecord(await supplierRepo.findOne({ filter: { name: supplierName, ...(company ? { company } : {}) } })) : {};
+    return supplierName
+      ? toPlainRecord(await supplierRepo.findOne({ filter: { name: supplierName, ...(company ? { company } : {}) } }))
+      : {};
   }
 
-  private async supplierOrderStateForProduct(params: { company?: string; asin?: string; sku?: string; calculationDate?: string }) {
+  private async supplierOrderStateForProduct(params: {
+    company?: string;
+    asin?: string;
+    sku?: string;
+    calculationDate?: string;
+  }) {
     const lines = await this.findOrderLinesByProduct(params);
+    return summarizeSupplierOrderState(lines, await this.supplierOrdersByLine(lines), params.calculationDate);
+  }
+
+  private async supplierOrdersByLine(lines: PlainRecord[]) {
     const supplierOrderRepo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrders);
     const supplierOrderById = new Map<string, PlainRecord>();
     for (const line of lines) {
       const supplierOrderId = asString(line.supplierOrderId);
       if (supplierOrderId && !supplierOrderById.has(supplierOrderId)) {
-        supplierOrderById.set(supplierOrderId, toPlainRecord(await supplierOrderRepo.findOne({ filterByTk: supplierOrderId })));
+        supplierOrderById.set(
+          supplierOrderId,
+          toPlainRecord(await supplierOrderRepo.findOne({ filterByTk: supplierOrderId })),
+        );
       }
     }
-    return summarizeSupplierOrderState(lines, supplierOrderById, params.calculationDate);
+    return supplierOrderById;
+  }
+
+  private async withLatestSupplierOrderActivity(rows: PlainRecord[]) {
+    const orderRepo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrders);
+    const activityRepo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities);
+    const orderCache = new Map<string, PlainRecord>();
+    const result: PlainRecord[] = [];
+    for (const row of rows) {
+      const company = asString(row.company);
+      const ref = asString(row.supplierOrderRef);
+      if (!company || !ref) {
+        result.push(row);
+        continue;
+      }
+      const cacheKey = `${company}:${ref}`;
+      let order = orderCache.get(cacheKey);
+      if (!order) {
+        order = toPlainRecord(await orderRepo.findOne({ filter: { company, externalOrderRef: ref } }));
+        orderCache.set(cacheKey, order);
+      }
+      const supplierOrderId = asString(order.id);
+      const latestActivity = supplierOrderId
+        ? toPlainRecord(
+            (
+              await activityRepo.find({
+                filter: { supplierOrderId },
+                sort: ['-occurredAt'],
+                limit: 1,
+              })
+            )[0],
+          )
+        : {};
+      result.push({
+        ...row,
+        supplierOrderId,
+        latestSupplierOrderActivityType: asString(latestActivity.activityType),
+        latestSupplierOrderActivityAt: sortableDateValue(latestActivity.occurredAt),
+        latestSupplierOrderActivityNote: asString(latestActivity.notes),
+      });
+    }
+    return result;
+  }
+
+  private leadTimeFromOrderHistory(orderLines: PlainRecord[], supplierOrderById: Map<string, PlainRecord>) {
+    const candidates = orderLines
+      .map((line) => {
+        const order = supplierOrderById.get(asString(line.supplierOrderId) ?? '') ?? {};
+        const start = dateOnly(order.orderDate) ?? dateOnly(line.observedAt);
+        const end =
+          dateOnly(line.expectedSellableDate) ??
+          dateOnly(line.expectedDeliveryDate) ??
+          dateOnly(order.expectedDeliveryDate);
+        const leadTimeDays = start && end ? diffDays(end, start) : undefined;
+        return {
+          leadTimeDays,
+          confirmedAt: dateOnly(line.observedAt) ?? dateOnly(order.orderDate),
+          sourceOrderLineRef: asString(line.sourceOrderLineRef),
+        };
+      })
+      .filter(
+        (candidate) =>
+          typeof candidate.leadTimeDays === 'number' && candidate.leadTimeDays >= 0 && candidate.leadTimeDays <= 999,
+      )
+      .sort((left, right) => String(right.confirmedAt ?? '').localeCompare(String(left.confirmedAt ?? '')));
+    return candidates[0] ?? {};
   }
 
   private async earliestFallbackExpectedSellableDate(params: { company?: string; asin?: string; sku?: string }) {
@@ -1284,7 +1634,8 @@ export class EcobaseInventoryPlanningService {
     for (const filter of filters) {
       const lines = (await lineRepo.find({ filter, limit: 100 })).map(toPlainRecord);
       for (const line of lines) {
-        const id = asString(line.id) ?? `${asString(line.supplierOrderId) ?? ''}:${asString(line.sourceOrderLineRef) ?? ''}`;
+        const id =
+          asString(line.id) ?? `${asString(line.supplierOrderId) ?? ''}:${asString(line.sourceOrderLineRef) ?? ''}`;
         byId.set(id, line);
       }
     }
@@ -1296,14 +1647,19 @@ export class EcobaseInventoryPlanningService {
     if (params.asin) filters.push({ asin: params.asin, ...(params.company ? { company: params.company } : {}) });
     if (params.sku) filters.push({ sku: params.sku, ...(params.company ? { company: params.company } : {}) });
     for (const filter of filters) {
-      const lines = (await this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).find({ filter, limit: 20 })).map(toPlainRecord);
+      const lines = (
+        await this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).find({ filter, limit: 20 })
+      ).map(toPlainRecord);
       const latestLine = latestByDate(lines, 'observedAt') ?? latestByDate(lines, 'expectedDeliveryDate') ?? lines[0];
       const supplierId = asString(latestLine?.supplierId);
       if (!supplierId) continue;
-      const supplier = toPlainRecord(await this.db.getRepository(ECOBASE_COLLECTIONS.suppliers).findOne({ filterByTk: supplierId }));
+      const supplier = toPlainRecord(
+        await this.db.getRepository(ECOBASE_COLLECTIONS.suppliers).findOne({ filterByTk: supplierId }),
+      );
       return {
         supplierId,
-        supplierName: asString(supplier.name) ?? payloadString(latestLine, ['Supplier', 'Supplier Name', 'supplierName']),
+        supplierName:
+          asString(supplier.name) ?? payloadString(latestLine, ['Supplier', 'Supplier Name', 'supplierName']),
         evidence: {
           source: 'supplier_order_lines',
           sourceOrderLineRef: asString(latestLine.sourceOrderLineRef),
@@ -1314,16 +1670,53 @@ export class EcobaseInventoryPlanningService {
     return {};
   }
 
-  private async findLeadTime(supplier: PlainRecord, link: PlainRecord, parameter: PlainRecord, company?: string, planningProductId?: string) {
+  private async findLeadTime(
+    supplier: PlainRecord,
+    link: PlainRecord,
+    parameter: PlainRecord,
+    company?: string,
+    planningProductId?: string,
+    asin?: string,
+    sku?: string,
+  ) {
     const leadTimeRepo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierLeadTimes);
     const supplierRefId = asString(supplier.id) ?? asString(link.supplierId);
     const externalSupplierCode = asString(supplier.supplierId) ?? asString(parameter.supplierId);
     const supplierName = asString(supplier.name) ?? asString(parameter.supplier);
     const scoped = (filter: PlainRecord) => ({ ...filter, ...(company ? { company } : {}) });
     const findScoped = async (base: PlainRecord) => {
-      if (!planningProductId) return {};
-      const rows = (await leadTimeRepo.find({ filter: scoped({ ...base, planningProductId }), sort: ['-confirmedAt'], limit: 1 })).map(toPlainRecord);
-      return rows[0] ?? {};
+      const productScopedRows = planningProductId
+        ? (
+            await leadTimeRepo.find({
+              filter: scoped({ ...base, planningProductId }),
+              sort: ['-confirmedAt'],
+              limit: 1,
+            })
+          ).map(toPlainRecord)
+        : [];
+      if (productScopedRows[0]) return productScopedRows[0];
+      const productFilters = [
+        ...(asin ? [{ ...base, asin: asin.toUpperCase(), scope: 'product' }] : []),
+        ...(sku ? [{ ...base, sku, scope: 'product' }] : []),
+      ];
+      for (const filter of productFilters) {
+        const productRows = (
+          await leadTimeRepo.find({
+            filter: scoped(filter),
+            sort: ['-confirmedAt'],
+            limit: 1,
+          })
+        ).map(toPlainRecord);
+        if (productRows[0]) return productRows[0];
+      }
+      const orderHistoryRows = (
+        await leadTimeRepo.find({
+          filter: scoped({ ...base, source: 'order_details' }),
+          sort: ['-confirmedAt'],
+          limit: 1,
+        })
+      ).map(toPlainRecord);
+      return orderHistoryRows[0] ?? {};
     };
     const bySupplierRef = supplierRefId ? await findScoped({ supplierRefId }) : {};
     if (asString(bySupplierRef.id) || typeof bySupplierRef.leadTimeDays === 'number') return bySupplierRef;
@@ -1358,9 +1751,11 @@ export class EcobaseInventoryPlanningService {
   }): InventoryPlanningActionStatus {
     if (params.excluded) return 'excluded';
     if (!params.salesVelocity || params.salesVelocity <= 0) return 'missing_velocity';
-    if (params.leadTimeFreshness === 'missing' || params.leadTimeFreshness === 'stale') return 'missing_lead_time';
+    if (params.leadTimeFreshness === 'missing') return 'missing_lead_time';
+    if (params.leadTimeFreshness === 'stale') return 'stale_lead_time';
     if (typeof params.daysUntilSafeReorder !== 'number') return 'missing_lead_time';
-    if (params.openOrderCoverageQty > 0 && params.daysUntilSafeReorder <= params.orderSoonWindowDays) return 'already_ordered';
+    if (params.openOrderCoverageQty > 0 && params.daysUntilSafeReorder <= params.orderSoonWindowDays)
+      return 'already_ordered';
     if (params.daysUntilSafeReorder < 0) return 'overdue';
     if (params.daysUntilSafeReorder === 0) return 'order_today';
     if (params.daysUntilSafeReorder <= params.orderSoonWindowDays) return 'order_soon';
@@ -1380,20 +1775,42 @@ export class EcobaseInventoryPlanningService {
 
   private sortDigestRows(rows: PlainRecord[]) {
     return [...rows].sort((left, right) => {
+      const risk = (asNumber(right.estimatedProfitRisk) ?? 0) - (asNumber(left.estimatedProfitRisk) ?? 0);
+      if (risk !== 0) return risk;
       const orderState = digestOrderStateRank(left) - digestOrderStateRank(right);
       if (orderState !== 0) return orderState;
-      const priority = (asNumber(left.digestPriority) ?? this.digestPriority(left.actionStatus as InventoryPlanningActionStatus, left.tier)) -
-        (asNumber(right.digestPriority) ?? this.digestPriority(right.actionStatus as InventoryPlanningActionStatus, right.tier));
+      const priority =
+        (asNumber(left.digestPriority) ??
+          this.digestPriority(left.actionStatus as InventoryPlanningActionStatus, left.tier)) -
+        (asNumber(right.digestPriority) ??
+          this.digestPriority(right.actionStatus as InventoryPlanningActionStatus, right.tier));
       if (priority !== 0) return priority;
-      return (asNumber(right.estimatedProfitRisk) ?? 0) - (asNumber(left.estimatedProfitRisk) ?? 0);
+      return (asNumber(right.suggestedReorderQty) ?? 0) - (asNumber(left.suggestedReorderQty) ?? 0);
     });
   }
 
   private rankSuppliers(rows: PlainRecord[]) {
-    const bySupplier = new Map<string, { supplierName: string; urgentCount: number; tierA: number; tierB: number; tierC: number; estimatedProfitRisk: number }>();
+    const bySupplier = new Map<
+      string,
+      {
+        supplierName: string;
+        urgentCount: number;
+        tierA: number;
+        tierB: number;
+        tierC: number;
+        estimatedProfitRisk: number;
+      }
+    >();
     for (const row of rows) {
       const supplierName = asString(row.supplierName) ?? 'Find supplier from OrderDetails';
-      const existing = bySupplier.get(supplierName) ?? { supplierName, urgentCount: 0, tierA: 0, tierB: 0, tierC: 0, estimatedProfitRisk: 0 };
+      const existing = bySupplier.get(supplierName) ?? {
+        supplierName,
+        urgentCount: 0,
+        tierA: 0,
+        tierB: 0,
+        tierC: 0,
+        estimatedProfitRisk: 0,
+      };
       existing.urgentCount += 1;
       existing.tierA += row.tier === 'A' ? 1 : 0;
       existing.tierB += row.tier === 'B' ? 1 : 0;
@@ -1402,7 +1819,8 @@ export class EcobaseInventoryPlanningService {
       bySupplier.set(supplierName, existing);
     }
     return [...bySupplier.values()].sort((left, right) => {
-      if (right.estimatedProfitRisk !== left.estimatedProfitRisk) return right.estimatedProfitRisk - left.estimatedProfitRisk;
+      if (right.estimatedProfitRisk !== left.estimatedProfitRisk)
+        return right.estimatedProfitRisk - left.estimatedProfitRisk;
       if (right.tierA !== left.tierA) return right.tierA - left.tierA;
       if (right.tierB !== left.tierB) return right.tierB - left.tierB;
       if (right.tierC !== left.tierC) return right.tierC - left.tierC;

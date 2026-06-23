@@ -1819,12 +1819,15 @@ export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
       const values = getValues(ctx.action.params);
       const service = new EcobaseImportService(ctx.db, registry);
       try {
-        ctx.body = {
-          data: await service.runMedallionPipeline({
-            sourceConnectionId: getOptionalString(values, 'sourceConnectionId'),
-            sourceVersion: getOptionalString(values, 'sourceVersion'),
-          }),
-        };
+        const pipeline = await service.runMedallionPipeline({
+          sourceConnectionId: getOptionalString(values, 'sourceConnectionId'),
+          sourceVersion: getOptionalString(values, 'sourceVersion'),
+        });
+        const goldInventory = await new EcobaseInventoryPlanningService(ctx.db).refreshReadModel({
+          calculationDate: getOptionalString(values, 'sourceVersion'),
+          limit: getOptionalNumber(values, 'goldLimit') ?? 500,
+        });
+        ctx.body = { data: { ...pipeline, goldInventory } };
       } catch (error) {
         ctx.throw(400, error instanceof Error ? error.message : 'Ecobase medallion pipeline failed.');
         return;

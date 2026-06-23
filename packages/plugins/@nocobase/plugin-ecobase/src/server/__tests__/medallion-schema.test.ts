@@ -152,6 +152,8 @@ describe('Ecobase medallion schema foundation', () => {
       target: ECOBASE_COLLECTIONS.silverCompanyProducts,
       foreignKey: 'companyProductId',
     });
+    expect(field(goldInventoryPlanningRows, 'supplierOrderState')).toMatchObject({ type: 'string' });
+    expect(field(goldInventoryPlanningRows, 'supplierOrderRef')).toMatchObject({ type: 'string' });
     expect(field(goldReportItems, 'reportRun')).toMatchObject({
       type: 'belongsTo',
       target: ECOBASE_COLLECTIONS.goldReportRuns,
