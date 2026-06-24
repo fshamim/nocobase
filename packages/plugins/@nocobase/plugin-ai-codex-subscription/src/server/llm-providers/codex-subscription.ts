@@ -91,7 +91,7 @@ type CodexResponsesRequest = {
 };
 
 const DEFAULT_MODEL = 'gpt-5.5';
-const DEFAULT_TIMEOUT_MS = 60_000;
+const DEFAULT_TIMEOUT_MS = 180_000;
 const DEFAULT_CODEX_BASE_URL = 'https://chatgpt.com/backend-api';
 const STATIC_MODELS = ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini', 'openai-codex'];
 
@@ -415,8 +415,8 @@ function toChatMessages(messages: unknown[] | unknown): ChatMessage[] {
         typeof record.role === 'string'
           ? record.role
           : typeof record._getType === 'function'
-          ? String(record._getType())
-          : 'user',
+            ? String(record._getType())
+            : 'user',
       content: extractMessageContent(record.content ?? message),
     };
   });
@@ -455,7 +455,8 @@ function buildRequestBody(input: {
     .filter((value): value is string => typeof value === 'string' && value.length > 0)
     .join('\n\n');
 
-  const tools = toCodexTools(input.tools);
+  const hasToolResult = input.messages.some((message) => message.role === 'tool');
+  const tools = hasToolResult ? [] : toCodexTools(input.tools);
   return {
     model: input.model,
     store: false,
@@ -474,8 +475,8 @@ function buildRequestBody(input: {
         ],
       })),
     tools,
-    tool_choice: 'auto',
-    parallel_tool_calls: true,
+    tool_choice: hasToolResult ? 'none' : 'auto',
+    parallel_tool_calls: !hasToolResult,
     include: ['reasoning.encrypted_content'],
     text: { verbosity: 'low' },
   };
@@ -602,7 +603,9 @@ function extractCompletion(json: Record<string, unknown>): CodexCompletion {
   const output = json.output;
   if (Array.isArray(output)) {
     const toolCalls = output
-      .map((item) => (typeof item === 'object' && item !== null ? toCodexToolCall(item as Record<string, unknown>) : null))
+      .map((item) =>
+        typeof item === 'object' && item !== null ? toCodexToolCall(item as Record<string, unknown>) : null,
+      )
       .filter((toolCall): toolCall is CodexToolCall => Boolean(toolCall));
     if (toolCalls.length > 0) {
       return { content: '', toolCalls };

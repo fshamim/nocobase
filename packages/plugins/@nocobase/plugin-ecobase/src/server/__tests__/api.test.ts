@@ -177,6 +177,69 @@ describe('Ecobase AI public API seam', () => {
     expect(result.status).toBe('success');
     expect(db.getRepository(ECOBASE_COLLECTIONS.aiAnswers).all()).toHaveLength(0);
   });
+
+  it('answers inventory questions from silver/gold medallion tables only', async () => {
+    const oldBusinessTables = new Set([
+      ECOBASE_COLLECTIONS.planningCalculationSnapshots,
+      ECOBASE_COLLECTIONS.alerts,
+      ECOBASE_COLLECTIONS.inventoryPlanningRows,
+      ECOBASE_COLLECTIONS.supplierOrders,
+      ECOBASE_COLLECTIONS.supplierOrderLines,
+      ECOBASE_COLLECTIONS.supplierOrderActivities,
+      ECOBASE_COLLECTIONS.supplierLeadTimes,
+      ECOBASE_COLLECTIONS.supplierProductLinks,
+      ECOBASE_COLLECTIONS.listingDailyFacts,
+      ECOBASE_COLLECTIONS.inventorySnapshots,
+    ]);
+    class GuardedDatabase extends MemoryDatabase {
+      getRepository(name: string) {
+        if (oldBusinessTables.has(name)) {
+          throw new Error(`Old table access is forbidden for Eco AI tools: ${name}`);
+        }
+        return super.getRepository(name);
+      }
+    }
+    const db = new GuardedDatabase();
+    await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).create({
+      values: {
+        id: 'gold-row-1',
+        calculationDate: '2026-06-24',
+        company: 'Ecofission LLC',
+        asin: 'B001',
+        sku: 'SKU-1',
+        actionStatus: 'order_soon',
+        estimatedProfitRisk: 1000,
+        supplierName: 'Acme',
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+      values: { id: 'order-1', company: 'Ecofission LLC', orderRef: 'EF1', lifecycleStatus: 'approval_pending' },
+    });
+
+    const tools = createEcobaseAiTools();
+    const digestTool = tools.find((tool) => tool.definition.name === 'ecobase_inventory_digest');
+    const answerTool = tools.find((tool) => tool.definition.name === 'ecobase_answer_ephemeral');
+    if (!digestTool || !answerTool) {
+      throw new Error('Expected Ecobase medallion AI tools to be registered.');
+    }
+
+    const digest = await digestTool.invoke(
+      { db } as any,
+      { company: 'Ecofission LLC', calculationDate: '2026-06-24' },
+      'tool-call-1',
+    );
+    const answer = await answerTool.invoke(
+      { db } as any,
+      { question: 'What are the current inventory planning next actions?', company: 'Ecofission LLC' },
+      'tool-call-2',
+    );
+
+    expect(digest.status).toBe('success');
+    expect(digest.content).toContain('silver-gold-medallion');
+    expect(digest.content).toContain('"oldTablesUsed":false');
+    expect(answer.status).toBe('success');
+    expect(answer.content).toContain('Evidence source: silver/gold medallion tables only.');
+  });
 });
 
 describe('Ecobase inventory-planning public API seam', () => {

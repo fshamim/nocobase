@@ -456,6 +456,74 @@ function sortOrderNowRows(rows: PlainRecord[], sortKey: OrderNowSortKey, calcula
   });
 }
 
+function orderNowGroupKey(row: PlainRecord) {
+  const company = String(row.company ?? 'Unknown company');
+  const orderRef = String(row.supplierOrderRef ?? '').trim();
+  if (orderRef) return `order:${company}:${orderRef}`;
+  const supplier = String(row.supplierName ?? '').trim();
+  if (supplier) return `supplier:${company}:${supplier}`;
+  return `missing-supplier:${company}`;
+}
+
+function orderNowGroupType(row: PlainRecord) {
+  if (String(row.supplierOrderRef ?? '').trim()) return 'order';
+  if (String(row.supplierName ?? '').trim()) return 'supplier';
+  return 'missing_supplier';
+}
+
+function latestActivity(rows: PlainRecord[]) {
+  return [...rows]
+    .filter((row) => row.latestSupplierOrderActivityNote)
+    .sort((left, right) =>
+      String(right.latestSupplierOrderActivityAt ?? '').localeCompare(String(left.latestSupplierOrderActivityAt ?? '')),
+    )[0];
+}
+
+function groupOrderNowRows(rows: PlainRecord[], calculationDate: string) {
+  const groups = new Map<string, PlainRecord>();
+  for (const row of rows) {
+    const key = orderNowGroupKey(row);
+    const group = groups.get(key);
+    if (!group) {
+      groups.set(key, {
+        key,
+        type: orderNowGroupType(row),
+        company: row.company,
+        supplierName: row.supplierName,
+        supplierOrderRef: row.supplierOrderRef,
+        supplierOrderStatus: row.supplierOrderStatus,
+        supplierOrderState: row.supplierOrderState,
+        rows: [row],
+      });
+      continue;
+    }
+    group.rows.push(row);
+  }
+
+  return Array.from(groups.values()).map((group) => {
+    const groupRows = group.rows as PlainRecord[];
+    const sortedRows = sortOrderNowRows(groupRows, 'urgency', calculationDate);
+    const firstProduct = sortedRows[0] ?? {};
+    const latest = latestActivity(groupRows) ?? {};
+    return {
+      ...group,
+      supplierName: group.supplierName ?? firstProduct.supplierName,
+      productCount: groupRows.length,
+      firstProduct,
+      totalMoneyAtRisk: groupRows.reduce((sum, row) => sum + numericValue(row.estimatedProfitRisk, 0), 0),
+      earliestOosDate: groupRows
+        .map((row) => String(row.estimatedOosDate ?? ''))
+        .filter(Boolean)
+        .sort()[0],
+      leadTimeIssueCount: groupRows.filter((row) => ['missing', 'stale'].includes(String(row.leadTimeFreshness ?? '')))
+        .length,
+      topActionStatus: firstProduct.actionStatus,
+      latestSupplierOrderActivityNote: latest.latestSupplierOrderActivityNote,
+      latestSupplierOrderActivityAt: latest.latestSupplierOrderActivityAt,
+    };
+  });
+}
+
 function productLineMatches(row: PlainRecord, line: PlainRecord) {
   const rowPlanningProductId = String(row.planningProductId ?? '');
   const linePlanningProductId = String(line.planningProductId ?? '');
@@ -667,6 +735,11 @@ export default function InventoryPlanningPage() {
     orderNowSort,
     orderNowTierFilter,
   ]);
+
+  const orderNowGroups = useMemo(
+    () => groupOrderNowRows(orderNowRows, calculationDate),
+    [calculationDate, orderNowRows],
+  );
 
   const newActionValues = (row: PlainRecord): DrawerActionValues => {
     const supplierId = isUuid(row.supplierId) ? row.supplierId : '';
@@ -1169,295 +1242,289 @@ export default function InventoryPlanningPage() {
           )}
         </Typography.Paragraph>
         {error ? <Alert type="error" message={error.message} /> : null}
-        <Card
-          title={t('Operator filters')}
-          extra={
-            <Typography.Text type="secondary">
-              {t('Use these controls to narrow the queue before deciding what to order or who to contact.')}
-            </Typography.Text>
-          }
-        >
-          <Row gutter={[24, 20]} align="bottom">
-            <FilterControl
-              title={t('Company')}
-              help={t(
-                'Choose the legal entity/account whose stock and supplier rows you want to review. Leave empty for all companies.',
-              )}
-            >
-              <Select
-                allowClear
-                showSearch
-                placeholder={t('All companies')}
-                value={company || undefined}
-                onChange={(value) => setCompany(value ?? '')}
-                style={{ width: '100%' }}
-                options={(Array.isArray(filterOptions.companies) ? filterOptions.companies : []).map(
-                  (value: string) => ({ value, label: value }),
-                )}
-              />
-            </FilterControl>
-            <FilterControl
-              title={t('Planning date')}
-              help={t('The date used for relative order-by timing such as Today, Tomorrow, or In N days.')}
-            >
-              <DatePicker
-                allowClear={false}
-                value={calculationDate ? dayjs(calculationDate) : undefined}
-                onChange={(_date, dateString) =>
-                  setCalculationDate(Array.isArray(dateString) ? dateString[0] : dateString)
-                }
-                style={{ width: '100%' }}
-              />
-            </FilterControl>
-            <FilterControl
-              title={t('Action status')}
-              help={t(
-                'Focus on overdue, order-today, lead-time problems, already-ordered rows, or watch-list products.',
-              )}
-            >
-              <Select
-                allowClear
-                placeholder={t('Any action')}
-                value={actionStatus}
-                onChange={setActionStatus}
-                style={{ width: '100%' }}
-                options={(Array.isArray(filterOptions.actionStatuses) ? filterOptions.actionStatuses : []).map(
-                  (value: string) => ({ value, label: t(value) }),
-                )}
-              />
-            </FilterControl>
-            <FilterControl
-              title={t('Profit tier')}
-              help={t('Prioritize A/B/C products by expected profit impact. Tier A is the most important.')}
-            >
-              <Select
-                allowClear
-                placeholder={t('Any tier')}
-                value={tier}
-                onChange={setTier}
-                style={{ width: '100%' }}
-                options={(Array.isArray(filterOptions.tiers) ? filterOptions.tiers : ['A', 'B', 'C']).map(
-                  (value: string) => ({ value, label: value }),
-                )}
-              />
-            </FilterControl>
-            <FilterControl
-              title={t('Lead-time stale after')}
-              help={t('How many days a supplier lead time remains trusted before it becomes a contact-first warning.')}
-            >
-              <InputNumber
-                addonAfter={t('days')}
-                min={1}
-                value={leadTimeFreshnessDays}
-                onChange={(value) => setLeadTimeFreshnessDays(Number(value ?? 60))}
-                style={{ width: '100%' }}
-              />
-            </FilterControl>
-            <FilterControl
-              title={t('Soon window')}
-              help={t('Rows due within this many days are marked as order soon.')}
-            >
-              <InputNumber
-                addonAfter={t('days')}
-                min={1}
-                value={orderSoonWindowDays}
-                onChange={(value) => setOrderSoonWindowDays(Number(value ?? 14))}
-                style={{ width: '100%' }}
-              />
-            </FilterControl>
-            <FilterControl
-              title={t('Rows to load')}
-              help={t('Caps the queue size so the operator page stays fast and focused.')}
-            >
-              <InputNumber
-                min={25}
-                max={500}
-                value={limit}
-                onChange={(value) => setLimit(Number(value ?? 150))}
-                style={{ width: '100%' }}
-              />
-            </FilterControl>
-            <Col xs={24} md={12} xl={6}>
-              <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                <Button type="primary" block loading={loading} onClick={loadPlanning}>
-                  {t('Refresh planning')}
-                </Button>
-                <Button block loading={loading} onClick={syncEditableRows}>
-                  {t('Rebuild gold inventory')}
-                </Button>
-              </Space>
-            </Col>
-          </Row>
-        </Card>
-        <Card
-          title={t('Optional budget optimizer')}
-          extra={
-            <Typography.Text type="secondary">
-              {t('Leave budget empty to keep using the normal daily digest.')}
-            </Typography.Text>
-          }
-        >
-          <Row gutter={[16, 16]} align="bottom">
-            <Col xs={24} md={8} lg={6}>
-              <Space direction="vertical" size={4} style={{ width: '100%' }}>
-                <Typography.Text strong>{t('Available budget')}</Typography.Text>
-                <InputNumber
-                  min={0}
-                  precision={2}
-                  addonBefore="$"
-                  placeholder={t('Optional')}
-                  value={budgetAmount ?? undefined}
-                  onChange={(value) => setBudgetAmount(typeof value === 'number' ? value : null)}
-                  style={{ width: '100%' }}
-                />
-              </Space>
-            </Col>
-            <Col xs={24} md={8} lg={5}>
-              <Space direction="vertical" size={4} style={{ width: '100%' }}>
-                <Typography.Text strong>{t('Profit horizon')}</Typography.Text>
-                <InputNumber
-                  addonAfter={t('days')}
-                  min={1}
-                  value={budgetHorizonDays}
-                  onChange={(value) => setBudgetHorizonDays(Number(value ?? 30))}
-                  style={{ width: '100%' }}
-                />
-              </Space>
-            </Col>
-            <Col xs={24} md={8} lg={5}>
-              <Button
-                type="primary"
-                block
-                disabled={!budgetAmount || budgetAmount <= 0}
-                loading={budgetLoading}
-                onClick={runBudgetOptimizer}
-              >
-                {t('Run optimizer')}
-              </Button>
-            </Col>
-            <Col xs={24} lg={8}>
-              <Alert
-                type={budgetAmount && budgetAmount > 0 ? 'info' : 'success'}
-                showIcon
-                message={
-                  budgetAmount && budgetAmount > 0
-                    ? t('Budget mode will choose the best approve/pay/order candidates under this budget.')
-                    : t('No budget entered: daily digest remains the source of truth.')
-                }
-              />
-            </Col>
-          </Row>
-          {budgetResult ? (
-            <Space direction="vertical" size="middle" style={{ width: '100%', marginTop: 16 }}>
-              <Row gutter={[16, 16]}>
-                <Col xs={12} md={6}>
-                  <Statistic
-                    title={t('Selected spend')}
-                    value={Number(budgetResult.selectedSpend ?? 0)}
-                    precision={2}
-                    prefix="$"
-                  />
-                </Col>
-                <Col xs={12} md={6}>
-                  <Statistic title={t('Budget')} value={Number(budgetResult.budget ?? 0)} precision={2} prefix="$" />
-                </Col>
-                <Col xs={12} md={6}>
-                  <Statistic
-                    title={t('Remaining')}
-                    value={Number(budgetResult.remainingBudget ?? 0)}
-                    precision={2}
-                    prefix="$"
-                  />
-                </Col>
-                <Col xs={12} md={6}>
-                  <Statistic
-                    title={t('Protected profit')}
-                    value={Number(budgetResult.expectedProtectedProfit ?? 0)}
-                    precision={2}
-                    prefix="$"
-                    valueStyle={{ color: '#3f8600' }}
-                  />
-                </Col>
-              </Row>
-              <Table<PlainRecord>
-                size="small"
-                rowKey={(row) => String(row.key)}
-                title={() => t('Recommended approvals / payments')}
-                dataSource={Array.isArray(budgetResult.recommendations) ? budgetResult.recommendations : []}
-                pagination={false}
-                columns={[
-                  {
-                    title: t('Action'),
-                    dataIndex: 'recommendedAction',
-                    render: (value: string) => (
-                      <Tag color={value === 'pay' ? 'red' : value === 'approve' ? 'orange' : 'blue'}>{t(value)}</Tag>
-                    ),
-                  },
-                  {
-                    title: t('Order / product'),
-                    key: 'target',
-                    render: (_value: any, row: PlainRecord) =>
-                      row.supplierOrderRef ?? row.asin ?? row.planningProductId,
-                  },
-                  {
-                    title: t('Supplier'),
-                    dataIndex: 'supplierName',
-                    render: (value: string) => value || <Tag color="red">{t('Missing supplier')}</Tag>,
-                  },
-                  { title: t('Spend'), dataIndex: 'spend', render: formatCurrency },
-                  { title: t('Protected profit'), dataIndex: 'protectedProfit', render: formatCurrency },
-                  { title: t('Score'), dataIndex: 'adjustedScore', render: formatNumber },
-                  {
-                    title: t('Reasons'),
-                    dataIndex: 'reasonCodes',
-                    render: (values: string[]) => (
-                      <Space size={4} wrap>
-                        {(Array.isArray(values) ? values : []).map((value) => (
-                          <Tag key={value}>{t(value)}</Tag>
-                        ))}
+        <Collapse
+          size="small"
+          items={[
+            {
+              key: 'operator-filters',
+              label: t('Operator filters'),
+              extra: <Typography.Text type="secondary">{t('Company, date, status, limits.')}</Typography.Text>,
+              children: (
+                <Row gutter={[24, 20]} align="bottom">
+                  <FilterControl title={t('Company')} help={t('Limit rows to one company.')}>
+                    <Select
+                      allowClear
+                      showSearch
+                      placeholder={t('All companies')}
+                      value={company || undefined}
+                      onChange={(value) => setCompany(value ?? '')}
+                      style={{ width: '100%' }}
+                      options={(Array.isArray(filterOptions.companies) ? filterOptions.companies : []).map(
+                        (value: string) => ({ value, label: value }),
+                      )}
+                    />
+                  </FilterControl>
+                  <FilterControl title={t('Planning date')} help={t('Relative order timing date.')}>
+                    <DatePicker
+                      allowClear={false}
+                      value={calculationDate ? dayjs(calculationDate) : undefined}
+                      onChange={(_date, dateString) =>
+                        setCalculationDate(Array.isArray(dateString) ? dateString[0] : dateString)
+                      }
+                      style={{ width: '100%' }}
+                    />
+                  </FilterControl>
+                  <FilterControl title={t('Action status')} help={t('Filter by action state.')}>
+                    <Select
+                      allowClear
+                      placeholder={t('Any action')}
+                      value={actionStatus}
+                      onChange={setActionStatus}
+                      style={{ width: '100%' }}
+                      options={(Array.isArray(filterOptions.actionStatuses) ? filterOptions.actionStatuses : []).map(
+                        (value: string) => ({ value, label: t(value) }),
+                      )}
+                    />
+                  </FilterControl>
+                  <FilterControl title={t('Profit tier')} help={t('Filter by profit tier.')}>
+                    <Select
+                      allowClear
+                      placeholder={t('Any tier')}
+                      value={tier}
+                      onChange={setTier}
+                      style={{ width: '100%' }}
+                      options={(Array.isArray(filterOptions.tiers) ? filterOptions.tiers : ['A', 'B', 'C']).map(
+                        (value: string) => ({ value, label: value }),
+                      )}
+                    />
+                  </FilterControl>
+                  <FilterControl title={t('Lead-time stale after')} help={t('When lead time becomes stale.')}>
+                    <InputNumber
+                      addonAfter={t('days')}
+                      min={1}
+                      value={leadTimeFreshnessDays}
+                      onChange={(value) => setLeadTimeFreshnessDays(Number(value ?? 60))}
+                      style={{ width: '100%' }}
+                    />
+                  </FilterControl>
+                  <FilterControl title={t('Soon window')} help={t('Mark due rows order soon.')}>
+                    <InputNumber
+                      addonAfter={t('days')}
+                      min={1}
+                      value={orderSoonWindowDays}
+                      onChange={(value) => setOrderSoonWindowDays(Number(value ?? 14))}
+                      style={{ width: '100%' }}
+                    />
+                  </FilterControl>
+                  <FilterControl title={t('Rows to load')} help={t('Cap rows for speed.')}>
+                    <InputNumber
+                      min={25}
+                      max={500}
+                      value={limit}
+                      onChange={(value) => setLimit(Number(value ?? 150))}
+                      style={{ width: '100%' }}
+                    />
+                  </FilterControl>
+                  <Col xs={24} md={12} xl={6}>
+                    <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                      <Button type="primary" block loading={loading} onClick={loadPlanning}>
+                        {t('Refresh planning')}
+                      </Button>
+                      <Button block loading={loading} onClick={syncEditableRows}>
+                        {t('Rebuild gold inventory')}
+                      </Button>
+                    </Space>
+                  </Col>
+                </Row>
+              ),
+            },
+          ]}
+        />
+        <Collapse
+          size="small"
+          items={[
+            {
+              key: 'budget-optimizer',
+              label: t('Optional budget optimizer'),
+              extra: (
+                <Typography.Text type="secondary">{t('Budget-constrained approve/pay/order ranking.')}</Typography.Text>
+              ),
+              children: (
+                <>
+                  <Row gutter={[16, 16]} align="bottom">
+                    <Col xs={24} md={8} lg={6}>
+                      <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                        <Typography.Text strong>{t('Available budget')}</Typography.Text>
+                        <InputNumber
+                          min={0}
+                          precision={2}
+                          addonBefore="$"
+                          placeholder={t('Optional')}
+                          value={budgetAmount ?? undefined}
+                          onChange={(value) => setBudgetAmount(typeof value === 'number' ? value : null)}
+                          style={{ width: '100%' }}
+                        />
                       </Space>
-                    ),
-                  },
-                ]}
-              />
-              <Table<PlainRecord>
-                size="small"
-                rowKey={(row) => String(row.key)}
-                title={() => t('Skipped but still important')}
-                dataSource={Array.isArray(budgetResult.skipped) ? budgetResult.skipped : []}
-                pagination={false}
-                columns={[
-                  {
-                    title: t('Reason'),
-                    dataIndex: 'skipReason',
-                    render: (value: string) => (
-                      <Tag color={value === 'missing_unit_cost' ? 'red' : 'default'}>{t(value)}</Tag>
-                    ),
-                  },
-                  {
-                    title: t('Order / product'),
-                    key: 'target',
-                    render: (_value: any, row: PlainRecord) =>
-                      row.supplierOrderRef ?? row.asin ?? row.planningProductId,
-                  },
-                  {
-                    title: t('Supplier'),
-                    dataIndex: 'supplierName',
-                    render: (value: string) => value || <Tag color="red">{t('Missing supplier')}</Tag>,
-                  },
-                  { title: t('Spend'), dataIndex: 'spend', render: formatCurrency },
-                  { title: t('Protected profit'), dataIndex: 'protectedProfit', render: formatCurrency },
-                ]}
-              />
-              <Alert
-                type="info"
-                showIcon
-                message={t('Optimizer assumptions')}
-                description={(Array.isArray(budgetResult.assumptions) ? budgetResult.assumptions : []).join(' ')}
-              />
-            </Space>
-          ) : null}
-        </Card>
+                    </Col>
+                    <Col xs={24} md={8} lg={5}>
+                      <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                        <Typography.Text strong>{t('Profit horizon')}</Typography.Text>
+                        <InputNumber
+                          addonAfter={t('days')}
+                          min={1}
+                          value={budgetHorizonDays}
+                          onChange={(value) => setBudgetHorizonDays(Number(value ?? 30))}
+                          style={{ width: '100%' }}
+                        />
+                      </Space>
+                    </Col>
+                    <Col xs={24} md={8} lg={5}>
+                      <Button
+                        type="primary"
+                        block
+                        disabled={!budgetAmount || budgetAmount <= 0}
+                        loading={budgetLoading}
+                        onClick={runBudgetOptimizer}
+                      >
+                        {t('Run optimizer')}
+                      </Button>
+                    </Col>
+                    <Col xs={24} lg={8}>
+                      <Alert
+                        type={budgetAmount && budgetAmount > 0 ? 'info' : 'success'}
+                        showIcon
+                        message={
+                          budgetAmount && budgetAmount > 0
+                            ? t('Ranks actions within budget.')
+                            : t('Daily digest remains primary.')
+                        }
+                      />
+                    </Col>
+                  </Row>
+                  {budgetResult ? (
+                    <Space direction="vertical" size="middle" style={{ width: '100%', marginTop: 16 }}>
+                      <Row gutter={[16, 16]}>
+                        <Col xs={12} md={6}>
+                          <Statistic
+                            title={t('Selected spend')}
+                            value={Number(budgetResult.selectedSpend ?? 0)}
+                            precision={2}
+                            prefix="$"
+                          />
+                        </Col>
+                        <Col xs={12} md={6}>
+                          <Statistic
+                            title={t('Budget')}
+                            value={Number(budgetResult.budget ?? 0)}
+                            precision={2}
+                            prefix="$"
+                          />
+                        </Col>
+                        <Col xs={12} md={6}>
+                          <Statistic
+                            title={t('Remaining')}
+                            value={Number(budgetResult.remainingBudget ?? 0)}
+                            precision={2}
+                            prefix="$"
+                          />
+                        </Col>
+                        <Col xs={12} md={6}>
+                          <Statistic
+                            title={t('Protected profit')}
+                            value={Number(budgetResult.expectedProtectedProfit ?? 0)}
+                            precision={2}
+                            prefix="$"
+                            valueStyle={{ color: '#3f8600' }}
+                          />
+                        </Col>
+                      </Row>
+                      <Table<PlainRecord>
+                        size="small"
+                        rowKey={(row) => String(row.key)}
+                        title={() => t('Recommended approvals / payments')}
+                        dataSource={Array.isArray(budgetResult.recommendations) ? budgetResult.recommendations : []}
+                        pagination={false}
+                        columns={[
+                          {
+                            title: t('Action'),
+                            dataIndex: 'recommendedAction',
+                            render: (value: string) => (
+                              <Tag color={value === 'pay' ? 'red' : value === 'approve' ? 'orange' : 'blue'}>
+                                {t(value)}
+                              </Tag>
+                            ),
+                          },
+                          {
+                            title: t('Order / product'),
+                            key: 'target',
+                            render: (_value: any, row: PlainRecord) =>
+                              row.supplierOrderRef ?? row.asin ?? row.planningProductId,
+                          },
+                          {
+                            title: t('Supplier'),
+                            dataIndex: 'supplierName',
+                            render: (value: string) => value || <Tag color="red">{t('Missing supplier')}</Tag>,
+                          },
+                          { title: t('Spend'), dataIndex: 'spend', render: formatCurrency },
+                          { title: t('Protected profit'), dataIndex: 'protectedProfit', render: formatCurrency },
+                          { title: t('Score'), dataIndex: 'adjustedScore', render: formatNumber },
+                          {
+                            title: t('Reasons'),
+                            dataIndex: 'reasonCodes',
+                            render: (values: string[]) => (
+                              <Space size={4} wrap>
+                                {(Array.isArray(values) ? values : []).map((value) => (
+                                  <Tag key={value}>{t(value)}</Tag>
+                                ))}
+                              </Space>
+                            ),
+                          },
+                        ]}
+                      />
+                      <Table<PlainRecord>
+                        size="small"
+                        rowKey={(row) => String(row.key)}
+                        title={() => t('Skipped but still important')}
+                        dataSource={Array.isArray(budgetResult.skipped) ? budgetResult.skipped : []}
+                        pagination={false}
+                        columns={[
+                          {
+                            title: t('Reason'),
+                            dataIndex: 'skipReason',
+                            render: (value: string) => (
+                              <Tag color={value === 'missing_unit_cost' ? 'red' : 'default'}>{t(value)}</Tag>
+                            ),
+                          },
+                          {
+                            title: t('Order / product'),
+                            key: 'target',
+                            render: (_value: any, row: PlainRecord) =>
+                              row.supplierOrderRef ?? row.asin ?? row.planningProductId,
+                          },
+                          {
+                            title: t('Supplier'),
+                            dataIndex: 'supplierName',
+                            render: (value: string) => value || <Tag color="red">{t('Missing supplier')}</Tag>,
+                          },
+                          { title: t('Spend'), dataIndex: 'spend', render: formatCurrency },
+                          { title: t('Protected profit'), dataIndex: 'protectedProfit', render: formatCurrency },
+                        ]}
+                      />
+                      <Alert
+                        type="info"
+                        showIcon
+                        message={t('Optimizer assumptions')}
+                        description={(Array.isArray(budgetResult.assumptions) ? budgetResult.assumptions : []).join(
+                          ' ',
+                        )}
+                      />
+                    </Space>
+                  ) : null}
+                </>
+              ),
+            },
+          ]}
+        />
         <Row gutter={[16, 16]}>
           <Col xs={24} sm={12} lg={4}>
             <Card>
@@ -1578,61 +1645,165 @@ export default function InventoryPlanningPage() {
                 </Col>
               </Row>
               <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-                {t('Showing')} {orderNowRows.length} / {digest.sections.orderNow.length} {t('rows')}
+                {t('Showing')} {orderNowGroups.length} {t('groups')} / {orderNowRows.length} {t('products')}
               </Typography.Text>
               <Table<PlainRecord>
                 size="small"
-                rowKey={(row) => row.planningProductId}
-                dataSource={orderNowRows}
+                rowKey={(row) => row.key}
+                dataSource={orderNowGroups}
                 pagination={false}
-                onRow={(row) => ({ onClick: () => openRow(row) })}
+                onRow={(group) => ({ onClick: () => openRow(group.rows[0], ['history', 'order-status']) })}
+                expandable={{
+                  expandIcon: ({ expanded, onExpand, record }) => (
+                    <Button
+                      size="small"
+                      type="text"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onExpand(record, event);
+                      }}
+                    >
+                      {expanded ? '−' : '+'}
+                    </Button>
+                  ),
+                  expandedRowRender: (group) => (
+                    <Table<PlainRecord>
+                      size="small"
+                      rowKey={(row) => String(row.planningProductId ?? row.asin ?? row.sku)}
+                      dataSource={group.rows}
+                      pagination={false}
+                      onRow={(row) => ({ onClick: () => openRow(row) })}
+                      columns={[
+                        {
+                          title: t('Action'),
+                          dataIndex: 'actionStatus',
+                          render: (value: string) => <Tag color={actionColor(value)}>{t(value)}</Tag>,
+                        },
+                        {
+                          title: t('Tier'),
+                          dataIndex: 'tier',
+                          render: (value: string) => <Tag color={tierColor(value)}>{value}</Tag>,
+                        },
+                        { title: t('ASIN'), dataIndex: 'asin' },
+                        { title: t('SKU'), dataIndex: 'sku' },
+                        { title: t('Velocity'), dataIndex: 'salesVelocity', render: formatNumber },
+                        {
+                          title: t('Lead time'),
+                          dataIndex: 'leadTimeDays',
+                          render: (value: number, row: PlainRecord) => (
+                            <Space size={4}>
+                              <span>
+                                {formatNumber(value)} {t('days')}
+                              </span>
+                              <Tag color={freshnessColor(row.leadTimeFreshness)}>
+                                {t(row.leadTimeFreshness ?? 'unknown')}
+                              </Tag>
+                            </Space>
+                          ),
+                        },
+                        {
+                          title: t('OOS in'),
+                          dataIndex: 'estimatedOosDate',
+                          render: (value: string) => (
+                            <Tag color={relativeDateLabel(value, calculationDate).color}>
+                              {t(relativeDateLabel(value, calculationDate).label)}
+                            </Tag>
+                          ),
+                        },
+                        {
+                          title: t('Projected sellable'),
+                          dataIndex: 'expectedSellableDate',
+                          render: formatDate,
+                        },
+                        {
+                          title: t('Suggested'),
+                          dataIndex: 'suggestedReorderQty',
+                          render: formatNumber,
+                        },
+                        {
+                          title: t('Money at risk'),
+                          dataIndex: 'estimatedProfitRisk',
+                          render: (value: number) => (
+                            <Typography.Text
+                              strong
+                              style={{
+                                background: '#fff1f0',
+                                color: '#cf1322',
+                                padding: '1px 6px',
+                                borderRadius: 4,
+                              }}
+                            >
+                              {formatCurrency(value)}
+                            </Typography.Text>
+                          ),
+                        },
+                      ]}
+                    />
+                  ),
+                }}
                 columns={[
                   {
-                    title: t('Action'),
-                    dataIndex: 'actionStatus',
-                    render: (value: string) => <Tag color={actionColor(value)}>{t(value)}</Tag>,
-                  },
-                  {
-                    title: t('Tier'),
-                    dataIndex: 'tier',
-                    render: (value: string) => <Tag color={tierColor(value)}>{value}</Tag>,
-                  },
-                  { title: t('Company'), dataIndex: 'company' },
-                  { title: t('ASIN'), dataIndex: 'asin' },
-                  {
-                    title: t('Order state'),
-                    key: 'supplierOrderState',
-                    render: (_value: any, row: PlainRecord) =>
-                      supplierOrderStateLabel(row, t, () => openRow(row, ['history', 'order-status'])),
-                  },
-                  {
-                    title: t('Supplier next action'),
-                    key: 'supplierAction',
-                    render: (_value: any, row: PlainRecord) =>
-                      row.supplierName ? (
-                        row.supplierName
-                      ) : (
-                        <Tag color="red">{t('Find supplier from OrderDetails')}</Tag>
-                      ),
-                  },
-                  {
-                    title: columnHelp(
-                      t('Lead time'),
-                      t('Uses product-specific supplier lead time first, then supplier/default planning data.'),
-                    ),
-                    dataIndex: 'leadTimeDays',
-                    render: (value: number, row: PlainRecord) => (
-                      <Space size={4}>
-                        <span>
-                          {formatNumber(value)} {t('days')}
-                        </span>
-                        <Tag color={freshnessColor(row.leadTimeFreshness)}>{t(row.leadTimeFreshness ?? 'unknown')}</Tag>
+                    title: t('Order / supplier group'),
+                    key: 'group',
+                    render: (_value: any, group: PlainRecord) => (
+                      <Space direction="vertical" size={0}>
+                        <Space size={4} wrap>
+                          <Tag color={group.type === 'order' ? 'orange' : group.type === 'supplier' ? 'blue' : 'red'}>
+                            {t(
+                              group.type === 'order'
+                                ? 'Order'
+                                : group.type === 'supplier'
+                                  ? 'Supplier'
+                                  : 'Needs supplier',
+                            )}
+                          </Tag>
+                          <Typography.Text strong>
+                            {group.supplierOrderRef ?? group.supplierName ?? t('Find supplier from OrderDetails')}
+                          </Typography.Text>
+                          {group.supplierOrderStatus ? (
+                            <Tag color={supplierOrderStatusColor(String(group.supplierOrderStatus))}>
+                              {t(String(group.supplierOrderStatus))}
+                            </Tag>
+                          ) : null}
+                        </Space>
+                        <Space size={4} wrap>
+                          <Typography.Text type="secondary">{String(group.company ?? '—')}</Typography.Text>
+                          {group.supplierName ? <Tag color="blue">{String(group.supplierName)}</Tag> : null}
+                        </Space>
+                        {group.latestSupplierOrderActivityNote ? (
+                          <Typography.Text type="secondary" ellipsis style={{ maxWidth: 320 }}>
+                            {String(group.latestSupplierOrderActivityNote)}
+                          </Typography.Text>
+                        ) : null}
                       </Space>
                     ),
                   },
                   {
-                    title: t('OOS in'),
-                    dataIndex: 'estimatedOosDate',
+                    title: t('Products'),
+                    dataIndex: 'productCount',
+                    render: (value: number, group: PlainRecord) =>
+                      value === 1 ? (
+                        <Space direction="vertical" size={0}>
+                          <Typography.Text>{String(group.firstProduct?.asin ?? '—')}</Typography.Text>
+                          <Typography.Text type="secondary" ellipsis style={{ maxWidth: 220 }}>
+                            {String(group.firstProduct?.sku ?? group.firstProduct?.title ?? '')}
+                          </Typography.Text>
+                          {group.leadTimeIssueCount ? <Tag color="orange">{t('Lead-time issue')}</Tag> : null}
+                        </Space>
+                      ) : (
+                        <Space size={4}>
+                          <Tag>{formatNumber(value)}</Tag>
+                          {group.leadTimeIssueCount ? (
+                            <Tag color="orange">
+                              {t('lead-time')} {group.leadTimeIssueCount}
+                            </Tag>
+                          ) : null}
+                        </Space>
+                      ),
+                  },
+                  {
+                    title: t('Earliest OOS'),
+                    dataIndex: 'earliestOosDate',
                     render: (value: string) => (
                       <Tag color={relativeDateLabel(value, calculationDate).color}>
                         {t(relativeDateLabel(value, calculationDate).label)}
@@ -1640,16 +1811,21 @@ export default function InventoryPlanningPage() {
                     ),
                   },
                   {
-                    title: columnHelp(t('Money at risk'), t('Potential profit loss if the row remains uncovered.')),
-                    dataIndex: 'estimatedProfitRisk',
+                    title: t('Money at risk'),
+                    dataIndex: 'totalMoneyAtRisk',
                     render: (value: number) => (
                       <Typography.Text
                         strong
-                        style={{ background: '#fff0f6', color: '#c41d7f', padding: '1px 6px', borderRadius: 4 }}
+                        style={{ background: '#fff1f0', color: '#cf1322', padding: '1px 6px', borderRadius: 4 }}
                       >
                         {formatCurrency(value)}
                       </Typography.Text>
                     ),
+                  },
+                  {
+                    title: t('Top action'),
+                    dataIndex: 'topActionStatus',
+                    render: (value: string) => <Tag color={actionColor(value)}>{t(value ?? 'unknown')}</Tag>,
                   },
                 ]}
               />
@@ -1683,7 +1859,7 @@ export default function InventoryPlanningPage() {
                     render: (value: number) => (
                       <Typography.Text
                         strong
-                        style={{ background: '#fff0f6', color: '#c41d7f', padding: '1px 6px', borderRadius: 4 }}
+                        style={{ background: '#fff1f0', color: '#cf1322', padding: '1px 6px', borderRadius: 4 }}
                       >
                         {formatCurrency(value)}
                       </Typography.Text>
@@ -1748,7 +1924,7 @@ export default function InventoryPlanningPage() {
                     render: (value: number) => (
                       <Typography.Text
                         strong
-                        style={{ background: '#fff0f6', color: '#c41d7f', padding: '1px 6px', borderRadius: 4 }}
+                        style={{ background: '#fff1f0', color: '#cf1322', padding: '1px 6px', borderRadius: 4 }}
                       >
                         {formatCurrency(value)}
                       </Typography.Text>
@@ -1874,7 +2050,7 @@ export default function InventoryPlanningPage() {
               <Descriptions.Item label={columnHelp(t('Money at risk'), t(monetaryRiskText(selectedRow)))}>
                 <Typography.Text
                   strong
-                  style={{ background: '#fff0f6', color: '#c41d7f', padding: '2px 8px', borderRadius: 4 }}
+                  style={{ background: '#fff1f0', color: '#cf1322', padding: '2px 8px', borderRadius: 4 }}
                 >
                   {formatCurrency(selectedRow.estimatedProfitRisk)}
                 </Typography.Text>

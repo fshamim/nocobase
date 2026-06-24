@@ -542,15 +542,28 @@ export class EcobaseInventoryPlanningService {
   }
 
   private async readGoldRows(query: InventoryPlanningQuery = {}) {
-    const calculationDate = isoDate(query.calculationDate ?? new Date());
-    const filter: PlainRecord = { calculationDate };
-    if (query.company) filter.company = query.company;
-    const rows = (
-      await this.db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).find({
-        filter,
-        sort: ['-estimatedProfitRisk'],
-      })
-    ).map(toPlainRecord);
+    const repository = this.db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows);
+    const requestedDate = query.calculationDate ? isoDate(query.calculationDate) : undefined;
+    const companyFilter = query.company ? { company: query.company } : {};
+    const readForDate = async (calculationDate: string) =>
+      (
+        await repository.find({
+          filter: { ...companyFilter, calculationDate },
+          sort: ['-estimatedProfitRisk'],
+        })
+      ).map(toPlainRecord);
+
+    let rows = requestedDate ? await readForDate(requestedDate) : [];
+    if (rows.length === 0) {
+      const latest = await repository.findOne({
+        filter: companyFilter,
+        sort: ['-calculationDate'],
+      });
+      const latestDate = asString(toPlainRecord(latest).calculationDate);
+      if (latestDate && latestDate !== requestedDate) {
+        rows = await readForDate(latestDate);
+      }
+    }
     return this.sortPlanningRows(rows).slice(0, query.limit ?? rows.length);
   }
 

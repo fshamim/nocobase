@@ -44,6 +44,8 @@ import { LLMStreamCached } from '../manager/llm-stream-manager';
 export interface ModelRef {
   llmService: string;
   model: string;
+  timeoutMs?: number;
+  responseFormat?: string;
 }
 
 export interface AIEmployeeOptions {

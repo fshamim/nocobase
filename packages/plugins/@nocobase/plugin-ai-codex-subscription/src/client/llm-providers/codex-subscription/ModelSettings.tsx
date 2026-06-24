@@ -23,7 +23,7 @@ const Options: React.FC = () => {
                   timeoutMs: {
                     title: tval('Timeout (ms)', { ns: namespace }),
                     type: 'number',
-                    default: 60000,
+                    default: 180000,
                     'x-decorator': 'FormItem',
                     'x-component': 'InputNumber',
                   },

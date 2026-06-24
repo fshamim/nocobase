@@ -28,28 +28,26 @@ export class AIEmployeesManager {
     const modelSettings = employee.get?.('modelSettings') || (employee as any).modelSettings;
     if (modelSettings?.enabled) {
       const models = Array.isArray(modelSettings.models) ? modelSettings.models : [];
-      const configuredModels = models
-        .filter((item) => item?.llmService && item?.model)
-        .map((item) => ({
-          llmService: item.llmService,
-          model: item.model,
-        }));
+      const configuredModels = models.filter((item) => item?.llmService && item?.model);
       if (!configuredModels.length && modelSettings.llmService && modelSettings.model) {
         configuredModels.push({
           llmService: modelSettings.llmService,
           model: modelSettings.model,
+          timeoutMs: modelSettings.timeoutMs,
+          responseFormat: modelSettings.responseFormat,
         });
       }
       if (!configuredModels.length) {
         throw new Error('AI employee model not configured');
       }
 
-      if (
-        model?.llmService &&
-        model?.model &&
-        configuredModels.some((item) => item.llmService === model.llmService && item.model === model.model)
-      ) {
-        return model;
+      if (model?.llmService && model?.model) {
+        const matchedModel = configuredModels.find(
+          (item) => item.llmService === model.llmService && item.model === model.model,
+        );
+        if (matchedModel) {
+          return { ...matchedModel, ...model };
+        }
       }
 
       const firstModel = configuredModels[0];
