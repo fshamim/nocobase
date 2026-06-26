@@ -313,9 +313,9 @@ export default function SilverDataPage() {
   return (
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
       <div>
-        <Typography.Title level={3}>{t('Silver Data')}</Typography.Title>
+        <Typography.Title level={3}>{t('Semantic Model')}</Typography.Title>
         <Typography.Text type="secondary">
-          {t('Use bounded lookups, then select a result to load its linked Silver context.')}
+          {t('Use bounded lookups, then select a result to load its linked semantic context.')}
         </Typography.Text>
       </div>
 
@@ -399,7 +399,7 @@ export default function SilverDataPage() {
       </div>
 
       <Drawer
-        title={drawer?.title ?? t('Silver record')}
+        title={drawer?.title ?? t('Semantic record')}
         open={Boolean(drawer)}
         onClose={() => setDrawer(null)}
         width={720}
