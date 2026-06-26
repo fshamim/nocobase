@@ -1,32 +1,14 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import type { EcobaseDatabase } from './import-service';
-import {
-  CLOSED_SUPPLIER_ORDER_STATUSES,
-  OPEN_SUPPLIER_ORDER_STATUSES,
-  EcobaseSupplierOrderService,
-  validateSupplierLeadTimeDays,
-  validateSupplierOrderActivityType,
-  validateSupplierOrderStatus,
-} from './supplier-order-service';
+import { toPlainRecord } from './import-service';
+import { validateSupplierLeadTimeDays, validateSupplierOrderStatus } from './supplier-order-service';
 
 type PlainRecord = Record<string, unknown>;
 
-type SupplierAttentionStatus = 'urgent' | 'needs_attention' | 'monitor' | 'ok';
+type SupplierLifecycleStatus = 'new' | 'contacting' | 'product_review' | 'payment_review' | 'approved' | 'rejected';
 
-type SupplierAttentionReason =
-  | 'product_oos_soon'
-  | 'product_oos_urgent'
-  | 'missing_lead_time'
-  | 'stale_lead_time'
-  | 'lead_time_conflict'
-  | 'contact_overdue'
-  | 'follow_up_due'
-  | 'blocked_open_order'
-  | 'late_open_order'
-  | 'no_open_order_for_risky_product'
-  | 'open_order_arrives_late'
-  | 'high_money_at_risk';
+type FollowUpState = 'missing_follow_up' | 'scheduled' | 'due_today' | 'overdue';
 
 export interface SupplierAttentionFilters {
   company?: string;
@@ -34,55 +16,70 @@ export interface SupplierAttentionFilters {
   limit?: number;
 }
 
-const SUPPLIER_PROFILE_STRING_FIELDS = [
-  'name',
-  'supplierId',
-  'asin',
-  'prPortalLink',
-  'contactName',
-  'reachedVia',
-  'receivedEmail',
-  'remarks',
-  'moq',
-  'designation',
-  'supplierType',
-  'presenceOnAmazon',
-  'currentStatus',
-  'supplierStatus',
-  'activeStatus',
-  'emailDone',
-  'callDone',
-  'wholesalePriceList',
-  'dateOfUpdate',
-  'approvalStatus',
-  'accountStatus',
-  'analysisStatus',
-  'nextFollowUpAt',
-  'lastContactedAt',
-  'approvalNotes',
-] as const;
-
-const SUPPLIER_PROFILE_NUMBER_FIELDS = [
-] as const;
-
-type SupplierProfileStringField = (typeof SUPPLIER_PROFILE_STRING_FIELDS)[number];
-type SupplierProfileNumberField = (typeof SUPPLIER_PROFILE_NUMBER_FIELDS)[number];
-type SupplierProfileFields = Partial<
-  Record<SupplierProfileStringField, string> & Record<SupplierProfileNumberField, number> & { contactEstablished: boolean }
->;
-
-export interface CreateSupplierParams extends SupplierProfileFields {
+export interface CreateSupplierParams {
   company?: string;
   name?: string;
   supplierCode?: string;
+  contactName?: string;
+  email?: string;
+  phone?: string;
+  website?: string;
+  preferredContactMethod?: string;
+  nextFollowUpAt?: string;
+  notes?: string;
   actor?: string;
 }
 
-export interface UpdateSupplierProfileParams extends SupplierProfileFields {
-  company?: string;
+export interface UpdateSupplierProfileParams extends CreateSupplierParams {
   supplierId?: string;
-  active?: boolean;
   activityNotes?: string;
+  approvalStatus?: string;
+  accountStatus?: string;
+  analysisStatus?: string;
+  active?: boolean;
+}
+
+export interface UpdateSupplierLifecycleParams {
+  supplierId?: string;
+  status?: string;
+  comment?: string;
+  followUpAt?: string;
+  actor?: string;
+}
+
+export interface RecordSupplierCommentParams {
+  supplierId?: string;
+  body?: string;
+  commentType?: string;
+  followUpAt?: string;
+  actor?: string;
+}
+
+export interface DeleteSupplierCommentParams {
+  commentId?: string;
+  actor?: string;
+}
+
+export interface UpdateSupplierAccountParams {
+  supplierId?: string;
+  company?: string;
+  accountName?: string;
+  orderingMethod?: string;
+  portalUrl?: string;
+  username?: string;
+  status?: string;
+  actor?: string;
+}
+
+export interface UpsertSupplierProductParams {
+  supplierId?: string;
+  productId?: string;
+  supplierSku?: string;
+  unitCost?: number;
+  moq?: number;
+  leadTimeDays?: number;
+  analysisStatus?: string;
+  notes?: string;
   actor?: string;
 }
 
@@ -106,10 +103,10 @@ export interface RecordSupplierActivityParams {
   company?: string;
   supplierId?: string;
   supplierOrderId?: string;
-  activityType?: string;
-  occurredAt?: string;
   notes?: string;
+  activityType?: string;
   nextFollowUpAt?: string;
+  occurredAt?: string;
   leadTimeDays?: number;
   contactEstablished?: boolean;
   source?: string;
@@ -119,6 +116,8 @@ export interface RecordSupplierActivityParams {
 export interface UpdateSupplierProductLeadTimeParams {
   company?: string;
   supplierId?: string;
+  supplierProductId?: string;
+  productId?: string;
   planningProductId?: string;
   asin?: string;
   sku?: string;
@@ -128,938 +127,910 @@ export interface UpdateSupplierProductLeadTimeParams {
   actor?: string;
 }
 
-export interface LookupParams {
-  company?: string;
-  search?: string;
-  limit?: number;
-}
-
-function isRecord(value: unknown): value is PlainRecord {
-  return typeof value === 'object' && value !== null;
-}
-
-function toPlainRecord(value: unknown): PlainRecord {
-  if (isRecord(value) && typeof value.toJSON === 'function') {
-    const json = value.toJSON();
-    if (isRecord(json)) {
-      return json;
-    }
-  }
-  return isRecord(value) ? value : {};
-}
-
 function asString(value: unknown): string | undefined {
-  if (value instanceof Date) {
-    return Number.isNaN(value.getTime()) ? undefined : value.toISOString();
-  }
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 }
 
 function asNumber(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+  const number = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+  return Number.isFinite(number) ? number : undefined;
 }
 
-function asBoolean(value: unknown): boolean | undefined {
-  return typeof value === 'boolean' ? value : undefined;
-}
-
-function normalizeName(value: string) {
-  return value.trim().toLowerCase().replace(/\s+/g, ' ');
-}
-
-function normalizedSearch(value: string | undefined) {
-  return normalizeName(value ?? '');
-}
-
-function compactNaturalKey(prefix: string, rawKey: string) {
-  const naturalKey = `${prefix}:${rawKey}`;
-  if (naturalKey.length <= 240) {
-    return naturalKey;
-  }
-  return `${prefix}:hash:${createHash('sha256').update(rawKey).digest('hex')}`;
-}
-
-function dateOnly(value: string | undefined) {
-  return value ? value.slice(0, 10) : undefined;
-}
-
-function isoDateTime(value: string | undefined, fieldName: string) {
-  if (!value) {
-    return undefined;
-  }
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    throw new Error(`Ecobase supplier management failed: ${fieldName} must be a valid date or datetime.`);
-  }
-  return parsed.toISOString();
+function normalized(value: unknown) {
+  return (
+    asString(value)
+      ?.toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim() ?? ''
+  );
 }
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function daysBetween(leftIsoDate: string, rightIsoDate: string) {
-  const left = new Date(`${leftIsoDate.slice(0, 10)}T00:00:00.000Z`).getTime();
-  const right = new Date(`${rightIsoDate.slice(0, 10)}T00:00:00.000Z`).getTime();
-  if (Number.isNaN(left) || Number.isNaN(right)) {
-    return undefined;
-  }
-  return Math.floor((left - right) / 86_400_000);
+function dateOnly(value: unknown) {
+  return asString(value)?.slice(0, 10);
 }
 
-function oneOf(value: string | undefined, allowed: string[], fallback: string) {
-  return value && allowed.includes(value) ? value : fallback;
+function daysBetween(left: string, right: string) {
+  return Math.floor((Date.parse(left) - Date.parse(right)) / 86_400_000);
 }
 
-function supplierProfileValues(params: SupplierProfileFields) {
-  const values: PlainRecord = {};
-  for (const field of SUPPLIER_PROFILE_STRING_FIELDS) {
-    if (params[field] !== undefined) {
-      values[field] = asString(params[field]) ?? null;
-    }
-  }
-  for (const field of SUPPLIER_PROFILE_NUMBER_FIELDS) {
-    if (params[field] !== undefined) {
-      values[field] = asNumber(params[field]) ?? null;
-    }
-  }
-  if (params.contactEstablished !== undefined) {
-    values.contactEstablished = Boolean(params.contactEstablished);
-  }
-  if ('approvalStatus' in values) {
-    values.approvalStatus = oneOf(asString(values.approvalStatus), ['new', 'contacting', 'analyzing', 'approved', 'rejected'], 'new');
-  }
-  if ('accountStatus' in values) {
-    values.accountStatus = oneOf(asString(values.accountStatus), ['not_started', 'submitted', 'approved', 'rejected'], 'not_started');
-  }
-  if ('analysisStatus' in values) {
-    values.analysisStatus = oneOf(asString(values.analysisStatus), ['not_started', 'in_progress', 'done'], 'not_started');
-  }
-  return values;
+function repoRows(db: EcobaseDatabase, collection: string, limit = 5000) {
+  return db
+    .getRepository(collection)
+    .find({ limit })
+    .then((rows) => rows.map(toPlainRecord));
 }
 
-function unique<T>(values: T[]) {
-  return [...new Set(values.filter((value) => value !== undefined && value !== null))] as T[];
+function repoRowsFiltered(db: EcobaseDatabase, collection: string, filter: PlainRecord, limit = 5000) {
+  return db
+    .getRepository(collection)
+    .find({ filter, limit })
+    .then((rows) => rows.map(toPlainRecord));
 }
 
-function limitValue(value: number | undefined, defaultValue: number, maxValue: number) {
-  return Math.min(Math.max(value ?? defaultValue, 1), maxValue);
+function repoRowsByIds(db: EcobaseDatabase, collection: string, ids: Array<string | undefined>) {
+  const uniqueIds = [...new Set(ids.filter((id): id is string => Boolean(id)))];
+  if (!uniqueIds.length) return Promise.resolve([] as PlainRecord[]);
+  return repoRowsFiltered(db, collection, { id: { $in: uniqueIds } }, Math.max(uniqueIds.length, 500));
 }
 
-function matchesSearch(record: PlainRecord, search: string | undefined, fields: string[]) {
-  const needle = normalizedSearch(search);
-  if (!needle) {
-    return true;
+function requireStatus(value: string | undefined): SupplierLifecycleStatus {
+  const status = (value === 'analyzing' ? 'product_review' : value ?? 'new') as SupplierLifecycleStatus;
+  if (!['new', 'contacting', 'product_review', 'payment_review', 'approved', 'rejected'].includes(status)) {
+    throw new Error(`Ecobase supplier lifecycle update failed: status "${value}" is not supported.`);
   }
-  return fields.some((field) => normalizedSearch(asString(record[field])).includes(needle));
+  return status;
 }
 
-function attentionStatus(score: number, reasons: SupplierAttentionReason[]): SupplierAttentionStatus {
-  if (score >= 90 || reasons.includes('blocked_open_order')) {
-    return 'urgent';
-  }
-  if (score >= 50) {
-    return 'needs_attention';
-  }
-  if (score > 0) {
-    return 'monitor';
-  }
-  return 'ok';
+function followUpState(nextFollowUpAt: unknown, calculationDate: string): FollowUpState {
+  const nextDate = dateOnly(nextFollowUpAt);
+  if (!nextDate) return 'missing_follow_up';
+  if (nextDate < calculationDate) return 'overdue';
+  if (nextDate === calculationDate) return 'due_today';
+  return 'scheduled';
 }
 
-function recommendedAction(reasons: SupplierAttentionReason[]) {
-  if (reasons.includes('blocked_open_order')) {
-    return 'Resolve blocked supplier order';
-  }
-  if (reasons.includes('stale_lead_time')) {
-    return 'Contact supplier soon and update lead time';
-  }
-  if (reasons.includes('product_oos_urgent') && reasons.includes('no_open_order_for_risky_product')) {
-    return 'Confirm lead time and place/expedite order';
-  }
-  if (reasons.includes('missing_lead_time') || reasons.includes('lead_time_conflict')) {
-    return 'Update product lead time';
-  }
-  if (reasons.includes('contact_overdue') || reasons.includes('follow_up_due')) {
-    return 'Contact supplier and record outcome';
-  }
-  if (reasons.includes('late_open_order') || reasons.includes('open_order_arrives_late')) {
-    return 'Update expected delivery or escalate supplier';
-  }
-  return reasons.length > 0 ? 'Review supplier details' : 'No action needed';
+function latestByDate(rows: PlainRecord[], field: string) {
+  return rows.reduce<PlainRecord | undefined>((latest, row) => {
+    if (!latest) return row;
+    return String(row[field] ?? '') >= String(latest[field] ?? '') ? row : latest;
+  }, undefined);
 }
 
-function scoreReasons(reasons: SupplierAttentionReason[]) {
-  const scores: Array<[SupplierAttentionReason, number]> = [
-    ['blocked_open_order', 100],
-    ['product_oos_urgent', 90],
-    ['open_order_arrives_late', 80],
-    ['missing_lead_time', 70],
-    ['stale_lead_time', 60],
-    ['contact_overdue', 50],
-    ['follow_up_due', 40],
-    ['late_open_order', 30],
-    ['product_oos_soon', 10],
-    ['lead_time_conflict', 10],
-    ['no_open_order_for_risky_product', 10],
-    ['high_money_at_risk', 10],
-  ];
-  return scores.reduce((total, [reason, score]) => (reasons.includes(reason) ? total + score : total), 0);
+function matchesCompany(row: PlainRecord, company?: string) {
+  if (!company) return true;
+  const expected = normalized(company);
+  return [row.company, row.companyName, row.companyId].some((value) => normalized(value) === expected);
+}
+
+function rowSupplierKey(row: PlainRecord) {
+  return asString(row.supplierId) ?? normalized(row.supplierName);
+}
+
+function supplierKey(supplier: PlainRecord) {
+  return asString(supplier.id) ?? normalized(supplier.displayName);
+}
+
+function supplierLookupKeys(supplier: PlainRecord) {
+  return [
+    ...new Set(
+      [asString(supplier.id), normalized(supplier.displayName), normalized(supplier.normalizedName)].filter(Boolean),
+    ),
+  ] as string[];
+}
+
+function rowSupplierLookupKeys(row: PlainRecord) {
+  return [asString(row.supplierId), normalized(row.supplierName)].filter(Boolean) as string[];
+}
+
+function findSupplierForRow(row: PlainRecord, suppliersByKey: Map<string, PlainRecord>) {
+  for (const key of rowSupplierLookupKeys(row)) {
+    const supplier = suppliersByKey.get(key);
+    if (supplier) return supplier;
+  }
+  return undefined;
+}
+
+function indexByField(rows: PlainRecord[], field: string) {
+  const index = new Map<string, PlainRecord[]>();
+  for (const row of rows) {
+    const key = asString(row[field]);
+    if (!key) continue;
+    const bucket = index.get(key);
+    if (bucket) bucket.push(row);
+    else index.set(key, [row]);
+  }
+  return index;
+}
+
+function riskMoney(row: PlainRecord, fields: string[]) {
+  for (const field of fields) {
+    const value = asNumber(row[field]);
+    if (value !== undefined) return value;
+  }
+  return 0;
+}
+
+const PRE_ORDER_STATUSES = new Set([
+  'new',
+  'draft',
+  'planned',
+  'planning',
+  'in progress',
+  'order analysing',
+  'approved to order',
+  'approval pending',
+  'pending approval',
+  'product review',
+  'payment review',
+  'analyzing',
+]);
+const CLOSED_ORDER_STATUS_WORDS = new Set(['complete', 'completed', 'closed', 'cancelled', 'canceled', 'rejected']);
+
+function orderStatusKey(row: PlainRecord) {
+  return normalized(row.currentStatus ?? row.canonicalStatus ?? row.lifecycleStatus ?? row.status);
+}
+
+function hasPlacedOrderEvidence(row: PlainRecord) {
+  const status = orderStatusKey(row);
+  return !status || !PRE_ORDER_STATUSES.has(status);
+}
+
+function isClosedOrderRow(row: PlainRecord) {
+  const status = orderStatusKey(row);
+  return Boolean(status && status.split(' ').some((part) => CLOSED_ORDER_STATUS_WORDS.has(part)));
+}
+
+function isActiveOrderRiskRow(row: PlainRecord) {
+  if (isClosedOrderRow(row)) return false;
+  return (
+    Boolean(row.statusCheckRequired) ||
+    (asNumber(row.daysSinceLastActivity) ?? 0) >= 3 ||
+    riskMoney(row, ['moneyAtRisk']) > 0
+  );
+}
+
+function collectOrderedSupplierKeys(rows: PlainRecord[]) {
+  const keys = new Set<string>();
+  for (const row of rows) {
+    if (!hasPlacedOrderEvidence(row)) continue;
+    const supplierId = asString(row.supplierId);
+    const supplierName = normalized(row.supplierName);
+    if (supplierId) keys.add(supplierId);
+    if (supplierName) keys.add(supplierName);
+  }
+  return keys;
+}
+
+function supplierHasOrderedEvidence(supplier: PlainRecord, orderedSupplierKeys: Set<string>) {
+  const supplierId = asString(supplier.id);
+  const supplierName = normalized(supplier.displayName);
+  return Boolean(
+    (supplierId && orderedSupplierKeys.has(supplierId)) || (supplierName && orderedSupplierKeys.has(supplierName)),
+  );
+}
+
+function effectiveSupplierLifecycleStatus(
+  supplier: PlainRecord,
+  orderedSupplierKeys: Set<string>,
+): SupplierLifecycleStatus {
+  const storedStatus = requireStatus(asString(supplier.approvalStatus));
+  if (storedStatus !== 'rejected' && supplierHasOrderedEvidence(supplier, orderedSupplierKeys)) return 'approved';
+  return storedStatus;
+}
+
+function sortDigestRows(rows: PlainRecord[]) {
+  return [...rows].sort((left, right) => {
+    const money = (asNumber(right.moneyAtRisk) ?? 0) - (asNumber(left.moneyAtRisk) ?? 0);
+    if (money !== 0) return money;
+    return (asNumber(right.priorityScore) ?? 0) - (asNumber(left.priorityScore) ?? 0);
+  });
 }
 
 export class EcobaseSupplierManagementService {
-  constructor(private readonly db: EcobaseDatabase) {}
+  constructor(private db: EcobaseDatabase) {}
+
+  async digest(filters: SupplierAttentionFilters = {}) {
+    const rows = await this.buildDigestRows(filters);
+    const limitedRows = rows.slice(0, filters.limit ?? 1000);
+    return {
+      summary: this.summaryFromRows(rows),
+      rows: limitedRows,
+    };
+  }
 
   async refreshSupplierAttentionRows(filters: SupplierAttentionFilters = {}) {
-    const company = asString(filters.company);
-    const calculationDate = asString(filters.calculationDate) ?? todayIso();
-    const suppliers = await this.findSuppliers({ company, limit: 2000 });
-    const rows = [];
-    for (const supplier of suppliers) {
-      const row = await this.buildSupplierAttentionRow(supplier, calculationDate);
-      rows.push(await this.upsertAttentionRow(row));
+    await this.approveSuppliersWithOrderEvidence();
+    const digest = await this.digest(filters);
+    const repo = this.db.getRepository(ECOBASE_COLLECTIONS.goldSupplierAttentionRows);
+    for (const row of digest.rows) {
+      const naturalKey = asString(row.naturalKey);
+      if (!naturalKey) continue;
+      const values = { ...row, id: asString(row.id) ?? randomUUID() };
+      const existing = toPlainRecord(await repo.findOne({ filter: { naturalKey } }));
+      if (existing.id) {
+        await repo.update({ filterByTk: asString(existing.id), values: { ...values, id: existing.id } });
+      } else {
+        await repo.create({ values });
+      }
     }
-
-    return {
-      calculationDate,
-      refreshedCount: rows.length,
-      urgentCount: rows.filter((row) => row.attentionStatus === 'urgent').length,
-      needsAttentionCount: rows.filter((row) => row.attentionStatus === 'needs_attention').length,
-      warnings: company ? [] : ['company_filter_not_supplied'],
-      rows: this.sortAttentionRows(rows).slice(0, limitValue(filters.limit, rows.length || 1, 2000)),
-    };
+    return digest;
   }
 
   async listSupplierAttentionRows(filters: SupplierAttentionFilters = {}) {
-    const limit = limitValue(filters.limit, 100, 1000);
-    let rows = (
-      await this.db.getRepository(ECOBASE_COLLECTIONS.supplierAttentionRows).find({
-        filter: asString(filters.company) ? { company: asString(filters.company) } : {},
-        limit: 2000,
-      })
-    ).map(toPlainRecord);
-    const calculationDate = asString(filters.calculationDate);
-    if (calculationDate) {
-      rows = rows.filter((row) => asString(row.calculationDate) === calculationDate);
-    }
-    return this.sortAttentionRows(rows).slice(0, limit);
+    return (await this.digest(filters)).rows;
   }
 
   async summary(filters: SupplierAttentionFilters = {}) {
-    const existingRows = await this.listSupplierAttentionRows({ ...filters, limit: 2000 });
-    const rows = existingRows.length > 0 ? existingRows : (await this.refreshSupplierAttentionRows(filters)).rows;
-    return {
-      totalSuppliers: rows.length,
-      urgentSuppliers: rows.filter((row) => row.attentionStatus === 'urgent').length,
-      needsAttentionSuppliers: rows.filter((row) => row.attentionStatus === 'needs_attention').length,
-      leadTimeIssueSuppliers: rows.filter((row) => (asNumber(row.leadTimeIssueCount) ?? 0) > 0).length,
-      overdueFollowUps: rows.filter((row) => row.contactStatus === 'overdue').length,
-      blockedOrLateOpenOrders: rows.filter(
-        (row) => (asNumber(row.blockedOpenOrderCount) ?? 0) > 0 || (asNumber(row.lateOpenOrderCount) ?? 0) > 0,
-      ).length,
-      totalEstimatedProfitRisk: rows.reduce((total, row) => total + (asNumber(row.totalEstimatedProfitRisk) ?? 0), 0),
-      highestEstimatedProfitRisk: Math.max(0, ...rows.map((row) => asNumber(row.highestEstimatedProfitRisk) ?? 0)),
-      staleReadModel: rows.length === 0,
-    };
+    return (await this.digest(filters)).summary;
   }
 
-  async getSupplierDetail(params: { company?: string; supplierId?: string; calculationDate?: string }) {
-    const company = asString(params.company);
+  async getSupplierDetail(params: SupplierAttentionFilters & { supplierId?: string }) {
     const supplierId = asString(params.supplierId);
-    if (!company || !supplierId) {
-      throw new Error('Ecobase supplier detail failed: company and supplierId are required.');
-    }
-    const supplier = await this.applyOrderHistoryWorkflowStatus(
-      await this.requireSupplier(company, supplierId, 'Ecobase supplier detail failed'),
+    if (!supplierId) throw new Error('Ecobase supplier detail failed: supplierId is required.');
+    const supplier = await this.requireSupplier(supplierId);
+    const [comments, accounts, supplierProducts, orderedSupplierKeys, rawInventoryRisks, rawOrderRisks] =
+      await Promise.all([
+        this.commentsForSupplier(supplierId),
+        this.accountsForSupplier(supplierId),
+        this.productsForSupplier(supplierId),
+        this.orderedSupplierKeysForSupplier(supplierId),
+        repoRowsFiltered(this.db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, { supplierId }),
+        repoRowsFiltered(this.db, ECOBASE_COLLECTIONS.goldOrderPlanningRows, { supplierId }),
+      ]);
+    const productById = new Map(
+      (
+        await repoRowsByIds(
+          this.db,
+          ECOBASE_COLLECTIONS.silverProducts,
+          supplierProducts.map((link) => asString(link.productId)),
+        )
+      ).map((product) => [asString(product.id), product]),
     );
-    const attentionRow =
-      toPlainRecord(
-        await this.db.getRepository(ECOBASE_COLLECTIONS.supplierAttentionRows).findOne({
-          filter: {
-            naturalKey: `supplier-attention:${company}:${supplierId}:${asString(params.calculationDate) ?? todayIso()}`,
-          },
-        }),
-      ) ?? {};
-    const productIds = await this.productIdsForSupplier(company, supplierId);
-    const atRiskProducts = (
-      await this.db.getRepository(ECOBASE_COLLECTIONS.inventoryPlanningRows).find({ filter: { company }, limit: 3000 })
-    )
-      .map(toPlainRecord)
-      .filter((row) => this.rowBelongsToSupplier(row, supplier, productIds));
-    const leadTimes = await this.leadTimesForSupplier(company, supplier);
-    const productLinks = await this.productLinksForSupplier(company, supplierId);
-    const orders = await this.ordersForSupplier(company, supplierId);
-    const orderIds = new Set(orders.map((order) => asString(order.id)).filter(Boolean));
-    const orderLines = (
-      await this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).find({ filter: { company }, limit: 3000 })
-    )
-      .map(toPlainRecord)
-      .filter((line) => asString(line.supplierId) === supplierId || orderIds.has(asString(line.supplierOrderId)));
-    const activities = await this.activitiesForSupplier(company, supplierId);
-    const knownSupplierProducts = this.knownProductsFromOrderLines(orderLines, orders);
-
+    const enrichedProducts = supplierProducts.map((link) => {
+      const product = productById.get(asString(link.productId));
+      return {
+        ...link,
+        product,
+        asin: product?.asin,
+        sku: product?.sku,
+        title: product?.title,
+      };
+    });
+    const effectiveSupplier = {
+      ...supplier,
+      approvalStatus: effectiveSupplierLifecycleStatus(supplier, orderedSupplierKeys),
+    };
+    const inventoryRisks = rawInventoryRisks.filter((row) => matchesCompany(row, params.company));
+    const orderRisks = rawOrderRisks.filter((row) => matchesCompany(row, params.company) && isActiveOrderRiskRow(row));
     return {
-      supplier,
-      attentionRow,
-      atRiskProducts: this.sortRiskRows(atRiskProducts).slice(0, 200),
-      leadTimes,
-      productLinks,
-      knownSupplierProducts,
-      orders,
-      orderLines,
-      activities,
+      supplier: effectiveSupplier,
+      latestComment: latestByDate(comments, 'createdAt'),
+      comments,
+      accounts,
+      supplierProducts: enrichedProducts,
+      inventoryRisks,
+      orderRisks,
     };
   }
 
   async createSupplier(params: CreateSupplierParams) {
-    const company = asString(params.company);
     const name = asString(params.name);
-    if (!company || !name) {
-      throw new Error('Ecobase supplier create failed: company and name are required.');
+    if (!name) throw new Error('Ecobase supplier create failed: supplier name is required.');
+    const supplierRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers);
+    const supplierNormalizedName = normalized(name);
+    const existing = toPlainRecord(await supplierRepo.findOne({ filter: { normalizedName: supplierNormalizedName } }));
+    if (existing.id) {
+      throw new Error(`Ecobase supplier create failed: supplier "${name}" already exists.`);
     }
-    const normalizedName = normalizeName(name);
-    const duplicate = (await this.findSuppliers({ company, limit: 2000 })).find(
-      (supplier) => normalizeName(asString(supplier.name) ?? '') === normalizedName,
-    );
-    if (duplicate) {
-      throw new Error(`Ecobase supplier create failed: supplier "${name}" already exists for ${company}.`);
-    }
-
-    const sourceConnectionId = await this.ensureManualSourceConnection(company);
     const now = new Date().toISOString();
     const supplier = toPlainRecord(
-      await this.db.getRepository(ECOBASE_COLLECTIONS.suppliers).create({
+      await supplierRepo.create({
         values: {
           id: randomUUID(),
-          naturalKey: compactNaturalKey('supplier', `${company}:manual:name:${normalizedName}`),
-          sourceConnectionId,
-          ...supplierProfileValues(params),
-          supplierId: asString(params.supplierCode) ?? asString(params.supplierId),
-          name,
-          normalizedName,
-          company,
-          active: true,
-          lastSeenAt: now,
-          payload: { source: 'manual_supplier_management' },
+          normalizedName: supplierNormalizedName,
+          displayName: name,
+          approvalStatus: 'new',
+          analysisStatus: 'not_started',
+          accountStatus: 'not_started',
+          contactName: asString(params.contactName),
+          email: asString(params.email),
+          phone: asString(params.phone),
+          website: asString(params.website),
+          preferredContactMethod: asString(params.preferredContactMethod),
+          nextFollowUpAt: asString(params.nextFollowUpAt),
+          lastContactedAt: undefined,
+          createdAt: now,
+          updatedAt: now,
         },
       }),
     );
-
-    if (asString(params.remarks)) {
-      await this.recordSupplierActivity({
-        company,
+    if (params.notes) {
+      await this.recordComment({
         supplierId: asString(supplier.id),
-        activityType: 'note',
-        notes: asString(params.remarks),
-        actor: asString(params.actor),
+        body: params.notes,
+        commentType: 'note',
+        actor: params.actor,
       });
     }
     return supplier;
   }
 
   async updateSupplierProfile(params: UpdateSupplierProfileParams) {
-    const company = asString(params.company);
     const supplierId = asString(params.supplierId);
-    if (!company || !supplierId) {
-      throw new Error('Ecobase supplier profile update failed: company and supplierId are required.');
+    if (!supplierId) throw new Error('Ecobase supplier profile update failed: supplierId is required.');
+    await this.requireSupplier(supplierId);
+    const values: PlainRecord = {
+      updatedAt: new Date().toISOString(),
+    };
+    const fieldMap: Record<string, unknown> = {
+      displayName: params.name,
+      contactName: params.contactName,
+      email: params.email,
+      phone: params.phone,
+      website: params.website,
+      preferredContactMethod: params.preferredContactMethod,
+      nextFollowUpAt: params.nextFollowUpAt,
+      approvalStatus: params.approvalStatus,
+      analysisStatus: params.analysisStatus,
+      accountStatus: params.accountStatus,
+    };
+    Object.entries(fieldMap).forEach(([key, value]) => {
+      const text = asString(value);
+      if (text !== undefined) values[key] = text;
+    });
+    if (values.displayName) values.normalizedName = normalized(values.displayName);
+    const updated = toPlainRecord(
+      await this.db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).update({ filterByTk: supplierId, values }),
+    );
+    if (params.activityNotes) {
+      await this.recordComment({ supplierId, body: params.activityNotes, commentType: 'note', actor: params.actor });
     }
-    const supplier = await this.requireSupplier(company, supplierId, 'Ecobase supplier profile update failed');
-    const values: PlainRecord = supplierProfileValues(params);
-    if (params.name !== undefined) {
-      const updatedName = asString(params.name);
-      if (!updatedName) {
-        throw new Error('Ecobase supplier profile update failed: name must not be empty.');
-      }
-      values.normalizedName = normalizeName(updatedName);
-    }
-    if (params.active !== undefined) {
-      values.active = asBoolean(params.active) ?? false;
-    }
-    await this.db.getRepository(ECOBASE_COLLECTIONS.suppliers).update({ filterByTk: supplierId, values });
-
-    const notes = asString(params.activityNotes);
-    if (notes) {
-      await this.recordSupplierActivity({
-        company,
-        supplierId,
-        activityType: 'note',
-        notes,
-        actor: asString(params.actor),
-      });
-    }
-    return this.db.getRepository(ECOBASE_COLLECTIONS.suppliers).findOne({ filterByTk: asString(supplier.id) });
+    return updated;
   }
 
-  async createSupplierOrder(params: CreateSupplierOrderParams) {
-    const company = asString(params.company);
+  async updateSupplierLifecycle(params: UpdateSupplierLifecycleParams) {
     const supplierId = asString(params.supplierId);
-    if (!company || !supplierId) {
-      throw new Error('Ecobase supplier order create failed: company and supplierId are required.');
+    if (!supplierId) throw new Error('Ecobase supplier lifecycle update failed: supplierId is required.');
+    const status = requireStatus(asString(params.status));
+    const supplier = await this.requireSupplier(supplierId);
+    if (status === 'approved' && !supplierHasOrderedEvidence(supplier, await this.orderedSupplierKeys())) {
+      await this.assertSupplierCanBeApproved(supplierId);
     }
-    const supplier = await this.requireSupplier(company, supplierId, 'Ecobase supplier order create failed');
-    const status = validateSupplierOrderStatus(asString(params.status) ?? 'draft');
     const now = new Date().toISOString();
-    const externalOrderRef = asString(params.externalOrderRef);
-    const naturalKey = externalOrderRef
-      ? compactNaturalKey('supplier-order', `${company}:${externalOrderRef}`)
-      : compactNaturalKey('supplier-order', `${company}:local-draft:${randomUUID()}`);
-    const orderRepo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrders);
-    const existing = externalOrderRef ? toPlainRecord(await orderRepo.findOne({ filter: { naturalKey } })) : {};
-    const values = {
-      naturalKey,
-      sourceConnectionId: asString(supplier.sourceConnectionId) ?? (await this.ensureManualSourceConnection(company)),
-      company,
+    const updatedSupplier = toPlainRecord(
+      await this.db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).update({
+        filterByTk: supplierId,
+        values: {
+          approvalStatus: status,
+          nextFollowUpAt: status === 'approved' || status === 'rejected' ? null : asString(params.followUpAt),
+          updatedAt: now,
+        },
+      }),
+    );
+    await this.recordComment({
       supplierId,
-      externalOrderRef,
-      sourceStage: 'manual',
-      status,
-      statusSource: 'manual',
-      statusUpdatedAt: now,
-      lastMeaningfulUpdateAt: now,
-      lastOperatorEditAt: now,
-      lastOperatorActor: asString(params.actor),
-      orderDate: dateOnly(asString(params.orderDate)),
-      expectedDeliveryDate: dateOnly(asString(params.expectedDeliveryDate)),
-      expectedDeliveryDateSource: asString(params.expectedDeliveryDate) ? 'manual' : 'missing',
-      approvalStatus: asString(params.approvalStatus),
-      paymentStatus: asString(params.paymentStatus),
-      shippingCarrier: asString(params.shippingCarrier),
-      trackingId: asString(params.trackingId),
-      blockedReason: asString(params.blockedReason),
-      payload: { source: 'manual_supplier_management' },
-    };
-
-    let order: PlainRecord;
-    if (asString(existing.id)) {
-      await orderRepo.update({ filterByTk: asString(existing.id), values });
-      order = toPlainRecord(await orderRepo.findOne({ filterByTk: asString(existing.id) }));
-    } else {
-      order = toPlainRecord(await orderRepo.create({ values: { id: randomUUID(), ...values } }));
-    }
-
-    await this.recordSupplierActivity({
-      company,
-      supplierId,
-      supplierOrderId: asString(order.id),
-      activityType: 'status_update',
-      notes: asString(params.notes) ?? `Created supplier order${externalOrderRef ? ` ${externalOrderRef}` : ''}.`,
-      actor: asString(params.actor),
+      body: asString(params.comment) ?? `Supplier lifecycle changed to ${status}.`,
+      commentType: 'status_update',
+      followUpAt: asString(params.followUpAt),
+      actor: params.actor,
     });
-    return order;
+    return updatedSupplier;
   }
 
   async recordSupplierActivity(params: RecordSupplierActivityParams) {
-    const company = asString(params.company) ?? '';
-    const supplierId = asString(params.supplierId) ?? '';
-    const activityType = validateSupplierOrderActivityType(asString(params.activityType) ?? 'note');
-    const occurredAt = asString(params.occurredAt) ?? new Date().toISOString();
-    const activity = await new EcobaseSupplierOrderService(this.db).recordActivity({
-      company,
-      supplierId,
-      supplierOrderId: asString(params.supplierOrderId),
-      activityType,
-      occurredAt,
-      notes: asString(params.notes),
-      nextFollowUpAt: asString(params.nextFollowUpAt),
-      leadTimeDays: validateSupplierLeadTimeDays(params.leadTimeDays, 'Ecobase supplier management activity failed'),
-      source: asString(params.source),
-      actor: asString(params.actor),
+    return this.recordComment({
+      supplierId: params.supplierId,
+      body: params.notes,
+      commentType: params.activityType ?? 'note',
+      followUpAt: params.nextFollowUpAt,
+      actor: params.actor,
     });
-    if (company && supplierId && ['contacted_supplier', 'note', 'status_update'].includes(activityType)) {
-      const values: PlainRecord = {};
-      if (activityType === 'contacted_supplier') {
-        values.lastContactedAt = occurredAt;
-        values.contactEstablished = params.contactEstablished !== false;
-        if (asString(params.nextFollowUpAt)) values.approvalStatus = 'contacting';
-      }
-      if (asString(params.nextFollowUpAt)) {
-        values.nextFollowUpAt = asString(params.nextFollowUpAt);
-      }
-      if (Object.keys(values).length > 0) {
-        await this.db.getRepository(ECOBASE_COLLECTIONS.suppliers).update({ filterByTk: supplierId, values });
-      }
+  }
+
+  async recordComment(params: RecordSupplierCommentParams) {
+    const supplierId = asString(params.supplierId);
+    const body = asString(params.body);
+    if (!supplierId) throw new Error('Ecobase supplier comment failed: supplierId is required.');
+    if (!body) throw new Error('Ecobase supplier comment failed: comment body is required.');
+    await this.requireSupplier(supplierId);
+    const now = new Date().toISOString();
+    const comment = toPlainRecord(
+      await this.db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).create({
+        values: {
+          id: randomUUID(),
+          entityType: 'supplier',
+          entityId: supplierId,
+          actorType: 'user',
+          actorUserId: asString(params.actor),
+          commentType: asString(params.commentType) ?? 'note',
+          body,
+          followUpAt: asString(params.followUpAt),
+          contextSnapshotJson: {},
+          workflowDetectionStatus: 'none',
+          createdAt: now,
+          updatedAt: now,
+        },
+      }),
+    );
+    const supplierValues: PlainRecord = { updatedAt: now };
+    if (params.followUpAt !== undefined) supplierValues.nextFollowUpAt = asString(params.followUpAt) ?? null;
+    if (['contacted_supplier', 'status_update', 'note'].includes(asString(params.commentType) ?? 'note')) {
+      supplierValues.lastContactedAt = now;
     }
-    return activity;
+    await this.db
+      .getRepository(ECOBASE_COLLECTIONS.silverSuppliers)
+      .update({ filterByTk: supplierId, values: supplierValues });
+    return comment;
+  }
+
+  async deleteComment(params: DeleteSupplierCommentParams) {
+    const commentId = asString(params.commentId);
+    if (!commentId) throw new Error('Ecobase supplier comment delete failed: commentId is required.');
+    return toPlainRecord(
+      await this.db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).update({
+        filterByTk: commentId,
+        values: { deletedAt: new Date().toISOString(), deletedByUserId: asString(params.actor) },
+      }),
+    );
+  }
+
+  async updateSupplierAccount(params: UpdateSupplierAccountParams) {
+    const supplierId = asString(params.supplierId);
+    if (!supplierId) throw new Error('Ecobase supplier account update failed: supplierId is required.');
+    await this.requireSupplier(supplierId);
+    const company = params.company ? await this.findCompany(params.company) : undefined;
+    const accountRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverSupplierAccounts);
+    const existing = toPlainRecord(
+      await accountRepo.findOne({ filter: { supplierId, companyId: asString(company?.id) ?? null } }),
+    );
+    const values = {
+      id: asString(existing.id) ?? randomUUID(),
+      supplierId,
+      companyId: asString(company?.id),
+      accountName: asString(params.accountName) ?? asString(existing.accountName) ?? 'Supplier account',
+      orderingMethod: asString(params.orderingMethod) ?? asString(existing.orderingMethod) ?? 'email',
+      portalUrl: asString(params.portalUrl),
+      username: asString(params.username),
+      status: asString(params.status) ?? asString(existing.status) ?? 'pending',
+    };
+    const account = existing.id
+      ? toPlainRecord(await accountRepo.update({ filterByTk: asString(existing.id), values }))
+      : toPlainRecord(await accountRepo.create({ values }));
+    await this.db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).update({
+      filterByTk: supplierId,
+      values: { accountStatus: values.status, updatedAt: new Date().toISOString() },
+    });
+    await this.recordComment({
+      supplierId,
+      body: `Payment/account status updated to ${values.status}.`,
+      commentType: 'status_update',
+      actor: params.actor,
+    });
+    return account;
+  }
+
+  async upsertSupplierProduct(params: UpsertSupplierProductParams) {
+    const supplierId = asString(params.supplierId);
+    const productId = asString(params.productId);
+    if (!supplierId) throw new Error('Ecobase supplier product update failed: supplierId is required.');
+    if (!productId) throw new Error('Ecobase supplier product update failed: productId is required.');
+    await this.requireSupplier(supplierId);
+    const product = toPlainRecord(
+      await this.db.getRepository(ECOBASE_COLLECTIONS.silverProducts).findOne({ filterByTk: productId }),
+    );
+    if (!product.id) throw new Error('Ecobase supplier product update failed: selected product was not found.');
+    const leadTimeDays =
+      params.leadTimeDays === undefined ? undefined : this.validatePositiveLeadTime(params.leadTimeDays);
+    const repo = this.db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts);
+    const existing = toPlainRecord(await repo.findOne({ filter: { supplierId, productId } }));
+    const values: PlainRecord = {
+      id: asString(existing.id) ?? randomUUID(),
+      supplierId,
+      productId,
+      supplierSku: asString(params.supplierSku) ?? asString(existing.supplierSku),
+      unitCost: asNumber(params.unitCost) ?? asNumber(existing.unitCost),
+      moq: asNumber(params.moq) ?? asNumber(existing.moq),
+      leadTimeDays: leadTimeDays ?? asNumber(existing.leadTimeDays),
+      analysisStatus: asString(params.analysisStatus) ?? asString(existing.analysisStatus) ?? 'not_analyzed',
+    };
+    const row = existing.id
+      ? toPlainRecord(await repo.update({ filterByTk: asString(existing.id), values }))
+      : toPlainRecord(await repo.create({ values }));
+    await this.db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).update({
+      filterByTk: supplierId,
+      values: { analysisStatus: values.analysisStatus, updatedAt: new Date().toISOString() },
+    });
+    await this.recordComment({
+      supplierId,
+      body:
+        asString(params.notes) ??
+        `Product ${asString(product.asin) ?? asString(product.sku) ?? productId} marked ${values.analysisStatus}.`,
+      commentType: 'product_review',
+      actor: params.actor,
+    });
+    return row;
   }
 
   async updateSupplierProductLeadTime(params: UpdateSupplierProductLeadTimeParams) {
-    const company = asString(params.company);
     const supplierId = asString(params.supplierId);
-    const leadTimeDays = validateSupplierLeadTimeDays(
-      params.leadTimeDays,
-      'Ecobase supplier management lead-time update failed',
-    );
-    if (!company || !supplierId || leadTimeDays === undefined) {
-      throw new Error(
-        'Ecobase supplier management lead-time update failed: company, supplierId, and leadTimeDays are required.',
-      );
-    }
-    const service = new EcobaseSupplierOrderService(this.db);
-    const leadTime = await service.updateSupplierLeadTime({
-      company,
+    if (!supplierId) throw new Error('Ecobase supplier lead-time update failed: supplierId is required.');
+    const leadTimeDays = this.validatePositiveLeadTime(params.leadTimeDays);
+    const repo = this.db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts);
+    const existing = params.supplierProductId
+      ? toPlainRecord(await repo.findOne({ filterByTk: asString(params.supplierProductId) }))
+      : toPlainRecord(await repo.findOne({ filter: { supplierId, productId: asString(params.productId) } }));
+    if (!existing.id) throw new Error('Ecobase supplier lead-time update failed: supplier product was not found.');
+    const row = toPlainRecord(await repo.update({ filterByTk: asString(existing.id), values: { leadTimeDays } }));
+    await this.recordComment({
       supplierId,
-      planningProductId: asString(params.planningProductId),
-      asin: asString(params.asin),
-      sku: asString(params.sku),
-      leadTimeDays,
-      confirmedAt: asString(params.confirmedAt),
-      notes: asString(params.notes),
-      actor: asString(params.actor),
+      body: asString(params.notes) ?? `Lead time confirmed at ${leadTimeDays} days.`,
+      commentType: 'lead_time_checked',
+      actor: params.actor,
     });
-    await this.recordSupplierActivity({
-      company,
-      supplierId,
-      activityType: 'lead_time_checked',
-      occurredAt: asString(params.confirmedAt),
-      notes: asString(params.notes),
-      leadTimeDays,
-      actor: asString(params.actor),
-    });
-    return leadTime;
+    return row;
   }
 
-  async supplierOptions(params: LookupParams = {}) {
-    return (await this.findSuppliers({ company: asString(params.company), limit: limitValue(params.limit, 25, 100) }))
-      .filter((supplier) =>
-        matchesSearch(supplier, asString(params.search), ['name', 'supplierId', 'receivedEmail', 'contactName']),
-      )
+  async createSupplierOrder(params: CreateSupplierOrderParams) {
+    const supplierId = asString(params.supplierId);
+    if (!supplierId) throw new Error('Ecobase supplier order create failed: supplierId is required.');
+    const supplier = await this.requireSupplier(supplierId);
+    if (effectiveSupplierLifecycleStatus(supplier, await this.orderedSupplierKeys()) !== 'approved') {
+      throw new Error('Ecobase supplier order create failed: supplier must be approved before ordering.');
+    }
+    const orderRef = asString(params.externalOrderRef);
+    if (!orderRef) throw new Error('Ecobase supplier order create failed: externalOrderRef is required.');
+    const company = params.company ? await this.findCompany(params.company) : undefined;
+    const orderDate = asString(params.orderDate) ?? todayIso();
+    return toPlainRecord(
+      await this.db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+        values: {
+          id: randomUUID(),
+          companyId: asString(company?.id),
+          supplierId,
+          orderRef,
+          orderDate,
+          dailySequenceLetter: orderRef.slice(-1) || 'A',
+          orderIntent: 'manual',
+          lifecycleStatus: validateSupplierOrderStatus(params.status),
+          expectedDeliveryDate: asString(params.expectedDeliveryDate),
+          remarks: asString(params.notes),
+        },
+      }),
+    );
+  }
+
+  async supplierOptions(params: { search?: string; limit?: number } = {}) {
+    const needle = normalized(params.search);
+    const orderedSupplierKeys = await this.orderedSupplierKeys();
+    return (await repoRows(this.db, ECOBASE_COLLECTIONS.silverSuppliers, params.limit ?? 50))
+      .filter((supplier) => !needle || normalized(supplier.displayName).includes(needle))
       .map((supplier) => ({
-        value: asString(supplier.id),
-        label: asString(supplier.name),
-        company: asString(supplier.company),
-        supplierCode: asString(supplier.supplierId),
+        value: supplier.id,
+        label: supplier.displayName,
+        status: effectiveSupplierLifecycleStatus(supplier, orderedSupplierKeys),
       }));
   }
 
-  async productOptions(params: LookupParams = {}) {
-    const limit = limitValue(params.limit, 25, 100);
-    const company = asString(params.company);
-    const search = asString(params.search);
-    const options = new Map<string, PlainRecord>();
-
-    for (const product of (await this.db.getRepository(ECOBASE_COLLECTIONS.planningProducts).find({
-      filter: company ? { company } : {},
-      limit: 1000,
-    })).map(toPlainRecord)) {
-      if (!matchesSearch(product, search, ['canonicalAsin', 'title', 'naturalKey'])) continue;
-      const id = asString(product.id);
-      if (!id) continue;
-      options.set(`planning:${id}`, {
-        value: `planning:${id}`,
-        label: [asString(product.canonicalAsin), asString(product.title)].filter(Boolean).join(' · '),
-        company: asString(product.company),
-        planningProductId: id,
-        asin: asString(product.canonicalAsin),
-      });
-    }
-
-    for (const line of (await this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).find({
-      filter: company ? { company } : {},
-      limit: 10000,
-    })).map(toPlainRecord)) {
-      if (!matchesSearch(line, search, ['asin', 'sku', 'brand'])) continue;
-      const asin = asString(line.asin);
-      const sku = asString(line.sku);
-      if (!asin && !sku) continue;
-      const key = `history:${asin ?? ''}:${sku ?? ''}`;
-      if (options.has(key)) continue;
-      options.set(key, {
-        value: key,
-        label: [asin, sku, asString(line.brand)].filter(Boolean).join(' · '),
-        company: asString(line.company),
-        asin,
-        sku,
-      });
-    }
-
-    return [...options.values()].slice(0, limit);
+  async productOptions(params: { search?: string; limit?: number } = {}) {
+    const needle = normalized(params.search);
+    return (await repoRows(this.db, ECOBASE_COLLECTIONS.silverProducts, params.limit ?? 50))
+      .filter(
+        (product) =>
+          !needle ||
+          [product.asin, product.sku, product.title, product.brand].some((value) => normalized(value).includes(needle)),
+      )
+      .map((product) => ({
+        value: product.id,
+        label: [product.asin, product.sku, product.title].filter(Boolean).join(' · '),
+        asin: product.asin,
+        sku: product.sku,
+        title: product.title,
+      }));
   }
 
-  async orderOptions(params: LookupParams & { supplierId?: string } = {}) {
-    const limit = limitValue(params.limit, 25, 100);
-    return (
-      await this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).find({
-        filter: asString(params.company) ? { company: asString(params.company) } : {},
-        limit: 1000,
-      })
-    )
-      .map(toPlainRecord)
+  async orderOptions(params: { supplierId?: string; search?: string; limit?: number } = {}) {
+    const needle = normalized(params.search);
+    return (await repoRows(this.db, ECOBASE_COLLECTIONS.silverOrders, params.limit ?? 50))
       .filter((order) => !params.supplierId || asString(order.supplierId) === params.supplierId)
-      .filter((order) => matchesSearch(order, asString(params.search), ['externalOrderRef', 'status', 'trackingId']))
-      .slice(0, limit)
+      .filter(
+        (order) =>
+          !needle ||
+          [order.orderRef, order.lifecycleStatus, order.canonicalStatus].some((value) =>
+            normalized(value).includes(needle),
+          ),
+      )
       .map((order) => ({
-        value: asString(order.id),
-        label: [asString(order.externalOrderRef) ?? '(local draft)', asString(order.status)]
-          .filter(Boolean)
-          .join(' · '),
-        company: asString(order.company),
-        supplierId: asString(order.supplierId),
+        value: order.id,
+        label: order.orderRef,
+        status: order.lifecycleStatus ?? order.canonicalStatus,
       }));
   }
 
-  private async buildSupplierAttentionRow(supplier: PlainRecord, calculationDate: string) {
-    supplier = await this.applyOrderHistoryWorkflowStatus(supplier);
-    const company = asString(supplier.company) ?? '';
-    const supplierId = asString(supplier.id) ?? '';
-    const productIds = await this.productIdsForSupplier(company, supplierId);
-    const planningRows = (
-      await this.db.getRepository(ECOBASE_COLLECTIONS.inventoryPlanningRows).find({ filter: { company }, limit: 3000 })
-    )
-      .map(toPlainRecord)
-      .filter((row) => this.rowBelongsToSupplier(row, supplier, productIds));
-    const riskRows = planningRows.filter((row) => this.rowNeedsAttention(row, calculationDate));
-    const leadTimes = await this.leadTimesForSupplier(company, supplier);
-    const orders = await this.ordersForSupplier(company, supplierId);
-    const activities = await this.activitiesForSupplier(company, supplierId);
-    const openOrders = orders.filter((order) => !CLOSED_SUPPLIER_ORDER_STATUSES.includes(asString(order.status) ?? ''));
-    const lateOpenOrders = openOrders.filter((order) => {
-      const expectedDate = dateOnly(asString(order.expectedDeliveryDate));
-      return expectedDate ? expectedDate < calculationDate : false;
-    });
-    const blockedOpenOrders = openOrders.filter((order) => asString(order.status) === 'blocked');
-    const latestContact = activities
-      .filter((activity) => asString(activity.activityType) === 'contacted_supplier')
-      .sort((left, right) => String(right.occurredAt ?? '').localeCompare(String(left.occurredAt ?? '')))[0];
-    const nextFollowUpAt = activities
-      .map((activity) => asString(activity.nextFollowUpAt))
-      .filter(Boolean)
-      .sort()[0];
-    const totalEstimatedProfitRisk = riskRows.reduce(
-      (total, row) => total + (asNumber(row.estimatedProfitRisk) ?? 0),
-      0,
-    );
-    const highestEstimatedProfitRisk = Math.max(0, ...riskRows.map((row) => asNumber(row.estimatedProfitRisk) ?? 0));
-    const earliestEstimatedOosDate = riskRows
-      .map((row) => dateOnly(asString(row.estimatedOosDate)))
-      .filter(Boolean)
-      .sort()[0];
-    const staleLeadTimes = leadTimes.filter((leadTime) => this.isStaleLeadTime(leadTime, calculationDate));
-    const staleLeadTimeProductIds = new Set(staleLeadTimes.map((leadTime) => asString(leadTime.planningProductId)).filter(Boolean));
-    const leadTimeIssueRows = riskRows.filter(
-      (row) => this.rowHasLeadTimeIssue(row, leadTimes) || staleLeadTimeProductIds.has(asString(row.planningProductId) ?? ''),
-    );
-    const missingLeadTimeCount = riskRows.filter(
-      (row) => !asNumber(row.leadTimeDays) && !this.findLeadTime(row, leadTimes),
-    ).length;
-    const rowStaleLeadTimeCount = riskRows.filter((row) => asString(row.leadTimeFreshness) === 'stale').length;
-    const staleLeadTimeCount = Math.max(rowStaleLeadTimeCount, staleLeadTimes.length);
-    const conflictingLeadTimeCount = riskRows.filter((row) => asString(row.leadTimeFreshness) === 'conflict').length;
-    const reasons: SupplierAttentionReason[] = [];
-    const urgentRows = riskRows.filter((row) => {
-      const estimatedOosDate = dateOnly(asString(row.estimatedOosDate));
-      const days = estimatedOosDate ? daysBetween(estimatedOosDate, calculationDate) : undefined;
-      return typeof days === 'number' && days <= 14;
-    });
-    if (riskRows.length > 0) reasons.push('product_oos_soon');
-    if (urgentRows.length > 0) reasons.push('product_oos_urgent');
-    if (missingLeadTimeCount > 0) reasons.push('missing_lead_time');
-    if (staleLeadTimeCount > 0) reasons.push('stale_lead_time');
-    if (conflictingLeadTimeCount > 0) reasons.push('lead_time_conflict');
-    if (blockedOpenOrders.length > 0) reasons.push('blocked_open_order');
-    if (lateOpenOrders.length > 0) reasons.push('late_open_order');
-    if (riskRows.length > 0 && openOrders.length === 0) reasons.push('no_open_order_for_risky_product');
-    if (totalEstimatedProfitRisk > 0) reasons.push('high_money_at_risk');
+  private async buildDigestRows(filters: SupplierAttentionFilters) {
+    const calculationDate = asString(filters.calculationDate) ?? todayIso();
+    const [
+      suppliers,
+      rawInventoryRows,
+      rawOrderRows,
+      silverOrders,
+      supplierOrders,
+      rawComments,
+      accounts,
+      supplierProducts,
+    ] = await Promise.all([
+      repoRows(this.db, ECOBASE_COLLECTIONS.silverSuppliers),
+      repoRows(this.db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows),
+      repoRows(this.db, ECOBASE_COLLECTIONS.goldOrderPlanningRows),
+      repoRows(this.db, ECOBASE_COLLECTIONS.silverOrders),
+      repoRows(this.db, ECOBASE_COLLECTIONS.supplierOrders),
+      repoRows(this.db, ECOBASE_COLLECTIONS.silverActivityComments),
+      repoRows(this.db, ECOBASE_COLLECTIONS.silverSupplierAccounts),
+      repoRows(this.db, ECOBASE_COLLECTIONS.silverSupplierProducts),
+    ]);
+    const inventoryRows = rawInventoryRows.filter((row) => matchesCompany(row, filters.company));
+    const orderRows = rawOrderRows.filter((row) => matchesCompany(row, filters.company));
+    const orderedSupplierKeys = collectOrderedSupplierKeys([...silverOrders, ...supplierOrders, ...orderRows]);
+    const comments = rawComments.filter((comment) => comment.entityType === 'supplier' && !comment.deletedAt);
+    const commentsBySupplierId = indexByField(comments, 'entityId');
+    const accountsBySupplierId = indexByField(accounts, 'supplierId');
+    const productsBySupplierId = indexByField(supplierProducts, 'supplierId');
+    const suppliersByKey = new Map<string, PlainRecord>();
+    const groups = new Map<
+      string,
+      { supplier?: PlainRecord; inventoryRows: PlainRecord[]; orderRows: PlainRecord[] }
+    >();
 
-    const contactAge = latestContact
-      ? daysBetween(calculationDate, dateOnly(asString(latestContact.occurredAt)) ?? calculationDate)
-      : undefined;
-    if (riskRows.length > 0 && (!latestContact || (typeof contactAge === 'number' && contactAge > 7))) {
-      reasons.push('contact_overdue');
+    for (const supplier of suppliers) {
+      const key = supplierKey(supplier);
+      if (!key) continue;
+      groups.set(key, { supplier, inventoryRows: [], orderRows: [] });
+      for (const lookupKey of supplierLookupKeys(supplier)) suppliersByKey.set(lookupKey, supplier);
     }
-    const effectiveNextFollowUpAt = asString(supplier.nextFollowUpAt) ?? nextFollowUpAt;
-    const nextFollowUpDate = dateOnly(effectiveNextFollowUpAt);
-    if (nextFollowUpDate && nextFollowUpDate <= calculationDate) {
-      reasons.push('follow_up_due');
+    for (const row of inventoryRows) {
+      const supplier = findSupplierForRow(row, suppliersByKey);
+      const key = supplier ? supplierKey(supplier) : rowSupplierKey(row);
+      if (!key) continue;
+      const group = groups.get(key) ?? { supplier, inventoryRows: [], orderRows: [] };
+      group.supplier = group.supplier ?? supplier;
+      group.inventoryRows.push(row);
+      groups.set(key, group);
     }
-    const uniqueReasons = unique(reasons);
-    const attentionScore = scoreReasons(uniqueReasons);
-    const contactStatus = !latestContact
-      ? 'missing'
-      : nextFollowUpDate && nextFollowUpDate <= calculationDate
-        ? 'overdue'
-        : typeof contactAge === 'number' && contactAge > 7
-          ? 'overdue'
-          : typeof contactAge === 'number' && contactAge >= 5
-            ? 'due_soon'
-            : 'recent';
+    for (const row of orderRows) {
+      const supplier = findSupplierForRow(row, suppliersByKey);
+      const key = supplier ? supplierKey(supplier) : rowSupplierKey(row);
+      if (!key) continue;
+      const group = groups.get(key) ?? { supplier, inventoryRows: [], orderRows: [] };
+      group.supplier = group.supplier ?? supplier;
+      group.orderRows.push(row);
+      groups.set(key, group);
+    }
 
+    return sortDigestRows(
+      [...groups.entries()].map(([key, group]) => {
+        const supplier = group.supplier ?? {};
+        const supplierId = asString(supplier.id);
+        const supplierName =
+          asString(supplier.displayName) ??
+          asString(group.inventoryRows[0]?.supplierName) ??
+          asString(group.orderRows[0]?.supplierName) ??
+          key;
+        const supplierComments = supplierId ? commentsBySupplierId.get(supplierId) ?? [] : [];
+        const latestComment = latestByDate(supplierComments, 'createdAt');
+        const nextFollowUpAt = asString(supplier.nextFollowUpAt) ?? asString(latestComment?.followUpAt);
+        const followState = followUpState(nextFollowUpAt, calculationDate);
+        const supplierAccounts = supplierId ? accountsBySupplierId.get(supplierId) ?? [] : [];
+        const supplierProductRows = supplierId ? productsBySupplierId.get(supplierId) ?? [] : [];
+        const leadTimeIssueRows = group.inventoryRows.filter(
+          (row) =>
+            ['missing', 'stale', 'conflicting'].includes(asString(row.leadTimeFreshness) ?? '') ||
+            ['missing_lead_time', 'stale_lead_time'].includes(asString(row.actionStatus) ?? ''),
+        );
+        const activeOrderRiskRows = group.orderRows.filter(isActiveOrderRiskRow);
+        const staleOrderRows = activeOrderRiskRows.filter(
+          (row) => Boolean(row.statusCheckRequired) || (asNumber(row.daysSinceLastActivity) ?? 0) >= 3,
+        );
+        const inventoryMoneyAtRisk = group.inventoryRows.reduce(
+          (total, row) => total + riskMoney(row, ['estimatedProfitRisk', 'moneyAtRisk']),
+          0,
+        );
+        const orderMoneyAtRisk = activeOrderRiskRows.reduce((total, row) => total + riskMoney(row, ['moneyAtRisk']), 0);
+        const moneyAtRisk = inventoryMoneyAtRisk + orderMoneyAtRisk;
+        const approvedProductCount = supplierProductRows.filter(
+          (product) => asString(product.analysisStatus) === 'approved',
+        ).length;
+        const candidateProductCount = supplierProductRows.filter(
+          (product) => asString(product.analysisStatus) !== 'approved',
+        ).length;
+        const lifecycleStatus = effectiveSupplierLifecycleStatus(supplier, orderedSupplierKeys);
+        const priorityScore =
+          moneyAtRisk +
+          (followState === 'overdue' || followState === 'due_today' ? 10_000 : 0) +
+          staleOrderRows.length * 3_000 +
+          leadTimeIssueRows.length * 1_000 +
+          (lifecycleStatus === 'payment_review'
+            ? 800
+            : lifecycleStatus === 'product_review'
+              ? 600
+              : lifecycleStatus === 'contacting'
+                ? 300
+                : 0);
+        return {
+          id: supplierId ?? `unresolved:${key}`,
+          naturalKey: `gold-supplier-attention:${calculationDate}:${key}`,
+          calculationDate,
+          supplierId,
+          supplierName,
+          companyName: filters.company,
+          lifecycleStatus,
+          followUpState: followState,
+          nextFollowUpAt,
+          lastContactedAt: asString(supplier.lastContactedAt),
+          lastComment: asString(latestComment?.body),
+          latestCommentAt: asString(latestComment?.createdAt),
+          moneyAtRisk,
+          inventoryMoneyAtRisk,
+          orderMoneyAtRisk,
+          staleOrderCount: staleOrderRows.length,
+          leadTimeIssueCount: leadTimeIssueRows.length,
+          candidateProductCount,
+          approvedProductCount,
+          accountStatus: asString(supplier.accountStatus) ?? asString(supplierAccounts[0]?.status) ?? 'not_started',
+          priorityScore,
+          priority:
+            priorityScore >= 10_000 || moneyAtRisk > 0
+              ? 'urgent'
+              : followState === 'overdue'
+                ? 'needs_attention'
+                : 'monitor',
+          recommendedAction: this.recommendedAction({
+            followState,
+            staleOrderRows,
+            leadTimeIssueRows,
+            lifecycleStatus,
+            supplier,
+            moneyAtRisk,
+          }),
+          evidenceJson: {
+            inventoryRowIds: group.inventoryRows.map((row) => row.id).filter(Boolean),
+            orderRowIds: activeOrderRiskRows.map((row) => row.id).filter(Boolean),
+            commentId: latestComment?.id,
+          },
+        };
+      }),
+    );
+  }
+
+  private summaryFromRows(rows: PlainRecord[]) {
     return {
-      id: undefined,
-      naturalKey: `supplier-attention:${company}:${supplierId}:${calculationDate}`,
-      company,
-      supplierId,
-      supplierName: asString(supplier.name),
-      approvalStatus: asString(supplier.approvalStatus) ?? 'new',
-      accountStatus: asString(supplier.accountStatus) ?? 'not_started',
-      analysisStatus: asString(supplier.analysisStatus) ?? 'not_started',
-      calculationDate,
-      attentionStatus: attentionStatus(attentionScore, uniqueReasons),
-      attentionScore,
-      recommendedAction: recommendedAction(uniqueReasons),
-      reasonCodes: uniqueReasons,
-      urgentProductCount: urgentRows.length,
-      oosSoonProductCount: riskRows.length,
-      earliestEstimatedOosDate,
-      highestEstimatedProfitRisk,
-      totalEstimatedProfitRisk,
-      leadTimeIssueCount: leadTimeIssueRows.length,
-      missingLeadTimeCount,
-      staleLeadTimeCount,
-      conflictingLeadTimeCount,
-      openOrderCount: openOrders.length,
-      lateOpenOrderCount: lateOpenOrders.length,
-      blockedOpenOrderCount: blockedOpenOrders.length,
-      lastContactedAt: asString(supplier.lastContactedAt) ?? asString(latestContact?.occurredAt),
-      nextFollowUpAt: effectiveNextFollowUpAt,
-      contactSoon: staleLeadTimeCount > 0,
-      contactStatus,
-      evidence: {
-        supplierId,
-        planningProductIds: unique(riskRows.map((row) => asString(row.planningProductId))),
-        inventoryPlanningRowIds: unique(riskRows.map((row) => asString(row.id))),
-        supplierOrderIds: unique(openOrders.map((order) => asString(order.id))),
-        staleLeadTimeIds: unique(staleLeadTimes.map((leadTime) => asString(leadTime.id) ?? asString(leadTime.naturalKey))),
-        activityIds: unique(activities.slice(0, 10).map((activity) => asString(activity.id))),
-      },
-      lastRefreshedAt: new Date().toISOString(),
+      totalSuppliers: rows.length,
+      contactToday: rows.filter((row) => ['due_today', 'overdue'].includes(asString(row.followUpState) ?? '')).length,
+      overdueFollowUps: rows.filter((row) => row.followUpState === 'overdue').length,
+      staleOrderSuppliers: rows.filter((row) => (asNumber(row.staleOrderCount) ?? 0) > 0).length,
+      leadTimeIssueSuppliers: rows.filter((row) => (asNumber(row.leadTimeIssueCount) ?? 0) > 0).length,
+      waitingApprovalSuppliers: rows.filter((row) =>
+        ['product_review', 'payment_review'].includes(asString(row.lifecycleStatus) ?? ''),
+      ).length,
+      moneyAtRisk: rows.reduce((total, row) => total + (asNumber(row.moneyAtRisk) ?? 0), 0),
     };
   }
 
-  private async upsertAttentionRow(row: PlainRecord) {
-    const repo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierAttentionRows);
-    const existing = toPlainRecord(await repo.findOne({ filter: { naturalKey: row.naturalKey } }));
-    const values = { ...row };
-    delete values.id;
-    if (asString(existing.id)) {
-      await repo.update({ filterByTk: asString(existing.id), values });
-      return toPlainRecord(await repo.findOne({ filterByTk: asString(existing.id) }));
+  private recommendedAction(input: {
+    followState: FollowUpState;
+    staleOrderRows: PlainRecord[];
+    leadTimeIssueRows: PlainRecord[];
+    lifecycleStatus: SupplierLifecycleStatus;
+    supplier: PlainRecord;
+    moneyAtRisk: number;
+  }) {
+    if (!asString(input.supplier.id)) return 'Resolve supplier mapping before contacting';
+    if (input.followState === 'overdue' || input.followState === 'due_today') return 'Contact supplier today';
+    if (input.staleOrderRows.length > 0) return 'Ask supplier for stale order update';
+    if (input.leadTimeIssueRows.length > 0) return 'Confirm lead time for affected products';
+    if (input.lifecycleStatus === 'new') return 'Start supplier outreach';
+    if (input.lifecycleStatus === 'contacting') return 'Log response or schedule follow-up';
+    if (input.lifecycleStatus === 'product_review') return 'Analyze supplier product profitability';
+    if (input.lifecycleStatus === 'payment_review') return 'Confirm payment/account access';
+    if (input.moneyAtRisk > 0) return 'Review supplier risk';
+    return 'No action';
+  }
+
+  private async orderedSupplierKeys() {
+    const [silverOrders, supplierOrders, goldOrderRows] = await Promise.all([
+      repoRows(this.db, ECOBASE_COLLECTIONS.silverOrders),
+      repoRows(this.db, ECOBASE_COLLECTIONS.supplierOrders),
+      repoRows(this.db, ECOBASE_COLLECTIONS.goldOrderPlanningRows),
+    ]);
+    return collectOrderedSupplierKeys([...silverOrders, ...supplierOrders, ...goldOrderRows]);
+  }
+
+  private async orderedSupplierKeysForSupplier(supplierId: string) {
+    const [silverOrders, supplierOrders, goldOrderRows] = await Promise.all([
+      repoRowsFiltered(this.db, ECOBASE_COLLECTIONS.silverOrders, { supplierId }),
+      repoRowsFiltered(this.db, ECOBASE_COLLECTIONS.supplierOrders, { supplierId }),
+      repoRowsFiltered(this.db, ECOBASE_COLLECTIONS.goldOrderPlanningRows, { supplierId }),
+    ]);
+    return collectOrderedSupplierKeys([...silverOrders, ...supplierOrders, ...goldOrderRows]);
+  }
+
+  private async approveSuppliersWithOrderEvidence() {
+    const orderedSupplierKeys = await this.orderedSupplierKeys();
+    const suppliers = await repoRows(this.db, ECOBASE_COLLECTIONS.silverSuppliers);
+    const repo = this.db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers);
+    let updatedCount = 0;
+    for (const supplier of suppliers) {
+      const storedStatus = requireStatus(asString(supplier.approvalStatus));
+      if (storedStatus === 'approved' || storedStatus === 'rejected') continue;
+      if (!supplierHasOrderedEvidence(supplier, orderedSupplierKeys)) continue;
+      await repo.update({
+        filterByTk: asString(supplier.id),
+        values: { approvalStatus: 'approved', updatedAt: new Date().toISOString() },
+      });
+      updatedCount += 1;
     }
-    return toPlainRecord(await repo.create({ values: { id: randomUUID(), ...values } }));
+    return updatedCount;
   }
 
-  private sortAttentionRows(rows: PlainRecord[]) {
-    return [...rows].sort((left, right) => {
-      const totalRiskDiff =
-        (asNumber(right.totalEstimatedProfitRisk) ?? 0) - (asNumber(left.totalEstimatedProfitRisk) ?? 0);
-      if (totalRiskDiff !== 0) return totalRiskDiff;
-      const highestRiskDiff =
-        (asNumber(right.highestEstimatedProfitRisk) ?? 0) - (asNumber(left.highestEstimatedProfitRisk) ?? 0);
-      if (highestRiskDiff !== 0) return highestRiskDiff;
-      const scoreDiff = (asNumber(right.attentionScore) ?? 0) - (asNumber(left.attentionScore) ?? 0);
-      if (scoreDiff !== 0) return scoreDiff;
-      return String(left.earliestEstimatedOosDate ?? '9999-12-31').localeCompare(
-        String(right.earliestEstimatedOosDate ?? '9999-12-31'),
-      );
-    });
-  }
-
-  private sortRiskRows(rows: PlainRecord[]) {
-    return [...rows].sort((left, right) => {
-      const riskDiff = (asNumber(right.estimatedProfitRisk) ?? 0) - (asNumber(left.estimatedProfitRisk) ?? 0);
-      if (riskDiff !== 0) return riskDiff;
-      return String(left.estimatedOosDate ?? '9999-12-31').localeCompare(
-        String(right.estimatedOosDate ?? '9999-12-31'),
-      );
-    });
-  }
-
-  private rowNeedsAttention(row: PlainRecord, calculationDate: string) {
-    const actionStatus = asString(row.actionStatus);
-    const estimatedOosDate = dateOnly(asString(row.estimatedOosDate));
-    const days = estimatedOosDate ? daysBetween(estimatedOosDate, calculationDate) : undefined;
-    return (
-      actionStatus === 'order_now' ||
-      actionStatus === 'order_soon' ||
-      (typeof days === 'number' && days <= 30) ||
-      (asNumber(row.estimatedProfitRisk) ?? 0) > 0 ||
-      this.rowHasLeadTimeIssue(row, [])
-    );
-  }
-
-  private rowHasLeadTimeIssue(row: PlainRecord, leadTimes: PlainRecord[]) {
-    const freshness = asString(row.leadTimeFreshness);
-    return (
-      freshness === 'missing' ||
-      freshness === 'stale' ||
-      freshness === 'conflict' ||
-      !asNumber(row.leadTimeDays) ||
-      !this.findLeadTime(row, leadTimes)
-    );
-  }
-
-  private isStaleLeadTime(leadTime: PlainRecord, calculationDate: string) {
-    const confirmedAt = dateOnly(asString(leadTime.confirmedAt));
-    const age = confirmedAt ? daysBetween(calculationDate, confirmedAt) : undefined;
-    return typeof age === 'number' && age > 60;
-  }
-
-  private findLeadTime(row: PlainRecord, leadTimes: PlainRecord[]) {
-    const planningProductId = asString(row.planningProductId);
-    const asin = asString(row.asin);
-    return leadTimes.find(
-      (leadTime) =>
-        (planningProductId && asString(leadTime.planningProductId) === planningProductId) ||
-        (asin && asString(leadTime.asin) === asin) ||
-        asString(leadTime.scope) === 'default',
-    );
-  }
-
-  private async findSuppliers(params: { company?: string; limit?: number }) {
-    return (
-      await this.db.getRepository(ECOBASE_COLLECTIONS.suppliers).find({
-        filter: asString(params.company) ? { company: asString(params.company) } : {},
-        limit: limitValue(params.limit, 100, 3000),
-      })
-    ).map(toPlainRecord);
-  }
-
-  private async requireSupplier(company: string, supplierId: string, context: string) {
+  private async requireSupplier(supplierId: string) {
     const supplier = toPlainRecord(
-      await this.db.getRepository(ECOBASE_COLLECTIONS.suppliers).findOne({ filterByTk: supplierId }),
+      await this.db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).findOne({ filterByTk: supplierId }),
     );
-    if (!asString(supplier.id)) {
-      throw new Error(`${context}: supplier "${supplierId}" was not found.`);
-    }
-    if (asString(supplier.company) !== company) {
-      throw new Error(`${context}: supplier belongs to a different company.`);
-    }
+    if (!supplier.id) throw new Error('Ecobase supplier failed: supplier was not found.');
     return supplier;
   }
 
-  private async applyOrderHistoryWorkflowStatus(supplier: PlainRecord) {
-    const company = asString(supplier.company);
-    const supplierId = asString(supplier.id);
-    if (!company || !supplierId) return supplier;
-    const supplierCode = asString(supplier.supplierId);
-    const supplierName = normalizeName(asString(supplier.name) ?? '');
-    const relatedSupplierIds = unique(
-      (await this.db.getRepository(ECOBASE_COLLECTIONS.suppliers).find({ filter: { company }, limit: 5000 }))
-        .map(toPlainRecord)
-        .filter((candidate) => {
-          if (asString(candidate.id) === supplierId) return true;
-          if (supplierCode && asString(candidate.supplierId) === supplierCode) return true;
-          return supplierName.length > 0 && normalizeName(asString(candidate.name) ?? '') === supplierName;
-        })
-        .map((candidate) => asString(candidate.id)),
-    );
-    const hasOrderHistory = (await this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).find({ filter: { company }, limit: 5000 }))
-      .map(toPlainRecord)
-      .some((order) => relatedSupplierIds.includes(asString(order.supplierId) ?? ''));
-    if (!hasOrderHistory) return supplier;
-    const values = { approvalStatus: 'approved', accountStatus: 'approved', analysisStatus: 'done' };
-    if (
-      asString(supplier.approvalStatus) === values.approvalStatus &&
-      asString(supplier.accountStatus) === values.accountStatus &&
-      asString(supplier.analysisStatus) === values.analysisStatus
-    ) {
-      return supplier;
+  private async assertSupplierCanBeApproved(supplierId: string) {
+    const products = await this.productsForSupplier(supplierId);
+    const accounts = await this.accountsForSupplier(supplierId);
+    if (!products.some((product) => asString(product.analysisStatus) === 'approved')) {
+      throw new Error('Ecobase supplier lifecycle update failed: approve at least one supplier product first.');
     }
-    await this.db.getRepository(ECOBASE_COLLECTIONS.suppliers).update({ filterByTk: supplierId, values });
-    return { ...supplier, ...values };
+    if (!accounts.some((account) => ['approved', 'active', 'confirmed'].includes(asString(account.status) ?? ''))) {
+      throw new Error('Ecobase supplier lifecycle update failed: confirm supplier payment/account access first.');
+    }
   }
 
-  private knownProductsFromOrderLines(orderLines: PlainRecord[], orders: PlainRecord[]) {
-    const orderById = new Map(orders.map((order) => [asString(order.id), order]));
-    const groups = new Map<string, PlainRecord[]>();
-    for (const line of orderLines) {
-      const asin = asString(line.asin);
-      const sku = asString(line.sku);
-      if (!asin && !sku) continue;
-      const key = `${asin ?? ''}:${sku ?? ''}`;
-      groups.set(key, [...(groups.get(key) ?? []), line]);
-    }
-    return [...groups.values()]
-      .map((lines) => {
-        const sorted = [...lines].sort((left, right) => String(right.observedAt ?? '').localeCompare(String(left.observedAt ?? '')));
-        const latest = sorted[0];
-        const latestOrder = orderById.get(asString(latest.supplierOrderId));
-        return {
-          asin: asString(latest.asin),
-          sku: asString(latest.sku),
-          brand: asString(latest.brand),
-          lastOrderedAt: asString(latest.observedAt) ?? asString(latestOrder?.orderDate),
-          orderCount: lines.length,
-          totalOrderedQty: lines.reduce((total, line) => total + (asNumber(line.orderedQty) ?? 0), 0),
-          lastUnitCost: asNumber(latest.unitCost),
-          lastOrderStatus: asString(latestOrder?.status),
-          lastOrderRef: asString(latestOrder?.externalOrderRef),
-        };
+  private async commentsForSupplier(supplierId: string) {
+    return (
+      await repoRowsFiltered(this.db, ECOBASE_COLLECTIONS.silverActivityComments, {
+        entityType: 'supplier',
+        entityId: supplierId,
       })
-      .sort((left, right) => String(right.lastOrderedAt ?? '').localeCompare(String(left.lastOrderedAt ?? '')));
+    ).filter((comment) => !comment.deletedAt);
   }
 
-  private async productLinksForSupplier(company: string, supplierId: string) {
-    return (await this.db.getRepository(ECOBASE_COLLECTIONS.supplierProductLinks).find({ filter: { company }, limit: 3000 }))
-      .map(toPlainRecord)
-      .filter((link) => asString(link.supplierId) === supplierId && asBoolean(link.active) !== false);
+  private async accountsForSupplier(supplierId: string) {
+    return repoRowsFiltered(this.db, ECOBASE_COLLECTIONS.silverSupplierAccounts, { supplierId });
   }
 
-  private async productIdsForSupplier(company: string, supplierId: string) {
-    return unique((await this.productLinksForSupplier(company, supplierId)).map((link) => asString(link.planningProductId)));
+  private async productsForSupplier(supplierId: string) {
+    return repoRowsFiltered(this.db, ECOBASE_COLLECTIONS.silverSupplierProducts, { supplierId });
   }
 
-  private rowBelongsToSupplier(row: PlainRecord, supplier: PlainRecord, productIds: string[]) {
-    const supplierId = asString(supplier.id);
-    const supplierName = normalizeName(asString(supplier.name) ?? '');
-    return (
-      asString(row.supplierId) === supplierId ||
-      productIds.includes(asString(row.planningProductId) ?? '') ||
-      (supplierName.length > 0 && normalizeName(asString(row.supplierName) ?? '') === supplierName)
+  private async findCompany(companyName: string) {
+    const company = (await repoRows(this.db, ECOBASE_COLLECTIONS.silverCompanies)).find(
+      (row) =>
+        normalized(row.name) === normalized(companyName) || normalized(row.companyKey) === normalized(companyName),
     );
+    if (!company) throw new Error(`Ecobase supplier account update failed: company "${companyName}" was not found.`);
+    return company;
   }
 
-  private async leadTimesForSupplier(company: string, supplier: PlainRecord) {
-    const supplierId = asString(supplier.id);
-    const supplierCode = asString(supplier.supplierId);
-    const supplierName = normalizeName(asString(supplier.name) ?? '');
-    return (
-      await this.db.getRepository(ECOBASE_COLLECTIONS.supplierLeadTimes).find({ filter: { company }, limit: 3000 })
-    )
-      .map(toPlainRecord)
-      .filter(
-        (leadTime) =>
-          asString(leadTime.supplierRefId) === supplierId ||
-          (supplierCode && asString(leadTime.supplierId) === supplierCode) ||
-          (supplierName.length > 0 && normalizeName(asString(leadTime.supplierName) ?? '') === supplierName),
-      );
+  private rowBelongsToSupplier(row: PlainRecord, supplier: PlainRecord) {
+    const rowSupplierId = asString(row.supplierId);
+    if (rowSupplierId && rowSupplierId === asString(supplier.id)) return true;
+    const rowSupplierName = normalized(row.supplierName);
+    return Boolean(rowSupplierName && rowSupplierName === normalized(supplier.displayName));
   }
 
-  private async ordersForSupplier(company: string, supplierId: string) {
-    return (await this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).find({ filter: { company }, limit: 3000 }))
-      .map(toPlainRecord)
-      .filter((order) => asString(order.supplierId) === supplierId);
-  }
-
-  private async activitiesForSupplier(company: string, supplierId: string) {
-    return (
-      await this.db
-        .getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities)
-        .find({ filter: { company }, limit: 3000 })
-    )
-      .map(toPlainRecord)
-      .filter((activity) => asString(activity.supplierId) === supplierId)
-      .sort((left, right) => String(right.occurredAt ?? '').localeCompare(String(left.occurredAt ?? '')));
-  }
-
-  private async ensureManualSourceConnection(company: string) {
-    const repo = this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections);
-    const name = `Supplier Management Manual - ${company}`;
-    const existing = toPlainRecord(await repo.findOne({ filter: { name } }));
-    const existingId = asString(existing.id);
-    if (existingId) {
-      return existingId;
+  private validatePositiveLeadTime(value: number | undefined) {
+    const leadTimeDays = validateSupplierLeadTimeDays(value, 'Ecobase supplier lead-time update failed');
+    if (!leadTimeDays || leadTimeDays <= 0) {
+      throw new Error('Ecobase supplier lead-time update failed: leadTimeDays must be greater than zero.');
     }
-    const id = randomUUID();
-    await repo.create({
-      values: {
-        id,
-        name,
-        sourceType: 'manual_supplier_management',
-        domain: 'supplier-management',
-        config: { company },
-        active: true,
-      },
-    });
-    return id;
+    return leadTimeDays;
   }
 }

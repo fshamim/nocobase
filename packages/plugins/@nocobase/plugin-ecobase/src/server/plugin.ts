@@ -1743,6 +1743,18 @@ export function createEcobaseSupplierManagementActions() {
       };
       await next();
     },
+    digest: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseSupplierManagementService(ctx.db);
+      ctx.body = {
+        data: await service.digest({
+          company: getOptionalString(values, 'company'),
+          calculationDate: getOptionalString(values, 'calculationDate'),
+          limit: getOptionalNumber(values, 'limit'),
+        }),
+      };
+      await next();
+    },
     detail: async (ctx, next) => {
       const values = getValues(ctx.action.params);
       const service = new EcobaseSupplierManagementService(ctx.db);
@@ -1860,6 +1872,8 @@ export function createEcobaseSupplierManagementActions() {
           data: await service.updateSupplierProductLeadTime({
             company: getOptionalString(values, 'company'),
             supplierId: getOptionalString(values, 'supplierId'),
+            supplierProductId: getOptionalString(values, 'supplierProductId'),
+            productId: getOptionalString(values, 'productId'),
             planningProductId: getOptionalString(values, 'planningProductId'),
             asin: getOptionalString(values, 'asin'),
             sku: getOptionalString(values, 'sku'),
@@ -1871,6 +1885,105 @@ export function createEcobaseSupplierManagementActions() {
         };
       } catch (error) {
         ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier lead-time update failed.');
+        return;
+      }
+      await next();
+    },
+    updateSupplierLifecycle: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseSupplierManagementService(ctx.db);
+      try {
+        ctx.body = {
+          data: await service.updateSupplierLifecycle({
+            supplierId: getOptionalString(values, 'supplierId'),
+            status: getOptionalString(values, 'status'),
+            comment: getOptionalString(values, 'comment'),
+            followUpAt: getOptionalString(values, 'followUpAt'),
+            actor: getActorId(ctx),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier lifecycle update failed.');
+        return;
+      }
+      await next();
+    },
+    recordComment: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseSupplierManagementService(ctx.db);
+      try {
+        ctx.body = {
+          data: await service.recordComment({
+            supplierId: getOptionalString(values, 'supplierId'),
+            body: getOptionalString(values, 'body'),
+            commentType: getOptionalString(values, 'commentType'),
+            followUpAt: getOptionalString(values, 'followUpAt'),
+            actor: getActorId(ctx),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier comment failed.');
+        return;
+      }
+      await next();
+    },
+    deleteComment: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseSupplierManagementService(ctx.db);
+      try {
+        ctx.body = {
+          data: await service.deleteComment({
+            commentId: getOptionalString(values, 'commentId'),
+            actor: getActorId(ctx),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier comment delete failed.');
+        return;
+      }
+      await next();
+    },
+    updateSupplierAccount: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseSupplierManagementService(ctx.db);
+      try {
+        ctx.body = {
+          data: await service.updateSupplierAccount({
+            supplierId: getOptionalString(values, 'supplierId'),
+            company: getOptionalString(values, 'company'),
+            accountName: getOptionalString(values, 'accountName'),
+            orderingMethod: getOptionalString(values, 'orderingMethod'),
+            portalUrl: getOptionalString(values, 'portalUrl'),
+            username: getOptionalString(values, 'username'),
+            status: getOptionalString(values, 'status'),
+            actor: getActorId(ctx),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier account update failed.');
+        return;
+      }
+      await next();
+    },
+    upsertSupplierProduct: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseSupplierManagementService(ctx.db);
+      try {
+        ctx.body = {
+          data: await service.upsertSupplierProduct({
+            supplierId: getOptionalString(values, 'supplierId'),
+            productId: getOptionalString(values, 'productId'),
+            supplierSku: getOptionalString(values, 'supplierSku'),
+            unitCost: getOptionalNumber(values, 'unitCost'),
+            moq: getOptionalNumber(values, 'moq'),
+            leadTimeDays: getOptionalNumber(values, 'leadTimeDays'),
+            analysisStatus: getOptionalString(values, 'analysisStatus'),
+            notes: getOptionalString(values, 'notes'),
+            actor: getActorId(ctx),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier product update failed.');
         return;
       }
       await next();
@@ -2418,12 +2531,18 @@ export class PluginEcobaseServer extends Plugin {
         'refreshAttentionRows',
         'rows',
         'summary',
+        'digest',
         'detail',
         'createSupplier',
         'updateSupplierProfile',
         'createSupplierOrder',
         'recordActivity',
         'updateProductLeadTime',
+        'updateSupplierLifecycle',
+        'recordComment',
+        'deleteComment',
+        'updateSupplierAccount',
+        'upsertSupplierProduct',
         'supplierOptions',
         'productOptions',
         'orderOptions',
