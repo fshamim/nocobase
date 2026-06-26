@@ -2377,10 +2377,6 @@ export class PluginEcobaseServer extends Plugin {
       actions: createEcobaseImportActions(this.registry),
     });
     this.app.resourceManager.define({
-      name: 'ecobasePlanning',
-      actions: createEcobasePlanningActions(),
-    });
-    this.app.resourceManager.define({
       name: 'ecobaseInventoryPlanning',
       actions: createEcobaseInventoryPlanningActions(),
     });
@@ -2405,36 +2401,8 @@ export class PluginEcobaseServer extends Plugin {
       actions: createEcobaseSilverDataActions(),
     });
     this.app.resourceManager.define({
-      name: 'ecobaseAlertEvaluation',
-      actions: createEcobaseAlertActions(),
-    });
-    this.app.resourceManager.define({
-      name: 'ecobaseAccountability',
-      actions: createEcobaseAccountabilityActions(),
-    });
-    this.app.resourceManager.define({
-      name: 'ecobaseComparison',
-      actions: createEcobaseComparisonActions(),
-    });
-    this.app.resourceManager.define({
-      name: 'ecobaseDashboard',
-      actions: createEcobaseDashboardActions(),
-    });
-    this.app.resourceManager.define({
-      name: 'ecobaseOperatorWorkspace',
-      actions: createEcobaseOperatorWorkspaceActions(),
-    });
-    this.app.resourceManager.define({
       name: 'ecobaseReports',
       actions: createEcobaseReportActions(this.app),
-    });
-    this.app.resourceManager.define({
-      name: 'ecobaseAi',
-      actions: createEcobaseAiActions(),
-    });
-    this.app.resourceManager.define({
-      name: 'ecobaseAccuracy',
-      actions: createEcobaseAccuracyActions(),
     });
 
     this.app.acl.allow(
@@ -2455,18 +2423,6 @@ export class PluginEcobaseServer extends Plugin {
         'listSellerboardSources',
         'saveSellerboardSource',
         'deleteSellerboardSource',
-      ],
-      'loggedIn',
-    );
-    this.app.acl.allow(
-      'ecobasePlanning',
-      [
-        'listDuplicateMappings',
-        'confirmMapping',
-        'adjustMapping',
-        'productData',
-        'calculateProduct',
-        'validationReport',
       ],
       'loggedIn',
     );
@@ -2494,20 +2450,6 @@ export class PluginEcobaseServer extends Plugin {
     this.app.acl.allow(ECOBASE_COLLECTIONS.amazonAccounts, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.sourceConnections, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.importRuns, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.rawImportRows, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.rawListings, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.planningProducts, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.planningProductListings, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.planningProductMappingAudits, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.listingDailyFacts, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.inventorySnapshots, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.inventoryPlanningRows, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.trafficSnapshots, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.planningParameters, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.suppliers, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.supplierLeadTimes, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.supplierAttentionRows, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.supplierExternalIdentities, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(
       'ecobaseSupplierOrders',
       [
@@ -2559,18 +2501,6 @@ export class PluginEcobaseServer extends Plugin {
       ['search', 'lookup', 'context', 'record', 'updateRecord', 'addComment'],
       'loggedIn',
     );
-    this.app.acl.allow(ECOBASE_COLLECTIONS.supplierProductLinks, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.supplierOrders, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.supplierOrderLines, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.supplierOrderActivities, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.supplierOrderSettings, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.targetRows, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.planningCalculationSnapshots, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow('ecobaseAlertEvaluation', ['evaluate', 'list', 'defaults'], 'loggedIn');
-    this.app.acl.allow('ecobaseAccountability', ['evaluate', 'evidence', 'defaults'], 'loggedIn');
-    this.app.acl.allow('ecobaseComparison', ['compare'], 'loggedIn');
-    this.app.acl.allow('ecobaseDashboard', ['summary', 'settings'], 'loggedIn');
-    this.app.acl.allow('ecobaseOperatorWorkspace', ['workspace', 'preview', 'saveView'], 'loggedIn');
     this.app.acl.allow(
       'ecobaseReports',
       [
@@ -2586,25 +2516,8 @@ export class PluginEcobaseServer extends Plugin {
       ],
       'loggedIn',
     );
-    this.app.acl.allow('ecobaseAi', ['answer', 'askEphemeral', 'retrieveFacts', 'coverage'], 'loggedIn');
-    this.app.acl.allow('ecobaseAccuracy', ['checklistTemplate', 'recordSignoff', 'evaluate'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.ruleVersions, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.alertEvaluations, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.alerts, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.clickupTaskSnapshots, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.taskLinks, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.okrs, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.okrMetricSnapshots, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.sourceAccessAudits, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.reportRuns, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.reportItems, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.dailyManagementSnapshots, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.dailyBriefPromptSettings, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.aiAnswers, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.dataQualitySignoffs, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.benchmarkFixtures, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.accuracyEvaluationRuns, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.sourceWarningPolicies, ['list', 'get'], 'loggedIn');
   }
 }
 
