@@ -25,6 +25,7 @@ import silverListingDailyFacts from '../collections/silver-listing-daily-facts';
 import silverTrafficSnapshots from '../collections/silver-traffic-snapshots';
 import goldTargetEvaluations from '../collections/gold-target-evaluations';
 import goldInventoryPlanningRows from '../collections/gold-inventory-planning-rows';
+import goldOrderPlanningRows from '../collections/gold-order-planning-rows';
 import goldSupplierAttentionRows from '../collections/gold-supplier-attention-rows';
 import goldAlerts from '../collections/gold-alerts';
 import goldReportRuns from '../collections/gold-report-runs';
@@ -93,6 +94,7 @@ describe('Ecobase medallion schema foundation', () => {
     silverTrafficSnapshots,
     goldTargetEvaluations,
     goldInventoryPlanningRows,
+    goldOrderPlanningRows,
     goldSupplierAttentionRows,
     goldAlerts,
     goldReportRuns,
@@ -154,6 +156,13 @@ describe('Ecobase medallion schema foundation', () => {
     });
     expect(field(goldInventoryPlanningRows, 'supplierOrderState')).toMatchObject({ type: 'string' });
     expect(field(goldInventoryPlanningRows, 'supplierOrderRef')).toMatchObject({ type: 'string' });
+    expect(field(goldOrderPlanningRows, 'order')).toMatchObject({
+      type: 'belongsTo',
+      target: ECOBASE_COLLECTIONS.silverOrders,
+      foreignKey: 'orderId',
+    });
+    expect(field(goldOrderPlanningRows, 'canonicalStatus')).toMatchObject({ type: 'string' });
+    expect(field(goldOrderPlanningRows, 'moneyAtRisk')).toMatchObject({ type: 'double' });
     expect(field(goldReportItems, 'reportRun')).toMatchObject({
       type: 'belongsTo',
       target: ECOBASE_COLLECTIONS.goldReportRuns,

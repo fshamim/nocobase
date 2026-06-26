@@ -7,6 +7,8 @@ import amazonAccounts from '../collections/amazon-accounts';
 import benchmarkFixtures from '../collections/benchmark-fixtures';
 import clickupTaskSnapshots from '../collections/clickup-task-snapshots';
 import companies from '../collections/companies';
+import dailyBriefPromptSettings from '../collections/daily-brief-prompt-settings';
+import dailyManagementSnapshots from '../collections/daily-management-snapshots';
 import dataQualitySignoffs from '../collections/data-quality-signoffs';
 import importRuns from '../collections/import-runs';
 import inventoryPlanningRows from '../collections/inventory-planning-rows';
@@ -106,6 +108,8 @@ describe('Ecobase plugin-owned schema', () => {
     expect(sourceWarningPolicies.name).toBe(ECOBASE_COLLECTIONS.sourceWarningPolicies);
     expect(reportRuns.name).toBe(ECOBASE_COLLECTIONS.reportRuns);
     expect(reportItems.name).toBe(ECOBASE_COLLECTIONS.reportItems);
+    expect(dailyManagementSnapshots.name).toBe(ECOBASE_COLLECTIONS.dailyManagementSnapshots);
+    expect(dailyBriefPromptSettings.name).toBe(ECOBASE_COLLECTIONS.dailyBriefPromptSettings);
     expect(aiAnswers.name).toBe(ECOBASE_COLLECTIONS.aiAnswers);
     expect(dataQualitySignoffs.name).toBe(ECOBASE_COLLECTIONS.dataQualitySignoffs);
     expect(benchmarkFixtures.name).toBe(ECOBASE_COLLECTIONS.benchmarkFixtures);
@@ -131,6 +135,8 @@ describe('Ecobase plugin-owned schema', () => {
       alerts,
       reportRuns,
       reportItems,
+      dailyManagementSnapshots,
+      dailyBriefPromptSettings,
       aiAnswers,
       dataQualitySignoffs,
       benchmarkFixtures,
@@ -290,6 +296,13 @@ describe('Ecobase plugin-owned schema', () => {
       foreignKey: 'reportRunId',
     });
     expect(field(reportItems, 'evidence')).toMatchObject({ type: 'jsonb' });
+    expect(field(dailyManagementSnapshots, 'snapshotDate')).toMatchObject({ type: 'dateOnly' });
+    expect(field(dailyManagementSnapshots, 'inventoryMoneyAtRisk')).toMatchObject({ type: 'double' });
+    expect(field(dailyManagementSnapshots, 'orderMoneyAtRisk')).toMatchObject({ type: 'double' });
+    expect(field(dailyManagementSnapshots, 'snapshotPayload')).toMatchObject({ type: 'jsonb' });
+    expect(field(dailyBriefPromptSettings, 'directorInstructions')).toMatchObject({ type: 'text' });
+    expect(field(dailyBriefPromptSettings, 'mustInclude')).toMatchObject({ type: 'jsonb' });
+    expect(field(dailyBriefPromptSettings, 'kpiPriority')).toMatchObject({ type: 'jsonb' });
     expect(field(aiAnswers, 'question')).toMatchObject({ type: 'text' });
     expect(field(aiAnswers, 'evidenceReferences')).toMatchObject({ type: 'jsonb' });
     expect(field(aiAnswers, 'provider')).toMatchObject({ type: 'string' });

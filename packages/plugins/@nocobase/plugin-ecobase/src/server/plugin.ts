@@ -23,12 +23,15 @@ import { EcobaseComparisonService } from './services/comparison-service';
 import { EcobaseDashboardService } from './services/dashboard-service';
 import { EcobaseDailyOperationsBriefService } from './services/daily-operations-brief-service';
 import { EcobaseDailyOperationsBriefDeliveryService } from './services/daily-operations-brief-delivery-service';
+import { EcobaseDailyManagementSnapshotService } from './services/daily-management-snapshot-service';
+import { EcobaseDailyBriefPromptSettingsService } from './services/daily-brief-prompt-settings-service';
 import {
   EcobaseDailyOperationsBriefNarrativeService,
   NocoBaseEcoNarrativeProvider,
 } from './services/daily-operations-brief-narrative-service';
 import { EcobaseImportService } from './services/import-service';
 import { EcobaseInventoryPlanningService } from './services/inventory-planning-service';
+import { EcobaseOrderPlanningService } from './services/order-planning-service';
 import { EcobaseMedallionNormalizationService } from './services/medallion-normalization-service';
 import { EcobaseMedallionOrderService } from './services/medallion-order-service';
 import { EcobaseMedallionWorkflowService } from './services/medallion-workflow-service';
@@ -71,6 +74,22 @@ function getOptionalId(values: Record<string, unknown>, key: string): string | n
 function getOptionalNumber(values: Record<string, unknown>, key: string): number | undefined {
   const value = values[key];
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function getOptionalBoolean(values: Record<string, unknown>, key: string): boolean | undefined {
+  const value = values[key];
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+function getOptionalStringArray(values: Record<string, unknown>, key: string): string[] | undefined {
+  const value = values[key];
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string' && item.length > 0);
+  if (typeof value === 'string')
+    return value
+      .split(/[\n,]/g)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  return undefined;
 }
 
 function getOptionalRecord(values: Record<string, unknown>, key: string): Record<string, unknown> | undefined {
@@ -481,6 +500,83 @@ export function createEcobaseReportActions(app?: { pm?: { get?: (name: string) =
       }
       await next();
     },
+    getDailyManagementSnapshotTrend: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const company = getOptionalString(values, 'company');
+      try {
+        const evidence = await new EcobaseDailyOperationsBriefService(ctx.db).generateEvidence({
+          date: getOptionalString(values, 'date'),
+          company,
+          timezone: getOptionalString(values, 'timezone'),
+          maxItems: getOptionalNumber(values, 'maxItems'),
+        });
+        ctx.body = {
+          data: await new EcobaseDailyManagementSnapshotService(ctx.db).getTrend({
+            date: String((evidence.evidencePack as Record<string, unknown>).date ?? getOptionalString(values, 'date')),
+            company,
+            period: getOptionalString(values, 'period') as 'yesterday' | '7d' | '30d' | undefined,
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase daily management trend failed.');
+        return;
+      }
+      await next();
+    },
+    getDailyBriefPromptSettings: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      try {
+        ctx.body = {
+          data: await new EcobaseDailyBriefPromptSettingsService(ctx.db).getActiveSettings(
+            getOptionalString(values, 'company'),
+          ),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase daily brief prompt settings lookup failed.');
+        return;
+      }
+      await next();
+    },
+    saveDailyBriefPromptSettings: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      try {
+        ctx.body = {
+          data: await new EcobaseDailyBriefPromptSettingsService(ctx.db).saveSettings({
+            id: getOptionalString(values, 'id'),
+            name: getOptionalString(values, 'name'),
+            isActive: getOptionalBoolean(values, 'isActive'),
+            company: getOptionalString(values, 'company'),
+            audience: getOptionalString(values, 'audience'),
+            tone: getOptionalString(values, 'tone'),
+            directorInstructions: getOptionalString(values, 'directorInstructions'),
+            mustInclude: getOptionalStringArray(values, 'mustInclude'),
+            mustAvoid: getOptionalStringArray(values, 'mustAvoid'),
+            kpiPriority: getOptionalStringArray(values, 'kpiPriority'),
+            llmService: getOptionalString(values, 'llmService'),
+            model: getOptionalString(values, 'model'),
+            updatedBy: getOptionalString(values, 'updatedBy'),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase daily brief prompt settings save failed.');
+        return;
+      }
+      await next();
+    },
+    resetDailyBriefPromptSettings: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      try {
+        ctx.body = {
+          data: await new EcobaseDailyBriefPromptSettingsService(ctx.db).resetSettings(
+            getOptionalString(values, 'company'),
+          ),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase daily brief prompt settings reset failed.');
+        return;
+      }
+      await next();
+    },
     markDailyOperationsBriefSent: async (ctx, next) => {
       const values = getValues(ctx.action.params);
       const service = new EcobaseDailyOperationsBriefDeliveryService(ctx.db);
@@ -862,6 +958,170 @@ export function createEcobaseComparisonActions() {
         };
       } catch (error) {
         ctx.throw(400, error instanceof Error ? error.message : 'Ecobase comparison failed.');
+        return;
+      }
+      await next();
+    },
+  };
+}
+
+export function createEcobaseOrderPlanningActions() {
+  return {
+    filters: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseOrderPlanningService(ctx.db);
+      ctx.body = { data: await service.getFilters(getOptionalString(values, 'companyId')) };
+      await next();
+    },
+    list: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseOrderPlanningService(ctx.db);
+      ctx.body = {
+        data: await service.listOrders({
+          companyId: getOptionalString(values, 'companyId'),
+          company: getOptionalString(values, 'company'),
+          supplierId: getOptionalString(values, 'supplierId'),
+          status: getOptionalString(values, 'status'),
+          search: getOptionalString(values, 'search'),
+          minMoneyAtRisk: getOptionalNumber(values, 'minMoneyAtRisk'),
+          minWaitingDays: getOptionalNumber(values, 'minWaitingDays'),
+          hideClosed: getOptionalBoolean(values, 'hideClosed'),
+          limit: getOptionalNumber(values, 'limit'),
+        }),
+      };
+      await next();
+    },
+    refreshReadModel: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseOrderPlanningService(ctx.db);
+      ctx.body = {
+        data: await service.refreshReadModel({
+          companyId: getOptionalString(values, 'companyId'),
+          company: getOptionalString(values, 'company'),
+          limit: getOptionalNumber(values, 'limit'),
+        }),
+      };
+      await next();
+    },
+    detail: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const orderId = getOptionalString(values, 'orderId');
+      if (!orderId) {
+        ctx.throw(400, 'Ecobase Order Planning detail requires orderId.');
+        return;
+      }
+      try {
+        ctx.body = { data: await new EcobaseOrderPlanningService(ctx.db).getOrderDetail(orderId) };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase Order Planning detail failed.');
+        return;
+      }
+      await next();
+    },
+    updateOrder: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const orderId = getOptionalString(values, 'orderId');
+      if (!orderId) {
+        ctx.throw(400, 'Ecobase Order Planning order update requires orderId.');
+        return;
+      }
+      try {
+        ctx.body = {
+          data: await new EcobaseOrderPlanningService(ctx.db).updateOrder({
+            orderId,
+            values: getOptionalRecord(values, 'fields') ?? values,
+            commentBody: getOptionalString(values, 'commentBody'),
+            actorUserId: getActorId(ctx),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase Order Planning order update failed.');
+        return;
+      }
+      await next();
+    },
+    updateLine: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const orderLineId = getOptionalString(values, 'orderLineId');
+      if (!orderLineId) {
+        ctx.throw(400, 'Ecobase Order Planning line update requires orderLineId.');
+        return;
+      }
+      try {
+        ctx.body = {
+          data: await new EcobaseOrderPlanningService(ctx.db).updateLine({
+            orderLineId,
+            values: getOptionalRecord(values, 'fields') ?? values,
+            commentBody: getOptionalString(values, 'commentBody'),
+            actorUserId: getActorId(ctx),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase Order Planning line update failed.');
+        return;
+      }
+      await next();
+    },
+    addComment: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const orderId = getOptionalString(values, 'orderId');
+      if (!orderId) {
+        ctx.throw(400, 'Ecobase Order Planning comment requires orderId.');
+        return;
+      }
+      try {
+        ctx.body = {
+          data: await new EcobaseOrderPlanningService(ctx.db).addComment({
+            orderId,
+            body: getOptionalString(values, 'body'),
+            actorUserId: getActorId(ctx),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase Order Planning comment failed.');
+        return;
+      }
+      await next();
+    },
+    updateInvoice: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const invoiceId = getOptionalString(values, 'invoiceId');
+      if (!invoiceId) {
+        ctx.throw(400, 'Ecobase Order Planning invoice update requires invoiceId.');
+        return;
+      }
+      try {
+        ctx.body = {
+          data: await new EcobaseOrderPlanningService(ctx.db).updateInvoice({
+            invoiceId,
+            status: getOptionalString(values, 'status'),
+            actorUserId: getActorId(ctx),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase Order Planning invoice update failed.');
+        return;
+      }
+      await next();
+    },
+    deleteComment: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const orderId = getOptionalString(values, 'orderId');
+      const commentId = getOptionalString(values, 'commentId');
+      if (!orderId || !commentId) {
+        ctx.throw(400, 'Ecobase Order Planning comment delete requires orderId and commentId.');
+        return;
+      }
+      try {
+        ctx.body = {
+          data: await new EcobaseOrderPlanningService(ctx.db).deleteComment({
+            orderId,
+            commentId,
+            actorUserId: getActorId(ctx),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase Order Planning comment delete failed.');
         return;
       }
       await next();
@@ -1827,7 +2087,10 @@ export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
           calculationDate: getOptionalString(values, 'sourceVersion'),
           limit: getOptionalNumber(values, 'goldLimit') ?? 500,
         });
-        ctx.body = { data: { ...pipeline, goldInventory } };
+        const goldOrders = await new EcobaseOrderPlanningService(ctx.db).refreshReadModel({
+          limit: getOptionalNumber(values, 'goldOrderLimit') ?? 5000,
+        });
+        ctx.body = { data: { ...pipeline, goldInventory, goldOrders } };
       } catch (error) {
         ctx.throw(400, error instanceof Error ? error.message : 'Ecobase medallion pipeline failed.');
         return;
@@ -2009,6 +2272,10 @@ export class PluginEcobaseServer extends Plugin {
       actions: createEcobaseInventoryPlanningActions(),
     });
     this.app.resourceManager.define({
+      name: 'ecobaseOrderPlanning',
+      actions: createEcobaseOrderPlanningActions(),
+    });
+    this.app.resourceManager.define({
       name: 'ecobaseSupplierOrders',
       actions: createEcobaseSupplierOrderActions(),
     });
@@ -2095,6 +2362,21 @@ export class PluginEcobaseServer extends Plugin {
       ['filters', 'refreshReadModel', 'rows', 'digestPreview', 'optimizeBudget'],
       'loggedIn',
     );
+    this.app.acl.allow(
+      'ecobaseOrderPlanning',
+      [
+        'filters',
+        'list',
+        'refreshReadModel',
+        'detail',
+        'updateOrder',
+        'updateLine',
+        'addComment',
+        'updateInvoice',
+        'deleteComment',
+      ],
+      'loggedIn',
+    );
     this.app.acl.allow(ECOBASE_COLLECTIONS.companies, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.amazonAccounts, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.sourceConnections, ['list', 'get'], 'loggedIn');
@@ -2176,6 +2458,10 @@ export class PluginEcobaseServer extends Plugin {
         'generatePreview',
         'generateDailyOperationsBriefEvidence',
         'generateDailyOperationsBrief',
+        'getDailyManagementSnapshotTrend',
+        'getDailyBriefPromptSettings',
+        'saveDailyBriefPromptSettings',
+        'resetDailyBriefPromptSettings',
         'markDailyOperationsBriefSent',
         'markDailyOperationsBriefFailed',
       ],
@@ -2193,6 +2479,8 @@ export class PluginEcobaseServer extends Plugin {
     this.app.acl.allow(ECOBASE_COLLECTIONS.sourceAccessAudits, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.reportRuns, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.reportItems, ['list', 'get'], 'loggedIn');
+    this.app.acl.allow(ECOBASE_COLLECTIONS.dailyManagementSnapshots, ['list', 'get'], 'loggedIn');
+    this.app.acl.allow(ECOBASE_COLLECTIONS.dailyBriefPromptSettings, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.aiAnswers, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.dataQualitySignoffs, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.benchmarkFixtures, ['list', 'get'], 'loggedIn');

@@ -4,6 +4,7 @@ import { ECOBASE_COLLECTIONS } from '../collections/names';
 import type { EcobaseDatabase, EcobaseRepository } from './import-service';
 import { toPlainRecord } from './import-service';
 import { EcobaseMedallionIdentityService } from './medallion-identity-service';
+import { resolveOrderLifecycle } from './order-lifecycle';
 
 export interface NormalizePendingParams {
   sourceConnectionId?: string;
@@ -267,23 +268,50 @@ export class EcobaseMedallionNormalizationService {
     }
 
     if (company && supplier && orderRef) {
-      const order = await this.upsertByFilter(
-        ECOBASE_COLLECTIONS.silverOrders,
-        { companyId: idOf(company), orderRef },
-        {
-          companyId: idOf(company),
-          supplierId: idOf(supplier),
-          orderRef,
-          orderDate: snapshotDate,
-          dailySequenceLetter: orderRef,
-          orderIntent: row.string('Order type') ?? 'imported',
-          lifecyclePhase: 'imported',
-          lifecycleStatus: row.string('Order Status', 'PO Status', 'AM Status') ?? 'imported',
-          fulfillmentRoute: 'unknown',
-          expectedDeliveryDate: row.string('Expected Delivery', 'Expected Delivery Date', 'ETA', 'Arrival to Amazon'),
-          expectedCost: row.number('Exp. Cost ', 'Expected Cost'),
-        },
+      const orderFilter = { companyId: idOf(company), orderRef };
+      const existingOrder = toPlainRecord(
+        await this.repo(ECOBASE_COLLECTIONS.silverOrders).findOne({ filter: orderFilter }),
       );
+      const hasOperatorOverride =
+        textValue(existingOrder.statusSource) === 'operator' ||
+        Boolean(textValue(existingOrder.operatorStatusOverrideAt));
+      const importedLifecycle = resolveOrderLifecycle({
+        canonicalStatus: textValue(existingOrder.canonicalStatus),
+        existingStatusCheckRequired: existingOrder.statusCheckRequired === true,
+        lifecyclePhase: 'imported',
+        lifecycleStatus: row.string('Order Status', 'PO Status', 'AM Status'),
+        sourceOrderStatus: row.string('Order Status', 'Order status', 'PO Status', 'AM Status'),
+        paymentStatus: row.string('Payment Status', 'Payment Status '),
+        invoiceStatus: row.string('Invoice Status'),
+        poApproval: row.string('PO approval', 'Approval Status', 'PO Approval'),
+        prepStatus: row.string('Prep Status', 'Prep Status '),
+        orStatus: row.string('OR Status'),
+        remarks: row.string('Remarks'),
+        dateOfPayment: row.string('Date of Payment'),
+        trackingId: row.string('Tracking ID', 'Tracking #'),
+        shippingCarrier: row.string('Shipping Carrier', 'Carrier'),
+      });
+      const order = await this.upsertByFilter(ECOBASE_COLLECTIONS.silverOrders, orderFilter, {
+        companyId: idOf(company),
+        supplierId: idOf(supplier),
+        orderRef,
+        orderDate: snapshotDate,
+        dailySequenceLetter: orderRef,
+        orderIntent: row.string('Order type') ?? 'imported',
+        lifecyclePhase: 'imported',
+        ...(hasOperatorOverride
+          ? {}
+          : {
+              lifecycleStatus: importedLifecycle.canonicalStatus,
+              canonicalStatus: importedLifecycle.canonicalStatus,
+              statusSource: importedLifecycle.statusSource,
+              statusCheckRequired: importedLifecycle.statusCheckRequired,
+              statusEvidenceJson: importedLifecycle.statusEvidence,
+            }),
+        fulfillmentRoute: 'unknown',
+        expectedDeliveryDate: row.string('Expected Delivery', 'Expected Delivery Date', 'ETA', 'Arrival to Amazon'),
+        expectedCost: row.number('Exp. Cost ', 'Expected Cost'),
+      });
       entities.push(entity('silverOrder', order, 'order'));
 
       if (companyProduct && supplierProduct && row.number('Qty', 'Ordered') !== undefined) {
@@ -314,8 +342,9 @@ export class EcobaseMedallionNormalizationService {
         );
       }
 
-      const invoiceNumber = row.string('Invoice Number');
-      if (invoiceNumber || row.string('Payment Status')) {
+      const invoiceNumber = row.string('Invoice Number', 'Invoice No');
+      const invoiceStatus = row.string('Invoice Status') ?? row.string('Payment Status', 'Payment Status ');
+      if (invoiceNumber || invoiceStatus) {
         entities.push(
           entity(
             'silverInvoice',
@@ -329,7 +358,8 @@ export class EcobaseMedallionNormalizationService {
                 orderId: idOf(order),
                 invoiceNumber: invoiceNumber ?? `${orderRef}:imported`,
                 invoiceType: 'normal',
-                status: row.string('Payment Status') ?? 'imported',
+                status: invoiceStatus ?? 'imported',
+                paidAt: row.string('Date of Payment') ? dateOnly(row.string('Date of Payment')) : undefined,
               },
             ),
             'invoice',

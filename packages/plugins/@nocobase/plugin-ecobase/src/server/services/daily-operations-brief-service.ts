@@ -4,10 +4,19 @@ import type { EcobaseDatabase, EcobaseRepository } from './import-service';
 import { toPlainRecord } from './import-service';
 import { EcobaseDataWarningService, type EcobaseDataWarning } from './data-warning-service';
 import { EcobaseInventoryPlanningService } from './inventory-planning-service';
+import { EcobaseDailyManagementSnapshotService } from './daily-management-snapshot-service';
 import { isReliableSupplierOrderCoverageStatus, normalizeSupplierOrderStatus } from './supplier-order-service';
 
 type PlainRecord = Record<string, unknown>;
-type DailyBriefFocus = 'inventory_risk' | 'supplier_orders' | 'buybox' | 'velocity' | 'profit_gap' | 'okr' | 'source_quality' | 'no_major_exception';
+type DailyBriefFocus =
+  | 'inventory_risk'
+  | 'supplier_orders'
+  | 'buybox'
+  | 'velocity'
+  | 'profit_gap'
+  | 'okr'
+  | 'source_quality'
+  | 'no_major_exception';
 
 type DailyBriefMode = 'preview' | 'workflow' | 'workflow_send';
 
@@ -86,7 +95,15 @@ export type SupplierOrderEvidence = {
   supplierId?: string;
   supplierName?: string;
   status?: string;
-  coverageState: 'draft_or_planned' | 'approval_pending' | 'payment_pending' | 'purchased_or_inbound' | 'closed_or_paid' | 'cancelled' | 'blocked' | 'unknown';
+  coverageState:
+    | 'draft_or_planned'
+    | 'approval_pending'
+    | 'payment_pending'
+    | 'purchased_or_inbound'
+    | 'closed_or_paid'
+    | 'cancelled'
+    | 'blocked'
+    | 'unknown';
   isTrustedCoverage: boolean;
   lineCount: number;
   openQty: number;
@@ -103,6 +120,32 @@ export type SupplierOrderEvidence = {
   orderDate?: string;
   expectedDeliveryDate?: string;
   lastMeaningfulUpdateAt?: string;
+};
+
+export type OrderPlanningRiskEvidence = {
+  evidenceId: string;
+  orderRiskType: 'status_check' | 'money_at_risk' | 'operator_action' | 'waiting_for_update' | 'oos_linked';
+  company?: string;
+  orderId?: string;
+  orderRef?: string;
+  supplierId?: string;
+  supplierName?: string;
+  currentStatus?: string;
+  statusSource?: string;
+  statusCheckRequired: boolean;
+  nextAction?: string;
+  nextActionDueAt?: string;
+  expectedDeliveryDate?: string;
+  trackingId?: string;
+  asinCount?: number;
+  lineCount?: number;
+  moneyAtRisk?: number;
+  riskSource?: string;
+  earliestOosDate?: string;
+  daysUntilOos?: number;
+  daysSinceLastActivity?: number;
+  latestComment?: string;
+  warnings: string[];
 };
 
 export type LeadTimeIssueEvidence = {
@@ -210,11 +253,13 @@ export type DailyEvidencePack = {
   sourceStatus: SourceStatusEvidence[];
   inventoryRisks: InventoryRiskEvidence[];
   supplierOrderContext: SupplierOrderEvidence[];
+  orderPlanningRisks: OrderPlanningRiskEvidence[];
   leadTimeIssues: LeadTimeIssueEvidence[];
   performanceTrends: PerformanceTrendEvidence[];
   buyBoxRisks: BuyBoxRiskEvidence[];
   okrAccountabilityRisks: OkrAccountabilityRiskEvidence[];
   dataWarnings: DataWarningEvidence[];
+  managementKpiTrends?: PlainRecord;
   omissions: string[];
   assumptions: string[];
 };
@@ -308,7 +353,9 @@ function dateInTimezone(timezone: string, now = new Date()) {
 }
 
 function diffDays(left: string, right: string) {
-  return Math.round((new Date(`${left}T00:00:00.000Z`).getTime() - new Date(`${right}T00:00:00.000Z`).getTime()) / 86_400_000);
+  return Math.round(
+    (new Date(`${left}T00:00:00.000Z`).getTime() - new Date(`${right}T00:00:00.000Z`).getTime()) / 86_400_000,
+  );
 }
 
 function dateBefore(date: string, days: number) {
@@ -322,7 +369,8 @@ function monthPeriod(date: string) {
 }
 
 function percentageDrop(current: number | undefined, baseline: number | undefined) {
-  if (typeof current !== 'number' || typeof baseline !== 'number' || baseline <= 0 || current >= baseline) return undefined;
+  if (typeof current !== 'number' || typeof baseline !== 'number' || baseline <= 0 || current >= baseline)
+    return undefined;
   return Math.round(((baseline - current) / baseline) * 1000) / 10;
 }
 
@@ -339,24 +387,34 @@ function orderLineMatchesRisk(line: PlainRecord, risk: PlainRecord) {
   const riskSku = asString(risk.sku);
   return Boolean(
     (linePlanningProductId && riskPlanningProductId && linePlanningProductId === riskPlanningProductId) ||
-    (lineAsin && riskAsin && lineAsin === riskAsin) ||
-    (lineSku && riskSku && lineSku === riskSku)
+      (lineAsin && riskAsin && lineAsin === riskAsin) ||
+      (lineSku && riskSku && lineSku === riskSku),
   );
 }
 
 function orderCoverageState(status: string | undefined): SupplierOrderEvidence['coverageState'] {
   const normalized = normalizeSupplierOrderStatus(status);
-  if (normalized === 'draft' || normalized === 'supplier_contacted' || normalized === 'supplier_confirmed') return 'draft_or_planned';
+  if (normalized === 'draft' || normalized === 'supplier_contacted' || normalized === 'supplier_confirmed')
+    return 'draft_or_planned';
   if (normalized === 'approval_pending') return 'approval_pending';
   if (normalized === 'payment_pending') return 'payment_pending';
-  if (['paid', 'supplier_preparing', 'shipped_inbound', 'reached_fba'].includes(normalized)) return 'purchased_or_inbound';
+  if (['paid', 'supplier_preparing', 'shipped_inbound', 'reached_fba'].includes(normalized))
+    return 'purchased_or_inbound';
   if (normalized === 'completed') return 'closed_or_paid';
   if (normalized === 'cancelled' || normalized === 'rejected') return 'cancelled';
   if (normalized === 'blocked') return 'blocked';
   return 'unknown';
 }
 
-type DailyBriefEvidenceItem = InventoryRiskEvidence | SupplierOrderEvidence | LeadTimeIssueEvidence | PerformanceTrendEvidence | BuyBoxRiskEvidence | OkrAccountabilityRiskEvidence | DataWarningEvidence;
+type DailyBriefEvidenceItem =
+  | InventoryRiskEvidence
+  | SupplierOrderEvidence
+  | OrderPlanningRiskEvidence
+  | LeadTimeIssueEvidence
+  | PerformanceTrendEvidence
+  | BuyBoxRiskEvidence
+  | OkrAccountabilityRiskEvidence
+  | DataWarningEvidence;
 
 function isInventoryRiskEvidence(item: DailyBriefEvidenceItem): item is InventoryRiskEvidence {
   return Object.prototype.hasOwnProperty.call(item, 'actionStatus');
@@ -364,6 +422,10 @@ function isInventoryRiskEvidence(item: DailyBriefEvidenceItem): item is Inventor
 
 function isSupplierOrderEvidence(item: DailyBriefEvidenceItem): item is SupplierOrderEvidence {
   return Object.prototype.hasOwnProperty.call(item, 'coverageState');
+}
+
+function isOrderPlanningRiskEvidence(item: DailyBriefEvidenceItem): item is OrderPlanningRiskEvidence {
+  return Object.prototype.hasOwnProperty.call(item, 'orderRiskType');
 }
 
 function isLeadTimeIssueEvidence(item: DailyBriefEvidenceItem): item is LeadTimeIssueEvidence {
@@ -389,6 +451,9 @@ function reportItemTitle(item: DailyBriefEvidenceItem) {
   if (isSupplierOrderEvidence(item)) {
     return `Supplier order: ${item.externalOrderRef ?? item.supplierOrderId ?? 'unknown order'}`;
   }
+  if (isOrderPlanningRiskEvidence(item)) {
+    return `Order planning: ${item.orderRef ?? item.orderId ?? 'unknown order'}`;
+  }
   if (isLeadTimeIssueEvidence(item)) {
     return `Lead-time action: ${item.asin ?? item.planningProductId ?? item.supplierName ?? 'unknown product'}`;
   }
@@ -410,35 +475,65 @@ function reportItemTitle(item: DailyBriefEvidenceItem) {
 
 function reportItemBody(item: DailyBriefEvidenceItem) {
   if (isInventoryRiskEvidence(item)) {
-    return `Action ${item.actionStatus ?? 'review'} for ${item.asin ?? item.planningProductId ?? item.sku ?? 'unknown product'}; supplier ${item.supplierName ?? 'unknown'}; lead time ${item.leadTimeDays ?? 'missing'} days; trusted open coverage ${item.openSupplierOrderCoverageQty ?? 0}.`;
+    return `Action ${item.actionStatus ?? 'review'} for ${
+      item.asin ?? item.planningProductId ?? item.sku ?? 'unknown product'
+    }; supplier ${item.supplierName ?? 'unknown'}; lead time ${
+      item.leadTimeDays ?? 'missing'
+    } days; trusted open coverage ${item.openSupplierOrderCoverageQty ?? 0}.`;
   }
   if (isSupplierOrderEvidence(item)) {
-    return `Status ${item.status ?? 'unknown'} maps to ${item.coverageState}; trusted coverage ${item.isTrustedCoverage ? 'yes' : 'no'}; open quantity ${item.openQty}.`;
+    return `Status ${item.status ?? 'unknown'} maps to ${item.coverageState}; trusted coverage ${
+      item.isTrustedCoverage ? 'yes' : 'no'
+    }; open quantity ${item.openQty}.`;
+  }
+  if (isOrderPlanningRiskEvidence(item)) {
+    return `Status ${item.currentStatus ?? 'unknown'} from ${item.statusSource ?? 'unknown'}; next action ${
+      item.nextAction ?? 'review'
+    }; money at risk ${item.moneyAtRisk ?? 0}; waiting ${item.daysSinceLastActivity ?? 0} days.`;
   }
   if (isLeadTimeIssueEvidence(item)) {
-    return `${item.actionRequired} for supplier ${item.supplierName ?? 'unknown'}; freshness ${item.leadTimeFreshness ?? 'missing'}.`;
+    return `${item.actionRequired} for supplier ${item.supplierName ?? 'unknown'}; freshness ${
+      item.leadTimeFreshness ?? 'missing'
+    }.`;
   }
   if (isBuyBoxRiskEvidence(item)) {
-    return `Buy Box ${item.currentBuyBoxWinRate ?? 'missing'}% vs baseline ${item.baselineBuyBoxWinRate ?? 'missing'}%; drop ${item.winRateDropPoints ?? 0} points; source ${item.sourceFreshness}.`;
+    return `Buy Box ${item.currentBuyBoxWinRate ?? 'missing'}% vs baseline ${
+      item.baselineBuyBoxWinRate ?? 'missing'
+    }%; drop ${item.winRateDropPoints ?? 0} points; source ${item.sourceFreshness}.`;
   }
   if (isPerformanceTrendEvidence(item)) {
     return item.trendType === 'profit_gap'
-      ? `Profit ${item.currentProfit ?? 'missing'} vs target ${item.targetProfit ?? 'missing'}; gap ${item.profitGap ?? 'unknown'}; confidence ${item.confidence}.`
-      : `Units ${item.currentUnits ?? 'missing'} vs baseline ${item.baselineUnits ?? 'missing'}; velocity drop ${item.velocityDropPercent ?? 0}%; confidence ${item.confidence}.`;
+      ? `Profit ${item.currentProfit ?? 'missing'} vs target ${item.targetProfit ?? 'missing'}; gap ${
+          item.profitGap ?? 'unknown'
+        }; confidence ${item.confidence}.`
+      : `Units ${item.currentUnits ?? 'missing'} vs baseline ${item.baselineUnits ?? 'missing'}; velocity drop ${
+          item.velocityDropPercent ?? 0
+        }%; confidence ${item.confidence}.`;
   }
   if (isOkrAccountabilityRiskEvidence(item)) {
     return item.riskType === 'okr_off_track'
-      ? `Status ${item.status ?? 'unknown'}; progress ${item.progressPercent ?? 'missing'}%; owner ${item.owner ?? 'unknown'}; evidence ${item.evidenceFreshness}.`
-      : `Task status ${item.taskStatus ?? 'unknown'}; assignee ${item.assignee ?? 'unknown'}; due ${item.dueDate ?? 'missing'}; last update ${item.lastMeaningfulUpdateAt ?? 'missing'}.`;
+      ? `Status ${item.status ?? 'unknown'}; progress ${item.progressPercent ?? 'missing'}%; owner ${
+          item.owner ?? 'unknown'
+        }; evidence ${item.evidenceFreshness}.`
+      : `Task status ${item.taskStatus ?? 'unknown'}; assignee ${item.assignee ?? 'unknown'}; due ${
+          item.dueDate ?? 'missing'
+        }; last update ${item.lastMeaningfulUpdateAt ?? 'missing'}.`;
   }
   return item.message;
 }
 
 function reportSeverity(item: DailyBriefEvidenceItem) {
-  if (isInventoryRiskEvidence(item) && ['overdue', 'order_today', 'missing_lead_time'].includes(item.actionStatus ?? '')) return 'warning';
-  if (isSupplierOrderEvidence(item) && ['approval_pending', 'payment_pending', 'blocked'].includes(item.coverageState)) return 'warning';
+  if (
+    isInventoryRiskEvidence(item) &&
+    ['overdue', 'order_today', 'missing_lead_time'].includes(item.actionStatus ?? '')
+  )
+    return 'warning';
+  if (isSupplierOrderEvidence(item) && ['approval_pending', 'payment_pending', 'blocked'].includes(item.coverageState))
+    return 'warning';
+  if (isOrderPlanningRiskEvidence(item)) return 'warning';
   if (isLeadTimeIssueEvidence(item)) return 'warning';
-  if (isPerformanceTrendEvidence(item) || isBuyBoxRiskEvidence(item) || isOkrAccountabilityRiskEvidence(item)) return 'warning';
+  if (isPerformanceTrendEvidence(item) || isBuyBoxRiskEvidence(item) || isOkrAccountabilityRiskEvidence(item))
+    return 'warning';
   return (item as DataWarningEvidence).severity;
 }
 
@@ -466,19 +561,57 @@ function openQty(line: PlainRecord) {
   return Math.max(safeNumber(line.orderedQty) - safeNumber(line.receivedQty), 0);
 }
 
+function normalizedOrderStatus(value?: string) {
+  return (value ?? '').toLowerCase().replace(/[\s-]+/g, '_');
+}
+
+function isClosedOrderStatus(value?: string) {
+  const status = normalizedOrderStatus(value);
+  return ['complete', 'completed', 'closed', 'cancelled', 'canceled', 'rejected'].some((part) => status.includes(part));
+}
+
+function orderRiskTypeFor(row: PlainRecord): OrderPlanningRiskEvidence['orderRiskType'] | undefined {
+  if (asBoolean(row.statusCheckRequired)) return 'status_check';
+  if (safeNumber(row.moneyAtRisk) > 0) return 'money_at_risk';
+  if (asString(row.nextAction)) return 'operator_action';
+  if (safeNumber(row.daysSinceLastActivity) >= 3) return 'waiting_for_update';
+  const daysUntilOos = asNumber(row.daysUntilOos);
+  if (typeof daysUntilOos === 'number' && daysUntilOos <= 14) return 'oos_linked';
+  return undefined;
+}
+
+function compareOrderPlanningRisk(left: OrderPlanningRiskEvidence, right: OrderPlanningRiskEvidence) {
+  const statusCheck = Number(right.statusCheckRequired) - Number(left.statusCheckRequired);
+  if (statusCheck !== 0) return statusCheck;
+  const money = safeNumber(right.moneyAtRisk) - safeNumber(left.moneyAtRisk);
+  if (money !== 0) return money;
+  const waiting = safeNumber(right.daysSinceLastActivity) - safeNumber(left.daysSinceLastActivity);
+  if (waiting !== 0) return waiting;
+  const leftOos = typeof left.daysUntilOos === 'number' ? left.daysUntilOos : Number.MAX_SAFE_INTEGER;
+  const rightOos = typeof right.daysUntilOos === 'number' ? right.daysUntilOos : Number.MAX_SAFE_INTEGER;
+  return leftOos - rightOos;
+}
+
 function itemTypeFor(item: DailyBriefEvidenceItem) {
   if (isInventoryRiskEvidence(item)) return 'inventory_risk';
   if (isSupplierOrderEvidence(item)) return 'supplier_order_action';
+  if (isOrderPlanningRiskEvidence(item)) return 'order_planning_action';
   if (isLeadTimeIssueEvidence(item)) return 'missing_lead_time';
   if (isBuyBoxRiskEvidence(item)) return 'buybox_risk';
   if (isPerformanceTrendEvidence(item)) return item.trendType === 'profit_gap' ? 'profit_gap' : 'velocity_drop';
-  if (isOkrAccountabilityRiskEvidence(item)) return item.riskType === 'okr_off_track' ? 'okr_status' : 'accountability_task';
-  return item.code === 'no_action_required' ? 'no_action_required' : item.code.includes('source') || item.sourceConnectionId ? 'source_freshness_warning' : 'data_quality';
+  if (isOkrAccountabilityRiskEvidence(item))
+    return item.riskType === 'okr_off_track' ? 'okr_status' : 'accountability_task';
+  return item.code === 'no_action_required'
+    ? 'no_action_required'
+    : item.code.includes('source') || item.sourceConnectionId
+      ? 'source_freshness_warning'
+      : 'data_quality';
 }
 
 function evidenceRefTypeFor(item: DailyBriefEvidenceItem) {
   if (isInventoryRiskEvidence(item)) return 'daily_inventory_risk';
   if (isSupplierOrderEvidence(item)) return 'daily_supplier_order_context';
+  if (isOrderPlanningRiskEvidence(item)) return 'daily_order_planning_risk';
   if (isLeadTimeIssueEvidence(item)) return 'daily_lead_time_issue';
   if (isBuyBoxRiskEvidence(item)) return 'daily_buybox_risk';
   if (isPerformanceTrendEvidence(item)) return 'daily_performance_trend';
@@ -500,14 +633,27 @@ export class EcobaseDailyOperationsBriefService {
 
     if (existing && params.forceRegenerate !== true) {
       const existingPlain = toPlainRecord(existing);
-      const existingPack = isRecord(existingPlain.evidencePack) ? existingPlain.evidencePack as DailyEvidencePack : undefined;
+      const existingPack = isRecord(existingPlain.evidencePack)
+        ? (existingPlain.evidencePack as DailyEvidencePack)
+        : undefined;
       const existingReportRunId = asString(existingPlain.id);
+      if (existingReportRunId) {
+        await new EcobaseDailyManagementSnapshotService(this.db).upsertFromEvidence({
+          date,
+          company,
+          reportRunId: existingReportRunId,
+          evidencePack: existingPack,
+        });
+      }
       return {
         reportRunId: existingReportRunId,
         idempotencyKey,
         status: asString(existingPlain.status) ?? 'evidence_generated',
         focus: asString(existingPlain.focus) ?? existingPack?.focus ?? 'inventory_risk',
-        focusReason: existingPack?.focusReason ?? asString(existingPlain.executiveSummary) ?? 'Existing daily operations evidence reused by idempotency key.',
+        focusReason:
+          existingPack?.focusReason ??
+          asString(existingPlain.executiveSummary) ??
+          'Existing daily operations evidence reused by idempotency key.',
         evidencePack: existingPack ?? {},
         reportItems: existingReportRunId ? await this.findReportItems(existingReportRunId) : [],
         warnings: Array.isArray(existingPlain.warnings) ? existingPlain.warnings : [],
@@ -549,6 +695,13 @@ export class EcobaseDailyOperationsBriefService {
       await reportRunRepo.create({ values: reportRunValues });
     }
 
+    await new EcobaseDailyManagementSnapshotService(this.db).upsertFromEvidence({
+      date,
+      company,
+      reportRunId,
+      evidencePack,
+    });
+
     const reportItems = await this.createReportItems(reportRunId, evidencePack);
     return {
       reportRunId,
@@ -563,7 +716,12 @@ export class EcobaseDailyOperationsBriefService {
     };
   }
 
-  async buildEvidencePack(params: { date: string; timezone: string; company?: string; maxItems: number }): Promise<DailyEvidencePack> {
+  async buildEvidencePack(params: {
+    date: string;
+    timezone: string;
+    company?: string;
+    maxItems: number;
+  }): Promise<DailyEvidencePack> {
     const sourceStatus = await this.buildSourceStatus(params.company, params.date);
     const rows = await new EcobaseInventoryPlanningService(this.db).listRows({
       company: params.company,
@@ -577,27 +735,72 @@ export class EcobaseDailyOperationsBriefService {
       if (safeReorder !== 0) return safeReorder;
       return safeNumber(right.estimatedProfitRisk) - safeNumber(left.estimatedProfitRisk);
     });
-    const riskRows = sortedRows.filter((row) => ['overdue', 'order_today', 'order_soon', 'missing_lead_time'].includes(asString(row.actionStatus) ?? ''));
+    const riskRows = sortedRows.filter((row) =>
+      ['overdue', 'order_today', 'order_soon', 'missing_lead_time'].includes(asString(row.actionStatus) ?? ''),
+    );
     const cappedRiskRows = riskRows.slice(0, params.maxItems);
     const omissions = this.buildOmissions({ riskRows, cappedRiskRows, sourceStatus, params });
     const inventoryRisks = this.buildInventoryRisks(cappedRiskRows, params.date);
     const supplierOrderContext = await this.buildSupplierOrderContext(cappedRiskRows, params.company, params.maxItems);
+    const orderPlanningRisks = await this.buildOrderPlanningRisks(params).then((items) =>
+      items.slice(0, params.maxItems),
+    );
     const leadTimeIssues = this.buildLeadTimeIssues(cappedRiskRows).slice(0, params.maxItems);
-    const performanceTrends = await this.buildPerformanceTrends(params).then((items) => items.slice(0, params.maxItems));
+    const performanceTrends = await this.buildPerformanceTrends(params).then((items) =>
+      items.slice(0, params.maxItems),
+    );
     const buyBoxRisks = await this.buildBuyBoxRisks(params).then((items) => items.slice(0, params.maxItems));
-    const okrAccountabilityRisks = await this.buildOkrAccountabilityRisks(params).then((items) => items.slice(0, params.maxItems));
-    const dataWarnings = this.buildDataWarnings({ sourceStatus, rows: sortedRows, riskRows: cappedRiskRows, buyBoxRisks, performanceTrends, okrAccountabilityRisks });
-    if (inventoryRisks.length === 0 && supplierOrderContext.length === 0 && leadTimeIssues.length === 0 && performanceTrends.length === 0 && buyBoxRisks.length === 0 && okrAccountabilityRisks.length === 0 && dataWarnings.length === 0) {
+    const okrAccountabilityRisks = await this.buildOkrAccountabilityRisks(params).then((items) =>
+      items.slice(0, params.maxItems),
+    );
+    const dataWarnings = this.buildDataWarnings({
+      sourceStatus,
+      rows: sortedRows,
+      riskRows: cappedRiskRows,
+      buyBoxRisks,
+      performanceTrends,
+      okrAccountabilityRisks,
+    });
+    if (
+      inventoryRisks.length === 0 &&
+      supplierOrderContext.length === 0 &&
+      orderPlanningRisks.length === 0 &&
+      leadTimeIssues.length === 0 &&
+      performanceTrends.length === 0 &&
+      buyBoxRisks.length === 0 &&
+      okrAccountabilityRisks.length === 0 &&
+      dataWarnings.length === 0
+    ) {
       dataWarnings.push({
         evidenceId: evidenceId('warning', `${params.date}:${params.company ?? 'all'}:no_action_required`),
         code: 'no_action_required',
-        message: 'No urgent inventory risk, performance anomaly, accountability blocker, or source-quality blocker was detected for this daily brief.',
+        message:
+          'No urgent inventory risk, order planning action, performance anomaly, accountability blocker, or source-quality blocker was detected for this daily brief.',
         severity: 'info',
         metadata: { date: params.date, company: params.company ?? null },
       });
     }
-    const focus = this.focusFor({ inventoryRisks, supplierOrderContext, leadTimeIssues, performanceTrends, buyBoxRisks, okrAccountabilityRisks, dataWarnings });
-    const focusReason = this.focusReasonFor({ focus, inventoryRisks, supplierOrderContext, leadTimeIssues, performanceTrends, buyBoxRisks, okrAccountabilityRisks, dataWarnings });
+    const focus = this.focusFor({
+      inventoryRisks,
+      supplierOrderContext,
+      orderPlanningRisks,
+      leadTimeIssues,
+      performanceTrends,
+      buyBoxRisks,
+      okrAccountabilityRisks,
+      dataWarnings,
+    });
+    const focusReason = this.focusReasonFor({
+      focus,
+      inventoryRisks,
+      supplierOrderContext,
+      orderPlanningRisks,
+      leadTimeIssues,
+      performanceTrends,
+      buyBoxRisks,
+      okrAccountabilityRisks,
+      dataWarnings,
+    });
 
     return {
       generatedAt: new Date().toISOString(),
@@ -611,6 +814,10 @@ export class EcobaseDailyOperationsBriefService {
         includedInventoryRiskCount: inventoryRisks.length,
         omittedInventoryRiskCount: Math.max(riskRows.length - inventoryRisks.length, 0),
         supplierOrderContextCount: supplierOrderContext.length,
+        orderPlanningRiskCount: orderPlanningRisks.length,
+        taskRiskCount: okrAccountabilityRisks.filter(
+          (risk) => risk.riskType === 'task_overdue' || risk.riskType === 'task_inactive',
+        ).length,
         leadTimeIssueCount: leadTimeIssues.length,
         performanceTrendCount: performanceTrends.length,
         buyBoxRiskCount: buyBoxRisks.length,
@@ -621,6 +828,7 @@ export class EcobaseDailyOperationsBriefService {
       sourceStatus,
       inventoryRisks,
       supplierOrderContext,
+      orderPlanningRisks,
       leadTimeIssues,
       performanceTrends,
       buyBoxRisks,
@@ -628,7 +836,7 @@ export class EcobaseDailyOperationsBriefService {
       dataWarnings,
       omissions,
       assumptions: [
-        'This slice prepares deterministic evidence for inventory, supplier-order, performance, Buy Box, OKR/accountability, and source-quality exceptions.',
+        'This slice prepares deterministic evidence for inventory, order planning, supplier-order, performance, Buy Box, OKR/accountability, task, and source-quality exceptions.',
         'Purchased or inbound supplier orders count as trusted coverage; draft, approval pending, payment pending, blocked, cancelled, and completed orders are evidence but not safe coverage.',
         'Profit risk comes from the inventory-planning read model and may be negative; urgent stockout risk is still retained with a caveat.',
         'Source credentials, raw URLs with tokens, OAuth tokens, and secret references are excluded from the evidence pack.',
@@ -637,7 +845,9 @@ export class EcobaseDailyOperationsBriefService {
   }
 
   private async buildSourceStatus(company: string | undefined, date: string) {
-    const sourceConnections = (await this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).find({ sort: ['name'] }))
+    const sourceConnections = (
+      await this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).find({ sort: ['name'] })
+    )
       .map(toPlainRecord)
       .filter((sourceConnection) => sourceMatchesCompany(sourceConnection, company));
     const importRunRepo = this.db.getRepository(ECOBASE_COLLECTIONS.importRuns);
@@ -647,7 +857,9 @@ export class EcobaseDailyOperationsBriefService {
     for (const sourceConnection of sourceConnections) {
       const sourceConnectionId = asString(sourceConnection.id);
       if (!sourceConnectionId) continue;
-      const latestRun = toPlainRecord(await importRunRepo.findOne({ filter: { sourceConnectionId }, sort: ['-startedAt'] }));
+      const latestRun = toPlainRecord(
+        await importRunRepo.findOne({ filter: { sourceConnectionId }, sort: ['-startedAt'] }),
+      );
       const warningAssessment = await warningService.assessSourceConnection(sourceConnectionId, date, false);
       sourceStatus.push({
         evidenceId: evidenceId('source', sourceConnectionId),
@@ -678,14 +890,19 @@ export class EcobaseDailyOperationsBriefService {
       const estimatedProfitRisk = asNumber(row.estimatedProfitRisk);
       const supplierEvidenceState = !asString(row.supplierName)
         ? 'missing'
-        : ['order_details_history', 'planning_parameter_fallback'].includes(asString(row.supplierSource) ?? '') || asString(row.supplierConfidence) === 'low'
+        : ['order_details_history', 'planning_parameter_fallback'].includes(asString(row.supplierSource) ?? '') ||
+            asString(row.supplierConfidence) === 'low'
           ? 'fallback_or_inferred'
           : 'known';
       const caveats = [] as string[];
-      if (supplierEvidenceState !== 'known') caveats.push('Supplier identity is missing or inferred from fallback/order history evidence.');
-      if ((asString(row.leadTimeFreshness) ?? 'missing') !== 'fresh') caveats.push('Lead time is missing or stale and needs supplier confirmation.');
-      if (typeof estimatedProfitRisk === 'number' && estimatedProfitRisk < 0) caveats.push('Estimated profit risk is negative, but urgent OOS timing keeps this in the action list.');
-      if (asString(row.supplierOrderState) === 'placed_not_purchased') caveats.push('An order exists but is not paid/purchased, so it is not trusted recovery coverage.');
+      if (supplierEvidenceState !== 'known')
+        caveats.push('Supplier identity is missing or inferred from fallback/order history evidence.');
+      if ((asString(row.leadTimeFreshness) ?? 'missing') !== 'fresh')
+        caveats.push('Lead time is missing or stale and needs supplier confirmation.');
+      if (typeof estimatedProfitRisk === 'number' && estimatedProfitRisk < 0)
+        caveats.push('Estimated profit risk is negative, but urgent OOS timing keeps this in the action list.');
+      if (asString(row.supplierOrderState) === 'placed_not_purchased')
+        caveats.push('An order exists but is not paid/purchased, so it is not trusted recovery coverage.');
       return {
         evidenceId: evidenceId('inventory', productIdentity(row)),
         company: asString(row.company),
@@ -701,7 +918,10 @@ export class EcobaseDailyOperationsBriefService {
         velocityPerDay: asNumber(row.salesVelocity),
         estimatedOosDate: asString(row.estimatedOosDate),
         latestSafeReorderDate: asString(row.latestSafeReorderDate),
-        overdueDays: typeof daysUntilAction === 'number' && daysUntilAction < 0 ? Math.abs(Math.floor(daysUntilAction)) : undefined,
+        overdueDays:
+          typeof daysUntilAction === 'number' && daysUntilAction < 0
+            ? Math.abs(Math.floor(daysUntilAction))
+            : undefined,
         daysUntilAction,
         suggestedReorderQty: asNumber(row.suggestedReorderQty),
         supplierId: asString(row.supplierId),
@@ -713,20 +933,37 @@ export class EcobaseDailyOperationsBriefService {
         supplierOrderState: asString(row.supplierOrderState),
         supplierOrderStatus: asString(row.supplierOrderStatus),
         supplierOrderRef: asString(row.supplierOrderRef),
-        latestClosedOrCancelledOrderRef: asString(row.supplierOrderState) === 'closed_history' ? asString(row.supplierOrderRef) : undefined,
+        latestClosedOrCancelledOrderRef:
+          asString(row.supplierOrderState) === 'closed_history' ? asString(row.supplierOrderRef) : undefined,
         estimatedProfitRisk,
         caveats,
-        sourceWarnings: Array.isArray(toPlainRecord(row.evidence).dataWarnings) ? toPlainRecord(row.evidence).dataWarnings as PlainRecord[] : [],
+        sourceWarnings: Array.isArray(toPlainRecord(row.evidence).dataWarnings)
+          ? (toPlainRecord(row.evidence).dataWarnings as PlainRecord[])
+          : [],
       };
     });
   }
 
   private async buildSupplierOrderContext(riskRows: PlainRecord[], company: string | undefined, maxItems: number) {
     const orderFilter = company ? { company } : {};
-    const orders = (await this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).find({ filter: orderFilter, sort: ['-lastMeaningfulUpdateAt'], limit: 1000 })).map(toPlainRecord);
-    const lines = (await this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).find({ filter: orderFilter, sort: ['-observedAt'], limit: 5000 })).map(toPlainRecord);
-    const suppliers = (await this.db.getRepository(ECOBASE_COLLECTIONS.suppliers).find({ filter: orderFilter, limit: 2000 })).map(toPlainRecord);
-    const supplierNameById = new Map(suppliers.map((supplier) => [asString(supplier.id), asString(supplier.name)] as const).filter((entry): entry is [string, string] => Boolean(entry[0] && entry[1])));
+    const orders = (
+      await this.db
+        .getRepository(ECOBASE_COLLECTIONS.supplierOrders)
+        .find({ filter: orderFilter, sort: ['-lastMeaningfulUpdateAt'], limit: 1000 })
+    ).map(toPlainRecord);
+    const lines = (
+      await this.db
+        .getRepository(ECOBASE_COLLECTIONS.supplierOrderLines)
+        .find({ filter: orderFilter, sort: ['-observedAt'], limit: 5000 })
+    ).map(toPlainRecord);
+    const suppliers = (
+      await this.db.getRepository(ECOBASE_COLLECTIONS.suppliers).find({ filter: orderFilter, limit: 2000 })
+    ).map(toPlainRecord);
+    const supplierNameById = new Map(
+      suppliers
+        .map((supplier) => [asString(supplier.id), asString(supplier.name)] as const)
+        .filter((entry): entry is [string, string] => Boolean(entry[0] && entry[1])),
+    );
     const riskMatchingLines = lines.filter((line) => riskRows.some((risk) => orderLineMatchesRisk(line, risk)));
     const linesByOrderId = new Map<string, PlainRecord[]>();
     for (const line of riskMatchingLines) {
@@ -759,7 +996,10 @@ export class EcobaseDailyOperationsBriefService {
           supplierOrderId,
           externalOrderRef: asString(order.externalOrderRef),
           supplierId: asString(order.supplierId),
-          supplierName: supplierNameById.get(asString(order.supplierId) ?? '') ?? asString(order.supplierName) ?? payloadString(order, ['Supplier', 'supplier']),
+          supplierName:
+            supplierNameById.get(asString(order.supplierId) ?? '') ??
+            asString(order.supplierName) ??
+            payloadString(order, ['Supplier', 'supplier']),
           status,
           coverageState: orderCoverageState(status),
           isTrustedCoverage: isReliableSupplierOrderCoverageStatus(status),
@@ -771,33 +1011,112 @@ export class EcobaseDailyOperationsBriefService {
           lastMeaningfulUpdateAt: toIsoString(order.lastMeaningfulUpdateAt),
         } satisfies SupplierOrderEvidence;
       })
-      .sort((left, right) => Number(right.isTrustedCoverage) - Number(left.isTrustedCoverage) || right.openQty - left.openQty)
+      .sort(
+        (left, right) =>
+          Number(right.isTrustedCoverage) - Number(left.isTrustedCoverage) || right.openQty - left.openQty,
+      )
       .slice(0, maxItems);
+  }
+
+  private async buildOrderPlanningRisks(params: { date: string; company?: string; maxItems: number }) {
+    const rows = (
+      await this.db.getRepository(ECOBASE_COLLECTIONS.goldOrderPlanningRows).find({
+        filter: params.company ? { companyName: params.company } : {},
+        sort: ['-moneyAtRisk'],
+        limit: Math.max(params.maxItems * 10, 500),
+      })
+    ).map(toPlainRecord);
+
+    return rows
+      .map((row): OrderPlanningRiskEvidence | undefined => {
+        const currentStatus =
+          asString(row.currentStatus) ?? asString(row.canonicalStatus) ?? asString(row.lifecycleStatus);
+        if (isClosedOrderStatus(currentStatus)) return undefined;
+        const orderRiskType = orderRiskTypeFor(row);
+        if (!orderRiskType) return undefined;
+        const warnings = [] as string[];
+        if (asBoolean(row.statusCheckRequired)) warnings.push('Order status needs operator verification.');
+        if (normalizedOrderStatus(asString(row.statusSource)).includes('fallback'))
+          warnings.push('Status source is fallback; verify before treating the order as complete.');
+        if (safeNumber(row.daysSinceLastActivity) >= 3)
+          warnings.push(`No meaningful update for ${safeNumber(row.daysSinceLastActivity)} day(s).`);
+        if (!asString(row.supplierName)) warnings.push('Supplier is missing from the order planning row.');
+        const latestGoldCalculationDate = asString(row.latestGoldCalculationDate);
+        if (latestGoldCalculationDate && diffDays(params.date, latestGoldCalculationDate) > 1)
+          warnings.push(`Gold order planning was last refreshed on ${latestGoldCalculationDate}.`);
+        return {
+          evidenceId: evidenceId(
+            'order-planning',
+            asString(row.id) ?? asString(row.orderId) ?? asString(row.orderRef) ?? row,
+          ),
+          orderRiskType,
+          company: asString(row.companyName),
+          orderId: asString(row.orderId) ?? asString(row.id),
+          orderRef: asString(row.orderRef),
+          supplierId: asString(row.supplierId),
+          supplierName: asString(row.supplierName),
+          currentStatus,
+          statusSource: asString(row.statusSource),
+          statusCheckRequired: asBoolean(row.statusCheckRequired),
+          nextAction: asString(row.nextAction),
+          nextActionDueAt: asString(row.nextActionDueAt),
+          expectedDeliveryDate: asString(row.expectedDeliveryDate),
+          trackingId: asString(row.trackingId),
+          asinCount: asNumber(row.asinCount),
+          lineCount: asNumber(row.lineCount),
+          moneyAtRisk: asNumber(row.moneyAtRisk),
+          riskSource: asString(row.riskSource),
+          earliestOosDate: asString(row.earliestOosDate),
+          daysUntilOos: asNumber(row.daysUntilOos),
+          daysSinceLastActivity: asNumber(row.daysSinceLastActivity),
+          latestComment: asString(row.latestComment),
+          warnings,
+        };
+      })
+      .filter((item): item is OrderPlanningRiskEvidence => Boolean(item))
+      .sort(compareOrderPlanningRisk);
   }
 
   private buildLeadTimeIssues(rows: PlainRecord[]) {
     return rows
-      .filter((row) => (asString(row.leadTimeFreshness) ?? 'missing') !== 'fresh' || typeof asNumber(row.leadTimeDays) !== 'number')
-      .map((row) => ({
-        evidenceId: evidenceId('lead-time', productIdentity(row)),
-        company: asString(row.company),
-        planningProductId: asString(row.planningProductId),
-        asin: asString(row.asin),
-        sku: asString(row.sku),
-        supplierId: asString(row.supplierId),
-        supplierName: asString(row.supplierName),
-        leadTimeDays: asNumber(row.leadTimeDays),
-        leadTimeFreshness: asString(row.leadTimeFreshness) ?? 'missing',
-        leadTimeConfirmedAt: toIsoString(row.leadTimeConfirmedAt),
-        actionRequired: typeof asNumber(row.leadTimeDays) === 'number' ? 'refresh_stale_lead_time' : 'contact_supplier_for_lead_time',
-      }) satisfies LeadTimeIssueEvidence);
+      .filter(
+        (row) =>
+          (asString(row.leadTimeFreshness) ?? 'missing') !== 'fresh' || typeof asNumber(row.leadTimeDays) !== 'number',
+      )
+      .map(
+        (row) =>
+          ({
+            evidenceId: evidenceId('lead-time', productIdentity(row)),
+            company: asString(row.company),
+            planningProductId: asString(row.planningProductId),
+            asin: asString(row.asin),
+            sku: asString(row.sku),
+            supplierId: asString(row.supplierId),
+            supplierName: asString(row.supplierName),
+            leadTimeDays: asNumber(row.leadTimeDays),
+            leadTimeFreshness: asString(row.leadTimeFreshness) ?? 'missing',
+            leadTimeConfirmedAt: toIsoString(row.leadTimeConfirmedAt),
+            actionRequired:
+              typeof asNumber(row.leadTimeDays) === 'number'
+                ? 'refresh_stale_lead_time'
+                : 'contact_supplier_for_lead_time',
+          }) satisfies LeadTimeIssueEvidence,
+      );
   }
 
   private async buildPerformanceTrends(params: { date: string; company?: string; maxItems: number }) {
     const factFilter = params.company ? { company: params.company } : {};
     const targetFilter = params.company ? { company: params.company } : {};
-    const facts = (await this.db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).find({ filter: factFilter, sort: ['-snapshotDate'], limit: 5000 })).map(toPlainRecord);
-    const targets = (await this.db.getRepository(ECOBASE_COLLECTIONS.targetRows).find({ filter: targetFilter, sort: ['-period'], limit: 5000 })).map(toPlainRecord);
+    const facts = (
+      await this.db
+        .getRepository(ECOBASE_COLLECTIONS.listingDailyFacts)
+        .find({ filter: factFilter, sort: ['-snapshotDate'], limit: 5000 })
+    ).map(toPlainRecord);
+    const targets = (
+      await this.db
+        .getRepository(ECOBASE_COLLECTIONS.targetRows)
+        .find({ filter: targetFilter, sort: ['-period'], limit: 5000 })
+    ).map(toPlainRecord);
     const currentFacts = facts.filter((fact) => asString(fact.snapshotDate) === params.date);
     const priorDate = dateBefore(params.date, 1);
     const priorByIdentity = new Map<string, PlainRecord>();
@@ -805,7 +1124,9 @@ export class EcobaseDailyOperationsBriefService {
       priorByIdentity.set(productIdentity(fact), fact);
     }
     const targetByIdentity = new Map<string, PlainRecord>();
-    for (const target of targets.filter((row) => asString(row.period) === params.date || asString(row.period) === monthPeriod(params.date))) {
+    for (const target of targets.filter(
+      (row) => asString(row.period) === params.date || asString(row.period) === monthPeriod(params.date),
+    )) {
       targetByIdentity.set(productIdentity(target), target);
     }
     const evidence: PerformanceTrendEvidence[] = [];
@@ -842,7 +1163,10 @@ export class EcobaseDailyOperationsBriefService {
           targetProfit,
           velocityDropPercent,
           revenueDropPercent: percentageDrop(currentRevenue, baselineRevenue),
-          estimatedProfitImpact: typeof currentProfit === 'number' && typeof baselineProfit === 'number' ? Math.max(baselineProfit - currentProfit, 0) : undefined,
+          estimatedProfitImpact:
+            typeof currentProfit === 'number' && typeof baselineProfit === 'number'
+              ? Math.max(baselineProfit - currentProfit, 0)
+              : undefined,
           confidence: 'high',
           warnings: [],
         });
@@ -888,12 +1212,20 @@ export class EcobaseDailyOperationsBriefService {
         });
       }
     }
-    return evidence.sort((left, right) => safeNumber(right.estimatedProfitImpact) - safeNumber(left.estimatedProfitImpact));
+    return evidence.sort(
+      (left, right) => safeNumber(right.estimatedProfitImpact) - safeNumber(left.estimatedProfitImpact),
+    );
   }
 
   private async buildBuyBoxRisks(params: { date: string; company?: string; maxItems: number }) {
-    const trafficRows = (await this.db.getRepository(ECOBASE_COLLECTIONS.trafficSnapshots).find({ sort: ['-snapshotDate'], limit: 5000 })).map(toPlainRecord);
-    const products = (await this.db.getRepository(ECOBASE_COLLECTIONS.planningProducts).find({ filter: params.company ? { company: params.company } : {}, limit: 5000 })).map(toPlainRecord);
+    const trafficRows = (
+      await this.db.getRepository(ECOBASE_COLLECTIONS.trafficSnapshots).find({ sort: ['-snapshotDate'], limit: 5000 })
+    ).map(toPlainRecord);
+    const products = (
+      await this.db
+        .getRepository(ECOBASE_COLLECTIONS.planningProducts)
+        .find({ filter: params.company ? { company: params.company } : {}, limit: 5000 })
+    ).map(toPlainRecord);
     const productByAsinSku = new Map<string, PlainRecord>();
     for (const product of products) {
       const asin = asString(product.canonicalAsin) ?? asString(product.asin);
@@ -913,9 +1245,10 @@ export class EcobaseDailyOperationsBriefService {
       const currentBuyBoxWinRate = asNumber(current.buyBoxPercentage);
       const prior = priorByIdentity.get(key);
       const baselineBuyBoxWinRate = asNumber(prior?.buyBoxPercentage);
-      const drop = typeof currentBuyBoxWinRate === 'number' && typeof baselineBuyBoxWinRate === 'number'
-        ? Math.round((baselineBuyBoxWinRate - currentBuyBoxWinRate) * 10) / 10
-        : undefined;
+      const drop =
+        typeof currentBuyBoxWinRate === 'number' && typeof baselineBuyBoxWinRate === 'number'
+          ? Math.round((baselineBuyBoxWinRate - currentBuyBoxWinRate) * 10) / 10
+          : undefined;
       const thresholdBreach = typeof currentBuyBoxWinRate === 'number' && currentBuyBoxWinRate < 80;
       if (!thresholdBreach && !(typeof drop === 'number' && drop >= 20)) continue;
       risks.push({
@@ -936,24 +1269,49 @@ export class EcobaseDailyOperationsBriefService {
         warnings: prior ? [] : ['No prior-period Buy Box baseline exists; rank by threshold breach only.'],
       });
     }
-    return risks.sort((left, right) => safeNumber(right.currentOrderedProductSales) - safeNumber(left.currentOrderedProductSales));
+    return risks.sort(
+      (left, right) => safeNumber(right.currentOrderedProductSales) - safeNumber(left.currentOrderedProductSales),
+    );
   }
 
   private async buildOkrAccountabilityRisks(params: { date: string; company?: string; maxItems: number }) {
     const okrFilter = params.company ? { company: params.company } : {};
-    const okrs = (await this.db.getRepository(ECOBASE_COLLECTIONS.okrs).find({ filter: okrFilter, limit: 2000 })).map(toPlainRecord);
-    const okrById = new Map(okrs.map((okr) => [asString(okr.id), okr] as const).filter((entry): entry is [string, PlainRecord] => Boolean(entry[0])));
-    const okrSnapshots = (await this.db.getRepository(ECOBASE_COLLECTIONS.okrMetricSnapshots).find({ filter: { snapshotDate: params.date }, sort: ['progressPercent'], limit: 2000 })).map(toPlainRecord);
-    const taskSnapshots = (await this.db.getRepository(ECOBASE_COLLECTIONS.clickupTaskSnapshots).find({ filter: { snapshotDate: params.date }, sort: ['dueDate'], limit: 2000 })).map(toPlainRecord);
+    const okrs = (await this.db.getRepository(ECOBASE_COLLECTIONS.okrs).find({ filter: okrFilter, limit: 2000 })).map(
+      toPlainRecord,
+    );
+    const okrById = new Map(
+      okrs
+        .map((okr) => [asString(okr.id), okr] as const)
+        .filter((entry): entry is [string, PlainRecord] => Boolean(entry[0])),
+    );
+    const okrSnapshots = (
+      await this.db
+        .getRepository(ECOBASE_COLLECTIONS.okrMetricSnapshots)
+        .find({ filter: { snapshotDate: params.date }, sort: ['progressPercent'], limit: 2000 })
+    ).map(toPlainRecord);
+    const taskSnapshots = (
+      await this.db
+        .getRepository(ECOBASE_COLLECTIONS.clickupTaskSnapshots)
+        .find({ filter: { snapshotDate: params.date }, sort: ['dueDate'], limit: 2000 })
+    ).map(toPlainRecord);
     const risks: OkrAccountabilityRiskEvidence[] = [];
     for (const snapshot of okrSnapshots) {
       const okr = okrById.get(asString(snapshot.okrId) ?? '');
       if (params.company && !okr) continue;
       const status = asString(snapshot.status) ?? 'unknown';
       const progressPercent = asNumber(snapshot.progressPercent);
-      if (!['off_track', 'at_risk', 'blocked'].includes(status) && !(typeof progressPercent === 'number' && progressPercent < 70)) continue;
+      if (
+        !['off_track', 'at_risk', 'blocked'].includes(status) &&
+        !(typeof progressPercent === 'number' && progressPercent < 70)
+      )
+        continue;
       risks.push({
-        evidenceId: evidenceId('okr', `${asString(snapshot.okrId) ?? asString(snapshot.externalOkrId)}:${asString(snapshot.metricName)}:${params.date}`),
+        evidenceId: evidenceId(
+          'okr',
+          `${asString(snapshot.okrId) ?? asString(snapshot.externalOkrId)}:${asString(snapshot.metricName)}:${
+            params.date
+          }`,
+        ),
         riskType: 'okr_off_track',
         company: asString(okr?.company),
         okrId: asString(snapshot.okrId),
@@ -976,10 +1334,15 @@ export class EcobaseDailyOperationsBriefService {
       const dueDate = asString(task.dueDate);
       const lastMeaningfulUpdateAt = toIsoString(task.lastMeaningfulUpdateAt);
       const overdue = Boolean(dueDate && diffDays(params.date, dueDate) > 0);
-      const inactive = Boolean(lastMeaningfulUpdateAt && diffDays(params.date, lastMeaningfulUpdateAt.slice(0, 10)) >= 3);
+      const inactive = Boolean(
+        lastMeaningfulUpdateAt && diffDays(params.date, lastMeaningfulUpdateAt.slice(0, 10)) >= 3,
+      );
       if (!overdue && !inactive) continue;
       risks.push({
-        evidenceId: evidenceId('task', `${asString(task.externalTaskId)}:${params.date}:${overdue ? 'overdue' : 'inactive'}`),
+        evidenceId: evidenceId(
+          'task',
+          `${asString(task.externalTaskId)}:${params.date}:${overdue ? 'overdue' : 'inactive'}`,
+        ),
         riskType: overdue ? 'task_overdue' : 'task_inactive',
         taskId: asString(task.externalTaskId),
         taskName: asString(task.taskName),
@@ -996,7 +1359,14 @@ export class EcobaseDailyOperationsBriefService {
     return risks.sort((left, right) => safeNumber(left.progressPercent) - safeNumber(right.progressPercent));
   }
 
-  private buildDataWarnings(params: { sourceStatus: SourceStatusEvidence[]; rows: PlainRecord[]; riskRows: PlainRecord[]; buyBoxRisks: BuyBoxRiskEvidence[]; performanceTrends: PerformanceTrendEvidence[]; okrAccountabilityRisks: OkrAccountabilityRiskEvidence[] }) {
+  private buildDataWarnings(params: {
+    sourceStatus: SourceStatusEvidence[];
+    rows: PlainRecord[];
+    riskRows: PlainRecord[];
+    buyBoxRisks: BuyBoxRiskEvidence[];
+    performanceTrends: PerformanceTrendEvidence[];
+    okrAccountabilityRisks: OkrAccountabilityRiskEvidence[];
+  }) {
     const warnings: DataWarningEvidence[] = [];
     for (const source of params.sourceStatus) {
       for (const warning of source.warnings) {
@@ -1015,12 +1385,16 @@ export class EcobaseDailyOperationsBriefService {
         warnings.push({
           evidenceId: evidenceId('warning', `mapping:${productIdentity(row)}`),
           code: 'duplicate_or_fallback_mapping',
-          message: 'Planning product identity is fallback-based or carries a mapping warning; cite ASIN/SKU/company before acting.',
+          message:
+            'Planning product identity is fallback-based or carries a mapping warning; cite ASIN/SKU/company before acting.',
           severity: 'warning',
           planningProductId: asString(row.planningProductId),
           asin: asString(row.asin),
           sku: asString(row.sku),
-          metadata: { mappingWarning: asString(row.mappingWarning), planningProductId: asString(row.planningProductId) },
+          metadata: {
+            mappingWarning: asString(row.mappingWarning),
+            planningProductId: asString(row.planningProductId),
+          },
         });
       }
     }
@@ -1056,7 +1430,11 @@ export class EcobaseDailyOperationsBriefService {
           planningProductId: risk.planningProductId,
           asin: risk.asin,
           sku: risk.sku,
-          metadata: { evidenceId: risk.evidenceId, currentDate: risk.currentDate, baselineDate: risk.baselineDate ?? null },
+          metadata: {
+            evidenceId: risk.evidenceId,
+            currentDate: risk.currentDate,
+            baselineDate: risk.baselineDate ?? null,
+          },
         });
       }
     }
@@ -1070,7 +1448,11 @@ export class EcobaseDailyOperationsBriefService {
           planningProductId: trend.planningProductId,
           asin: trend.asin,
           sku: trend.sku,
-          metadata: { evidenceId: trend.evidenceId, currentDate: trend.currentDate, baselineDate: trend.baselineDate ?? null },
+          metadata: {
+            evidenceId: trend.evidenceId,
+            currentDate: trend.currentDate,
+            baselineDate: trend.baselineDate ?? null,
+          },
         });
       }
     }
@@ -1088,15 +1470,24 @@ export class EcobaseDailyOperationsBriefService {
     return warnings;
   }
 
-  private buildOmissions(params: { riskRows: PlainRecord[]; cappedRiskRows: PlainRecord[]; sourceStatus: SourceStatusEvidence[]; params: { maxItems: number } }) {
+  private buildOmissions(params: {
+    riskRows: PlainRecord[];
+    cappedRiskRows: PlainRecord[];
+    sourceStatus: SourceStatusEvidence[];
+    params: { maxItems: number };
+  }) {
     const omissions = [] as string[];
     const omittedRiskCount = params.riskRows.length - params.cappedRiskRows.length;
     if (omittedRiskCount > 0) {
-      omissions.push(`${omittedRiskCount} lower-ranked inventory risk item(s) were omitted after maxItems=${params.params.maxItems}.`);
+      omissions.push(
+        `${omittedRiskCount} lower-ranked inventory risk item(s) were omitted after maxItems=${params.params.maxItems}.`,
+      );
     }
     const inactiveSources = params.sourceStatus.filter((source) => !source.active).length;
     if (inactiveSources > 0) {
-      omissions.push(`${inactiveSources} inactive source connection(s) are represented only as source status, not as current risk evidence.`);
+      omissions.push(
+        `${inactiveSources} inactive source connection(s) are represented only as source status, not as current risk evidence.`,
+      );
     }
     return omissions;
   }
@@ -1104,20 +1495,29 @@ export class EcobaseDailyOperationsBriefService {
   private focusFor(params: {
     inventoryRisks: InventoryRiskEvidence[];
     supplierOrderContext: SupplierOrderEvidence[];
+    orderPlanningRisks: OrderPlanningRiskEvidence[];
     leadTimeIssues: LeadTimeIssueEvidence[];
     performanceTrends: PerformanceTrendEvidence[];
     buyBoxRisks: BuyBoxRiskEvidence[];
     okrAccountabilityRisks: OkrAccountabilityRiskEvidence[];
     dataWarnings: DataWarningEvidence[];
   }): DailyBriefFocus {
-    const sourceBlockingWarnings = params.dataWarnings.filter((warning) => warning.severity === 'warning' && Boolean(warning.sourceConnectionId) && ['missing_required_source', 'failed_latest_run', 'credential_blocked'].includes(warning.code));
+    const sourceBlockingWarnings = params.dataWarnings.filter(
+      (warning) =>
+        warning.severity === 'warning' &&
+        Boolean(warning.sourceConnectionId) &&
+        ['missing_required_source', 'failed_latest_run', 'credential_blocked'].includes(warning.code),
+    );
     if (sourceBlockingWarnings.length > 0) return 'source_quality';
     if (params.inventoryRisks.length > 0) return 'inventory_risk';
+    if (params.orderPlanningRisks.length > 0) return 'supplier_orders';
     if (params.supplierOrderContext.some((order) => !order.isTrustedCoverage)) return 'supplier_orders';
     if (params.leadTimeIssues.length > 0) return 'source_quality';
     if (params.buyBoxRisks.length > 0) return 'buybox';
-    if (params.performanceTrends.some((trend) => trend.trendType === 'velocity_drop' && trend.confidence !== 'low')) return 'velocity';
-    if (params.performanceTrends.some((trend) => trend.trendType === 'profit_gap' && trend.confidence !== 'low')) return 'profit_gap';
+    if (params.performanceTrends.some((trend) => trend.trendType === 'velocity_drop' && trend.confidence !== 'low'))
+      return 'velocity';
+    if (params.performanceTrends.some((trend) => trend.trendType === 'profit_gap' && trend.confidence !== 'low'))
+      return 'profit_gap';
     if (params.okrAccountabilityRisks.length > 0) return 'okr';
     if (params.dataWarnings.some((warning) => warning.severity === 'warning')) return 'source_quality';
     return 'no_major_exception';
@@ -1127,6 +1527,7 @@ export class EcobaseDailyOperationsBriefService {
     focus: DailyBriefFocus;
     inventoryRisks: InventoryRiskEvidence[];
     supplierOrderContext: SupplierOrderEvidence[];
+    orderPlanningRisks: OrderPlanningRiskEvidence[];
     leadTimeIssues: LeadTimeIssueEvidence[];
     performanceTrends: PerformanceTrendEvidence[];
     buyBoxRisks: BuyBoxRiskEvidence[];
@@ -1139,24 +1540,34 @@ export class EcobaseDailyOperationsBriefService {
       return `${overdue} overdue reorder actions and ${missingLeadTime} missing/stale lead-time blocker(s) outrank other current signals.`;
     }
     if (params.focus === 'supplier_orders') {
-      return `${params.supplierOrderContext.filter((order) => !order.isTrustedCoverage).length} supplier order(s) need operator follow-up before they can be trusted as recovery coverage.`;
+      const statusChecks = params.orderPlanningRisks.filter((order) => order.statusCheckRequired).length;
+      const staleCoverage = params.supplierOrderContext.filter((order) => !order.isTrustedCoverage).length;
+      return `${params.orderPlanningRisks.length} order-planning action(s), ${statusChecks} status check(s), and ${staleCoverage} supplier coverage follow-up(s) need attention.`;
     }
     if (params.focus === 'buybox') {
       return `${params.buyBoxRisks.length} Buy Box deterioration signal(s) outrank lower-priority velocity, profit, and accountability signals.`;
     }
     if (params.focus === 'velocity') {
-      return `${params.performanceTrends.filter((trend) => trend.trendType === 'velocity_drop' && trend.confidence !== 'low').length} velocity drop signal(s) exceeded the deterministic threshold.`;
+      return `${
+        params.performanceTrends.filter((trend) => trend.trendType === 'velocity_drop' && trend.confidence !== 'low')
+          .length
+      } velocity drop signal(s) exceeded the deterministic threshold.`;
     }
     if (params.focus === 'profit_gap') {
-      return `${params.performanceTrends.filter((trend) => trend.trendType === 'profit_gap' && trend.confidence !== 'low').length} profit gap signal(s) missed target or baseline expectations.`;
+      return `${
+        params.performanceTrends.filter((trend) => trend.trendType === 'profit_gap' && trend.confidence !== 'low')
+          .length
+      } profit gap signal(s) missed target or baseline expectations.`;
     }
     if (params.focus === 'okr') {
       return `${params.okrAccountabilityRisks.length} OKR/accountability signal(s) need owner attention.`;
     }
     if (params.focus === 'source_quality') {
-      return `${params.dataWarnings.filter((warning) => warning.severity === 'warning').length} source/data warning(s) limit confidence in today's operational brief.`;
+      return `${
+        params.dataWarnings.filter((warning) => warning.severity === 'warning').length
+      } source/data warning(s) limit confidence in today's operational brief.`;
     }
-    return 'No major inventory, supplier-order, performance, Buy Box, OKR, or source-quality exception outranks the watch list today.';
+    return 'No major inventory, order-planning, supplier-order, task, performance, Buy Box, OKR, or source-quality exception outranks the watch list today.';
   }
 
   private async createReportItems(reportRunId: string, evidencePack: DailyEvidencePack) {
@@ -1164,50 +1575,64 @@ export class EcobaseDailyOperationsBriefService {
     const evidenceItems: DailyBriefEvidenceItem[] = [
       ...evidencePack.inventoryRisks,
       ...evidencePack.supplierOrderContext.filter((order) => !order.isTrustedCoverage),
+      ...evidencePack.orderPlanningRisks,
       ...evidencePack.leadTimeIssues,
       ...evidencePack.buyBoxRisks,
       ...evidencePack.performanceTrends.filter((trend) => trend.confidence !== 'low'),
       ...evidencePack.okrAccountabilityRisks,
       ...evidencePack.dataWarnings,
     ];
-    const itemsToPersist = evidenceItems.length > 0
-      ? evidenceItems
-      : [{
-        evidenceId: evidenceId('no-action', `${evidencePack.date}:${evidencePack.company?.name ?? 'all'}`),
-        code: 'no_action_required',
-        message: 'No major exception requires operator action today.',
-        severity: 'info' as const,
-        metadata: { date: evidencePack.date, company: evidencePack.company?.name ?? null },
-      }];
+    const itemsToPersist =
+      evidenceItems.length > 0
+        ? evidenceItems
+        : [
+            {
+              evidenceId: evidenceId('no-action', `${evidencePack.date}:${evidencePack.company?.name ?? 'all'}`),
+              code: 'no_action_required',
+              message: 'No major exception requires operator action today.',
+              severity: 'info' as const,
+              metadata: { date: evidencePack.date, company: evidencePack.company?.name ?? null },
+            },
+          ];
     const created: PlainRecord[] = [];
     for (let index = 0; index < itemsToPersist.length; index += 1) {
       const item = itemsToPersist[index];
-      created.push(toPlainRecord(await itemRepo.create({
-        values: {
-          id: randomUUID(),
-          reportRunId,
-          itemType: itemTypeFor(item),
-          severity: reportSeverity(item),
-          title: reportItemTitle(item),
-          body: reportItemBody(item),
-          evidenceRefType: evidenceRefTypeFor(item),
-          evidenceRefId: item.evidenceId,
-          evidence: item,
-          sortOrder: index + 1,
-        },
-      })));
+      created.push(
+        toPlainRecord(
+          await itemRepo.create({
+            values: {
+              id: randomUUID(),
+              reportRunId,
+              itemType: itemTypeFor(item),
+              severity: reportSeverity(item),
+              title: reportItemTitle(item),
+              body: reportItemBody(item),
+              evidenceRefType: evidenceRefTypeFor(item),
+              evidenceRefId: item.evidenceId,
+              evidence: item,
+              sortOrder: index + 1,
+            },
+          }),
+        ),
+      );
     }
     return created;
   }
 
   private async findReportItems(reportRunId: string) {
-    return (await this.db.getRepository(ECOBASE_COLLECTIONS.reportItems).find({ filter: { reportRunId }, sort: ['sortOrder'] })).map(toPlainRecord);
+    return (
+      await this.db
+        .getRepository(ECOBASE_COLLECTIONS.reportItems)
+        .find({ filter: { reportRunId }, sort: ['sortOrder'] })
+    ).map(toPlainRecord);
   }
 
   private async destroyReportItems(reportRunId: string) {
     const reportItemsRepo = this.db.getRepository(ECOBASE_COLLECTIONS.reportItems) as RepositoryWithDestroy;
     if (typeof reportItemsRepo.destroy !== 'function') {
-      throw new Error('Ecobase daily operations brief failed: report item repository cannot replace regenerated evidence.');
+      throw new Error(
+        'Ecobase daily operations brief failed: report item repository cannot replace regenerated evidence.',
+      );
     }
     await reportItemsRepo.destroy({ filter: { reportRunId } });
   }

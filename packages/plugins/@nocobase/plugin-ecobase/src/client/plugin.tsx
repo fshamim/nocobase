@@ -9,11 +9,12 @@ const AiEvidencePage = lazy(() => import('./pages/AiEvidencePage'));
 const AlertEvaluationPage = lazy(() => import('./pages/AlertEvaluationPage'));
 const CollectionsWorkspacePage = lazy(() => import('./pages/CollectionsWorkspacePage'));
 const DailyOperationsBriefPage = lazy(() => import('./pages/DailyOperationsBriefPage'));
+const DailyBriefPromptSettingsPage = lazy(() => import('./pages/DailyBriefPromptSettingsPage'));
 const DataSourcesPage = lazy(() => import('./pages/DataSourcesPage'));
 const ImportStatusPage = lazy(() => import('./pages/ImportStatusPage'));
 const InventoryPlanningPage = lazy(() => import('./pages/InventoryPlanningPage'));
 const ManagementDashboardPage = lazy(() => import('./pages/ManagementDashboardPage'));
-const OrderManagementPage = lazy(() => import('./pages/OrderManagementPage'));
+const OrderPlanningPage = lazy(() => import('./pages/OrderPlanningPage'));
 const ReportPreviewPage = lazy(() => import('./pages/ReportPreviewPage'));
 const SellerboardSourcesPage = lazy(() => import('./pages/SellerboardSourcesPage'));
 const SilverDataPage = lazy(() => import('./pages/SilverDataPage'));
@@ -41,10 +42,10 @@ const ecobaseWorkspacePages = [
     Component: InventoryPlanningPage,
   },
   {
-    key: 'order-management',
-    label: 'Order Management',
-    path: `${ECOBASE_WORKSPACE_ROOT}/order-management`,
-    Component: OrderManagementPage,
+    key: 'order-planning',
+    label: 'Order Planning',
+    path: `${ECOBASE_WORKSPACE_ROOT}/order-planning`,
+    Component: OrderPlanningPage,
   },
   {
     key: 'supplier-management',
@@ -155,16 +156,16 @@ export class PluginEcobaseClient extends Plugin<Record<string, unknown>> {
       Component: InventoryPlanningPage,
       aclSnippet: 'pm.ecobase',
     });
-    this.pluginSettingsManager.add('ecobase-order-management', {
-      title: this.t('Ecobase order management'),
+    this.pluginSettingsManager.add('ecobase-order-planning', {
+      title: this.t('Order planning'),
       icon: 'ShoppingCartOutlined',
-      Component: OrderManagementPage,
+      Component: OrderPlanningPage,
       aclSnippet: 'pm.ecobase',
     });
     this.pluginSettingsManager.add('ecobase-daily-operations-brief', {
-      title: this.t('Daily Operations Brief'),
+      title: this.t('Daily brief AI settings'),
       icon: 'MailOutlined',
-      Component: DailyOperationsBriefPage,
+      Component: DailyBriefPromptSettingsPage,
       aclSnippet: 'pm.ecobase',
     });
     this.pluginSettingsManager.add('debug', {
