@@ -110,6 +110,16 @@ function groupKey(group: CsvBundleAnalysisGroup) {
   return `${group.adapterName}:${group.sourceType}:${group.domain}`;
 }
 
+function csvSourceConnectionName(group: CsvBundleAnalysisGroup) {
+  if (group.sourceType === 'google_sheets' && group.domain === 'supplier_management')
+    return 'Supplier Management CSV upload';
+  if (group.sourceType === 'google_sheets' && group.domain === 'order_management') return 'Order Management CSV upload';
+  if (group.sourceType === 'seller_central_file' && group.domain === 'amazon_operations') {
+    return 'Buybox / Amazon Operations CSV upload';
+  }
+  return `${group.sourceType} ${group.domain} CSV upload`;
+}
+
 function todayIsoDate() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -209,16 +219,38 @@ export default function DataSourcesPage() {
     }
   };
 
+  const createSourceConnectionForGroup = async (group: CsvBundleAnalysisGroup) => {
+    const key = groupKey(group);
+    const response = await api.request({
+      url: 'ecobaseImport:saveCsvSourceConnection',
+      method: 'post',
+      data: {
+        name: csvSourceConnectionName(group),
+        sourceType: group.sourceType,
+        domain: group.domain,
+        companyName: company,
+      },
+    });
+    const created = unwrapRecord(response);
+    const sourceConnectionId = typeof created.id === 'string' ? created.id : undefined;
+    if (!sourceConnectionId) {
+      throw new Error('Ecobase CSV source connection create failed: response did not include an id.');
+    }
+    await loadInitialData();
+    setSelectedConnections((current) => ({ ...current, [key]: sourceConnectionId }));
+    return sourceConnectionId;
+  };
+
   const runGroup = async (group: CsvBundleAnalysisGroup) => {
     const key = groupKey(group);
-    const sourceConnectionId = selectedConnections[key];
-    if (!sourceConnectionId) {
-      message.error(t('Choose a source connection before running this group'));
-      return;
-    }
     setLoading('run');
     setError(null);
     try {
+      let sourceConnectionId = selectedConnections[key] ?? sourceOptionsForGroup(group)[0]?.value;
+      if (!sourceConnectionId) {
+        message.info(t('Creating a matching source connection for this CSV group'));
+        sourceConnectionId = await createSourceConnectionForGroup(group);
+      }
       const groupFiles = files
         .filter((file) => group.files.includes(file.name))
         .map(({ name, content }) => ({ name, content }));
@@ -258,26 +290,10 @@ export default function DataSourcesPage() {
   };
 
   const createSourceForGroup = async (group: CsvBundleAnalysisGroup) => {
-    const key = groupKey(group);
     setLoading('run');
     setError(null);
     try {
-      const response = await api.request({
-        url: 'ecobaseImport:saveCsvSourceConnection',
-        method: 'post',
-        data: {
-          name: `${group.sourceType} ${group.domain} CSV upload`,
-          sourceType: group.sourceType,
-          domain: group.domain,
-          companyName: company,
-        },
-      });
-      const created = unwrapRecord(response);
-      const sourceConnectionId = typeof created.id === 'string' ? created.id : undefined;
-      await loadInitialData();
-      if (sourceConnectionId) {
-        setSelectedConnections((current) => ({ ...current, [key]: sourceConnectionId }));
-      }
+      await createSourceConnectionForGroup(group);
       message.success(t('Source connection created'));
     } catch (err) {
       setError(err as Error);
@@ -488,7 +504,11 @@ export default function DataSourcesPage() {
         <Card
           title={t('Detected import groups')}
           extra={
-            <Button type="primary" loading={loading === 'run' || Object.keys(runningGroups).length > 0} onClick={runAllGroups}>
+            <Button
+              type="primary"
+              loading={loading === 'run' || Object.keys(runningGroups).length > 0}
+              onClick={runAllGroups}
+            >
               {t('Run all groups')}
             </Button>
           }
@@ -513,7 +533,11 @@ export default function DataSourcesPage() {
                       </Descriptions.Item>
                     </Descriptions>
                     <Space>
-                      <Button type="primary" loading={loading === 'run' || Boolean(runningGroups[key])} onClick={() => runGroup(group)}>
+                      <Button
+                        type="primary"
+                        loading={loading === 'run' || Boolean(runningGroups[key])}
+                        onClick={() => runGroup(group)}
+                      >
                         {runningGroups[key] ? t('Import running') : t('Run import group')}
                       </Button>
                       {sourceOptionsForGroup(group).length === 0 ? (

@@ -7,8 +7,11 @@ import { EcobaseAccountabilityService } from './accountability-service';
 import { EcobaseBronzeImportService } from './bronze-import-service';
 import { EcobaseDataWarningService } from './data-warning-service';
 import type { EcobaseDataWarning } from './data-warning-service';
+import { EcobaseInventoryPlanningService } from './inventory-planning-service';
 import { EcobaseMedallionNormalizationService, type NormalizePendingResult } from './medallion-normalization-service';
+import { EcobaseOrderPlanningService } from './order-planning-service';
 import { EcobasePlanningProductService } from './planning-product-service';
+import { EcobaseSupplierManagementService } from './supplier-management-service';
 import { EcobaseSupplierOrderService, validateSupplierLeadTimeDays } from './supplier-order-service';
 
 type Filter = Record<string, unknown>;
@@ -48,6 +51,9 @@ const NORMALIZED_RECORD_COLLECTIONS: Record<string, string> = {
 
 const ACCOUNTABILITY_RECORD_KINDS = new Set(['clickup_task_snapshot', 'task_link', 'okr', 'okr_metric_snapshot']);
 const CSV_BUNDLE_SYNC_ROW_LIMIT = 1000;
+const AUTOMATIC_GOLD_REFRESH_LIMIT = 10000;
+const GOLD_REFRESH_SOURCE_TYPES = new Set(['google_sheets', 'seller_central_file', 'sellerboard']);
+const GOLD_REFRESH_DOMAINS = new Set(['amazon_operations', 'order_management', 'supplier_management']);
 
 export interface EcobaseRepository {
   find(params?: RepositoryFindParams): Promise<unknown[]>;
@@ -70,6 +76,8 @@ export interface RunNoopImportParams {
   skipExistingNormalizedKinds?: string[];
   runtimeConfig?: Record<string, unknown>;
   summary?: Record<string, unknown>;
+  skipGoldRefresh?: boolean;
+  goldCalculationDate?: string;
 }
 
 type QueuedImportRun = {
@@ -101,12 +109,21 @@ export interface RunScheduledSellerboardImportsParams {
 export interface RunMedallionPipelineParams {
   sourceConnectionId?: string;
   sourceVersion?: string;
+  goldCalculationDate?: string;
+}
+
+export interface AutomaticGoldRefreshResult {
+  calculationDate: string;
+  inventory: Record<string, unknown>;
+  orders: { rowCount: number; lastRefreshedAt: string | null };
+  suppliers: { rowCount: number; summary: Record<string, unknown> };
 }
 
 export interface RunMedallionPipelineResult {
   imports: Record<string, unknown>[];
   normalization: NormalizePendingResult;
   failures: string[];
+  goldRefresh: AutomaticGoldRefreshResult | null;
 }
 
 export interface SourceStatusView {
@@ -319,11 +336,47 @@ function validateSourceConnectionForAdapter(sourceConnection: unknown, adapter: 
   }
 }
 
+function shouldRefreshGoldAfterImport(sourceConnection: unknown) {
+  const sourceType = getString(sourceConnection, 'sourceType');
+  const domain = getString(sourceConnection, 'domain');
+  return Boolean(sourceType && domain && GOLD_REFRESH_SOURCE_TYPES.has(sourceType) && GOLD_REFRESH_DOMAINS.has(domain));
+}
+
+function todayIsoDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 export class EcobaseImportService {
   constructor(
     private db: EcobaseDatabase,
     private registry: SourceAdapterRegistry,
   ) {}
+
+  private async refreshGoldReadModels(calculationDate = todayIsoDate()): Promise<AutomaticGoldRefreshResult> {
+    const inventory = await new EcobaseInventoryPlanningService(this.db).refreshReadModel({
+      calculationDate,
+      limit: AUTOMATIC_GOLD_REFRESH_LIMIT,
+    });
+    const orderWorkspace = await new EcobaseOrderPlanningService(this.db).refreshReadModel({
+      limit: AUTOMATIC_GOLD_REFRESH_LIMIT,
+    });
+    const supplierDigest = await new EcobaseSupplierManagementService(this.db).refreshSupplierAttentionRows({
+      calculationDate,
+      limit: AUTOMATIC_GOLD_REFRESH_LIMIT,
+    });
+    return {
+      calculationDate,
+      inventory: inventory as Record<string, unknown>,
+      orders: {
+        rowCount: orderWorkspace.rows.length,
+        lastRefreshedAt: getString(orderWorkspace.rows[0], 'lastRefreshedAt') ?? null,
+      },
+      suppliers: {
+        rowCount: supplierDigest.rows.length,
+        summary: supplierDigest.summary as Record<string, unknown>,
+      },
+    };
+  }
 
   async runNoopImport(params: RunNoopImportParams) {
     return this.runAdapterImport({ adapterName: 'noop-test', ...params });
@@ -542,6 +595,7 @@ export class EcobaseImportService {
             sourceIdentifier: adapterName === 'sellerboard-api' ? 'sellerboard-scheduled' : 'medallion-pipeline',
             sourceVersion,
             preserveAuditRun: true,
+            skipGoldRefresh: true,
           }),
         );
       } catch (error) {
@@ -554,7 +608,10 @@ export class EcobaseImportService {
     const normalization = await new EcobaseMedallionNormalizationService(this.db).normalizePending({
       sourceConnectionId: params.sourceConnectionId,
     });
-    return { imports, normalization, failures };
+    const goldRefresh = sourceConnections.some(shouldRefreshGoldAfterImport)
+      ? await this.refreshGoldReadModels(params.goldCalculationDate ?? sourceVersion)
+      : null;
+    return { imports, normalization, failures, goldRefresh };
   }
 
   async runAdapterImport(params: RunAdapterImportParams) {
@@ -633,6 +690,7 @@ export class EcobaseImportService {
     let statusMessage: string | null = null;
     let firstErrorIssueMessage: string | null = null;
     let finalStatusOverride: string | null = null;
+    let goldRefresh: AutomaticGoldRefreshResult | null = null;
     const skipExistingNormalizedKinds = new Set(params.skipExistingNormalizedKinds ?? []);
     const fileSummaries: Record<string, ImportFileSummary> = {};
     let medallionNormalization: NormalizePendingResult | null = null;
@@ -781,6 +839,23 @@ export class EcobaseImportService {
       }
     }
 
+    if (
+      !errorMessage &&
+      !params.skipGoldRefresh &&
+      shouldRefreshGoldAfterImport(sourceConnection) &&
+      (normalizedCount > 0 || (medallionNormalization?.normalized ?? 0) > 0)
+    ) {
+      try {
+        goldRefresh = await this.refreshGoldReadModels(params.goldCalculationDate);
+      } catch (error) {
+        statusMessage =
+          error instanceof Error
+            ? `Ecobase import completed with a gold refresh warning: ${error.message}`
+            : 'Ecobase import completed with a gold refresh warning: refresh threw a non-Error value.';
+        errorCount += 1;
+      }
+    }
+
     const finishedAt = new Date();
     const status = this.getFinalStatus(errorMessage, errorCount, normalizedCount, finalStatusOverride);
     await importRunRepo.update({
@@ -793,7 +868,7 @@ export class EcobaseImportService {
         warningCount,
         errorCount,
         errorMessage: errorMessage ?? statusMessage ?? (normalizedCount > 0 ? firstErrorIssueMessage : null),
-        summary: { files: fileSummaries, medallionNormalization, ...(params.summary ?? {}) },
+        summary: { files: fileSummaries, medallionNormalization, goldRefresh, ...(params.summary ?? {}) },
       },
     });
 

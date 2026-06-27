@@ -38,6 +38,12 @@ type SaveCsvSourceConnectionParams = {
   active?: boolean;
 };
 
+const DEFAULT_CSV_SOURCE_CONNECTIONS = [
+  { name: 'Supplier Management CSV upload', sourceType: 'google_sheets', domain: 'supplier_management' },
+  { name: 'Order Management CSV upload', sourceType: 'google_sheets', domain: 'order_management' },
+  { name: 'Buybox / Amazon Operations CSV upload', sourceType: 'seller_central_file', domain: 'amazon_operations' },
+];
+
 function getString(record: unknown, key: string): string | undefined {
   const value = toPlainRecord(record)[key];
   return typeof value === 'string' ? value : undefined;
@@ -69,6 +75,15 @@ function getConfig(record: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
 }
 
+function isGeneratedCsvSourceName(name: string | undefined, sourceType: string, domain: string) {
+  return (
+    name === `${sourceType} ${domain} CSV upload` ||
+    name === `${sourceType} ${domain} CSV source` ||
+    name === 'Google Sheets Order Management CSV upload' ||
+    name === 'Google Sheets Supplier Management CSV upload'
+  );
+}
+
 function normalizeDailyRefreshTime(value: string | undefined) {
   const dailyRefreshTime = value?.trim() || '00:00';
   const match = dailyRefreshTime.match(/^(\d{2}):(\d{2})$/);
@@ -78,7 +93,9 @@ function normalizeDailyRefreshTime(value: string | undefined) {
   const hours = Number(match[1]);
   const minutes = Number(match[2]);
   if (hours > 23 || minutes > 59) {
-    throw new Error(`Ecobase Sellerboard source save failed: dailyRefreshTime "${dailyRefreshTime}" is outside 00:00-23:59.`);
+    throw new Error(
+      `Ecobase Sellerboard source save failed: dailyRefreshTime "${dailyRefreshTime}" is outside 00:00-23:59.`,
+    );
   }
   return dailyRefreshTime;
 }
@@ -204,32 +221,35 @@ export class EcobaseSourceConnectionService {
     const companyRepo = this.db.getRepository(ECOBASE_COLLECTIONS.companies);
     const importRunRepo = this.db.getRepository(ECOBASE_COLLECTIONS.importRuns);
     const sources = await sourceRepo.find({ sort: ['name'] });
-    return Promise.all(sources.map(async (source) => {
-      const sourceConnectionId = getString(source, 'id');
-      if (!sourceConnectionId) {
-        throw new Error('Ecobase source status lookup failed: source connection record is missing id.');
-      }
-      const latestRun = await importRunRepo.findOne({ filter: { sourceConnectionId }, sort: ['-startedAt'] });
-      const sourceRecord = toPlainRecord(source);
-      const latestRunRecord = toPlainRecord(latestRun);
-      const companyId = getString(sourceRecord, 'companyId');
-      const company = companyId ? await companyRepo.findOne({ filterByTk: companyId }) : null;
-      return {
-        id: sourceConnectionId,
-        name: getString(source, 'name') ?? '(unnamed source)',
-        company: getString(company, 'name') ?? null,
-        sourceType: getString(source, 'sourceType') ?? null,
-        domain: getString(source, 'domain') ?? null,
-        active: getBoolean(source, 'active', true),
-        latestImportRunId: getString(latestRunRecord, 'id') ?? null,
-        latestRunStatus: getString(latestRunRecord, 'status') ?? null,
-        lastRunAt: getDisplayString(latestRunRecord, 'finishedAt') ?? getDisplayString(latestRunRecord, 'startedAt') ?? null,
-        importedCount: getNumber(latestRunRecord, 'normalizedCount') ?? 0,
-        skippedCount: getNumber(latestRunRecord, 'skippedCount') ?? 0,
-        errorCount: getNumber(latestRunRecord, 'errorCount') ?? 0,
-        warnings: getNumber(latestRunRecord, 'warningCount') ?? 0,
-      };
-    }));
+    return Promise.all(
+      sources.map(async (source) => {
+        const sourceConnectionId = getString(source, 'id');
+        if (!sourceConnectionId) {
+          throw new Error('Ecobase source status lookup failed: source connection record is missing id.');
+        }
+        const latestRun = await importRunRepo.findOne({ filter: { sourceConnectionId }, sort: ['-startedAt'] });
+        const sourceRecord = toPlainRecord(source);
+        const latestRunRecord = toPlainRecord(latestRun);
+        const companyId = getString(sourceRecord, 'companyId');
+        const company = companyId ? await companyRepo.findOne({ filterByTk: companyId }) : null;
+        return {
+          id: sourceConnectionId,
+          name: getString(source, 'name') ?? '(unnamed source)',
+          company: getString(company, 'name') ?? null,
+          sourceType: getString(source, 'sourceType') ?? null,
+          domain: getString(source, 'domain') ?? null,
+          active: getBoolean(source, 'active', true),
+          latestImportRunId: getString(latestRunRecord, 'id') ?? null,
+          latestRunStatus: getString(latestRunRecord, 'status') ?? null,
+          lastRunAt:
+            getDisplayString(latestRunRecord, 'finishedAt') ?? getDisplayString(latestRunRecord, 'startedAt') ?? null,
+          importedCount: getNumber(latestRunRecord, 'normalizedCount') ?? 0,
+          skippedCount: getNumber(latestRunRecord, 'skippedCount') ?? 0,
+          errorCount: getNumber(latestRunRecord, 'errorCount') ?? 0,
+          warnings: getNumber(latestRunRecord, 'warningCount') ?? 0,
+        };
+      }),
+    );
   }
 
   async listSellerboardSources() {
@@ -312,13 +332,46 @@ export class EcobaseSourceConnectionService {
     );
   }
 
+  async ensureDefaultCsvSourceConnections() {
+    const sourceRepo = this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections);
+    const existing = (await sourceRepo.find({ limit: 1000 })).map(toPlainRecord);
+    const results = [];
+
+    for (const defaults of DEFAULT_CSV_SOURCE_CONNECTIONS) {
+      const current = existing.find(
+        (source) =>
+          getString(source, 'sourceType') === defaults.sourceType &&
+          getString(source, 'domain') === defaults.domain &&
+          !getString(source, 'companyId'),
+      );
+      if (!current) {
+        results.push(await this.saveCsvSourceConnection(defaults));
+        continue;
+      }
+      const currentId = getString(current, 'id');
+      const currentName = getString(current, 'name');
+      if (currentId && isGeneratedCsvSourceName(currentName, defaults.sourceType, defaults.domain)) {
+        results.push(await sourceRepo.update({ filterByTk: currentId, values: { name: defaults.name } }));
+        continue;
+      }
+      results.push(current);
+    }
+
+    return results;
+  }
+
   async saveCsvSourceConnection(params: SaveCsvSourceConnectionParams) {
     const sourceType = params.sourceType?.trim();
     const domain = params.domain?.trim();
     if (!sourceType || !['seller_central_file', 'google_sheets', 'sellerboard'].includes(sourceType)) {
-      throw new Error('Ecobase CSV source save failed: sourceType must be seller_central_file, google_sheets, or sellerboard.');
+      throw new Error(
+        'Ecobase CSV source save failed: sourceType must be seller_central_file, google_sheets, or sellerboard.',
+      );
     }
-    if (!domain || !['amazon_operations', 'order_management', 'supplier_management', 'foundation', 'accountability'].includes(domain)) {
+    if (
+      !domain ||
+      !['amazon_operations', 'order_management', 'supplier_management', 'foundation', 'accountability'].includes(domain)
+    ) {
       throw new Error(
         'Ecobase CSV source save failed: domain must be amazon_operations, order_management, supplier_management, foundation, or accountability.',
       );
@@ -330,7 +383,9 @@ export class EcobaseSourceConnectionService {
     if (companyName) {
       let company = await companyRepo.findOne({ filter: { name: companyName } });
       if (!company) {
-        company = await companyRepo.create({ values: { id: randomUUID(), name: companyName, timezone: 'Asia/Karachi', active: true } });
+        company = await companyRepo.create({
+          values: { id: randomUUID(), name: companyName, timezone: 'Asia/Karachi', active: true },
+        });
       }
       companyId = getString(company, 'id');
       if (!companyId) {
@@ -363,7 +418,11 @@ export class EcobaseSourceConnectionService {
     }
     const reportUrls = normalizeReportUrls(params.reportUrls);
     const dailyRefreshTime = normalizeDailyRefreshTime(params.dailyRefreshTime);
-    const refreshIntervalMinutes = normalizePositiveInteger(params.refreshIntervalMinutes, 1440, 'refreshIntervalMinutes');
+    const refreshIntervalMinutes = normalizePositiveInteger(
+      params.refreshIntervalMinutes,
+      1440,
+      'refreshIntervalMinutes',
+    );
     const retryIntervalMinutes = normalizePositiveInteger(params.retryIntervalMinutes, 60, 'retryIntervalMinutes');
     const freshnessSlaMinutes = normalizePositiveInteger(params.freshnessSlaMinutes, 1440, 'freshnessSlaMinutes');
     const timezone = params.timezone?.trim() || 'Asia/Karachi';
@@ -403,13 +462,22 @@ export class EcobaseSourceConnectionService {
     if (params.sourceConnectionId) {
       const existing = await sourceRepo.findOne({ filterByTk: params.sourceConnectionId });
       if (!existing) {
-        throw new Error(`Ecobase Sellerboard source save failed: source connection "${params.sourceConnectionId}" was not found.`);
+        throw new Error(
+          `Ecobase Sellerboard source save failed: source connection "${params.sourceConnectionId}" was not found.`,
+        );
       }
       if (getString(existing, 'sourceType') !== 'sellerboard') {
-        throw new Error(`Ecobase Sellerboard source save failed: source connection "${params.sourceConnectionId}" is not Sellerboard.`);
+        throw new Error(
+          `Ecobase Sellerboard source save failed: source connection "${params.sourceConnectionId}" is not Sellerboard.`,
+        );
       }
       await sourceRepo.update({ filterByTk: params.sourceConnectionId, values });
-      return (await sourceRepo.findOne({ filterByTk: params.sourceConnectionId })) ?? { id: params.sourceConnectionId, ...values };
+      return (
+        (await sourceRepo.findOne({ filterByTk: params.sourceConnectionId })) ?? {
+          id: params.sourceConnectionId,
+          ...values,
+        }
+      );
     }
 
     return sourceRepo.create({ values: { id: randomUUID(), ...values } });
@@ -419,12 +487,18 @@ export class EcobaseSourceConnectionService {
     const sourceRepo = this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections);
     const source = await sourceRepo.findOne({ filterByTk: sourceConnectionId });
     if (!source) {
-      throw new Error(`Ecobase Sellerboard source delete failed: source connection "${sourceConnectionId}" was not found.`);
+      throw new Error(
+        `Ecobase Sellerboard source delete failed: source connection "${sourceConnectionId}" was not found.`,
+      );
     }
     if (getString(source, 'sourceType') !== 'sellerboard') {
-      throw new Error(`Ecobase Sellerboard source delete failed: source connection "${sourceConnectionId}" is not Sellerboard.`);
+      throw new Error(
+        `Ecobase Sellerboard source delete failed: source connection "${sourceConnectionId}" is not Sellerboard.`,
+      );
     }
-    await repoWithDestroy(sourceRepo, ECOBASE_COLLECTIONS.sourceConnections).destroy?.({ filterByTk: sourceConnectionId });
+    await repoWithDestroy(sourceRepo, ECOBASE_COLLECTIONS.sourceConnections).destroy?.({
+      filterByTk: sourceConnectionId,
+    });
     return { sourceConnectionId, deleted: true };
   }
 }

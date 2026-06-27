@@ -2195,15 +2195,9 @@ export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
         const pipeline = await service.runMedallionPipeline({
           sourceConnectionId: getOptionalString(values, 'sourceConnectionId'),
           sourceVersion: getOptionalString(values, 'sourceVersion'),
+          goldCalculationDate: getOptionalString(values, 'goldCalculationDate'),
         });
-        const goldInventory = await new EcobaseInventoryPlanningService(ctx.db).refreshReadModel({
-          calculationDate: getOptionalString(values, 'sourceVersion'),
-          limit: getOptionalNumber(values, 'goldLimit') ?? 500,
-        });
-        const goldOrders = await new EcobaseOrderPlanningService(ctx.db).refreshReadModel({
-          limit: getOptionalNumber(values, 'goldOrderLimit') ?? 5000,
-        });
-        ctx.body = { data: { ...pipeline, goldInventory, goldOrders } };
+        ctx.body = { data: pipeline };
       } catch (error) {
         ctx.throw(400, error instanceof Error ? error.message : 'Ecobase medallion pipeline failed.');
         return;
@@ -2363,6 +2357,7 @@ export class PluginEcobaseServer extends Plugin {
     this.registerAiEmployeeTools();
     this.app.on('afterStart', async () => {
       await ensureEcobaseCollectionManagerMetadata(this.app.db);
+      await new EcobaseSourceConnectionService(this.app.db).ensureDefaultCsvSourceConnections();
       this.startSellerboardScheduler();
     });
     this.app.on('beforeStop', async () => {

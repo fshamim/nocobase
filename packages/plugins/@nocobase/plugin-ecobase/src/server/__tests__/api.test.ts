@@ -13,6 +13,7 @@ import {
   createEcobaseSupplierOrderActions,
 } from '../plugin';
 import { EcobaseDatabase, EcobaseRepository } from '../services/import-service';
+import { EcobaseSourceConnectionService } from '../services/source-connection-service';
 
 interface FindParams {
   filter?: Record<string, unknown>;
@@ -1088,6 +1089,45 @@ describe('Ecobase import public API seam', () => {
     ]);
   });
 
+  it('ensures default manual CSV source connections', async () => {
+    const db = new MemoryDatabase();
+    await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).create({
+      values: {
+        id: 'legacy-buybox-csv-source',
+        name: 'seller_central_file amazon_operations CSV upload',
+        sourceType: 'seller_central_file',
+        domain: 'amazon_operations',
+        config: { manualCsvBundle: true },
+        active: true,
+      },
+    });
+
+    await new EcobaseSourceConnectionService(db).ensureDefaultCsvSourceConnections();
+    await new EcobaseSourceConnectionService(db).ensureDefaultCsvSourceConnections();
+
+    expect(db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).all()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: 'Supplier Management CSV upload',
+          sourceType: 'google_sheets',
+          domain: 'supplier_management',
+        }),
+        expect.objectContaining({
+          name: 'Order Management CSV upload',
+          sourceType: 'google_sheets',
+          domain: 'order_management',
+        }),
+        expect.objectContaining({
+          id: 'legacy-buybox-csv-source',
+          name: 'Buybox / Amazon Operations CSV upload',
+          sourceType: 'seller_central_file',
+          domain: 'amazon_operations',
+        }),
+      ]),
+    );
+    expect(db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).all()).toHaveLength(3);
+  });
+
   it('lists available adapters through the public action', async () => {
     const actions = createEcobaseImportActions(createSourceAdapterRegistry([noopTestAdapter]));
     const context = createActionContext(new MemoryDatabase());
@@ -1388,6 +1428,9 @@ describe('Ecobase supplier-management public API seam', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.goldSupplierAttentionRows).all()).toEqual([
       expect.objectContaining({ supplierId: 'supplier-a', lifecycleStatus: 'approved', moneyAtRisk: 6200 }),
     ]);
+    const nextDigestContext = createActionContext(db, { company: 'Money LLC', calculationDate: '2025-07-11' });
+    await actions.refreshAttentionRows(nextDigestContext, vi.fn());
+    expect(db.getRepository(ECOBASE_COLLECTIONS.goldSupplierAttentionRows).all()).toHaveLength(2);
     expect(await db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).findOne({ filterByTk: 'supplier-a' })).toEqual(
       expect.objectContaining({ approvalStatus: 'approved' }),
     );

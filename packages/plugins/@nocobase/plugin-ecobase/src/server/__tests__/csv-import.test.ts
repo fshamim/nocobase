@@ -66,7 +66,14 @@ class MemoryRepository implements EcobaseRepository {
       return this.records.filter((record) => record.id === params.filterByTk);
     }
     const filter = params.filter ?? {};
-    return this.records.filter((record) => Object.entries(filter).every(([key, expected]) => record[key] === expected));
+    return this.records.filter((record) =>
+      Object.entries(filter).every(([key, expected]) => {
+        if (typeof expected === 'object' && expected !== null && Array.isArray((expected as { $in?: unknown[] }).$in)) {
+          return (expected as { $in: unknown[] }).$in.includes(record[key]);
+        }
+        return record[key] === expected;
+      }),
+    );
   }
 
   private sortRecords(records: Record<string, unknown>[], sort: string[] = []) {
@@ -269,7 +276,7 @@ describe('Ecobase bronze import write path', () => {
       },
     });
 
-    await service.runAdapterImport({
+    const run = await service.runAdapterImport({
       sourceConnectionId: 'source-1',
       adapterName: 'google-sheets-migration-csv',
       sourceIdentifier: 'bronze-master-stock',
@@ -298,6 +305,10 @@ describe('Ecobase bronze import write path', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).all()).toHaveLength(2);
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).all()).toHaveLength(2);
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverNormalizationLinks).all().length).toBeGreaterThan(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).all().length).toBeGreaterThan(0);
+    expect(run.summary).toMatchObject({
+      goldRefresh: expect.objectContaining({ calculationDate: expect.any(String) }),
+    });
   });
 
   it('keeps invalid source rows in bronze instead of rejecting the whole import', async () => {
@@ -365,6 +376,7 @@ describe('Ecobase bronze import write path', () => {
     expect(result.failures).toEqual([]);
     expect(result.imports).toHaveLength(2);
     expect(result.normalization.failed).toBe(0);
+    expect(result.goldRefresh).toMatchObject({ calculationDate: expect.any(String) });
     expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toHaveLength(3);
     expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toEqual(
       expect.arrayContaining([expect.objectContaining({ normalizationStatus: 'normalized' })]),

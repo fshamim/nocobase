@@ -1,10 +1,20 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import type { EcobaseDatabase } from './import-service';
 import { toPlainRecord } from './import-service';
 import { validateSupplierLeadTimeDays, validateSupplierOrderStatus } from './supplier-order-service';
 
 type PlainRecord = Record<string, unknown>;
+
+function stableUuid(value: string) {
+  const hex = createHash('sha1').update(value).digest('hex').slice(0, 32);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-${(
+    (parseInt(hex.slice(16, 18), 16) & 0x3f) |
+    0x80
+  )
+    .toString(16)
+    .padStart(2, '0')}${hex.slice(18, 20)}-${hex.slice(20, 32)}`;
+}
 
 type SupplierLifecycleStatus = 'new' | 'contacting' | 'product_review' | 'payment_review' | 'approved' | 'rejected';
 
@@ -349,7 +359,7 @@ export class EcobaseSupplierManagementService {
     for (const row of digest.rows) {
       const naturalKey = asString(row.naturalKey);
       if (!naturalKey) continue;
-      const values = { ...row, id: asString(row.id) ?? randomUUID() };
+      const values = { ...row, id: stableUuid(naturalKey) };
       const existing = toPlainRecord(await repo.findOne({ filter: { naturalKey } }));
       if (existing.id) {
         await repo.update({ filterByTk: asString(existing.id), values: { ...values, id: existing.id } });
