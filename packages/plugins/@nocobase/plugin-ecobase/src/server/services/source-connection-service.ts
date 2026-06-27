@@ -7,6 +7,13 @@ type DestroyableRepository = EcobaseRepository & {
   destroy?: (params: { filterByTk?: string | number; filter?: Record<string, unknown> }) => Promise<unknown>;
 };
 
+type QueryableDatabase = EcobaseDatabase & {
+  sequelize?: {
+    getDialect?: () => string;
+    query?: (sql: string, options?: Record<string, unknown>) => Promise<unknown>;
+  };
+};
+
 type SellerboardReportCategory = 'profit_dashboard' | 'stock_daily' | 'profit_by_product_daily';
 
 type SellerboardReportUrl = {
@@ -43,6 +50,26 @@ const DEFAULT_CSV_SOURCE_CONNECTIONS = [
   { name: 'Order Management CSV upload', sourceType: 'google_sheets', domain: 'order_management' },
   { name: 'Buybox / Amazon Operations CSV upload', sourceType: 'seller_central_file', domain: 'amazon_operations' },
 ];
+
+const SOURCE_OWNED_COLLECTIONS = [
+  ECOBASE_COLLECTIONS.bronzeSourceRecords,
+  ECOBASE_COLLECTIONS.bronzeSourceFiles,
+  ECOBASE_COLLECTIONS.clickupTaskSnapshots,
+  ECOBASE_COLLECTIONS.inventorySnapshots,
+  ECOBASE_COLLECTIONS.listingDailyFacts,
+  ECOBASE_COLLECTIONS.okrMetricSnapshots,
+  ECOBASE_COLLECTIONS.okrs,
+  ECOBASE_COLLECTIONS.planningParameters,
+  ECOBASE_COLLECTIONS.planningProductListings,
+  ECOBASE_COLLECTIONS.rawListings,
+  ECOBASE_COLLECTIONS.sourceAccessAudits,
+  ECOBASE_COLLECTIONS.supplierLeadTimes,
+  ECOBASE_COLLECTIONS.supplierOrders,
+  ECOBASE_COLLECTIONS.suppliers,
+  ECOBASE_COLLECTIONS.targetRows,
+  ECOBASE_COLLECTIONS.taskLinks,
+  ECOBASE_COLLECTIONS.trafficSnapshots,
+] as const;
 
 function getString(record: unknown, key: string): string | undefined {
   const value = toPlainRecord(record)[key];
@@ -211,6 +238,21 @@ function repoWithDestroy(repository: EcobaseRepository, collectionName: string):
     throw new Error(`Ecobase source connection cleanup failed: ${collectionName} repository does not support destroy.`);
   }
   return destroyable;
+}
+
+function quoteIdentifier(identifier: string) {
+  return `"${identifier.replace(/"/g, '""')}"`;
+}
+
+function countFrom(value: unknown) {
+  const number = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : 0;
+  return Number.isFinite(number) ? number : 0;
+}
+
+function destroyCount(value: unknown) {
+  if (typeof value === 'number') return value;
+  if (Array.isArray(value)) return value.length;
+  return 0;
 }
 
 export class EcobaseSourceConnectionService {
@@ -496,9 +538,102 @@ export class EcobaseSourceConnectionService {
         `Ecobase Sellerboard source delete failed: source connection "${sourceConnectionId}" is not Sellerboard.`,
       );
     }
-    await repoWithDestroy(sourceRepo, ECOBASE_COLLECTIONS.sourceConnections).destroy?.({
-      filterByTk: sourceConnectionId,
-    });
-    return { sourceConnectionId, deleted: true };
+
+    const rawSqlDeleteResult = await this.deleteSourceConnectionWithRawSql(sourceConnectionId);
+    if (rawSqlDeleteResult) return rawSqlDeleteResult;
+
+    return this.deleteSourceConnectionWithRepositories(sourceConnectionId);
+  }
+
+  private async deleteSourceConnectionWithRawSql(sourceConnectionId: string) {
+    const sequelize = (this.db as QueryableDatabase).sequelize;
+    if (sequelize?.getDialect?.() !== 'postgres' || typeof sequelize.query !== 'function') return null;
+
+    const ownedDeletes = SOURCE_OWNED_COLLECTIONS.map(
+      (collectionName, index) =>
+        `deleted_owned_${index} AS (DELETE FROM ${quoteIdentifier(
+          collectionName,
+        )} WHERE "sourceConnectionId" = :sourceConnectionId RETURNING 1)`,
+    );
+    const ownedCount = SOURCE_OWNED_COLLECTIONS.map(
+      (_collectionName, index) => `(SELECT count(*) FROM deleted_owned_${index})`,
+    ).join(' + ');
+    const rows = (await sequelize.query(
+      `WITH runs AS (
+        SELECT id FROM ${quoteIdentifier(
+          ECOBASE_COLLECTIONS.importRuns,
+        )} WHERE "sourceConnectionId" = :sourceConnectionId
+      ),
+      deleted_raw_import_rows AS (
+        DELETE FROM ${quoteIdentifier(
+          ECOBASE_COLLECTIONS.rawImportRows,
+        )} WHERE "importRunId" IN (SELECT id FROM runs) RETURNING 1
+      ),
+      deleted_import_runs AS (
+        DELETE FROM ${quoteIdentifier(ECOBASE_COLLECTIONS.importRuns)} WHERE id IN (SELECT id FROM runs) RETURNING 1
+      ),
+      ${ownedDeletes.join(',\n      ')},
+      deleted_source AS (
+        DELETE FROM ${quoteIdentifier(ECOBASE_COLLECTIONS.sourceConnections)} WHERE id = :sourceConnectionId RETURNING 1
+      )
+      SELECT
+        (SELECT count(*) FROM deleted_source) AS "deletedSourceCount",
+        (SELECT count(*) FROM deleted_import_runs) AS "deletedImportRunCount",
+        (SELECT count(*) FROM deleted_raw_import_rows) AS "deletedRawImportRowCount",
+        ${ownedCount || '0'} AS "deletedSourceOwnedRowCount"`,
+      { replacements: { sourceConnectionId }, type: 'SELECT' },
+    )) as Record<string, unknown>[];
+    const result = rows[0] ?? {};
+    return {
+      sourceConnectionId,
+      deleted: countFrom(result.deletedSourceCount) === 1,
+      deletedImportRuns: countFrom(result.deletedImportRunCount),
+      deletedRawImportRows: countFrom(result.deletedRawImportRowCount),
+      deletedSourceOwnedRows: countFrom(result.deletedSourceOwnedRowCount),
+    };
+  }
+
+  private async deleteSourceConnectionWithRepositories(sourceConnectionId: string) {
+    const importRunRepo = this.db.getRepository(ECOBASE_COLLECTIONS.importRuns);
+    const rawImportRowRepo = this.db.getRepository(ECOBASE_COLLECTIONS.rawImportRows);
+    const importRuns = await importRunRepo.find({ filter: { sourceConnectionId }, limit: 10000 });
+    const importRunIds = importRuns.map((run) => getString(run, 'id')).filter((id): id is string => Boolean(id));
+    const deletedRawImportRows = importRunIds.length
+      ? destroyCount(
+          await repoWithDestroy(rawImportRowRepo, ECOBASE_COLLECTIONS.rawImportRows).destroy?.({
+            filter: { importRunId: { $in: importRunIds } },
+          }),
+        )
+      : 0;
+    const deletedImportRuns = importRunIds.length
+      ? destroyCount(
+          await repoWithDestroy(importRunRepo, ECOBASE_COLLECTIONS.importRuns).destroy?.({
+            filter: { id: { $in: importRunIds } },
+          }),
+        )
+      : 0;
+    let deletedSourceOwnedRows = 0;
+    for (const collectionName of SOURCE_OWNED_COLLECTIONS) {
+      deletedSourceOwnedRows += destroyCount(
+        await repoWithDestroy(this.db.getRepository(collectionName), collectionName).destroy?.({
+          filter: { sourceConnectionId },
+        }),
+      );
+    }
+    const deletedSourceCount = destroyCount(
+      await repoWithDestroy(
+        this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections),
+        ECOBASE_COLLECTIONS.sourceConnections,
+      ).destroy?.({
+        filterByTk: sourceConnectionId,
+      }),
+    );
+    return {
+      sourceConnectionId,
+      deleted: deletedSourceCount === 1,
+      deletedImportRuns,
+      deletedRawImportRows,
+      deletedSourceOwnedRows,
+    };
   }
 }
