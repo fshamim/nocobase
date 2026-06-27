@@ -1252,8 +1252,15 @@ describe('Ecobase import public API seam', () => {
 
     const deleteContext = createActionContext(db, { sourceConnectionId: String(source.id) });
     await actions.deleteSellerboardSource(deleteContext, vi.fn());
-    expect(deleteContext.body).toEqual({ data: { sourceConnectionId: source.id, deleted: true } });
+    expect(deleteContext.body.data).toMatchObject({
+      sourceConnectionId: source.id,
+      deleted: true,
+      deletedImportRuns: 1,
+      deletedRawImportRows: 1,
+    });
     expect(db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).all()).toEqual([]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.importRuns).all()).toEqual([]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).all()).toEqual([]);
   });
 });
 
