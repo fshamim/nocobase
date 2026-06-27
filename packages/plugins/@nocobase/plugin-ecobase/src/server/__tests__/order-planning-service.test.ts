@@ -211,7 +211,7 @@ describe('EcobaseOrderPlanningService', () => {
       earliestOosDate: '2026-06-26',
       latestComment: 'Call supplier today',
     });
-    expect(result.rows[1]).toMatchObject({ id: 'order-2', moneyAtRisk: 30, riskSource: 'silver_estimate' });
+    expect(result.rows[1]).toMatchObject({ id: 'order-2', moneyAtRisk: 0, riskSource: 'missing' });
     expect(db.touched).not.toContain(ECOBASE_COLLECTIONS.supplierOrders);
     expect(db.touched).not.toContain(ECOBASE_COLLECTIONS.supplierOrderLines);
     expect(db.touched).not.toContain(ECOBASE_COLLECTIONS.planningProducts);
@@ -236,6 +236,28 @@ describe('EcobaseOrderPlanningService', () => {
 
     expect(result.rows[0]).toMatchObject({ id: 'order-2', tier: 'A', moneyAtRisk: 1 });
     expect(result.rows[1]).toMatchObject({ id: 'order-1', tier: 'B', moneyAtRisk: 350 });
+  });
+
+  it('zeros stale materialized money risk when the row has no valid tier', async () => {
+    const db = new FakeDatabase();
+    await seed(db);
+    await db.getRepository(ECOBASE_COLLECTIONS.goldOrderPlanningRows).create({
+      values: {
+        id: 'materialized-no-tier-risk',
+        orderId: 'order-2',
+        orderRef: 'SAM062426B',
+        companyId: 'company-1',
+        companyName: 'SampleAM',
+        supplierName: 'Beta Supply',
+        canonicalStatus: 'ORDER ANALYSING',
+        moneyAtRisk: 999,
+        riskSource: 'gold',
+      },
+    });
+
+    const result = await new EcobaseOrderPlanningService(db).listOrders({ companyId: 'company-1', hideClosed: false });
+
+    expect(result.rows[0]).toMatchObject({ id: 'order-2', moneyAtRisk: 0, riskSource: 'missing' });
   });
 
   it('loads linked invoices in order detail', async () => {

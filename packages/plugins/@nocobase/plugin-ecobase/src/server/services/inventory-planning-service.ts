@@ -1021,16 +1021,19 @@ export class EcobaseInventoryPlanningService {
     limit?: number;
     scanLimit?: number;
   }) {
+    const activeSourceConnectionIds = await this.activeSourceConnectionIds();
     const sourceConnectionCompanies = await this.sourceConnectionCompanies();
     const inventoryRows = await this.findFallbackRecords(ECOBASE_COLLECTIONS.inventorySnapshots, {
       company: params.company,
       sourceConnectionCompanies,
+      activeSourceConnectionIds,
       sort: ['-snapshotDate'],
       limit: params.scanLimit,
     });
     const parameterRows = await this.findFallbackRecords(ECOBASE_COLLECTIONS.planningParameters, {
       company: params.company,
       sourceConnectionCompanies,
+      activeSourceConnectionIds,
       limit: params.scanLimit ? Math.max(params.scanLimit * 2, 500) : undefined,
     });
     const profitMetrics = await this.profitMetricsByProduct({
@@ -1078,6 +1081,7 @@ export class EcobaseInventoryPlanningService {
     const facts = await this.findFallbackRecords(ECOBASE_COLLECTIONS.listingDailyFacts, {
       company: params.company,
       sourceConnectionCompanies: params.sourceConnectionCompanies,
+      activeSourceConnectionIds: await this.activeSourceConnectionIds(),
     });
     const start = monthStart(params.calculationDate);
     const index: ProfitMetricsIndex = { exact: new Map(), byAsin: new Map() };
@@ -1563,10 +1567,20 @@ export class EcobaseInventoryPlanningService {
     };
   }
 
-  private async sourceConnectionCompanies() {
-    const connections = (await this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).find({})).map(
-      toPlainRecord,
+  private async activeSourceConnectionIds() {
+    return new Set(
+      (await this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).find({}))
+        .map(toPlainRecord)
+        .filter((connection) => asBoolean(connection.active) !== false)
+        .map((connection) => asString(connection.id))
+        .filter((id): id is string => Boolean(id)),
     );
+  }
+
+  private async sourceConnectionCompanies() {
+    const connections = (await this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).find({}))
+      .map(toPlainRecord)
+      .filter((connection) => asBoolean(connection.active) !== false);
     const companyRows = (await this.db.getRepository(ECOBASE_COLLECTIONS.companies).find({})).map(toPlainRecord);
     const companyNamesById = new Map(
       companyRows
@@ -1586,14 +1600,20 @@ export class EcobaseInventoryPlanningService {
 
   private async findFallbackRecords(
     collection: string,
-    params: { company?: string; sourceConnectionCompanies: Map<string, string>; sort?: string[]; limit?: number },
+    params: {
+      company?: string;
+      sourceConnectionCompanies: Map<string, string>;
+      activeSourceConnectionIds: Set<string>;
+      sort?: string[];
+      limit?: number;
+    },
   ) {
     const repository = this.db.getRepository(collection);
     const limit = params.limit;
     if (!params.company) {
-      return (
-        await repository.find({ ...(params.sort ? { sort: params.sort } : {}), ...(limit ? { limit } : {}) })
-      ).map(toPlainRecord);
+      return (await repository.find({ ...(params.sort ? { sort: params.sort } : {}), ...(limit ? { limit } : {}) }))
+        .map(toPlainRecord)
+        .filter((record) => this.recordUsesActiveSource(record, params.activeSourceConnectionIds));
     }
 
     const matchingSourceConnectionIds = [...params.sourceConnectionCompanies.entries()]
@@ -1603,7 +1623,9 @@ export class EcobaseInventoryPlanningService {
     const addRecords = async (filter: PlainRecord) => {
       const found = (
         await repository.find({ filter, ...(params.sort ? { sort: params.sort } : {}), ...(limit ? { limit } : {}) })
-      ).map(toPlainRecord);
+      )
+        .map(toPlainRecord)
+        .filter((record) => this.recordUsesActiveSource(record, params.activeSourceConnectionIds));
       for (const record of found) {
         const key =
           asString(record.id) ??
@@ -1618,6 +1640,11 @@ export class EcobaseInventoryPlanningService {
       await addRecords({ sourceConnectionId });
     }
     return [...records.values()].slice(0, limit ?? records.size);
+  }
+
+  private recordUsesActiveSource(record: PlainRecord, activeSourceConnectionIds: Set<string>) {
+    const sourceConnectionId = asString(record.sourceConnectionId);
+    return !sourceConnectionId || activeSourceConnectionIds.has(sourceConnectionId);
   }
 
   private async findSupplier(link: PlainRecord, parameter: PlainRecord, company?: string) {

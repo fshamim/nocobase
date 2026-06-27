@@ -706,6 +706,53 @@ describe('EcobaseInventoryPlanningService', () => {
     });
   });
 
+  it('ignores inactive source-connection records in fallback planning', async () => {
+    const db = new MemoryDatabase();
+    await createRecord(db, ECOBASE_COLLECTIONS.companies, {
+      id: 'company-ecofission',
+      name: 'Ecofission LLC',
+      active: true,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.sourceConnections, {
+      id: 'source-active',
+      name: 'Active Sellerboard',
+      companyId: 'company-ecofission',
+      sourceType: 'sellerboard',
+      active: true,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.sourceConnections, {
+      id: 'source-inactive',
+      name: 'Inactive Smoke Source',
+      companyId: 'company-ecofission',
+      sourceType: 'sellerboard',
+      active: false,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
+      naturalKey: 'inventory-active-source',
+      sourceConnectionId: 'source-active',
+      snapshotDate: '2026-06-26',
+      asin: 'B000ACTIVE',
+      sku: 'ACTIVE-SKU',
+      stock: 10,
+      salesVelocity: 1,
+      recommendedReorderQuantity: 10,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
+      naturalKey: 'inventory-inactive-source',
+      sourceConnectionId: 'source-inactive',
+      snapshotDate: '2026-06-26',
+      asin: 'B000INACTIVE',
+      sku: 'INACTIVE-SKU',
+      stock: 10,
+      salesVelocity: 1,
+      recommendedReorderQuantity: 10,
+    });
+
+    const rows = await new EcobaseInventoryPlanningService(db).listRows({ calculationDate: '2026-06-26' });
+
+    expect(rows.map((row) => row.asin)).toEqual(['B000ACTIVE']);
+  });
+
   it('derives fallback profit and tier from Sellerboard daily facts', async () => {
     const db = new MemoryDatabase();
     await createRecord(db, ECOBASE_COLLECTIONS.companies, {

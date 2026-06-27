@@ -388,6 +388,8 @@ function goldOrderKey(companyName?: string, orderRef?: string) {
 
 function goldOrderPlanningRowFromRecord(record: PlainRecord): OrderPlanningRow {
   const canonicalStatus = canonicalOrderLifecycleStatus(record.canonicalStatus ?? record.currentStatus);
+  const tier = text(record.tier);
+  const tiered = isProfitTier(tier);
   return {
     id: text(record.orderId) ?? text(record.id) ?? '',
     companyId: text(record.companyId) ?? '',
@@ -402,16 +404,16 @@ function goldOrderPlanningRowFromRecord(record: PlainRecord): OrderPlanningRow {
     statusSource: text(record.statusSource),
     statusCheckRequired: record.statusCheckRequired === true,
     statusEvidence: recordValue(record.statusEvidenceJson),
-    tier: text(record.tier),
-    tierRank: numberValue(record.tierRank),
+    tier,
+    tierRank: tiered ? tierRank(tier) : numberValue(record.tierRank),
     nextAction: text(record.nextAction),
     nextActionDueAt: text(record.nextActionDueAt),
     expectedDeliveryDate: dateOnly(record.expectedDeliveryDate),
     trackingId: text(record.trackingId),
     asinCount: positiveNumber(record.asinCount),
     lineCount: positiveNumber(record.lineCount),
-    moneyAtRisk: positiveNumber(record.moneyAtRisk),
-    riskSource: riskSourceFrom(record.riskSource),
+    moneyAtRisk: tiered ? positiveNumber(record.moneyAtRisk) : 0,
+    riskSource: tiered ? riskSourceFrom(record.riskSource) : 'missing',
     earliestOosDate: dateOnly(record.earliestOosDate),
     daysUntilOos: numberValue(record.daysUntilOos),
     daysSinceLastActivity: numberValue(record.daysSinceLastActivity),
@@ -924,7 +926,6 @@ export class EcobaseOrderPlanningService {
       orderDate,
     ]);
     const latestComment = this.latestComment(params.comments) ?? text(params.order.remarks);
-    const riskSource: RiskSource = params.goldRows.length ? 'gold' : silverRisk > 0 ? 'silver_estimate' : 'missing';
     const evidence = statusEvidence(params.order);
     const invoiceStatus = joinedText([evidence.invoiceStatus, ...params.invoices.map((invoice) => invoice.status)]);
     const lifecycle = resolveOrderLifecycle({
@@ -952,7 +953,16 @@ export class EcobaseOrderPlanningService {
       receivedQty: params.lines.reduce((sum, line) => sum + positiveNumber(line.receivedQty), 0),
     });
     const tier = bestTier(params.goldRows);
-    const moneyAtRisk = lifecycle.canonicalStatus === 'COMPLETE' ? 0 : params.goldRows.length ? goldRisk : silverRisk;
+    const tiered = isProfitTier(tier);
+    const riskSource: RiskSource = tiered
+      ? params.goldRows.length
+        ? 'gold'
+        : silverRisk > 0
+          ? 'silver_estimate'
+          : 'missing'
+      : 'missing';
+    const moneyAtRisk =
+      lifecycle.canonicalStatus === 'COMPLETE' || !tiered ? 0 : params.goldRows.length ? goldRisk : silverRisk;
     const searchText = [
       params.companyName,
       text(params.supplier?.displayName) ?? text(params.supplier?.normalizedName),
