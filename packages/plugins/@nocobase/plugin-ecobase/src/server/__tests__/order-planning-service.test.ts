@@ -260,6 +260,43 @@ describe('EcobaseOrderPlanningService', () => {
     expect(result.rows[0]).toMatchObject({ id: 'order-2', moneyAtRisk: 0, riskSource: 'missing' });
   });
 
+  it('reads only the latest materialized order refresh cohort', async () => {
+    const db = new FakeDatabase();
+    await seed(db);
+    await db.getRepository(ECOBASE_COLLECTIONS.goldOrderPlanningRows).create({
+      values: {
+        id: 'order-1',
+        orderId: 'order-1',
+        orderRef: 'SAM062426A',
+        companyId: 'company-1',
+        companyName: 'SampleAM',
+        supplierName: 'Acme Supply',
+        canonicalStatus: 'ORDER ANALYSING',
+        tier: 'A',
+        moneyAtRisk: 999,
+        lastRefreshedAt: '2026-06-26T00:00:00.000Z',
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.goldOrderPlanningRows).create({
+      values: {
+        id: 'order-2',
+        orderId: 'order-2',
+        orderRef: 'SAM062426B',
+        companyId: 'company-1',
+        companyName: 'SampleAM',
+        supplierName: 'Beta Supply',
+        canonicalStatus: 'ORDER ANALYSING',
+        tier: 'A',
+        moneyAtRisk: 1,
+        lastRefreshedAt: '2026-06-27T00:00:00.000Z',
+      },
+    });
+
+    const result = await new EcobaseOrderPlanningService(db).listOrders({ companyId: 'company-1', hideClosed: false });
+
+    expect(result.rows.map((row) => row.id)).toEqual(['order-2']);
+  });
+
   it('loads linked invoices in order detail', async () => {
     const db = new FakeDatabase();
     await seed(db);

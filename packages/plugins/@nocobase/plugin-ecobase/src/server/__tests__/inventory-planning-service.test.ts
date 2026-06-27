@@ -753,6 +753,74 @@ describe('EcobaseInventoryPlanningService', () => {
     expect(rows.map((row) => row.asin)).toEqual(['B000ACTIVE']);
   });
 
+  it('ignores invalid fallback snapshot dates instead of treating source versions as newest stock', async () => {
+    const db = new MemoryDatabase();
+    await createRecord(db, ECOBASE_COLLECTIONS.companies, {
+      id: 'company-ecofission',
+      name: 'Ecofission LLC',
+      active: true,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.sourceConnections, {
+      id: 'source-active',
+      name: 'Active Sellerboard',
+      companyId: 'company-ecofission',
+      sourceType: 'sellerboard',
+      active: true,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
+      naturalKey: 'inventory-invalid-source-version-date',
+      sourceConnectionId: 'source-active',
+      snapshotDate: 'qa-sellerboard-20260622T231955Z',
+      asin: 'B000INVALID',
+      sku: 'INVALID-SKU',
+      stock: 10,
+      salesVelocity: 1,
+      recommendedReorderQuantity: 10,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
+      naturalKey: 'inventory-valid-date',
+      sourceConnectionId: 'source-active',
+      snapshotDate: '2026-06-26',
+      asin: 'B000VALID',
+      sku: 'VALID-SKU',
+      stock: 10,
+      salesVelocity: 1,
+      recommendedReorderQuantity: 10,
+    });
+
+    const rows = await new EcobaseInventoryPlanningService(db).listRows({ calculationDate: '2026-06-26' });
+
+    expect(rows.map((row) => row.asin)).toEqual(['B000VALID']);
+  });
+
+  it('reads only the latest materialized gold refresh cohort', async () => {
+    const db = new MemoryDatabase();
+    await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
+      id: 'stale-gold-row',
+      calculationDate: '2026-06-26',
+      company: 'Ecofission LLC',
+      asin: 'B000STALE',
+      sku: 'STALE-SKU',
+      tier: 'A',
+      estimatedProfitRisk: 999,
+      lastRefreshedAt: '2026-06-26T00:00:00.000Z',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
+      id: 'current-gold-row',
+      calculationDate: '2026-06-26',
+      company: 'Ecofission LLC',
+      asin: 'B000CURRENT',
+      sku: 'CURRENT-SKU',
+      tier: 'A',
+      estimatedProfitRisk: 1,
+      lastRefreshedAt: '2026-06-27T00:00:00.000Z',
+    });
+
+    const rows = await new EcobaseInventoryPlanningService(db).listRows({ calculationDate: '2026-06-26' });
+
+    expect(rows.map((row) => row.asin)).toEqual(['B000CURRENT']);
+  });
+
   it('derives fallback profit and tier from Sellerboard daily facts', async () => {
     const db = new MemoryDatabase();
     await createRecord(db, ECOBASE_COLLECTIONS.companies, {

@@ -553,13 +553,22 @@ export class EcobaseInventoryPlanningService {
     const repository = this.db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows);
     const requestedDate = query.calculationDate ? isoDate(query.calculationDate) : undefined;
     const companyFilter = query.company ? { company: query.company } : {};
-    const readForDate = async (calculationDate: string) =>
-      (
+    const readForDate = async (calculationDate: string) => {
+      const records = (
         await repository.find({
           filter: { ...companyFilter, calculationDate },
           sort: ['-estimatedProfitRisk'],
         })
-      ).map((record) => this.applyProfitTierRiskGate(toPlainRecord(record)));
+      ).map(toPlainRecord);
+      const latestRefresh = records
+        .map((record) => asString(record.lastRefreshedAt))
+        .filter((value): value is string => Boolean(value))
+        .sort()
+        .at(-1);
+      return (
+        latestRefresh ? records.filter((record) => asString(record.lastRefreshedAt) === latestRefresh) : records
+      ).map((record) => this.applyProfitTierRiskGate(record));
+    };
 
     let rows = requestedDate ? await readForDate(requestedDate) : [];
     if (rows.length === 0 && !requestedDate) {
@@ -1023,12 +1032,17 @@ export class EcobaseInventoryPlanningService {
   }) {
     const activeSourceConnectionIds = await this.activeSourceConnectionIds();
     const sourceConnectionCompanies = await this.sourceConnectionCompanies();
-    const inventoryRows = await this.findFallbackRecords(ECOBASE_COLLECTIONS.inventorySnapshots, {
-      company: params.company,
-      sourceConnectionCompanies,
-      activeSourceConnectionIds,
-      sort: ['-snapshotDate'],
-      limit: params.scanLimit,
+    const inventoryRows = (
+      await this.findFallbackRecords(ECOBASE_COLLECTIONS.inventorySnapshots, {
+        company: params.company,
+        sourceConnectionCompanies,
+        activeSourceConnectionIds,
+        sort: ['-snapshotDate'],
+        limit: params.scanLimit,
+      })
+    ).filter((row) => {
+      const snapshotDate = dateOnly(row.snapshotDate);
+      return Boolean(snapshotDate && snapshotDate <= params.calculationDate);
     });
     const parameterRows = await this.findFallbackRecords(ECOBASE_COLLECTIONS.planningParameters, {
       company: params.company,

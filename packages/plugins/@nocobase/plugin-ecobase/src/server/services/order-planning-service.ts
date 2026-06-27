@@ -1144,7 +1144,14 @@ export class EcobaseOrderPlanningService {
         limit: 5000,
       })
     ).map(toPlainRecord);
-    return rows.map(goldOrderPlanningRowFromRecord);
+    const latestRefresh = rows
+      .map((row) => text(row.lastRefreshedAt))
+      .filter((value): value is string => Boolean(value))
+      .sort()
+      .at(-1);
+    return (latestRefresh ? rows.filter((row) => text(row.lastRefreshedAt) === latestRefresh) : rows).map(
+      goldOrderPlanningRowFromRecord,
+    );
   }
 
   private async upsertGoldOrderPlanningRow(
