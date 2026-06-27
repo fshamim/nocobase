@@ -9,6 +9,7 @@ import {
   resolveOrderLifecycle,
   type OrderLifecycleStatus,
 } from './order-lifecycle';
+import { isProfitTier, profitTierRank } from './profit-tier';
 
 type PlainRecord = Record<string, unknown>;
 
@@ -316,17 +317,13 @@ function positiveGoldNumber(rows: PlainRecord[], field: string) {
 }
 
 function tierRank(value: unknown) {
-  const normalized = text(value)?.toUpperCase();
-  if (!normalized) return 999;
-  const first = normalized[0];
-  if (first >= 'A' && first <= 'Z') return first.charCodeAt(0) - 64;
-  return 999;
+  return profitTierRank(value);
 }
 
 function bestTier(rows: PlainRecord[]) {
   return rows
     .map((row) => text(row.tier) ?? text(row.profitTier))
-    .filter((tier): tier is string => Boolean(tier))
+    .filter(isProfitTier)
     .sort((left, right) => tierRank(left) - tierRank(right))[0];
 }
 
@@ -1048,12 +1045,12 @@ export class EcobaseOrderPlanningService {
   }
 
   private compareOrderPriority(left: OrderPlanningRow, right: OrderPlanningRow) {
+    const tierDiff = (left.tierRank ?? 999) - (right.tierRank ?? 999);
+    if (tierDiff !== 0) return tierDiff;
     const riskDiff = right.moneyAtRisk - left.moneyAtRisk;
     if (riskDiff !== 0) return riskDiff;
     const oosDiff = (left.daysUntilOos ?? Number.MAX_SAFE_INTEGER) - (right.daysUntilOos ?? Number.MAX_SAFE_INTEGER);
     if (oosDiff !== 0) return oosDiff;
-    const tierDiff = (left.tierRank ?? 999) - (right.tierRank ?? 999);
-    if (tierDiff !== 0) return tierDiff;
     const waitingDiff = (right.daysSinceLastActivity ?? 0) - (left.daysSinceLastActivity ?? 0);
     if (waitingDiff !== 0) return waitingDiff;
     return left.supplierName.localeCompare(right.supplierName);
@@ -1160,7 +1157,11 @@ export class EcobaseOrderPlanningService {
       .map(toPlainRecord)
       .filter((row) => {
         const company = text(row.company) ?? '';
-        return text(row.supplierOrderRef) && (!wantedCompanies.size || wantedCompanies.has(company));
+        return (
+          isProfitTier(row.tier) &&
+          text(row.supplierOrderRef) &&
+          (!wantedCompanies.size || wantedCompanies.has(company))
+        );
       });
     const latestByCompany = new Map<string, string>();
     for (const row of rows) {

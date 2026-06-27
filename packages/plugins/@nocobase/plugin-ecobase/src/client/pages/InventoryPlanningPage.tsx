@@ -349,9 +349,12 @@ function monetaryRiskText(row: PlainRecord) {
     return 'Potential profit loss from the planning calculation service. It uses uncovered days, sales velocity, and profit per unit when those inputs are available.';
   }
   if (row.estimatedProfitRiskBasis === 'imported_missed_profit_or_30_day_profit_forecast') {
-    return 'Imported missed-profit estimate or 30-day profit forecast, used only when profit-per-unit inputs are not available.';
+    return 'Imported missed-profit estimate or 30-day profit forecast for a tiered product.';
   }
-  return 'Money at risk is unavailable until profit or missed-profit data is imported.';
+  if (row.estimatedProfitRiskBasis === 'not_tiered_profit_inputs_missing') {
+    return 'No active money at risk: this product is not in profit tier A, B, or C because profit inputs are missing or zero.';
+  }
+  return 'Money at risk is unavailable until tierable profit data is imported.';
 }
 
 function productStatusText() {
@@ -436,7 +439,13 @@ function sortOrderNowRows(rows: PlainRecord[], sortKey: OrderNowSortKey, calcula
       );
     }
     if (sortKey === 'tier') {
-      return (TIER_PRIORITY[String(left.tier ?? '')] ?? 99) - (TIER_PRIORITY[String(right.tier ?? '')] ?? 99);
+      const tierDiff = (TIER_PRIORITY[String(left.tier ?? '')] ?? 99) - (TIER_PRIORITY[String(right.tier ?? '')] ?? 99);
+      if (tierDiff !== 0) return tierDiff;
+      const actionDiff =
+        (ACTION_PRIORITY[String(left.actionStatus ?? '')] ?? 99) -
+        (ACTION_PRIORITY[String(right.actionStatus ?? '')] ?? 99);
+      if (actionDiff !== 0) return actionDiff;
+      return numericValue(right.estimatedProfitRisk, -1) - numericValue(left.estimatedProfitRisk, -1);
     }
     if (sortKey === 'supplier') {
       return String(left.supplierName ?? 'Find supplier from OrderDetails').localeCompare(
@@ -479,6 +488,12 @@ function latestActivity(rows: PlainRecord[]) {
     )[0];
 }
 
+function tierCounts(rows: PlainRecord[]) {
+  return ['A', 'B', 'C']
+    .map((tier) => ({ tier, count: rows.filter((row) => row.tier === tier).length }))
+    .filter((item) => item.count > 0);
+}
+
 function groupOrderNowRows(rows: PlainRecord[], calculationDate: string) {
   const groups = new Map<string, PlainRecord>();
   for (const row of rows) {
@@ -510,6 +525,7 @@ function groupOrderNowRows(rows: PlainRecord[], calculationDate: string) {
       supplierName: group.supplierName ?? firstProduct.supplierName,
       productCount: groupRows.length,
       firstProduct,
+      tierCounts: tierCounts(groupRows),
       totalMoneyAtRisk: groupRows.reduce((sum, row) => sum + numericValue(row.estimatedProfitRisk, 0), 0),
       earliestOosDate: groupRows
         .map((row) => String(row.estimatedOosDate ?? ''))
@@ -567,7 +583,7 @@ export default function InventoryPlanningPage() {
   const [orderNowTierFilter, setOrderNowTierFilter] = useState<string[]>([]);
   const [orderNowCompanyFilter, setOrderNowCompanyFilter] = useState<string[]>([]);
   const [orderNowSearch, setOrderNowSearch] = useState('');
-  const [orderNowSort, setOrderNowSort] = useState<OrderNowSortKey>('risk_desc');
+  const [orderNowSort, setOrderNowSort] = useState<OrderNowSortKey>('tier');
   const [filterOptions, setFilterOptions] = useState<PlainRecord>({});
   const [rows, setRows] = useState<PlainRecord[]>([]);
   const [digest, setDigest] = useState<DigestPreview>(() => unwrapDigest({}));
@@ -1784,15 +1800,23 @@ export default function InventoryPlanningPage() {
                     render: (value: number, group: PlainRecord) =>
                       value === 1 ? (
                         <Space direction="vertical" size={0}>
-                          <Typography.Text>{String(group.firstProduct?.asin ?? '—')}</Typography.Text>
+                          <Space size={4} wrap>
+                            <Typography.Text>{String(group.firstProduct?.asin ?? '—')}</Typography.Text>
+                            {(Array.isArray(group.tierCounts) ? group.tierCounts : []).map((item: any) => (
+                              <Tag key={item.tier} color={tierColor(item.tier)}>{`${item.tier}`}</Tag>
+                            ))}
+                          </Space>
                           <Typography.Text type="secondary" ellipsis style={{ maxWidth: 220 }}>
                             {String(group.firstProduct?.sku ?? group.firstProduct?.title ?? '')}
                           </Typography.Text>
                           {group.leadTimeIssueCount ? <Tag color="orange">{t('Lead-time issue')}</Tag> : null}
                         </Space>
                       ) : (
-                        <Space size={4}>
+                        <Space size={4} wrap>
                           <Tag>{formatNumber(value)}</Tag>
+                          {(Array.isArray(group.tierCounts) ? group.tierCounts : []).map((item: any) => (
+                            <Tag key={item.tier} color={tierColor(item.tier)}>{`${item.tier}:${item.count}`}</Tag>
+                          ))}
                           {group.leadTimeIssueCount ? (
                             <Tag color="orange">
                               {t('lead-time')} {group.leadTimeIssueCount}

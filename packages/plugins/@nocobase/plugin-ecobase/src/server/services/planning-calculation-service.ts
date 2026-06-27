@@ -3,6 +3,7 @@ import { EcobaseDataWarningService } from './data-warning-service';
 import type { EcobaseDataWarning } from './data-warning-service';
 import type { EcobaseDatabase, EcobaseRepository } from './import-service';
 import { toPlainRecord } from './import-service';
+import { profitTierFor } from './profit-tier';
 
 const RULE_VERSION = 'spreadsheet_parity_v1';
 const DEFAULT_SAFETY_BUFFER_DAYS = 7;
@@ -119,16 +120,6 @@ function dayOfMonth(date: string) {
 
 function monthKey(date: string) {
   return date.slice(0, 7);
-}
-
-function tierFor(profitPerUnit?: number, recommendedBestQty?: number) {
-  if (typeof profitPerUnit !== 'number' || typeof recommendedBestQty !== 'number') {
-    return { tier: 'unclassified', tierScore: undefined };
-  }
-  const tierScore = profitPerUnit * recommendedBestQty;
-  if (tierScore >= 250) return { tier: 'A', tierScore };
-  if (tierScore >= 100) return { tier: 'B', tierScore };
-  return { tier: 'C', tierScore };
 }
 
 function latestDate(records: PlainRecord[], field: string) {
@@ -335,7 +326,7 @@ export class EcobasePlanningCalculationService {
       profitPerUnit,
       recommendedBestQty,
     });
-    const { tier, tierScore } = tierFor(profitPerUnit, recommendedBestQty);
+    const { tier, tierScore } = profitTierFor(profitPerUnit, recommendedBestQty);
     return {
       naturalKey: `${params.planningProductId}:${RULE_VERSION}:${params.calculationDate}`,
       planningProductId: params.planningProductId,
@@ -343,7 +334,7 @@ export class EcobasePlanningCalculationService {
       ruleVersion: RULE_VERSION,
       company: asString(params.product.company),
       canonicalAsin: asString(params.product.canonicalAsin),
-      tier,
+      tier: tier ?? 'unclassified',
       tierScore,
       currentStockParity,
       sellableStock,
@@ -418,15 +409,15 @@ export class EcobasePlanningCalculationService {
       targetRows: [{ periodType: 'monthly', period: '2025-07', profitTarget: 620 }],
     });
     const rows = [
-      this.expectEqual('tier-a', 'Tier A threshold', 'A', tierFor(5, 50).tier, {
+      this.expectEqual('tier-a', 'Tier A threshold', 'A', profitTierFor(5, 50).tier, {
         profitPerUnit: 5,
         recommendedBestQty: 50,
       }),
-      this.expectEqual('tier-b', 'Tier B threshold', 'B', tierFor(4, 25).tier, {
+      this.expectEqual('tier-b', 'Tier B threshold', 'B', profitTierFor(4, 25).tier, {
         profitPerUnit: 4,
         recommendedBestQty: 25,
       }),
-      this.expectEqual('tier-c', 'Tier C threshold', 'C', tierFor(1, 50).tier, {
+      this.expectEqual('tier-c', 'Tier C threshold', 'C', profitTierFor(1, 50).tier, {
         profitPerUnit: 1,
         recommendedBestQty: 50,
       }),
@@ -475,7 +466,12 @@ export class EcobasePlanningCalculationService {
   }
 
   private async resolveLeadTimeDays(product: PlainRecord, parameterRows: PlainRecord[]) {
-    const directLeadTime = firstNumber(parameterRows, ['leadTimeDays', 'Lead Time', 'Lead time(day)', 'Manuf. time days']);
+    const directLeadTime = firstNumber(parameterRows, [
+      'leadTimeDays',
+      'Lead Time',
+      'Lead time(day)',
+      'Manuf. time days',
+    ]);
     if (typeof directLeadTime === 'number') {
       return directLeadTime;
     }
@@ -492,10 +488,14 @@ export class EcobasePlanningCalculationService {
         ...(sourceConnectionId ? { sourceConnectionId } : {}),
         ...(company ? { company } : {}),
       });
-      const productScope = (identity: Record<string, string>) => scopedFilter({ ...identity, scope: 'product', ...(asin ? { asin } : sku ? { sku } : {}) });
-      const byProductId = supplierId && (asin || sku) ? await leadTimeRepo.findOne({ filter: productScope({ supplierId }) }) : null;
+      const productScope = (identity: Record<string, string>) =>
+        scopedFilter({ ...identity, scope: 'product', ...(asin ? { asin } : sku ? { sku } : {}) });
+      const byProductId =
+        supplierId && (asin || sku) ? await leadTimeRepo.findOne({ filter: productScope({ supplierId }) }) : null;
       const byProductName =
-        !byProductId && supplierName && (asin || sku) ? await leadTimeRepo.findOne({ filter: productScope({ supplierName }) }) : null;
+        !byProductId && supplierName && (asin || sku)
+          ? await leadTimeRepo.findOne({ filter: productScope({ supplierName }) })
+          : null;
       const leadTimeDays = asNumber(toPlainRecord(byProductId ?? byProductName).leadTimeDays);
       if (typeof leadTimeDays === 'number') {
         return leadTimeDays;

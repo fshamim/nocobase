@@ -156,6 +156,7 @@ async function seed(db: FakeDatabase) {
       company: 'SampleAM',
       supplierOrderRef: 'SAM062426A',
       calculationDate: '2026-06-24',
+      tier: 'B',
       estimatedProfitRisk: 300,
       estimatedOosDate: '2026-06-28',
     },
@@ -166,6 +167,7 @@ async function seed(db: FakeDatabase) {
       company: 'SampleAM',
       supplierOrderRef: 'SAM062426A',
       calculationDate: '2026-06-24',
+      tier: 'B',
       estimatedProfitRisk: 50,
       estimatedOosDate: '2026-06-26',
     },
@@ -213,6 +215,27 @@ describe('EcobaseOrderPlanningService', () => {
     expect(db.touched).not.toContain(ECOBASE_COLLECTIONS.supplierOrders);
     expect(db.touched).not.toContain(ECOBASE_COLLECTIONS.supplierOrderLines);
     expect(db.touched).not.toContain(ECOBASE_COLLECTIONS.planningProducts);
+  });
+
+  it('prioritizes tier before money at risk', async () => {
+    const db = new FakeDatabase();
+    await seed(db);
+    await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).create({
+      values: {
+        id: 'gold-order-2-a-tier',
+        company: 'SampleAM',
+        supplierOrderRef: 'SAM062426B',
+        calculationDate: '2026-06-24',
+        tier: 'A',
+        estimatedProfitRisk: 1,
+        estimatedOosDate: '2026-07-01',
+      },
+    });
+
+    const result = await new EcobaseOrderPlanningService(db).listOrders({ companyId: 'company-1', hideClosed: false });
+
+    expect(result.rows[0]).toMatchObject({ id: 'order-2', tier: 'A', moneyAtRisk: 1 });
+    expect(result.rows[1]).toMatchObject({ id: 'order-1', tier: 'B', moneyAtRisk: 350 });
   });
 
   it('loads linked invoices in order detail', async () => {

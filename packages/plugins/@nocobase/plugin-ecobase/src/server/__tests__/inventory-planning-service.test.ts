@@ -706,6 +706,226 @@ describe('EcobaseInventoryPlanningService', () => {
     });
   });
 
+  it('derives fallback profit and tier from Sellerboard daily facts', async () => {
+    const db = new MemoryDatabase();
+    await createRecord(db, ECOBASE_COLLECTIONS.companies, {
+      id: 'company-ecofission',
+      name: 'Ecofission LLC',
+      active: true,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.sourceConnections, {
+      id: 'source-ecofission',
+      name: 'Sellerboard - Ecofission LLC',
+      companyId: 'company-ecofission',
+      sourceType: 'sellerboard',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
+      naturalKey: 'inventory-sellerboard-profit',
+      sourceConnectionId: 'source-ecofission',
+      snapshotDate: '2026-06-26',
+      asin: 'B000SELLERBOARD',
+      sku: 'SB-SKU',
+      stock: 10,
+      salesVelocity: 2,
+      recommendedReorderQuantity: 50,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.planningParameters, {
+      naturalKey: 'params-sellerboard-profit',
+      sourceConnectionId: 'source-ecofission',
+      asin: 'B000SELLERBOARD',
+      sku: 'SB-SKU',
+      leadTimeDays: 3,
+      payload: { 'Product Status': 'Active' },
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.listingDailyFacts, {
+      naturalKey: 'daily-fact-sellerboard-profit',
+      sourceConnectionId: 'source-ecofission',
+      snapshotDate: '2026-06-20',
+      asin: 'B000SELLERBOARD',
+      sku: 'SB-SKU',
+      sales: 240,
+      units: 12,
+      netProfit: 120,
+      refunds: 1,
+    });
+
+    const [row] = await new EcobaseInventoryPlanningService(db).listRows({
+      company: 'Ecofission LLC',
+      calculationDate: '2026-06-26',
+    });
+
+    expect(row).toMatchObject({
+      profitPerUnit: 10,
+      tier: 'A',
+      tierScore: 500,
+      monthToDateRevenue: 240,
+      monthToDateUnitsSold: 12,
+      monthToDateProfit: 120,
+    });
+  });
+
+  it('does not assign tier C when Sellerboard profit score is missing or zero', async () => {
+    const db = new MemoryDatabase();
+    await createRecord(db, ECOBASE_COLLECTIONS.companies, {
+      id: 'company-ecofission',
+      name: 'Ecofission LLC',
+      active: true,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.sourceConnections, {
+      id: 'source-ecofission',
+      name: 'Sellerboard - Ecofission LLC',
+      companyId: 'company-ecofission',
+      sourceType: 'sellerboard',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
+      naturalKey: 'inventory-zero-profit',
+      sourceConnectionId: 'source-ecofission',
+      snapshotDate: '2026-06-26',
+      asin: 'B000ZEROPROFIT',
+      sku: 'ZERO-SKU',
+      stock: 10,
+      salesVelocity: 2,
+      recommendedReorderQuantity: 50,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.planningParameters, {
+      naturalKey: 'params-zero-profit',
+      sourceConnectionId: 'source-ecofission',
+      asin: 'B000ZEROPROFIT',
+      sku: 'ZERO-SKU',
+      leadTimeDays: 3,
+      payload: { 'Product Status': 'Active' },
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.listingDailyFacts, {
+      naturalKey: 'daily-fact-zero-profit',
+      sourceConnectionId: 'source-ecofission',
+      snapshotDate: '2026-06-20',
+      asin: 'B000ZEROPROFIT',
+      sku: 'ZERO-SKU',
+      sales: 120,
+      units: 12,
+      netProfit: 0,
+    });
+
+    const service = new EcobaseInventoryPlanningService(db);
+    const [row] = await service.listRows({ company: 'Ecofission LLC', calculationDate: '2026-06-26' });
+
+    expect(row.profitPerUnit).toBe(0);
+    expect(row.tierScore).toBe(0);
+    expect(row.tier).toBeUndefined();
+
+    const naturalKey = '2026-06-26:Ecofission LLC:fallback:Ecofission LLC:B000ZEROPROFIT:ZERO-SKU';
+    await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
+      id: 'stale-zero-profit-gold-row',
+      naturalKey,
+      calculationDate: '2026-06-26',
+      actionStatus: 'watch',
+      tier: 'C',
+    });
+
+    await service.refreshReadModel({ company: 'Ecofission LLC', calculationDate: '2026-06-26' });
+    const refreshed = (await db
+      .getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows)
+      .findOne({ filter: { naturalKey } })) as Record<string, unknown>;
+    expect(refreshed.tier).toBeNull();
+    expect(refreshed.tierScore).toBe(0);
+  });
+
+  it('keeps untiered imported forecasts out of active money risk and digest', async () => {
+    const db = new MemoryDatabase();
+    await createRecord(db, ECOBASE_COLLECTIONS.companies, {
+      id: 'company-ecofission',
+      name: 'Ecofission LLC',
+      active: true,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.sourceConnections, {
+      id: 'source-ecofission',
+      name: 'Sellerboard - Ecofission LLC',
+      companyId: 'company-ecofission',
+      sourceType: 'sellerboard',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
+      naturalKey: 'inventory-untiered-risk',
+      sourceConnectionId: 'source-ecofission',
+      snapshotDate: '2026-06-26',
+      asin: 'B000UNTIERED',
+      sku: 'NO-TIER-SKU',
+      stock: 0,
+      salesVelocity: 2,
+      recommendedReorderQuantity: 0,
+      payload: { 'Profit forecast (30 days)': 999 },
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.planningParameters, {
+      naturalKey: 'params-untiered-risk',
+      sourceConnectionId: 'source-ecofission',
+      asin: 'B000UNTIERED',
+      sku: 'NO-TIER-SKU',
+      leadTimeDays: 3,
+      payload: { 'Product Status': 'Active' },
+    });
+
+    const service = new EcobaseInventoryPlanningService(db);
+    const [row] = await service.listRows({ company: 'Ecofission LLC', calculationDate: '2026-06-26' });
+    const digest = await service.digestPreview({ company: 'Ecofission LLC', calculationDate: '2026-06-26' });
+
+    expect(row).toMatchObject({ tier: undefined, estimatedProfitRisk: 0 });
+    expect(row.estimatedProfitRiskBasis).toBe('not_tiered_profit_inputs_missing');
+    expect(digest.summary.atRisk).toBe(0);
+    expect(digest.sections.orderNow).toEqual([]);
+  });
+
+  it('tracks tier movement when imported profit changes', async () => {
+    const db = new MemoryDatabase();
+    await createRecord(db, ECOBASE_COLLECTIONS.companies, {
+      id: 'company-ecofission',
+      name: 'Ecofission LLC',
+      active: true,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.sourceConnections, {
+      id: 'source-ecofission',
+      name: 'Sellerboard - Ecofission LLC',
+      companyId: 'company-ecofission',
+      sourceType: 'sellerboard',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
+      naturalKey: 'inventory-tier-drop',
+      sourceConnectionId: 'source-ecofission',
+      snapshotDate: '2026-06-26',
+      asin: 'B000TIERDROP',
+      sku: 'TIER-DROP-SKU',
+      stock: 10,
+      salesVelocity: 2,
+      recommendedReorderQuantity: 50,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.planningParameters, {
+      naturalKey: 'params-tier-drop',
+      sourceConnectionId: 'source-ecofission',
+      asin: 'B000TIERDROP',
+      sku: 'TIER-DROP-SKU',
+      leadTimeDays: 3,
+      profitPerUnit: 4,
+      payload: { 'Product Status': 'Active' },
+    });
+    const planningProductId = 'fallback:Ecofission LLC:B000TIERDROP:TIER-DROP-SKU';
+    await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
+      id: 'previous-tier-row',
+      naturalKey: `2026-06-25:Ecofission LLC:${planningProductId}`,
+      planningProductId,
+      calculationDate: '2026-06-25',
+      company: 'Ecofission LLC',
+      tier: 'A',
+    });
+
+    await new EcobaseInventoryPlanningService(db).refreshReadModel({
+      company: 'Ecofission LLC',
+      calculationDate: '2026-06-26',
+    });
+    const current = await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).findOne({
+      filter: { naturalKey: `2026-06-26:Ecofission LLC:${planningProductId}` },
+    });
+
+    expect(current).toMatchObject({ tier: 'B', previousTier: 'A', tierMovement: 'down' });
+  });
+
   it('does not expose unassigned source connection names as company filter options', async () => {
     const db = new MemoryDatabase();
     await createRecord(db, ECOBASE_COLLECTIONS.companies, {

@@ -4,6 +4,7 @@ import type { EcobaseDatabase } from './import-service';
 import { isReliableSupplierOrderCoverageStatus } from './supplier-order-service';
 import { toPlainRecord } from './import-service';
 import { EcobasePlanningCalculationService } from './planning-calculation-service';
+import { isProfitTier, profitTierFor, profitTierMovement, profitTierRank } from './profit-tier';
 
 const DEFAULT_LEAD_TIME_FRESHNESS_DAYS = 60;
 const DEFAULT_ORDER_SOON_WINDOW_DAYS = 14;
@@ -48,6 +49,19 @@ export interface InventoryBudgetOptimizationQuery extends InventoryPlanningQuery
 }
 
 type PlainRecord = Record<string, unknown>;
+
+type ProfitMetrics = {
+  sales: number;
+  units: number;
+  profit: number;
+  refunds: number;
+  profitPerUnit?: number;
+};
+
+type ProfitMetricsIndex = {
+  exact: Map<string, ProfitMetrics>;
+  byAsin: Map<string, ProfitMetrics>;
+};
 
 function asString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
@@ -121,6 +135,14 @@ function dateOnly(value: unknown) {
   return Number.isFinite(date.getTime()) ? date.toISOString().slice(0, 10) : undefined;
 }
 
+function monthStart(date: string) {
+  return `${date.slice(0, 7)}-01`;
+}
+
+function profitMetricKey(company: string, asin: string, sku?: string) {
+  return `${company}:${asin.toUpperCase()}:${sku ?? ''}`;
+}
+
 function diffDays(left: string, right: string) {
   const leftDate = new Date(`${left}T00:00:00.000Z`).getTime();
   const rightDate = new Date(`${right}T00:00:00.000Z`).getTime();
@@ -160,23 +182,6 @@ function derivedProductStatus(importedStatus: string | undefined, stockBuckets: 
   if (sellable === 0 && reserved === 0 && (inbound > 0 || ordered > 0 || prepOrAwd > 0)) return 'OOS';
   if (sellable === 0 && reserved === 0) return 'Inactive';
   return 'Active';
-}
-
-function tierFor(profitPerUnit?: number, recommendedBestQty?: number) {
-  const tierScore =
-    typeof profitPerUnit === 'number' && typeof recommendedBestQty === 'number'
-      ? profitPerUnit * recommendedBestQty
-      : 0;
-  if (tierScore >= 250) return { tier: 'A', tierScore };
-  if (tierScore >= 100) return { tier: 'B', tierScore };
-  return { tier: 'C', tierScore };
-}
-
-function tierRank(tier: unknown) {
-  if (tier === 'A') return 0;
-  if (tier === 'B') return 1;
-  if (tier === 'C') return 2;
-  return 3;
 }
 
 function isPlacedNotPurchasedSupplierOrderStatus(status: string | undefined) {
@@ -437,8 +442,11 @@ const INVENTORY_PLANNING_ROW_FIELDS = [
   'actionStatus',
   'tier',
   'tierScore',
+  'previousTier',
+  'tierMovement',
   'profitPerUnit',
   'estimatedProfitRisk',
+  'estimatedProfitRiskBasis',
   'recommendedBestQty',
   'salesVelocity',
   'suggestedReorderQty',
@@ -551,20 +559,29 @@ export class EcobaseInventoryPlanningService {
           filter: { ...companyFilter, calculationDate },
           sort: ['-estimatedProfitRisk'],
         })
-      ).map(toPlainRecord);
+      ).map((record) => this.applyProfitTierRiskGate(toPlainRecord(record)));
 
     let rows = requestedDate ? await readForDate(requestedDate) : [];
-    if (rows.length === 0) {
+    if (rows.length === 0 && !requestedDate) {
       const latest = await repository.findOne({
         filter: companyFilter,
         sort: ['-calculationDate'],
       });
       const latestDate = asString(toPlainRecord(latest).calculationDate);
-      if (latestDate && latestDate !== requestedDate) {
+      if (latestDate) {
         rows = await readForDate(latestDate);
       }
     }
     return this.sortPlanningRows(rows).slice(0, query.limit ?? rows.length);
+  }
+
+  private applyProfitTierRiskGate(row: PlainRecord) {
+    if (isProfitTier(row.tier)) return row;
+    return {
+      ...row,
+      estimatedProfitRisk: 0,
+      estimatedProfitRiskBasis: 'not_tiered_profit_inputs_missing',
+    };
   }
 
   private sortPlanningRows(rows: PlainRecord[]) {
@@ -577,7 +594,7 @@ export class EcobaseInventoryPlanningService {
         actionRank(left.actionStatus as InventoryPlanningActionStatus) -
         actionRank(right.actionStatus as InventoryPlanningActionStatus);
       if (action !== 0) return action;
-      const tier = tierRank(left.tier) - tierRank(right.tier);
+      const tier = profitTierRank(left.tier) - profitTierRank(right.tier);
       if (tier !== 0) return tier;
       return (asNumber(right.suggestedReorderQty) ?? 0) - (asNumber(left.suggestedReorderQty) ?? 0);
     });
@@ -585,9 +602,10 @@ export class EcobaseInventoryPlanningService {
 
   async digestPreview(query: InventoryPlanningQuery = {}) {
     const rows = await this.listRows(query);
+    const tieredRows = rows.filter((row) => isProfitTier(row.tier));
     const urgentRows = await this.withLatestSupplierOrderActivity(
       this.sortDigestRows(
-        rows.filter(
+        tieredRows.filter(
           (row) =>
             ['overdue', 'order_today', 'order_soon', 'missing_lead_time', 'stale_lead_time'].includes(
               String(row.actionStatus),
@@ -607,16 +625,16 @@ export class EcobaseInventoryPlanningService {
       generatedAt: new Date().toISOString(),
       company: query.company ?? null,
       summary: {
-        overdue: rows.filter((row) => row.actionStatus === 'overdue').length,
-        orderToday: rows.filter((row) => row.actionStatus === 'order_today').length,
-        orderSoon: rows.filter((row) => row.actionStatus === 'order_soon').length,
+        overdue: tieredRows.filter((row) => row.actionStatus === 'overdue').length,
+        orderToday: tieredRows.filter((row) => row.actionStatus === 'order_today').length,
+        orderSoon: tieredRows.filter((row) => row.actionStatus === 'order_soon').length,
         atRisk: urgentRows.length,
-        staleOrMissingLeadTime: rows.filter((row) => row.leadTimeFreshness !== 'fresh').length,
+        staleOrMissingLeadTime: tieredRows.filter((row) => row.leadTimeFreshness !== 'fresh').length,
         suppliersToContact: new Set(urgentRows.map((row) => row.supplierName).filter(Boolean)).size,
         noSupplierOrder: urgentRows.filter((row) => row.supplierOrderState === 'no_open_order').length,
         closedOrderHistoryOnly: urgentRows.filter((row) => row.supplierOrderState === 'closed_history').length,
         placedNotPurchased: urgentRows.filter((row) => row.supplierOrderState === 'placed_not_purchased').length,
-        purchasedPipelineExcluded: rows.filter((row) => row.supplierOrderState === 'purchased_pipeline').length,
+        purchasedPipelineExcluded: tieredRows.filter((row) => row.supplierOrderState === 'purchased_pipeline').length,
       },
       sections: {
         orderNow: urgentRows,
@@ -640,9 +658,11 @@ export class EcobaseInventoryPlanningService {
     const urgentRows = this.sortDigestRows(
       rows.filter(
         (row) =>
+          isProfitTier(row.tier) &&
           ['overdue', 'order_today', 'order_soon', 'missing_lead_time', 'stale_lead_time'].includes(
             String(row.actionStatus),
-          ) && row.supplierOrderState !== 'purchased_pipeline',
+          ) &&
+          row.supplierOrderState !== 'purchased_pipeline',
       ),
     );
     const orderFilter = query.company ? { company: query.company } : {};
@@ -938,6 +958,7 @@ export class EcobaseInventoryPlanningService {
     const calculationDate = isoDate(query.calculationDate ?? new Date());
     const rows = await this.calculateRows({ ...query, calculationDate, limit: query.limit ?? 500 });
     const repository = this.db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows);
+    const previousRows = (await repository.find({ limit: 10000 })).map(toPlainRecord);
     const refreshedAt = new Date().toISOString();
     let created = 0;
     let updated = 0;
@@ -952,8 +973,11 @@ export class EcobaseInventoryPlanningService {
         lastRefreshedAt: refreshedAt,
       };
       for (const field of INVENTORY_PLANNING_ROW_FIELDS) {
-        values[field] = field === 'calculationDate' ? calculationDate : row[field];
+        values[field] = field === 'calculationDate' ? calculationDate : row[field] ?? null;
       }
+      const previousTier = this.previousTierForRow(row, previousRows, calculationDate);
+      values.previousTier = previousTier ?? null;
+      values.tierMovement = profitTierMovement(row.tier, previousTier) ?? null;
       const existing = await repository.findOne({ filter: { naturalKey } });
       if (existing) {
         const existingId = toPlainRecord(existing).id;
@@ -969,6 +993,22 @@ export class EcobaseInventoryPlanningService {
     }
 
     return { calculationDate, rowCount: rows.length, created, updated, lastRefreshedAt: refreshedAt };
+  }
+
+  private previousTierForRow(row: PlainRecord, previousRows: PlainRecord[], calculationDate: string) {
+    const planningProductId = asString(row.planningProductId);
+    const company = asString(row.company);
+    if (!planningProductId || !company) return undefined;
+    return previousRows
+      .filter(
+        (candidate) =>
+          asString(candidate.planningProductId) === planningProductId &&
+          asString(candidate.company) === company &&
+          String(candidate.calculationDate ?? '') < calculationDate,
+      )
+      .sort((left, right) => String(right.calculationDate ?? '').localeCompare(String(left.calculationDate ?? '')))
+      .map((candidate) => candidate.tier)
+      .find(isProfitTier);
   }
 
   private async listFallbackRows(params: {
@@ -993,6 +1033,11 @@ export class EcobaseInventoryPlanningService {
       sourceConnectionCompanies,
       limit: params.scanLimit ? Math.max(params.scanLimit * 2, 500) : undefined,
     });
+    const profitMetrics = await this.profitMetricsByProduct({
+      company: params.company,
+      calculationDate: params.calculationDate,
+      sourceConnectionCompanies,
+    });
     const parameterByProduct = new Map<string, PlainRecord>();
     for (const parameter of parameterRows) {
       const key = this.fallbackProductKey(parameter, sourceConnectionCompanies);
@@ -1012,6 +1057,7 @@ export class EcobaseInventoryPlanningService {
           inventory,
           parameter: parameterByProduct.get(key) ?? {},
           sourceConnectionCompanies,
+          profitMetrics,
           calculationDate: params.calculationDate,
           leadTimeFreshnessDays: params.leadTimeFreshnessDays,
           orderSoonWindowDays: params.orderSoonWindowDays,
@@ -1022,6 +1068,52 @@ export class EcobaseInventoryPlanningService {
     }
 
     return this.sortPlanningRows(rows).slice(0, params.limit ?? rows.length);
+  }
+
+  private async profitMetricsByProduct(params: {
+    company?: string;
+    calculationDate: string;
+    sourceConnectionCompanies: Map<string, string>;
+  }): Promise<ProfitMetricsIndex> {
+    const facts = await this.findFallbackRecords(ECOBASE_COLLECTIONS.listingDailyFacts, {
+      company: params.company,
+      sourceConnectionCompanies: params.sourceConnectionCompanies,
+    });
+    const start = monthStart(params.calculationDate);
+    const index: ProfitMetricsIndex = { exact: new Map(), byAsin: new Map() };
+
+    for (const fact of facts) {
+      const snapshotDate = dateOnly(fact.snapshotDate);
+      if (!snapshotDate || snapshotDate < start || snapshotDate > params.calculationDate) continue;
+      const company = companyFromRecord(fact, params.sourceConnectionCompanies);
+      const asin = asString(fact.asin);
+      if (!company || !asin || asin === '__TOTAL__') continue;
+      const sku = asString(fact.sku);
+      this.addProfitMetric(index.byAsin, profitMetricKey(company, asin), fact);
+      if (sku && sku !== asin) {
+        this.addProfitMetric(index.exact, profitMetricKey(company, asin, sku), fact);
+      }
+    }
+
+    return index;
+  }
+
+  private addProfitMetric(metrics: Map<string, ProfitMetrics>, key: string, fact: PlainRecord) {
+    const metric = metrics.get(key) ?? { sales: 0, units: 0, profit: 0, refunds: 0 };
+    metric.sales += asNumber(fact.sales) ?? 0;
+    metric.units += asNumber(fact.units) ?? 0;
+    metric.profit += asNumber(fact.netProfit) ?? asNumber(fact.profit) ?? 0;
+    metric.refunds += asNumber(fact.refunds) ?? 0;
+    metric.profitPerUnit = metric.units > 0 ? metric.profit / metric.units : undefined;
+    metrics.set(key, metric);
+  }
+
+  private profitMetricsFor(metrics: ProfitMetricsIndex, company: string, asin?: string, sku?: string) {
+    if (!asin) return undefined;
+    return (
+      (sku ? metrics.exact.get(profitMetricKey(company, asin, sku)) : undefined) ??
+      metrics.byAsin.get(profitMetricKey(company, asin))
+    );
   }
 
   private fallbackProductKey(record: PlainRecord, sourceConnectionCompanies: Map<string, string>) {
@@ -1035,6 +1127,7 @@ export class EcobaseInventoryPlanningService {
     inventory: PlainRecord;
     parameter: PlainRecord;
     sourceConnectionCompanies: Map<string, string>;
+    profitMetrics: ProfitMetricsIndex;
     calculationDate: string;
     leadTimeFreshnessDays: number;
     orderSoonWindowDays: number;
@@ -1052,6 +1145,7 @@ export class EcobaseInventoryPlanningService {
     const sku =
       asString(params.inventory.sku) ?? asString(params.parameter.sku) ?? payloadString(params.inventory, ['SKU']);
     const planningProductId = `fallback:${company}:${asin ?? ''}:${sku ?? ''}`;
+    const sellerboardProfitMetrics = this.profitMetricsFor(params.profitMetrics, company, asin, sku);
     const stockBuckets = this.stockBuckets(params.inventory, {});
     const salesVelocity =
       asNumber(params.inventory.salesVelocity) ??
@@ -1087,11 +1181,12 @@ export class EcobaseInventoryPlanningService {
       payloadNumber(params.parameter, ['recommendedBestQty', 'Rec.Best Qty', 'Rec. Best Qty']);
     const profitPerUnit =
       asNumber(params.parameter.profitPerUnit) ??
-      payloadNumber(params.parameter, ['profitPerUnit', 'Profit Per Unit', 'Per.Unit Profit']);
+      payloadNumber(params.parameter, ['profitPerUnit', 'Profit Per Unit', 'Per.Unit Profit']) ??
+      sellerboardProfitMetrics?.profitPerUnit;
     const importedProfitRisk =
       payloadNumber(params.inventory, ['Missed profit (est)', 'Profit forecast (30 days)', 'profitForecast30Days']) ??
       payloadNumber(params.parameter, ['Missed profit (est)', 'Profit forecast (30 days)', 'profitForecast30Days']);
-    const { tier, tierScore } = tierFor(profitPerUnit, recommendedBestQty);
+    const { tier, tierScore } = profitTierFor(profitPerUnit, recommendedBestQty);
     const daysOfCover =
       salesVelocity && salesVelocity > 0 ? stockBuckets.currentPlanningStock / salesVelocity : undefined;
     const estimatedOosDate = typeof daysOfCover === 'number' ? addDays(params.calculationDate, daysOfCover) : undefined;
@@ -1148,14 +1243,18 @@ export class EcobaseInventoryPlanningService {
       typeof leadTimeDays === 'number' && typeof salesVelocity === 'number' && typeof daysOfCover === 'number'
         ? Math.max(0, leadTimeDays + params.safetyBufferDays - daysOfCover)
         : undefined;
-    const estimatedProfitRisk =
+    const computedProfitRisk =
       typeof riskDays === 'number' && typeof profitPerUnit === 'number' && typeof salesVelocity === 'number'
         ? riskDays * salesVelocity * profitPerUnit
-        : importedProfitRisk;
-    const estimatedProfitRiskBasis =
-      typeof riskDays === 'number' && typeof profitPerUnit === 'number' && typeof salesVelocity === 'number'
+        : undefined;
+    const estimatedProfitRisk = isProfitTier(tier) ? computedProfitRisk ?? importedProfitRisk ?? 0 : 0;
+    const estimatedProfitRiskBasis = !isProfitTier(tier)
+      ? 'not_tiered_profit_inputs_missing'
+      : typeof computedProfitRisk === 'number'
         ? 'uncovered_oos_days × sales_velocity × profit_per_unit'
-        : 'imported_missed_profit_or_30_day_profit_forecast';
+        : typeof importedProfitRisk === 'number'
+          ? 'imported_missed_profit_or_30_day_profit_forecast'
+          : 'not_available';
     const supplierName =
       asString(params.parameter.supplier) ??
       payloadString(params.parameter, ['Supplier Name', 'Supplier']) ??
@@ -1208,24 +1307,15 @@ export class EcobaseInventoryPlanningService {
       expectedSellableDate,
       estimatedProfitRisk,
       estimatedProfitRiskBasis,
-      monthToDateRevenue: payloadNumber(params.inventory, [
-        'MTD Revenue ',
-        'MTD Revenue',
-        'mtdRevenue',
-        'monthToDateRevenue',
-      ]),
-      monthToDateUnitsSold: payloadNumber(params.inventory, [
-        'MTD Unit Sold',
-        'MTD Units Sold',
-        'mtdUnitSold',
-        'monthToDateUnitsSold',
-      ]),
-      monthToDateProfit: payloadNumber(params.inventory, [
-        'MTD Profit ',
-        'MTD Profit',
-        'mtdProfit',
-        'monthToDateProfit',
-      ]),
+      monthToDateRevenue:
+        payloadNumber(params.inventory, ['MTD Revenue ', 'MTD Revenue', 'mtdRevenue', 'monthToDateRevenue']) ??
+        sellerboardProfitMetrics?.sales,
+      monthToDateUnitsSold:
+        payloadNumber(params.inventory, ['MTD Unit Sold', 'MTD Units Sold', 'mtdUnitSold', 'monthToDateUnitsSold']) ??
+        sellerboardProfitMetrics?.units,
+      monthToDateProfit:
+        payloadNumber(params.inventory, ['MTD Profit ', 'MTD Profit', 'mtdProfit', 'monthToDateProfit']) ??
+        sellerboardProfitMetrics?.profit,
       digestPriority: this.digestPriority(actionStatus, tier),
       evidence: {
         fallbackReason:
@@ -1233,6 +1323,7 @@ export class EcobaseInventoryPlanningService {
         leadTimeAgeDays,
         stockBuckets,
         estimatedProfitRiskBasis,
+        sellerboardProfitMetrics,
       },
     };
   }
@@ -1265,7 +1356,7 @@ export class EcobaseInventoryPlanningService {
     const excluded = isPlanningExcluded(productStatus);
     const salesVelocity = asNumber(params.calculation.salesVelocity);
     const calculationTier = asString(params.calculation.tier);
-    const fallbackTier = tierFor(
+    const fallbackTier = profitTierFor(
       asNumber(params.calculation.profitPerUnit),
       asNumber(params.calculation.recommendedBestQty),
     );
@@ -1358,9 +1449,14 @@ export class EcobaseInventoryPlanningService {
       asString(leadTime.supplierName) ??
       asString(latestParameter.supplier) ??
       asString(orderHistorySupplier.supplierName);
-    const estimatedProfitRisk = asNumber(params.calculation.estimatedProfitRisk);
-    const estimatedProfitRiskBasis =
-      typeof estimatedProfitRisk === 'number' ? 'planning_calculation_estimated_profit_risk' : 'not_available';
+    const tier = isProfitTier(calculationTier) ? calculationTier : fallbackTier.tier;
+    const calculatedProfitRisk = asNumber(params.calculation.estimatedProfitRisk);
+    const estimatedProfitRisk = isProfitTier(tier) ? calculatedProfitRisk ?? 0 : 0;
+    const estimatedProfitRiskBasis = !isProfitTier(tier)
+      ? 'not_tiered_profit_inputs_missing'
+      : typeof calculatedProfitRisk === 'number'
+        ? 'planning_calculation_estimated_profit_risk'
+        : 'not_available';
 
     return {
       planningProductId,
@@ -1372,7 +1468,7 @@ export class EcobaseInventoryPlanningService {
         payloadString(supplierLink, ['latestBrand', 'brand']) ?? payloadString(latestParameter, ['Brand', 'brand']),
       productStatus,
       planningExcluded: excluded,
-      tier: calculationTier && calculationTier !== 'unclassified' ? calculationTier : fallbackTier.tier,
+      tier,
       tierScore: asNumber(params.calculation.tierScore) ?? fallbackTier.tierScore,
       profitPerUnit: asNumber(params.calculation.profitPerUnit),
       recommendedBestQty: asNumber(params.calculation.recommendedBestQty),
@@ -1430,10 +1526,7 @@ export class EcobaseInventoryPlanningService {
       monthToDateProfit:
         payloadNumber(latestInventory, ['MTD Profit ', 'MTD Profit', 'mtdProfit', 'monthToDateProfit']) ??
         asNumber(params.calculation.achievedProfitMtd),
-      digestPriority: this.digestPriority(
-        actionStatus,
-        calculationTier && calculationTier !== 'unclassified' ? calculationTier : fallbackTier.tier,
-      ),
+      digestPriority: this.digestPriority(actionStatus, tier),
       evidence: {
         calculation: params.calculation.evidence,
         productStatusSource: productStatus === 'Active' ? 'default' : 'backend_sheet_or_import_payload',
@@ -1783,21 +1876,21 @@ export class EcobaseInventoryPlanningService {
   }
 
   private digestPriority(actionStatus: InventoryPlanningActionStatus, tier: unknown) {
-    return tierRank(tier) * 100 + actionRank(actionStatus) * 10;
+    return profitTierRank(tier) * 100 + actionRank(actionStatus) * 10;
   }
 
   private sortDigestRows(rows: PlainRecord[]) {
     return [...rows].sort((left, right) => {
-      const risk = (asNumber(right.estimatedProfitRisk) ?? 0) - (asNumber(left.estimatedProfitRisk) ?? 0);
-      if (risk !== 0) return risk;
-      const orderState = digestOrderStateRank(left) - digestOrderStateRank(right);
-      if (orderState !== 0) return orderState;
       const priority =
         (asNumber(left.digestPriority) ??
           this.digestPriority(left.actionStatus as InventoryPlanningActionStatus, left.tier)) -
         (asNumber(right.digestPriority) ??
           this.digestPriority(right.actionStatus as InventoryPlanningActionStatus, right.tier));
       if (priority !== 0) return priority;
+      const orderState = digestOrderStateRank(left) - digestOrderStateRank(right);
+      if (orderState !== 0) return orderState;
+      const risk = (asNumber(right.estimatedProfitRisk) ?? 0) - (asNumber(left.estimatedProfitRisk) ?? 0);
+      if (risk !== 0) return risk;
       return (asNumber(right.suggestedReorderQty) ?? 0) - (asNumber(left.suggestedReorderQty) ?? 0);
     });
   }
