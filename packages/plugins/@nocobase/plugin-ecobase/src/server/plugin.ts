@@ -129,6 +129,33 @@ function getCsvFiles(values: Record<string, unknown>): CsvSourceFile[] {
   });
 }
 
+function compactInventoryPlanningRow(row: Record<string, unknown>) {
+  const compact = { ...row };
+  delete compact.evidence;
+  return compact;
+}
+
+function compactInventoryPlanningRows(rows: unknown) {
+  return Array.isArray(rows)
+    ? rows.map((row) =>
+        typeof row === 'object' && row !== null ? compactInventoryPlanningRow(row as Record<string, unknown>) : row,
+      )
+    : rows;
+}
+
+function compactInventoryPlanningDigest(digest: unknown) {
+  if (typeof digest !== 'object' || digest === null || Array.isArray(digest)) return digest;
+  const record = digest as Record<string, unknown>;
+  const sections = record.sections;
+  if (typeof sections !== 'object' || sections === null || Array.isArray(sections)) return digest;
+  return {
+    ...record,
+    sections: Object.fromEntries(
+      Object.entries(sections).map(([key, rows]) => [key, compactInventoryPlanningRows(rows)]),
+    ),
+  };
+}
+
 function getActorId(ctx: { state?: Record<string, unknown> }) {
   const currentUser = ctx.state?.currentUser;
   if (typeof currentUser === 'object' && currentUser !== null) {
@@ -1156,15 +1183,17 @@ export function createEcobaseInventoryPlanningActions() {
       const values = getValues(ctx.action.params);
       const service = new EcobaseInventoryPlanningService(ctx.db);
       ctx.body = {
-        data: await service.listRows({
-          company: getOptionalString(values, 'company'),
-          calculationDate: getOptionalString(values, 'calculationDate'),
-          leadTimeFreshnessDays: getOptionalNumber(values, 'leadTimeFreshnessDays'),
-          safetyBufferDays: getOptionalNumber(values, 'safetyBufferDays'),
-          orderSoonWindowDays: getOptionalNumber(values, 'orderSoonWindowDays'),
-          reorderCycleDays: getOptionalNumber(values, 'reorderCycleDays'),
-          limit: getOptionalNumber(values, 'limit'),
-        }),
+        data: compactInventoryPlanningRows(
+          await service.listRows({
+            company: getOptionalString(values, 'company'),
+            calculationDate: getOptionalString(values, 'calculationDate'),
+            leadTimeFreshnessDays: getOptionalNumber(values, 'leadTimeFreshnessDays'),
+            safetyBufferDays: getOptionalNumber(values, 'safetyBufferDays'),
+            orderSoonWindowDays: getOptionalNumber(values, 'orderSoonWindowDays'),
+            reorderCycleDays: getOptionalNumber(values, 'reorderCycleDays'),
+            limit: getOptionalNumber(values, 'limit'),
+          }),
+        ),
       };
       await next();
     },
@@ -1172,15 +1201,17 @@ export function createEcobaseInventoryPlanningActions() {
       const values = getValues(ctx.action.params);
       const service = new EcobaseInventoryPlanningService(ctx.db);
       ctx.body = {
-        data: await service.digestPreview({
-          company: getOptionalString(values, 'company'),
-          calculationDate: getOptionalString(values, 'calculationDate'),
-          leadTimeFreshnessDays: getOptionalNumber(values, 'leadTimeFreshnessDays'),
-          safetyBufferDays: getOptionalNumber(values, 'safetyBufferDays'),
-          orderSoonWindowDays: getOptionalNumber(values, 'orderSoonWindowDays'),
-          reorderCycleDays: getOptionalNumber(values, 'reorderCycleDays'),
-          limit: getOptionalNumber(values, 'limit'),
-        }),
+        data: compactInventoryPlanningDigest(
+          await service.digestPreview({
+            company: getOptionalString(values, 'company'),
+            calculationDate: getOptionalString(values, 'calculationDate'),
+            leadTimeFreshnessDays: getOptionalNumber(values, 'leadTimeFreshnessDays'),
+            safetyBufferDays: getOptionalNumber(values, 'safetyBufferDays'),
+            orderSoonWindowDays: getOptionalNumber(values, 'orderSoonWindowDays'),
+            reorderCycleDays: getOptionalNumber(values, 'reorderCycleDays'),
+            limit: getOptionalNumber(values, 'limit'),
+          }),
+        ),
       };
       await next();
     },

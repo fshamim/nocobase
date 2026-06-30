@@ -40,6 +40,7 @@ interface DigestPreview {
   summary: PlainRecord;
   sections: {
     orderNow: PlainRecord[];
+    noOrderProducts: PlainRecord[];
     suppliersToContactFirst: PlainRecord[];
     supplierActionItems: PlainRecord[];
     staleLeadTimes: PlainRecord[];
@@ -130,6 +131,7 @@ function unwrapDigest(response: any): DigestPreview {
     summary: data?.summary ?? {},
     sections: {
       orderNow: Array.isArray(data?.sections?.orderNow) ? data.sections.orderNow : [],
+      noOrderProducts: Array.isArray(data?.sections?.noOrderProducts) ? data.sections.noOrderProducts : [],
       suppliersToContactFirst: Array.isArray(data?.sections?.suppliersToContactFirst)
         ? data.sections.suppliersToContactFirst
         : [],
@@ -1857,9 +1859,7 @@ export default function InventoryPlanningPage() {
             <Col xs={24} lg={10}>
               <Typography.Title level={5}>{t('Supplier contact priority')}</Typography.Title>
               <Typography.Paragraph type="secondary">
-                {t(
-                  'Groups urgent rows by supplier. If the supplier is missing, the next action is to recover it from OrderDetails history for that ASIN/company.',
-                )}
+                {t('Groups only urgent supplier-action rows that already have a named supplier to contact.')}
               </Typography.Paragraph>
               <Table<PlainRecord>
                 size="small"
@@ -1895,9 +1895,7 @@ export default function InventoryPlanningPage() {
             <Col xs={24} lg={14}>
               <Typography.Title level={5}>{t('Products needing supplier action')}</Typography.Title>
               <Typography.Paragraph type="secondary">
-                {t(
-                  'Product-level list across tiers A, B, and C. Review a row to confirm supplier, lead time, order timing, and OOS loss risk.',
-                )}
+                {t('Product-level list limited to rows with missing supplier or stale/missing lead-time evidence.')}
               </Typography.Paragraph>
               <Table<PlainRecord>
                 size="small"
@@ -1983,7 +1981,9 @@ export default function InventoryPlanningPage() {
             dataSource={filteredRows}
             columns={columns}
             size="small"
-            scroll={{ x: 2700 }}
+            tableLayout="fixed"
+            virtual
+            scroll={{ x: 2700, y: 720 }}
             pagination={{ pageSize: 25, showSizeChanger: true }}
             onRow={(row) => ({ onDoubleClick: () => openRow(row) })}
           />

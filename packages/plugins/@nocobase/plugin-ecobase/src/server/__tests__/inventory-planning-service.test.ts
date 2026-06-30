@@ -945,7 +945,7 @@ describe('EcobaseInventoryPlanningService', () => {
     expect(refreshed.tierScore).toBe(0);
   });
 
-  it('keeps untiered imported forecasts out of active money risk and digest', async () => {
+  it('keeps untiered no-order products out of active money risk and digest', async () => {
     const db = new MemoryDatabase();
     await createRecord(db, ECOBASE_COLLECTIONS.companies, {
       id: 'company-ecofission',
@@ -984,8 +984,11 @@ describe('EcobaseInventoryPlanningService', () => {
 
     expect(row).toMatchObject({ tier: undefined, estimatedProfitRisk: 0 });
     expect(row.estimatedProfitRiskBasis).toBe('not_tiered_profit_inputs_missing');
-    expect(digest.summary.atRisk).toBe(0);
+    expect(digest.summary).toMatchObject({ atRisk: 0, noSupplierOrder: 0, suppliersToContact: 0 });
     expect(digest.sections.orderNow).toEqual([]);
+    expect(digest.sections.noOrderProducts).toEqual([]);
+    expect(digest.sections.supplierActionItems).toEqual([]);
+    expect(digest.sections.suppliersToContactFirst).toEqual([]);
   });
 
   it('tracks tier movement when imported profit changes', async () => {
@@ -1261,21 +1264,19 @@ describe('EcobaseInventoryPlanningService', () => {
       calculationDate: '2026-06-07',
     });
 
-    expect(digest.summary).toMatchObject({ orderToday: 1, atRisk: 1, suppliersToContact: 1 });
+    expect(digest.summary).toMatchObject({ orderToday: 1, atRisk: 1, suppliersToContact: 0 });
     expect(digest.sections.orderNow).toHaveLength(1);
     expect(digest.sections.orderNow[0]).toMatchObject({
       supplierOrderRef: 'ORD-1',
       latestSupplierOrderActivityNote: 'Invoice received, payment still pending.',
     });
-    expect(digest.sections.suppliersToContactFirst[0]).toMatchObject({
-      supplierName: 'Digest Supplier',
-      urgentCount: 1,
-    });
+    expect(digest.sections.supplierActionItems).toEqual([]);
+    expect(digest.sections.suppliersToContactFirst).toEqual([]);
   });
 
   it('puts no-order digest rows before placed-but-not-purchased rows and excludes purchased pipeline rows', async () => {
     const db = new MemoryDatabase();
-    for (const id of ['no-order', 'payment-pending', 'approval-soon', 'paid-pipeline']) {
+    for (const id of ['no-order', 'payment-pending', 'approval-soon', 'paid-pipeline', 'paid-evidence']) {
       await createRecord(db, ECOBASE_COLLECTIONS.planningProducts, {
         id,
         naturalKey: `Ecofission LLC:${id}`,
@@ -1409,19 +1410,46 @@ describe('EcobaseInventoryPlanningService', () => {
       orderedQty: 20,
       receivedQty: 0,
     });
+    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrders, {
+      id: 'order-paid-evidence',
+      naturalKey: 'supplier-order:Ecofission LLC:PAID-EVIDENCE-1',
+      sourceConnectionId: 'source-1',
+      company: 'Ecofission LLC',
+      supplierId: 'supplier-1',
+      externalOrderRef: 'PAID-EVIDENCE-1',
+      sourceStage: 'purchase_order',
+      status: 'approval_pending',
+      paymentStatus: 'Completed',
+      approvalStatus: 'Approved',
+      lastMeaningfulUpdateAt: '2026-06-06T00:00:00.000Z',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrderLines, {
+      id: 'line-paid-evidence',
+      naturalKey: 'supplier-order-line:PAID-EVIDENCE-1',
+      sourceConnectionId: 'source-1',
+      company: 'Ecofission LLC',
+      supplierOrderId: 'order-paid-evidence',
+      planningProductId: 'paid-evidence',
+      asin: 'ASIN-paid-evidence',
+      sku: 'SKU-paid-evidence',
+      orderedQty: 20,
+      receivedQty: 0,
+    });
 
     const digest = await new EcobaseInventoryPlanningService(db).digestPreview({
       company: 'Ecofission LLC',
       calculationDate: '2026-06-07',
+      limit: 1,
     });
 
-    expect(digest.summary).toMatchObject({ noSupplierOrder: 1, placedNotPurchased: 2, purchasedPipelineExcluded: 1 });
+    expect(digest.summary).toMatchObject({ noSupplierOrder: 1, placedNotPurchased: 2, purchasedPipelineExcluded: 2 });
     expect(digest.sections.orderNow.map((row) => row.planningProductId)).toEqual([
       'no-order',
       'payment-pending',
       'approval-soon',
     ]);
     expect(digest.sections.orderNow[0]).toMatchObject({ supplierOrderState: 'no_open_order' });
+    expect(digest.sections.noOrderProducts.map((row) => row.planningProductId)).toEqual(['no-order']);
     expect(digest.sections.orderNow[1]).toMatchObject({
       supplierOrderState: 'placed_not_purchased',
       supplierOrderStatus: 'payment_pending',
@@ -1435,5 +1463,7 @@ describe('EcobaseInventoryPlanningService', () => {
       supplierOrderRef: 'APP-1',
       openOrderCoverageQty: 0,
     });
+    expect(digest.sections.supplierActionItems).toEqual([]);
+    expect(digest.sections.suppliersToContactFirst).toEqual([]);
   });
 });

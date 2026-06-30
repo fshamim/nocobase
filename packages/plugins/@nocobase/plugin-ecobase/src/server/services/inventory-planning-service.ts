@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import type { EcobaseDatabase } from './import-service';
-import { isReliableSupplierOrderCoverageStatus } from './supplier-order-service';
+import { isReliableSupplierOrderCoverageStatus, normalizeSupplierOrderStatus } from './supplier-order-service';
 import { toPlainRecord } from './import-service';
 import { EcobasePlanningCalculationService } from './planning-calculation-service';
 import { isProfitTier, profitTierFor, profitTierMovement, profitTierRank } from './profit-tier';
@@ -184,6 +184,20 @@ function derivedProductStatus(importedStatus: string | undefined, stockBuckets: 
   return 'Active';
 }
 
+function includesStatusText(value: unknown, terms: string[]) {
+  if (typeof value !== 'string') return false;
+  const normalized = value.toLowerCase();
+  return terms.some((term) => normalized.includes(term));
+}
+
+function supplierCoverageStatus(order: PlainRecord) {
+  const status = normalizeSupplierOrderStatus(asString(order.status));
+  if (['completed', 'rejected', 'cancelled'].includes(status)) return status;
+  if (includesStatusText(order.paymentStatus, ['completed', 'complete', 'paid'])) return 'paid';
+  if (status === 'approval_pending' && includesStatusText(order.approvalStatus, ['approved'])) return 'payment_pending';
+  return status;
+}
+
 function isPlacedNotPurchasedSupplierOrderStatus(status: string | undefined) {
   return status ? ORDER_PLACED_NOT_PURCHASED_STATUSES.has(status) : false;
 }
@@ -265,7 +279,7 @@ function summarizeSupplierOrderState(
   for (const line of lines) {
     const order = supplierOrderById.get(asString(line.supplierOrderId) ?? '');
     if (!order) continue;
-    const status = asString(order.status);
+    const status = supplierCoverageStatus(order);
     const orderedQty = asNumber(line.orderedQty) ?? 0;
     const receivedQty = asNumber(line.receivedQty) ?? 0;
     const openQty = Math.max(orderedQty - receivedQty, 0);
@@ -283,7 +297,7 @@ function summarizeSupplierOrderState(
   for (const line of lines) {
     const order = supplierOrderById.get(asString(line.supplierOrderId) ?? '');
     if (!order) continue;
-    const status = asString(order.status);
+    const status = supplierCoverageStatus(order);
     const orderedQty = asNumber(line.orderedQty) ?? 0;
     const receivedQty = asNumber(line.receivedQty) ?? 0;
     const openQty = Math.max(orderedQty - receivedQty, 0);
@@ -320,7 +334,7 @@ function summarizeSupplierOrderState(
           : undefined;
   return {
     supplierOrderState: state,
-    supplierOrderStatus: asString(reference?.order.status),
+    supplierOrderStatus: reference?.order ? supplierCoverageStatus(reference.order) : undefined,
     supplierOrderRef: asString(reference?.order.externalOrderRef) ?? asString(reference?.order.id),
     supplierOrderOpenQty:
       asNumber(reference?.line.orderedQty) !== undefined
@@ -331,6 +345,14 @@ function summarizeSupplierOrderState(
   };
 }
 
+const DIGEST_ACTION_STATUSES = new Set([
+  'overdue',
+  'order_today',
+  'order_soon',
+  'missing_lead_time',
+  'stale_lead_time',
+]);
+
 function digestOrderStateRank(row: PlainRecord) {
   const state = asString(row.supplierOrderState);
   if (state === 'no_open_order') return 0;
@@ -338,6 +360,26 @@ function digestOrderStateRank(row: PlainRecord) {
   if (state === 'closed_history') return 1;
   if (state === 'purchased_pipeline') return 2;
   return 3;
+}
+
+function isDigestCandidateRow(row: PlainRecord) {
+  return isProfitTier(row.tier);
+}
+
+function isUrgentDigestRow(row: PlainRecord) {
+  return (
+    DIGEST_ACTION_STATUSES.has(String(row.actionStatus)) &&
+    row.supplierOrderState !== 'purchased_pipeline' &&
+    isDigestCandidateRow(row)
+  );
+}
+
+function needsSupplierAction(row: PlainRecord) {
+  return (
+    !asString(row.supplierName) ||
+    row.leadTimeFreshness !== 'fresh' ||
+    ['missing_lead_time', 'stale_lead_time'].includes(String(row.actionStatus))
+  );
 }
 
 function selectSupplierLink(links: PlainRecord[]) {
@@ -610,46 +652,33 @@ export class EcobaseInventoryPlanningService {
   }
 
   async digestPreview(query: InventoryPlanningQuery = {}) {
-    const rows = await this.listRows(query);
+    const rows = await this.listRows({ ...query, limit: undefined });
     const tieredRows = rows.filter((row) => isProfitTier(row.tier));
+    const digestRows = rows.filter(isDigestCandidateRow);
     const urgentRows = await this.withLatestSupplierOrderActivity(
-      this.sortDigestRows(
-        tieredRows.filter(
-          (row) =>
-            ['overdue', 'order_today', 'order_soon', 'missing_lead_time', 'stale_lead_time'].includes(
-              String(row.actionStatus),
-            ) && row.supplierOrderState !== 'purchased_pipeline',
-        ),
-      ),
+      this.sortDigestRows(digestRows.filter(isUrgentDigestRow)),
     );
-    const supplierActionItems = this.sortDigestRows(
-      urgentRows.filter(
-        (row) =>
-          !asString(row.supplierName) ||
-          row.leadTimeFreshness !== 'fresh' ||
-          ['missing_lead_time', 'stale_lead_time'].includes(String(row.actionStatus)),
-      ),
-    );
+    const supplierActionItems = this.sortDigestRows(urgentRows.filter(needsSupplierAction));
+    const supplierContactRows = supplierActionItems.filter((row) => asString(row.supplierName));
     return {
       generatedAt: new Date().toISOString(),
       company: query.company ?? null,
       summary: {
-        overdue: tieredRows.filter((row) => row.actionStatus === 'overdue').length,
-        orderToday: tieredRows.filter((row) => row.actionStatus === 'order_today').length,
-        orderSoon: tieredRows.filter((row) => row.actionStatus === 'order_soon').length,
+        overdue: digestRows.filter((row) => row.actionStatus === 'overdue').length,
+        orderToday: digestRows.filter((row) => row.actionStatus === 'order_today').length,
+        orderSoon: digestRows.filter((row) => row.actionStatus === 'order_soon').length,
         atRisk: urgentRows.length,
-        staleOrMissingLeadTime: tieredRows.filter((row) => row.leadTimeFreshness !== 'fresh').length,
-        suppliersToContact: new Set(urgentRows.map((row) => row.supplierName).filter(Boolean)).size,
+        staleOrMissingLeadTime: digestRows.filter((row) => row.leadTimeFreshness !== 'fresh').length,
+        suppliersToContact: new Set(supplierContactRows.map((row) => row.supplierName).filter(Boolean)).size,
         noSupplierOrder: urgentRows.filter((row) => row.supplierOrderState === 'no_open_order').length,
         closedOrderHistoryOnly: urgentRows.filter((row) => row.supplierOrderState === 'closed_history').length,
         placedNotPurchased: urgentRows.filter((row) => row.supplierOrderState === 'placed_not_purchased').length,
-        purchasedPipelineExcluded: tieredRows.filter((row) => row.supplierOrderState === 'purchased_pipeline').length,
+        purchasedPipelineExcluded: digestRows.filter((row) => row.supplierOrderState === 'purchased_pipeline').length,
       },
       sections: {
         orderNow: urgentRows,
-        suppliersToContactFirst: this.rankSuppliers(
-          supplierActionItems.length > 0 ? supplierActionItems : urgentRows,
-        ).slice(0, 10),
+        noOrderProducts: urgentRows.filter((row) => row.supplierOrderState === 'no_open_order'),
+        suppliersToContactFirst: this.rankSuppliers(supplierContactRows).slice(0, 10),
         supplierActionItems: supplierActionItems.slice(0, 25),
         staleLeadTimes: urgentRows.filter((row) => row.leadTimeFreshness !== 'fresh').slice(0, 25),
       },
@@ -1949,7 +1978,8 @@ export class EcobaseInventoryPlanningService {
       }
     >();
     for (const row of rows) {
-      const supplierName = asString(row.supplierName) ?? 'Find supplier from OrderDetails';
+      const supplierName = asString(row.supplierName);
+      if (!supplierName) continue;
       const existing = bySupplier.get(supplierName) ?? {
         supplierName,
         urgentCount: 0,
