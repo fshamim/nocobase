@@ -575,7 +575,7 @@ export default function InventoryPlanningPage() {
   const api = useAPIClient();
   const { message } = App.useApp();
   const [company, setCompany] = useState('');
-  const [calculationDate, setCalculationDate] = useState(todayIsoDate());
+  const [calculationDate, setCalculationDate] = useState('');
   const [actionStatus, setActionStatus] = useState<string | undefined>();
   const [tier, setTier] = useState<string | undefined>();
   const [leadTimeFreshnessDays, setLeadTimeFreshnessDays] = useState(60);
@@ -709,6 +709,8 @@ export default function InventoryPlanningPage() {
     [actionStatus, rows, tier],
   );
 
+  const relativeBaseDate = calculationDate || String(rows[0]?.calculationDate ?? todayIsoDate());
+
   const orderNowCompanies = useMemo(
     () => Array.from(new Set(digest.sections.orderNow.map((row) => String(row.company ?? '')).filter(Boolean))).sort(),
     [digest.sections.orderNow],
@@ -743,10 +745,10 @@ export default function InventoryPlanningPage() {
       }
       return true;
     });
-    return sortOrderNowRows(filtered, orderNowSort, calculationDate);
+    return sortOrderNowRows(filtered, orderNowSort, relativeBaseDate);
   }, [
-    calculationDate,
     digest.sections.orderNow,
+    relativeBaseDate,
     orderNowCompanyFilter,
     orderNowQuickFilter,
     orderNowSearch,
@@ -755,8 +757,8 @@ export default function InventoryPlanningPage() {
   ]);
 
   const orderNowGroups = useMemo(
-    () => groupOrderNowRows(orderNowRows, calculationDate),
-    [calculationDate, orderNowRows],
+    () => groupOrderNowRows(orderNowRows, relativeBaseDate),
+    [orderNowRows, relativeBaseDate],
   );
 
   const newActionValues = (row: PlainRecord): DrawerActionValues => {
@@ -1176,7 +1178,7 @@ export default function InventoryPlanningPage() {
       dataIndex: 'latestSafeReorderDate',
       width: 150,
       render: (value: string) => {
-        const relative = relativeDateLabel(value, calculationDate);
+        const relative = relativeDateLabel(value, relativeBaseDate);
         return (
           <Space direction="vertical" size={0}>
             <Tag color={relative.color}>{t(relative.label)}</Tag>
@@ -1190,7 +1192,7 @@ export default function InventoryPlanningPage() {
       dataIndex: 'estimatedOosDate',
       width: 150,
       render: (value: string) => {
-        const relative = relativeDateLabel(value, calculationDate);
+        const relative = relativeDateLabel(value, relativeBaseDate);
         return (
           <Space direction="vertical" size={0}>
             <span>{t(relative.label)}</span>
@@ -1282,9 +1284,9 @@ export default function InventoryPlanningPage() {
                       )}
                     />
                   </FilterControl>
-                  <FilterControl title={t('Planning date')} help={t('Relative order timing date.')}>
+                  <FilterControl title={t('Planning date')} help={t('Blank uses latest saved planning date.')}>
                     <DatePicker
-                      allowClear={false}
+                      allowClear
                       value={calculationDate ? dayjs(calculationDate) : undefined}
                       onChange={(_date, dateString) =>
                         setCalculationDate(Array.isArray(dateString) ? dateString[0] : dateString)
@@ -1723,8 +1725,8 @@ export default function InventoryPlanningPage() {
                           title: t('OOS in'),
                           dataIndex: 'estimatedOosDate',
                           render: (value: string) => (
-                            <Tag color={relativeDateLabel(value, calculationDate).color}>
-                              {t(relativeDateLabel(value, calculationDate).label)}
+                            <Tag color={relativeDateLabel(value, relativeBaseDate).color}>
+                              {t(relativeDateLabel(value, relativeBaseDate).label)}
                             </Tag>
                           ),
                         },
@@ -1831,8 +1833,8 @@ export default function InventoryPlanningPage() {
                     title: t('Earliest OOS'),
                     dataIndex: 'earliestOosDate',
                     render: (value: string) => (
-                      <Tag color={relativeDateLabel(value, calculationDate).color}>
-                        {t(relativeDateLabel(value, calculationDate).label)}
+                      <Tag color={relativeDateLabel(value, relativeBaseDate).color}>
+                        {t(relativeDateLabel(value, relativeBaseDate).label)}
                       </Tag>
                     ),
                   },
@@ -1935,8 +1937,8 @@ export default function InventoryPlanningPage() {
                     title: t('OOS in'),
                     dataIndex: 'estimatedOosDate',
                     render: (value: string) => (
-                      <Tag color={relativeDateLabel(value, calculationDate).color}>
-                        {t(relativeDateLabel(value, calculationDate).label)}
+                      <Tag color={relativeDateLabel(value, relativeBaseDate).color}>
+                        {t(relativeDateLabel(value, relativeBaseDate).label)}
                       </Tag>
                     ),
                   },
@@ -2056,11 +2058,11 @@ export default function InventoryPlanningPage() {
                 </span>
               </Descriptions.Item>
               <Descriptions.Item label={t('Order by')}>
-                {relativeDateLabel(selectedRow.latestSafeReorderDate, calculationDate).label} (
+                {relativeDateLabel(selectedRow.latestSafeReorderDate, relativeBaseDate).label} (
                 {formatDate(selectedRow.latestSafeReorderDate)})
               </Descriptions.Item>
               <Descriptions.Item label={t('OOS date')}>
-                {relativeDateLabel(selectedRow.estimatedOosDate, calculationDate).label} (
+                {relativeDateLabel(selectedRow.estimatedOosDate, relativeBaseDate).label} (
                 {formatDate(selectedRow.estimatedOosDate)})
               </Descriptions.Item>
               <Descriptions.Item
