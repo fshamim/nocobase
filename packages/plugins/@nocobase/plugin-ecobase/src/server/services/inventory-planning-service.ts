@@ -1068,7 +1068,7 @@ export class EcobaseInventoryPlanningService {
         sourceConnectionCompanies,
         activeSourceConnectionIds,
         sort: ['-snapshotDate'],
-        limit: params.scanLimit,
+        limit: FALLBACK_RECORD_LIMIT,
       })
     ).filter((row) => {
       const snapshotDate = dateOnly(row.snapshotDate);
@@ -1127,12 +1127,28 @@ export class EcobaseInventoryPlanningService {
       sourceConnectionCompanies: params.sourceConnectionCompanies,
       activeSourceConnectionIds: await this.activeSourceConnectionIds(),
     });
-    const start = monthStart(params.calculationDate);
+    const currentMonthStart = monthStart(params.calculationDate);
+    let hasCurrentMonthFacts = false;
+    let latestPriorFactDate: string | undefined;
+    for (const fact of facts) {
+      const snapshotDate = dateOnly(fact.snapshotDate);
+      if (!snapshotDate || snapshotDate > params.calculationDate) continue;
+      if (snapshotDate >= currentMonthStart) {
+        hasCurrentMonthFacts = true;
+        break;
+      }
+      if (!latestPriorFactDate || snapshotDate > latestPriorFactDate) {
+        latestPriorFactDate = snapshotDate;
+      }
+    }
+
+    const start = hasCurrentMonthFacts || !latestPriorFactDate ? currentMonthStart : monthStart(latestPriorFactDate);
+    const end = hasCurrentMonthFacts || !latestPriorFactDate ? params.calculationDate : latestPriorFactDate;
     const index: ProfitMetricsIndex = { exact: new Map(), byAsin: new Map() };
 
     for (const fact of facts) {
       const snapshotDate = dateOnly(fact.snapshotDate);
-      if (!snapshotDate || snapshotDate < start || snapshotDate > params.calculationDate) continue;
+      if (!snapshotDate || snapshotDate < start || snapshotDate > end) continue;
       const company = companyFromRecord(fact, params.sourceConnectionCompanies);
       const asin = asString(fact.asin);
       if (!company || !asin || asin === '__TOTAL__') continue;

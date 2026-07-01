@@ -769,16 +769,18 @@ describe('EcobaseInventoryPlanningService', () => {
       sourceType: 'sellerboard',
       active: true,
     });
-    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
-      naturalKey: 'inventory-invalid-source-version-date',
-      sourceConnectionId: 'source-active',
-      snapshotDate: 'qa-sellerboard-20260622T231955Z',
-      asin: 'B000INVALID',
-      sku: 'INVALID-SKU',
-      stock: 10,
-      salesVelocity: 1,
-      recommendedReorderQuantity: 10,
-    });
+    for (let index = 0; index < 5; index += 1) {
+      await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
+        naturalKey: `inventory-invalid-source-version-date-${index}`,
+        sourceConnectionId: 'source-active',
+        snapshotDate: `qa-sellerboard-20260622T23195${index}Z`,
+        asin: `B000INVALID${index}`,
+        sku: `INVALID-SKU-${index}`,
+        stock: 10,
+        salesVelocity: 1,
+        recommendedReorderQuantity: 10,
+      });
+    }
     await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
       naturalKey: 'inventory-valid-date',
       sourceConnectionId: 'source-active',
@@ -790,7 +792,7 @@ describe('EcobaseInventoryPlanningService', () => {
       recommendedReorderQuantity: 10,
     });
 
-    const rows = await new EcobaseInventoryPlanningService(db).listRows({ calculationDate: '2026-06-26' });
+    const rows = await new EcobaseInventoryPlanningService(db).listRows({ calculationDate: '2026-06-26', limit: 1 });
 
     expect(rows.map((row) => row.asin)).toEqual(['B000VALID']);
   });
@@ -882,6 +884,63 @@ describe('EcobaseInventoryPlanningService', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).findCalls).toContainEqual(
       expect.objectContaining({ limit: 100000 }),
     );
+  });
+
+  it('uses latest prior profit month when current month has no Sellerboard facts', async () => {
+    const db = new MemoryDatabase();
+    await createRecord(db, ECOBASE_COLLECTIONS.companies, {
+      id: 'company-ecofission',
+      name: 'Ecofission LLC',
+      active: true,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.sourceConnections, {
+      id: 'source-ecofission',
+      name: 'Sellerboard - Ecofission LLC',
+      companyId: 'company-ecofission',
+      sourceType: 'sellerboard',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
+      naturalKey: 'inventory-sellerboard-month-boundary',
+      sourceConnectionId: 'source-ecofission',
+      snapshotDate: '2026-07-01',
+      asin: 'B000MONTHBOUNDARY',
+      sku: 'MB-SKU',
+      stock: 10,
+      salesVelocity: 2,
+      recommendedReorderQuantity: 50,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.planningParameters, {
+      naturalKey: 'params-sellerboard-month-boundary',
+      sourceConnectionId: 'source-ecofission',
+      asin: 'B000MONTHBOUNDARY',
+      sku: 'MB-SKU',
+      leadTimeDays: 3,
+      payload: { 'Product Status': 'Active' },
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.listingDailyFacts, {
+      naturalKey: 'daily-fact-sellerboard-month-boundary',
+      sourceConnectionId: 'source-ecofission',
+      snapshotDate: '2026-06-29',
+      asin: 'B000MONTHBOUNDARY',
+      sku: 'MB-SKU',
+      sales: 240,
+      units: 12,
+      netProfit: 120,
+    });
+
+    const [row] = await new EcobaseInventoryPlanningService(db).listRows({
+      company: 'Ecofission LLC',
+      calculationDate: '2026-07-01',
+    });
+
+    expect(row).toMatchObject({
+      profitPerUnit: 10,
+      tier: 'A',
+      tierScore: 500,
+      monthToDateRevenue: 240,
+      monthToDateUnitsSold: 12,
+      monthToDateProfit: 120,
+    });
   });
 
   it('does not assign tier C when Sellerboard profit score is missing or zero', async () => {
