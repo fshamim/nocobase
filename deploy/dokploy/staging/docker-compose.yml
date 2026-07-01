@@ -1,0 +1,71 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-nocobase}
+      POSTGRES_DB: ${POSTGRES_DB:-nocobase}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - ecobase-staging-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U ${POSTGRES_USER:-nocobase} -d ${POSTGRES_DB:-nocobase}
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  app:
+    build:
+      context: ../../..
+      dockerfile: deploy/dokploy/Dockerfile
+      args:
+        ECOBASE_BASE_IMAGE: ${ECOBASE_BASE_IMAGE:-nocobase/nocobase:beta-full}
+        ECOBASE_IMAGE_REVISION: ${ECOBASE_IMAGE_REVISION:-staging}
+    image: ${ECOBASE_APP_IMAGE:-ecobase/nocobase:staging-git}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    init: true
+    environment:
+      APP_ENV: production
+      APP_KEY: ${APP_KEY:?APP_KEY is required}
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-https://ecobase-staging.178-104-193-132.sslip.io}
+      APP_AES_SECRET_KEY: ${APP_AES_SECRET_KEY:?APP_AES_SECRET_KEY is required}
+      ENCRYPTION_FIELD_KEY: ${ENCRYPTION_FIELD_KEY:?ENCRYPTION_FIELD_KEY is required}
+      DB_DIALECT: postgres
+      DB_HOST: postgres
+      DB_DATABASE: ${POSTGRES_DB:-nocobase}
+      DB_USER: ${POSTGRES_USER:-nocobase}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      INIT_ROOT_EMAIL: ${INIT_ROOT_EMAIL:?INIT_ROOT_EMAIL is required}
+      INIT_ROOT_PASSWORD: ${INIT_ROOT_PASSWORD:?INIT_ROOT_PASSWORD is required}
+      LOGGER_LEVEL: ${LOGGER_LEVEL:-info}
+    volumes:
+      - ecobase-staging-uploads:/app/nocobase/storage/uploads
+    labels:
+      - traefik.docker.network=dokploy-network
+      - traefik.http.routers.ecobase-staging-2ndggj-1-web.rule=Host(`ecobase-staging.178-104-193-132.sslip.io`)
+      - traefik.http.routers.ecobase-staging-2ndggj-1-web.entrypoints=web
+      - traefik.http.services.ecobase-staging-2ndggj-1-web.loadbalancer.server.port=80
+      - traefik.http.routers.ecobase-staging-2ndggj-1-web.service=ecobase-staging-2ndggj-1-web
+      - traefik.http.routers.ecobase-staging-2ndggj-1-web.middlewares=redirect-to-https@file
+      - traefik.http.routers.ecobase-staging-2ndggj-1-websecure.rule=Host(`ecobase-staging.178-104-193-132.sslip.io`)
+      - traefik.http.routers.ecobase-staging-2ndggj-1-websecure.entrypoints=websecure
+      - traefik.http.services.ecobase-staging-2ndggj-1-websecure.loadbalancer.server.port=80
+      - traefik.http.routers.ecobase-staging-2ndggj-1-websecure.service=ecobase-staging-2ndggj-1-websecure
+      - traefik.http.routers.ecobase-staging-2ndggj-1-websecure.tls.certresolver=letsencrypt
+      - traefik.enable=true
+    networks:
+      - dokploy-network
+      - default
+
+volumes:
+  ecobase-staging-postgres:
+  ecobase-staging-uploads:
+
+networks:
+  dokploy-network:
+    external: true
