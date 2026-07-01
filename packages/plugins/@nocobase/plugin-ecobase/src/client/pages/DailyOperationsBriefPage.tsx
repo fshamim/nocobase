@@ -5,7 +5,6 @@ import {
   Card,
   Col,
   DatePicker,
-  Popover,
   Row,
   Segmented,
   Select,
@@ -16,6 +15,7 @@ import {
 } from 'antd';
 import dayjs from 'dayjs';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { FormulaHelp } from '../formula-help';
 import { useT } from '../locale';
 
 type PlainRecord = Record<string, any>;
@@ -458,33 +458,7 @@ export default function DailyOperationsBriefPage() {
                       { label: t('30 days'), value: '30d' },
                     ]}
                   />
-                  <Popover
-                    trigger="click"
-                    placement="bottom"
-                    title={t('How compare works')}
-                    content={
-                      <Space direction="vertical" style={{ maxWidth: 420 }}>
-                        <Typography.Text>
-                          {t(
-                            'Current is the KPI value for the selected window ending at the latest available data date.',
-                          )}
-                        </Typography.Text>
-                        <Typography.Text>
-                          {t(
-                            'Change compares Current with the previous same-length window: yesterday vs previous day, 7 days vs previous 7 days, or 30 days vs previous 30 days.',
-                          )}
-                        </Typography.Text>
-                        <Typography.Text>{t('Change % = (current - previous) / abs(previous) × 100.')}</Typography.Text>
-                        <Typography.Text>
-                          {t('If the previous window is incomplete, the table shows Insufficient history instead.')}
-                        </Typography.Text>
-                      </Space>
-                    }
-                  >
-                    <Button size="small" type="link">
-                      {t('How does this work?')}
-                    </Button>
-                  </Popover>
+                  <FormulaHelp group="managementKpiTrend" />
                 </Space>
                 {trendRows.length ? (
                   <Table<PlainRecord>
@@ -562,7 +536,7 @@ export default function DailyOperationsBriefPage() {
               <Alert type="info" message={t('Generating today’s AI action brief from the gold planning data…')} />
             )}
 
-            <Card title={t("Today's decision queue")}>
+            <Card title={t("Today's decision queue")} extra={<FormulaHelp group="dailyDecisionQueue" />}>
               {managementActions.length ? (
                 <Table<PlainRecord>
                   size="small"
@@ -602,7 +576,7 @@ export default function DailyOperationsBriefPage() {
               )}
             </Card>
 
-            <Card title={t('Out-of-stock overview')}>
+            <Card title={t('Out-of-stock overview')} extra={<FormulaHelp group="dailyOosOverview" />}>
               {inventoryRisks.length ? (
                 <Table<PlainRecord>
                   size="small"
@@ -660,7 +634,7 @@ export default function DailyOperationsBriefPage() {
               )}
             </Card>
 
-            <Card title={t('Order planning overview')}>
+            <Card title={t('Order planning overview')} extra={<FormulaHelp group="dailyOrderOverview" />}>
               {orderPlanningRisks.length ? (
                 <Table<PlainRecord>
                   size="small"

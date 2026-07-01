@@ -3,10 +3,10 @@ import { EcobaseDataWarningService } from './data-warning-service';
 import type { EcobaseDataWarning } from './data-warning-service';
 import type { EcobaseDatabase, EcobaseRepository } from './import-service';
 import { toPlainRecord } from './import-service';
+import { DEFAULT_PLANNING_SETTINGS, EcobasePlanningSettingsService } from './planning-settings-service';
 import { profitTierFor } from './profit-tier';
 
 const RULE_VERSION = 'spreadsheet_parity_v1';
-const DEFAULT_SAFETY_BUFFER_DAYS = 7;
 const ZERO_VELOCITY_DAYS_OF_COVER_SENTINEL = 999;
 
 type PlainRecord = Record<string, unknown>;
@@ -203,6 +203,9 @@ export class EcobasePlanningCalculationService {
       this.db.getRepository(ECOBASE_COLLECTIONS.planningProductListings),
       planningProductId,
     );
+    const settings = await new EcobasePlanningSettingsService(this.db).getResolvedSettings({
+      safetyBufferDays: params.safetyBufferDays,
+    });
     const result = await this.calculateFromRows({
       planningProductId,
       calculationDate,
@@ -212,7 +215,7 @@ export class EcobasePlanningCalculationService {
       factRows,
       parameterRows,
       targetRows,
-      safetyBufferDays: params.safetyBufferDays,
+      safetyBufferDays: settings.safetyBufferDays,
     });
 
     if (params.persist !== false) {
@@ -266,7 +269,7 @@ export class EcobasePlanningCalculationService {
     const safetyBufferDays =
       params.safetyBufferDays ??
       firstNumber(params.parameterRows, ['safetyBufferDays', 'Safety Buffer Days']) ??
-      DEFAULT_SAFETY_BUFFER_DAYS;
+      DEFAULT_PLANNING_SETTINGS.safetyBufferDays;
     const leadTimeDays = await this.resolveLeadTimeDays(params.product, params.parameterRows);
     const daysOfCover =
       salesVelocity && salesVelocity > 0 ? currentStockParity / salesVelocity : ZERO_VELOCITY_DAYS_OF_COVER_SENTINEL;

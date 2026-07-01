@@ -22,6 +22,7 @@ import {
   Typography,
 } from 'antd';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { FormulaHelp } from '../formula-help';
 import { useT } from '../locale';
 
 type PlainRecord = Record<string, any>;
@@ -716,7 +717,12 @@ export default function OrderPlanningPage() {
 
       <Card
         title={t('Critical order digest')}
-        extra={<Typography.Text type="secondary">{t('Top supplier groups ranked by money at risk.')}</Typography.Text>}
+        extra={
+          <Space size="small" wrap>
+            <Typography.Text type="secondary">{t('Top supplier groups ranked by money at risk.')}</Typography.Text>
+            <FormulaHelp group="orderPlanning" />
+          </Space>
+        }
       >
         {renderGroupedTable(criticalGroups, false)}
       </Card>
@@ -724,9 +730,12 @@ export default function OrderPlanningPage() {
       <Card
         title={t('Supplier order workflow table')}
         extra={
-          <Typography.Text type="secondary">
-            {t('Sort by money at risk, earliest OOS, or OOS timing; expand supplier groups to open order rows.')}
-          </Typography.Text>
+          <Space size="small" wrap>
+            <Typography.Text type="secondary">
+              {t('Sort by money at risk, earliest OOS, or OOS timing; expand supplier groups to open order rows.')}
+            </Typography.Text>
+            <FormulaHelp group="orderPlanning" />
+          </Space>
         }
       >
         {renderGroupedTable(supplierGroups, 20)}
@@ -736,6 +745,7 @@ export default function OrderPlanningPage() {
         open={!!selectedOrderId}
         width={1100}
         title={selectedOrder ? `${selectedOrder.orderRef} · ${selectedOrder.supplierName}` : t('Order detail')}
+        extra={<FormulaHelp group="orderDrawer" />}
         onClose={closeDrawer}
       >
         {selectedOrder ? (

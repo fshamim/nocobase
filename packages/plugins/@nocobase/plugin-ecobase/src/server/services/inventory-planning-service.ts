@@ -4,12 +4,9 @@ import type { EcobaseDatabase } from './import-service';
 import { isReliableSupplierOrderCoverageStatus, normalizeSupplierOrderStatus } from './supplier-order-service';
 import { toPlainRecord } from './import-service';
 import { EcobasePlanningCalculationService } from './planning-calculation-service';
+import { DEFAULT_PLANNING_SETTINGS, EcobasePlanningSettingsService } from './planning-settings-service';
 import { isProfitTier, profitTierFor, profitTierMovement, profitTierRank } from './profit-tier';
 
-const DEFAULT_LEAD_TIME_FRESHNESS_DAYS = 60;
-const DEFAULT_ORDER_SOON_WINDOW_DAYS = 14;
-const DEFAULT_REORDER_CYCLE_DAYS = 30;
-const DEFAULT_SAFETY_BUFFER_DAYS = 7;
 const FALLBACK_RECORD_LIMIT = 100000;
 const ORDER_PLACED_NOT_PURCHASED_STATUSES = new Set([
   'draft',
@@ -20,7 +17,6 @@ const ORDER_PLACED_NOT_PURCHASED_STATUSES = new Set([
   'blocked',
 ]);
 const ACTIVE_PURCHASED_PIPELINE_STATUSES = new Set(['paid', 'supplier_preparing', 'shipped_inbound']);
-const PURCHASED_PIPELINE_GRACE_DAYS = 3;
 
 export type InventoryPlanningActionStatus =
   | 'excluded'
@@ -41,6 +37,7 @@ export interface InventoryPlanningQuery {
   safetyBufferDays?: number;
   orderSoonWindowDays?: number;
   reorderCycleDays?: number;
+  purchasedPipelineGraceDays?: number;
   limit?: number;
 }
 
@@ -207,12 +204,17 @@ function isActivePurchasedPipelineStatus(status: string | undefined) {
   return status ? ACTIVE_PURCHASED_PIPELINE_STATUSES.has(status) : false;
 }
 
-function isActivePurchasedPipelineDate(line: PlainRecord, order: PlainRecord, calculationDate?: string) {
+function isActivePurchasedPipelineDate(
+  line: PlainRecord,
+  order: PlainRecord,
+  calculationDate: string | undefined,
+  purchasedPipelineGraceDays: number,
+) {
   if (!calculationDate) return true;
   const expectedSellableDate =
     asString(line.expectedSellableDate) ?? asString(line.expectedDeliveryDate) ?? asString(order.expectedDeliveryDate);
   if (!expectedSellableDate) return true;
-  return diffDays(isoDate(expectedSellableDate), calculationDate) >= -PURCHASED_PIPELINE_GRACE_DAYS;
+  return diffDays(isoDate(expectedSellableDate), calculationDate) >= -purchasedPipelineGraceDays;
 }
 
 function actionRank(status: InventoryPlanningActionStatus) {
@@ -269,7 +271,8 @@ function supplierOrderSortValue(line: PlainRecord, order: PlainRecord) {
 function summarizeSupplierOrderState(
   lines: PlainRecord[],
   supplierOrderById: Map<string, PlainRecord>,
-  calculationDate?: string,
+  calculationDate: string | undefined,
+  purchasedPipelineGraceDays: number,
 ) {
   let purchasedOpenQty = 0;
   let placedNotPurchasedOpenQty = 0;
@@ -308,7 +311,7 @@ function summarizeSupplierOrderState(
     if (
       newerRecoveryCycleStarted ||
       !isActivePurchasedPipelineStatus(status) ||
-      !isActivePurchasedPipelineDate(line, order, calculationDate)
+      !isActivePurchasedPipelineDate(line, order, calculationDate, purchasedPipelineGraceDays)
     )
       continue;
     purchasedOpenQty += openQty;
@@ -493,6 +496,11 @@ const INVENTORY_PLANNING_ROW_FIELDS = [
   'recommendedBestQty',
   'salesVelocity',
   'suggestedReorderQty',
+  'safetyBufferDays',
+  'reorderCycleDays',
+  'orderSoonWindowDays',
+  'leadTimeFreshnessDays',
+  'purchasedPipelineGraceDays',
   'currentPlanningStock',
   'sellableStock',
   'reservedStock',
@@ -537,10 +545,12 @@ export class EcobaseInventoryPlanningService {
 
   private async calculateRows(query: InventoryPlanningQuery = {}) {
     const calculationDate = isoDate(query.calculationDate ?? new Date());
-    const safetyBufferDays = query.safetyBufferDays ?? DEFAULT_SAFETY_BUFFER_DAYS;
-    const orderSoonWindowDays = query.orderSoonWindowDays ?? DEFAULT_ORDER_SOON_WINDOW_DAYS;
-    const leadTimeFreshnessDays = query.leadTimeFreshnessDays ?? DEFAULT_LEAD_TIME_FRESHNESS_DAYS;
-    const reorderCycleDays = query.reorderCycleDays ?? DEFAULT_REORDER_CYCLE_DAYS;
+    const settings = await new EcobasePlanningSettingsService(this.db).getResolvedSettings(query);
+    const safetyBufferDays = settings.safetyBufferDays;
+    const orderSoonWindowDays = settings.orderSoonWindowDays;
+    const leadTimeFreshnessDays = settings.leadTimeFreshnessDays;
+    const reorderCycleDays = settings.reorderCycleDays;
+    const purchasedPipelineGraceDays = settings.purchasedPipelineGraceDays;
     const productFilter = query.company ? { company: query.company } : {};
     const scanLimit = query.limit ? Math.max(query.limit, Math.min(query.limit * 4, 500)) : undefined;
     const products = (
@@ -560,6 +570,7 @@ export class EcobaseInventoryPlanningService {
         orderSoonWindowDays,
         safetyBufferDays,
         reorderCycleDays,
+        purchasedPipelineGraceDays,
         limit: query.limit,
         scanLimit,
       });
@@ -585,6 +596,7 @@ export class EcobaseInventoryPlanningService {
           leadTimeFreshnessDays,
           orderSoonWindowDays,
           reorderCycleDays,
+          purchasedPipelineGraceDays,
         }),
       );
     }
@@ -1057,6 +1069,7 @@ export class EcobaseInventoryPlanningService {
     orderSoonWindowDays: number;
     safetyBufferDays: number;
     reorderCycleDays: number;
+    purchasedPipelineGraceDays: number;
     limit?: number;
     scanLimit?: number;
   }) {
@@ -1110,6 +1123,7 @@ export class EcobaseInventoryPlanningService {
           orderSoonWindowDays: params.orderSoonWindowDays,
           safetyBufferDays: params.safetyBufferDays,
           reorderCycleDays: params.reorderCycleDays,
+          purchasedPipelineGraceDays: params.purchasedPipelineGraceDays,
         }),
       );
     }
@@ -1197,6 +1211,7 @@ export class EcobaseInventoryPlanningService {
     orderSoonWindowDays: number;
     safetyBufferDays: number;
     reorderCycleDays: number;
+    purchasedPipelineGraceDays: number;
   }) {
     const company =
       companyFromRecord(params.inventory, params.sourceConnectionCompanies) ??
@@ -1284,6 +1299,7 @@ export class EcobaseInventoryPlanningService {
       asin,
       sku,
       calculationDate: params.calculationDate,
+      purchasedPipelineGraceDays: params.purchasedPipelineGraceDays,
     });
     const openOrderCoverageQty = supplierOrderState.supplierOrderPurchasedOpenQty;
     const expectedSellableDate = await this.earliestFallbackExpectedSellableDate({ company, asin, sku });
@@ -1355,6 +1371,11 @@ export class EcobaseInventoryPlanningService {
       daysUntilSafeReorder,
       actionStatus,
       suggestedReorderQty,
+      safetyBufferDays: params.safetyBufferDays,
+      reorderCycleDays: params.reorderCycleDays,
+      orderSoonWindowDays: params.orderSoonWindowDays,
+      leadTimeFreshnessDays: params.leadTimeFreshnessDays,
+      purchasedPipelineGraceDays: params.purchasedPipelineGraceDays,
       supplierId: asString(params.parameter.supplierId) ?? asString(orderHistorySupplier.supplierId),
       supplierName,
       supplierSource: asString(orderHistorySupplier.supplierName)
@@ -1386,6 +1407,13 @@ export class EcobaseInventoryPlanningService {
           'planningProducts table is empty; row derived from inventory_snapshot and planning_parameter records.',
         leadTimeAgeDays,
         stockBuckets,
+        planningSettings: {
+          safetyBufferDays: params.safetyBufferDays,
+          reorderCycleDays: params.reorderCycleDays,
+          orderSoonWindowDays: params.orderSoonWindowDays,
+          leadTimeFreshnessDays: params.leadTimeFreshnessDays,
+          purchasedPipelineGraceDays: params.purchasedPipelineGraceDays,
+        },
         estimatedProfitRiskBasis,
         sellerboardProfitMetrics,
       },
@@ -1399,6 +1427,7 @@ export class EcobaseInventoryPlanningService {
     leadTimeFreshnessDays: number;
     orderSoonWindowDays: number;
     reorderCycleDays: number;
+    purchasedPipelineGraceDays: number;
   }) {
     const planningProductId = asString(params.product.id) ?? '';
     const company = asString(params.product.company);
@@ -1440,7 +1469,12 @@ export class EcobaseInventoryPlanningService {
     }
     orderLines = [...orderLinesById.values()];
     const supplierOrderById = await this.supplierOrdersByLine(orderLines);
-    const supplierOrderState = summarizeSupplierOrderState(orderLines, supplierOrderById, params.calculationDate);
+    const supplierOrderState = summarizeSupplierOrderState(
+      orderLines,
+      supplierOrderById,
+      params.calculationDate,
+      params.purchasedPipelineGraceDays,
+    );
     const openOrderCoverageQty = supplierOrderState.supplierOrderPurchasedOpenQty;
     const orderHistorySupplier =
       !asString(supplier.name) && !asString(latestParameter.supplier)
@@ -1485,7 +1519,10 @@ export class EcobaseInventoryPlanningService {
       !calculationSafeReorderDate && typeof leadTimeDays === 'number' && calculationOosDate
         ? addDays(
             calculationOosDate,
-            -(leadTimeDays + (asNumber(params.calculation.safetyBufferDays) ?? DEFAULT_SAFETY_BUFFER_DAYS)),
+            -(
+              leadTimeDays +
+              (asNumber(params.calculation.safetyBufferDays) ?? DEFAULT_PLANNING_SETTINGS.safetyBufferDays)
+            ),
           )
         : undefined;
     const latestSafeReorderDate = calculationSafeReorderDate ?? derivedSafeReorderDate;
@@ -1495,7 +1532,7 @@ export class EcobaseInventoryPlanningService {
     const suggestedReorderQty = this.suggestedReorderQuantity({
       salesVelocity,
       leadTimeDays,
-      safetyBufferDays: asNumber(params.calculation.safetyBufferDays) ?? DEFAULT_SAFETY_BUFFER_DAYS,
+      safetyBufferDays: asNumber(params.calculation.safetyBufferDays) ?? DEFAULT_PLANNING_SETTINGS.safetyBufferDays,
       reorderCycleDays: params.reorderCycleDays,
       currentPlanningStock: stockBuckets.currentPlanningStock,
       openOrderCoverageQty,
@@ -1552,6 +1589,11 @@ export class EcobaseInventoryPlanningService {
       daysUntilSafeReorder,
       actionStatus,
       suggestedReorderQty,
+      safetyBufferDays: asNumber(params.calculation.safetyBufferDays) ?? DEFAULT_PLANNING_SETTINGS.safetyBufferDays,
+      reorderCycleDays: params.reorderCycleDays,
+      orderSoonWindowDays: params.orderSoonWindowDays,
+      leadTimeFreshnessDays: params.leadTimeFreshnessDays,
+      purchasedPipelineGraceDays: params.purchasedPipelineGraceDays,
       supplierId:
         asString(supplier.id) ??
         asString(supplierLink.supplierId) ??
@@ -1597,6 +1639,13 @@ export class EcobaseInventoryPlanningService {
         leadTimeAgeDays,
         supplierLink,
         stockBuckets,
+        planningSettings: {
+          safetyBufferDays: asNumber(params.calculation.safetyBufferDays) ?? DEFAULT_PLANNING_SETTINGS.safetyBufferDays,
+          reorderCycleDays: params.reorderCycleDays,
+          orderSoonWindowDays: params.orderSoonWindowDays,
+          leadTimeFreshnessDays: params.leadTimeFreshnessDays,
+          purchasedPipelineGraceDays: params.purchasedPipelineGraceDays,
+        },
         suggestedReorderQuantityFormula:
           'max((velocity * (leadTimeDays + safetyBufferDays + reorderCycleDays)) - totalPlanningStock - openOrderCoverageQty, 0)',
         estimatedProfitRiskBasis,
@@ -1728,9 +1777,15 @@ export class EcobaseInventoryPlanningService {
     asin?: string;
     sku?: string;
     calculationDate?: string;
+    purchasedPipelineGraceDays?: number;
   }) {
     const lines = await this.findOrderLinesByProduct(params);
-    return summarizeSupplierOrderState(lines, await this.supplierOrdersByLine(lines), params.calculationDate);
+    return summarizeSupplierOrderState(
+      lines,
+      await this.supplierOrdersByLine(lines),
+      params.calculationDate,
+      params.purchasedPipelineGraceDays ?? DEFAULT_PLANNING_SETTINGS.purchasedPipelineGraceDays,
+    );
   }
 
   private async supplierOrdersByLine(lines: PlainRecord[]) {

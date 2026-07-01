@@ -10,6 +10,7 @@ const DataSourcesPage = lazy(() => import('./pages/DataSourcesPage'));
 const ImportStatusPage = lazy(() => import('./pages/ImportStatusPage'));
 const InventoryPlanningPage = lazy(() => import('./pages/InventoryPlanningPage'));
 const OrderPlanningPage = lazy(() => import('./pages/OrderPlanningPage'));
+const PlanningSettingsPage = lazy(() => import('./pages/PlanningSettingsPage'));
 const SellerboardSourcesPage = lazy(() => import('./pages/SellerboardSourcesPage'));
 const SilverDataPage = lazy(() => import('./pages/SilverDataPage'));
 const SupplierManagementPage = lazy(() => import('./pages/SupplierManagementPage'));
@@ -46,6 +47,12 @@ const ecobaseWorkspacePages = [
     label: 'Supplier Management',
     path: `${ECOBASE_WORKSPACE_ROOT}/supplier-management`,
     Component: SupplierManagementPage,
+  },
+  {
+    key: 'planning-settings',
+    label: 'Planning Settings',
+    path: `${ECOBASE_WORKSPACE_ROOT}/planning-settings`,
+    Component: PlanningSettingsPage,
   },
   {
     key: 'import-status',
@@ -150,6 +157,12 @@ export class PluginEcobaseClient extends Plugin<Record<string, unknown>> {
       title: this.t('Daily brief AI settings'),
       icon: 'MailOutlined',
       Component: DailyBriefPromptSettingsPage,
+      aclSnippet: 'pm.ecobase',
+    });
+    this.pluginSettingsManager.add('ecobase-planning-settings', {
+      title: this.t('EcoBase planning settings'),
+      icon: 'ControlOutlined',
+      Component: PlanningSettingsPage,
       aclSnippet: 'pm.ecobase',
     });
   }

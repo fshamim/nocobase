@@ -114,6 +114,16 @@ export default defineCollection({
     { name: 'recommendedBestQty', type: 'double', interface: 'number', uiSchema: { title: 'Recommended Best Qty' } },
     { name: 'salesVelocity', type: 'double', interface: 'number', uiSchema: { title: 'Sales Velocity' } },
     { name: 'suggestedReorderQty', type: 'double', interface: 'number', uiSchema: { title: 'Suggested Reorder Qty' } },
+    { name: 'safetyBufferDays', type: 'integer', interface: 'integer', uiSchema: { title: 'Safety Buffer Days' } },
+    { name: 'reorderCycleDays', type: 'integer', interface: 'integer', uiSchema: { title: 'Reorder Cycle Days' } },
+    { name: 'orderSoonWindowDays', type: 'integer', interface: 'integer', uiSchema: { title: 'Order-Soon Window Days' } },
+    { name: 'leadTimeFreshnessDays', type: 'integer', interface: 'integer', uiSchema: { title: 'Lead-Time Freshness Days' } },
+    {
+      name: 'purchasedPipelineGraceDays',
+      type: 'integer',
+      interface: 'integer',
+      uiSchema: { title: 'Purchased Pipeline Grace Days' },
+    },
     {
       name: 'currentPlanningStock',
       type: 'double',

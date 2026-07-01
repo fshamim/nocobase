@@ -24,6 +24,7 @@ import {
 } from 'antd';
 import dayjs from 'dayjs';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { FormulaHelp } from '../formula-help';
 import { useT } from '../locale';
 
 type PlainRecord = Record<string, any>;
@@ -580,6 +581,10 @@ export default function InventoryPlanningPage() {
   const [tier, setTier] = useState<string | undefined>();
   const [leadTimeFreshnessDays, setLeadTimeFreshnessDays] = useState(60);
   const [orderSoonWindowDays, setOrderSoonWindowDays] = useState(14);
+  const [safetyBufferDays, setSafetyBufferDays] = useState(7);
+  const [reorderCycleDays, setReorderCycleDays] = useState(30);
+  const [purchasedPipelineGraceDays, setPurchasedPipelineGraceDays] = useState(3);
+  const [planningSettingsWarning, setPlanningSettingsWarning] = useState<string | undefined>();
   const [limit, setLimit] = useState(150);
   const [orderNowQuickFilter, setOrderNowQuickFilter] = useState<OrderNowQuickFilter>('all');
   const [orderNowTierFilter, setOrderNowTierFilter] = useState<string[]>([]);
@@ -607,6 +612,18 @@ export default function InventoryPlanningPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
+  const loadPlanningSettings = useCallback(async () => {
+    const response = await api.request({ url: 'ecobasePlanningSettings:get', method: 'post', data: {} });
+    const data = unwrapData(response);
+    const settings = data.settings ?? {};
+    setLeadTimeFreshnessDays(Number(settings.leadTimeFreshnessDays ?? 60));
+    setOrderSoonWindowDays(Number(settings.orderSoonWindowDays ?? 14));
+    setSafetyBufferDays(Number(settings.safetyBufferDays ?? 7));
+    setReorderCycleDays(Number(settings.reorderCycleDays ?? 30));
+    setPurchasedPipelineGraceDays(Number(settings.purchasedPipelineGraceDays ?? 3));
+    setPlanningSettingsWarning(typeof data.warning === 'string' ? data.warning : undefined);
+  }, [api]);
+
   const loadPlanning = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -616,6 +633,9 @@ export default function InventoryPlanningPage() {
         calculationDate: calculationDate.trim() || undefined,
         leadTimeFreshnessDays,
         orderSoonWindowDays,
+        safetyBufferDays,
+        reorderCycleDays,
+        purchasedPipelineGraceDays,
         limit,
       };
       const [filtersResponse, rowsResponse, digestResponse] = await Promise.all([
@@ -631,7 +651,21 @@ export default function InventoryPlanningPage() {
     } finally {
       setLoading(false);
     }
-  }, [api, calculationDate, company, leadTimeFreshnessDays, limit, orderSoonWindowDays]);
+  }, [
+    api,
+    calculationDate,
+    company,
+    leadTimeFreshnessDays,
+    limit,
+    orderSoonWindowDays,
+    purchasedPipelineGraceDays,
+    reorderCycleDays,
+    safetyBufferDays,
+  ]);
+
+  useEffect(() => {
+    void loadPlanningSettings().catch((err) => setError(err as Error));
+  }, [loadPlanningSettings]);
 
   useEffect(() => {
     void loadPlanning();
@@ -649,6 +683,9 @@ export default function InventoryPlanningPage() {
           calculationDate: calculationDate || undefined,
           leadTimeFreshnessDays,
           orderSoonWindowDays,
+          safetyBufferDays,
+          reorderCycleDays,
+          purchasedPipelineGraceDays,
           limit: Math.max(limit, 500),
         },
       });
@@ -657,7 +694,18 @@ export default function InventoryPlanningPage() {
       setError(err as Error);
       setLoading(false);
     }
-  }, [api, calculationDate, company, leadTimeFreshnessDays, limit, loadPlanning, orderSoonWindowDays]);
+  }, [
+    api,
+    calculationDate,
+    company,
+    leadTimeFreshnessDays,
+    limit,
+    loadPlanning,
+    orderSoonWindowDays,
+    purchasedPipelineGraceDays,
+    reorderCycleDays,
+    safetyBufferDays,
+  ]);
 
   const runBudgetOptimizer = useCallback(async () => {
     if (!budgetAmount || budgetAmount <= 0) {
@@ -675,6 +723,9 @@ export default function InventoryPlanningPage() {
           calculationDate: calculationDate || undefined,
           leadTimeFreshnessDays,
           orderSoonWindowDays,
+          safetyBufferDays,
+          reorderCycleDays,
+          purchasedPipelineGraceDays,
           limit,
           budget: budgetAmount,
           horizonDays: budgetHorizonDays,
@@ -696,6 +747,9 @@ export default function InventoryPlanningPage() {
     limit,
     message,
     orderSoonWindowDays,
+    purchasedPipelineGraceDays,
+    reorderCycleDays,
+    safetyBufferDays,
     t,
   ]);
 
@@ -1262,13 +1316,14 @@ export default function InventoryPlanningPage() {
           )}
         </Typography.Paragraph>
         {error ? <Alert type="error" message={error.message} /> : null}
+        {planningSettingsWarning ? <Alert type="warning" message={planningSettingsWarning} showIcon /> : null}
         <Collapse
           size="small"
           items={[
             {
               key: 'operator-filters',
               label: t('Operator filters'),
-              extra: <Typography.Text type="secondary">{t('Company, date, status, limits.')}</Typography.Text>,
+              extra: <Typography.Text type="secondary">{t('Company, date, status, knobs, limits.')}</Typography.Text>,
               children: (
                 <Row gutter={[24, 20]} align="bottom">
                   <FilterControl title={t('Company')} help={t('Limit rows to one company.')}>
@@ -1318,6 +1373,27 @@ export default function InventoryPlanningPage() {
                       )}
                     />
                   </FilterControl>
+                  <FilterControl
+                    title={t('Safety buffer')}
+                    help={t('Extra cushion before stockout, from Planning Settings.')}
+                  >
+                    <InputNumber
+                      addonAfter={t('days')}
+                      min={0}
+                      value={safetyBufferDays}
+                      onChange={(value) => setSafetyBufferDays(Number(value ?? 7))}
+                      style={{ width: '100%' }}
+                    />
+                  </FilterControl>
+                  <FilterControl title={t('Reorder cycle')} help={t('Extra selling days to cover after lead time.')}>
+                    <InputNumber
+                      addonAfter={t('days')}
+                      min={0}
+                      value={reorderCycleDays}
+                      onChange={(value) => setReorderCycleDays(Number(value ?? 30))}
+                      style={{ width: '100%' }}
+                    />
+                  </FilterControl>
                   <FilterControl title={t('Lead-time stale after')} help={t('When lead time becomes stale.')}>
                     <InputNumber
                       addonAfter={t('days')}
@@ -1333,6 +1409,18 @@ export default function InventoryPlanningPage() {
                       min={1}
                       value={orderSoonWindowDays}
                       onChange={(value) => setOrderSoonWindowDays(Number(value ?? 14))}
+                      style={{ width: '100%' }}
+                    />
+                  </FilterControl>
+                  <FilterControl
+                    title={t('Pipeline grace')}
+                    help={t('Days after expected sellable date that purchased pipeline still counts as coverage.')}
+                  >
+                    <InputNumber
+                      addonAfter={t('days')}
+                      min={0}
+                      value={purchasedPipelineGraceDays}
+                      onChange={(value) => setPurchasedPipelineGraceDays(Number(value ?? 3))}
                       style={{ width: '100%' }}
                     />
                   </FilterControl>
@@ -1353,6 +1441,11 @@ export default function InventoryPlanningPage() {
                       <Button block loading={loading} onClick={syncEditableRows}>
                         {t('Rebuild gold inventory')}
                       </Button>
+                      <Typography.Text type="secondary">
+                        {t(
+                          'Saved Planning Settings load as defaults. Local edits affect this page and rebuild requests.',
+                        )}
+                      </Typography.Text>
                     </Space>
                   </Col>
                 </Row>
@@ -1592,9 +1685,12 @@ export default function InventoryPlanningPage() {
         <Card
           title={t('Daily digest preview')}
           extra={
-            <Typography.Text type="secondary">
-              {t('Bounded to urgent action items so operators are not overloaded.')}
-            </Typography.Text>
+            <Space size="small" wrap>
+              <Typography.Text type="secondary">
+                {t('Bounded to urgent action items so operators are not overloaded.')}
+              </Typography.Text>
+              <FormulaHelp group="inventoryDigest" />
+            </Space>
           }
         >
           <Row gutter={[16, 16]}>
@@ -1974,7 +2070,7 @@ export default function InventoryPlanningPage() {
             </Col>
           </Row>
         </Card>
-        <Card title={t('Inventory planning queue')}>
+        <Card title={t('Inventory planning queue')} extra={<FormulaHelp group="inventoryQueue" />}>
           <Table<PlainRecord>
             className="ecobase-inventory-table"
             loading={loading}
@@ -2011,20 +2107,23 @@ export default function InventoryPlanningPage() {
         }}
         extra={
           selectedRow ? (
-            <Button
-              onClick={() => {
-                setSelectedRow(null);
-                setActionValues(null);
-                setOrderLineHistory([]);
-                setOrderActivities([]);
-                setProductTasks([]);
-                setProductTargets([]);
-                setLineEditValues(null);
-                setOrderEditValues(null);
-              }}
-            >
-              {t('Close')}
-            </Button>
+            <Space size="small">
+              <FormulaHelp group="inventoryDrawer" />
+              <Button
+                onClick={() => {
+                  setSelectedRow(null);
+                  setActionValues(null);
+                  setOrderLineHistory([]);
+                  setOrderActivities([]);
+                  setProductTasks([]);
+                  setProductTargets([]);
+                  setLineEditValues(null);
+                  setOrderEditValues(null);
+                }}
+              >
+                {t('Close')}
+              </Button>
+            </Space>
           ) : undefined
         }
       >

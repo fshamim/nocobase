@@ -36,6 +36,7 @@ import { EcobaseMedallionNormalizationService } from './services/medallion-norma
 import { EcobaseMedallionOrderService } from './services/medallion-order-service';
 import { EcobaseMedallionWorkflowService } from './services/medallion-workflow-service';
 import { EcobasePlanningCalculationService } from './services/planning-calculation-service';
+import { EcobasePlanningSettingsService } from './services/planning-settings-service';
 import { EcobasePlanningProductService } from './services/planning-product-service';
 import { EcobaseOperatorWorkspaceService } from './services/operator-workspace-service';
 import { EcobaseReportService } from './services/report-service';
@@ -1176,6 +1177,19 @@ export function createEcobaseOrderPlanningActions() {
   };
 }
 
+function inventoryPlanningQuery(values: Record<string, unknown>) {
+  return {
+    company: getOptionalString(values, 'company'),
+    calculationDate: getOptionalString(values, 'calculationDate'),
+    leadTimeFreshnessDays: getOptionalNumber(values, 'leadTimeFreshnessDays'),
+    safetyBufferDays: getOptionalNumber(values, 'safetyBufferDays'),
+    orderSoonWindowDays: getOptionalNumber(values, 'orderSoonWindowDays'),
+    reorderCycleDays: getOptionalNumber(values, 'reorderCycleDays'),
+    purchasedPipelineGraceDays: getOptionalNumber(values, 'purchasedPipelineGraceDays'),
+    limit: getOptionalNumber(values, 'limit'),
+  };
+}
+
 export function createEcobaseInventoryPlanningActions() {
   return {
     filters: async (ctx, next) => {
@@ -1184,53 +1198,24 @@ export function createEcobaseInventoryPlanningActions() {
       await next();
     },
     refreshReadModel: async (ctx, next) => {
-      const values = getValues(ctx.action.params);
       const service = new EcobaseInventoryPlanningService(ctx.db);
-      ctx.body = {
-        data: await service.refreshReadModel({
-          company: getOptionalString(values, 'company'),
-          calculationDate: getOptionalString(values, 'calculationDate'),
-          leadTimeFreshnessDays: getOptionalNumber(values, 'leadTimeFreshnessDays'),
-          safetyBufferDays: getOptionalNumber(values, 'safetyBufferDays'),
-          orderSoonWindowDays: getOptionalNumber(values, 'orderSoonWindowDays'),
-          reorderCycleDays: getOptionalNumber(values, 'reorderCycleDays'),
-          limit: getOptionalNumber(values, 'limit'),
-        }),
-      };
+      ctx.body = { data: await service.refreshReadModel(inventoryPlanningQuery(getValues(ctx.action.params))) };
       await next();
     },
     rows: async (ctx, next) => {
-      const values = getValues(ctx.action.params);
       const service = new EcobaseInventoryPlanningService(ctx.db);
       ctx.body = {
         data: compactInventoryPlanningRows(
-          await service.listRows({
-            company: getOptionalString(values, 'company'),
-            calculationDate: getOptionalString(values, 'calculationDate'),
-            leadTimeFreshnessDays: getOptionalNumber(values, 'leadTimeFreshnessDays'),
-            safetyBufferDays: getOptionalNumber(values, 'safetyBufferDays'),
-            orderSoonWindowDays: getOptionalNumber(values, 'orderSoonWindowDays'),
-            reorderCycleDays: getOptionalNumber(values, 'reorderCycleDays'),
-            limit: getOptionalNumber(values, 'limit'),
-          }),
+          await service.listRows(inventoryPlanningQuery(getValues(ctx.action.params))),
         ),
       };
       await next();
     },
     digestPreview: async (ctx, next) => {
-      const values = getValues(ctx.action.params);
       const service = new EcobaseInventoryPlanningService(ctx.db);
       ctx.body = {
         data: compactInventoryPlanningDigest(
-          await service.digestPreview({
-            company: getOptionalString(values, 'company'),
-            calculationDate: getOptionalString(values, 'calculationDate'),
-            leadTimeFreshnessDays: getOptionalNumber(values, 'leadTimeFreshnessDays'),
-            safetyBufferDays: getOptionalNumber(values, 'safetyBufferDays'),
-            orderSoonWindowDays: getOptionalNumber(values, 'orderSoonWindowDays'),
-            reorderCycleDays: getOptionalNumber(values, 'reorderCycleDays'),
-            limit: getOptionalNumber(values, 'limit'),
-          }),
+          await service.digestPreview(inventoryPlanningQuery(getValues(ctx.action.params))),
         ),
       };
       await next();
@@ -1245,17 +1230,38 @@ export function createEcobaseInventoryPlanningActions() {
       const service = new EcobaseInventoryPlanningService(ctx.db);
       ctx.body = {
         data: await service.optimizeBudget({
-          company: getOptionalString(values, 'company'),
-          calculationDate: getOptionalString(values, 'calculationDate'),
-          leadTimeFreshnessDays: getOptionalNumber(values, 'leadTimeFreshnessDays'),
-          safetyBufferDays: getOptionalNumber(values, 'safetyBufferDays'),
-          orderSoonWindowDays: getOptionalNumber(values, 'orderSoonWindowDays'),
-          reorderCycleDays: getOptionalNumber(values, 'reorderCycleDays'),
-          limit: getOptionalNumber(values, 'limit'),
+          ...inventoryPlanningQuery(values),
           horizonDays: getOptionalNumber(values, 'horizonDays'),
           budget,
         }),
       };
+      await next();
+    },
+  };
+}
+
+export function createEcobasePlanningSettingsActions() {
+  return {
+    get: async (ctx, next) => {
+      ctx.body = { data: await new EcobasePlanningSettingsService(ctx.db).getActiveSettings() };
+      await next();
+    },
+    save: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      try {
+        ctx.body = {
+          data: await new EcobasePlanningSettingsService(ctx.db).saveSettings({
+            ...values,
+            updatedBy: getActorId(ctx),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'EcoBase planning settings could not be saved.');
+      }
+      await next();
+    },
+    reset: async (ctx, next) => {
+      ctx.body = { data: await new EcobasePlanningSettingsService(ctx.db).resetSettings() };
       await next();
     },
   };
@@ -2427,6 +2433,10 @@ export class PluginEcobaseServer extends Plugin {
       actions: createEcobaseInventoryPlanningActions(),
     });
     this.app.resourceManager.define({
+      name: 'ecobasePlanningSettings',
+      actions: createEcobasePlanningSettingsActions(),
+    });
+    this.app.resourceManager.define({
       name: 'ecobaseOrderPlanning',
       actions: createEcobaseOrderPlanningActions(),
     });
@@ -2477,6 +2487,7 @@ export class PluginEcobaseServer extends Plugin {
       ['filters', 'refreshReadModel', 'rows', 'digestPreview', 'optimizeBudget'],
       'loggedIn',
     );
+    this.app.acl.allow('ecobasePlanningSettings', ['get', 'save', 'reset'], 'loggedIn');
     this.app.acl.allow(
       'ecobaseOrderPlanning',
       [
@@ -2566,6 +2577,7 @@ export class PluginEcobaseServer extends Plugin {
     this.app.acl.allow(ECOBASE_COLLECTIONS.goldManagementKpiDailyFacts, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.dailyManagementSnapshots, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.dailyBriefPromptSettings, ['list', 'get'], 'loggedIn');
+    this.app.acl.allow(ECOBASE_COLLECTIONS.planningSettings, ['list', 'get'], 'loggedIn');
   }
 }
 

@@ -37,6 +37,7 @@ export const ECOBASE_COLLECTIONS = {
   reportItems: 'ecobaseReportItems',
   dailyManagementSnapshots: 'ecobaseDailyManagementSnapshots',
   dailyBriefPromptSettings: 'ecobaseDailyBriefPromptSettings',
+  planningSettings: 'ecobasePlanningSettings',
   aiAnswers: 'ecobaseAiAnswers',
   dataQualitySignoffs: 'ecobaseDataQualitySignoffs',
   benchmarkFixtures: 'ecobaseBenchmarkFixtures',

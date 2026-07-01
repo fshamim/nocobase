@@ -21,6 +21,7 @@ import {
 } from 'antd';
 import dayjs from 'dayjs';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { FormulaHelp } from '../formula-help';
 import { useT } from '../locale';
 
 type PlainRecord = Record<string, any>;
@@ -510,7 +511,7 @@ export default function SupplierManagementPage() {
         </Col>
       </Row>
 
-      <Card title={t('Supplier daily digest')}>
+      <Card title={t('Supplier daily digest')} extra={<FormulaHelp group="supplierDigest" />}>
         <Table
           rowKey={(row) => String(row.naturalKey ?? row.id)}
           loading={loading}
@@ -527,6 +528,7 @@ export default function SupplierManagementPage() {
         onClose={() => setSelectedRow(null)}
         width={1040}
         title={selectedSupplier.displayName ?? selectedRow?.supplierName ?? t('Supplier detail')}
+        extra={<FormulaHelp group="supplierRisk" />}
       >
         {selectedRow ? (
           <Space direction="vertical" size="large" style={{ width: '100%' }}>
@@ -708,7 +710,7 @@ export default function SupplierManagementPage() {
               />
             </Card>
 
-            <Card title={t('Risk drivers')} size="small">
+            <Card title={t('Risk drivers')} size="small" extra={<FormulaHelp group="supplierRisk" />}>
               <Row gutter={[16, 16]}>
                 <Col xs={24} lg={12}>
                   <Typography.Text strong>{t('Inventory / lead-time risk')}</Typography.Text>
