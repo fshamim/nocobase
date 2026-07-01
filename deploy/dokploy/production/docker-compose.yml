@@ -3,15 +3,15 @@ services:
     image: postgres:15-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-nocobase}
-      POSTGRES_DB: ${POSTGRES_DB:-nocobase}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_USER: ${DB_USER:-nocobase}
+      POSTGRES_DB: ${DB_DATABASE:-nocobase}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
     volumes:
       - ecobase-prod-postgres:/var/lib/postgresql/data
     healthcheck:
       test:
         - CMD-SHELL
-        - pg_isready -U ${POSTGRES_USER:-nocobase} -d ${POSTGRES_DB:-nocobase}
+        - pg_isready -U ${DB_USER:-nocobase} -d ${DB_DATABASE:-nocobase}
       interval: 5s
       timeout: 5s
       retries: 30
@@ -37,9 +37,9 @@ services:
       ENCRYPTION_FIELD_KEY: ${ENCRYPTION_FIELD_KEY:?ENCRYPTION_FIELD_KEY is required}
       DB_DIALECT: postgres
       DB_HOST: postgres
-      DB_DATABASE: ${POSTGRES_DB:-nocobase}
-      DB_USER: ${POSTGRES_USER:-nocobase}
-      DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      DB_DATABASE: ${DB_DATABASE:-nocobase}
+      DB_USER: ${DB_USER:-nocobase}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
       INIT_ROOT_EMAIL: ${INIT_ROOT_EMAIL:?INIT_ROOT_EMAIL is required}
       INIT_ROOT_PASSWORD: ${INIT_ROOT_PASSWORD:?INIT_ROOT_PASSWORD is required}
       LOGGER_LEVEL: ${LOGGER_LEVEL:-info}
