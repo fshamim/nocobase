@@ -12,10 +12,12 @@ interface FindParams {
 
 class MemoryRepository implements EcobaseRepository {
   private sequence = 1;
+  readonly findCalls: FindParams[] = [];
 
   constructor(private records: Record<string, unknown>[] = []) {}
 
   async find(params: FindParams = {}) {
+    this.findCalls.push(params);
     const filtered = this.filterRecords(params);
     return this.sortRecords(filtered, params.sort).slice(0, params.limit ?? filtered.length);
   }
@@ -877,6 +879,9 @@ describe('EcobaseInventoryPlanningService', () => {
       monthToDateUnitsSold: 12,
       monthToDateProfit: 120,
     });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).findCalls).toContainEqual(
+      expect.objectContaining({ limit: 100000 }),
+    );
   });
 
   it('does not assign tier C when Sellerboard profit score is missing or zero', async () => {

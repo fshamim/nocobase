@@ -10,6 +10,7 @@ const DEFAULT_LEAD_TIME_FRESHNESS_DAYS = 60;
 const DEFAULT_ORDER_SOON_WINDOW_DAYS = 14;
 const DEFAULT_REORDER_CYCLE_DAYS = 30;
 const DEFAULT_SAFETY_BUFFER_DAYS = 7;
+const FALLBACK_RECORD_LIMIT = 100000;
 const ORDER_PLACED_NOT_PURCHASED_STATUSES = new Set([
   'draft',
   'supplier_contacted',
@@ -1652,7 +1653,7 @@ export class EcobaseInventoryPlanningService {
     },
   ) {
     const repository = this.db.getRepository(collection);
-    const limit = params.limit;
+    const limit = params.limit ?? FALLBACK_RECORD_LIMIT;
     if (!params.company) {
       return (await repository.find({ ...(params.sort ? { sort: params.sort } : {}), ...(limit ? { limit } : {}) }))
         .map(toPlainRecord)
