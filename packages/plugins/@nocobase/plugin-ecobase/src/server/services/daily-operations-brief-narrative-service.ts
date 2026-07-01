@@ -2,19 +2,11 @@ import { createHash } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import type { EcobaseDatabase } from './import-service';
 import { toPlainRecord } from './import-service';
-import {
-  EcobaseDailyOperationsBriefService,
-  type DailyEvidencePack,
-  type GenerateDailyOperationsBriefEvidenceParams,
-} from './daily-operations-brief-service';
-import {
-  EcobaseDailyManagementSnapshotService,
-  type DailyManagementSnapshotTrend,
-} from './daily-management-snapshot-service';
-import {
-  EcobaseDailyBriefPromptSettingsService,
-  type DailyBriefPromptSettings,
-} from './daily-brief-prompt-settings-service';
+import { EcobaseDailyOperationsBriefService } from './daily-operations-brief-service';
+import type { DailyEvidencePack, GenerateDailyOperationsBriefEvidenceParams } from './daily-operations-brief-service';
+import { EcobaseManagementKpiFactsService } from './management-kpi-facts-service';
+import { EcobaseDailyBriefPromptSettingsService } from './daily-brief-prompt-settings-service';
+import type { DailyBriefPromptSettings } from './daily-brief-prompt-settings-service';
 
 type PlainRecord = Record<string, unknown>;
 type DailyBriefNarrativeStatus =
@@ -550,8 +542,10 @@ export class EcobaseDailyOperationsBriefNarrativeService {
       date: asString(rawEvidencePack.date) ?? asString(params.date) ?? new Date().toISOString().slice(0, 10),
     };
     const companyName = asString(evidencePack.company?.name) ?? asString(params.company);
-    const promptSettingsResult = await new EcobaseDailyBriefPromptSettingsService(this.db).getActiveSettings(companyName);
-    const managementKpiTrends = await new EcobaseDailyManagementSnapshotService(this.db).getTrend({
+    const promptSettingsResult = await new EcobaseDailyBriefPromptSettingsService(this.db).getActiveSettings(
+      companyName,
+    );
+    const managementKpiTrends = await new EcobaseManagementKpiFactsService(this.db).getTrend({
       date: evidencePack.date,
       company: companyName,
       period: '7d',
@@ -571,7 +565,8 @@ export class EcobaseDailyOperationsBriefNarrativeService {
         validationErrors: ['Ecobase daily operations brief delivery failed: workflow_send mode requires a recipient.'],
         prompt,
         rawResponse: '',
-        llmService: asString(params.llmService) ?? promptSettingsResult.settings.llmService ?? 'codex-subscription-live',
+        llmService:
+          asString(params.llmService) ?? promptSettingsResult.settings.llmService ?? 'codex-subscription-live',
         model: asString(params.model) ?? promptSettingsResult.settings.model ?? 'gpt-5.5',
         evidenceHash: stableHash(evidencePack),
         promptSettings: promptSettingsResult.settings,
@@ -610,7 +605,8 @@ export class EcobaseDailyOperationsBriefNarrativeService {
       }
     }
 
-    const llmService = asString(params.llmService) ?? promptSettingsResult.settings.llmService ?? 'codex-subscription-live';
+    const llmService =
+      asString(params.llmService) ?? promptSettingsResult.settings.llmService ?? 'codex-subscription-live';
     const model = asString(params.model) ?? promptSettingsResult.settings.model ?? 'gpt-5.5';
     const prompt = this.buildPrompt({
       evidencePack: evidencePackForPrompt,

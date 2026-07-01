@@ -10,6 +10,7 @@ import companies from '../collections/companies';
 import dailyBriefPromptSettings from '../collections/daily-brief-prompt-settings';
 import dailyManagementSnapshots from '../collections/daily-management-snapshots';
 import dataQualitySignoffs from '../collections/data-quality-signoffs';
+import goldManagementKpiDailyFacts from '../collections/gold-management-kpi-daily-facts';
 import importRuns from '../collections/import-runs';
 import inventoryPlanningRows from '../collections/inventory-planning-rows';
 import inventorySnapshots from '../collections/inventory-snapshots';
@@ -109,6 +110,7 @@ describe('Ecobase plugin-owned schema', () => {
     expect(reportRuns.name).toBe(ECOBASE_COLLECTIONS.reportRuns);
     expect(reportItems.name).toBe(ECOBASE_COLLECTIONS.reportItems);
     expect(dailyManagementSnapshots.name).toBe(ECOBASE_COLLECTIONS.dailyManagementSnapshots);
+    expect(goldManagementKpiDailyFacts.name).toBe(ECOBASE_COLLECTIONS.goldManagementKpiDailyFacts);
     expect(dailyBriefPromptSettings.name).toBe(ECOBASE_COLLECTIONS.dailyBriefPromptSettings);
     expect(aiAnswers.name).toBe(ECOBASE_COLLECTIONS.aiAnswers);
     expect(dataQualitySignoffs.name).toBe(ECOBASE_COLLECTIONS.dataQualitySignoffs);
@@ -136,6 +138,7 @@ describe('Ecobase plugin-owned schema', () => {
       reportRuns,
       reportItems,
       dailyManagementSnapshots,
+      goldManagementKpiDailyFacts,
       dailyBriefPromptSettings,
       aiAnswers,
       dataQualitySignoffs,
@@ -300,6 +303,12 @@ describe('Ecobase plugin-owned schema', () => {
     expect(field(dailyManagementSnapshots, 'inventoryMoneyAtRisk')).toMatchObject({ type: 'double' });
     expect(field(dailyManagementSnapshots, 'orderMoneyAtRisk')).toMatchObject({ type: 'double' });
     expect(field(dailyManagementSnapshots, 'snapshotPayload')).toMatchObject({ type: 'jsonb' });
+    expect(field(goldManagementKpiDailyFacts, 'naturalKey')).toMatchObject({ type: 'string', unique: true });
+    expect(field(goldManagementKpiDailyFacts, 'metricDate')).toMatchObject({ type: 'dateOnly' });
+    expect(field(goldManagementKpiDailyFacts, 'companyScope')).toMatchObject({ type: 'string' });
+    expect(field(goldManagementKpiDailyFacts, 'metricKey')).toMatchObject({ type: 'string' });
+    expect(field(goldManagementKpiDailyFacts, 'value')).toMatchObject({ type: 'double' });
+    expect(field(goldManagementKpiDailyFacts, 'payload')).toMatchObject({ type: 'jsonb' });
     expect(field(dailyBriefPromptSettings, 'directorInstructions')).toMatchObject({ type: 'text' });
     expect(field(dailyBriefPromptSettings, 'mustInclude')).toMatchObject({ type: 'jsonb' });
     expect(field(dailyBriefPromptSettings, 'kpiPriority')).toMatchObject({ type: 'jsonb' });

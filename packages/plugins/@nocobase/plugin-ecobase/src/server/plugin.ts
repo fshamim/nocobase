@@ -23,8 +23,8 @@ import { EcobaseComparisonService } from './services/comparison-service';
 import { EcobaseDashboardService } from './services/dashboard-service';
 import { EcobaseDailyOperationsBriefService } from './services/daily-operations-brief-service';
 import { EcobaseDailyOperationsBriefDeliveryService } from './services/daily-operations-brief-delivery-service';
-import { EcobaseDailyManagementSnapshotService } from './services/daily-management-snapshot-service';
 import { EcobaseDailyBriefPromptSettingsService } from './services/daily-brief-prompt-settings-service';
+import { EcobaseManagementKpiFactsService } from './services/management-kpi-facts-service';
 import {
   EcobaseDailyOperationsBriefNarrativeService,
   NocoBaseEcoNarrativeProvider,
@@ -529,23 +529,43 @@ export function createEcobaseReportActions(app?: { pm?: { get?: (name: string) =
     },
     getDailyManagementSnapshotTrend: async (ctx, next) => {
       const values = getValues(ctx.action.params);
-      const company = getOptionalString(values, 'company');
+      const date = getOptionalString(values, 'date');
+      if (!date) {
+        ctx.throw(400, 'Ecobase daily management trend failed: date is required.');
+        return;
+      }
       try {
-        const evidence = await new EcobaseDailyOperationsBriefService(ctx.db).generateEvidence({
-          date: getOptionalString(values, 'date'),
-          company,
-          timezone: getOptionalString(values, 'timezone'),
-          maxItems: getOptionalNumber(values, 'maxItems'),
-        });
         ctx.body = {
-          data: await new EcobaseDailyManagementSnapshotService(ctx.db).getTrend({
-            date: String((evidence.evidencePack as Record<string, unknown>).date ?? getOptionalString(values, 'date')),
-            company,
+          data: await new EcobaseManagementKpiFactsService(ctx.db).getTrend({
+            date,
+            company: getOptionalString(values, 'company'),
             period: getOptionalString(values, 'period') as 'yesterday' | '7d' | '30d' | undefined,
           }),
         };
       } catch (error) {
         ctx.throw(400, error instanceof Error ? error.message : 'Ecobase daily management trend failed.');
+        return;
+      }
+      await next();
+    },
+    backfillManagementKpiFacts: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const startDate = getOptionalString(values, 'startDate');
+      const endDate = getOptionalString(values, 'endDate');
+      if (!startDate || !endDate) {
+        ctx.throw(400, 'Ecobase management KPI backfill failed: startDate and endDate are required.');
+        return;
+      }
+      try {
+        ctx.body = {
+          data: await new EcobaseManagementKpiFactsService(ctx.db).backfillSilverDerivedFacts({
+            startDate,
+            endDate,
+            company: getOptionalString(values, 'company'),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase management KPI backfill failed.');
         return;
       }
       await next();
@@ -2534,6 +2554,7 @@ export class PluginEcobaseServer extends Plugin {
         'generateDailyOperationsBriefEvidence',
         'generateDailyOperationsBrief',
         'getDailyManagementSnapshotTrend',
+        'backfillManagementKpiFacts',
         'getDailyBriefPromptSettings',
         'saveDailyBriefPromptSettings',
         'resetDailyBriefPromptSettings',
@@ -2542,6 +2563,7 @@ export class PluginEcobaseServer extends Plugin {
       ],
       'loggedIn',
     );
+    this.app.acl.allow(ECOBASE_COLLECTIONS.goldManagementKpiDailyFacts, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.dailyManagementSnapshots, ['list', 'get'], 'loggedIn');
     this.app.acl.allow(ECOBASE_COLLECTIONS.dailyBriefPromptSettings, ['list', 'get'], 'loggedIn');
   }

@@ -27,11 +27,22 @@ const isEcobaseRoute = (record: DesktopRouteRecord) =>
   ECOBASE_ROUTE_SCHEMA_UIDS.includes(routeSchemaUid(record)) ||
   (routeTitle(record) === ECOBASE_WORKSPACE_TITLE && routeParentId(record) === null);
 
+const tableName = (table: unknown) => {
+  if (typeof table === 'string') return table;
+  if (typeof table !== 'object' || table === null) return '';
+  return String(
+    (table as { tableName?: unknown; name?: unknown }).tableName ?? (table as { name?: unknown }).name ?? '',
+  );
+};
+
 export default class extends Migration {
   on = 'afterSync';
   appVersion = '<2.2.0';
 
   async up() {
+    const tables = await this.db.sequelize.getQueryInterface().showAllTables();
+    if (!tables.map(tableName).includes('desktopRoutesUiLayouts')) return;
+
     const routes = ((await this.db.getRepository('desktopRoutes').find({})) as DesktopRouteRecord[]).filter(
       isEcobaseRoute,
     );

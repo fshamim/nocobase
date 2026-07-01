@@ -69,9 +69,10 @@ export const ECOBASE_COLLECTIONS = {
   goldInventoryPlanningRows: 'goldInventoryPlanningRows',
   goldOrderPlanningRows: 'goldOrderPlanningRows',
   goldSupplierAttentionRows: 'goldSupplierAttentionRows',
+  goldManagementKpiDailyFacts: 'goldManagementKpiDailyFacts',
   goldAlerts: 'goldAlerts',
   goldReportRuns: 'goldReportRuns',
   goldReportItems: 'goldReportItems',
 } as const;
 
-export type EcobaseCollectionName = typeof ECOBASE_COLLECTIONS[keyof typeof ECOBASE_COLLECTIONS];
+export type EcobaseCollectionName = (typeof ECOBASE_COLLECTIONS)[keyof typeof ECOBASE_COLLECTIONS];

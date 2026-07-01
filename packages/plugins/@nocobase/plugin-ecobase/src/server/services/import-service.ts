@@ -8,7 +8,9 @@ import { EcobaseBronzeImportService } from './bronze-import-service';
 import { EcobaseDataWarningService } from './data-warning-service';
 import type { EcobaseDataWarning } from './data-warning-service';
 import { EcobaseInventoryPlanningService } from './inventory-planning-service';
-import { EcobaseMedallionNormalizationService, type NormalizePendingResult } from './medallion-normalization-service';
+import { EcobaseManagementKpiFactsService } from './management-kpi-facts-service';
+import { EcobaseMedallionNormalizationService } from './medallion-normalization-service';
+import type { NormalizePendingResult } from './medallion-normalization-service';
 import { EcobaseOrderPlanningService } from './order-planning-service';
 import { EcobasePlanningProductService } from './planning-product-service';
 import { EcobaseSupplierManagementService } from './supplier-management-service';
@@ -117,6 +119,7 @@ export interface AutomaticGoldRefreshResult {
   inventory: Record<string, unknown>;
   orders: { rowCount: number; lastRefreshedAt: string | null };
   suppliers: { rowCount: number; summary: Record<string, unknown> };
+  managementKpiFacts: { factCount: number; metrics: Record<string, number>; skippedMetrics: string[] };
 }
 
 export interface RunMedallionPipelineResult {
@@ -364,6 +367,9 @@ export class EcobaseImportService {
       calculationDate,
       limit: AUTOMATIC_GOLD_REFRESH_LIMIT,
     });
+    const managementKpiFacts = await new EcobaseManagementKpiFactsService(this.db).refreshForDate({
+      date: calculationDate,
+    });
     return {
       calculationDate,
       inventory: inventory as Record<string, unknown>,
@@ -374,6 +380,11 @@ export class EcobaseImportService {
       suppliers: {
         rowCount: supplierDigest.rows.length,
         summary: supplierDigest.summary as Record<string, unknown>,
+      },
+      managementKpiFacts: {
+        factCount: managementKpiFacts.factCount,
+        metrics: managementKpiFacts.metrics,
+        skippedMetrics: managementKpiFacts.skippedMetrics,
       },
     };
   }

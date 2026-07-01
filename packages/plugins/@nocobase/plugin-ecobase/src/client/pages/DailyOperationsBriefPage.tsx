@@ -1,5 +1,19 @@
 import { useAPIClient } from '@nocobase/client';
-import { Alert, Button, Card, Col, DatePicker, Row, Segmented, Select, Space, Table, Tag, Typography } from 'antd';
+import {
+  Alert,
+  Button,
+  Card,
+  Col,
+  DatePicker,
+  Popover,
+  Row,
+  Segmented,
+  Select,
+  Space,
+  Table,
+  Tag,
+  Typography,
+} from 'antd';
 import dayjs from 'dayjs';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useT } from '../locale';
@@ -61,8 +75,21 @@ function formatKpiValue(value: any, unit: string) {
   return unit === 'date' ? dateOnly(value) : formatNumber(value);
 }
 
+function formatDisplayDate(value: any) {
+  const date = dayjs(value);
+  return date.isValid() ? date.format('DD MMM YYYY') : '—';
+}
+
+function formatTrendWindowLabel(startValue: any, endValue: any) {
+  if (!startValue || !endValue) return 'Period not available yet';
+  const start = formatDisplayDate(startValue);
+  const end = formatDisplayDate(endValue);
+  if (start === '—' || end === '—') return 'Period not available yet';
+  return start === end ? start : `${start} → ${end}`;
+}
+
 function formatKpiDelta(row: PlainRecord) {
-  if (row.direction === 'missing_baseline') return 'No baseline';
+  if (row.direction === 'insufficient_history') return 'Insufficient history';
   if (row.unit === 'date') {
     const delta = Number(row.absoluteDelta);
     return Number.isFinite(delta) ? `${delta > 0 ? '+' : ''}${delta}d` : '—';
@@ -80,6 +107,13 @@ function kpiToneColor(row: PlainRecord) {
   if (row.tone === 'error') return 'red';
   if (row.tone === 'warning') return 'orange';
   return 'default';
+}
+
+function kpiToneType(row: PlainRecord) {
+  if (row.tone === 'success') return 'success';
+  if (row.tone === 'error') return 'danger';
+  if (row.tone === 'warning') return 'warning';
+  return undefined;
 }
 
 function shortText(value: any, fallback = '—') {
@@ -208,14 +242,13 @@ export default function DailyOperationsBriefPage() {
         });
         setNarrative(unwrapData(response));
         await loadEvidence(false);
-        await loadTrend(trendPeriod);
       } catch (err) {
         setError(err as Error);
       } finally {
         setLoading(null);
       }
     },
-    [api, loadEvidence, loadTrend, requestPayload, trendPeriod],
+    [api, loadEvidence, requestPayload],
   );
 
   const refreshDataAndBrief = useCallback(async () => {
@@ -252,10 +285,10 @@ export default function DailyOperationsBriefPage() {
 
   useEffect(() => {
     void generateNarrative(false);
-  }, [company, date]);
+  }, [generateNarrative]);
 
   useEffect(() => {
-    if (trend) void loadTrend(trendPeriod);
+    void loadTrend(trendPeriod);
   }, [loadTrend, trendPeriod]);
 
   const pack = brief.evidencePack ?? {};
@@ -291,20 +324,22 @@ export default function DailyOperationsBriefPage() {
   const priorityKpis = [
     'inventoryMoneyAtRisk',
     'urgentInventorySkuCount',
-    'earliestOosDate',
     'orderMoneyAtRisk',
     'ordersNeedingCheck',
     'staleOrderCount',
-    'todayActionCount',
-    'sales7d',
-    'profit7d',
-    'buyBoxPct7d',
-    'conversionRate7d',
-    'dataWarningCount',
+    'sales',
+    'profit',
+    'units',
+    'buyBoxPct',
+    'conversionRate',
   ];
   const trendRows = rows(trend?.kpis)
-    .filter((row) => priorityKpis.includes(row.key))
+    .filter((row) => priorityKpis.includes(row.key) && (row.value !== null || row.previousValue !== null))
     .sort((left, right) => priorityKpis.indexOf(left.key) - priorityKpis.indexOf(right.key));
+  const currentTrendWindow = trendRows.find((row) => row.sourceWindowStart && row.sourceWindowEnd);
+  const currentTrendWindowLabel = currentTrendWindow
+    ? formatTrendWindowLabel(currentTrendWindow.sourceWindowStart, currentTrendWindow.sourceWindowEnd)
+    : 'Period not available yet';
   const managementActions = [
     ...inventoryRisks.slice(0, 5).map((row) => ({
       key: row.evidenceId ?? `inventory:${row.asin}:${row.sku}`,
@@ -412,7 +447,7 @@ export default function DailyOperationsBriefPage() {
 
             <Card title={t('Management KPI trend')}>
               <Space direction="vertical" style={{ width: '100%' }} size="middle">
-                <Space>
+                <Space wrap>
                   <Typography.Text>{t('Compare')}:</Typography.Text>
                   <Segmented
                     value={trendPeriod}
@@ -423,6 +458,33 @@ export default function DailyOperationsBriefPage() {
                       { label: t('30 days'), value: '30d' },
                     ]}
                   />
+                  <Popover
+                    trigger="click"
+                    placement="bottom"
+                    title={t('How compare works')}
+                    content={
+                      <Space direction="vertical" style={{ maxWidth: 420 }}>
+                        <Typography.Text>
+                          {t(
+                            'Current is the KPI value for the selected window ending at the latest available data date.',
+                          )}
+                        </Typography.Text>
+                        <Typography.Text>
+                          {t(
+                            'Change compares Current with the previous same-length window: yesterday vs previous day, 7 days vs previous 7 days, or 30 days vs previous 30 days.',
+                          )}
+                        </Typography.Text>
+                        <Typography.Text>{t('Change % = (current - previous) / abs(previous) × 100.')}</Typography.Text>
+                        <Typography.Text>
+                          {t('If the previous window is incomplete, the table shows Insufficient history instead.')}
+                        </Typography.Text>
+                      </Space>
+                    }
+                  >
+                    <Button size="small" type="link">
+                      {t('How does this work?')}
+                    </Button>
+                  </Popover>
                 </Space>
                 {trendRows.length ? (
                   <Table<PlainRecord>
@@ -435,15 +497,17 @@ export default function DailyOperationsBriefPage() {
                         title: t('KPI'),
                         dataIndex: 'label',
                         key: 'label',
-                        render: (value, row) => (
-                          <Space>
-                            <Tag color={kpiToneColor(row)}>{row.direction ?? 'current'}</Tag>
-                            <Typography.Text>{value}</Typography.Text>
-                          </Space>
-                        ),
+                        render: (value) => <Typography.Text>{value}</Typography.Text>,
                       },
                       {
-                        title: t('Current'),
+                        title: (
+                          <Space direction="vertical" size={0}>
+                            <Typography.Text>{t('Current')}</Typography.Text>
+                            <Typography.Text style={{ color: '#1677ff', fontSize: 12, fontStyle: 'italic' }}>
+                              {currentTrendWindowLabel}
+                            </Typography.Text>
+                          </Space>
+                        ),
                         key: 'value',
                         render: (_, row) => (
                           <Typography.Text strong type={row.tone === 'error' ? 'danger' : undefined}>
@@ -454,13 +518,28 @@ export default function DailyOperationsBriefPage() {
                       {
                         title: `${t('Change')} (${trendPeriod})`,
                         key: 'delta',
-                        render: (_, row) => <Tag color={kpiToneColor(row)}>{formatKpiDelta(row)}</Tag>,
+                        render: (_, row) =>
+                          row.direction === 'insufficient_history' ? (
+                            <Tag color="default">{formatKpiDelta(row)}</Tag>
+                          ) : (
+                            <Typography.Text type={kpiToneType(row)}>{formatKpiDelta(row)}</Typography.Text>
+                          ),
                       },
-                      { title: t('What it means'), dataIndex: 'explanation', key: 'explanation', render: shortText },
+                      {
+                        title: t('What it means'),
+                        dataIndex: 'explanation',
+                        key: 'explanation',
+                        render: (value) => <Typography.Text>{value}</Typography.Text>,
+                      },
                     ]}
                   />
                 ) : (
-                  <Alert type="info" message={t('KPI trends will appear after today and a baseline snapshot exist.')} />
+                  <Alert
+                    type="info"
+                    message={t(
+                      'KPI trends use Gold KPI facts. Sales/profit trends appear after Silver daily facts are backfilled; risk trends begin after daily Gold risk facts accumulate.',
+                    )}
+                  />
                 )}
               </Space>
             </Card>

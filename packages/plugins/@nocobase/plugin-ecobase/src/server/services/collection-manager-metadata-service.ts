@@ -36,6 +36,7 @@ const OPERATOR_DASHBOARD_COLLECTIONS = [
   ECOBASE_COLLECTIONS.inventoryPlanningRows,
   ECOBASE_COLLECTIONS.planningCalculationSnapshots,
   ECOBASE_COLLECTIONS.alerts,
+  ECOBASE_COLLECTIONS.goldManagementKpiDailyFacts,
   ECOBASE_COLLECTIONS.dailyManagementSnapshots,
   ECOBASE_COLLECTIONS.dailyBriefPromptSettings,
   ECOBASE_COLLECTIONS.suppliers,

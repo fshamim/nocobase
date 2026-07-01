@@ -2,9 +2,9 @@ import { createHash, randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import type { EcobaseDatabase, EcobaseRepository } from './import-service';
 import { toPlainRecord } from './import-service';
-import { EcobaseDataWarningService, type EcobaseDataWarning } from './data-warning-service';
+import { EcobaseDataWarningService } from './data-warning-service';
+import type { EcobaseDataWarning } from './data-warning-service';
 import { EcobaseInventoryPlanningService } from './inventory-planning-service';
-import { EcobaseDailyManagementSnapshotService } from './daily-management-snapshot-service';
 import { isReliableSupplierOrderCoverageStatus, normalizeSupplierOrderStatus } from './supplier-order-service';
 
 type PlainRecord = Record<string, unknown>;
@@ -637,14 +637,6 @@ export class EcobaseDailyOperationsBriefService {
         ? (existingPlain.evidencePack as DailyEvidencePack)
         : undefined;
       const existingReportRunId = asString(existingPlain.id);
-      if (existingReportRunId) {
-        await new EcobaseDailyManagementSnapshotService(this.db).upsertFromEvidence({
-          date,
-          company,
-          reportRunId: existingReportRunId,
-          evidencePack: existingPack,
-        });
-      }
       return {
         reportRunId: existingReportRunId,
         idempotencyKey,
@@ -694,13 +686,6 @@ export class EcobaseDailyOperationsBriefService {
     } else {
       await reportRunRepo.create({ values: reportRunValues });
     }
-
-    await new EcobaseDailyManagementSnapshotService(this.db).upsertFromEvidence({
-      date,
-      company,
-      reportRunId,
-      evidencePack,
-    });
 
     const reportItems = await this.createReportItems(reportRunId, evidencePack);
     return {
