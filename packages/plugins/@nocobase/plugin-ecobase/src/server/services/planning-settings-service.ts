@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import type { EcobaseDatabase } from './import-service';
+import { DEFAULT_PROFIT_TIER_THRESHOLDS, type ProfitTierThresholds } from './profit-tier';
+import { normalizeSupplierOrderStatus } from './supplier-order-service';
 
 export type PlanningSettingKey =
   | 'safetyBufferDays'
@@ -9,21 +11,33 @@ export type PlanningSettingKey =
   | 'leadTimeFreshnessDays'
   | 'purchasedPipelineGraceDays';
 
-export type EcobasePlanningSettings = Record<PlanningSettingKey, number> & {
-  id?: string;
-  name: string;
-  isActive: boolean;
-  updatedBy?: string;
-  createdAt?: string;
-  updatedAt?: string;
-};
+type ProfitTierSettingKey = keyof ProfitTierThresholds;
+type NumberSettingKey = PlanningSettingKey | ProfitTierSettingKey;
 
-export type SaveEcobasePlanningSettingsParams = Partial<Record<PlanningSettingKey, unknown>> & {
-  id?: string;
-  name?: string;
-  isActive?: boolean;
-  updatedBy?: string;
-};
+export type SupplierOrderStatusBucketKey =
+  | 'supplierOrderPlacedNotPurchasedStatuses'
+  | 'supplierOrderPurchasedPipelineStatuses'
+  | 'supplierOrderClosedStatuses';
+
+export type SupplierOrderStatusBuckets = Record<SupplierOrderStatusBucketKey, string[]>;
+
+export type EcobasePlanningSettings = Record<NumberSettingKey, number> &
+  SupplierOrderStatusBuckets & {
+    id?: string;
+    name: string;
+    isActive: boolean;
+    updatedBy?: string;
+    createdAt?: string;
+    updatedAt?: string;
+  };
+
+export type SaveEcobasePlanningSettingsParams = Partial<Record<NumberSettingKey, unknown>> &
+  Partial<Record<SupplierOrderStatusBucketKey, unknown>> & {
+    id?: string;
+    name?: string;
+    isActive?: boolean;
+    updatedBy?: string;
+  };
 
 const SETTING_KEYS: PlanningSettingKey[] = [
   'safetyBufferDays',
@@ -31,6 +45,20 @@ const SETTING_KEYS: PlanningSettingKey[] = [
   'orderSoonWindowDays',
   'leadTimeFreshnessDays',
   'purchasedPipelineGraceDays',
+];
+
+const PROFIT_TIER_SETTING_KEYS: ProfitTierSettingKey[] = [
+  'profitTierAThreshold',
+  'profitTierBThreshold',
+  'profitTierCThreshold',
+];
+
+const NUMBER_SETTING_KEYS: NumberSettingKey[] = [...SETTING_KEYS, ...PROFIT_TIER_SETTING_KEYS];
+
+const STATUS_BUCKET_KEYS: SupplierOrderStatusBucketKey[] = [
+  'supplierOrderPlacedNotPurchasedStatuses',
+  'supplierOrderPurchasedPipelineStatuses',
+  'supplierOrderClosedStatuses',
 ];
 
 export const DEFAULT_PLANNING_SETTINGS: Record<PlanningSettingKey, number> = {
@@ -41,12 +69,39 @@ export const DEFAULT_PLANNING_SETTINGS: Record<PlanningSettingKey, number> = {
   purchasedPipelineGraceDays: 3,
 };
 
-const SETTING_LABELS: Record<PlanningSettingKey, string> = {
+export const DEFAULT_SUPPLIER_ORDER_STATUS_BUCKETS: SupplierOrderStatusBuckets = {
+  supplierOrderPlacedNotPurchasedStatuses: [
+    'draft',
+    'supplier_contacted',
+    'supplier_confirmed',
+    'approval_pending',
+    'payment_pending',
+    'blocked',
+  ],
+  supplierOrderPurchasedPipelineStatuses: ['paid', 'supplier_preparing', 'shipped_inbound'],
+  supplierOrderClosedStatuses: ['completed', 'rejected', 'cancelled'],
+};
+
+export const DEFAULT_PLANNING_BUSINESS_RULES: Record<ProfitTierSettingKey, number> & SupplierOrderStatusBuckets = {
+  ...DEFAULT_PROFIT_TIER_THRESHOLDS,
+  ...DEFAULT_SUPPLIER_ORDER_STATUS_BUCKETS,
+};
+
+const SETTING_LABELS: Record<NumberSettingKey, string> = {
   safetyBufferDays: 'Safety buffer days',
   reorderCycleDays: 'Reorder cycle days',
   orderSoonWindowDays: 'Order-soon window days',
   leadTimeFreshnessDays: 'Lead-time freshness days',
   purchasedPipelineGraceDays: 'Purchased pipeline grace days',
+  profitTierAThreshold: 'Profit tier A threshold',
+  profitTierBThreshold: 'Profit tier B threshold',
+  profitTierCThreshold: 'Profit tier C threshold',
+};
+
+const STATUS_BUCKET_LABELS: Record<SupplierOrderStatusBucketKey, string> = {
+  supplierOrderPlacedNotPurchasedStatuses: 'Placed-not-purchased statuses',
+  supplierOrderPurchasedPipelineStatuses: 'Purchased-pipeline statuses',
+  supplierOrderClosedStatuses: 'Closed statuses',
 };
 
 type PlainRecord = Record<string, unknown>;
@@ -63,7 +118,7 @@ function asBoolean(value: unknown, fallback = false) {
   return typeof value === 'boolean' ? value : fallback;
 }
 
-function positiveInteger(value: unknown, key: PlanningSettingKey): number | undefined {
+function positiveInteger(value: unknown, key: NumberSettingKey): number | undefined {
   if (value === undefined || value === null || value === '') return undefined;
   const number = Number(value);
   if (!Number.isInteger(number) || number < 0) {
@@ -72,17 +127,54 @@ function positiveInteger(value: unknown, key: PlanningSettingKey): number | unde
   return number;
 }
 
+function statusList(value: unknown, key: SupplierOrderStatusBucketKey): string[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  const rawValues = Array.isArray(value) ? value : typeof value === 'string' ? value.split(/[\n,]/) : undefined;
+  if (!rawValues) {
+    throw new Error(`EcoBase planning settings require ${STATUS_BUCKET_LABELS[key]} to be a list of statuses.`);
+  }
+  const normalized = rawValues
+    .map((item) => normalizeSupplierOrderStatus(asString(item)))
+    .filter((item): item is string => item.length > 0);
+  return [...new Set(normalized)];
+}
+
+function validateProfitTiers(settings: Record<ProfitTierSettingKey, number>) {
+  if (
+    settings.profitTierAThreshold <= settings.profitTierBThreshold ||
+    settings.profitTierBThreshold <= settings.profitTierCThreshold
+  ) {
+    throw new Error('EcoBase profit tier thresholds must descend: A threshold > B threshold > C threshold.');
+  }
+}
+
+function validateStatusBuckets(settings: SupplierOrderStatusBuckets) {
+  const ownerByStatus = new Map<string, SupplierOrderStatusBucketKey>();
+  for (const key of STATUS_BUCKET_KEYS) {
+    for (const status of settings[key]) {
+      const existing = ownerByStatus.get(status);
+      if (existing) {
+        throw new Error(
+          `EcoBase supplier order status "${status}" cannot be in both ${STATUS_BUCKET_LABELS[existing]} and ${STATUS_BUCKET_LABELS[key]}.`,
+        );
+      }
+      ownerByStatus.set(status, key);
+    }
+  }
+}
+
 function defaultSettings(): EcobasePlanningSettings {
   return {
     name: 'Default planning settings',
     isActive: true,
     ...DEFAULT_PLANNING_SETTINGS,
+    ...DEFAULT_PLANNING_BUSINESS_RULES,
   };
 }
 
 function normalize(row: PlainRecord): EcobasePlanningSettings {
   const defaults = defaultSettings();
-  return {
+  const settings: EcobasePlanningSettings = {
     id: asString(row.id),
     name: asString(row.name) ?? defaults.name,
     isActive: asBoolean(row.isActive, true),
@@ -95,10 +187,28 @@ function normalize(row: PlainRecord): EcobasePlanningSettings {
     purchasedPipelineGraceDays:
       positiveInteger(row.purchasedPipelineGraceDays, 'purchasedPipelineGraceDays') ??
       defaults.purchasedPipelineGraceDays,
+    profitTierAThreshold:
+      positiveInteger(row.profitTierAThreshold, 'profitTierAThreshold') ?? defaults.profitTierAThreshold,
+    profitTierBThreshold:
+      positiveInteger(row.profitTierBThreshold, 'profitTierBThreshold') ?? defaults.profitTierBThreshold,
+    profitTierCThreshold:
+      positiveInteger(row.profitTierCThreshold, 'profitTierCThreshold') ?? defaults.profitTierCThreshold,
+    supplierOrderPlacedNotPurchasedStatuses:
+      statusList(row.supplierOrderPlacedNotPurchasedStatuses, 'supplierOrderPlacedNotPurchasedStatuses') ??
+      defaults.supplierOrderPlacedNotPurchasedStatuses,
+    supplierOrderPurchasedPipelineStatuses:
+      statusList(row.supplierOrderPurchasedPipelineStatuses, 'supplierOrderPurchasedPipelineStatuses') ??
+      defaults.supplierOrderPurchasedPipelineStatuses,
+    supplierOrderClosedStatuses:
+      statusList(row.supplierOrderClosedStatuses, 'supplierOrderClosedStatuses') ??
+      defaults.supplierOrderClosedStatuses,
     updatedBy: asString(row.updatedBy),
     createdAt: asString(row.createdAt),
     updatedAt: asString(row.updatedAt),
   };
+  validateProfitTiers(settings);
+  validateStatusBuckets(settings);
+  return settings;
 }
 
 export function resolvePlanningSettings(
@@ -123,7 +233,7 @@ export class EcobasePlanningSettingsService {
     const settings = rows[0] ?? defaultSettings();
     return {
       settings,
-      defaults: DEFAULT_PLANNING_SETTINGS,
+      defaults: { ...DEFAULT_PLANNING_SETTINGS, ...DEFAULT_PLANNING_BUSINESS_RULES },
       warning:
         rows.length > 1 ? 'Multiple active EcoBase planning settings rows found; using latest updated row.' : undefined,
     };
@@ -149,19 +259,22 @@ export class EcobasePlanningSettingsService {
       createdAt: asString(existing.createdAt) ?? now,
       updatedAt: now,
     };
-    for (const key of SETTING_KEYS) {
-      values[key] =
-        positiveInteger(params[key], key) ?? positiveInteger(existing[key], key) ?? DEFAULT_PLANNING_SETTINGS[key];
+    for (const key of NUMBER_SETTING_KEYS) {
+      values[key] = positiveInteger(params[key], key) ?? positiveInteger(existing[key], key) ?? defaultSettings()[key];
     }
+    for (const key of STATUS_BUCKET_KEYS) {
+      values[key] = statusList(params[key], key) ?? statusList(existing[key], key) ?? defaultSettings()[key];
+    }
+    const normalized = normalize(values);
     if (existing.id) {
-      await repository.update({ filterByTk: id, values });
+      await repository.update({ filterByTk: id, values: normalized });
     } else {
-      await repository.create({ values });
+      await repository.create({ values: normalized });
     }
     return normalize(toPlainRecord(await repository.findOne({ filterByTk: id })));
   }
 
   async resetSettings() {
-    return this.saveSettings({ ...DEFAULT_PLANNING_SETTINGS, name: 'Default planning settings' });
+    return this.saveSettings({ ...DEFAULT_PLANNING_SETTINGS, ...DEFAULT_PLANNING_BUSINESS_RULES });
   }
 }

@@ -4,7 +4,7 @@ import type { EcobaseDataWarning } from './data-warning-service';
 import type { EcobaseDatabase, EcobaseRepository } from './import-service';
 import { toPlainRecord } from './import-service';
 import { DEFAULT_PLANNING_SETTINGS, EcobasePlanningSettingsService } from './planning-settings-service';
-import { profitTierFor } from './profit-tier';
+import { profitTierFor, type ProfitTierThresholds } from './profit-tier';
 
 const RULE_VERSION = 'spreadsheet_parity_v1';
 const ZERO_VELOCITY_DAYS_OF_COVER_SENTINEL = 999;
@@ -15,6 +15,7 @@ export interface CalculatePlanningProductParams {
   planningProductId: string;
   calculationDate?: string;
   safetyBufferDays?: number;
+  profitTierThresholds?: ProfitTierThresholds;
   persist?: boolean;
 }
 
@@ -216,6 +217,7 @@ export class EcobasePlanningCalculationService {
       parameterRows,
       targetRows,
       safetyBufferDays: settings.safetyBufferDays,
+      profitTierThresholds: params.profitTierThresholds ?? settings,
     });
 
     if (params.persist !== false) {
@@ -235,6 +237,7 @@ export class EcobasePlanningCalculationService {
     parameterRows: PlainRecord[];
     targetRows: PlainRecord[];
     safetyBufferDays?: number;
+    profitTierThresholds?: ProfitTierThresholds;
   }): Promise<PlanningCalculationResult> {
     const latestInventoryDate = latestDate(params.inventoryRows, 'snapshotDate');
     const latestInventoryRows = recordsForDate(params.inventoryRows, 'snapshotDate', latestInventoryDate);
@@ -329,7 +332,7 @@ export class EcobasePlanningCalculationService {
       profitPerUnit,
       recommendedBestQty,
     });
-    const { tier, tierScore } = profitTierFor(profitPerUnit, recommendedBestQty);
+    const { tier, tierScore } = profitTierFor(profitPerUnit, recommendedBestQty, params.profitTierThresholds);
     return {
       naturalKey: `${params.planningProductId}:${RULE_VERSION}:${params.calculationDate}`,
       planningProductId: params.planningProductId,

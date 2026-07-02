@@ -1,22 +1,23 @@
 import { createHash } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import type { EcobaseDatabase } from './import-service';
-import { isReliableSupplierOrderCoverageStatus, normalizeSupplierOrderStatus } from './supplier-order-service';
+import { normalizeSupplierOrderStatus } from './supplier-order-service';
 import { toPlainRecord } from './import-service';
 import { EcobasePlanningCalculationService } from './planning-calculation-service';
-import { DEFAULT_PLANNING_SETTINGS, EcobasePlanningSettingsService } from './planning-settings-service';
-import { isProfitTier, profitTierFor, profitTierMovement, profitTierRank } from './profit-tier';
+import {
+  DEFAULT_PLANNING_SETTINGS,
+  EcobasePlanningSettingsService,
+  type SupplierOrderStatusBuckets,
+} from './planning-settings-service';
+import {
+  isProfitTier,
+  profitTierFor,
+  profitTierMovement,
+  profitTierRank,
+  type ProfitTierThresholds,
+} from './profit-tier';
 
 const FALLBACK_RECORD_LIMIT = 100000;
-const ORDER_PLACED_NOT_PURCHASED_STATUSES = new Set([
-  'draft',
-  'supplier_contacted',
-  'supplier_confirmed',
-  'approval_pending',
-  'payment_pending',
-  'blocked',
-]);
-const ACTIVE_PURCHASED_PIPELINE_STATUSES = new Set(['paid', 'supplier_preparing', 'shipped_inbound']);
 
 export type InventoryPlanningActionStatus =
   | 'excluded'
@@ -59,6 +60,12 @@ type ProfitMetrics = {
 type ProfitMetricsIndex = {
   exact: Map<string, ProfitMetrics>;
   byAsin: Map<string, ProfitMetrics>;
+};
+
+type SupplierOrderStatusRules = {
+  placedNotPurchased: Set<string>;
+  purchasedPipeline: Set<string>;
+  closed: Set<string>;
 };
 
 function asString(value: unknown): string | undefined {
@@ -188,20 +195,28 @@ function includesStatusText(value: unknown, terms: string[]) {
   return terms.some((term) => normalized.includes(term));
 }
 
-function supplierCoverageStatus(order: PlainRecord) {
+function supplierOrderStatusRules(buckets: SupplierOrderStatusBuckets): SupplierOrderStatusRules {
+  return {
+    placedNotPurchased: new Set(buckets.supplierOrderPlacedNotPurchasedStatuses.map(normalizeSupplierOrderStatus)),
+    purchasedPipeline: new Set(buckets.supplierOrderPurchasedPipelineStatuses.map(normalizeSupplierOrderStatus)),
+    closed: new Set(buckets.supplierOrderClosedStatuses.map(normalizeSupplierOrderStatus)),
+  };
+}
+
+function supplierCoverageStatus(order: PlainRecord, rules: SupplierOrderStatusRules) {
   const status = normalizeSupplierOrderStatus(asString(order.status));
-  if (['completed', 'rejected', 'cancelled'].includes(status)) return status;
+  if (rules.closed.has(status)) return status;
   if (includesStatusText(order.paymentStatus, ['completed', 'complete', 'paid'])) return 'paid';
   if (status === 'approval_pending' && includesStatusText(order.approvalStatus, ['approved'])) return 'payment_pending';
   return status;
 }
 
-function isPlacedNotPurchasedSupplierOrderStatus(status: string | undefined) {
-  return status ? ORDER_PLACED_NOT_PURCHASED_STATUSES.has(status) : false;
+function isPlacedNotPurchasedSupplierOrderStatus(status: string | undefined, rules: SupplierOrderStatusRules) {
+  return status ? rules.placedNotPurchased.has(status) : false;
 }
 
-function isActivePurchasedPipelineStatus(status: string | undefined) {
-  return status ? ACTIVE_PURCHASED_PIPELINE_STATUSES.has(status) : false;
+function isActivePurchasedPipelineStatus(status: string | undefined, rules: SupplierOrderStatusRules) {
+  return status ? rules.purchasedPipeline.has(status) : false;
 }
 
 function isActivePurchasedPipelineDate(
@@ -273,6 +288,7 @@ function summarizeSupplierOrderState(
   supplierOrderById: Map<string, PlainRecord>,
   calculationDate: string | undefined,
   purchasedPipelineGraceDays: number,
+  rules: SupplierOrderStatusRules,
 ) {
   let purchasedOpenQty = 0;
   let placedNotPurchasedOpenQty = 0;
@@ -283,7 +299,7 @@ function summarizeSupplierOrderState(
   for (const line of lines) {
     const order = supplierOrderById.get(asString(line.supplierOrderId) ?? '');
     if (!order) continue;
-    const status = supplierCoverageStatus(order);
+    const status = supplierCoverageStatus(order, rules);
     const orderedQty = asNumber(line.orderedQty) ?? 0;
     const receivedQty = asNumber(line.receivedQty) ?? 0;
     const openQty = Math.max(orderedQty - receivedQty, 0);
@@ -291,7 +307,7 @@ function summarizeSupplierOrderState(
     if (!historySelected || sortValue > historySelected.sortValue) {
       historySelected = { line, order, sortValue };
     }
-    if (openQty <= 0 || !isPlacedNotPurchasedSupplierOrderStatus(status)) continue;
+    if (openQty <= 0 || !isPlacedNotPurchasedSupplierOrderStatus(status, rules)) continue;
     placedNotPurchasedOpenQty += openQty;
     if (!latestPlaced || sortValue > latestPlaced.sortValue) {
       latestPlaced = { line, order, sortValue };
@@ -301,16 +317,16 @@ function summarizeSupplierOrderState(
   for (const line of lines) {
     const order = supplierOrderById.get(asString(line.supplierOrderId) ?? '');
     if (!order) continue;
-    const status = supplierCoverageStatus(order);
+    const status = supplierCoverageStatus(order, rules);
     const orderedQty = asNumber(line.orderedQty) ?? 0;
     const receivedQty = asNumber(line.receivedQty) ?? 0;
     const openQty = Math.max(orderedQty - receivedQty, 0);
-    if (openQty <= 0 || !isReliableSupplierOrderCoverageStatus(status)) continue;
+    if (openQty <= 0 || !isActivePurchasedPipelineStatus(status, rules)) continue;
     const sortValue = supplierOrderSortValue(line, order);
     const newerRecoveryCycleStarted = latestPlaced && latestPlaced.sortValue > sortValue;
     if (
       newerRecoveryCycleStarted ||
-      !isActivePurchasedPipelineStatus(status) ||
+      !isActivePurchasedPipelineStatus(status, rules) ||
       !isActivePurchasedPipelineDate(line, order, calculationDate, purchasedPipelineGraceDays)
     )
       continue;
@@ -338,7 +354,7 @@ function summarizeSupplierOrderState(
           : undefined;
   return {
     supplierOrderState: state,
-    supplierOrderStatus: reference?.order ? supplierCoverageStatus(reference.order) : undefined,
+    supplierOrderStatus: reference?.order ? supplierCoverageStatus(reference.order, rules) : undefined,
     supplierOrderRef: asString(reference?.order.externalOrderRef) ?? asString(reference?.order.id),
     supplierOrderOpenQty:
       asNumber(reference?.line.orderedQty) !== undefined
@@ -551,6 +567,8 @@ export class EcobaseInventoryPlanningService {
     const leadTimeFreshnessDays = settings.leadTimeFreshnessDays;
     const reorderCycleDays = settings.reorderCycleDays;
     const purchasedPipelineGraceDays = settings.purchasedPipelineGraceDays;
+    const profitTierThresholds: ProfitTierThresholds = settings;
+    const statusRules = supplierOrderStatusRules(settings);
     const productFilter = query.company ? { company: query.company } : {};
     const scanLimit = query.limit ? Math.max(query.limit, Math.min(query.limit * 4, 500)) : undefined;
     const products = (
@@ -571,6 +589,8 @@ export class EcobaseInventoryPlanningService {
         safetyBufferDays,
         reorderCycleDays,
         purchasedPipelineGraceDays,
+        profitTierThresholds,
+        statusRules,
         limit: query.limit,
         scanLimit,
       });
@@ -585,6 +605,7 @@ export class EcobaseInventoryPlanningService {
           planningProductId,
           calculationDate,
           safetyBufferDays,
+          profitTierThresholds,
           persist: false,
         }),
       );
@@ -597,6 +618,8 @@ export class EcobaseInventoryPlanningService {
           orderSoonWindowDays,
           reorderCycleDays,
           purchasedPipelineGraceDays,
+          profitTierThresholds,
+          statusRules,
         }),
       );
     }
@@ -1070,6 +1093,8 @@ export class EcobaseInventoryPlanningService {
     safetyBufferDays: number;
     reorderCycleDays: number;
     purchasedPipelineGraceDays: number;
+    profitTierThresholds: ProfitTierThresholds;
+    statusRules: SupplierOrderStatusRules;
     limit?: number;
     scanLimit?: number;
   }) {
@@ -1124,6 +1149,8 @@ export class EcobaseInventoryPlanningService {
           safetyBufferDays: params.safetyBufferDays,
           reorderCycleDays: params.reorderCycleDays,
           purchasedPipelineGraceDays: params.purchasedPipelineGraceDays,
+          profitTierThresholds: params.profitTierThresholds,
+          statusRules: params.statusRules,
         }),
       );
     }
@@ -1212,6 +1239,8 @@ export class EcobaseInventoryPlanningService {
     safetyBufferDays: number;
     reorderCycleDays: number;
     purchasedPipelineGraceDays: number;
+    profitTierThresholds: ProfitTierThresholds;
+    statusRules: SupplierOrderStatusRules;
   }) {
     const company =
       companyFromRecord(params.inventory, params.sourceConnectionCompanies) ??
@@ -1265,7 +1294,7 @@ export class EcobaseInventoryPlanningService {
     const importedProfitRisk =
       payloadNumber(params.inventory, ['Missed profit (est)', 'Profit forecast (30 days)', 'profitForecast30Days']) ??
       payloadNumber(params.parameter, ['Missed profit (est)', 'Profit forecast (30 days)', 'profitForecast30Days']);
-    const { tier, tierScore } = profitTierFor(profitPerUnit, recommendedBestQty);
+    const { tier, tierScore } = profitTierFor(profitPerUnit, recommendedBestQty, params.profitTierThresholds);
     const daysOfCover =
       salesVelocity && salesVelocity > 0 ? stockBuckets.currentPlanningStock / salesVelocity : undefined;
     const estimatedOosDate = typeof daysOfCover === 'number' ? addDays(params.calculationDate, daysOfCover) : undefined;
@@ -1300,6 +1329,7 @@ export class EcobaseInventoryPlanningService {
       sku,
       calculationDate: params.calculationDate,
       purchasedPipelineGraceDays: params.purchasedPipelineGraceDays,
+      statusRules: params.statusRules,
     });
     const openOrderCoverageQty = supplierOrderState.supplierOrderPurchasedOpenQty;
     const expectedSellableDate = await this.earliestFallbackExpectedSellableDate({ company, asin, sku });
@@ -1428,6 +1458,8 @@ export class EcobaseInventoryPlanningService {
     orderSoonWindowDays: number;
     reorderCycleDays: number;
     purchasedPipelineGraceDays: number;
+    profitTierThresholds: ProfitTierThresholds;
+    statusRules: SupplierOrderStatusRules;
   }) {
     const planningProductId = asString(params.product.id) ?? '';
     const company = asString(params.product.company);
@@ -1452,6 +1484,7 @@ export class EcobaseInventoryPlanningService {
     const fallbackTier = profitTierFor(
       asNumber(params.calculation.profitPerUnit),
       asNumber(params.calculation.recommendedBestQty),
+      params.profitTierThresholds,
     );
     const asin =
       asString(params.product.canonicalAsin) ?? asString(latestInventory.asin) ?? asString(latestParameter.asin);
@@ -1474,6 +1507,7 @@ export class EcobaseInventoryPlanningService {
       supplierOrderById,
       params.calculationDate,
       params.purchasedPipelineGraceDays,
+      params.statusRules,
     );
     const openOrderCoverageQty = supplierOrderState.supplierOrderPurchasedOpenQty;
     const orderHistorySupplier =
@@ -1778,6 +1812,7 @@ export class EcobaseInventoryPlanningService {
     sku?: string;
     calculationDate?: string;
     purchasedPipelineGraceDays?: number;
+    statusRules: SupplierOrderStatusRules;
   }) {
     const lines = await this.findOrderLinesByProduct(params);
     return summarizeSupplierOrderState(
@@ -1785,6 +1820,7 @@ export class EcobaseInventoryPlanningService {
       await this.supplierOrdersByLine(lines),
       params.calculationDate,
       params.purchasedPipelineGraceDays ?? DEFAULT_PLANNING_SETTINGS.purchasedPipelineGraceDays,
+      params.statusRules,
     );
   }
 
