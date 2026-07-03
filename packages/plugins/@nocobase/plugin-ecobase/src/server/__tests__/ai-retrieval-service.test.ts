@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { createEcobaseAiActions } from '../plugin';
 import { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
-import { APPENDIX_A_COVERAGE, EcobaseAiRetrievalService } from '../services/ai-retrieval-service';
+import { EcobaseAiRetrievalService } from '../services/ai-retrieval-service';
 
 class MemoryRepository implements EcobaseRepository {
   private sequence = 1;
@@ -26,23 +26,18 @@ function actionContext(db: EcobaseDatabase, values: Record<string, unknown>) {
 }
 
 async function seed(db: MemoryDatabase) {
-  await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).create({ values: { id: 'source-1', name: 'Sellerboard', sourceType: 'sellerboard', domain: 'amazon_operations', active: true, required: true, freshnessSlaMinutes: 1440 } });
-  await db.getRepository(ECOBASE_COLLECTIONS.importRuns).create({ values: { id: 'run-1', sourceConnectionId: 'source-1', adapterName: 'sellerboard_csv', sourceIdentifier: 'qa', sourceVersion: '2026-06-05', idempotencyKey: 'ai-run-1', status: 'success', rowCount: 10, normalizedCount: 10, warningCount: 0, startedAt: '2026-06-05T08:00:00.000Z', finishedAt: '2026-06-05T08:01:00.000Z' } });
-  await db.getRepository(ECOBASE_COLLECTIONS.planningCalculationSnapshots).create({ values: { id: 'calc-1', naturalKey: 'calc-1', planningProductId: 'product-1', company: 'ACME', canonicalAsin: 'B00AI', calculationDate: '2026-06-05', tier: 'A', daysOfCover: 1, estimatedProfitRisk: 500, profitGap: -100 } });
-  await db.getRepository(ECOBASE_COLLECTIONS.alerts).create({ values: { id: 'alert-1', dedupeKey: 'alert-1', openedAt: '2026-06-05T08:00:00.000Z', planningProductId: 'product-1', company: 'ACME', canonicalAsin: 'B00AI', alertType: 'reorder_needed', severity: 'critical', status: 'open', primaryRootCauseCode: 'reorder_needed', subjectRef: 'planning_product:product-1', actionRequired: 'Place supplier order.', evidence: { calculationId: 'calc-1' }, lastSeenAt: '2026-06-05T08:00:00.000Z' } });
-  await db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).create({ values: { id: 'order-1', company: 'ACME', externalOrderRef: 'PO-AI', supplierName: 'Supplier AI', status: 'ordered' } });
-  await db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).create({ values: { id: 'line-1', company: 'ACME', supplierOrderId: 'order-1', planningProductId: 'product-1', expectedSellableDate: '2026-06-12', openQty: 20, status: 'ordered' } });
-  await db.getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities).create({ values: { id: 'activity-1', supplierOrderId: 'order-1', activityType: 'supplier_contact', occurredAt: '2026-06-04T08:00:00.000Z', actor: 'Ops' } });
-  await db.getRepository(ECOBASE_COLLECTIONS.supplierLeadTimes).create({ values: { id: 'lead-1', supplierId: 'supplier-1', supplierName: 'Supplier AI', leadTimeDays: 21, observedAt: '2026-06-01' } });
-  await db.getRepository(ECOBASE_COLLECTIONS.supplierProductLinks).create({ values: { id: 'link-1', planningProductId: 'product-1', supplierId: 'supplier-1', supplierName: 'Supplier AI', lastSeenAt: '2026-06-01' } });
-  await db.getRepository(ECOBASE_COLLECTIONS.clickupTaskSnapshots).create({ values: { id: 'task-1', externalTaskId: 'CU-AI', taskName: 'Follow supplier', assignee: 'Ops', operationalArea: 'Purchasing', priority: 'high', status: 'open', snapshotDate: '2026-06-05', lastMeaningfulUpdateAt: '2026-06-02T00:00:00.000Z' } });
-  await db.getRepository(ECOBASE_COLLECTIONS.taskLinks).create({ values: { id: 'task-link-1', externalTaskId: 'CU-AI', targetType: 'planning_product', targetRef: 'product-1', confidence: 0.9, observedAt: '2026-06-05T00:00:00.000Z' } });
-  await db.getRepository(ECOBASE_COLLECTIONS.okrs).create({ values: { id: 'okr-1', title: 'Recover profit', owner: 'Ops', operationalArea: 'Purchasing' } });
-  await db.getRepository(ECOBASE_COLLECTIONS.okrMetricSnapshots).create({ values: { id: 'okr-snap-1', okrId: 'okr-1', status: 'off_track', owner: 'Ops', area: 'Purchasing', progressPercent: 40, snapshotDate: '2026-06-05' } });
-  await db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).create({ values: { naturalKey: 'current', planningProductId: 'product-1', company: 'ACME', snapshotDate: '2026-06-05', asin: 'B00AI', sku: 'SKU-AI', sales: 200, units: 10, netProfit: 100, payload: { tier: 'A' } } });
-  await db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).create({ values: { naturalKey: 'previous', planningProductId: 'product-1', company: 'ACME', snapshotDate: '2026-06-04', asin: 'B00AI', sku: 'SKU-AI', sales: 150, units: 7, netProfit: 60, payload: { tier: 'A' } } });
-  await db.getRepository(ECOBASE_COLLECTIONS.reportRuns).create({ values: { id: 'report-1', company: 'ACME', frequency: 'daily', periodStart: '2026-06-05', periodEnd: '2026-06-05', status: 'preview_generated', emailStatus: 'email_not_configured', generatedAt: '2026-06-05T08:10:00.000Z' } });
-  await db.getRepository(ECOBASE_COLLECTIONS.reportItems).create({ values: { id: 'report-item-1', reportRunId: 'report-1', itemType: 'critical_alert', severity: 'critical', title: 'B00AI reorder', body: 'Place supplier order.', evidenceRefType: 'alert', evidenceRefId: 'alert-1', evidence: { alertId: 'alert-1' }, sortOrder: 1 } });
+  await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).create({ values: { id: 'gold-inventory-1', company: 'ACME', calculationDate: '2026-06-05', asin: 'B00AI', sku: 'SKU-AI', title: 'AI product', supplierName: 'Supplier AI', supplierId: 'supplier-1', actionStatus: 'order_now', estimatedOosDate: '2026-06-06', expectedSellableDate: '2026-06-12', recommendedAction: 'Place supplier order.', estimatedProfitRisk: 500, moneyAtRisk: 500, suggestedReorderQty: 20 } });
+  await db.getRepository(ECOBASE_COLLECTIONS.goldSupplierAttentionRows).create({ values: { id: 'gold-supplier-1', company: 'ACME', supplierId: 'supplier-1', supplierName: 'Supplier AI', asin: 'B00AI', sku: 'SKU-AI', recommendedAction: 'Follow supplier.', attentionReason: 'late_expected_sellable_date', moneyAtRisk: 500, orderRef: 'PO-AI', orderStatus: 'paid', expectedSellableDate: '2026-06-12', leadTimeDays: 21 } });
+  await db.getRepository(ECOBASE_COLLECTIONS.goldAlerts).create({ values: { id: 'gold-alert-1', company: 'ACME', severity: 'critical', status: 'open', title: 'B00AI reorder', message: 'Place supplier order.', asin: 'B00AI', sku: 'SKU-AI', createdAt: '2026-06-05T08:00:00.000Z' } });
+  await db.getRepository(ECOBASE_COLLECTIONS.alerts).create({ values: { id: 'alert-1', dedupeKey: 'alert-1', openedAt: '2026-06-05T08:00:00.000Z', planningProductId: 'product-1', company: 'ACME', canonicalAsin: 'B00AI', alertType: 'reorder_needed', severity: 'critical', status: 'open', primaryRootCauseCode: 'reorder_needed', subjectRef: 'planning_product:product-1', actionRequired: 'Place supplier order.', lastSeenAt: '2026-06-05T08:00:00.000Z' } });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({ values: { id: 'silver-order-1', company: 'ACME', orderRef: 'PO-AI', externalOrderRef: 'PO-AI', supplierId: 'supplier-1', supplierName: 'Supplier AI', lifecycleStatus: 'paid', status: 'paid', orderDate: '2026-06-01', expectedSellableDate: '2026-06-12', nextAction: 'Track supplier.' } });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({ values: { id: 'silver-line-1', company: 'ACME', orderRef: 'PO-AI', supplierId: 'supplier-1', supplierName: 'Supplier AI', asin: 'B00AI', sku: 'SKU-AI', title: 'AI product', orderedQty: 20, expectedSellableDate: '2026-06-12', leadTimeDays: 21, lineStatus: 'open' } });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).create({ values: { id: 'supplier-1', company: 'ACME', displayName: 'Supplier AI', normalizedName: 'supplier ai', approvalStatus: 'approved', nextFollowUpAt: '2026-06-06', contactName: 'Ops', email: 'ops@example.com' } });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).create({ values: { id: 'supplier-product-1', supplierId: 'supplier-1', productId: 'product-1', supplierSku: 'SUP-AI', unitCost: 3, leadTimeDays: 21, analysisStatus: 'active' } });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).create({ values: { id: 'silver-inventory-1', company: 'ACME', asin: 'B00AI', sku: 'SKU-AI', snapshotDate: '2026-06-05', sellableQty: 3, reservedQty: 0, inboundQty: 20 } });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts).create({ values: { id: 'silver-fact-1', company: 'ACME', asin: 'B00AI', sku: 'SKU-AI', snapshotDate: '2026-06-05', unitsOrdered: 10, orderedProductSales: 200, buyBoxPercentage: 95 } });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverTasks).create({ values: { id: 'task-1', company: 'ACME', title: 'Follow supplier', status: 'open', priority: 'high', owner: 'Ops', dueDate: '2026-06-06' } });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverTaskLinks).create({ values: { id: 'task-link-1', taskId: 'task-1', entityType: 'planning_product', entityId: 'product-1', asin: 'B00AI', sku: 'SKU-AI' } });
 }
 
 describe('Ecobase AI retrieval service', () => {
@@ -63,10 +58,11 @@ describe('Ecobase AI retrieval service', () => {
     const answers = [];
     for (const question of questions) answers.push(await service.answerQuestion({ question, company: 'ACME', date: '2026-06-05' }));
 
-    expect(service.coverageMatrix()).toHaveLength(APPENDIX_A_COVERAGE.length);
-    expect(new Set(answers.map((answer) => answer.coverageGroup)).size).toBe(6);
+    const coverageGroups = service.coverageMatrix().map((entry) => entry.group);
+    expect(coverageGroups).toHaveLength(5);
+    expect([...new Set(answers.map((answer) => answer.coverageGroup))]).toEqual(expect.arrayContaining(coverageGroups));
     expect(answers.every((answer) => answer.evidenceReferences.length > 0)).toBe(true);
-    expect(answers.every((answer) => answer.response.includes('cannot create, suppress, or resolve deterministic alerts'))).toBe(true);
+    expect(answers.every((answer) => answer.response.includes('cannot create, update, or resolve operational records'))).toBe(true);
     expect(await db.getRepository(ECOBASE_COLLECTIONS.aiAnswers).find()).toHaveLength(6);
     expect(await db.getRepository(ECOBASE_COLLECTIONS.alerts).find()).toHaveLength(alertCount);
   });
@@ -81,7 +77,14 @@ describe('Ecobase AI retrieval service', () => {
 
     const retrievalContext = actionContext(db, { company: 'ACME', date: '2026-06-05' });
     await createEcobaseAiActions().retrieveFacts(retrievalContext, next);
-    expect(retrievalContext.body).toEqual({ data: expect.objectContaining({ alerts: expect.any(Array), accountability: expect.any(Object), comparativeRollups: expect.any(Array) }) });
+    expect(retrievalContext.body).toEqual({
+      data: expect.objectContaining({
+        sourceModel: 'silver-gold-medallion',
+        oldTablesUsed: false,
+        gold: expect.objectContaining({ alerts: expect.any(Array), inventoryPlanningRows: expect.any(Array), supplierAttentionRows: expect.any(Array) }),
+        silver: expect.objectContaining({ orders: expect.any(Array), listingDailyFacts: expect.any(Array) }),
+      }),
+    });
 
     const coverageContext = actionContext(db, {});
     await createEcobaseAiActions().coverage(coverageContext, next);

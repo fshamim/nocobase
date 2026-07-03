@@ -276,7 +276,7 @@ describe('Ecobase deterministic alert evaluation service', () => {
     const beforeDb = new MemoryDatabase();
     const beforeProduct = await seedPlanningProduct(beforeDb, { id: 'before-product', asin: 'B010BEFORE' });
     await seedPlanningRows(beforeDb, beforeProduct, { stock: 3, salesVelocity: 1, recommendedReorderQuantity: 30 });
-    await seedOrderCoverage(beforeDb, beforeProduct, { lineId: 'before-line', expectedSellableDate: '2025-07-12', contactedAt: '2025-07-09T00:00:00.000Z' });
+    await seedOrderCoverage(beforeDb, beforeProduct, { lineId: 'before-line', status: 'paid', expectedSellableDate: '2025-07-12', contactedAt: '2025-07-09T00:00:00.000Z' });
     const beforeRun = await new EcobaseAlertEvaluationService(beforeDb).evaluatePlanningProducts({ planningProductId: String(beforeProduct.id), calculationDate: '2025-07-10' });
     expect(beforeRun.summaries[0].rootCauseCodes).not.toContain('no_supplier_order_placed');
     expect(beforeRun.summaries[0].rootCauseCodes).not.toContain('already_ordered_expected_sellable_late');
@@ -284,7 +284,7 @@ describe('Ecobase deterministic alert evaluation service', () => {
     const lateDb = new MemoryDatabase();
     const lateProduct = await seedPlanningProduct(lateDb, { id: 'late-product', asin: 'B010LATE' });
     await seedPlanningRows(lateDb, lateProduct, { stock: 3, inbound: 50, salesVelocity: 10, recommendedReorderQuantity: 30 });
-    await seedOrderCoverage(lateDb, lateProduct, { lineId: 'late-line', expectedSellableDate: '2025-07-25', contactedAt: '2025-07-01T00:00:00.000Z' });
+    await seedOrderCoverage(lateDb, lateProduct, { lineId: 'late-line', status: 'paid', expectedSellableDate: '2025-07-25', contactedAt: '2025-07-01T00:00:00.000Z' });
     const lateRun = await new EcobaseAlertEvaluationService(lateDb).evaluatePlanningProducts({ planningProductId: String(lateProduct.id), calculationDate: '2025-07-10' });
     expect(lateRun.summaries[0].rootCauseCodes).toContain('already_ordered_expected_sellable_late');
     expect(lateRun.summaries[0].rootCauseCodes).toContain('near_oos_delayed_inbound_or_supplier_order');
