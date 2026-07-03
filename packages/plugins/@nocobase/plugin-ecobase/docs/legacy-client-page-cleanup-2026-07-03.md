@@ -35,7 +35,7 @@ Verify:
 
 1. `/admin/ecobase` loads the EcoBase workspace.
 2. The EcoBase side menu shows the current pages only: Daily Operations Brief, Semantic Model, Inventory Planning, Order Planning, Supplier Management, Planning Settings, Import & Source Status.
-3. Plugin settings pages still load: Ecobase BI, Ecobase data sources, Sellerboard sources, Daily brief AI settings, EcoBase planning settings.
+3. Plugin settings pages still load: Ecobase data sources, Sellerboard sources, Daily brief AI settings, EcoBase planning settings.
 4. No route attempts to load the deleted legacy page chunks.
 5. No browser console or server log errors mention one of the deleted page component names.
 

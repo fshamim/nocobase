@@ -135,12 +135,6 @@ export class PluginEcobaseClient extends Plugin<Record<string, unknown>> {
       });
     }
 
-    this.pluginSettingsManager.add('ecobase', {
-      title: this.t('Ecobase BI'),
-      icon: 'DatabaseOutlined',
-      Component: ImportStatusPage,
-      aclSnippet: 'pm.ecobase',
-    });
     this.pluginSettingsManager.add('ecobase-data-sources', {
       title: this.t('Ecobase data sources'),
       icon: 'CloudUploadOutlined',

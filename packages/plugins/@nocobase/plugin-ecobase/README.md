@@ -61,7 +61,7 @@ For final QA of plugin runtime or UI behavior, run the isolated Docker live gate
 packages/plugins/@nocobase/plugin-ecobase/scripts/start-live-gate.sh
 ```
 
-The script builds the Ecobase QA image in fast overlay mode by default, starts an isolated Postgres + NocoBase Docker Compose project, enables `@nocobase/plugin-ecobase`, waits for `/admin/settings/ecobase`, and prints the URL plus local admin credentials. QA must open the printed URL in a browser, verify the Ecobase status page, capture evidence, then clean up:
+The script builds the Ecobase QA image in fast overlay mode by default, starts an isolated Postgres + NocoBase Docker Compose project, enables `@nocobase/plugin-ecobase`, waits for `/admin/ecobase/import-status`, and prints the URL plus local admin credentials. QA must open the printed URL in a browser, verify the workspace import-status page, capture evidence, then clean up:
 
 ```bash
 packages/plugins/@nocobase/plugin-ecobase/scripts/stop-live-gate.sh
@@ -233,6 +233,6 @@ POST /api/ecobasePlanning:productData
 
 ## UI
 
-The status page is registered through the standard NocoBase client plugin surface at `/admin/settings/ecobase` and reads `ecobaseImport:status` plus the planning product duplicate mapping review from `ecobasePlanning:listDuplicateMappings`. This checkout's plugin loader and build tooling expect `client.js`, `dist/client/index.js`, and `src/client`, matching the existing bundled plugins.
+The import-status page is registered in the current EcoBase workspace at `/admin/ecobase/import-status` and reads `ecobaseImport:status`. This checkout's plugin loader and build tooling expect `client.js`, `dist/client/index.js`, and `src/client`, matching the existing bundled plugins.
 
 The local pi NocoBase plugin skill currently recommends `src/client-v2`, but this repository's plugin build and server plugin URL endpoint still emit `dist/client/index.js` from `src/client`. Keep Ecobase on `src/client` until the fork has a tested v2 app entry, v2 plugin bundle build, and runtime loader path.

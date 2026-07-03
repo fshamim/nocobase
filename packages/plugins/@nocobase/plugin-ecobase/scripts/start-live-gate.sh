@@ -49,18 +49,20 @@ fi
 echo "[ecobase-live-gate] starting app and database"
 docker compose --project-name "${project_name}" --file "${compose_file}" up -d
 
-echo "[ecobase-live-gate] waiting for ${base_url}/admin/settings/ecobase"
+status_url="${base_url}/admin/ecobase/import-status"
+
+echo "[ecobase-live-gate] waiting for ${status_url}"
 deadline=$((SECONDS + ${ECOBASE_LIVE_GATE_TIMEOUT_SECONDS:-600}))
 last_status="000"
 while [ "${SECONDS}" -lt "${deadline}" ]; do
-  last_status="$(curl -k -sS -o /dev/null -w '%{http_code}' "${base_url}/admin/settings/ecobase" || true)"
+  last_status="$(curl -k -sS -o /dev/null -w '%{http_code}' "${status_url}" || true)"
   case "${last_status}" in
     200|301|302|401|403)
       echo "[ecobase-live-gate] app responded with HTTP ${last_status}"
       cat <<EOF
 
 Ecobase live gate is ready.
-URL: ${base_url}/admin/settings/ecobase
+URL: ${status_url}
 API: ${base_url}/api
 Admin email: ${admin_email}
 Admin password: ${admin_password}
@@ -69,7 +71,7 @@ Cleanup: packages/plugins/@nocobase/plugin-ecobase/scripts/stop-live-gate.sh
 QA final gate requirements:
 1. Open the URL above in a browser.
 2. Log in with the printed admin credentials if prompted.
-3. Verify the Ecobase settings/status page loads.
+3. Verify the Ecobase workspace import-status page loads.
 4. Capture browser evidence and then run the cleanup command.
 EOF
       exit 0
