@@ -14,6 +14,7 @@ import type { SourceAdapterRegistry } from './adapters';
 import type { CsvSourceFile } from './adapters/csv-utils';
 import { ECOBASE_COLLECTIONS } from './collections/names';
 import { createEcobaseAiTools } from './ecobase-ai-tools';
+import { registerEcobaseResources } from './resource-registration';
 import { EcobaseAccountabilityService } from './services/accountability-service';
 import { EcobaseAccuracyHarnessService } from './services/accuracy-harness-service';
 import { EcobaseAiRetrievalService } from './services/ai-retrieval-service';
@@ -2424,160 +2425,17 @@ export class PluginEcobaseServer extends Plugin {
     this.app.db.on(`${ECOBASE_COLLECTIONS.supplierOrderActivities}.beforeCreate`, validateSupplierOrderActivityModel);
     this.app.db.on(`${ECOBASE_COLLECTIONS.supplierOrderActivities}.beforeUpdate`, validateSupplierOrderActivityModel);
 
-    this.app.resourceManager.define({
-      name: 'ecobaseImport',
-      actions: createEcobaseImportActions(this.registry),
+    registerEcobaseResources(this.app, {
+      ecobaseImport: createEcobaseImportActions(this.registry),
+      ecobaseInventoryPlanning: createEcobaseInventoryPlanningActions(),
+      ecobasePlanningSettings: createEcobasePlanningSettingsActions(),
+      ecobaseOrderPlanning: createEcobaseOrderPlanningActions(),
+      ecobaseSupplierOrders: createEcobaseSupplierOrderActions(),
+      ecobaseSupplierManagement: createEcobaseSupplierManagementActions(),
+      ecobaseMedallionWorkflow: createEcobaseMedallionWorkflowActions(),
+      ecobaseSilverData: createEcobaseSilverDataActions(),
+      ecobaseReports: createEcobaseReportActions(this.app),
     });
-    this.app.resourceManager.define({
-      name: 'ecobaseInventoryPlanning',
-      actions: createEcobaseInventoryPlanningActions(),
-    });
-    this.app.resourceManager.define({
-      name: 'ecobasePlanningSettings',
-      actions: createEcobasePlanningSettingsActions(),
-    });
-    this.app.resourceManager.define({
-      name: 'ecobaseOrderPlanning',
-      actions: createEcobaseOrderPlanningActions(),
-    });
-    this.app.resourceManager.define({
-      name: 'ecobaseSupplierOrders',
-      actions: createEcobaseSupplierOrderActions(),
-    });
-    this.app.resourceManager.define({
-      name: 'ecobaseSupplierManagement',
-      actions: createEcobaseSupplierManagementActions(),
-    });
-    this.app.resourceManager.define({
-      name: 'ecobaseMedallionWorkflow',
-      actions: createEcobaseMedallionWorkflowActions(),
-    });
-    this.app.resourceManager.define({
-      name: 'ecobaseSilverData',
-      actions: createEcobaseSilverDataActions(),
-    });
-    this.app.resourceManager.define({
-      name: 'ecobaseReports',
-      actions: createEcobaseReportActions(this.app),
-    });
-
-    this.app.acl.allow(
-      'ecobaseImport',
-      [
-        'run',
-        'runDailySnapshot',
-        'forceRefresh',
-        'runScheduledSellerboard',
-        'runNoop',
-        'status',
-        'adapters',
-        'normalizeBronzeToSilver',
-        'runMedallionPipeline',
-        'analyzeCsvBundle',
-        'runCsvBundle',
-        'saveCsvSourceConnection',
-        'listSellerboardSources',
-        'saveSellerboardSource',
-        'deleteSellerboardSource',
-      ],
-      'loggedIn',
-    );
-    this.app.acl.allow(
-      'ecobaseInventoryPlanning',
-      ['filters', 'refreshReadModel', 'rows', 'digestPreview', 'optimizeBudget'],
-      'loggedIn',
-    );
-    this.app.acl.allow('ecobasePlanningSettings', ['get', 'save', 'reset'], 'loggedIn');
-    this.app.acl.allow(
-      'ecobaseOrderPlanning',
-      [
-        'filters',
-        'list',
-        'refreshReadModel',
-        'detail',
-        'updateOrder',
-        'updateLine',
-        'addComment',
-        'updateInvoice',
-        'deleteComment',
-      ],
-      'loggedIn',
-    );
-    this.app.acl.allow(ECOBASE_COLLECTIONS.companies, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.amazonAccounts, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.sourceConnections, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.importRuns, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(
-      'ecobaseSupplierOrders',
-      [
-        'workspace',
-        'getCoverage',
-        'createPlannedOrder',
-        'createOrderLine',
-        'createMedallionDraftOrder',
-        'addMedallionOrderLine',
-        'updateOrderOperatorFields',
-        'updateLineOperatorFields',
-        'deleteLineOperatorFields',
-        'updateSupplierLeadTime',
-        'recordActivity',
-      ],
-      'loggedIn',
-    );
-    this.app.acl.allow(
-      'ecobaseSupplierManagement',
-      [
-        'refreshAttentionRows',
-        'rows',
-        'summary',
-        'digest',
-        'detail',
-        'createSupplier',
-        'updateSupplierProfile',
-        'createSupplierOrder',
-        'recordActivity',
-        'updateProductLeadTime',
-        'updateSupplierLifecycle',
-        'recordComment',
-        'deleteComment',
-        'updateSupplierAccount',
-        'upsertSupplierProduct',
-        'supplierOptions',
-        'productOptions',
-        'orderOptions',
-      ],
-      'loggedIn',
-    );
-    this.app.acl.allow(
-      'ecobaseMedallionWorkflow',
-      ['createComment', 'createTask', 'proposeAction', 'approveAndExecute', 'rejectApproval', 'setActionPolicy'],
-      'loggedIn',
-    );
-    this.app.acl.allow(
-      'ecobaseSilverData',
-      ['search', 'lookup', 'context', 'record', 'updateRecord', 'addComment'],
-      'loggedIn',
-    );
-    this.app.acl.allow(
-      'ecobaseReports',
-      [
-        'generatePreview',
-        'generateDailyOperationsBriefEvidence',
-        'generateDailyOperationsBrief',
-        'getDailyManagementSnapshotTrend',
-        'backfillManagementKpiFacts',
-        'getDailyBriefPromptSettings',
-        'saveDailyBriefPromptSettings',
-        'resetDailyBriefPromptSettings',
-        'markDailyOperationsBriefSent',
-        'markDailyOperationsBriefFailed',
-      ],
-      'loggedIn',
-    );
-    this.app.acl.allow(ECOBASE_COLLECTIONS.goldManagementKpiDailyFacts, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.dailyManagementSnapshots, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.dailyBriefPromptSettings, ['list', 'get'], 'loggedIn');
-    this.app.acl.allow(ECOBASE_COLLECTIONS.planningSettings, ['list', 'get'], 'loggedIn');
   }
 }
 
