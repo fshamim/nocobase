@@ -31,14 +31,14 @@ import {
   NocoBaseEcoNarrativeProvider,
 } from '../features/daily-operations-brief/server/daily-operations-brief-narrative-service';
 import { EcobaseImportService } from '../features/source-import/server/import-service';
-import { EcobaseInventoryPlanningService } from './services/inventory-planning-service';
+import { EcobaseInventoryPlanningService } from '../features/inventory-planning/server/inventory-planning-service';
 import { EcobaseOrderPlanningService } from './services/order-planning-service';
 import { EcobaseMedallionNormalizationService } from './services/medallion-normalization-service';
 import { EcobaseMedallionOrderService } from './services/medallion-order-service';
 import { EcobaseMedallionWorkflowService } from './services/medallion-workflow-service';
-import { EcobasePlanningCalculationService } from './services/planning-calculation-service';
+import { EcobasePlanningCalculationService } from '../features/inventory-planning/server/planning-calculation-service';
 import { EcobasePlanningSettingsService } from './services/planning-settings-service';
-import { EcobasePlanningProductService } from './services/planning-product-service';
+import { EcobasePlanningProductService } from '../features/inventory-planning/server/planning-product-service';
 import { EcobaseOperatorWorkspaceService } from './services/operator-workspace-service';
 import { EcobaseReportService } from './services/report-service';
 import { EcobaseSilverDataService } from './services/silver-data-service';

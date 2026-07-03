@@ -4,7 +4,7 @@ import type { EcobaseDatabase, EcobaseRepository } from '../../source-import/ser
 import { toPlainRecord } from '../../source-import/server/import-service';
 import { EcobaseDataWarningService } from '../../../server/services/data-warning-service';
 import type { EcobaseDataWarning } from '../../../server/services/data-warning-service';
-import { EcobaseInventoryPlanningService } from '../../../server/services/inventory-planning-service';
+import { EcobaseInventoryPlanningService } from '../../inventory-planning/server/inventory-planning-service';
 import { isReliableSupplierOrderCoverageStatus, normalizeSupplierOrderStatus } from '../../../server/services/supplier-order-service';
 
 type PlainRecord = Record<string, unknown>;

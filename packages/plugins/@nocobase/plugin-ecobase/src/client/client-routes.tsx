@@ -9,7 +9,7 @@ const DailyBriefPromptSettingsPage = lazy(
 );
 const DataSourcesPage = lazy(() => import('../features/source-import/client/DataSourcesPage'));
 const ImportStatusPage = lazy(() => import('../features/source-import/client/ImportStatusPage'));
-const InventoryPlanningPage = lazy(() => import('./pages/InventoryPlanningPage'));
+const InventoryPlanningPage = lazy(() => import('../features/inventory-planning/client/InventoryPlanningPage'));
 const OrderPlanningPage = lazy(() => import('./pages/OrderPlanningPage'));
 const PlanningSettingsPage = lazy(() => import('./pages/PlanningSettingsPage'));
 const SellerboardSourcesPage = lazy(() => import('../features/source-import/client/SellerboardSourcesPage'));

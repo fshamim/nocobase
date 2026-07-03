@@ -9,7 +9,7 @@ import {
   resolveOrderLifecycle,
   type OrderLifecycleStatus,
 } from './order-lifecycle';
-import { isProfitTier, profitTierRank } from './profit-tier';
+import { isProfitTier, profitTierRank } from '../../features/inventory-planning/server/profit-tier';
 
 type PlainRecord = Record<string, unknown>;
 

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { createEcobasePlanningActions } from '../plugin';
 import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
-import { EcobasePlanningCalculationService } from '../services/planning-calculation-service';
+import { EcobasePlanningCalculationService } from '../../features/inventory-planning/server/planning-calculation-service';
 
 interface FindParams {
   filter?: Record<string, unknown>;

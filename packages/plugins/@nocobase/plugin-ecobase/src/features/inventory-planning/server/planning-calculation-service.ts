@@ -1,9 +1,9 @@
-import { ECOBASE_COLLECTIONS } from '../collections/names';
-import { EcobaseDataWarningService } from './data-warning-service';
-import type { EcobaseDataWarning } from './data-warning-service';
-import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
-import { toPlainRecord } from '../../features/source-import/server/import-service';
-import { DEFAULT_PLANNING_SETTINGS, EcobasePlanningSettingsService } from './planning-settings-service';
+import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
+import { EcobaseDataWarningService } from '../../../server/services/data-warning-service';
+import type { EcobaseDataWarning } from '../../../server/services/data-warning-service';
+import type { EcobaseDatabase, EcobaseRepository } from '../../source-import/server/import-service';
+import { toPlainRecord } from '../../source-import/server/import-service';
+import { DEFAULT_PLANNING_SETTINGS, EcobasePlanningSettingsService } from '../../../server/services/planning-settings-service';
 import { profitTierFor, type ProfitTierThresholds } from './profit-tier';
 
 const RULE_VERSION = 'spreadsheet_parity_v1';

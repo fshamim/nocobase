@@ -3,7 +3,7 @@ import { amazonOperationsCsvAdapter, createSourceAdapterRegistry, SourceAdapter 
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { createEcobasePlanningActions } from '../plugin';
 import { EcobaseDatabase, EcobaseImportService, EcobaseRepository } from '../../features/source-import/server/import-service';
-import { EcobasePlanningProductService } from '../services/planning-product-service';
+import { EcobasePlanningProductService } from '../../features/inventory-planning/server/planning-product-service';
 
 interface FindParams {
   filter?: Record<string, unknown>;

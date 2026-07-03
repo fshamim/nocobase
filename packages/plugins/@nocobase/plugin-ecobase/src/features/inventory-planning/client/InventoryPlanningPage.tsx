@@ -24,8 +24,8 @@ import {
 } from 'antd';
 import dayjs from 'dayjs';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { FormulaHelp } from '../formula-help';
-import { useT } from '../locale';
+import { FormulaHelp } from '../../../client/formula-help';
+import { useT } from '../../../client/locale';
 
 type PlainRecord = Record<string, any>;
 type OrderNowQuickFilter =
