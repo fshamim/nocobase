@@ -747,7 +747,7 @@ export class EcobaseOperatorWorkspaceService {
       { limit: 500 },
     );
     const derivedCompanyId = requestedCompanyId ?? sourceCompanyId(scopedSources[0] ?? {});
-    const derivedCompanyName = requestedCompanyName ?? sourceCompanyName(scopedSources[0] ?? {}, companiesById);
+    const derivedCompanyName = requestedCompanyName ?? requestedCompany ?? sourceCompanyName(scopedSources[0] ?? {}, companiesById);
     return {
       company: derivedCompanyName,
       companyId: derivedCompanyId,

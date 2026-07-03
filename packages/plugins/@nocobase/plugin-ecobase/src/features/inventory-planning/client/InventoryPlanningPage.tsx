@@ -1080,7 +1080,7 @@ export default function InventoryPlanningPage() {
 
   const columns = [
     {
-      title: t('Review'),
+      title: String(t('Review')),
       key: 'review',
       fixed: 'left' as const,
       width: 95,
@@ -1103,17 +1103,17 @@ export default function InventoryPlanningPage() {
       render: (value: string) => <Tag color={actionColor(value)}>{t(value ?? 'unknown')}</Tag>,
     },
     {
-      title: t('Tier'),
+      title: String(t('Tier')),
       dataIndex: 'tier',
       width: 90,
       render: (value: string) => <Tag color={tierColor(value)}>{value ?? '—'}</Tag>,
     },
-    { title: t('Company'), dataIndex: 'company', width: 170, render: (value: string) => value || '—' },
-    { title: t('ASIN'), dataIndex: 'asin', width: 130 },
-    { title: t('SKU'), dataIndex: 'sku', width: 150 },
-    { title: t('Status'), dataIndex: 'productStatus', width: 130 },
+    { title: String(t('Company')), dataIndex: 'company', width: 170, render: (value: string) => value || '—' },
+    { title: String(t('ASIN')), dataIndex: 'asin', width: 130 },
+    { title: String(t('SKU')), dataIndex: 'sku', width: 150 },
+    { title: String(t('Status')), dataIndex: 'productStatus', width: 130 },
     {
-      title: t('Current stock status'),
+      title: String(t('Current stock status')),
       key: 'stockStatus',
       width: 260,
       render: (_value: any, row: PlainRecord) => <StockStatus row={row} t={t} />,
@@ -1152,9 +1152,9 @@ export default function InventoryPlanningPage() {
         </Space>
       ),
     },
-    { title: t('Days cover'), dataIndex: 'daysOfCover', width: 115, render: formatNumber },
+    { title: String(t('Days cover')), dataIndex: 'daysOfCover', width: 115, render: formatNumber },
     {
-      title: t('Order by'),
+      title: String(t('Order by')),
       dataIndex: 'latestSafeReorderDate',
       width: 150,
       render: (value: string) => {
@@ -1168,7 +1168,7 @@ export default function InventoryPlanningPage() {
       },
     },
     {
-      title: t('OOS date'),
+      title: String(t('OOS date')),
       dataIndex: 'estimatedOosDate',
       width: 150,
       render: (value: string) => {
@@ -1187,8 +1187,8 @@ export default function InventoryPlanningPage() {
       width: 125,
       render: formatNumber,
     },
-    { title: t('Sellable'), dataIndex: 'sellableStock', width: 105, render: formatNumber },
-    { title: t('Reserved'), dataIndex: 'reservedStock', width: 105, render: formatNumber },
+    { title: String(t('Sellable')), dataIndex: 'sellableStock', width: 105, render: formatNumber },
+    { title: String(t('Reserved')), dataIndex: 'reservedStock', width: 105, render: formatNumber },
     {
       title: columnHelp(
         t('Replenishment'),
@@ -1198,9 +1198,9 @@ export default function InventoryPlanningPage() {
       width: 145,
       render: formatNumber,
     },
-    { title: t('Inbound'), dataIndex: 'inboundStock', width: 105, render: formatNumber },
-    { title: t('Ordered'), dataIndex: 'orderedStock', width: 105, render: formatNumber },
-    { title: t('Prep'), dataIndex: 'prepStock', width: 95, render: formatNumber },
+    { title: String(t('Inbound')), dataIndex: 'inboundStock', width: 105, render: formatNumber },
+    { title: String(t('Ordered')), dataIndex: 'orderedStock', width: 105, render: formatNumber },
+    { title: String(t('Prep')), dataIndex: 'prepStock', width: 95, render: formatNumber },
     {
       title: columnHelp(
         t('Open order coverage'),
@@ -1211,7 +1211,7 @@ export default function InventoryPlanningPage() {
       render: formatNumber,
     },
     {
-      title: t('Stuck'),
+      title: String(t('Stuck')),
       dataIndex: 'stuck',
       width: 90,
       render: (value: boolean) => (value ? <Tag color="purple">{t('Check')}</Tag> : <Tag>{t('No')}</Tag>),
@@ -1485,7 +1485,7 @@ export default function InventoryPlanningPage() {
                         pagination={false}
                         columns={[
                           {
-                            title: t('Action'),
+                            title: String(t('Action')),
                             dataIndex: 'recommendedAction',
                             render: (value: string) => (
                               <Tag color={value === 'pay' ? 'red' : value === 'approve' ? 'orange' : 'blue'}>
@@ -1494,21 +1494,21 @@ export default function InventoryPlanningPage() {
                             ),
                           },
                           {
-                            title: t('Order / product'),
+                            title: String(t('Order / product')),
                             key: 'target',
                             render: (_value: any, row: PlainRecord) =>
                               row.supplierOrderRef ?? row.asin ?? row.planningProductId,
                           },
                           {
-                            title: t('Supplier'),
+                            title: String(t('Supplier')),
                             dataIndex: 'supplierName',
                             render: (value: string) => value || <Tag color="red">{t('Missing supplier')}</Tag>,
                           },
-                          { title: t('Spend'), dataIndex: 'spend', render: formatCurrency },
-                          { title: t('Protected profit'), dataIndex: 'protectedProfit', render: formatCurrency },
-                          { title: t('Score'), dataIndex: 'adjustedScore', render: formatNumber },
+                          { title: String(t('Spend')), dataIndex: 'spend', render: formatCurrency },
+                          { title: String(t('Protected profit')), dataIndex: 'protectedProfit', render: formatCurrency },
+                          { title: String(t('Score')), dataIndex: 'adjustedScore', render: formatNumber },
                           {
-                            title: t('Reasons'),
+                            title: String(t('Reasons')),
                             dataIndex: 'reasonCodes',
                             render: (values: string[]) => (
                               <Space size={4} wrap>
@@ -1528,25 +1528,25 @@ export default function InventoryPlanningPage() {
                         pagination={false}
                         columns={[
                           {
-                            title: t('Reason'),
+                            title: String(t('Reason')),
                             dataIndex: 'skipReason',
                             render: (value: string) => (
                               <Tag color={value === 'missing_unit_cost' ? 'red' : 'default'}>{t(value)}</Tag>
                             ),
                           },
                           {
-                            title: t('Order / product'),
+                            title: String(t('Order / product')),
                             key: 'target',
                             render: (_value: any, row: PlainRecord) =>
                               row.supplierOrderRef ?? row.asin ?? row.planningProductId,
                           },
                           {
-                            title: t('Supplier'),
+                            title: String(t('Supplier')),
                             dataIndex: 'supplierName',
                             render: (value: string) => value || <Tag color="red">{t('Missing supplier')}</Tag>,
                           },
-                          { title: t('Spend'), dataIndex: 'spend', render: formatCurrency },
-                          { title: t('Protected profit'), dataIndex: 'protectedProfit', render: formatCurrency },
+                          { title: String(t('Spend')), dataIndex: 'spend', render: formatCurrency },
+                          { title: String(t('Protected profit')), dataIndex: 'protectedProfit', render: formatCurrency },
                         ]}
                       />
                       <Alert
@@ -1717,20 +1717,20 @@ export default function InventoryPlanningPage() {
                       onRow={(row) => ({ onClick: () => openRow(row) })}
                       columns={[
                         {
-                          title: t('Action'),
+                          title: String(t('Action')),
                           dataIndex: 'actionStatus',
                           render: (value: string) => <Tag color={actionColor(value)}>{t(value)}</Tag>,
                         },
                         {
-                          title: t('Tier'),
+                          title: String(t('Tier')),
                           dataIndex: 'tier',
                           render: (value: string) => <Tag color={tierColor(value)}>{value}</Tag>,
                         },
-                        { title: t('ASIN'), dataIndex: 'asin' },
-                        { title: t('SKU'), dataIndex: 'sku' },
-                        { title: t('Velocity'), dataIndex: 'salesVelocity', render: formatNumber },
+                        { title: String(t('ASIN')), dataIndex: 'asin' },
+                        { title: String(t('SKU')), dataIndex: 'sku' },
+                        { title: String(t('Velocity')), dataIndex: 'salesVelocity', render: formatNumber },
                         {
-                          title: t('Lead time'),
+                          title: String(t('Lead time')),
                           dataIndex: 'leadTimeDays',
                           render: (value: number, row: PlainRecord) => (
                             <Space size={4}>
@@ -1744,7 +1744,7 @@ export default function InventoryPlanningPage() {
                           ),
                         },
                         {
-                          title: t('OOS in'),
+                          title: String(t('OOS in')),
                           dataIndex: 'estimatedOosDate',
                           render: (value: string) => (
                             <Tag color={relativeDateLabel(value, relativeBaseDate).color}>
@@ -1753,17 +1753,17 @@ export default function InventoryPlanningPage() {
                           ),
                         },
                         {
-                          title: t('Projected sellable'),
+                          title: String(t('Projected sellable')),
                           dataIndex: 'expectedSellableDate',
                           render: formatDate,
                         },
                         {
-                          title: t('Suggested'),
+                          title: String(t('Suggested')),
                           dataIndex: 'suggestedReorderQty',
                           render: formatNumber,
                         },
                         {
-                          title: t('Money at risk'),
+                          title: String(t('Money at risk')),
                           dataIndex: 'estimatedProfitRisk',
                           render: (value: number) => (
                             <Typography.Text
@@ -1785,7 +1785,7 @@ export default function InventoryPlanningPage() {
                 }}
                 columns={[
                   {
-                    title: t('Order / supplier group'),
+                    title: String(t('Order / supplier group')),
                     key: 'group',
                     render: (_value: any, group: PlainRecord) => (
                       <Space direction="vertical" size={0}>
@@ -1821,7 +1821,7 @@ export default function InventoryPlanningPage() {
                     ),
                   },
                   {
-                    title: t('Products'),
+                    title: String(t('Products')),
                     dataIndex: 'productCount',
                     render: (value: number, group: PlainRecord) =>
                       value === 1 ? (
@@ -1852,7 +1852,7 @@ export default function InventoryPlanningPage() {
                       ),
                   },
                   {
-                    title: t('Earliest OOS'),
+                    title: String(t('Earliest OOS')),
                     dataIndex: 'earliestOosDate',
                     render: (value: string) => (
                       <Tag color={relativeDateLabel(value, relativeBaseDate).color}>
@@ -1861,7 +1861,7 @@ export default function InventoryPlanningPage() {
                     ),
                   },
                   {
-                    title: t('Money at risk'),
+                    title: String(t('Money at risk')),
                     dataIndex: 'totalMoneyAtRisk',
                     render: (value: number) => (
                       <Typography.Text
@@ -1873,7 +1873,7 @@ export default function InventoryPlanningPage() {
                     ),
                   },
                   {
-                    title: t('Top action'),
+                    title: String(t('Top action')),
                     dataIndex: 'topActionStatus',
                     render: (value: string) => <Tag color={actionColor(value)}>{t(value ?? 'unknown')}</Tag>,
                   },
@@ -1892,17 +1892,17 @@ export default function InventoryPlanningPage() {
                 pagination={false}
                 columns={[
                   {
-                    title: t('Supplier / next action'),
+                    title: String(t('Supplier / next action')),
                     dataIndex: 'supplierName',
                     render: (value: string) =>
                       value === 'Find supplier from OrderDetails' ? <Tag color="red">{t(value)}</Tag> : value,
                   },
-                  { title: t('Urgent'), dataIndex: 'urgentCount' },
-                  { title: t('A'), dataIndex: 'tierA' },
-                  { title: t('B'), dataIndex: 'tierB' },
-                  { title: t('C'), dataIndex: 'tierC' },
+                  { title: String(t('Urgent')), dataIndex: 'urgentCount' },
+                  { title: String(t('A')), dataIndex: 'tierA' },
+                  { title: String(t('B')), dataIndex: 'tierB' },
+                  { title: String(t('C')), dataIndex: 'tierC' },
                   {
-                    title: t('Money at risk'),
+                    title: String(t('Money at risk')),
                     dataIndex: 'estimatedProfitRisk',
                     render: (value: number) => (
                       <Typography.Text
@@ -1929,13 +1929,13 @@ export default function InventoryPlanningPage() {
                 onRow={(row) => ({ onClick: () => openRow(row) })}
                 columns={[
                   {
-                    title: t('Tier'),
+                    title: String(t('Tier')),
                     dataIndex: 'tier',
                     render: (value: string) => <Tag color={tierColor(value)}>{value}</Tag>,
                   },
-                  { title: t('ASIN'), dataIndex: 'asin' },
+                  { title: String(t('ASIN')), dataIndex: 'asin' },
                   {
-                    title: t('Supplier'),
+                    title: String(t('Supplier')),
                     key: 'supplier',
                     render: (_value: any, row: PlainRecord) =>
                       row.supplierName ?? <Tag color="red">{t('Find supplier')}</Tag>,
@@ -1956,7 +1956,7 @@ export default function InventoryPlanningPage() {
                     ),
                   },
                   {
-                    title: t('OOS in'),
+                    title: String(t('OOS in')),
                     dataIndex: 'estimatedOosDate',
                     render: (value: string) => (
                       <Tag color={relativeDateLabel(value, relativeBaseDate).color}>
@@ -1977,7 +1977,7 @@ export default function InventoryPlanningPage() {
                     ),
                   },
                   {
-                    title: t('Next'),
+                    title: String(t('Next')),
                     key: 'next',
                     render: (_value: any, row: PlainRecord) => (
                       <Button
@@ -2145,7 +2145,7 @@ export default function InventoryPlanningPage() {
                             pagination={{ pageSize: 5, showSizeChanger: false }}
                             columns={[
                               {
-                                title: t('Status'),
+                                title: String(t('Status')),
                                 key: 'status',
                                 render: (_value: any, line: PlainRecord) => (
                                   <Tag color={supplierOrderStatusColor(line.order?.status)}>
@@ -2154,19 +2154,19 @@ export default function InventoryPlanningPage() {
                                 ),
                               },
                               {
-                                title: t('Supplier order'),
+                                title: String(t('Supplier order')),
                                 key: 'order',
                                 render: (_value: any, line: PlainRecord) =>
                                   line.order?.externalOrderRef ?? line.supplierOrderId ?? '—',
                               },
-                              { title: t('Ordered'), dataIndex: 'orderedQty', render: formatNumber },
-                              { title: t('Received'), dataIndex: 'receivedQty', render: formatNumber },
-                              { title: t('Expected delivery'), dataIndex: 'expectedDeliveryDate', render: formatDate },
-                              { title: t('Expected sellable'), dataIndex: 'expectedSellableDate', render: formatDate },
-                              { title: t('Observed'), dataIndex: 'observedAt', render: formatDate },
-                              { title: t('Source'), dataIndex: 'sourceStage', render: (value: string) => value || '—' },
+                              { title: String(t('Ordered')), dataIndex: 'orderedQty', render: formatNumber },
+                              { title: String(t('Received')), dataIndex: 'receivedQty', render: formatNumber },
+                              { title: String(t('Expected delivery')), dataIndex: 'expectedDeliveryDate', render: formatDate },
+                              { title: String(t('Expected sellable')), dataIndex: 'expectedSellableDate', render: formatDate },
+                              { title: String(t('Observed')), dataIndex: 'observedAt', render: formatDate },
+                              { title: String(t('Source')), dataIndex: 'sourceStage', render: (value: string) => value || '—' },
                               {
-                                title: t('Actions'),
+                                title: String(t('Actions')),
                                 key: 'actions',
                                 render: (_value: any, line: PlainRecord) => (
                                   <Space size={4}>
@@ -2394,10 +2394,10 @@ export default function InventoryPlanningPage() {
                             pagination={false}
                             locale={{ emptyText: t('No linked tasks for this product yet.') }}
                             columns={[
-                              { title: t('Task'), dataIndex: 'title' },
-                              { title: t('Status'), dataIndex: 'status', render: (value: string) => value || '—' },
-                              { title: t('Priority'), dataIndex: 'priority', render: (value: string) => value || '—' },
-                              { title: t('Due'), dataIndex: 'dueAt', render: formatDate },
+                              { title: String(t('Task')), dataIndex: 'title' },
+                              { title: String(t('Status')), dataIndex: 'status', render: (value: string) => value || '—' },
+                              { title: String(t('Priority')), dataIndex: 'priority', render: (value: string) => value || '—' },
+                              { title: String(t('Due')), dataIndex: 'dueAt', render: formatDate },
                             ]}
                           />
                           <Typography.Text strong>{t('Targets')}</Typography.Text>
@@ -2408,10 +2408,10 @@ export default function InventoryPlanningPage() {
                             pagination={false}
                             locale={{ emptyText: t('No linked targets for this product yet.') }}
                             columns={[
-                              { title: t('Metric'), dataIndex: 'metric' },
-                              { title: t('Period'), dataIndex: 'periodType', render: (value: string) => value || '—' },
-                              { title: t('Target'), dataIndex: 'targetValue', render: formatNumber },
-                              { title: t('Status'), dataIndex: 'status', render: (value: string) => value || '—' },
+                              { title: String(t('Metric')), dataIndex: 'metric' },
+                              { title: String(t('Period')), dataIndex: 'periodType', render: (value: string) => value || '—' },
+                              { title: String(t('Target')), dataIndex: 'targetValue', render: formatNumber },
+                              { title: String(t('Status')), dataIndex: 'status', render: (value: string) => value || '—' },
                             ]}
                           />
                         </Space>

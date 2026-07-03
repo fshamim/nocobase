@@ -105,15 +105,15 @@ function bodyStructureForFocus(focus: DailyEvidencePack['focus']) {
   return common;
 }
 
-function sanitizeForPrompt(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sanitizeForPrompt);
+function sanitizeForPrompt<T>(value: T): T {
+  if (Array.isArray(value)) return value.map(sanitizeForPrompt) as T;
   if (!isRecord(value)) return value;
   const output: PlainRecord = {};
   for (const [key, child] of Object.entries(value)) {
     if (/secret|token|password|credential|authorization|apikey|apiKey|url/i.test(key)) continue;
     output[key] = sanitizeForPrompt(child);
   }
-  return output;
+  return output as T;
 }
 
 function extractTextFromAiResponse(value: unknown): string {

@@ -105,9 +105,10 @@ export class EcobaseMedallionWorkflowService {
         ...(params.workflowAction.links ?? []),
       ],
     });
+    const approvalRecord = toPlainRecord(approval);
     await this.repo(ECOBASE_COLLECTIONS.silverActivityComments).update({
       filterByTk: idOf(comment),
-      values: { workflowDetectionStatus: approval.status === 'executed' ? 'triggered' : 'pending' },
+      values: { workflowDetectionStatus: approvalRecord.status === 'executed' ? 'triggered' : 'pending' },
     });
     return {
       comment: await this.requireRecord(ECOBASE_COLLECTIONS.silverActivityComments, idOf(comment), 'comment'),

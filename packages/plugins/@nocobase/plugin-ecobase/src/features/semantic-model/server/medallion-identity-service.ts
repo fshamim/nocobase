@@ -208,7 +208,7 @@ export class EcobaseMedallionIdentityService {
     await this.requireRecord(ECOBASE_COLLECTIONS.silverProducts, params.productId, 'product');
     return this.upsertByFilter(ECOBASE_COLLECTIONS.silverSupplierProducts, {
       filter: { supplierId: params.supplierId, productId: params.productId },
-      values: params,
+      values: { ...params },
     });
   }
 
@@ -221,7 +221,7 @@ export class EcobaseMedallionIdentityService {
         supplierProductId: params.supplierProductId,
         role: params.role,
       },
-      values: params,
+      values: { ...params },
     });
   }
 

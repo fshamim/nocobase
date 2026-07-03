@@ -683,7 +683,7 @@ export class EcobaseManagementKpiFactsService {
         sourceWindowEnd: sourceWindow(currentFacts, 'end'),
         previousSourceWindowStart: sourceWindow(previousFacts, 'start'),
         previousSourceWindowEnd: sourceWindow(previousFacts, 'end'),
-        warning: confidence === 'partial' ? 'partial_history' : undefined,
+        warning: undefined,
       };
     });
     return {
@@ -742,7 +742,11 @@ export class EcobaseManagementKpiFactsService {
       }
       const existing = toPlainRecord(await repository.findOne({ filter: { naturalKey } }));
       if (existing.id) {
-        await repository.update({ filterByTk: asString(existing.id) ?? fact.id, values: fact });
+        const targetId = asString(existing.id) ?? asString(fact.id);
+        if (!targetId) {
+          throw new Error(`Ecobase management KPI facts failed: existing fact ${naturalKey} is missing id.`);
+        }
+        await repository.update({ filterByTk: targetId, values: fact });
       } else {
         await repository.create({ values: fact });
       }

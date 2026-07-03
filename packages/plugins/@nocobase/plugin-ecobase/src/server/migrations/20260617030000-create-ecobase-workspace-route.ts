@@ -51,6 +51,7 @@ const isLegacyWorkspaceChild = (record: DesktopRouteRecord) =>
   String(routeOptions(record)?.href ?? '').startsWith('/admin/ecobase/');
 
 export default class extends Migration {
+  declare db: any;
   on = 'afterSync';
   appVersion = '<2.2.0';
 

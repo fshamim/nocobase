@@ -51,6 +51,7 @@ type SourceStatusRow = {
   rowCount: number;
   normalizedCount: number;
   warningCount: number;
+  latestRunWarningCount?: number;
   errorCount: number;
 };
 
@@ -378,20 +379,20 @@ export default function DataSourcesPage() {
           dataSource={sourceRows}
           pagination={{ pageSize: 6 }}
           columns={[
-            { title: t('Connection'), dataIndex: 'connectionName', key: 'connectionName' },
-            { title: t('Source type'), dataIndex: 'sourceType', key: 'sourceType' },
-            { title: t('Domain'), dataIndex: 'domain', key: 'domain' },
+            { title: String(t('Connection')), dataIndex: 'connectionName', key: 'connectionName' },
+            { title: String(t('Source type')), dataIndex: 'sourceType', key: 'sourceType' },
+            { title: String(t('Domain')), dataIndex: 'domain', key: 'domain' },
             {
-              title: t('Latest status'),
+              title: String(t('Latest status')),
               dataIndex: 'latestRunStatus',
               key: 'latestRunStatus',
               render: (value: string | null) => <Tag color={statusColor(value)}>{value ?? t('No runs')}</Tag>,
             },
-            { title: t('Rows'), dataIndex: 'rowCount', key: 'rowCount' },
-            { title: t('Normalized'), dataIndex: 'normalizedCount', key: 'normalizedCount' },
-            { title: t('Warnings'), dataIndex: 'warningCount', key: 'warningCount' },
+            { title: String(t('Rows')), dataIndex: 'rowCount', key: 'rowCount' },
+            { title: String(t('Normalized')), dataIndex: 'normalizedCount', key: 'normalizedCount' },
+            { title: String(t('Warnings')), dataIndex: 'warningCount', key: 'warningCount' },
             {
-              title: t('Last run time'),
+              title: String(t('Last run time')),
               dataIndex: 'lastRunAt',
               key: 'lastRunAt',
               render: (value: string | null) => (value ? dayjs(value).format('YYYY-MM-DD HH:mm') : t('Never')),
@@ -459,30 +460,30 @@ export default function DataSourcesPage() {
             dataSource={analysis.files}
             pagination={false}
             columns={[
-              { title: t('File'), dataIndex: 'name', key: 'name' },
-              { title: t('Shape'), dataIndex: 'detectedShape', key: 'detectedShape' },
-              { title: t('Rows'), dataIndex: 'rowCount', key: 'rowCount' },
+              { title: String(t('File')), dataIndex: 'name', key: 'name' },
+              { title: String(t('Shape')), dataIndex: 'detectedShape', key: 'detectedShape' },
+              { title: String(t('Rows')), dataIndex: 'rowCount', key: 'rowCount' },
               {
-                title: t('Adapter'),
+                title: String(t('Adapter')),
                 dataIndex: 'adapterName',
                 key: 'adapterName',
                 render: (value: string | null) => value ?? '—',
               },
               {
-                title: t('Source type'),
+                title: String(t('Source type')),
                 dataIndex: 'sourceType',
                 key: 'sourceType',
                 render: (value: string | null) => value ?? '—',
               },
               {
-                title: t('Domain'),
+                title: String(t('Domain')),
                 dataIndex: 'domain',
                 key: 'domain',
                 render: (value: string | null) => value ?? '—',
               },
-              { title: t('Checksum'), dataIndex: 'checksum', key: 'checksum', render: shortChecksum },
+              { title: String(t('Checksum')), dataIndex: 'checksum', key: 'checksum', render: shortChecksum },
               {
-                title: t('Status'),
+                title: String(t('Status')),
                 dataIndex: 'importable',
                 key: 'importable',
                 render: (value: boolean) => (
@@ -490,7 +491,7 @@ export default function DataSourcesPage() {
                 ),
               },
               {
-                title: t('Warnings'),
+                title: String(t('Warnings')),
                 dataIndex: 'warnings',
                 key: 'warnings',
                 render: (warnings: string[]) => (warnings.length ? warnings.join(' | ') : '—'),

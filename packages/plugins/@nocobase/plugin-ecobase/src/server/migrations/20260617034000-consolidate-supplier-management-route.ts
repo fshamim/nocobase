@@ -20,6 +20,7 @@ const routeParentId = (record: DesktopRouteRecord) => getValue(record, 'parentId
 const routeSchemaUid = (record: DesktopRouteRecord) => String(getValue(record, 'schemaUid') ?? '');
 
 export default class extends Migration {
+  declare db: any;
   on = 'afterSync';
   appVersion = '<2.2.0';
 

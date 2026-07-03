@@ -468,7 +468,7 @@ export default function DailyOperationsBriefPage() {
                     pagination={false}
                     columns={[
                       {
-                        title: t('KPI'),
+                        title: String(t('KPI')),
                         dataIndex: 'label',
                         key: 'label',
                         render: (value) => <Typography.Text>{value}</Typography.Text>,
@@ -500,7 +500,7 @@ export default function DailyOperationsBriefPage() {
                           ),
                       },
                       {
-                        title: t('What it means'),
+                        title: String(t('What it means')),
                         dataIndex: 'explanation',
                         key: 'explanation',
                         render: (value) => <Typography.Text>{value}</Typography.Text>,
@@ -545,7 +545,7 @@ export default function DailyOperationsBriefPage() {
                   pagination={false}
                   columns={[
                     {
-                      title: t('Area'),
+                      title: String(t('Area')),
                       dataIndex: 'area',
                       key: 'area',
                       render: (value) => (
@@ -555,7 +555,7 @@ export default function DailyOperationsBriefPage() {
                       ),
                     },
                     {
-                      title: t('What management should look at'),
+                      title: String(t('What management should look at')),
                       key: 'subject',
                       render: (_, row) => (
                         <Space direction="vertical" size={0}>
@@ -564,11 +564,11 @@ export default function DailyOperationsBriefPage() {
                         </Space>
                       ),
                     },
-                    { title: t('Signal'), dataIndex: 'signal', key: 'signal', render: (value) => <Tag>{value}</Tag> },
-                    { title: t('Action'), dataIndex: 'action', key: 'action' },
-                    { title: t('Owner / supplier'), dataIndex: 'owner', key: 'owner', render: shortText },
-                    { title: t('Due / OOS'), dataIndex: 'due', key: 'due', render: dateOnly },
-                    { title: t('Risk'), dataIndex: 'money', key: 'money', render: formatMoney },
+                    { title: String(t('Signal')), dataIndex: 'signal', key: 'signal', render: (value) => <Tag>{value}</Tag> },
+                    { title: String(t('Action')), dataIndex: 'action', key: 'action' },
+                    { title: String(t('Owner / supplier')), dataIndex: 'owner', key: 'owner', render: (value) => shortText(value) },
+                    { title: String(t('Due / OOS')), dataIndex: 'due', key: 'due', render: dateOnly },
+                    { title: String(t('Risk')), dataIndex: 'money', key: 'money', render: formatMoney },
                   ]}
                 />
               ) : (
@@ -585,7 +585,7 @@ export default function DailyOperationsBriefPage() {
                   pagination={false}
                   columns={[
                     {
-                      title: t('Product'),
+                      title: String(t('Product')),
                       key: 'product',
                       render: (_, row) => (
                         <Space direction="vertical" size={0}>
@@ -594,17 +594,17 @@ export default function DailyOperationsBriefPage() {
                         </Space>
                       ),
                     },
-                    { title: t('Company'), dataIndex: 'company', key: 'company', render: shortText },
-                    { title: t('Supplier'), dataIndex: 'supplierName', key: 'supplierName', render: shortText },
-                    { title: t('OOS date'), dataIndex: 'estimatedOosDate', key: 'estimatedOosDate', render: dateOnly },
+                    { title: String(t('Company')), dataIndex: 'company', key: 'company', render: (value) => shortText(value) },
+                    { title: String(t('Supplier')), dataIndex: 'supplierName', key: 'supplierName', render: (value) => shortText(value) },
+                    { title: String(t('OOS date')), dataIndex: 'estimatedOosDate', key: 'estimatedOosDate', render: dateOnly },
                     {
-                      title: t('Latest safe order'),
+                      title: String(t('Latest safe order')),
                       dataIndex: 'latestSafeReorderDate',
                       key: 'latestSafeReorderDate',
                       render: dateOnly,
                     },
                     {
-                      title: t('Coverage'),
+                      title: String(t('Coverage')),
                       key: 'coverage',
                       render: (_, row) => (
                         <Space direction="vertical" size={0}>
@@ -616,13 +616,13 @@ export default function DailyOperationsBriefPage() {
                       ),
                     },
                     {
-                      title: t('Action'),
+                      title: String(t('Action')),
                       dataIndex: 'actionStatus',
                       key: 'actionStatus',
                       render: (value) => <Tag color="orange">{value ?? 'review'}</Tag>,
                     },
                     {
-                      title: t('Money at risk'),
+                      title: String(t('Money at risk')),
                       dataIndex: 'estimatedProfitRisk',
                       key: 'estimatedProfitRisk',
                       render: formatMoney,
@@ -643,7 +643,7 @@ export default function DailyOperationsBriefPage() {
                   pagination={false}
                   columns={[
                     {
-                      title: t('Order'),
+                      title: String(t('Order')),
                       key: 'order',
                       render: (_, row) => (
                         <Space direction="vertical" size={0}>
@@ -652,29 +652,29 @@ export default function DailyOperationsBriefPage() {
                         </Space>
                       ),
                     },
-                    { title: t('Supplier'), dataIndex: 'supplierName', key: 'supplierName', render: shortText },
+                    { title: String(t('Supplier')), dataIndex: 'supplierName', key: 'supplierName', render: (value) => shortText(value) },
                     {
-                      title: t('Status'),
+                      title: String(t('Status')),
                       key: 'status',
                       render: (_, row) => (
                         <Tag color={row.statusCheckRequired ? 'red' : 'blue'}>{row.currentStatus ?? 'review'}</Tag>
                       ),
                     },
-                    { title: t('Next action'), dataIndex: 'nextAction', key: 'nextAction', render: shortText },
-                    { title: t('Due'), dataIndex: 'nextActionDueAt', key: 'nextActionDueAt', render: dateOnly },
+                    { title: String(t('Next action')), dataIndex: 'nextAction', key: 'nextAction', render: (value) => shortText(value) },
+                    { title: String(t('Due')), dataIndex: 'nextActionDueAt', key: 'nextActionDueAt', render: dateOnly },
                     {
-                      title: t('Earliest OOS'),
+                      title: String(t('Earliest OOS')),
                       dataIndex: 'earliestOosDate',
                       key: 'earliestOosDate',
                       render: dateOnly,
                     },
                     {
-                      title: t('Waiting'),
+                      title: String(t('Waiting')),
                       dataIndex: 'daysSinceLastActivity',
                       key: 'daysSinceLastActivity',
                       render: (value) => `${formatNumber(value)}d`,
                     },
-                    { title: t('Money at risk'), dataIndex: 'moneyAtRisk', key: 'moneyAtRisk', render: formatMoney },
+                    { title: String(t('Money at risk')), dataIndex: 'moneyAtRisk', key: 'moneyAtRisk', render: formatMoney },
                   ]}
                 />
               ) : (
@@ -699,7 +699,7 @@ export default function DailyOperationsBriefPage() {
                       pagination={false}
                       columns={[
                         {
-                          title: t('Task'),
+                          title: String(t('Task')),
                           key: 'task',
                           render: (_, row) => (
                             <Space direction="vertical" size={0}>
@@ -709,14 +709,14 @@ export default function DailyOperationsBriefPage() {
                           ),
                         },
                         {
-                          title: t('Signal'),
+                          title: String(t('Signal')),
                           dataIndex: 'riskType',
                           key: 'riskType',
                           render: (value) => <Tag color="purple">{value}</Tag>,
                         },
-                        { title: t('Due'), dataIndex: 'dueDate', key: 'dueDate', render: dateOnly },
+                        { title: String(t('Due')), dataIndex: 'dueDate', key: 'dueDate', render: dateOnly },
                         {
-                          title: t('Last update'),
+                          title: String(t('Last update')),
                           dataIndex: 'lastMeaningfulUpdateAt',
                           key: 'lastMeaningfulUpdateAt',
                           render: dateOnly,
@@ -738,7 +738,7 @@ export default function DailyOperationsBriefPage() {
                       pagination={false}
                       columns={[
                         {
-                          title: t('Area'),
+                          title: String(t('Area')),
                           key: 'area',
                           render: (_, row) => (
                             <Tag color="purple">
@@ -748,12 +748,12 @@ export default function DailyOperationsBriefPage() {
                           ),
                         },
                         {
-                          title: t('Subject'),
+                          title: String(t('Subject')),
                           key: 'subject',
                           render: (_, row) => row.asin ?? row.sku ?? row.okrTitle ?? row.metricName ?? '—',
                         },
                         {
-                          title: t('Impact'),
+                          title: String(t('Impact')),
                           key: 'impact',
                           render: (_, row) =>
                             row.estimatedProfitImpact ??

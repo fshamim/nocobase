@@ -48,7 +48,7 @@ export default function ImportStatusPage() {
 
   const columns = [
     {
-      title: t('Connection'),
+      title: String(t('Connection')),
       dataIndex: 'connectionName',
       key: 'connectionName',
       render: (value: string, row: SourceStatusRow) => (
@@ -59,25 +59,25 @@ export default function ImportStatusPage() {
       ),
     },
     {
-      title: t('Company'),
+      title: String(t('Company')),
       dataIndex: 'companyName',
       key: 'companyName',
       render: (value: string | null | undefined) => value ?? t('Unassigned'),
     },
-    { title: t('Source type'), dataIndex: 'sourceType', key: 'sourceType' },
-    { title: t('Domain'), dataIndex: 'domain', key: 'domain' },
+    { title: String(t('Source type')), dataIndex: 'sourceType', key: 'sourceType' },
+    { title: String(t('Domain')), dataIndex: 'domain', key: 'domain' },
     {
-      title: t('Latest status'),
+      title: String(t('Latest status')),
       dataIndex: 'latestRunStatus',
       key: 'latestRunStatus',
       render: (status: string | null) => <Tag color={getStatusColor(status)}>{status ?? t('No runs')}</Tag>,
     },
-    { title: t('Rows'), dataIndex: 'rowCount', key: 'rowCount' },
-    { title: t('Normalized'), dataIndex: 'normalizedCount', key: 'normalizedCount' },
-    { title: t('Warnings'), dataIndex: 'warningCount', key: 'warningCount' },
-    { title: t('Errors'), dataIndex: 'errorCount', key: 'errorCount' },
+    { title: String(t('Rows')), dataIndex: 'rowCount', key: 'rowCount' },
+    { title: String(t('Normalized')), dataIndex: 'normalizedCount', key: 'normalizedCount' },
+    { title: String(t('Warnings')), dataIndex: 'warningCount', key: 'warningCount' },
+    { title: String(t('Errors')), dataIndex: 'errorCount', key: 'errorCount' },
     {
-      title: t('Last run time'),
+      title: String(t('Last run time')),
       dataIndex: 'lastRunAt',
       key: 'lastRunAt',
       render: (value: string | null) => value ?? t('Never'),

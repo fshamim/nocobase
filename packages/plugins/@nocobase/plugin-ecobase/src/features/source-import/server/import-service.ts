@@ -32,7 +32,7 @@ type RepositoryFindParams = {
 };
 
 type RepositoryCreateParams = { values: Record<string, unknown> };
-type RepositoryUpdateParams = { filterByTk?: string | number; filter?: Filter; values: Record<string, unknown> };
+type RepositoryUpdateParams = { filterByTk?: string | number | null; filter?: Filter; values: Record<string, unknown> };
 
 type ImportFileSummary = {
   rowCount: number;
@@ -104,6 +104,7 @@ export interface EcobaseRepository {
 
 export interface EcobaseDatabase {
   getRepository(name: string): EcobaseRepository;
+  sequelize?: any;
 }
 
 export interface RunNoopImportParams {
@@ -291,7 +292,7 @@ function latestCsvBundleFiles(importRun: unknown): Array<Record<string, unknown>
   return Array.isArray(csvBundle.files) ? csvBundle.files.filter(isRecord) : [];
 }
 
-function csvBundleFileKey(file: Record<string, unknown>) {
+function csvBundleFileKey(file: { name?: unknown; checksum?: unknown }) {
   const name = typeof file.name === 'string' ? file.name : '';
   const checksum = typeof file.checksum === 'string' ? file.checksum : '';
   return `${name}:${checksum}`;

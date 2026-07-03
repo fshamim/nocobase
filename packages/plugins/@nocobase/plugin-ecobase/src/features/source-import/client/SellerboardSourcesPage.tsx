@@ -38,6 +38,8 @@ type SellerboardImportIssue = {
   payloadPreview: Record<string, unknown> | null;
 };
 
+type SellerboardIssueMessage = { code?: string | null; message: string | null };
+
 type SellerboardImportRunLog = {
   importRunId: string | null;
   status: string | null;
@@ -203,7 +205,7 @@ function payloadReportName(issue: SellerboardImportIssue) {
   return typeof reportName === 'string' ? reportName : null;
 }
 
-function isFreshnessMessage(issue: Pick<SellerboardImportIssue, 'code' | 'message'>) {
+function isFreshnessMessage(issue: SellerboardIssueMessage) {
   const message = issue.message ?? '';
   return (
     message.includes('was stale') ||
@@ -213,7 +215,7 @@ function isFreshnessMessage(issue: Pick<SellerboardImportIssue, 'code' | 'messag
   );
 }
 
-function humanIssueMessage(issue: Pick<SellerboardImportIssue, 'code' | 'message'>) {
+function humanIssueMessage(issue: SellerboardIssueMessage) {
   const message = issue.message ?? '';
   if (message.includes('HTTP 401')) {
     return 'Unauthorized report URL. Re-copy the Sellerboard CSV link for this report.';
@@ -230,7 +232,7 @@ function humanIssueMessage(issue: Pick<SellerboardImportIssue, 'code' | 'message
   return message.replace(/^Sellerboard live import failed:\s*/, '') || 'Import issue recorded.';
 }
 
-function issueExplanation(issue: Pick<SellerboardImportIssue, 'code' | 'message'>) {
+function issueExplanation(issue: SellerboardIssueMessage) {
   const message = issue.message ?? '';
   if (message.includes('HTTP 401')) {
     return {
@@ -363,7 +365,7 @@ export default function SellerboardSourcesPage() {
     await refreshAsync();
   };
 
-  const renderIssueHelp = (issue: Pick<SellerboardImportIssue, 'code' | 'message'>) => {
+  const renderIssueHelp = (issue: SellerboardIssueMessage) => {
     const explanation = issueExplanation(issue);
     return (
       <Popover
@@ -432,7 +434,7 @@ export default function SellerboardSourcesPage() {
                   dataSource={run.issues}
                   columns={[
                     {
-                      title: t('Severity'),
+                      title: String(t('Severity')),
                       dataIndex: 'severity',
                       key: 'severity',
                       render: (value: string | null, issue: SellerboardImportIssue) => (
@@ -442,13 +444,13 @@ export default function SellerboardSourcesPage() {
                       ),
                     },
                     {
-                      title: t('Issue'),
+                      title: String(t('Issue')),
                       dataIndex: 'code',
                       key: 'code',
                       render: (value: string | null) => <Typography.Text>{value?.replace(/_/g, ' ') ?? t('Issue')}</Typography.Text>,
                     },
                     {
-                      title: t('Report'),
+                      title: String(t('Report')),
                       dataIndex: 'sourceKey',
                       key: 'sourceKey',
                       render: (value: string | null, issue: SellerboardImportIssue) => (
@@ -459,7 +461,7 @@ export default function SellerboardSourcesPage() {
                       ),
                     },
                     {
-                      title: t('Message'),
+                      title: String(t('Message')),
                       dataIndex: 'message',
                       key: 'message',
                       render: (value: string | null, issue: SellerboardImportIssue) => (
@@ -486,7 +488,7 @@ export default function SellerboardSourcesPage() {
 
   const columns = [
     {
-      title: t('Source'),
+      title: String(t('Source')),
       dataIndex: 'name',
       key: 'name',
       render: (value: string, row: SellerboardSourceRow) => (
@@ -498,13 +500,13 @@ export default function SellerboardSourcesPage() {
       ),
     },
     {
-      title: t('Reports'),
+      title: String(t('Reports')),
       dataIndex: 'reportUrls',
       key: 'reportUrls',
       render: (reportUrls: SellerboardReportUrl[]) => <Tag>{reportUrls.length}</Tag>,
     },
     {
-      title: t('Schedule'),
+      title: String(t('Schedule')),
       dataIndex: 'schedule',
       key: 'schedule',
       render: (schedule: SellerboardSourceRow['schedule']) => (
@@ -517,7 +519,7 @@ export default function SellerboardSourcesPage() {
       ),
     },
     {
-      title: t('Latest import'),
+      title: String(t('Latest import')),
       dataIndex: 'latestRunStatus',
       key: 'latestRunStatus',
       render: (_: unknown, row: SellerboardSourceRow) => (
@@ -544,13 +546,13 @@ export default function SellerboardSourcesPage() {
       ),
     },
     {
-      title: t('Active'),
+      title: String(t('Active')),
       dataIndex: 'active',
       key: 'active',
       render: (value: boolean) => <Tag color={value ? 'green' : 'default'}>{value ? t('Active') : t('Inactive')}</Tag>,
     },
     {
-      title: t('Actions'),
+      title: String(t('Actions')),
       key: 'actions',
       render: (_: unknown, row: SellerboardSourceRow) => (
         <Space>

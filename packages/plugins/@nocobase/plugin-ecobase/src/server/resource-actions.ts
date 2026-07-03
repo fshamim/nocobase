@@ -34,7 +34,11 @@ import { EcobaseInventoryPlanningService } from '../features/inventory-planning/
 import { EcobaseOrderPlanningService } from '../features/order-planning/server/order-planning-service';
 import { EcobaseMedallionNormalizationService } from '../features/semantic-model/server/medallion-normalization-service';
 import { EcobaseMedallionOrderService } from '../features/semantic-model/server/medallion-order-service';
-import { EcobaseMedallionWorkflowService } from '../features/semantic-model/server/medallion-workflow-service';
+import {
+  EcobaseMedallionWorkflowService,
+  type EntityLinkParams,
+  type WorkflowActionParams,
+} from '../features/semantic-model/server/medallion-workflow-service';
 import { EcobasePlanningCalculationService } from '../features/inventory-planning/server/planning-calculation-service';
 import { EcobasePlanningSettingsService } from './services/planning-settings-service';
 import { EcobasePlanningProductService } from '../features/inventory-planning/server/planning-product-service';
@@ -173,7 +177,7 @@ function readModelValue(model: { get?: (key?: string) => unknown }, key: string)
   return model.get(key);
 }
 
-function validateSupplierOrderActivityModel(model: { get?: (key?: string) => unknown }) {
+export function validateSupplierOrderActivityModel(model: { get?: (key?: string) => unknown }) {
   const activityType = readModelValue(model, 'activityType');
   if (typeof activityType !== 'string') {
     throw new Error('Ecobase supplier-order activity failed: activityType is required.');
@@ -726,7 +730,7 @@ export function createEcobaseMedallionWorkflowActions() {
             body: getOptionalString(values, 'body') ?? '',
             followUpAt: getOptionalString(values, 'followUpAt'),
             contextSnapshotJson: getOptionalRecord(values, 'contextSnapshotJson'),
-            workflowAction: getOptionalRecord(values, 'workflowAction'),
+            workflowAction: getOptionalRecord(values, 'workflowAction') as unknown as WorkflowActionParams | undefined,
           }),
         };
       } catch (error) {
@@ -750,7 +754,7 @@ export function createEcobaseMedallionWorkflowActions() {
             assignedToAiEmployeeId: getOptionalString(values, 'assignedToAiEmployeeId'),
             parentTaskId: getOptionalString(values, 'parentTaskId'),
             sourceCommentId: getOptionalString(values, 'sourceCommentId'),
-            links: getOptionalRecordArray(values, 'links'),
+            links: getOptionalRecordArray(values, 'links') as unknown as EntityLinkParams[] | undefined,
           }),
         };
       } catch (error) {
@@ -776,7 +780,7 @@ export function createEcobaseMedallionWorkflowActions() {
             contextSummary: getOptionalString(values, 'contextSummary'),
             evidenceJson: getOptionalRecord(values, 'evidenceJson'),
             riskSummary: getOptionalString(values, 'riskSummary'),
-            links: getOptionalRecordArray(values, 'links'),
+            links: getOptionalRecordArray(values, 'links') as unknown as EntityLinkParams[] | undefined,
           }),
         };
       } catch (error) {
@@ -1892,7 +1896,6 @@ export function createEcobaseSupplierManagementActions() {
       const service = new EcobaseSupplierManagementService(ctx.db);
       ctx.body = {
         data: await service.supplierOptions({
-          company: getOptionalString(values, 'company'),
           search: getOptionalString(values, 'search'),
           limit: getOptionalNumber(values, 'limit'),
         }),
@@ -1904,7 +1907,6 @@ export function createEcobaseSupplierManagementActions() {
       const service = new EcobaseSupplierManagementService(ctx.db);
       ctx.body = {
         data: await service.productOptions({
-          company: getOptionalString(values, 'company'),
           search: getOptionalString(values, 'search'),
           limit: getOptionalNumber(values, 'limit'),
         }),
@@ -1916,7 +1918,6 @@ export function createEcobaseSupplierManagementActions() {
       const service = new EcobaseSupplierManagementService(ctx.db);
       ctx.body = {
         data: await service.orderOptions({
-          company: getOptionalString(values, 'company'),
           supplierId: getOptionalString(values, 'supplierId'),
           search: getOptionalString(values, 'search'),
           limit: getOptionalNumber(values, 'limit'),

@@ -391,7 +391,7 @@ function needsSupplierAction(row: PlainRecord) {
   );
 }
 
-function plainArray(value: unknown) {
+function plainArray(value: unknown): PlainRecord[] {
   return Array.isArray(value) ? value.map(toPlainRecord) : [];
 }
 
@@ -606,13 +606,16 @@ export class EcobaseInventoryPlanningService {
     const ordersById = new Map(supplierOrders.map((order) => [String(order.id), order]));
     const orderLineHistory = supplierOrderLines
       .filter((line) => inventoryRowMatchesLine(query, line))
-      .map((line) => ({ ...line, order: ordersById.get(String(line.supplierOrderId)) ?? {} }))
+      .map((line): PlainRecord & { order: PlainRecord } => ({
+        ...line,
+        order: ordersById.get(String(line.supplierOrderId)) ?? {},
+      }))
       .sort((left, right) => {
         const leftDate = new Date(
-          left.observedAt ?? left.order?.lastMeaningfulUpdateAt ?? left.order?.createdAt ?? 0,
+          asString(left.observedAt) ?? asString(left.order?.lastMeaningfulUpdateAt) ?? asString(left.order?.createdAt) ?? 0,
         ).getTime();
         const rightDate = new Date(
-          right.observedAt ?? right.order?.lastMeaningfulUpdateAt ?? right.order?.createdAt ?? 0,
+          asString(right.observedAt) ?? asString(right.order?.lastMeaningfulUpdateAt) ?? asString(right.order?.createdAt) ?? 0,
         ).getTime();
         return rightDate - leftDate;
       });
@@ -1030,7 +1033,7 @@ export class EcobaseInventoryPlanningService {
     }
 
     const rankedCandidates = [...candidates.values()]
-      .map((candidate) => {
+      .map((candidate): PlainRecord => {
         const spend = asNumber(candidate.spend);
         const protectedProfit = asNumber(candidate.protectedProfit) ?? 0;
         const score = spend && spend > 0 ? protectedProfit / spend : 0;
@@ -1383,7 +1386,7 @@ export class EcobaseInventoryPlanningService {
             asin,
             sku,
           )
-        : {};
+        : ({} as PlainRecord);
     const orderHistoryLines = await this.findOrderLinesByProduct({ company, asin, sku });
     const orderHistoryDerivedLeadTime = this.leadTimeFromOrderHistory(
       orderHistoryLines,
@@ -1988,7 +1991,10 @@ export class EcobaseInventoryPlanningService {
     return result;
   }
 
-  private leadTimeFromOrderHistory(orderLines: PlainRecord[], supplierOrderById: Map<string, PlainRecord>) {
+  private leadTimeFromOrderHistory(
+    orderLines: PlainRecord[],
+    supplierOrderById: Map<string, PlainRecord>,
+  ): { leadTimeDays?: number; confirmedAt?: string; sourceOrderLineRef?: string } {
     const candidates = orderLines
       .map((line) => {
         const order = supplierOrderById.get(asString(line.supplierOrderId) ?? '') ?? {};

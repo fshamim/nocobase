@@ -405,7 +405,7 @@ export default function OrderPlanningPage() {
 
   const orderColumns = [
     {
-      title: t('Order ID'),
+      title: String(t('Order ID')),
       dataIndex: 'orderRef',
       width: 150,
       render: (value: string, row: PlainRecord) => (
@@ -421,22 +421,22 @@ export default function OrderPlanningPage() {
       ),
     },
     {
-      title: t('Company'),
+      title: String(t('Company')),
       dataIndex: 'companyName',
       width: 160,
       render: (value: string) => value || '—',
     },
     {
-      title: t('Current status'),
+      title: String(t('Current status')),
       dataIndex: 'currentStatus',
       width: 220,
       render: (value: string, row: PlainRecord) => statusTag(value, row.statusCheckRequired),
     },
-    { title: t('Tier'), dataIndex: 'tier', width: 80, render: (value: string) => value || '—' },
-    { title: t('ASINs'), dataIndex: 'asinCount', width: 90, render: formatNumber },
-    { title: t('Lines'), dataIndex: 'lineCount', width: 90, render: formatNumber },
+    { title: String(t('Tier')), dataIndex: 'tier', width: 80, render: (value: string) => value || '—' },
+    { title: String(t('ASINs')), dataIndex: 'asinCount', width: 90, render: formatNumber },
+    { title: String(t('Lines')), dataIndex: 'lineCount', width: 90, render: formatNumber },
     {
-      title: t('Money at risk'),
+      title: String(t('Money at risk')),
       dataIndex: 'moneyAtRisk',
       width: 145,
       render: moneyText,
@@ -444,21 +444,21 @@ export default function OrderPlanningPage() {
         numericValue(left.moneyAtRisk) - numericValue(right.moneyAtRisk),
     },
     {
-      title: t('Earliest OOS'),
+      title: String(t('Earliest OOS')),
       dataIndex: 'earliestOosDate',
       width: 135,
       render: formatDate,
       sorter: compareOosDate,
     },
     {
-      title: t('OOS timing'),
+      title: String(t('OOS timing')),
       key: 'oosTiming',
       width: 165,
       render: (_: unknown, row: PlainRecord) => oosText(row),
       sorter: compareOosTiming,
     },
     {
-      title: t('Waiting'),
+      title: String(t('Waiting')),
       dataIndex: 'daysSinceLastActivity',
       width: 110,
       render: (value: number) => (Number.isFinite(Number(value)) ? `${value}d` : '—'),
@@ -466,19 +466,19 @@ export default function OrderPlanningPage() {
         numericValue(left.daysSinceLastActivity) - numericValue(right.daysSinceLastActivity),
     },
     {
-      title: t('Latest comment / remark'),
+      title: String(t('Latest comment / remark')),
       dataIndex: 'latestComment',
       width: 260,
       ellipsis: true,
       render: (value: string) => value || '—',
     },
-    { title: t('Expected delivery'), dataIndex: 'expectedDeliveryDate', width: 145, render: formatDate },
-    { title: t('Next action'), dataIndex: 'nextAction', width: 170, render: (value: string) => value || '—' },
+    { title: String(t('Expected delivery')), dataIndex: 'expectedDeliveryDate', width: 145, render: formatDate },
+    { title: String(t('Next action')), dataIndex: 'nextAction', width: 170, render: (value: string) => value || '—' },
   ];
 
   const groupColumns = [
     {
-      title: t('Supplier / order group'),
+      title: String(t('Supplier / order group')),
       key: 'supplierGroup',
       width: 320,
       fixed: 'left' as const,
@@ -509,12 +509,12 @@ export default function OrderPlanningPage() {
       sorter: (left: PlainRecord, right: PlainRecord) =>
         String(left.supplierName).localeCompare(String(right.supplierName)),
     },
-    { title: t('Orders'), dataIndex: 'orderCount', width: 95, render: formatNumber },
-    { title: t('Tier'), dataIndex: 'tier', width: 80, render: (value: string) => value || '—' },
-    { title: t('ASINs'), dataIndex: 'asinCount', width: 95, render: formatNumber },
-    { title: t('Lines'), dataIndex: 'lineCount', width: 95, render: formatNumber },
+    { title: String(t('Orders')), dataIndex: 'orderCount', width: 95, render: formatNumber },
+    { title: String(t('Tier')), dataIndex: 'tier', width: 80, render: (value: string) => value || '—' },
+    { title: String(t('ASINs')), dataIndex: 'asinCount', width: 95, render: formatNumber },
+    { title: String(t('Lines')), dataIndex: 'lineCount', width: 95, render: formatNumber },
     {
-      title: t('Money at risk'),
+      title: String(t('Money at risk')),
       dataIndex: 'totalMoneyAtRisk',
       width: 150,
       render: moneyText,
@@ -522,21 +522,21 @@ export default function OrderPlanningPage() {
         numericValue(left.totalMoneyAtRisk) - numericValue(right.totalMoneyAtRisk),
     },
     {
-      title: t('Earliest OOS'),
+      title: String(t('Earliest OOS')),
       dataIndex: 'earliestOosDate',
       width: 135,
       render: formatDate,
       sorter: compareOosDate,
     },
     {
-      title: t('OOS timing'),
+      title: String(t('OOS timing')),
       key: 'oosTiming',
       width: 165,
       render: (_: unknown, group: PlainRecord) => oosText(group),
       sorter: compareOosTiming,
     },
     {
-      title: t('Longest waiting'),
+      title: String(t('Longest waiting')),
       dataIndex: 'maxWaitingDays',
       width: 130,
       render: (value: number) => (Number.isFinite(Number(value)) ? `${value}d` : '—'),
@@ -546,20 +546,20 @@ export default function OrderPlanningPage() {
   ];
 
   const lineColumns = [
-    { title: t('ASIN'), dataIndex: 'asin', width: 110 },
-    { title: t('SKU'), dataIndex: 'sku', width: 110 },
-    { title: t('Title'), dataIndex: 'title', width: 240, ellipsis: true },
-    { title: t('Ordered'), dataIndex: 'orderedQty', width: 100, render: formatNumber },
-    { title: t('Confirmed'), dataIndex: 'confirmedQty', width: 110, render: formatNumber },
-    { title: t('Unit cost'), dataIndex: 'unitCost', width: 100, render: formatNumber },
-    { title: t('Sell price'), dataIndex: 'expectedSellPrice', width: 110, render: formatNumber },
-    { title: t('Margin'), dataIndex: 'expectedMargin', width: 100, render: formatNumber },
-    { title: t('Profit'), dataIndex: 'expectedProfit', width: 100, render: formatNumber },
-    { title: t('Delivery'), dataIndex: 'expectedDeliveryDate', width: 120, render: formatDate },
-    { title: t('Sellable'), dataIndex: 'expectedSellableDate', width: 120, render: formatDate },
-    { title: t('Priority'), dataIndex: 'priority', width: 100, render: (value: string) => value || '—' },
+    { title: String(t('ASIN')), dataIndex: 'asin', width: 110 },
+    { title: String(t('SKU')), dataIndex: 'sku', width: 110 },
+    { title: String(t('Title')), dataIndex: 'title', width: 240, ellipsis: true },
+    { title: String(t('Ordered')), dataIndex: 'orderedQty', width: 100, render: formatNumber },
+    { title: String(t('Confirmed')), dataIndex: 'confirmedQty', width: 110, render: formatNumber },
+    { title: String(t('Unit cost')), dataIndex: 'unitCost', width: 100, render: formatNumber },
+    { title: String(t('Sell price')), dataIndex: 'expectedSellPrice', width: 110, render: formatNumber },
+    { title: String(t('Margin')), dataIndex: 'expectedMargin', width: 100, render: formatNumber },
+    { title: String(t('Profit')), dataIndex: 'expectedProfit', width: 100, render: formatNumber },
+    { title: String(t('Delivery')), dataIndex: 'expectedDeliveryDate', width: 120, render: formatDate },
+    { title: String(t('Sellable')), dataIndex: 'expectedSellableDate', width: 120, render: formatDate },
+    { title: String(t('Priority')), dataIndex: 'priority', width: 100, render: (value: string) => value || '—' },
     {
-      title: t('Edit'),
+      title: String(t('Edit')),
       key: 'edit',
       width: 90,
       render: (_: unknown, row: PlainRecord) => (
@@ -571,10 +571,10 @@ export default function OrderPlanningPage() {
   ];
 
   const invoiceColumns = [
-    { title: t('Invoice'), dataIndex: 'invoiceNumber', width: 180, render: (value: string) => value || '—' },
-    { title: t('Type'), dataIndex: 'invoiceType', width: 110, render: (value: string) => value || '—' },
+    { title: String(t('Invoice')), dataIndex: 'invoiceNumber', width: 180, render: (value: string) => value || '—' },
+    { title: String(t('Type')), dataIndex: 'invoiceType', width: 110, render: (value: string) => value || '—' },
     {
-      title: t('Status'),
+      title: String(t('Status')),
       dataIndex: 'status',
       width: 190,
       render: (value: string, row: PlainRecord) => (
@@ -588,20 +588,20 @@ export default function OrderPlanningPage() {
       ),
     },
     {
-      title: t('Amount'),
+      title: String(t('Amount')),
       dataIndex: 'amount',
       width: 110,
       render: (value: unknown) => (value == null ? '—' : formatMoney(value)),
     },
-    { title: t('Payment mode'), dataIndex: 'paymentMode', width: 130, render: (value: string) => value || '—' },
-    { title: t('Paid at'), dataIndex: 'paidAt', width: 140, render: formatDate },
+    { title: String(t('Payment mode')), dataIndex: 'paymentMode', width: 130, render: (value: string) => value || '—' },
+    { title: String(t('Paid at')), dataIndex: 'paidAt', width: 140, render: formatDate },
     {
-      title: t('File'),
+      title: String(t('File')),
       dataIndex: 'fileUrl',
       width: 100,
       render: (value: string) => (value ? <a href={value}>{t('Open')}</a> : '—'),
     },
-    { title: t('Remarks'), dataIndex: 'remarks', width: 220, ellipsis: true, render: (value: string) => value || '—' },
+    { title: String(t('Remarks')), dataIndex: 'remarks', width: 220, ellipsis: true, render: (value: string) => value || '—' },
   ];
 
   const renderGroupedTable = (dataSource: PlainRecord[], pageSize: false | number) => (
@@ -895,11 +895,11 @@ export default function OrderPlanningPage() {
                   dataSource={Array.isArray(detail.comments) ? detail.comments : []}
                   pagination={{ pageSize: 5 }}
                   columns={[
-                    { title: t('Created'), dataIndex: 'createdAt', width: 180, render: formatDate },
-                    { title: t('Type'), dataIndex: 'commentType', width: 120 },
-                    { title: t('Comment'), dataIndex: 'body' },
+                    { title: String(t('Created')), dataIndex: 'createdAt', width: 180, render: formatDate },
+                    { title: String(t('Type')), dataIndex: 'commentType', width: 120 },
+                    { title: String(t('Comment')), dataIndex: 'body' },
                     {
-                      title: t('Actions'),
+                      title: String(t('Actions')),
                       key: 'actions',
                       width: 110,
                       render: (_: unknown, row: PlainRecord) => (

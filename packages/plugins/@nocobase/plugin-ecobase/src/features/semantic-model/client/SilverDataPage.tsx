@@ -286,7 +286,7 @@ export default function SilverDataPage() {
 
   const columnsFor = (section: TableSection): ColumnsType<Record<string, unknown>> => [
     {
-      title: t('Select'),
+      title: String(t('Select')),
       key: 'select',
       width: 80,
       render: (_value, row) => (

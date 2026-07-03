@@ -1110,13 +1110,16 @@ export class EcobaseOrderPlanningService {
     );
   }
 
-  private async loadByIds(collection: string, ids: Array<string | undefined>) {
+  private async loadByIds(collection: string, ids: Array<string | undefined>): Promise<Map<string, PlainRecord>> {
     const uniqueIds = [...new Set(ids.filter((id): id is string => Boolean(id)))];
     if (!uniqueIds.length) return new Map<string, PlainRecord>();
     const rows = (
       await this.repo(collection).find({ filter: { id: { $in: uniqueIds } }, limit: Math.max(uniqueIds.length, 500) })
     ).map(toPlainRecord);
-    return new Map(rows.map((row) => [text(row.id) ?? '', row]).filter(([id]) => Boolean(id)));
+    const entries = rows
+      .map((row): [string, PlainRecord] => [text(row.id) ?? '', row])
+      .filter(([id]) => Boolean(id));
+    return new Map<string, PlainRecord>(entries);
   }
 
   private async loadComments(orderIds: string[], lineIds: string[]) {

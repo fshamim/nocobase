@@ -804,7 +804,7 @@ export class EcobaseSilverDataService {
     type: SilverEntityType,
     rows: Record<string, unknown>[],
     tables: Record<string, Record<string, unknown>[]>,
-  ) {
+  ): Record<string, unknown>[] {
     return rows.map((row) => this.decorateRow(type, row, tables));
   }
 
@@ -812,7 +812,7 @@ export class EcobaseSilverDataService {
     type: SilverEntityType,
     row: Record<string, unknown>,
     tables: Record<string, Record<string, unknown>[]>,
-  ) {
+  ): Record<string, unknown> {
     const companyProduct = findById(tables.companyProduct, text(row.companyProductId));
     const supplierProduct = findById(tables.supplierProduct, text(row.supplierProductId));
     const product =

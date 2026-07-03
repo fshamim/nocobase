@@ -383,7 +383,7 @@ export default function SupplierManagementPage() {
 
   const columns = [
     {
-      title: t('Supplier'),
+      title: String(t('Supplier')),
       dataIndex: 'supplierName',
       width: 210,
       render: (value: string, row: PlainRecord) => (
@@ -394,13 +394,13 @@ export default function SupplierManagementPage() {
       ),
     },
     {
-      title: t('Lifecycle'),
+      title: String(t('Lifecycle')),
       dataIndex: 'lifecycleStatus',
       width: 150,
       render: (value: string) => <Tag color={statusColor(value)}>{t(value || 'new')}</Tag>,
     },
     {
-      title: t('Follow-up'),
+      title: String(t('Follow-up')),
       dataIndex: 'followUpState',
       width: 160,
       render: (value: string, row: PlainRecord) => (
@@ -411,23 +411,23 @@ export default function SupplierManagementPage() {
       ),
     },
     {
-      title: t('Risk'),
+      title: String(t('Risk')),
       dataIndex: 'moneyAtRisk',
       width: 130,
       sorter: (left: PlainRecord, right: PlainRecord) => Number(left.moneyAtRisk ?? 0) - Number(right.moneyAtRisk ?? 0),
       render: formatCurrency,
     },
-    { title: t('Stale orders'), dataIndex: 'staleOrderCount', width: 110 },
-    { title: t('Lead-time issues'), dataIndex: 'leadTimeIssueCount', width: 130 },
+    { title: String(t('Stale orders')), dataIndex: 'staleOrderCount', width: 110 },
+    { title: String(t('Lead-time issues')), dataIndex: 'leadTimeIssueCount', width: 130 },
     {
-      title: t('Products'),
+      title: String(t('Products')),
       width: 130,
       render: (_: any, row: PlainRecord) =>
         `${row.approvedProductCount ?? 0} approved / ${row.candidateProductCount ?? 0} review`,
     },
-    { title: t('Recommended action'), dataIndex: 'recommendedAction', width: 260 },
+    { title: String(t('Recommended action')), dataIndex: 'recommendedAction', width: 260 },
     {
-      title: t('Last comment'),
+      title: String(t('Last comment')),
       dataIndex: 'lastComment',
       ellipsis: true,
       render: (value: string) => value || <Typography.Text type="secondary">{t('No comment yet')}</Typography.Text>,
@@ -695,15 +695,15 @@ export default function SupplierManagementPage() {
                 pagination={false}
                 dataSource={supplierProducts}
                 columns={[
-                  { title: t('ASIN'), dataIndex: 'asin' },
-                  { title: t('SKU'), dataIndex: 'sku' },
-                  { title: t('Title'), dataIndex: 'title', ellipsis: true },
+                  { title: String(t('ASIN')), dataIndex: 'asin' },
+                  { title: String(t('SKU')), dataIndex: 'sku' },
+                  { title: String(t('Title')), dataIndex: 'title', ellipsis: true },
                   {
-                    title: t('Analysis'),
+                    title: String(t('Analysis')),
                     dataIndex: 'analysisStatus',
                     render: (value: string) => <Tag>{t(value || 'not_analyzed')}</Tag>,
                   },
-                  { title: t('Lead time'), dataIndex: 'leadTimeDays' },
+                  { title: String(t('Lead time')), dataIndex: 'leadTimeDays' },
                 ]}
               />
             </Card>
@@ -718,10 +718,10 @@ export default function SupplierManagementPage() {
                     pagination={{ pageSize: 5 }}
                     dataSource={inventoryRisks}
                     columns={[
-                      { title: t('ASIN'), dataIndex: 'asin' },
-                      { title: t('SKU'), dataIndex: 'sku' },
-                      { title: t('Risk'), dataIndex: 'estimatedProfitRisk', render: formatCurrency },
-                      { title: t('Lead time'), dataIndex: 'leadTimeFreshness' },
+                      { title: String(t('ASIN')), dataIndex: 'asin' },
+                      { title: String(t('SKU')), dataIndex: 'sku' },
+                      { title: String(t('Risk')), dataIndex: 'estimatedProfitRisk', render: formatCurrency },
+                      { title: String(t('Lead time')), dataIndex: 'leadTimeFreshness' },
                     ]}
                   />
                 </Col>
@@ -734,14 +734,14 @@ export default function SupplierManagementPage() {
                     dataSource={orderRisks}
                     onRow={(row) => ({ onClick: () => void openOrderDetail(row) })}
                     columns={[
-                      { title: t('Order'), dataIndex: 'orderRef' },
+                      { title: String(t('Order')), dataIndex: 'orderRef' },
                       {
-                        title: t('Status'),
+                        title: String(t('Status')),
                         dataIndex: 'currentStatus',
                         render: (value: string) => <Tag color={orderStatusColor(value)}>{value || '—'}</Tag>,
                       },
-                      { title: t('Waiting days'), dataIndex: 'daysSinceLastActivity' },
-                      { title: t('Risk'), dataIndex: 'moneyAtRisk', render: formatCurrency },
+                      { title: String(t('Waiting days')), dataIndex: 'daysSinceLastActivity' },
+                      { title: String(t('Risk')), dataIndex: 'moneyAtRisk', render: formatCurrency },
                     ]}
                   />
                 </Col>
@@ -755,17 +755,17 @@ export default function SupplierManagementPage() {
                 dataSource={comments}
                 pagination={{ pageSize: 5 }}
                 columns={[
-                  { title: t('When'), dataIndex: 'createdAt', width: 120, render: formatDate },
+                  { title: String(t('When')), dataIndex: 'createdAt', width: 120, render: formatDate },
                   {
-                    title: t('Type'),
+                    title: String(t('Type')),
                     dataIndex: 'commentType',
                     width: 140,
                     render: (value: string) => <Tag>{t(value || 'note')}</Tag>,
                   },
-                  { title: t('Comment'), dataIndex: 'body' },
-                  { title: t('Follow-up'), dataIndex: 'followUpAt', width: 130, render: formatDate },
+                  { title: String(t('Comment')), dataIndex: 'body' },
+                  { title: String(t('Follow-up')), dataIndex: 'followUpAt', width: 130, render: formatDate },
                   {
-                    title: t('Action'),
+                    title: String(t('Action')),
                     width: 90,
                     render: (_: any, row: PlainRecord) => (
                       <Button size="small" danger loading={saving} onClick={() => void deleteComment(String(row.id))}>
@@ -819,43 +819,43 @@ export default function SupplierManagementPage() {
                 pagination={{ pageSize: 5 }}
                 dataSource={selectedOrderLines}
                 columns={[
-                  { title: t('ASIN'), dataIndex: 'asin' },
-                  { title: t('SKU'), dataIndex: 'sku' },
-                  { title: t('Title'), dataIndex: 'title', ellipsis: true },
-                  { title: t('Ordered'), dataIndex: 'orderedQty' },
-                  { title: t('Received'), dataIndex: 'receivedQty' },
-                  { title: t('Expected profit'), dataIndex: 'expectedProfit', render: formatCurrency },
+                  { title: String(t('ASIN')), dataIndex: 'asin' },
+                  { title: String(t('SKU')), dataIndex: 'sku' },
+                  { title: String(t('Title')), dataIndex: 'title', ellipsis: true },
+                  { title: String(t('Ordered')), dataIndex: 'orderedQty' },
+                  { title: String(t('Received')), dataIndex: 'receivedQty' },
+                  { title: String(t('Expected profit')), dataIndex: 'expectedProfit', render: formatCurrency },
                 ]}
               />
             </Card>
 
             {selectedOrderInvoices.length ? (
               <Card title={t('Invoices')} size="small">
-                <Table
+                <Table<PlainRecord>
                   rowKey={(row) => String(row.id)}
                   size="small"
                   pagination={false}
                   dataSource={selectedOrderInvoices}
                   columns={[
-                    { title: t('Invoice'), dataIndex: 'invoiceNumber' },
-                    { title: t('Status'), dataIndex: 'status' },
-                    { title: t('Amount'), dataIndex: 'amount', render: formatCurrency },
-                    { title: t('Paid at'), dataIndex: 'paidAt', render: formatDate },
+                    { title: String(t('Invoice')), dataIndex: 'invoiceNumber' },
+                    { title: String(t('Status')), dataIndex: 'status' },
+                    { title: String(t('Amount')), dataIndex: 'amount', render: formatCurrency },
+                    { title: String(t('Paid at')), dataIndex: 'paidAt', render: formatDate },
                   ]}
                 />
               </Card>
             ) : null}
 
             <Card title={t('Comments')} size="small">
-              <Table
+              <Table<PlainRecord>
                 rowKey={(row) => String(row.id)}
                 size="small"
                 pagination={{ pageSize: 5 }}
                 dataSource={selectedOrderComments}
                 columns={[
-                  { title: t('When'), dataIndex: 'createdAt', width: 120, render: formatDate },
-                  { title: t('Type'), dataIndex: 'commentType', width: 140 },
-                  { title: t('Comment'), dataIndex: 'body' },
+                  { title: String(t('When')), dataIndex: 'createdAt', width: 120, render: formatDate },
+                  { title: String(t('Type')), dataIndex: 'commentType', width: 140 },
+                  { title: String(t('Comment')), dataIndex: 'body' },
                 ]}
               />
             </Card>

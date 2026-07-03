@@ -46,6 +46,7 @@ export {
 } from './resource-actions';
 
 export class PluginEcobaseServer extends Plugin {
+  declare app: any;
   private registry = createSourceAdapterRegistry([
     noopTestAdapter,
     amazonOperationsCsvAdapter,
