@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { ECOBASE_COLLECTIONS } from '../collections/names';
-import type { EcobaseDatabase } from '../../features/source-import/server/import-service';
-import { toPlainRecord } from '../../features/source-import/server/import-service';
+import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
+import type { EcobaseDatabase } from '../../source-import/server/import-service';
+import { toPlainRecord } from '../../source-import/server/import-service';
 import {
   ORDER_LIFECYCLE_STATUSES,
   canonicalOrderLifecycleStatus,
@@ -9,7 +9,7 @@ import {
   resolveOrderLifecycle,
   type OrderLifecycleStatus,
 } from './order-lifecycle';
-import { isProfitTier, profitTierRank } from '../../features/inventory-planning/server/profit-tier';
+import { isProfitTier, profitTierRank } from '../../inventory-planning/server/profit-tier';
 
 type PlainRecord = Record<string, unknown>;
 

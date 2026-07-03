@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
-import { EcobaseOrderPlanningService } from '../services/order-planning-service';
+import { EcobaseOrderPlanningService } from '../../features/order-planning/server/order-planning-service';
 
 class FakeRepository implements EcobaseRepository {
   rows: Record<string, unknown>[] = [];

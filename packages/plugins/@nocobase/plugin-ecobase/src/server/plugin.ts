@@ -32,7 +32,7 @@ import {
 } from '../features/daily-operations-brief/server/daily-operations-brief-narrative-service';
 import { EcobaseImportService } from '../features/source-import/server/import-service';
 import { EcobaseInventoryPlanningService } from '../features/inventory-planning/server/inventory-planning-service';
-import { EcobaseOrderPlanningService } from './services/order-planning-service';
+import { EcobaseOrderPlanningService } from '../features/order-planning/server/order-planning-service';
 import { EcobaseMedallionNormalizationService } from './services/medallion-normalization-service';
 import { EcobaseMedallionOrderService } from './services/medallion-order-service';
 import { EcobaseMedallionWorkflowService } from './services/medallion-workflow-service';

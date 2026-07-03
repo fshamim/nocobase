@@ -4,7 +4,7 @@ import { ECOBASE_COLLECTIONS } from '../collections/names';
 import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
 import { toPlainRecord } from '../../features/source-import/server/import-service';
 import { EcobaseMedallionIdentityService } from './medallion-identity-service';
-import { resolveOrderLifecycle } from './order-lifecycle';
+import { resolveOrderLifecycle } from '../../features/order-planning/server/order-lifecycle';
 
 export interface NormalizePendingParams {
   sourceConnectionId?: string;

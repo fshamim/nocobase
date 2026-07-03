@@ -11,7 +11,7 @@ import { EcobaseInventoryPlanningService } from '../../inventory-planning/server
 import { EcobaseManagementKpiFactsService } from '../../daily-operations-brief/server/management-kpi-facts-service';
 import { EcobaseMedallionNormalizationService } from '../../../server/services/medallion-normalization-service';
 import type { NormalizePendingResult } from '../../../server/services/medallion-normalization-service';
-import { EcobaseOrderPlanningService } from '../../../server/services/order-planning-service';
+import { EcobaseOrderPlanningService } from '../../order-planning/server/order-planning-service';
 import { EcobasePlanningProductService } from '../../inventory-planning/server/planning-product-service';
 import { EcobaseSupplierManagementService } from '../../../server/services/supplier-management-service';
 import { EcobaseSupplierOrderService, validateSupplierLeadTimeDays } from '../../../server/services/supplier-order-service';

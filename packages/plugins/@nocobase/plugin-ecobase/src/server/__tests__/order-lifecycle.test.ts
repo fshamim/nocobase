@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveOrderLifecycle } from '../services/order-lifecycle';
+import { resolveOrderLifecycle } from '../../features/order-planning/server/order-lifecycle';
 
 describe('resolveOrderLifecycle', () => {
   it('maps Google Sheets completed payment to ORDERED with status check instead of COMPLETE', () => {
