@@ -3,7 +3,7 @@ import { ECOBASE_COLLECTIONS } from '../collections/names';
 import type { EcobaseDatabase } from '../../features/source-import/server/import-service';
 import { toPlainRecord } from '../../features/source-import/server/import-service';
 import { EcobasePlanningCalculationService } from '../../features/inventory-planning/server/planning-calculation-service';
-import { EcobaseSupplierOrderService } from './supplier-order-service';
+import { EcobaseSupplierOrderService } from '../../features/supplier-management/server/supplier-order-service';
 
 const ALERT_RULE_VERSION = 'ecobase_alerts_mvp_v1';
 const DEFAULT_ALERT_CONFIG = {

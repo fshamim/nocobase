@@ -11,7 +11,7 @@ import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { EcobaseDatabase, EcobaseImportService, EcobaseRepository } from '../../features/source-import/server/import-service';
 import { EcobasePlanningCalculationService } from '../../features/inventory-planning/server/planning-calculation-service';
 import { EcobaseInventoryPlanningService } from '../../features/inventory-planning/server/inventory-planning-service';
-import { EcobaseSupplierOrderService } from '../services/supplier-order-service';
+import { EcobaseSupplierOrderService } from '../../features/supplier-management/server/supplier-order-service';
 
 interface FindParams {
   filter?: Record<string, unknown>;

@@ -14,7 +14,7 @@ const OrderPlanningPage = lazy(() => import('../features/order-planning/client/O
 const PlanningSettingsPage = lazy(() => import('./pages/PlanningSettingsPage'));
 const SellerboardSourcesPage = lazy(() => import('../features/source-import/client/SellerboardSourcesPage'));
 const SilverDataPage = lazy(() => import('./pages/SilverDataPage'));
-const SupplierManagementPage = lazy(() => import('./pages/SupplierManagementPage'));
+const SupplierManagementPage = lazy(() => import('../features/supplier-management/client/SupplierManagementPage'));
 
 export const ECOBASE_WORKSPACE_ROOT = '/admin/ecobase';
 

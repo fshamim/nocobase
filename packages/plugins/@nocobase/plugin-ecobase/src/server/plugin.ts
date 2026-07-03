@@ -44,12 +44,12 @@ import { EcobaseReportService } from './services/report-service';
 import { EcobaseSilverDataService } from './services/silver-data-service';
 import type { SilverFocus } from './services/silver-data-service';
 import { EcobaseSourceConnectionService } from '../features/source-import/server/source-connection-service';
-import { EcobaseSupplierManagementService } from './services/supplier-management-service';
+import { EcobaseSupplierManagementService } from '../features/supplier-management/server/supplier-management-service';
 import {
   EcobaseSupplierOrderService,
   validateSupplierLeadTimeDays,
   validateSupplierOrderActivityType,
-} from './services/supplier-order-service';
+} from '../features/supplier-management/server/supplier-order-service';
 
 function getValues(params: unknown): Record<string, unknown> {
   if (typeof params !== 'object' || params === null) {

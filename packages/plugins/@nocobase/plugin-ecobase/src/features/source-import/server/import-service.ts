@@ -13,8 +13,8 @@ import { EcobaseMedallionNormalizationService } from '../../../server/services/m
 import type { NormalizePendingResult } from '../../../server/services/medallion-normalization-service';
 import { EcobaseOrderPlanningService } from '../../order-planning/server/order-planning-service';
 import { EcobasePlanningProductService } from '../../inventory-planning/server/planning-product-service';
-import { EcobaseSupplierManagementService } from '../../../server/services/supplier-management-service';
-import { EcobaseSupplierOrderService, validateSupplierLeadTimeDays } from '../../../server/services/supplier-order-service';
+import { EcobaseSupplierManagementService } from '../../supplier-management/server/supplier-management-service';
+import { EcobaseSupplierOrderService, validateSupplierLeadTimeDays } from '../../supplier-management/server/supplier-order-service';
 
 type Filter = Record<string, unknown>;
 
