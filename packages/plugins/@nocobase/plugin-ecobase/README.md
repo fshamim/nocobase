@@ -75,7 +75,7 @@ The 2026-07-03 cleanup removes unused client-only legacy pages while retaining r
 
 ## Architecture refactor verification
 
-Run `docs/refactor-verification-gate-2026-07-03.md` after every small refactor slice.
+Run `docs/refactor-verification-gate-2026-07-03.md` after every small refactor slice. Server resource registration is documented in `docs/server-resource-registration-2026-07-03.md`.
 
 ## Current Amazon operations CSV import
 
