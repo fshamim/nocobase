@@ -1,6 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { analyzeCsvFiles, targetForCsvShape } from './adapters/amazon-operations-csv-adapter';
-import type { AdapterStreamItem, NormalizedRecord, SourceAdapter, SourceAdapterRegistry } from './adapters';
+import type {
+  AdapterStreamItem,
+  NormalizedRecord,
+  SourceAdapter,
+  SourceAdapterImportInput,
+  SourceAdapterRegistry,
+} from './adapters';
 import type { CsvSourceFile } from './adapters/csv-utils';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import { EcobaseAccountabilityService } from '../../../server/services/accountability-service';
@@ -33,6 +39,38 @@ type ImportFileSummary = {
   normalizedCount: number;
   warningCount: number;
   sampleMappedRecord?: Record<string, unknown>;
+};
+
+type AdapterImportStreamResult = {
+  rowCount: number;
+  normalizedCount: number;
+  warningCount: number;
+  errorCount: number;
+  errorMessage: string | null;
+  statusMessage: string | null;
+  firstErrorIssueMessage: string | null;
+  finalStatusOverride: string | null;
+  fileSummaries: Record<string, ImportFileSummary>;
+  supplierOrderTouched: boolean;
+  accountabilityTouched: boolean;
+};
+
+type AdapterImportStreamParams = {
+  importRunId: string;
+  rawImportRowRepo: EcobaseRepository;
+  supplierOrderService: EcobaseSupplierOrderService;
+  bronzeService: EcobaseBronzeImportService;
+  bronzeContext: {
+    importRunId: string;
+    sourceConnectionId: string;
+    sourceIdentifier: string;
+    sourceVersion: string;
+    adapter: SourceAdapter;
+  };
+  adapter: SourceAdapter;
+  adapterInput: SourceAdapterImportInput;
+  adapterConfig: Record<string, unknown>;
+  skipExistingNormalizedKinds: Set<string>;
 };
 
 const NORMALIZED_RECORD_COLLECTIONS: Record<string, string> = {
@@ -693,18 +731,6 @@ export class EcobaseImportService {
       throw new Error('Ecobase import failed: import run was created without an id.');
     }
 
-    let rowCount = 0;
-    let normalizedCount = 0;
-    let warningCount = 0;
-    let errorCount = 0;
-    let errorMessage: string | null = null;
-    let statusMessage: string | null = null;
-    let firstErrorIssueMessage: string | null = null;
-    let finalStatusOverride: string | null = null;
-    let goldRefresh: AutomaticGoldRefreshResult | null = null;
-    const skipExistingNormalizedKinds = new Set(params.skipExistingNormalizedKinds ?? []);
-    const fileSummaries: Record<string, ImportFileSummary> = {};
-    let medallionNormalization: NormalizePendingResult | null = null;
     const supplierOrderService = new EcobaseSupplierOrderService(this.db);
     const bronzeService = new EcobaseBronzeImportService(this.db);
     const adapterConfig = mergeConfig(sourceConnection, params.runtimeConfig);
@@ -715,104 +741,39 @@ export class EcobaseImportService {
       sourceVersion,
       adapter,
     };
-    let supplierOrderTouched = false;
-    let accountabilityTouched = false;
-
-    try {
-      await bronzeService.createSourceFiles(bronzeContext, inlineCsvFiles(adapterConfig));
-      for await (const item of adapter.import({
+    const stream = await this.runAdapterStream({
+      importRunId,
+      rawImportRowRepo,
+      supplierOrderService,
+      bronzeService,
+      bronzeContext,
+      adapter,
+      adapterConfig,
+      adapterInput: {
         sourceConnectionId: params.sourceConnectionId,
         sourceIdentifier,
         sourceVersion,
         idempotencyKey,
         config: adapterConfig,
         secretRef: getString(sourceConnection, 'secretRef'),
-      })) {
-        await bronzeService.createSourceRecord(bronzeContext, item);
-        if (item.type === 'record') {
-          const records = Array.isArray(item.record) ? item.record : [item.record];
-          const fileName = getSourceFileName(item.sourceKey);
-          rowCount += 1;
-          const rawRow = await this.createRawRow(rawImportRowRepo, importRunId, item);
-          const result = await this.upsertNormalizedRecords(
-            records,
-            importRunId,
-            supplierOrderService,
-            skipExistingNormalizedKinds,
-          );
-          normalizedCount += result.normalizedCount;
-          updateFileSummary(fileSummaries, fileName, { rowCount: 1, normalizedCount: result.normalizedCount });
-          supplierOrderTouched = supplierOrderTouched || result.supplierOrderTouched;
-          accountabilityTouched = accountabilityTouched || result.accountabilityTouched;
-          warningCount += result.warnings.length;
-          updateFileSummary(fileSummaries, fileName, {
-            warningCount: result.warnings.length,
-            sampleMappedRecord: result.sample ?? summarizeRecord(records[0]),
-          });
-          if (result.warnings.length > 0) {
-            const rawRowId = getString(rawRow, 'id');
-            if (rawRowId) {
-              await rawImportRowRepo.update({
-                filterByTk: rawRowId,
-                values: {
-                  normalizedStatus: 'pending',
-                  normalizedError: result.warnings.map((warning) => warning.message).join(' | '),
-                  issueSeverity: 'warning',
-                  issueCode: result.warnings[0]?.code,
-                },
-              });
-            }
-          }
-        } else if (item.type === 'rowIssue') {
-          const fileName = getSourceFileName(item.issue.sourceKey);
-          if (item.issue.rowNumber > 0) {
-            rowCount += 1;
-            updateFileSummary(fileSummaries, fileName, { rowCount: 1 });
-          }
-          if (item.issue.severity === 'warning') {
-            warningCount += 1;
-            updateFileSummary(fileSummaries, fileName, { warningCount: 1 });
-          } else {
-            errorCount += 1;
-            firstErrorIssueMessage = firstErrorIssueMessage ?? item.issue.message;
-          }
-          await rawImportRowRepo.create({
-            values: {
-              importRunId,
-              rowNumber: item.issue.rowNumber,
-              sourceKey: item.issue.sourceKey,
-              payload: item.issue.payload ?? {},
-              normalizedStatus: item.issue.severity === 'error' ? 'failed' : 'pending',
-              normalizedError: item.issue.message,
-              issueSeverity: item.issue.severity,
-              issueCode: item.issue.code,
-            },
-          });
-        } else {
-          finalStatusOverride = item.status;
-          if (item.status === 'blocked' || item.status === 'failed') {
-            errorMessage = item.message;
-          } else {
-            statusMessage = item.message;
-          }
-          await rawImportRowRepo.create({
-            values: {
-              importRunId,
-              rowNumber: 0,
-              sourceKey: item.status,
-              payload: item.payload ?? {},
-              normalizedStatus: item.status,
-              normalizedError: item.message,
-              issueSeverity: 'warning',
-              issueCode: item.status,
-            },
-          });
-        }
-      }
-    } catch (error) {
-      errorMessage = error instanceof Error ? error.message : 'Ecobase import failed: adapter threw a non-Error value.';
-      errorCount += 1;
-    }
+      },
+      skipExistingNormalizedKinds: new Set(params.skipExistingNormalizedKinds ?? []),
+    });
+    let {
+      rowCount,
+      normalizedCount,
+      warningCount,
+      errorCount,
+      errorMessage,
+      statusMessage,
+      firstErrorIssueMessage,
+      finalStatusOverride,
+      supplierOrderTouched,
+      accountabilityTouched,
+    } = stream;
+    const fileSummaries = stream.fileSummaries;
+    let goldRefresh: AutomaticGoldRefreshResult | null = null;
+    let medallionNormalization: NormalizePendingResult | null = null;
 
     if (!errorMessage && normalizedCount > 0) {
       try {
@@ -885,6 +846,116 @@ export class EcobaseImportService {
 
     const completedRun = await importRunRepo.findOne({ filterByTk: importRunId });
     return toPlainRecord(completedRun ?? pendingRun);
+  }
+
+  private async runAdapterStream(params: AdapterImportStreamParams): Promise<AdapterImportStreamResult> {
+    const result: AdapterImportStreamResult = {
+      rowCount: 0,
+      normalizedCount: 0,
+      warningCount: 0,
+      errorCount: 0,
+      errorMessage: null,
+      statusMessage: null,
+      firstErrorIssueMessage: null,
+      finalStatusOverride: null,
+      fileSummaries: {},
+      supplierOrderTouched: false,
+      accountabilityTouched: false,
+    };
+
+    try {
+      await params.bronzeService.createSourceFiles(params.bronzeContext, inlineCsvFiles(params.adapterConfig));
+      for await (const item of params.adapter.import(params.adapterInput)) {
+        await params.bronzeService.createSourceRecord(params.bronzeContext, item);
+        if (item.type === 'record') {
+          const records = Array.isArray(item.record) ? item.record : [item.record];
+          const fileName = getSourceFileName(item.sourceKey);
+          result.rowCount += 1;
+          const rawRow = await this.createRawRow(params.rawImportRowRepo, params.importRunId, item);
+          const normalized = await this.upsertNormalizedRecords(
+            records,
+            params.importRunId,
+            params.supplierOrderService,
+            params.skipExistingNormalizedKinds,
+          );
+          result.normalizedCount += normalized.normalizedCount;
+          updateFileSummary(result.fileSummaries, fileName, {
+            rowCount: 1,
+            normalizedCount: normalized.normalizedCount,
+          });
+          result.supplierOrderTouched = result.supplierOrderTouched || normalized.supplierOrderTouched;
+          result.accountabilityTouched = result.accountabilityTouched || normalized.accountabilityTouched;
+          result.warningCount += normalized.warnings.length;
+          updateFileSummary(result.fileSummaries, fileName, {
+            warningCount: normalized.warnings.length,
+            sampleMappedRecord: normalized.sample ?? summarizeRecord(records[0]),
+          });
+          if (normalized.warnings.length > 0) {
+            const rawRowId = getString(rawRow, 'id');
+            if (rawRowId) {
+              await params.rawImportRowRepo.update({
+                filterByTk: rawRowId,
+                values: {
+                  normalizedStatus: 'pending',
+                  normalizedError: normalized.warnings.map((warning) => warning.message).join(' | '),
+                  issueSeverity: 'warning',
+                  issueCode: normalized.warnings[0]?.code,
+                },
+              });
+            }
+          }
+        } else if (item.type === 'rowIssue') {
+          const fileName = getSourceFileName(item.issue.sourceKey);
+          if (item.issue.rowNumber > 0) {
+            result.rowCount += 1;
+            updateFileSummary(result.fileSummaries, fileName, { rowCount: 1 });
+          }
+          if (item.issue.severity === 'warning') {
+            result.warningCount += 1;
+            updateFileSummary(result.fileSummaries, fileName, { warningCount: 1 });
+          } else {
+            result.errorCount += 1;
+            result.firstErrorIssueMessage = result.firstErrorIssueMessage ?? item.issue.message;
+          }
+          await params.rawImportRowRepo.create({
+            values: {
+              importRunId: params.importRunId,
+              rowNumber: item.issue.rowNumber,
+              sourceKey: item.issue.sourceKey,
+              payload: item.issue.payload ?? {},
+              normalizedStatus: item.issue.severity === 'error' ? 'failed' : 'pending',
+              normalizedError: item.issue.message,
+              issueSeverity: item.issue.severity,
+              issueCode: item.issue.code,
+            },
+          });
+        } else {
+          result.finalStatusOverride = item.status;
+          if (item.status === 'blocked' || item.status === 'failed') {
+            result.errorMessage = item.message;
+          } else {
+            result.statusMessage = item.message;
+          }
+          await params.rawImportRowRepo.create({
+            values: {
+              importRunId: params.importRunId,
+              rowNumber: 0,
+              sourceKey: item.status,
+              payload: item.payload ?? {},
+              normalizedStatus: item.status,
+              normalizedError: item.message,
+              issueSeverity: 'warning',
+              issueCode: item.status,
+            },
+          });
+        }
+      }
+    } catch (error) {
+      result.errorMessage = error instanceof Error ? error.message : 'Ecobase import failed: adapter threw a non-Error value.';
+      result.errorCount += 1;
+    }
+
+    return result;
   }
 
   async listSourceStatuses(): Promise<SourceStatusView[]> {
