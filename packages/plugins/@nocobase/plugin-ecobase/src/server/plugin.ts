@@ -22,14 +22,14 @@ import { EcobaseAlertEvaluationService } from './services/alert-evaluation-servi
 import { ensureEcobaseCollectionManagerMetadata } from './services/collection-manager-metadata-service';
 import { EcobaseComparisonService } from './services/comparison-service';
 import { EcobaseDashboardService } from './services/dashboard-service';
-import { EcobaseDailyOperationsBriefService } from './services/daily-operations-brief-service';
-import { EcobaseDailyOperationsBriefDeliveryService } from './services/daily-operations-brief-delivery-service';
-import { EcobaseDailyBriefPromptSettingsService } from './services/daily-brief-prompt-settings-service';
-import { EcobaseManagementKpiFactsService } from './services/management-kpi-facts-service';
+import { EcobaseDailyOperationsBriefService } from '../features/daily-operations-brief/server/daily-operations-brief-service';
+import { EcobaseDailyOperationsBriefDeliveryService } from '../features/daily-operations-brief/server/daily-operations-brief-delivery-service';
+import { EcobaseDailyBriefPromptSettingsService } from '../features/daily-operations-brief/server/daily-brief-prompt-settings-service';
+import { EcobaseManagementKpiFactsService } from '../features/daily-operations-brief/server/management-kpi-facts-service';
 import {
   EcobaseDailyOperationsBriefNarrativeService,
   NocoBaseEcoNarrativeProvider,
-} from './services/daily-operations-brief-narrative-service';
+} from '../features/daily-operations-brief/server/daily-operations-brief-narrative-service';
 import { EcobaseImportService } from '../features/source-import/server/import-service';
 import { EcobaseInventoryPlanningService } from './services/inventory-planning-service';
 import { EcobaseOrderPlanningService } from './services/order-planning-service';

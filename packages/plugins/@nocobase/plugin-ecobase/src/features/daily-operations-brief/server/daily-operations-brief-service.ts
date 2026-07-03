@@ -1,11 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { ECOBASE_COLLECTIONS } from '../collections/names';
-import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
-import { toPlainRecord } from '../../features/source-import/server/import-service';
-import { EcobaseDataWarningService } from './data-warning-service';
-import type { EcobaseDataWarning } from './data-warning-service';
-import { EcobaseInventoryPlanningService } from './inventory-planning-service';
-import { isReliableSupplierOrderCoverageStatus, normalizeSupplierOrderStatus } from './supplier-order-service';
+import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
+import type { EcobaseDatabase, EcobaseRepository } from '../../source-import/server/import-service';
+import { toPlainRecord } from '../../source-import/server/import-service';
+import { EcobaseDataWarningService } from '../../../server/services/data-warning-service';
+import type { EcobaseDataWarning } from '../../../server/services/data-warning-service';
+import { EcobaseInventoryPlanningService } from '../../../server/services/inventory-planning-service';
+import { isReliableSupplierOrderCoverageStatus, normalizeSupplierOrderStatus } from '../../../server/services/supplier-order-service';
 
 type PlainRecord = Record<string, unknown>;
 type DailyBriefFocus =

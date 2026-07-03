@@ -8,7 +8,7 @@ import { EcobaseBronzeImportService } from './bronze-import-service';
 import { EcobaseDataWarningService } from '../../../server/services/data-warning-service';
 import type { EcobaseDataWarning } from '../../../server/services/data-warning-service';
 import { EcobaseInventoryPlanningService } from '../../../server/services/inventory-planning-service';
-import { EcobaseManagementKpiFactsService } from '../../../server/services/management-kpi-facts-service';
+import { EcobaseManagementKpiFactsService } from '../../daily-operations-brief/server/management-kpi-facts-service';
 import { EcobaseMedallionNormalizationService } from '../../../server/services/medallion-normalization-service';
 import type { NormalizePendingResult } from '../../../server/services/medallion-normalization-service';
 import { EcobaseOrderPlanningService } from '../../../server/services/order-planning-service';

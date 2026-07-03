@@ -4,14 +4,16 @@ import { Layout, Menu, Typography } from 'antd';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ecobaseClientCollections } from './ecobase-collections';
 
-const DailyOperationsBriefPage = lazy(() => import('./pages/DailyOperationsBriefPage'));
-const DailyBriefPromptSettingsPage = lazy(() => import('./pages/DailyBriefPromptSettingsPage'));
-const DataSourcesPage = lazy(() => import('./pages/DataSourcesPage'));
-const ImportStatusPage = lazy(() => import('./pages/ImportStatusPage'));
+const DailyOperationsBriefPage = lazy(() => import('../features/daily-operations-brief/client/DailyOperationsBriefPage'));
+const DailyBriefPromptSettingsPage = lazy(
+  () => import('../features/daily-operations-brief/client/DailyBriefPromptSettingsPage'),
+);
+const DataSourcesPage = lazy(() => import('../features/source-import/client/DataSourcesPage'));
+const ImportStatusPage = lazy(() => import('../features/source-import/client/ImportStatusPage'));
 const InventoryPlanningPage = lazy(() => import('./pages/InventoryPlanningPage'));
 const OrderPlanningPage = lazy(() => import('./pages/OrderPlanningPage'));
 const PlanningSettingsPage = lazy(() => import('./pages/PlanningSettingsPage'));
-const SellerboardSourcesPage = lazy(() => import('./pages/SellerboardSourcesPage'));
+const SellerboardSourcesPage = lazy(() => import('../features/source-import/client/SellerboardSourcesPage'));
 const SilverDataPage = lazy(() => import('./pages/SilverDataPage'));
 const SupplierManagementPage = lazy(() => import('./pages/SupplierManagementPage'));
 

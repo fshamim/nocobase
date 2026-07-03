@@ -1,7 +1,7 @@
 import { useAPIClient } from '@nocobase/client';
 import { Alert, Button, Card, Col, Input, Row, Select, Space, Typography } from 'antd';
 import React, { useCallback, useEffect, useState } from 'react';
-import { useT } from '../locale';
+import { useT } from '../../../client/locale';
 
 type PlainRecord = Record<string, any>;
 type CompanyOption = { label: string; value: string };

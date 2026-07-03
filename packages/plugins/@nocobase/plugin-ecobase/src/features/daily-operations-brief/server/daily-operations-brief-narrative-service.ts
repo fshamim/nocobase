@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
-import { ECOBASE_COLLECTIONS } from '../collections/names';
-import type { EcobaseDatabase } from '../../features/source-import/server/import-service';
-import { toPlainRecord } from '../../features/source-import/server/import-service';
+import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
+import type { EcobaseDatabase } from '../../source-import/server/import-service';
+import { toPlainRecord } from '../../source-import/server/import-service';
 import { EcobaseDailyOperationsBriefService } from './daily-operations-brief-service';
 import type { DailyEvidencePack, GenerateDailyOperationsBriefEvidenceParams } from './daily-operations-brief-service';
 import { EcobaseManagementKpiFactsService } from './management-kpi-facts-service';
