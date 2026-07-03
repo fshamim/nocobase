@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
-import type { EcobaseDatabase, EcobaseRepository } from '../services/import-service';
-import { EcobaseDailyOperationsBriefService } from '../services/daily-operations-brief-service';
+import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
+import { EcobaseDailyOperationsBriefService } from '../../features/daily-operations-brief/server/daily-operations-brief-service';
 
 class MemoryRepository implements EcobaseRepository {
   private sequence = 1;

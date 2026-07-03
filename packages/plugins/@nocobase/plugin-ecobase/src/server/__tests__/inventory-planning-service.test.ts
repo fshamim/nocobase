@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
-import { EcobaseInventoryPlanningService } from '../services/inventory-planning-service';
-import type { EcobaseDatabase, EcobaseRepository } from '../services/import-service';
+import { EcobaseInventoryPlanningService } from '../../features/inventory-planning/server/inventory-planning-service';
+import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
 
 interface FindParams {
   filter?: Record<string, unknown>;
@@ -1245,6 +1245,98 @@ describe('EcobaseInventoryPlanningService', () => {
 
     expect(rows.map((row) => row.id)).toEqual(['high-risk', 'low-risk', 'excluded-risk']);
     expect(limitedRows.map((row) => row.id)).toEqual(['high-risk', 'low-risk']);
+  });
+
+  it('serves filters, rows, and digest through one inventory workspace interface', async () => {
+    const db = new MemoryDatabase();
+    await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
+      id: 'workspace-row',
+      naturalKey: 'workspace-row',
+      calculationDate: '2026-06-07',
+      company: 'Ecofission LLC',
+      asin: 'B000WORK',
+      sku: 'WORK-SKU',
+      title: 'Workspace product',
+      actionStatus: 'order_today',
+      tier: 'A',
+      estimatedProfitRisk: 250,
+      supplierOrderState: 'no_open_order',
+      leadTimeFreshness: 'fresh',
+      lastRefreshedAt: '2026-06-07T10:00:00.000Z',
+    });
+
+    const workspace = await new EcobaseInventoryPlanningService(db).workspace({
+      company: 'Ecofission LLC',
+      calculationDate: '2026-06-07',
+      limit: 10,
+    });
+
+    expect(workspace.filters.companies).toContain('Ecofission LLC');
+    expect(workspace.rows).toHaveLength(1);
+    expect(workspace.rows[0]).toMatchObject({ asin: 'B000WORK', actionStatus: 'order_today' });
+    expect(workspace.digest.summary).toMatchObject({ orderToday: 1, atRisk: 1 });
+    expect(workspace.digest.sections.orderNow[0]).toMatchObject({ asin: 'B000WORK' });
+  });
+
+  it('shapes row drawer supplier/order history behind the inventory workspace interface', async () => {
+    const db = new MemoryDatabase();
+    const supplierId = '33333333-3333-4333-8333-333333333333';
+    const orderId = '11111111-1111-4111-8111-111111111111';
+    await createRecord(db, ECOBASE_COLLECTIONS.suppliers, {
+      id: supplierId,
+      naturalKey: 'supplier-drawer',
+      company: 'Ecofission LLC',
+      name: 'Drawer Supplier',
+      active: true,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrders, {
+      id: orderId,
+      naturalKey: 'order-drawer',
+      company: 'Ecofission LLC',
+      supplierId,
+      externalOrderRef: 'DRAWER-1',
+      status: 'approval_pending',
+      lastMeaningfulUpdateAt: '2026-06-07T12:00:00.000Z',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrderLines, {
+      id: '44444444-4444-4444-8444-444444444444',
+      naturalKey: 'line-drawer',
+      company: 'Ecofission LLC',
+      supplierOrderId: orderId,
+      supplierId,
+      asin: 'B000DRAWER',
+      sku: 'DRAWER-SKU',
+      orderedQty: 12,
+      receivedQty: 0,
+      observedAt: '2026-06-07T13:00:00.000Z',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrderActivities, {
+      id: '55555555-5555-4555-8555-555555555555',
+      naturalKey: 'activity-drawer',
+      company: 'Ecofission LLC',
+      supplierOrderId: orderId,
+      supplierId,
+      activityType: 'status_update',
+      notes: 'Waiting on payment.',
+      occurredAt: '2026-06-07T14:00:00.000Z',
+    });
+
+    const workspace = await new EcobaseInventoryPlanningService(db).rowWorkspace({
+      company: 'Ecofission LLC',
+      asin: 'B000DRAWER',
+      sku: 'DRAWER-SKU',
+      supplierId,
+    });
+
+    expect(workspace.suppliers).toHaveLength(1);
+    expect(workspace.orderLineHistory[0]).toMatchObject({ asin: 'B000DRAWER', order: { externalOrderRef: 'DRAWER-1' } });
+    expect(workspace.orderActivities[0]).toMatchObject({ notes: 'Waiting on payment.' });
+    expect(workspace.initialOrderEdit).toMatchObject({ supplierOrderId: orderId, status: 'approval_pending' });
+    expect(workspace.actionDefaults).toMatchObject({
+      draftSupplierId: supplierId,
+      leadSupplierId: supplierId,
+      addSupplierOrderId: orderId,
+    });
   });
 
   it('keeps the daily digest bounded to order-now risk and supplier contact priorities', async () => {

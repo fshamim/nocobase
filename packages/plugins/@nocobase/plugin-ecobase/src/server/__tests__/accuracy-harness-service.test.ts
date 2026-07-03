@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { createEcobaseAccuracyActions } from '../plugin';
 import { EcobaseAccuracyHarnessService, REQUIRED_CHECKLIST_ITEMS } from '../services/accuracy-harness-service';
-import { EcobaseDatabase, EcobaseRepository } from '../services/import-service';
+import { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
 
 class MemoryRepository implements EcobaseRepository {
   private sequence = 1;

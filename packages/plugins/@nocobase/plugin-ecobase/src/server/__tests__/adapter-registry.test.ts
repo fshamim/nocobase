@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createSourceAdapterRegistry, noopTestAdapter } from '../adapters';
+import { createSourceAdapterRegistry, noopTestAdapter } from '../../features/source-import/server/adapters';
 
 describe('Ecobase source adapter registry', () => {
   it('registers adapter metadata and exposes the no-op adapter', async () => {

@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { amazonOperationsCsvAdapter, createSourceAdapterRegistry, SourceAdapter } from '../adapters';
+import { amazonOperationsCsvAdapter, createSourceAdapterRegistry, SourceAdapter } from '../../features/source-import/server/adapters';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { createEcobasePlanningActions } from '../plugin';
-import { EcobaseDatabase, EcobaseImportService, EcobaseRepository } from '../services/import-service';
-import { EcobasePlanningProductService } from '../services/planning-product-service';
+import { EcobaseDatabase, EcobaseImportService, EcobaseRepository } from '../../features/source-import/server/import-service';
+import { EcobasePlanningProductService } from '../../features/inventory-planning/server/planning-product-service';
 
 interface FindParams {
   filter?: Record<string, unknown>;

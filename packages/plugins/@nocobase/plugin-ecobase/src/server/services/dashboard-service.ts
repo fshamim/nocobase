@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { EcobaseComparisonService } from './comparison-service';
 import { EcobaseDataWarningService } from './data-warning-service';
-import type { EcobaseDatabase } from './import-service';
-import { EcobaseSupplierOrderService } from './supplier-order-service';
+import type { EcobaseDatabase } from '../../features/source-import/server/import-service';
+import { EcobaseSupplierOrderService } from '../../features/supplier-management/server/supplier-order-service';
 
 type PlainRecord = Record<string, unknown>;
 

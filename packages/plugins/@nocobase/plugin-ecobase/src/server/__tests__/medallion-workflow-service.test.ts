@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
-import type { EcobaseDatabase, EcobaseRepository } from '../services/import-service';
-import { toPlainRecord } from '../services/import-service';
-import { EcobaseMedallionWorkflowService } from '../services/medallion-workflow-service';
+import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
+import { toPlainRecord } from '../../features/source-import/server/import-service';
+import { EcobaseMedallionWorkflowService } from '../../features/semantic-model/server/medallion-workflow-service';
 
 class FakeRepository implements EcobaseRepository {
   rows: Record<string, unknown>[] = [];

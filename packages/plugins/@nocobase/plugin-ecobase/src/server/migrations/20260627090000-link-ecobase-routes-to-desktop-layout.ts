@@ -36,6 +36,7 @@ const tableName = (table: unknown) => {
 };
 
 export default class extends Migration {
+  declare db: any;
   on = 'afterSync';
   appVersion = '<2.2.0';
 

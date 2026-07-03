@@ -360,12 +360,12 @@ export default function PlanningSettingsPage() {
             dataSource={rows}
             pagination={false}
             columns={[
-              { title: t('Setting'), dataIndex: 'name', width: 190 },
-              { title: t('Current'), dataIndex: 'current', width: 90 },
-              { title: t('Default'), dataIndex: 'defaultValue', width: 90 },
-              { title: t('Meaning'), dataIndex: 'meaning' },
-              { title: t('Example'), dataIndex: 'example' },
-              { title: t('Used by'), dataIndex: 'usedBy' },
+              { title: String(t('Setting')), dataIndex: 'name', width: 190 },
+              { title: String(t('Current')), dataIndex: 'current', width: 90 },
+              { title: String(t('Default')), dataIndex: 'defaultValue', width: 90 },
+              { title: String(t('Meaning')), dataIndex: 'meaning' },
+              { title: String(t('Example')), dataIndex: 'example' },
+              { title: String(t('Used by')), dataIndex: 'usedBy' },
             ]}
           />
         </Card>

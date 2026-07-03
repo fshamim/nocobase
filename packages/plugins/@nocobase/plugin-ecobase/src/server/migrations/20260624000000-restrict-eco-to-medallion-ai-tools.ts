@@ -15,6 +15,7 @@ const ECO_MEDALLION_TOOLS = [
 ];
 
 export default class extends Migration {
+  declare db: any;
   on = 'afterSync';
   appVersion = '<2.2.0';
 

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
-import type { EcobaseDatabase, EcobaseRepository } from '../services/import-service';
-import { EcobaseDailyBriefPromptSettingsService } from '../services/daily-brief-prompt-settings-service';
-import { EcobaseDailyManagementSnapshotService } from '../services/daily-management-snapshot-service';
+import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
+import { EcobaseDailyBriefPromptSettingsService } from '../../features/daily-operations-brief/server/daily-brief-prompt-settings-service';
+import { EcobaseDailyManagementSnapshotService } from '../../features/daily-operations-brief/server/daily-management-snapshot-service';
 
 class MemoryRepository implements EcobaseRepository {
   private sequence = 1;

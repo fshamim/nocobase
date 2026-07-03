@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
-import type { EcobaseDatabase } from './import-service';
-import { DEFAULT_PROFIT_TIER_THRESHOLDS, type ProfitTierThresholds } from './profit-tier';
-import { normalizeSupplierOrderStatus } from './supplier-order-service';
+import type { EcobaseDatabase } from '../../features/source-import/server/import-service';
+import { DEFAULT_PROFIT_TIER_THRESHOLDS, type ProfitTierThresholds } from '../../features/inventory-planning/server/profit-tier';
+import { normalizeSupplierOrderStatus } from '../../features/supplier-management/server/supplier-order-service';
 
 export type PlanningSettingKey =
   | 'safetyBufferDays'

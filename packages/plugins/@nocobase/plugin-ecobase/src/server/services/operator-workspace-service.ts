@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
-import type { EcobaseDatabase } from './import-service';
+import type { EcobaseDatabase } from '../../features/source-import/server/import-service';
 
 type PlainRecord = Record<string, unknown>;
 
@@ -747,7 +747,7 @@ export class EcobaseOperatorWorkspaceService {
       { limit: 500 },
     );
     const derivedCompanyId = requestedCompanyId ?? sourceCompanyId(scopedSources[0] ?? {});
-    const derivedCompanyName = requestedCompanyName ?? sourceCompanyName(scopedSources[0] ?? {}, companiesById);
+    const derivedCompanyName = requestedCompanyName ?? requestedCompany ?? sourceCompanyName(scopedSources[0] ?? {}, companiesById);
     return {
       company: derivedCompanyName,
       companyId: derivedCompanyId,

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { createSourceAdapterRegistry, noopTestAdapter } from '../adapters';
-import type { SourceAdapter } from '../adapters';
+import { createSourceAdapterRegistry, noopTestAdapter } from '../../features/source-import/server/adapters';
+import type { SourceAdapter } from '../../features/source-import/server/adapters';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
-import { EcobaseDatabase, EcobaseImportService, EcobaseRepository } from '../services/import-service';
+import { EcobaseDatabase, EcobaseImportService, EcobaseRepository } from '../../features/source-import/server/import-service';
 
 interface FindParams {
   filter?: Record<string, unknown>;

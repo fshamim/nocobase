@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { clickupAccessCheckAdapter, clickupFixtureAdapter, createSourceAdapterRegistry } from '../adapters';
+import { clickupAccessCheckAdapter, clickupFixtureAdapter, createSourceAdapterRegistry } from '../../features/source-import/server/adapters';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { EcobaseAccountabilityService } from '../services/accountability-service';
 import { EcobaseDataWarningService } from '../services/data-warning-service';
-import { EcobaseDatabase, EcobaseImportService, EcobaseRepository } from '../services/import-service';
+import { EcobaseDatabase, EcobaseImportService, EcobaseRepository } from '../../features/source-import/server/import-service';
 
 interface FindParams {
   filter?: Record<string, unknown>;

@@ -21,6 +21,7 @@ const TEXT_FIELDS: Record<string, string[]> = {
 };
 
 export default class extends Migration {
+  declare db: any;
   on = 'afterSync';
   appVersion = '<2.2.0';
 

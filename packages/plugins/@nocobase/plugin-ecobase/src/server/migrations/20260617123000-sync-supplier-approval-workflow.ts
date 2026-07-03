@@ -2,6 +2,7 @@ import { Migration } from '@nocobase/server';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 
 export default class extends Migration {
+  declare db: any;
   on = 'afterSync';
   appVersion = '<2.2.0';
 

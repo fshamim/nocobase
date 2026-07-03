@@ -1,128 +1,6 @@
-import React, { useMemo } from 'react';
-import { Plugin, lazy } from '@nocobase/client';
-import { Layout, Menu, Typography } from 'antd';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Plugin } from '@nocobase/client';
 import { ecobaseClientCollections } from './ecobase-collections';
-
-const DailyOperationsBriefPage = lazy(() => import('./pages/DailyOperationsBriefPage'));
-const DailyBriefPromptSettingsPage = lazy(() => import('./pages/DailyBriefPromptSettingsPage'));
-const DataSourcesPage = lazy(() => import('./pages/DataSourcesPage'));
-const ImportStatusPage = lazy(() => import('./pages/ImportStatusPage'));
-const InventoryPlanningPage = lazy(() => import('./pages/InventoryPlanningPage'));
-const OrderPlanningPage = lazy(() => import('./pages/OrderPlanningPage'));
-const PlanningSettingsPage = lazy(() => import('./pages/PlanningSettingsPage'));
-const SellerboardSourcesPage = lazy(() => import('./pages/SellerboardSourcesPage'));
-const SilverDataPage = lazy(() => import('./pages/SilverDataPage'));
-const SupplierManagementPage = lazy(() => import('./pages/SupplierManagementPage'));
-
-const ECOBASE_WORKSPACE_ROOT = '/admin/ecobase';
-
-const ecobaseWorkspacePages = [
-  {
-    key: 'daily-operations-brief',
-    label: 'Daily Operations Brief',
-    path: `${ECOBASE_WORKSPACE_ROOT}/daily-operations-brief`,
-    Component: DailyOperationsBriefPage,
-  },
-  {
-    key: 'silver-data',
-    label: 'Semantic Model',
-    path: `${ECOBASE_WORKSPACE_ROOT}/silver-data`,
-    Component: SilverDataPage,
-  },
-  {
-    key: 'inventory-planning',
-    label: 'Inventory Planning',
-    path: `${ECOBASE_WORKSPACE_ROOT}/inventory-planning`,
-    Component: InventoryPlanningPage,
-  },
-  {
-    key: 'order-planning',
-    label: 'Order Planning',
-    path: `${ECOBASE_WORKSPACE_ROOT}/order-planning`,
-    Component: OrderPlanningPage,
-  },
-  {
-    key: 'supplier-management',
-    label: 'Supplier Management',
-    path: `${ECOBASE_WORKSPACE_ROOT}/supplier-management`,
-    Component: SupplierManagementPage,
-  },
-  {
-    key: 'planning-settings',
-    label: 'Planning Settings',
-    path: `${ECOBASE_WORKSPACE_ROOT}/planning-settings`,
-    Component: PlanningSettingsPage,
-  },
-  {
-    key: 'import-status',
-    label: 'Import & Source Status',
-    path: `${ECOBASE_WORKSPACE_ROOT}/import-status`,
-    Component: ImportStatusPage,
-  },
-];
-
-const defaultEcobaseWorkspacePage = ecobaseWorkspacePages[0];
-
-const EcobaseWorkspacePage = () => {
-  const location = useLocation();
-  const navigate = useNavigate();
-  const matchedPage = ecobaseWorkspacePages.find(
-    (page) => location.pathname === page.path || location.pathname.startsWith(`${page.path}/`),
-  );
-  const activePage =
-    matchedPage ??
-    ([ECOBASE_WORKSPACE_ROOT, `${ECOBASE_WORKSPACE_ROOT}/`].includes(location.pathname)
-      ? defaultEcobaseWorkspacePage
-      : undefined);
-  const ActivePageComponent = activePage?.Component;
-  const menuItems = useMemo(() => ecobaseWorkspacePages.map((page) => ({ key: page.key, label: page.label })), []);
-
-  return (
-    <Layout style={{ minHeight: 'calc(100vh - 64px)', background: 'transparent' }}>
-      <Layout.Sider theme="light" width={260} style={{ borderRight: '1px solid #f0f0f0' }}>
-        <div style={{ padding: '16px 20px 8px' }}>
-          <Typography.Title level={4} style={{ margin: 0 }}>
-            EcoBase
-          </Typography.Title>
-          <Typography.Text type="secondary">Operations workspace</Typography.Text>
-        </div>
-        <Menu
-          mode="inline"
-          selectedKeys={activePage ? [activePage.key] : []}
-          items={menuItems}
-          onClick={({ key }) => {
-            const targetPage = ecobaseWorkspacePages.find((page) => page.key === key);
-            if (!targetPage) {
-              throw new Error(`Unknown EcoBase workspace page key: ${String(key)}`);
-            }
-            navigate(targetPage.path);
-          }}
-        />
-      </Layout.Sider>
-      <Layout.Content style={{ padding: 24, minWidth: 0 }}>
-        {ActivePageComponent ? (
-          <ActivePageComponent />
-        ) : (
-          <Typography.Text type="secondary">Unknown Ecobase page.</Typography.Text>
-        )}
-      </Layout.Content>
-    </Layout>
-  );
-};
-
-const ecobaseWorkspaceRoutes = [
-  {
-    name: 'admin.ecobase.workspace',
-    path: `${ECOBASE_WORKSPACE_ROOT}/*`,
-    Component: EcobaseWorkspacePage,
-  },
-  ...ecobaseWorkspacePages.map((page) => ({
-    name: `admin.ecobase.${page.key}`,
-    path: page.path,
-    Component: EcobaseWorkspacePage,
-  })),
-];
+import { ecobasePluginSettings, ecobaseWorkspaceRoutes } from './client-routes';
 
 export class PluginEcobaseClient extends Plugin<Record<string, unknown>> {
   async load() {
@@ -135,36 +13,14 @@ export class PluginEcobaseClient extends Plugin<Record<string, unknown>> {
       });
     }
 
-    this.pluginSettingsManager.add('ecobase', {
-      title: this.t('Ecobase BI'),
-      icon: 'DatabaseOutlined',
-      Component: ImportStatusPage,
-      aclSnippet: 'pm.ecobase',
-    });
-    this.pluginSettingsManager.add('ecobase-data-sources', {
-      title: this.t('Ecobase data sources'),
-      icon: 'CloudUploadOutlined',
-      Component: DataSourcesPage,
-      aclSnippet: 'pm.ecobase',
-    });
-    this.pluginSettingsManager.add('ecobase-sellerboard-sources', {
-      title: this.t('Sellerboard sources'),
-      icon: 'CloudDownloadOutlined',
-      Component: SellerboardSourcesPage,
-      aclSnippet: 'pm.ecobase',
-    });
-    this.pluginSettingsManager.add('ecobase-daily-operations-brief', {
-      title: this.t('Daily brief AI settings'),
-      icon: 'MailOutlined',
-      Component: DailyBriefPromptSettingsPage,
-      aclSnippet: 'pm.ecobase',
-    });
-    this.pluginSettingsManager.add('ecobase-planning-settings', {
-      title: this.t('EcoBase planning settings'),
-      icon: 'ControlOutlined',
-      Component: PlanningSettingsPage,
-      aclSnippet: 'pm.ecobase',
-    });
+    for (const setting of ecobasePluginSettings) {
+      this.pluginSettingsManager.add(setting.key, {
+        title: this.t(setting.title),
+        icon: setting.icon,
+        Component: setting.Component,
+        aclSnippet: setting.aclSnippet,
+      });
+    }
   }
 }
 

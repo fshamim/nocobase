@@ -1,5 +1,5 @@
 import { ECOBASE_COLLECTIONS } from '../collections/names';
-import type { EcobaseDatabase } from './import-service';
+import type { EcobaseDatabase } from '../../features/source-import/server/import-service';
 
 type PlainRecord = Record<string, unknown>;
 type ComparisonGroupBy = 'company' | 'account' | 'planning_product' | 'raw_listing_sku' | 'tier';

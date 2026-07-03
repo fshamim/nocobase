@@ -1,15 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { createEcobaseReportActions } from '../plugin';
-import { EcobaseDatabase, EcobaseRepository } from '../services/import-service';
+import { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
 import { EcobaseReportService } from '../services/report-service';
-import { EcobaseDailyOperationsBriefDeliveryService } from '../services/daily-operations-brief-delivery-service';
+import { EcobaseDailyOperationsBriefDeliveryService } from '../../features/daily-operations-brief/server/daily-operations-brief-delivery-service';
 import {
   EcobaseDailyOperationsBriefNarrativeService,
   NarrativeGroundingValidator,
   type EcoNarrativeProvider,
-} from '../services/daily-operations-brief-narrative-service';
-import type { DailyEvidencePack } from '../services/daily-operations-brief-service';
+} from '../../features/daily-operations-brief/server/daily-operations-brief-narrative-service';
+import type { DailyEvidencePack } from '../../features/daily-operations-brief/server/daily-operations-brief-service';
 
 class MemoryRepository implements EcobaseRepository {
   private sequence = 1;
