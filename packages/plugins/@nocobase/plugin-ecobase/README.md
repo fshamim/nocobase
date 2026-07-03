@@ -73,6 +73,10 @@ If Docker or browser automation is unavailable, QA must report the live gate as 
 
 The 2026-07-03 cleanup removes unused client-only legacy pages while retaining route-repair migrations and server-side foundations. See `docs/legacy-client-page-cleanup-2026-07-03.md` for the deletion list and live-gate checklist.
 
+## Architecture refactor verification
+
+Run `docs/refactor-verification-gate-2026-07-03.md` after every small refactor slice.
+
 ## Current Amazon operations CSV import
 
 Issue 005 adapters are registered through the same Issue 004 source-adapter seam:
