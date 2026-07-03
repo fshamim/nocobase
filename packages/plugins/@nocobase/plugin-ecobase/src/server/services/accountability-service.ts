@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
-import type { EcobaseDatabase } from './import-service';
-import { toPlainRecord } from './import-service';
+import type { EcobaseDatabase } from '../../features/source-import/server/import-service';
+import { toPlainRecord } from '../../features/source-import/server/import-service';
 
 const ACCOUNTABILITY_RULE_VERSION = 'ecobase_accountability_mvp_v1';
 const DEFAULT_ACCOUNTABILITY_CONFIG = {

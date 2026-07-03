@@ -18,7 +18,7 @@ import {
 } from 'antd';
 import dayjs from 'dayjs';
 import React, { useState } from 'react';
-import { useT } from '../locale';
+import { useT } from '../../../client/locale';
 
 type SellerboardReportCategory = 'profit_dashboard' | 'stock_daily' | 'profit_by_product_daily';
 

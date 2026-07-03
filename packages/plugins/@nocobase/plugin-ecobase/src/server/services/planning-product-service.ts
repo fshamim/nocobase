@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
-import type { EcobaseDatabase } from './import-service';
+import type { EcobaseDatabase } from '../../features/source-import/server/import-service';
 
 export interface SyncPlanningProductsParams {
   importRunId?: string;

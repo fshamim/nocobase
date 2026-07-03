@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
-import type { EcobaseDatabase, EcobaseRepository } from '../services/import-service';
+import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
 import { EcobaseOperatorWorkspaceService } from '../services/operator-workspace-service';
 
 interface FindParams {

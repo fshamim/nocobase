@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createSourceAdapterRegistry, googleSheetsMigrationCsvAdapter, noopTestAdapter } from '../adapters';
+import { createSourceAdapterRegistry, googleSheetsMigrationCsvAdapter, noopTestAdapter } from '../../features/source-import/server/adapters';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { createEcobaseAiTools } from '../ecobase-ai-tools';
 import {
@@ -12,8 +12,8 @@ import {
   createEcobaseSupplierManagementActions,
   createEcobaseSupplierOrderActions,
 } from '../plugin';
-import { EcobaseDatabase, EcobaseRepository } from '../services/import-service';
-import { EcobaseSourceConnectionService } from '../services/source-connection-service';
+import { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
+import { EcobaseSourceConnectionService } from '../../features/source-import/server/source-connection-service';
 
 interface FindParams {
   filter?: Record<string, unknown>;

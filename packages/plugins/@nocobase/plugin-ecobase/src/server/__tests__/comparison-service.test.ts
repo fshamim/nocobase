@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { createEcobaseComparisonActions } from '../plugin';
 import { EcobaseComparisonService } from '../services/comparison-service';
-import { EcobaseDatabase, EcobaseRepository } from '../services/import-service';
+import { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
 
 interface FindParams {
   filter?: Record<string, unknown>;

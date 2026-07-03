@@ -1,8 +1,8 @@
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { EcobaseDataWarningService } from './data-warning-service';
 import type { EcobaseDataWarning } from './data-warning-service';
-import type { EcobaseDatabase, EcobaseRepository } from './import-service';
-import { toPlainRecord } from './import-service';
+import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
+import { toPlainRecord } from '../../features/source-import/server/import-service';
 import { DEFAULT_PLANNING_SETTINGS, EcobasePlanningSettingsService } from './planning-settings-service';
 import { profitTierFor, type ProfitTierThresholds } from './profit-tier';
 

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { createEcobaseAiActions } from '../plugin';
-import { EcobaseDatabase, EcobaseRepository } from '../services/import-service';
+import { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
 import { APPENDIX_A_COVERAGE, EcobaseAiRetrievalService } from '../services/ai-retrieval-service';
 
 class MemoryRepository implements EcobaseRepository {

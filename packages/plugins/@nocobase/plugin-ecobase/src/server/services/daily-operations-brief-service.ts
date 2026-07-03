@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
-import type { EcobaseDatabase, EcobaseRepository } from './import-service';
-import { toPlainRecord } from './import-service';
+import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
+import { toPlainRecord } from '../../features/source-import/server/import-service';
 import { EcobaseDataWarningService } from './data-warning-service';
 import type { EcobaseDataWarning } from './data-warning-service';
 import { EcobaseInventoryPlanningService } from './inventory-planning-service';

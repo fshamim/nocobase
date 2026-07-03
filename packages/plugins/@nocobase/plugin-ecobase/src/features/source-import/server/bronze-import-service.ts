@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
-import type { AdapterStreamItem, SourceAdapter } from '../adapters';
-import type { CsvSourceFile } from '../adapters/csv-utils';
-import { ECOBASE_COLLECTIONS } from '../collections/names';
+import type { AdapterStreamItem, SourceAdapter } from './adapters';
+import type { CsvSourceFile } from './adapters/csv-utils';
+import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import type { EcobaseDatabase } from './import-service';
 
 export interface BronzeImportContext {

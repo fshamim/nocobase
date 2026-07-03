@@ -3,7 +3,7 @@ import { Alert, App, Button, Card, Descriptions, Input, Select, Space, Table, Ta
 import type { UploadFile, UploadProps } from 'antd';
 import dayjs from 'dayjs';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useT } from '../locale';
+import { useT } from '../../../client/locale';
 
 type PlainRecord = Record<string, unknown>;
 

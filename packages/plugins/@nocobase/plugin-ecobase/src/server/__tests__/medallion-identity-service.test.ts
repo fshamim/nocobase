@@ -5,8 +5,8 @@ import {
   normalizeCompanyKey,
   normalizeSupplierName,
 } from '../services/medallion-identity-service';
-import type { EcobaseDatabase, EcobaseRepository } from '../services/import-service';
-import { toPlainRecord } from '../services/import-service';
+import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
+import { toPlainRecord } from '../../features/source-import/server/import-service';
 
 class FakeRepository implements EcobaseRepository {
   rows: Record<string, unknown>[] = [];

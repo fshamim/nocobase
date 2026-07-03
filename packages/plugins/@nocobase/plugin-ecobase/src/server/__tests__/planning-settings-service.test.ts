@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { EcobaseInventoryPlanningService } from '../services/inventory-planning-service';
-import type { EcobaseDatabase, EcobaseRepository } from '../services/import-service';
+import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
 import { DEFAULT_PLANNING_SETTINGS, EcobasePlanningSettingsService } from '../services/planning-settings-service';
 
 interface FindParams {

@@ -9,9 +9,9 @@ import {
   noopTestAdapter,
   sellerboardApiAdapter,
   sellerboardCsvAdapter,
-} from './adapters';
-import type { SourceAdapterRegistry } from './adapters';
-import type { CsvSourceFile } from './adapters/csv-utils';
+} from '../features/source-import/server/adapters';
+import type { SourceAdapterRegistry } from '../features/source-import/server/adapters';
+import type { CsvSourceFile } from '../features/source-import/server/adapters/csv-utils';
 import { ECOBASE_COLLECTIONS } from './collections/names';
 import { createEcobaseAiTools } from './ecobase-ai-tools';
 import { registerEcobaseResources } from './resource-registration';
@@ -30,7 +30,7 @@ import {
   EcobaseDailyOperationsBriefNarrativeService,
   NocoBaseEcoNarrativeProvider,
 } from './services/daily-operations-brief-narrative-service';
-import { EcobaseImportService } from './services/import-service';
+import { EcobaseImportService } from '../features/source-import/server/import-service';
 import { EcobaseInventoryPlanningService } from './services/inventory-planning-service';
 import { EcobaseOrderPlanningService } from './services/order-planning-service';
 import { EcobaseMedallionNormalizationService } from './services/medallion-normalization-service';
@@ -43,7 +43,7 @@ import { EcobaseOperatorWorkspaceService } from './services/operator-workspace-s
 import { EcobaseReportService } from './services/report-service';
 import { EcobaseSilverDataService } from './services/silver-data-service';
 import type { SilverFocus } from './services/silver-data-service';
-import { EcobaseSourceConnectionService } from './services/source-connection-service';
+import { EcobaseSourceConnectionService } from '../features/source-import/server/source-connection-service';
 import { EcobaseSupplierManagementService } from './services/supplier-management-service';
 import {
   EcobaseSupplierOrderService,

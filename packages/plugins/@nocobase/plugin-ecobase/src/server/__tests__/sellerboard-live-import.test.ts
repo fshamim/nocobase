@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createSourceAdapterRegistry, sellerboardApiAdapter } from '../adapters';
+import { createSourceAdapterRegistry, sellerboardApiAdapter } from '../../features/source-import/server/adapters';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
-import { EcobaseDatabase, EcobaseImportService, EcobaseRepository } from '../services/import-service';
+import { EcobaseDatabase, EcobaseImportService, EcobaseRepository } from '../../features/source-import/server/import-service';
 
 interface FindParams {
   filter?: Record<string, unknown>;

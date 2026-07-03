@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { CsvRowReader } from '../adapters/csv-utils';
+import { CsvRowReader } from '../../features/source-import/server/adapters/csv-utils';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
-import type { EcobaseDatabase, EcobaseRepository } from './import-service';
-import { toPlainRecord } from './import-service';
+import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
+import { toPlainRecord } from '../../features/source-import/server/import-service';
 import { EcobaseMedallionIdentityService } from './medallion-identity-service';
 import { resolveOrderLifecycle } from './order-lifecycle';
 

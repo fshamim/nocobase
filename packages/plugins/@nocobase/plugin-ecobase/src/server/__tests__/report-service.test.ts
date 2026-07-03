@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { createEcobaseReportActions } from '../plugin';
-import { EcobaseDatabase, EcobaseRepository } from '../services/import-service';
+import { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
 import { EcobaseReportService } from '../services/report-service';
 import { EcobaseDailyOperationsBriefDeliveryService } from '../services/daily-operations-brief-delivery-service';
 import {

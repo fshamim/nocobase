@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
-import type { EcobaseDatabase, EcobaseRepository } from '../services/import-service';
+import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
 import { EcobaseDailyBriefPromptSettingsService } from '../services/daily-brief-prompt-settings-service';
 import { EcobaseDailyManagementSnapshotService } from '../services/daily-management-snapshot-service';
 

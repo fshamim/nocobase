@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import type { DailyEvidencePack } from './daily-operations-brief-service';
-import type { EcobaseDatabase } from './import-service';
-import { toPlainRecord } from './import-service';
+import type { EcobaseDatabase } from '../../features/source-import/server/import-service';
+import { toPlainRecord } from '../../features/source-import/server/import-service';
 
 type PlainRecord = Record<string, unknown>;
 

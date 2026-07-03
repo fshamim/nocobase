@@ -6,9 +6,9 @@ import {
   createSourceAdapterRegistry,
   googleSheetsMigrationCsvAdapter,
   sellerboardApiAdapter,
-} from '../adapters';
+} from '../../features/source-import/server/adapters';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
-import { EcobaseDatabase, EcobaseImportService, EcobaseRepository } from '../services/import-service';
+import { EcobaseDatabase, EcobaseImportService, EcobaseRepository } from '../../features/source-import/server/import-service';
 import { EcobasePlanningCalculationService } from '../services/planning-calculation-service';
 import { EcobaseInventoryPlanningService } from '../services/inventory-planning-service';
 import { EcobaseSupplierOrderService } from '../services/supplier-order-service';

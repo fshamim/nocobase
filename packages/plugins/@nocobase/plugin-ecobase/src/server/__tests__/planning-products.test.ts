@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { amazonOperationsCsvAdapter, createSourceAdapterRegistry, SourceAdapter } from '../adapters';
+import { amazonOperationsCsvAdapter, createSourceAdapterRegistry, SourceAdapter } from '../../features/source-import/server/adapters';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { createEcobasePlanningActions } from '../plugin';
-import { EcobaseDatabase, EcobaseImportService, EcobaseRepository } from '../services/import-service';
+import { EcobaseDatabase, EcobaseImportService, EcobaseRepository } from '../../features/source-import/server/import-service';
 import { EcobasePlanningProductService } from '../services/planning-product-service';
 
 interface FindParams {

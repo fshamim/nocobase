@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
-import type { EcobaseDatabase } from './import-service';
+import type { EcobaseDatabase } from '../../features/source-import/server/import-service';
 import { normalizeSupplierOrderStatus } from './supplier-order-service';
-import { toPlainRecord } from './import-service';
+import { toPlainRecord } from '../../features/source-import/server/import-service';
 import { EcobasePlanningCalculationService } from './planning-calculation-service';
 import {
   DEFAULT_PLANNING_SETTINGS,

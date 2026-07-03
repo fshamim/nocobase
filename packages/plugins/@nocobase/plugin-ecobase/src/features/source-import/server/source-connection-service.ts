@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { ECOBASE_COLLECTIONS } from '../collections/names';
+import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import type { EcobaseDatabase, EcobaseRepository } from './import-service';
 import { toPlainRecord } from './import-service';
 

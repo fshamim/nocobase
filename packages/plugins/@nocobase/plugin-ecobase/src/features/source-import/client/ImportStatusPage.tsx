@@ -1,7 +1,7 @@
 import { useRequest } from '@nocobase/client';
 import { Alert, Card, Space, Table, Tag, Typography } from 'antd';
 import React from 'react';
-import { useT } from '../locale';
+import { useT } from '../../../client/locale';
 
 interface SourceStatusRow {
   sourceConnectionId: string;

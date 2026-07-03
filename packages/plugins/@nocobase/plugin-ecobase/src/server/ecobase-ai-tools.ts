@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { ToolsOptions } from '@nocobase/ai';
 import { EcobaseAiRetrievalService } from './services/ai-retrieval-service';
-import { EcobaseSourceConnectionService } from './services/source-connection-service';
+import { EcobaseSourceConnectionService } from '../features/source-import/server/source-connection-service';
 
 function toToolContent(data: unknown) {
   return JSON.stringify(data, (_key, value) => {
