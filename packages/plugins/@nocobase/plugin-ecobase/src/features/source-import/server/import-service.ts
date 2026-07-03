@@ -1085,7 +1085,7 @@ export class EcobaseImportService {
         ? schedule.refreshIntervalMinutes
         : typeof config.refreshIntervalMinutes === 'number'
           ? config.refreshIntervalMinutes
-          : 1440;
+          : undefined;
     if (
       refreshIntervalMinutes !== undefined &&
       (!Number.isFinite(refreshIntervalMinutes) || refreshIntervalMinutes <= 0)

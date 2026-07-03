@@ -205,6 +205,7 @@ function supplierOrderStatusRules(buckets: SupplierOrderStatusBuckets): Supplier
 
 function supplierCoverageStatus(order: PlainRecord, rules: SupplierOrderStatusRules) {
   const status = normalizeSupplierOrderStatus(asString(order.status));
+  if (asString(order.statusSource) === 'manual' && asString(order.lastOperatorEditAt)) return status;
   if (rules.closed.has(status)) return status;
   if (includesStatusText(order.paymentStatus, ['completed', 'complete', 'paid'])) return 'paid';
   if (status === 'approval_pending' && includesStatusText(order.approvalStatus, ['approved'])) return 'payment_pending';

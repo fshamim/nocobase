@@ -301,12 +301,12 @@ async function* sellerboardApiImport(input: SourceAdapterImportInput): AsyncIter
 
     const expected = expectedFreshDate(input, report);
     const maxDate = maxReportDate(csvContent);
-    if (
+    const stale =
       shouldRequireFreshData(input) &&
       expected &&
       shouldAssessReportFreshness(report, maxDate) &&
-      (!maxDate || compareIsoDate(maxDate, expected) < 0)
-    ) {
+      (!maxDate || compareIsoDate(maxDate, expected) < 0);
+    if (stale) {
       staleReports.push({ reportName: report.name, category: report.category, expectedFreshDate: expected, maxReportDate: maxDate });
       yield {
         type: 'rowIssue',
@@ -319,6 +319,7 @@ async function* sellerboardApiImport(input: SourceAdapterImportInput): AsyncIter
           payload: { reportName: report.name, category: report.category, expectedFreshDate: expected, maxReportDate: maxDate },
         },
       };
+      continue;
     }
 
     files.push({

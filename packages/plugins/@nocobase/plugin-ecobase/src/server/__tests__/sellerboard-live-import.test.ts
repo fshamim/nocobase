@@ -143,7 +143,7 @@ describe('Sellerboard live URL import', () => {
   });
 
   it('marks scheduled imports stale and waits for retry when Sellerboard has not published fresh data yet', async () => {
-    const { db, service } = createService(sellerboardGoodsCsv('2026-06-04', 15.2));
+    const { db, service } = createService(sellerboardGoodsCsv('2026-06-03', 15.2));
 
     const first = await service.runScheduledSellerboardImports({ now: '2026-06-05T09:01:00.000Z' });
     expect(first.results[0]).toMatchObject({ status: 'stale' });
@@ -154,7 +154,7 @@ describe('Sellerboard live URL import', () => {
 
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => ({ ok: true, status: 200, text: async () => sellerboardGoodsCsv('2026-06-05', 22.1) })),
+      vi.fn(async () => ({ ok: true, status: 200, text: async () => sellerboardGoodsCsv('2026-06-04', 22.1) })),
     );
     const fresh = await service.runScheduledSellerboardImports({ now: '2026-06-05T23:02:00.000Z' });
     expect(fresh.results[0]).toMatchObject({ status: 'success' });
@@ -196,7 +196,7 @@ describe('Sellerboard live URL import', () => {
       vi.fn(async (url: string) => ({
         ok: true,
         status: 200,
-        text: async () => sellerboardGoodsCsv(url.includes('stale') ? '2026-06-04' : '2026-06-05', 18.4),
+        text: async () => sellerboardGoodsCsv(url.includes('stale') ? '2026-06-03' : '2026-06-04', 18.4),
       })),
     );
 
