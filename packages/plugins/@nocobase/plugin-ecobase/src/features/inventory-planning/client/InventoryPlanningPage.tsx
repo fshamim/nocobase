@@ -543,20 +543,6 @@ function groupOrderNowRows(rows: PlainRecord[], calculationDate: string) {
   });
 }
 
-function productLineMatches(row: PlainRecord, line: PlainRecord) {
-  const rowPlanningProductId = String(row.planningProductId ?? '');
-  const linePlanningProductId = String(line.planningProductId ?? '');
-  const rowAsin = String(row.asin ?? '').toUpperCase();
-  const lineAsin = String(line.asin ?? '').toUpperCase();
-  const rowSku = String(row.sku ?? '');
-  const lineSku = String(line.sku ?? '');
-  return (
-    (isUuid(rowPlanningProductId) && rowPlanningProductId === linePlanningProductId) ||
-    (rowAsin && rowAsin === lineAsin) ||
-    (rowSku && rowSku === lineSku)
-  );
-}
-
 function FilterControl({ title, help, children }: { title: string; help: string; children: React.ReactNode }) {
   return (
     <Col xs={24} md={12} xl={6}>
@@ -638,14 +624,12 @@ export default function InventoryPlanningPage() {
         purchasedPipelineGraceDays,
         limit,
       };
-      const [filtersResponse, rowsResponse, digestResponse] = await Promise.all([
-        api.request({ url: 'ecobaseInventoryPlanning:filters', method: 'post', data: {} }),
-        api.request({ url: 'ecobaseInventoryPlanning:rows', method: 'post', data: payload }),
-        api.request({ url: 'ecobaseInventoryPlanning:digestPreview', method: 'post', data: payload }),
-      ]);
-      setFilterOptions(unwrapData(filtersResponse));
-      setRows(unwrapRows(rowsResponse));
-      setDigest(unwrapDigest(digestResponse));
+      const workspace = unwrapData(
+        await api.request({ url: 'ecobaseInventoryPlanning:workspace', method: 'post', data: payload }),
+      );
+      setFilterOptions(unwrapData(workspace.filters));
+      setRows(unwrapRows(workspace.rows));
+      setDigest(unwrapDigest(workspace.digest));
     } catch (err) {
       setError(err as Error);
     } finally {
@@ -873,96 +857,38 @@ export default function InventoryPlanningPage() {
   };
 
   const loadDrawerEntities = async (row: PlainRecord) => {
-    const response = await api.request({
-      url: 'ecobaseSupplierOrders:workspace',
-      method: 'post',
-      data: { company: row.company, limit: 500 },
-    });
-    const workspace = unwrapData(response);
-    const suppliers = (Array.isArray(workspace.suppliers) ? workspace.suppliers : []).filter((supplier: PlainRecord) =>
-      isUuid(supplier.id),
-    );
-    const supplierOrders = Array.isArray(workspace.supplierOrders) ? workspace.supplierOrders : [];
-    const supplierOrderLines = Array.isArray(workspace.supplierOrderLines) ? workspace.supplierOrderLines : [];
-    const activities = Array.isArray(workspace.activities) ? workspace.activities : [];
-    const ordersById = new Map(supplierOrders.map((order: PlainRecord) => [String(order.id), order]));
-    setSupplierOptions(suppliers);
-    setOrderOptions(supplierOrders);
-    const productLines = supplierOrderLines
-      .filter((line: PlainRecord) => productLineMatches(row, line))
-      .map((line: PlainRecord) => ({ ...line, order: ordersById.get(String(line.supplierOrderId)) ?? {} }));
-    setOrderLineHistory(
-      productLines.sort((left: PlainRecord, right: PlainRecord) => {
-        const leftDate = new Date(
-          left.observedAt ?? left.order?.lastMeaningfulUpdateAt ?? left.order?.createdAt ?? 0,
-        ).getTime();
-        const rightDate = new Date(
-          right.observedAt ?? right.order?.lastMeaningfulUpdateAt ?? right.order?.createdAt ?? 0,
-        ).getTime();
-        return rightDate - leftDate;
+    const workspace = unwrapData(
+      await api.request({
+        url: 'ecobaseInventoryPlanning:rowWorkspace',
+        method: 'post',
+        data: {
+          company: row.company,
+          planningProductId: row.planningProductId,
+          companyProductId: row.companyProductId,
+          asin: row.asin,
+          sku: row.sku,
+          supplierId: row.supplierId,
+          limit: 500,
+        },
       }),
     );
-    const firstProductOrder = productLines[0]?.order ?? {};
-    setOrderEditValues(
-      firstProductOrder.id
-        ? {
-            supplierOrderId: String(firstProductOrder.id),
-            supplierId: String(firstProductOrder.supplierId ?? ''),
-            status: String(firstProductOrder.status ?? 'draft'),
-            notes: '',
-          }
-        : null,
-    );
-    const productOrderIds = new Set(productLines.map((line: PlainRecord) => String(line.supplierOrderId)));
-    setOrderActivities(
-      activities.filter(
-        (activity: PlainRecord) =>
-          productOrderIds.has(String(activity.supplierOrderId)) ||
-          (!activity.supplierOrderId && String(activity.supplierId) === String(row.supplierId)),
-      ),
-    );
-    if (row.companyProductId) {
-      try {
-        const contextResponse = await api.request({
-          url: 'ecobaseSilverData:context',
-          method: 'post',
-          data: { focus: { type: 'companyProduct', id: row.companyProductId }, pageSize: 10 },
-        });
-        const sections = Array.isArray(unwrapData(contextResponse).sections)
-          ? unwrapData(contextResponse).sections
-          : [];
-        setProductTasks(sections.find((section: PlainRecord) => section.key === 'tasks')?.rows ?? []);
-        setProductTargets(sections.find((section: PlainRecord) => section.key === 'targets')?.rows ?? []);
-      } catch {
-        setProductTasks([]);
-        setProductTargets([]);
-      }
-    } else {
-      setProductTasks([]);
-      setProductTargets([]);
-    }
-    const actionableStatuses = new Set([
-      'draft',
-      'supplier_contacted',
-      'supplier_confirmed',
-      'approval_pending',
-      'payment_pending',
-      'paid',
-      'supplier_preparing',
-    ]);
-    const supplierId = isUuid(row.supplierId) ? row.supplierId : undefined;
-    const matchingOrder = supplierId
-      ? supplierOrders.find(
-          (order: PlainRecord) => order.supplierId === supplierId && actionableStatuses.has(order.status),
-        )
-      : undefined;
+    setSupplierOptions(unwrapRows(workspace.suppliers));
+    setOrderOptions(unwrapRows(workspace.supplierOrders));
+    setOrderLineHistory(unwrapRows(workspace.orderLineHistory));
+    setOrderActivities(unwrapRows(workspace.orderActivities));
+    setProductTasks(unwrapRows(workspace.productTasks));
+    setProductTargets(unwrapRows(workspace.productTargets));
+    setOrderEditValues(workspace.initialOrderEdit ? (workspace.initialOrderEdit as OrderEditValues) : null);
+    const actionDefaults = unwrapData(workspace.actionDefaults);
     setActionValues((current) =>
       current
         ? {
             ...current,
-            draftSupplierId: current.draftSupplierId || supplierId || '',
-            leadSupplierId: current.leadSupplierId || supplierId || '',
-            addSupplierOrderId: matchingOrder?.id ? String(matchingOrder.id) : current.addSupplierOrderId,
+            draftSupplierId: current.draftSupplierId || String(actionDefaults.draftSupplierId ?? ''),
+            leadSupplierId: current.leadSupplierId || String(actionDefaults.leadSupplierId ?? ''),
+            addSupplierOrderId: actionDefaults.addSupplierOrderId
+              ? String(actionDefaults.addSupplierOrderId)
+              : current.addSupplierOrderId,
           }
         : current,
     );

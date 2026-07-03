@@ -1203,6 +1203,18 @@ export function createEcobaseInventoryPlanningActions() {
       ctx.body = { data: await service.refreshReadModel(inventoryPlanningQuery(getValues(ctx.action.params))) };
       await next();
     },
+    workspace: async (ctx, next) => {
+      const service = new EcobaseInventoryPlanningService(ctx.db);
+      const workspace = await service.workspace(inventoryPlanningQuery(getValues(ctx.action.params)));
+      ctx.body = {
+        data: {
+          filters: workspace.filters,
+          rows: compactInventoryPlanningRows(workspace.rows),
+          digest: compactInventoryPlanningDigest(workspace.digest),
+        },
+      };
+      await next();
+    },
     rows: async (ctx, next) => {
       const service = new EcobaseInventoryPlanningService(ctx.db);
       ctx.body = {
@@ -1218,6 +1230,22 @@ export function createEcobaseInventoryPlanningActions() {
         data: compactInventoryPlanningDigest(
           await service.digestPreview(inventoryPlanningQuery(getValues(ctx.action.params))),
         ),
+      };
+      await next();
+    },
+    rowWorkspace: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const service = new EcobaseInventoryPlanningService(ctx.db);
+      ctx.body = {
+        data: await service.rowWorkspace({
+          company: getOptionalString(values, 'company'),
+          planningProductId: getOptionalString(values, 'planningProductId'),
+          companyProductId: getOptionalString(values, 'companyProductId'),
+          asin: getOptionalString(values, 'asin'),
+          sku: getOptionalString(values, 'sku'),
+          supplierId: getOptionalString(values, 'supplierId'),
+          limit: getOptionalNumber(values, 'limit'),
+        }),
       };
       await next();
     },

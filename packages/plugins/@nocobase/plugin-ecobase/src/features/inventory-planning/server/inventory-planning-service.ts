@@ -1,9 +1,13 @@
 import { createHash } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import type { EcobaseDatabase } from '../../source-import/server/import-service';
-import { normalizeSupplierOrderStatus } from '../../supplier-management/server/supplier-order-service';
+import {
+  EcobaseSupplierOrderService,
+  normalizeSupplierOrderStatus,
+} from '../../supplier-management/server/supplier-order-service';
 import { toPlainRecord } from '../../source-import/server/import-service';
 import { EcobasePlanningCalculationService } from './planning-calculation-service';
+import { EcobaseSilverDataService } from '../../semantic-model/server/silver-data-service';
 import {
   DEFAULT_PLANNING_SETTINGS,
   EcobasePlanningSettingsService,
@@ -39,6 +43,16 @@ export interface InventoryPlanningQuery {
   orderSoonWindowDays?: number;
   reorderCycleDays?: number;
   purchasedPipelineGraceDays?: number;
+  limit?: number;
+}
+
+export interface InventoryPlanningRowWorkspaceQuery {
+  company?: string;
+  planningProductId?: string;
+  companyProductId?: string;
+  asin?: string;
+  sku?: string;
+  supplierId?: string;
   limit?: number;
 }
 
@@ -403,6 +417,31 @@ function needsSupplierAction(row: PlainRecord) {
   );
 }
 
+function plainArray(value: unknown) {
+  return Array.isArray(value) ? value.map(toPlainRecord) : [];
+}
+
+function isUuidValue(value: unknown) {
+  return (
+    typeof value === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+  );
+}
+
+function inventoryRowMatchesLine(query: InventoryPlanningRowWorkspaceQuery, line: PlainRecord) {
+  const rowPlanningProductId = asString(query.planningProductId);
+  const linePlanningProductId = asString(line.planningProductId);
+  const rowAsin = asString(query.asin)?.toUpperCase();
+  const lineAsin = asString(line.asin)?.toUpperCase();
+  const rowSku = asString(query.sku);
+  const lineSku = asString(line.sku);
+  return (
+    (isUuidValue(rowPlanningProductId) && rowPlanningProductId === linePlanningProductId) ||
+    Boolean(rowAsin && rowAsin === lineAsin) ||
+    Boolean(rowSku && rowSku === lineSku)
+  );
+}
+
 function selectSupplierLink(links: PlainRecord[]) {
   const active = links.filter((link) => asBoolean(link.active) !== false);
   return (
@@ -558,6 +597,100 @@ export class EcobaseInventoryPlanningService {
     const goldRows = await this.readGoldRows(query);
     if (goldRows.length > 0) return goldRows;
     return this.calculateRows(query);
+  }
+
+  async workspace(query: InventoryPlanningQuery = {}) {
+    const [filters, rows, digest] = await Promise.all([
+      this.filterOptions(),
+      this.listRows(query),
+      this.digestPreview(query),
+    ]);
+    return { filters, rows, digest };
+  }
+
+  async rowWorkspace(query: InventoryPlanningRowWorkspaceQuery) {
+    const empty = {
+      suppliers: [],
+      supplierOrders: [],
+      orderLineHistory: [],
+      orderActivities: [],
+      productTasks: [],
+      productTargets: [],
+      initialOrderEdit: null,
+      actionDefaults: {},
+    };
+    if (!query.company) return empty;
+
+    const workspace = await new EcobaseSupplierOrderService(this.db).getWorkspace({
+      company: query.company,
+      limit: query.limit ?? 500,
+    });
+    const suppliers = plainArray(workspace.suppliers).filter((supplier) => isUuidValue(supplier.id));
+    const supplierOrders = plainArray(workspace.supplierOrders);
+    const supplierOrderLines = plainArray(workspace.supplierOrderLines);
+    const activities = plainArray(workspace.activities);
+    const ordersById = new Map(supplierOrders.map((order) => [String(order.id), order]));
+    const orderLineHistory = supplierOrderLines
+      .filter((line) => inventoryRowMatchesLine(query, line))
+      .map((line) => ({ ...line, order: ordersById.get(String(line.supplierOrderId)) ?? {} }))
+      .sort((left, right) => {
+        const leftDate = new Date(
+          left.observedAt ?? left.order?.lastMeaningfulUpdateAt ?? left.order?.createdAt ?? 0,
+        ).getTime();
+        const rightDate = new Date(
+          right.observedAt ?? right.order?.lastMeaningfulUpdateAt ?? right.order?.createdAt ?? 0,
+        ).getTime();
+        return rightDate - leftDate;
+      });
+    const firstProductOrder = toPlainRecord(orderLineHistory[0]?.order);
+    const productOrderIds = new Set(orderLineHistory.map((line) => String(line.supplierOrderId)));
+    const supplierId = isUuidValue(query.supplierId) ? query.supplierId : undefined;
+    const actionableStatuses = new Set([
+      'draft',
+      'supplier_contacted',
+      'supplier_confirmed',
+      'approval_pending',
+      'payment_pending',
+      'paid',
+      'supplier_preparing',
+    ]);
+    const matchingOrder = supplierId
+      ? supplierOrders.find(
+          (order) => asString(order.supplierId) === supplierId && actionableStatuses.has(String(order.status)),
+        )
+      : undefined;
+    const silverContext = query.companyProductId
+      ? await new EcobaseSilverDataService(this.db)
+          .context({ focus: { type: 'companyProduct', id: query.companyProductId }, pageSize: 10 })
+          .catch(() => ({ sections: [] }))
+      : { sections: [] };
+    const sections = plainArray(silverContext.sections);
+
+    return {
+      suppliers,
+      supplierOrders,
+      orderLineHistory,
+      orderActivities: activities.filter(
+        (activity) =>
+          productOrderIds.has(String(activity.supplierOrderId)) ||
+          (!activity.supplierOrderId && asString(activity.supplierId) === supplierId),
+      ),
+      productTasks: plainArray(sections.find((section) => section.key === 'tasks')?.rows),
+      productTargets: plainArray(sections.find((section) => section.key === 'targets')?.rows),
+      initialOrderEdit: firstProductOrder.id
+        ? {
+            supplierOrderId: String(firstProductOrder.id),
+            supplierId: String(firstProductOrder.supplierId ?? ''),
+            status: String(firstProductOrder.status ?? 'draft'),
+            notes: '',
+          }
+        : null,
+      actionDefaults: {
+        draftSupplierId: supplierId ?? '',
+        leadSupplierId: supplierId ?? '',
+        addSupplierOrderId: matchingOrder?.id ? String(matchingOrder.id) : '',
+      },
+    };
   }
 
   private async calculateRows(query: InventoryPlanningQuery = {}) {
