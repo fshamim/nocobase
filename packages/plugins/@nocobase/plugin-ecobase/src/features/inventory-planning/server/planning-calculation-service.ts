@@ -4,6 +4,7 @@ import type { EcobaseDataWarning } from '../../../server/services/data-warning-s
 import type { EcobaseDatabase, EcobaseRepository } from '../../source-import/server/import-service';
 import { toPlainRecord } from '../../source-import/server/import-service';
 import { DEFAULT_PLANNING_SETTINGS, EcobasePlanningSettingsService } from '../../../server/services/planning-settings-service';
+import { addDays, diffDays, isoDate } from './planning-date';
 import { profitTierFor, type ProfitTierThresholds } from './profit-tier';
 
 const RULE_VERSION = 'spreadsheet_parity_v1';
@@ -92,22 +93,6 @@ function firstNumber(records: PlainRecord[], keys: string[]): number | undefined
     }
   }
   return undefined;
-}
-
-function isoDate(value: string | Date) {
-  return (value instanceof Date ? value : new Date(`${value}T00:00:00.000Z`)).toISOString().slice(0, 10);
-}
-
-function addDays(date: string, days: number) {
-  const next = new Date(`${date}T00:00:00.000Z`);
-  next.setUTCDate(next.getUTCDate() + Math.floor(days));
-  return isoDate(next);
-}
-
-function diffDays(left: string, right: string) {
-  const leftDate = new Date(`${left}T00:00:00.000Z`).getTime();
-  const rightDate = new Date(`${right}T00:00:00.000Z`).getTime();
-  return Math.round((leftDate - rightDate) / 86_400_000);
 }
 
 function daysInMonth(date: string) {

@@ -8,6 +8,7 @@ import {
 import { toPlainRecord } from '../../source-import/server/import-service';
 import { EcobasePlanningCalculationService } from './planning-calculation-service';
 import { EcobaseSilverDataService } from '../../semantic-model/server/silver-data-service';
+import { addDays, diffDays, isoDate, optionalIsoDate } from './planning-date';
 import {
   DEFAULT_PLANNING_SETTINGS,
   EcobasePlanningSettingsService,
@@ -139,39 +140,12 @@ function payloadNumber(record: PlainRecord, keys: string[]): number | undefined 
   return undefined;
 }
 
-function isoDate(value: string | Date) {
-  if (value instanceof Date) {
-    return value.toISOString().slice(0, 10);
-  }
-  const normalized = value.includes('T') ? value : `${value}T00:00:00.000Z`;
-  return new Date(normalized).toISOString().slice(0, 10);
-}
-
-function dateOnly(value: unknown) {
-  const text = asString(value);
-  if (!text) return undefined;
-  const date = new Date(text.includes('T') ? text : `${text}T00:00:00.000Z`);
-  return Number.isFinite(date.getTime()) ? date.toISOString().slice(0, 10) : undefined;
-}
-
 function monthStart(date: string) {
   return `${date.slice(0, 7)}-01`;
 }
 
 function profitMetricKey(company: string, asin: string, sku?: string) {
   return `${company}:${asin.toUpperCase()}:${sku ?? ''}`;
-}
-
-function diffDays(left: string, right: string) {
-  const leftDate = new Date(`${left}T00:00:00.000Z`).getTime();
-  const rightDate = new Date(`${right}T00:00:00.000Z`).getTime();
-  return Math.round((leftDate - rightDate) / 86_400_000);
-}
-
-function addDays(date: string, days: number) {
-  const next = new Date(`${date}T00:00:00.000Z`);
-  next.setUTCDate(next.getUTCDate() + Math.floor(days));
-  return isoDate(next);
 }
 
 function daysSince(date: string | undefined, today: string) {
@@ -1243,7 +1217,7 @@ export class EcobaseInventoryPlanningService {
         limit: FALLBACK_RECORD_LIMIT,
       })
     ).filter((row) => {
-      const snapshotDate = dateOnly(row.snapshotDate);
+      const snapshotDate = optionalIsoDate(row.snapshotDate);
       return Boolean(snapshotDate && snapshotDate <= params.calculationDate);
     });
     const parameterRows = await this.findFallbackRecords(ECOBASE_COLLECTIONS.planningParameters, {
@@ -1306,7 +1280,7 @@ export class EcobaseInventoryPlanningService {
     let hasCurrentMonthFacts = false;
     let latestPriorFactDate: string | undefined;
     for (const fact of facts) {
-      const snapshotDate = dateOnly(fact.snapshotDate);
+      const snapshotDate = optionalIsoDate(fact.snapshotDate);
       if (!snapshotDate || snapshotDate > params.calculationDate) continue;
       if (snapshotDate >= currentMonthStart) {
         hasCurrentMonthFacts = true;
@@ -1322,7 +1296,7 @@ export class EcobaseInventoryPlanningService {
     const index: ProfitMetricsIndex = { exact: new Map(), byAsin: new Map() };
 
     for (const fact of facts) {
-      const snapshotDate = dateOnly(fact.snapshotDate);
+      const snapshotDate = optionalIsoDate(fact.snapshotDate);
       if (!snapshotDate || snapshotDate < start || snapshotDate > end) continue;
       const company = companyFromRecord(fact, params.sourceConnectionCompanies);
       const asin = asString(fact.asin);
@@ -2018,15 +1992,15 @@ export class EcobaseInventoryPlanningService {
     const candidates = orderLines
       .map((line) => {
         const order = supplierOrderById.get(asString(line.supplierOrderId) ?? '') ?? {};
-        const start = dateOnly(order.orderDate) ?? dateOnly(line.observedAt);
+        const start = optionalIsoDate(order.orderDate) ?? optionalIsoDate(line.observedAt);
         const end =
-          dateOnly(line.expectedSellableDate) ??
-          dateOnly(line.expectedDeliveryDate) ??
-          dateOnly(order.expectedDeliveryDate);
+          optionalIsoDate(line.expectedSellableDate) ??
+          optionalIsoDate(line.expectedDeliveryDate) ??
+          optionalIsoDate(order.expectedDeliveryDate);
         const leadTimeDays = start && end ? diffDays(end, start) : undefined;
         return {
           leadTimeDays,
-          confirmedAt: dateOnly(line.observedAt) ?? dateOnly(order.orderDate),
+          confirmedAt: optionalIsoDate(line.observedAt) ?? optionalIsoDate(order.orderDate),
           sourceOrderLineRef: asString(line.sourceOrderLineRef),
         };
       })
