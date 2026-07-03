@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { ECOBASE_COLLECTIONS } from '../collections/names';
-import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
-import { toPlainRecord } from '../../features/source-import/server/import-service';
+import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
+import type { EcobaseDatabase, EcobaseRepository } from '../../source-import/server/import-service';
+import { toPlainRecord } from '../../source-import/server/import-service';
 
 export type ProductLifecycleStatus = 'draft' | 'active' | 'archived';
 export type SupplierProductRole = 'preferred' | 'candidate' | 'latest_used';

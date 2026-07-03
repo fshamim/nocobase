@@ -33,16 +33,16 @@ import {
 import { EcobaseImportService } from '../features/source-import/server/import-service';
 import { EcobaseInventoryPlanningService } from '../features/inventory-planning/server/inventory-planning-service';
 import { EcobaseOrderPlanningService } from '../features/order-planning/server/order-planning-service';
-import { EcobaseMedallionNormalizationService } from './services/medallion-normalization-service';
-import { EcobaseMedallionOrderService } from './services/medallion-order-service';
-import { EcobaseMedallionWorkflowService } from './services/medallion-workflow-service';
+import { EcobaseMedallionNormalizationService } from '../features/semantic-model/server/medallion-normalization-service';
+import { EcobaseMedallionOrderService } from '../features/semantic-model/server/medallion-order-service';
+import { EcobaseMedallionWorkflowService } from '../features/semantic-model/server/medallion-workflow-service';
 import { EcobasePlanningCalculationService } from '../features/inventory-planning/server/planning-calculation-service';
 import { EcobasePlanningSettingsService } from './services/planning-settings-service';
 import { EcobasePlanningProductService } from '../features/inventory-planning/server/planning-product-service';
 import { EcobaseOperatorWorkspaceService } from './services/operator-workspace-service';
 import { EcobaseReportService } from './services/report-service';
-import { EcobaseSilverDataService } from './services/silver-data-service';
-import type { SilverFocus } from './services/silver-data-service';
+import { EcobaseSilverDataService } from '../features/semantic-model/server/silver-data-service';
+import type { SilverFocus } from '../features/semantic-model/server/silver-data-service';
 import { EcobaseSourceConnectionService } from '../features/source-import/server/source-connection-service';
 import { EcobaseSupplierManagementService } from '../features/supplier-management/server/supplier-management-service';
 import {

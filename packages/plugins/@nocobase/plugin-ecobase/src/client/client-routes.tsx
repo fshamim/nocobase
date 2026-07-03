@@ -13,7 +13,7 @@ const InventoryPlanningPage = lazy(() => import('../features/inventory-planning/
 const OrderPlanningPage = lazy(() => import('../features/order-planning/client/OrderPlanningPage'));
 const PlanningSettingsPage = lazy(() => import('./pages/PlanningSettingsPage'));
 const SellerboardSourcesPage = lazy(() => import('../features/source-import/client/SellerboardSourcesPage'));
-const SilverDataPage = lazy(() => import('./pages/SilverDataPage'));
+const SilverDataPage = lazy(() => import('../features/semantic-model/client/SilverDataPage'));
 const SupplierManagementPage = lazy(() => import('../features/supplier-management/client/SupplierManagementPage'));
 
 export const ECOBASE_WORKSPACE_ROOT = '/admin/ecobase';

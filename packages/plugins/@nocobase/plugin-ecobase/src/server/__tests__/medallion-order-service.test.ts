@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
-import { EcobaseMedallionOrderService } from '../services/medallion-order-service';
+import { EcobaseMedallionOrderService } from '../../features/semantic-model/server/medallion-order-service';
 import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
 import { toPlainRecord } from '../../features/source-import/server/import-service';
 

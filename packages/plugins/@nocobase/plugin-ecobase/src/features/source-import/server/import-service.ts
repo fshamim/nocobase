@@ -9,8 +9,8 @@ import { EcobaseDataWarningService } from '../../../server/services/data-warning
 import type { EcobaseDataWarning } from '../../../server/services/data-warning-service';
 import { EcobaseInventoryPlanningService } from '../../inventory-planning/server/inventory-planning-service';
 import { EcobaseManagementKpiFactsService } from '../../daily-operations-brief/server/management-kpi-facts-service';
-import { EcobaseMedallionNormalizationService } from '../../../server/services/medallion-normalization-service';
-import type { NormalizePendingResult } from '../../../server/services/medallion-normalization-service';
+import { EcobaseMedallionNormalizationService } from '../../semantic-model/server/medallion-normalization-service';
+import type { NormalizePendingResult } from '../../semantic-model/server/medallion-normalization-service';
 import { EcobaseOrderPlanningService } from '../../order-planning/server/order-planning-service';
 import { EcobasePlanningProductService } from '../../inventory-planning/server/planning-product-service';
 import { EcobaseSupplierManagementService } from '../../supplier-management/server/supplier-management-service';

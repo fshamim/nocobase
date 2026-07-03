@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { ECOBASE_COLLECTIONS } from '../collections/names';
-import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
-import { toPlainRecord } from '../../features/source-import/server/import-service';
+import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
+import type { EcobaseDatabase, EcobaseRepository } from '../../source-import/server/import-service';
+import { toPlainRecord } from '../../source-import/server/import-service';
 
 const ENTITY_TYPES = new Set(['supplier', 'order', 'product', 'company_product', 'invoice', 'task', 'target']);
 const ACTOR_TYPES = new Set(['operator', 'ai_employee', 'system', 'workflow']);

@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { CsvRowReader } from '../../features/source-import/server/adapters/csv-utils';
-import { ECOBASE_COLLECTIONS } from '../collections/names';
-import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
-import { toPlainRecord } from '../../features/source-import/server/import-service';
+import { CsvRowReader } from '../../source-import/server/adapters/csv-utils';
+import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
+import type { EcobaseDatabase, EcobaseRepository } from '../../source-import/server/import-service';
+import { toPlainRecord } from '../../source-import/server/import-service';
 import { EcobaseMedallionIdentityService } from './medallion-identity-service';
-import { resolveOrderLifecycle } from '../../features/order-planning/server/order-lifecycle';
+import { resolveOrderLifecycle } from '../../order-planning/server/order-lifecycle';
 
 export interface NormalizePendingParams {
   sourceConnectionId?: string;

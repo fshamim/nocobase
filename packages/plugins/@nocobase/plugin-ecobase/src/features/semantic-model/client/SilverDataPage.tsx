@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useAPIClient } from '@nocobase/client';
 import { App, AutoComplete, Button, Card, Drawer, Form, Input, Space, Table, Tag, Typography } from 'antd';
-import { useT } from '../locale';
+import { useT } from '../../../client/locale';
 import type { ColumnsType } from 'antd/es/table';
 
 type SilverEntityType =
