@@ -23,6 +23,7 @@ import dayjs from 'dayjs';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FormulaHelp } from '../../../client/formula-help';
 import { useT } from '../../../client/locale';
+import { orderLifecycleStatusColor } from '../../order-planning/order-lifecycle-status';
 
 type PlainRecord = Record<string, any>;
 
@@ -105,10 +106,7 @@ function followUpColor(value?: string) {
 }
 
 function orderStatusColor(value?: string) {
-  if (value === 'COMPLETE') return 'green';
-  if (value === 'ORDERED' || value === 'INBOUND MONITORING') return 'blue';
-  if (value === 'ORDER ANALYSING' || value === 'APPROVED TO ORDER') return 'orange';
-  return 'default';
+  return orderLifecycleStatusColor(value, 'supplier');
 }
 
 export default function SupplierManagementPage() {

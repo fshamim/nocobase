@@ -1,18 +1,12 @@
-export const ORDER_LIFECYCLE_STATUSES = [
-  'IN-PROGRESS',
-  'ORDER ANALYSING',
-  'APPROVED TO ORDER',
-  'ORDERED',
-  'IN TRANSIT TO PREP',
-  'DIRECT SHIP FBA',
-  'AT PREP NOT STARTED',
-  'PREP IN-PROGRESS',
-  'SHIPPED TO FBA',
-  'INBOUND MONITORING',
-  'COMPLETE',
-] as const;
+import {
+  ORDER_LIFECYCLE_STATUSES,
+  canonicalOrderLifecycleStatus,
+  requireOrderLifecycleStatus,
+  type OrderLifecycleStatus,
+} from '../order-lifecycle-status';
 
-export type OrderLifecycleStatus = (typeof ORDER_LIFECYCLE_STATUSES)[number];
+export { ORDER_LIFECYCLE_STATUSES, canonicalOrderLifecycleStatus, requireOrderLifecycleStatus };
+export type { OrderLifecycleStatus };
 
 export interface OrderLifecycleResolution {
   canonicalStatus: OrderLifecycleStatus;
@@ -44,23 +38,6 @@ export interface ResolveOrderLifecycleParams {
   reservedStock?: number;
   sellableStock?: number;
   receivedQty?: number;
-}
-
-const NORMALIZED_CANONICAL_STATUSES = new Map(
-  ORDER_LIFECYCLE_STATUSES.map((status) => [statusKey(status), status] as const),
-);
-
-export function canonicalOrderLifecycleStatus(value: unknown): OrderLifecycleStatus | undefined {
-  if (typeof value !== 'string' || !value.trim()) return undefined;
-  return NORMALIZED_CANONICAL_STATUSES.get(statusKey(value));
-}
-
-export function requireOrderLifecycleStatus(value: unknown, context: string): OrderLifecycleStatus {
-  const status = canonicalOrderLifecycleStatus(value);
-  if (!status) {
-    throw new Error(`${context}: status must be one of ${ORDER_LIFECYCLE_STATUSES.join(', ')}.`);
-  }
-  return status;
 }
 
 export function resolveOrderLifecycle(params: ResolveOrderLifecycleParams): OrderLifecycleResolution {
@@ -271,9 +248,3 @@ function isOlderThanDays(value: unknown, days: number) {
   return Date.now() - time >= days * 86_400_000;
 }
 
-function statusKey(value: string) {
-  return value
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, ' ')
-    .trim();
-}

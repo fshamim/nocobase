@@ -1,7 +1,36 @@
 import { describe, expect, it } from 'vitest';
 import { resolveOrderLifecycle } from '../../features/order-planning/server/order-lifecycle';
+import {
+  AFTER_ORDERED_STATUSES,
+  BEFORE_ORDERED_STATUSES,
+  COMPLETED_ORDER_LIFECYCLE_STATUSES,
+  ORDER_LIFECYCLE_STATUS_METADATA,
+  orderLifecycleStatusColor,
+  isCompleteLifecycleStatus,
+} from '../../features/order-planning/order-lifecycle-status';
 
 describe('resolveOrderLifecycle', () => {
+  it('keeps canonical lifecycle metadata as the source for groups and display colors', () => {
+    expect(BEFORE_ORDERED_STATUSES).toEqual(['IN-PROGRESS', 'ORDER ANALYSING', 'APPROVED TO ORDER']);
+    expect(AFTER_ORDERED_STATUSES).toEqual([
+      'ORDERED',
+      'IN TRANSIT TO PREP',
+      'DIRECT SHIP FBA',
+      'AT PREP NOT STARTED',
+      'PREP IN-PROGRESS',
+      'SHIPPED TO FBA',
+      'INBOUND MONITORING',
+    ]);
+    expect(COMPLETED_ORDER_LIFECYCLE_STATUSES).toEqual(['COMPLETE']);
+    expect(ORDER_LIFECYCLE_STATUS_METADATA['APPROVED TO ORDER']).toMatchObject({
+      color: 'cyan',
+      supplierColor: 'orange',
+    });
+    expect(orderLifecycleStatusColor('complete')).toBe('success');
+    expect(orderLifecycleStatusColor('COMPLETE', 'supplier')).toBe('green');
+    expect(isCompleteLifecycleStatus('complete')).toBe(true);
+  });
+
   it('maps Google Sheets completed payment to ORDERED with status check instead of COMPLETE', () => {
     expect(
       resolveOrderLifecycle({

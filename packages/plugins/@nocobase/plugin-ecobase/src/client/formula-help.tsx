@@ -1,5 +1,10 @@
 import React, { useState } from 'react';
 import { Button, Divider, Modal, Space, Tag, Typography } from 'antd';
+import {
+  BEFORE_ORDERED_STATUSES,
+  ORDER_LIFECYCLE_STATUSES,
+  ORDER_LIFECYCLE_STATUS_METADATA,
+} from '../features/order-planning/order-lifecycle-status';
 import { useT } from './locale';
 
 type FormulaSource = 'sellerboard' | 'csv' | 'eco_calc' | 'eco_derived' | 'operator';
@@ -627,33 +632,14 @@ const ORDER_FIELDS: HelpEntry[] = [
 ];
 
 const ORDER_TAGS: HelpEntry[] = [
-  { label: 'IN-PROGRESS', description: 'Order is being prepared or worked before final approval.' },
-  {
-    label: 'ORDER ANALYSING',
-    tagColor: 'purple',
-    description: 'Order still needs review before it should be approved or purchased.',
-  },
-  {
-    label: 'APPROVED TO ORDER',
-    tagColor: 'cyan',
-    description: 'Approved by operations; purchase/order execution should follow.',
-  },
-  { label: 'ORDERED', tagColor: 'blue', description: 'Order was placed with the supplier.' },
-  { label: 'IN TRANSIT TO PREP', tagColor: 'geekblue', description: 'Supplier shipment is moving to prep center.' },
-  {
-    label: 'DIRECT SHIP FBA',
-    tagColor: 'volcano',
-    description: 'Order is shipping directly to FBA instead of prep center.',
-  },
-  { label: 'AT PREP NOT STARTED', tagColor: 'gold', description: 'Goods are at prep but prep work has not started.' },
-  { label: 'PREP IN-PROGRESS', tagColor: 'processing', description: 'Prep center work is in progress.' },
-  { label: 'SHIPPED TO FBA', tagColor: 'lime', description: 'Prepared goods have shipped to FBA.' },
-  {
-    label: 'INBOUND MONITORING',
-    tagColor: 'green',
-    description: 'Shipment is inbound and should be monitored until received/sellable.',
-  },
-  { label: 'COMPLETE', tagColor: 'success', description: 'Order no longer contributes active money at risk.' },
+  ...ORDER_LIFECYCLE_STATUSES.map((status) => {
+    const metadata = ORDER_LIFECYCLE_STATUS_METADATA[status];
+    return {
+      label: metadata.label,
+      tagColor: metadata.color === 'default' ? undefined : metadata.color,
+      description: metadata.description,
+    };
+  }),
   {
     label: 'needs status check',
     tagColor: 'red',
@@ -662,7 +648,7 @@ const ORDER_TAGS: HelpEntry[] = [
   { label: 'Money at risk tab', description: 'Shows active tiered orders with non-zero money at risk.' },
   {
     label: 'Before ordered tab',
-    description: 'Shows orders still before the ORDERED stage: IN-PROGRESS, ORDER ANALYSING, or APPROVED TO ORDER.',
+    description: `Shows orders still before the ORDERED stage: ${BEFORE_ORDERED_STATUSES.join(', ')}.`,
   },
   { label: 'After ordered tab', description: 'Shows orders already ordered but not complete.' },
 ];

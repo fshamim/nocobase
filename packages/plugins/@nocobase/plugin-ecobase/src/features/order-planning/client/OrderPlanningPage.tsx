@@ -24,48 +24,19 @@ import {
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FormulaHelp } from '../../../client/formula-help';
 import { useT } from '../../../client/locale';
+import {
+  ORDER_LIFECYCLE_STATUS_OPTIONS,
+  isAfterOrderedLifecycleStatus,
+  isBeforeOrderedLifecycleStatus,
+  isCompleteLifecycleStatus,
+  orderLifecycleStatusColor,
+} from '../order-lifecycle-status';
 
 type PlainRecord = Record<string, any>;
 
 const DEFAULT_LIMIT = 5000;
 const MISSING_DATE_RANK = '9999-12-31';
-const ORDER_LIFECYCLE_STATUSES = [
-  'IN-PROGRESS',
-  'ORDER ANALYSING',
-  'APPROVED TO ORDER',
-  'ORDERED',
-  'IN TRANSIT TO PREP',
-  'DIRECT SHIP FBA',
-  'AT PREP NOT STARTED',
-  'PREP IN-PROGRESS',
-  'SHIPPED TO FBA',
-  'INBOUND MONITORING',
-  'COMPLETE',
-];
-const ORDER_STATUS_COLORS: Record<string, string> = {
-  'IN-PROGRESS': 'default',
-  'ORDER ANALYSING': 'purple',
-  'APPROVED TO ORDER': 'cyan',
-  ORDERED: 'blue',
-  'IN TRANSIT TO PREP': 'geekblue',
-  'DIRECT SHIP FBA': 'volcano',
-  'AT PREP NOT STARTED': 'gold',
-  'PREP IN-PROGRESS': 'processing',
-  'SHIPPED TO FBA': 'lime',
-  'INBOUND MONITORING': 'green',
-  COMPLETE: 'success',
-};
 const INVOICE_STATUS_OPTIONS = ['In Progress', 'Completed', 'waiting', 'imported', 'missing', 'rejected'];
-const BEFORE_ORDERED_STATUSES = new Set(['IN-PROGRESS', 'ORDER ANALYSING', 'APPROVED TO ORDER']);
-const AFTER_ORDERED_STATUSES = new Set([
-  'ORDERED',
-  'IN TRANSIT TO PREP',
-  'DIRECT SHIP FBA',
-  'AT PREP NOT STARTED',
-  'PREP IN-PROGRESS',
-  'SHIPPED TO FBA',
-  'INBOUND MONITORING',
-]);
 const QUEUE_FILTERS = ['money', 'needs_status_check', 'before_ordered', 'after_ordered', 'complete'];
 
 function unwrapData(response: any): PlainRecord {
@@ -145,10 +116,6 @@ function oosText(row: PlainRecord) {
   return `${row.earliestOosDate} · in ${days}d`;
 }
 
-function statusColor(value?: string) {
-  return ORDER_STATUS_COLORS[value ?? ''] ?? 'default';
-}
-
 function selectOptions(values: string[], current?: string) {
   return [...new Set([...values, current].filter((value): value is string => Boolean(value)))].map((value) => ({
     label: value,
@@ -168,9 +135,9 @@ function defaultOrderSort(left: PlainRecord, right: PlainRecord) {
 
 function queueRows(rows: PlainRecord[], filter: string) {
   if (filter === 'needs_status_check') return rows.filter((row) => row.statusCheckRequired);
-  if (filter === 'before_ordered') return rows.filter((row) => BEFORE_ORDERED_STATUSES.has(row.currentStatus));
-  if (filter === 'after_ordered') return rows.filter((row) => AFTER_ORDERED_STATUSES.has(row.currentStatus));
-  if (filter === 'complete') return rows.filter((row) => row.currentStatus === 'COMPLETE');
+  if (filter === 'before_ordered') return rows.filter((row) => isBeforeOrderedLifecycleStatus(row.currentStatus));
+  if (filter === 'after_ordered') return rows.filter((row) => isAfterOrderedLifecycleStatus(row.currentStatus));
+  if (filter === 'complete') return rows.filter((row) => isCompleteLifecycleStatus(row.currentStatus));
   return rows.filter((row) => numericValue(row.moneyAtRisk) > 0);
 }
 
@@ -232,7 +199,7 @@ function moneyText(value: unknown) {
 function statusTag(value?: string, needsCheck?: boolean) {
   return (
     <Space size={4} wrap>
-      <Tag color={statusColor(value)}>{value ?? 'unknown'}</Tag>
+      <Tag color={orderLifecycleStatusColor(value)}>{value ?? 'unknown'}</Tag>
       {needsCheck ? <Tag color="orange">needs status check</Tag> : null}
     </Space>
   );
@@ -869,7 +836,7 @@ export default function OrderPlanningPage() {
                     <Col xs={24} md={8}>
                       <Form.Item name="lifecycleStatus" label={t('Order status')}>
                         <Select
-                          options={ORDER_LIFECYCLE_STATUSES.map((status) => ({ label: status, value: status }))}
+                          options={ORDER_LIFECYCLE_STATUS_OPTIONS}
                         />
                       </Form.Item>
                     </Col>
