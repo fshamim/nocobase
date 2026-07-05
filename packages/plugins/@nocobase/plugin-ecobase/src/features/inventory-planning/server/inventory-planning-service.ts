@@ -100,6 +100,7 @@ const COMMAND_CENTER_SORT_KEYS = new Set([
   'daysUntilOos',
   'daysUntilSafeReorder',
   'estimatedProfitRisk',
+  'currentPlanningStock',
   'expectedSellableDate',
   'sku',
   'stockoutGapDays',
@@ -1039,7 +1040,7 @@ export class EcobaseInventoryPlanningService {
     const sortDirection = query.pane === pane ? query.sortDirection ?? 'desc' : 'desc';
     const filteredRows = this.sortCommandCenterRows(
       this.commandCenterRowsForPane(pane, rows).filter((row) =>
-        this.matchesCommandCenterFilters(row, query.pane === pane ? query.filters : undefined, calculationDate),
+        this.matchesCommandCenterFilters(row, query.filters, calculationDate),
       ),
       sortBy ?? this.defaultCommandCenterSort(pane),
       sortDirection,
@@ -1139,7 +1140,15 @@ export class EcobaseInventoryPlanningService {
     if (sortBy === 'stockoutGapDays') return stockoutGapDays(row);
     if (sortBy === 'tier') return profitTierRank(row.tier);
     if (sortBy === 'actionStatus') return actionRank(row.actionStatus as InventoryPlanningActionStatus);
-    if (['estimatedProfitRisk', 'suggestedReorderQty', 'daysUntilSafeReorder', 'daysOfCover'].includes(sortBy)) {
+    if (
+      [
+        'estimatedProfitRisk',
+        'suggestedReorderQty',
+        'daysUntilSafeReorder',
+        'daysOfCover',
+        'currentPlanningStock',
+      ].includes(sortBy)
+    ) {
       return asNumber(row[sortBy]);
     }
     return asString(row[sortBy]);

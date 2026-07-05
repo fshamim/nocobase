@@ -45,6 +45,7 @@ type OrderNowQuickFilter =
   | 'no_order'
   | 'placed_not_purchased';
 type OrderNowSortKey = 'urgency' | 'oos_asc' | 'risk_desc' | 'tier' | 'supplier';
+type CommandCenterPaneKey = 'supplyAction' | 'activeOrders' | 'stuckInventory';
 
 interface DigestPreview {
   summary: PlainRecord;
@@ -649,6 +650,10 @@ export default function InventoryPlanningPage() {
   const [filterOptions, setFilterOptions] = useState<PlainRecord>({});
   const [rows, setRows] = useState<PlainRecord[]>([]);
   const [digest, setDigest] = useState<DigestPreview>(() => unwrapDigest({}));
+  const [commandCenter, setCommandCenter] = useState<PlainRecord>({});
+  const [activeCommandPane, setActiveCommandPane] = useState<CommandCenterPaneKey>('supplyAction');
+  const [commandCenterSearch, setCommandCenterSearch] = useState('');
+  const [commandCenterSortBy, setCommandCenterSortBy] = useState('estimatedProfitRisk');
   const [selectedRow, setSelectedRow] = useState<PlainRecord | null>(null);
   const [actionValues, setActionValues] = useState<DrawerActionValues | null>(null);
   const [supplierOptions, setSupplierOptions] = useState<PlainRecord[]>([]);
@@ -693,20 +698,45 @@ export default function InventoryPlanningPage() {
         purchasedPipelineGraceDays,
         limit,
       };
-      const workspace = unwrapData(
-        await api.request({ url: 'ecobaseInventoryPlanning:workspace', method: 'post', data: payload }),
+      const [filtersResponse, commandCenterResponse] = await Promise.all([
+        api.request({ url: 'ecobaseInventoryPlanning:filters', method: 'post', data: {} }),
+        api.request({
+          url: 'ecobaseInventoryPlanning:commandCenter',
+          method: 'post',
+          data: {
+            ...payload,
+            pane: activeCommandPane,
+            pageSize: limit,
+            sortBy: commandCenterSortBy,
+            sortDirection: 'desc',
+            filters: {
+              actionStatus,
+              tier,
+              search: commandCenterSearch.trim() || undefined,
+            },
+          },
+        }),
+      ]);
+      const center = unwrapData(commandCenterResponse);
+      const panes = unwrapData(center.panes);
+      setFilterOptions(unwrapData(unwrapData(filtersResponse).filters ?? filtersResponse));
+      setCommandCenter(center);
+      setRows(
+        ['supplyAction', 'activeOrders', 'stuckInventory'].flatMap((key) => unwrapRows(unwrapData(panes[key]).rows)),
       );
-      setFilterOptions(unwrapData(workspace.filters));
-      setRows(unwrapRows(workspace.rows));
-      setDigest(unwrapDigest(workspace.digest));
+      setDigest(unwrapDigest({}));
     } catch (err) {
       setError(err as Error);
     } finally {
       setLoading(false);
     }
   }, [
+    actionStatus,
+    activeCommandPane,
     api,
     calculationDate,
+    commandCenterSearch,
+    commandCenterSortBy,
     company,
     leadTimeFreshnessDays,
     limit,
@@ -714,6 +744,7 @@ export default function InventoryPlanningPage() {
     purchasedPipelineGraceDays,
     safetyBufferDays,
     targetCoverDays,
+    tier,
   ]);
 
   useEffect(() => {
@@ -867,6 +898,185 @@ export default function InventoryPlanningPage() {
     () => groupOrderNowRows(orderNowRows, relativeBaseDate),
     [orderNowRows, relativeBaseDate],
   );
+
+  const commandMetadata = unwrapData(commandCenter.metadata);
+  const commandPanes = unwrapData(commandCenter.panes);
+  const commandSummaryCards = Array.isArray(commandCenter.summaryCards) ? commandCenter.summaryCards : [];
+  const commandRiskBars = unwrapData(commandCenter.riskBars);
+  const dailyAlertPreview = unwrapRows(commandCenter.dailyAlertPreview);
+  const commandCalculationDate = String(commandMetadata.calculationDate ?? relativeBaseDate);
+  const commandPaneTitles: Record<CommandCenterPaneKey, string> = {
+    supplyAction: t('Supply action needed'),
+    activeOrders: t('Active orders'),
+    stuckInventory: t('Stuck inventory'),
+  };
+  const commandPaneDescriptions: Record<CommandCenterPaneKey, string> = {
+    supplyAction: t('Rows needing order, supplier, or lead-time action.'),
+    activeOrders: t('Placed and purchased pipeline that can still miss stockout.'),
+    stuckInventory: t('Slow, reserved, or stalled stock that should be reviewed.'),
+  };
+  const commandPaneSortOptions: Record<CommandCenterPaneKey, { value: string; label: string }[]> = {
+    supplyAction: [
+      { value: 'estimatedProfitRisk', label: t('Money at risk') },
+      { value: 'daysUntilOos', label: t('OOS days left') },
+      { value: 'daysUntilSafeReorder', label: t('Order-by urgency') },
+      { value: 'tier', label: t('Tier') },
+    ],
+    activeOrders: [
+      { value: 'stockoutGapDays', label: t('Stockout gap') },
+      { value: 'expectedSellableDate', label: t('Expected sellable') },
+      { value: 'estimatedProfitRisk', label: t('Money at risk') },
+    ],
+    stuckInventory: [
+      { value: 'daysOfCover', label: t('Days cover') },
+      { value: 'currentPlanningStock', label: t('Planning stock') },
+      { value: 'estimatedProfitRisk', label: t('Money at risk') },
+    ],
+  };
+  const renderRiskBars = (items: PlainRecord[]) => (
+    <Space direction="vertical" size={6} style={{ width: '100%' }}>
+      {items.map((item) => {
+        const count = Number(item.count ?? 0);
+        const max = Math.max(...items.map((entry) => Number(entry.count ?? 0)), 1);
+        return (
+          <div key={String(item.key)}>
+            <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+              <Typography.Text>{t(String(item.key))}</Typography.Text>
+              <Typography.Text strong>{count}</Typography.Text>
+            </Space>
+            <div style={{ height: 8, borderRadius: 999, background: '#f0f0f0', overflow: 'hidden' }}>
+              <div style={{ width: `${Math.round((count / max) * 100)}%`, height: 8, background: '#fa8c16' }} />
+            </div>
+          </div>
+        );
+      })}
+    </Space>
+  );
+  const renderOosCell = (_value: string, row: PlainRecord) => {
+    const daysLeft = Number(row.daysUntilOos);
+    const color = Number.isFinite(daysLeft) && daysLeft <= 0 ? 'red' : daysLeft <= 7 ? 'orange' : 'blue';
+    return (
+      <Space direction="vertical" size={0}>
+        <span>{formatDate(row.estimatedOosDate)}</span>
+        <Tag color={color}>{Number.isFinite(daysLeft) ? `${daysLeft} ${t('days left')}` : t('No velocity')}</Tag>
+      </Space>
+    );
+  };
+  const commandPaneColumns = (pane: CommandCenterPaneKey) => [
+    {
+      title: String(t('Action')),
+      dataIndex: 'actionStatus',
+      render: (value: string, row: PlainRecord) => (
+        <Space size={4} wrap>
+          <Tag color={actionColor(value)}>{t(value ?? row.recommendedAction ?? 'watch')}</Tag>
+          {row.recommendedAction === 'follow_up_order' ? <Tag color="red">{t('Follow-up due today')}</Tag> : null}
+        </Space>
+      ),
+    },
+    {
+      title: String(t('Tier')),
+      dataIndex: 'tier',
+      render: (value: string) => <Tag color={tierColor(value)}>{value}</Tag>,
+    },
+    {
+      title: String(t('Product')),
+      key: 'product',
+      render: (_value: any, row: PlainRecord) => (
+        <Space direction="vertical" size={0}>
+          <Typography.Text strong>{row.asin ?? '—'}</Typography.Text>
+          <Typography.Text type="secondary" ellipsis style={{ maxWidth: 260 }}>
+            {row.sku ?? row.title ?? '—'}
+          </Typography.Text>
+        </Space>
+      ),
+    },
+    {
+      title: String(t('Supplier / order')),
+      key: 'supplier',
+      render: (_value: any, row: PlainRecord) => (
+        <Space direction="vertical" size={0}>
+          <span>{row.supplierName ?? t('Find supplier')}</span>
+          {row.supplierOrderRef ? <Tag color="blue">{String(row.supplierOrderRef)}</Tag> : null}
+        </Space>
+      ),
+    },
+    { title: String(t('OOS')), dataIndex: 'estimatedOosDate', render: renderOosCell },
+    {
+      title: String(pane === 'activeOrders' ? t('Pipeline') : pane === 'stuckInventory' ? t('Stock') : t('Qty')),
+      key: 'paneMetric',
+      render: (_value: any, row: PlainRecord) =>
+        pane === 'activeOrders' ? (
+          <Space direction="vertical" size={0}>
+            <Tag color={row.pipelineHealthBucket === 'late' ? 'red' : 'blue'}>
+              {t(row.pipelineHealthBucket ?? 'none')}
+            </Tag>
+            <Typography.Text type="secondary">
+              {t('Gap')} {formatNumber(row.stockoutGapDays)} {t('days')}
+            </Typography.Text>
+          </Space>
+        ) : pane === 'stuckInventory' ? (
+          <Space direction="vertical" size={0}>
+            <Tag color="purple">{t(row.stuckBucket ?? 'stuck')}</Tag>
+            <Typography.Text type="secondary">
+              {formatNumber(row.daysOfCover)} {t('days cover')}
+            </Typography.Text>
+          </Space>
+        ) : (
+          <Space direction="vertical" size={0}>
+            <Typography.Text strong>{formatNumber(row.suggestedReorderQty)}</Typography.Text>
+            <Typography.Text type="secondary">
+              {t('Target')} {formatNumber(row.targetCoverDays)} {t('days')}
+            </Typography.Text>
+          </Space>
+        ),
+    },
+    {
+      title: String(t('Money at risk')),
+      dataIndex: 'estimatedProfitRisk',
+      render: (value: number) => <Typography.Text strong>{formatCurrency(value)}</Typography.Text>,
+    },
+  ];
+  const renderCommandPane = (pane: CommandCenterPaneKey) => {
+    const paneData = unwrapData(commandPanes[pane]);
+    const rowsForPane = unwrapRows(paneData.rows);
+    return (
+      <Card
+        key={pane}
+        title={commandPaneTitles[pane]}
+        extra={
+          <Space size="small" wrap>
+            <Typography.Text type="secondary">
+              {formatNumber(paneData.total)} {t('rows')}
+            </Typography.Text>
+            <Select
+              value={
+                activeCommandPane === pane
+                  ? commandCenterSortBy
+                  : String(paneData.sortBy ?? commandPaneSortOptions[pane][0].value)
+              }
+              onChange={(value) => {
+                setActiveCommandPane(pane);
+                setCommandCenterSortBy(value);
+              }}
+              style={{ width: 180 }}
+              options={commandPaneSortOptions[pane]}
+            />
+          </Space>
+        }
+      >
+        <Typography.Paragraph type="secondary">{commandPaneDescriptions[pane]}</Typography.Paragraph>
+        <Table<PlainRecord>
+          size="small"
+          loading={loading}
+          rowKey={(row) => String(row.id ?? row.planningProductId ?? row.asin ?? row.sku)}
+          dataSource={rowsForPane}
+          columns={commandPaneColumns(pane)}
+          pagination={false}
+          onRow={(row) => ({ onClick: () => openRow(row) })}
+        />
+      </Card>
+    );
+  };
 
   const newActionValues = (row: PlainRecord): DrawerActionValues => {
     const supplierId = isUuid(row.supplierId) ? row.supplierId : '';
@@ -1349,6 +1559,98 @@ export default function InventoryPlanningPage() {
         </Typography.Paragraph>
         {error ? <Alert type="error" message={error.message} /> : null}
         {planningSettingsWarning ? <Alert type="warning" message={planningSettingsWarning} showIcon /> : null}
+        <Card>
+          <Row gutter={[16, 16]} align="bottom">
+            <Col xs={24} md={8} xl={5}>
+              <Typography.Text strong>{t('Company')}</Typography.Text>
+              <Select
+                allowClear
+                showSearch
+                placeholder={t('All companies')}
+                value={company || undefined}
+                onChange={(value) => setCompany(value ?? '')}
+                style={{ width: '100%', marginTop: 4 }}
+                options={(Array.isArray(filterOptions.companies) ? filterOptions.companies : []).map(
+                  (value: string) => ({ value, label: value }),
+                )}
+              />
+            </Col>
+            <Col xs={24} md={8} xl={4}>
+              <Typography.Text strong>{t('History window')}</Typography.Text>
+              <Select
+                disabled
+                value="six-months"
+                style={{ width: '100%', marginTop: 4 }}
+                options={[{ value: 'six-months', label: t('Last 6 months') }]}
+              />
+            </Col>
+            <Col xs={24} md={8} xl={4}>
+              <Typography.Text strong>{t('Planning date')}</Typography.Text>
+              <DatePicker
+                allowClear
+                value={calculationDate ? dayjs(calculationDate) : undefined}
+                onChange={(_date, dateString) =>
+                  setCalculationDate(Array.isArray(dateString) ? dateString[0] : dateString)
+                }
+                style={{ width: '100%', marginTop: 4 }}
+              />
+            </Col>
+            <Col xs={24} md={8} xl={4}>
+              <Typography.Text strong>{t('Status')}</Typography.Text>
+              <Select
+                allowClear
+                placeholder={t('Any action')}
+                value={actionStatus}
+                onChange={setActionStatus}
+                style={{ width: '100%', marginTop: 4 }}
+                options={(Array.isArray(filterOptions.actionStatuses) ? filterOptions.actionStatuses : []).map(
+                  (value: string) => ({ value, label: t(value) }),
+                )}
+              />
+            </Col>
+            <Col xs={24} md={8} xl={3}>
+              <Typography.Text strong>{t('Tier')}</Typography.Text>
+              <Select
+                allowClear
+                placeholder={t('Any')}
+                value={tier}
+                onChange={setTier}
+                style={{ width: '100%', marginTop: 4 }}
+                options={(Array.isArray(filterOptions.tiers) ? filterOptions.tiers : ['A', 'B', 'C']).map(
+                  (value: string) => ({ value, label: value }),
+                )}
+              />
+            </Col>
+            <Col xs={24} md={8} xl={4}>
+              <Typography.Text strong>{t('Search')}</Typography.Text>
+              <Input
+                allowClear
+                placeholder={t('ASIN, SKU, supplier')}
+                value={commandCenterSearch}
+                onChange={(event) => setCommandCenterSearch(event.target.value)}
+                style={{ marginTop: 4 }}
+              />
+            </Col>
+            <Col xs={24} xl={24}>
+              <Space size="middle" wrap>
+                <Typography.Text type="secondary">
+                  {t('Latest data as of')} {formatDate(commandMetadata.latestDataAsOf)} · {t('Planning date')}{' '}
+                  {commandCalculationDate}
+                </Typography.Text>
+                <Button href="/admin/ecobase/planning-settings">
+                  {t('Rules & thresholds')} · {t('Target cover')} {formatNumber(commandMetadata.targetCoverDays)}{' '}
+                  {t('days')}
+                </Button>
+                <Button type="primary" loading={loading} onClick={loadPlanning}>
+                  {t('Refresh planning')}
+                </Button>
+                <Button loading={loading} onClick={syncEditableRows}>
+                  {t('Rebuild gold inventory')}
+                </Button>
+              </Space>
+            </Col>
+          </Row>
+        </Card>
         <Collapse
           size="small"
           items={[
@@ -1681,454 +1983,52 @@ export default function InventoryPlanningPage() {
             },
           ]}
         />
+
         <Row gutter={[16, 16]}>
-          <Col xs={24} sm={12} lg={4}>
-            <Card>
-              <Statistic title={t('Overdue')} value={digest.summary.overdue ?? 0} valueStyle={{ color: '#cf1322' }} />
-            </Card>
+          {commandSummaryCards.map((card: PlainRecord) => (
+            <Col xs={24} sm={12} lg={4} key={String(card.key)}>
+              <Card>
+                <Statistic
+                  title={t(String(card.label ?? card.key))}
+                  value={Number(card.value ?? 0)}
+                  precision={String(card.key) === 'profitRisk' ? 2 : 0}
+                  prefix={String(card.key) === 'profitRisk' ? '$' : undefined}
+                  valueStyle={String(card.key) === 'profitRisk' ? { color: '#cf1322' } : undefined}
+                />
+              </Card>
+            </Col>
+          ))}
+        </Row>
+        <Row gutter={[16, 16]}>
+          <Col xs={24} lg={8}>
+            <Card title={t('Supply action risk')}>{renderRiskBars(unwrapRows(commandRiskBars.supplyAction))}</Card>
           </Col>
-          <Col xs={24} sm={12} lg={4}>
-            <Card>
-              <Statistic
-                title={t('Order today')}
-                value={digest.summary.orderToday ?? 0}
-                valueStyle={{ color: '#d4380d' }}
-              />
-            </Card>
+          <Col xs={24} lg={8}>
+            <Card title={t('Active order health')}>{renderRiskBars(unwrapRows(commandRiskBars.pipelineHealth))}</Card>
           </Col>
-          <Col xs={24} sm={12} lg={4}>
-            <Card>
-              <Statistic
-                title={t('Order soon')}
-                value={digest.summary.orderSoon ?? 0}
-                valueStyle={{ color: '#fa8c16' }}
-              />
-            </Card>
-          </Col>
-          <Col xs={24} sm={12} lg={4}>
-            <Card>
-              <Statistic title={t('At risk')} value={digest.summary.atRisk ?? 0} />
-            </Card>
-          </Col>
-          <Col xs={24} sm={12} lg={4}>
-            <Card>
-              <Statistic
-                title={t('Lead-time issues')}
-                value={digest.summary.staleOrMissingLeadTime ?? 0}
-                valueStyle={{ color: '#faad14' }}
-              />
-            </Card>
-          </Col>
-          <Col xs={24} sm={12} lg={4}>
-            <Card>
-              <Statistic title={t('Suppliers')} value={digest.summary.suppliersToContact ?? 0} />
-            </Card>
+          <Col xs={24} lg={8}>
+            <Card title={t('Stuck inventory risk')}>{renderRiskBars(unwrapRows(commandRiskBars.stuckInventory))}</Card>
           </Col>
         </Row>
         <Card
-          title={t('Daily digest preview')}
+          title={t('Daily alert preview')}
           extra={
-            <Space size="small" wrap>
-              <Typography.Text type="secondary">
-                {t('Bounded to urgent action items so operators are not overloaded.')}
-              </Typography.Text>
-              <FormulaHelp group="inventoryDigest" />
-            </Space>
+            <Typography.Text type="secondary">{t('Top urgent rows only. No export digest here.')}</Typography.Text>
           }
         >
-          <Row gutter={[16, 16]}>
-            <Col xs={24}>
-              <Typography.Title level={5}>{t('Order now')}</Typography.Title>
-              <Typography.Paragraph type="secondary">
-                {t('Click a row to review the product and manage supplier-order actions in one drawer.')}
-              </Typography.Paragraph>
-              <Row gutter={[8, 8]} style={{ marginBottom: 12 }}>
-                <Col xs={24} md={8} xl={5}>
-                  <Select<OrderNowQuickFilter>
-                    value={orderNowQuickFilter}
-                    onChange={setOrderNowQuickFilter}
-                    style={{ width: '100%' }}
-                    options={[
-                      { value: 'all', label: t('All order-now rows') },
-                      { value: 'urgent_today', label: t('Overdue / today') },
-                      { value: 'missing_supplier', label: t('Missing supplier') },
-                      { value: 'lead_time_issues', label: t('Lead-time issues') },
-                      { value: 'no_order', label: t('Needs new supplier order') },
-                      { value: 'placed_not_purchased', label: t('Placed, not purchased') },
-                    ]}
-                  />
-                </Col>
-                <Col xs={24} md={8} xl={5}>
-                  <Select
-                    mode="multiple"
-                    allowClear
-                    placeholder={t('Tier')}
-                    value={orderNowTierFilter}
-                    onChange={setOrderNowTierFilter}
-                    style={{ width: '100%' }}
-                    options={orderNowTiers.map((value) => ({ value, label: value }))}
-                  />
-                </Col>
-                <Col xs={24} md={8} xl={5}>
-                  <Select
-                    mode="multiple"
-                    allowClear
-                    placeholder={t('Company')}
-                    value={orderNowCompanyFilter}
-                    onChange={setOrderNowCompanyFilter}
-                    style={{ width: '100%' }}
-                    options={orderNowCompanies.map((value) => ({ value, label: value }))}
-                  />
-                </Col>
-                <Col xs={24} md={8} xl={5}>
-                  <Select<OrderNowSortKey>
-                    value={orderNowSort}
-                    onChange={setOrderNowSort}
-                    style={{ width: '100%' }}
-                    options={[
-                      { value: 'urgency', label: t('Sort by urgency') },
-                      { value: 'oos_asc', label: t('Sort by OOS date') },
-                      { value: 'risk_desc', label: t('Sort by money at risk') },
-                      { value: 'tier', label: t('Sort by tier') },
-                      { value: 'supplier', label: t('Sort by supplier') },
-                    ]}
-                  />
-                </Col>
-                <Col xs={24} md={8} xl={4}>
-                  <Input
-                    allowClear
-                    placeholder={t('Search ASIN, SKU, supplier')}
-                    value={orderNowSearch}
-                    onChange={(event) => setOrderNowSearch(event.target.value)}
-                  />
-                </Col>
-              </Row>
-              <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-                {t('Showing')} {orderNowGroups.length} {t('groups')} / {orderNowRows.length} {t('products')}
-              </Typography.Text>
-              <Table<PlainRecord>
-                size="small"
-                rowKey={(row) => row.key}
-                dataSource={orderNowGroups}
-                pagination={false}
-                onRow={(group) => ({ onClick: () => openRow(group.rows[0], ['history', 'order-status']) })}
-                expandable={{
-                  expandIcon: ({ expanded, onExpand, record }) => (
-                    <Button
-                      size="small"
-                      type="text"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onExpand(record, event);
-                      }}
-                    >
-                      {expanded ? '−' : '+'}
-                    </Button>
-                  ),
-                  expandedRowRender: (group) => (
-                    <Table<PlainRecord>
-                      size="small"
-                      rowKey={(row) => String(row.planningProductId ?? row.asin ?? row.sku)}
-                      dataSource={group.rows}
-                      pagination={false}
-                      onRow={(row) => ({ onClick: () => openRow(row) })}
-                      columns={[
-                        {
-                          title: String(t('Action')),
-                          dataIndex: 'actionStatus',
-                          render: (value: string) => <Tag color={actionColor(value)}>{t(value)}</Tag>,
-                        },
-                        {
-                          title: String(t('Tier')),
-                          dataIndex: 'tier',
-                          render: (value: string) => <Tag color={tierColor(value)}>{value}</Tag>,
-                        },
-                        { title: String(t('ASIN')), dataIndex: 'asin' },
-                        { title: String(t('SKU')), dataIndex: 'sku' },
-                        { title: String(t('Velocity')), dataIndex: 'salesVelocity', render: formatNumber },
-                        {
-                          title: String(t('Lead time')),
-                          dataIndex: 'leadTimeDays',
-                          render: (value: number, row: PlainRecord) => (
-                            <Space size={4}>
-                              <span>
-                                {formatNumber(value)} {t('days')}
-                              </span>
-                              <Tag color={freshnessColor(row.leadTimeFreshness)}>
-                                {t(row.leadTimeFreshness ?? 'unknown')}
-                              </Tag>
-                            </Space>
-                          ),
-                        },
-                        {
-                          title: String(t('OOS in')),
-                          dataIndex: 'estimatedOosDate',
-                          render: (value: string) => (
-                            <Tag color={relativeDateLabel(value, relativeBaseDate).color}>
-                              {t(relativeDateLabel(value, relativeBaseDate).label)}
-                            </Tag>
-                          ),
-                        },
-                        {
-                          title: String(t('Projected sellable')),
-                          dataIndex: 'expectedSellableDate',
-                          render: formatDate,
-                        },
-                        {
-                          title: String(t('Suggested')),
-                          dataIndex: 'suggestedReorderQty',
-                          render: formatNumber,
-                        },
-                        {
-                          title: String(t('Money at risk')),
-                          dataIndex: 'estimatedProfitRisk',
-                          render: (value: number) => (
-                            <Typography.Text
-                              strong
-                              style={{
-                                background: '#fff1f0',
-                                color: '#cf1322',
-                                padding: '1px 6px',
-                                borderRadius: 4,
-                              }}
-                            >
-                              {formatCurrency(value)}
-                            </Typography.Text>
-                          ),
-                        },
-                      ]}
-                    />
-                  ),
-                }}
-                columns={[
-                  {
-                    title: String(t('Order / supplier group')),
-                    key: 'group',
-                    render: (_value: any, group: PlainRecord) => (
-                      <Space direction="vertical" size={0}>
-                        <Space size={4} wrap>
-                          <Tag color={group.type === 'order' ? 'orange' : group.type === 'supplier' ? 'blue' : 'red'}>
-                            {t(
-                              group.type === 'order'
-                                ? 'Order'
-                                : group.type === 'supplier'
-                                  ? 'Supplier'
-                                  : 'Needs supplier',
-                            )}
-                          </Tag>
-                          <Typography.Text strong>
-                            {group.supplierOrderRef ?? group.supplierName ?? t('Find supplier from OrderDetails')}
-                          </Typography.Text>
-                          {group.supplierOrderStatus ? (
-                            <Tag color={supplierOrderStatusColor(String(group.supplierOrderStatus))}>
-                              {t(String(group.supplierOrderStatus))}
-                            </Tag>
-                          ) : null}
-                        </Space>
-                        <Space size={4} wrap>
-                          <Typography.Text type="secondary">{String(group.company ?? '—')}</Typography.Text>
-                          {group.supplierName ? <Tag color="blue">{String(group.supplierName)}</Tag> : null}
-                        </Space>
-                        {group.latestSupplierOrderActivityNote ? (
-                          <Typography.Text type="secondary" ellipsis style={{ maxWidth: 320 }}>
-                            {String(group.latestSupplierOrderActivityNote)}
-                          </Typography.Text>
-                        ) : null}
-                      </Space>
-                    ),
-                  },
-                  {
-                    title: String(t('Products')),
-                    dataIndex: 'productCount',
-                    render: (value: number, group: PlainRecord) =>
-                      value === 1 ? (
-                        <Space direction="vertical" size={0}>
-                          <Space size={4} wrap>
-                            <Typography.Text>{String(group.firstProduct?.asin ?? '—')}</Typography.Text>
-                            {(Array.isArray(group.tierCounts) ? group.tierCounts : []).map((item: any) => (
-                              <Tag key={item.tier} color={tierColor(item.tier)}>{`${item.tier}`}</Tag>
-                            ))}
-                          </Space>
-                          <Typography.Text type="secondary" ellipsis style={{ maxWidth: 220 }}>
-                            {String(group.firstProduct?.sku ?? group.firstProduct?.title ?? '')}
-                          </Typography.Text>
-                          {group.leadTimeIssueCount ? <Tag color="orange">{t('Lead-time issue')}</Tag> : null}
-                        </Space>
-                      ) : (
-                        <Space size={4} wrap>
-                          <Tag>{formatNumber(value)}</Tag>
-                          {(Array.isArray(group.tierCounts) ? group.tierCounts : []).map((item: any) => (
-                            <Tag key={item.tier} color={tierColor(item.tier)}>{`${item.tier}:${item.count}`}</Tag>
-                          ))}
-                          {group.leadTimeIssueCount ? (
-                            <Tag color="orange">
-                              {t('lead-time')} {group.leadTimeIssueCount}
-                            </Tag>
-                          ) : null}
-                        </Space>
-                      ),
-                  },
-                  {
-                    title: String(t('Earliest OOS')),
-                    dataIndex: 'earliestOosDate',
-                    render: (value: string) => (
-                      <Tag color={relativeDateLabel(value, relativeBaseDate).color}>
-                        {t(relativeDateLabel(value, relativeBaseDate).label)}
-                      </Tag>
-                    ),
-                  },
-                  {
-                    title: String(t('Money at risk')),
-                    dataIndex: 'totalMoneyAtRisk',
-                    render: (value: number) => (
-                      <Typography.Text
-                        strong
-                        style={{ background: '#fff1f0', color: '#cf1322', padding: '1px 6px', borderRadius: 4 }}
-                      >
-                        {formatCurrency(value)}
-                      </Typography.Text>
-                    ),
-                  },
-                  {
-                    title: String(t('Top action')),
-                    dataIndex: 'topActionStatus',
-                    render: (value: string) => <Tag color={actionColor(value)}>{t(value ?? 'unknown')}</Tag>,
-                  },
-                ]}
-              />
-            </Col>
-            <Col xs={24} lg={10}>
-              <Typography.Title level={5}>{t('Supplier contact priority')}</Typography.Title>
-              <Typography.Paragraph type="secondary">
-                {t('Groups only urgent supplier-action rows that already have a named supplier to contact.')}
-              </Typography.Paragraph>
-              <Table<PlainRecord>
-                size="small"
-                rowKey={(row) => row.supplierName}
-                dataSource={digest.sections.suppliersToContactFirst}
-                pagination={false}
-                columns={[
-                  {
-                    title: String(t('Supplier / next action')),
-                    dataIndex: 'supplierName',
-                    render: (value: string) =>
-                      value === 'Find supplier from OrderDetails' ? <Tag color="red">{t(value)}</Tag> : value,
-                  },
-                  { title: String(t('Urgent')), dataIndex: 'urgentCount' },
-                  { title: String(t('A')), dataIndex: 'tierA' },
-                  { title: String(t('B')), dataIndex: 'tierB' },
-                  { title: String(t('C')), dataIndex: 'tierC' },
-                  {
-                    title: String(t('Money at risk')),
-                    dataIndex: 'estimatedProfitRisk',
-                    render: (value: number) => (
-                      <Typography.Text
-                        strong
-                        style={{ background: '#fff1f0', color: '#cf1322', padding: '1px 6px', borderRadius: 4 }}
-                      >
-                        {formatCurrency(value)}
-                      </Typography.Text>
-                    ),
-                  },
-                ]}
-              />
-            </Col>
-            <Col xs={24} lg={14}>
-              <Typography.Title level={5}>{t('Products needing supplier action')}</Typography.Title>
-              <Typography.Paragraph type="secondary">
-                {t('Product-level list limited to rows with missing supplier or stale/missing lead-time evidence.')}
-              </Typography.Paragraph>
-              <Table<PlainRecord>
-                size="small"
-                rowKey={(row) => row.planningProductId}
-                dataSource={digest.sections.supplierActionItems}
-                pagination={false}
-                onRow={(row) => ({ onClick: () => openRow(row) })}
-                columns={[
-                  {
-                    title: String(t('Tier')),
-                    dataIndex: 'tier',
-                    render: (value: string) => <Tag color={tierColor(value)}>{value}</Tag>,
-                  },
-                  { title: String(t('ASIN')), dataIndex: 'asin' },
-                  {
-                    title: String(t('Supplier')),
-                    key: 'supplier',
-                    render: (_value: any, row: PlainRecord) =>
-                      row.supplierName ?? <Tag color="red">{t('Find supplier')}</Tag>,
-                  },
-                  {
-                    title: columnHelp(
-                      t('Lead'),
-                      t('Uses product-specific supplier lead time first, then supplier/default planning data.'),
-                    ),
-                    dataIndex: 'leadTimeDays',
-                    render: (value: number, row: PlainRecord) => (
-                      <Space size={4}>
-                        <span>
-                          {formatNumber(value)} {t('days')}
-                        </span>
-                        <Tag color={freshnessColor(row.leadTimeFreshness)}>{t(row.leadTimeFreshness ?? 'unknown')}</Tag>
-                      </Space>
-                    ),
-                  },
-                  {
-                    title: String(t('OOS in')),
-                    dataIndex: 'estimatedOosDate',
-                    render: (value: string) => (
-                      <Tag color={relativeDateLabel(value, relativeBaseDate).color}>
-                        {t(relativeDateLabel(value, relativeBaseDate).label)}
-                      </Tag>
-                    ),
-                  },
-                  {
-                    title: columnHelp(t('Money at risk'), t('Potential profit loss if the row remains uncovered.')),
-                    dataIndex: 'estimatedProfitRisk',
-                    render: (value: number) => (
-                      <Typography.Text
-                        strong
-                        style={{ background: '#fff1f0', color: '#cf1322', padding: '1px 6px', borderRadius: 4 }}
-                      >
-                        {formatCurrency(value)}
-                      </Typography.Text>
-                    ),
-                  },
-                  {
-                    title: String(t('Next')),
-                    key: 'next',
-                    render: (_value: any, row: PlainRecord) => (
-                      <Button
-                        size="small"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          openRow(row);
-                        }}
-                      >
-                        {t('Review / edit')}
-                      </Button>
-                    ),
-                  },
-                ]}
-              />
-            </Col>
-          </Row>
-        </Card>
-        <Card title={t('Inventory planning queue')} extra={<FormulaHelp group="inventoryQueue" />}>
           <Table<PlainRecord>
-            className="ecobase-inventory-table"
-            loading={loading}
-            rowKey={(row) => row.planningProductId}
-            rowClassName={(row) => `ecobase-tier-${row.tier ?? 'unknown'}`}
-            dataSource={filteredRows}
-            columns={columns}
             size="small"
-            tableLayout="fixed"
-            virtual
-            scroll={{ x: 2700, y: 720 }}
-            pagination={{ pageSize: 25, showSizeChanger: true }}
-            onRow={(row) => ({ onDoubleClick: () => openRow(row) })}
+            loading={loading}
+            rowKey={(row) => String(row.id ?? row.planningProductId ?? row.asin ?? row.sku)}
+            dataSource={dailyAlertPreview}
+            columns={commandPaneColumns('supplyAction')}
+            pagination={false}
+            onRow={(row) => ({ onClick: () => openRow(row) })}
           />
         </Card>
+        <Space direction="vertical" size="large" style={{ width: '100%' }}>
+          {(['supplyAction', 'activeOrders', 'stuckInventory'] as CommandCenterPaneKey[]).map(renderCommandPane)}
+        </Space>
       </Space>
       <Drawer
         open={!!selectedRow}
