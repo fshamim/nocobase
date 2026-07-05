@@ -1,5 +1,18 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { describe, expect, it, vi } from 'vitest';
-import { createSourceAdapterRegistry, googleSheetsMigrationCsvAdapter, noopTestAdapter } from '../../features/source-import/server/adapters';
+import {
+  createSourceAdapterRegistry,
+  googleSheetsMigrationCsvAdapter,
+  noopTestAdapter,
+} from '../../features/source-import/server/adapters';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { createEcobaseAiTools } from '../ecobase-ai-tools';
 import {
@@ -256,6 +269,94 @@ describe('Ecobase inventory-planning public API seam', () => {
     await expect(
       actions.optimizeBudget(createActionContext(new MemoryDatabase(), { budget: 0 }), vi.fn()),
     ).rejects.toThrow('Ecobase budget optimizer requires a budget greater than zero.');
+  });
+
+  it('returns a compact command-center payload with paginated pane rows and drawer data', async () => {
+    const db = new MemoryDatabase();
+    const actions = createEcobaseInventoryPlanningActions();
+    const goldRows = db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows);
+    const baseRow = {
+      company: 'ACME',
+      calculationDate: '2026-07-05',
+      lastRefreshedAt: '2026-07-05T08:00:00.000Z',
+      targetCoverDays: 45,
+      tier: 'A',
+      salesVelocity: 5,
+      currentPlanningStock: 10,
+      suggestedReorderQty: 215,
+      estimatedProfitRisk: 100,
+      leadTimeFreshness: 'fresh',
+      daysOfCover: 2,
+      latestSafeReorderDate: '2026-07-03',
+      daysUntilSafeReorder: -2,
+      supplierName: 'Supplier A',
+      openOrderCoverageQty: 0,
+      stuck: false,
+    };
+    await goldRows.create({
+      values: {
+        ...baseRow,
+        id: 'gold-1',
+        naturalKey: '2026-07-05:ACME:B001:SKU-1',
+        asin: 'B001',
+        sku: 'SKU-1',
+        title: 'Order now product',
+        actionStatus: 'order_today',
+        estimatedOosDate: '2026-07-08',
+        supplierOrderState: 'no_open_order',
+      },
+    });
+    await goldRows.create({
+      values: {
+        ...baseRow,
+        id: 'gold-2',
+        naturalKey: '2026-07-05:ACME:B002:SKU-2',
+        asin: 'B002',
+        sku: 'SKU-2',
+        title: 'Pipeline risk product',
+        actionStatus: 'overdue',
+        estimatedProfitRisk: 500,
+        estimatedOosDate: '2026-07-07',
+        expectedSellableDate: '2026-07-10',
+        supplierOrderState: 'purchased_pipeline',
+        supplierOrderStatus: 'paid',
+        supplierOrderRef: 'PO-2',
+      },
+    });
+    await goldRows.create({
+      values: {
+        ...baseRow,
+        id: 'gold-3',
+        naturalKey: '2026-07-05:ACME:B003:SKU-3',
+        asin: 'B003',
+        sku: 'SKU-3',
+        title: 'Stuck product',
+        tier: 'C',
+        actionStatus: 'watch',
+        estimatedProfitRisk: 0,
+        daysOfCover: 90,
+        supplierOrderState: 'closed_history',
+        stuck: true,
+      },
+    });
+
+    const context = createActionContext(db, {
+      company: 'ACME',
+      pane: 'supplyAction',
+      pageSize: 1,
+      sortBy: 'estimatedProfitRisk',
+      sortDirection: 'desc',
+      selectedRowId: 'gold-2',
+    });
+    await actions.commandCenter(context, vi.fn());
+    const data = context.body?.data as Record<string, any>;
+
+    expect(data.metadata).toMatchObject({ company: 'ACME', calculationDate: '2026-07-05', targetCoverDays: 45 });
+    expect(data.panes.supplyAction).toMatchObject({ total: 2, pageSize: 1 });
+    expect(data.panes.supplyAction.rows[0]).toMatchObject({ id: 'gold-2', daysUntilOos: 2, stockoutGapDays: 3 });
+    expect(data.panes.activeOrders).toMatchObject({ total: 1 });
+    expect(data.panes.stuckInventory).toMatchObject({ total: 1 });
+    expect(data.selectedRow.row).toMatchObject({ id: 'gold-2', recommendedAction: 'follow_up_order' });
   });
 });
 

@@ -73,7 +73,41 @@ export interface InventoryBudgetOptimizationQuery extends InventoryPlanningQuery
   horizonDays?: number;
 }
 
+export type InventoryCommandCenterPane = 'supplyAction' | 'activeOrders' | 'stuckInventory';
+
+export interface InventoryPlanningCommandCenterQuery extends InventoryPlanningQuery {
+  pane?: InventoryCommandCenterPane;
+  page?: number;
+  pageSize?: number;
+  sortBy?: string;
+  sortDirection?: 'asc' | 'desc';
+  filters?: Record<string, unknown>;
+  selectedRowId?: string;
+  planningProductId?: string;
+  companyProductId?: string;
+  asin?: string;
+  sku?: string;
+}
+
 type PlainRecord = Record<string, unknown>;
+
+const COMMAND_CENTER_PANES: InventoryCommandCenterPane[] = ['supplyAction', 'activeOrders', 'stuckInventory'];
+
+const COMMAND_CENTER_SORT_KEYS = new Set([
+  'actionStatus',
+  'asin',
+  'daysOfCover',
+  'daysUntilOos',
+  'daysUntilSafeReorder',
+  'estimatedProfitRisk',
+  'expectedSellableDate',
+  'sku',
+  'stockoutGapDays',
+  'suggestedReorderQty',
+  'supplierName',
+  'tier',
+  'title',
+]);
 
 type ProfitMetrics = {
   sales: number;
@@ -114,6 +148,61 @@ function asNumber(value: unknown): number | undefined {
 
 function asBoolean(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined;
+}
+
+function asPositiveInteger(value: unknown, fallback: number, max: number) {
+  const parsed = asNumber(value);
+  if (typeof parsed !== 'number') return fallback;
+  return Math.min(Math.max(Math.floor(parsed), 1), max);
+}
+
+function commandCenterPane(value: unknown): InventoryCommandCenterPane | undefined {
+  return COMMAND_CENTER_PANES.includes(value as InventoryCommandCenterPane)
+    ? (value as InventoryCommandCenterPane)
+    : undefined;
+}
+
+function daysUntilDate(date: unknown, calculationDate: string) {
+  const value = optionalIsoDate(asString(date) ?? '');
+  return value ? diffDays(value, calculationDate) : undefined;
+}
+
+function stockoutGapDays(row: PlainRecord) {
+  const estimatedOosDate = optionalIsoDate(asString(row.estimatedOosDate) ?? '');
+  const expectedSellableDate = optionalIsoDate(asString(row.expectedSellableDate) ?? '');
+  return estimatedOosDate && expectedSellableDate ? diffDays(expectedSellableDate, estimatedOosDate) : undefined;
+}
+
+function pipelineHealthBucket(row: PlainRecord, calculationDate: string) {
+  const state = asString(row.supplierOrderState);
+  if (state === 'placed_not_purchased') return 'placed_not_purchased';
+  if (state !== 'purchased_pipeline') return 'none';
+  const gap = stockoutGapDays(row);
+  if (typeof gap === 'number' && gap > 0) return 'late';
+  const daysUntilExpectedSellable = daysUntilDate(row.expectedSellableDate, calculationDate);
+  if (typeof daysUntilExpectedSellable === 'number' && daysUntilExpectedSellable < 0) return 'late_with_grace';
+  return 'on_track';
+}
+
+function stuckBucket(row: PlainRecord) {
+  if (!asBoolean(row.stuck)) return 'none';
+  const daysOfCover = asNumber(row.daysOfCover) ?? 0;
+  const reservedStock = asNumber(row.reservedStock) ?? 0;
+  const salesVelocity = asNumber(row.salesVelocity) ?? 0;
+  if (reservedStock > 0 && salesVelocity <= 0) return 'reserved_not_selling';
+  if ((asNumber(row.pipelineStock) ?? 0) > 0 && salesVelocity <= 0) return 'pipeline_stalled';
+  return daysOfCover > 60 ? 'high_cover_slow_sales' : 'none';
+}
+
+function recommendedInventoryAction(row: PlainRecord) {
+  const actionStatus = asString(row.actionStatus);
+  if (!asString(row.supplierName)) return 'recover_supplier';
+  if (row.leadTimeFreshness !== 'fresh') return 'confirm_lead_time';
+  if (row.supplierOrderState === 'placed_not_purchased') return 'purchase_order';
+  if (row.supplierOrderState === 'purchased_pipeline') return 'follow_up_order';
+  if (['overdue', 'order_today', 'order_soon'].includes(String(actionStatus))) return 'create_order';
+  if (asBoolean(row.stuck)) return 'review_stuck_inventory';
+  return 'watch';
 }
 
 function payload(record: PlainRecord): PlainRecord {
@@ -610,6 +699,60 @@ export class EcobaseInventoryPlanningService {
     return { filters, rows, digest };
   }
 
+  async commandCenter(query: InventoryPlanningCommandCenterQuery = {}) {
+    if (query.pane && !commandCenterPane(query.pane)) {
+      throw new Error('Ecobase inventory command center pane must be supplyAction, activeOrders, or stuckInventory.');
+    }
+    if (query.sortBy && !COMMAND_CENTER_SORT_KEYS.has(query.sortBy)) {
+      throw new Error(
+        `Ecobase inventory command center sortBy must be one of ${[...COMMAND_CENTER_SORT_KEYS].sort().join(', ')}.`,
+      );
+    }
+
+    const rows = await this.listRows({ ...query, limit: undefined });
+    const settings = await new EcobasePlanningSettingsService(this.db).getResolvedSettings(query);
+    const calculationDate = asString(rows[0]?.calculationDate) ?? isoDate(query.calculationDate ?? new Date());
+    const targetCoverDays = asNumber(rows[0]?.targetCoverDays) ?? settings.targetCoverDays;
+    const selectedRow = this.findCommandCenterSelectedRow(rows, query);
+    return {
+      generatedAt: new Date().toISOString(),
+      metadata: {
+        company: query.company ?? null,
+        calculationDate,
+        latestDataAsOf: this.latestCommandCenterTimestamp(rows),
+        historyWindow: {
+          label: '6 months',
+          fields: ['lastMonthQty', 'sixMonthAverageQty', 'sixMonthWorstQty', 'sixMonthBestQty', 'sixMonthMargin'],
+        },
+        targetCoverDays,
+      },
+      summaryCards: this.commandCenterSummaryCards(rows, targetCoverDays),
+      riskBars: this.commandCenterRiskBars(rows, calculationDate),
+      dailyAlertPreview: this.commandCenterRowsForPane('supplyAction', rows)
+        .slice(0, 5)
+        .map((row) => this.compactCommandCenterRow(row, calculationDate)),
+      panes: {
+        supplyAction: this.commandCenterPanePayload('supplyAction', rows, calculationDate, query),
+        activeOrders: this.commandCenterPanePayload('activeOrders', rows, calculationDate, query),
+        stuckInventory: this.commandCenterPanePayload('stuckInventory', rows, calculationDate, query),
+      },
+      selectedRow: selectedRow
+        ? {
+            row: this.commandCenterDrawerRow(selectedRow, calculationDate),
+            workspace: await this.rowWorkspace({
+              company: asString(selectedRow.company),
+              planningProductId: asString(selectedRow.planningProductId),
+              companyProductId: asString(selectedRow.companyProductId),
+              asin: asString(selectedRow.asin),
+              sku: asString(selectedRow.sku),
+              supplierId: asString(selectedRow.supplierId),
+              limit: 50,
+            }),
+          }
+        : null,
+    };
+  }
+
   async rowWorkspace(query: InventoryPlanningRowWorkspaceQuery) {
     const empty = {
       suppliers: [],
@@ -832,6 +975,253 @@ export class EcobaseInventoryPlanningService {
       const tier = profitTierRank(left.tier) - profitTierRank(right.tier);
       if (tier !== 0) return tier;
       return (asNumber(right.suggestedReorderQty) ?? 0) - (asNumber(left.suggestedReorderQty) ?? 0);
+    });
+  }
+
+  private latestCommandCenterTimestamp(rows: PlainRecord[]) {
+    return (
+      rows
+        .map((row) => asString(row.lastRefreshedAt) ?? asString(row.calculationDate))
+        .filter((value): value is string => Boolean(value))
+        .sort()
+        .at(-1) ?? null
+    );
+  }
+
+  private commandCenterSummaryCards(rows: PlainRecord[], targetCoverDays: number) {
+    const tieredRows = rows.filter((row) => isProfitTier(row.tier));
+    const supplyRows = this.commandCenterRowsForPane('supplyAction', rows);
+    const activeOrderRows = this.commandCenterRowsForPane('activeOrders', rows);
+    const stuckRows = this.commandCenterRowsForPane('stuckInventory', rows);
+    const profitRisk = rows.reduce((total, row) => total + (asNumber(row.estimatedProfitRisk) ?? 0), 0);
+    return [
+      { key: 'tieredSkus', label: 'Tiered SKUs', value: tieredRows.length },
+      { key: 'supplyActions', label: 'Supply actions', value: supplyRows.length },
+      { key: 'activeOrders', label: 'Active orders', value: activeOrderRows.length },
+      { key: 'stuckInventory', label: 'Stuck inventory', value: stuckRows.length },
+      { key: 'profitRisk', label: 'Profit risk', value: Math.round(profitRisk * 100) / 100 },
+      { key: 'targetCoverDays', label: 'Target cover days', value: targetCoverDays },
+    ];
+  }
+
+  private commandCenterRiskBars(rows: PlainRecord[], calculationDate: string) {
+    const countBy = (values: string[]) =>
+      values.map((value) => ({
+        key: value,
+        count: rows.filter((row) => String(row.actionStatus ?? row.supplierOrderState ?? '') === value).length,
+      }));
+    return {
+      supplyAction: countBy(['overdue', 'order_today', 'order_soon', 'missing_lead_time', 'stale_lead_time']),
+      activeOrders: ['purchased_pipeline', 'placed_not_purchased', 'closed_history', 'no_open_order'].map((value) => ({
+        key: value,
+        count: rows.filter((row) => row.supplierOrderState === value).length,
+      })),
+      pipelineHealth: ['on_track', 'late_with_grace', 'late', 'placed_not_purchased', 'none'].map((value) => ({
+        key: value,
+        count: rows.filter((row) => pipelineHealthBucket(row, calculationDate) === value).length,
+      })),
+      stuckInventory: ['high_cover_slow_sales', 'reserved_not_selling', 'pipeline_stalled'].map((value) => ({
+        key: value,
+        count: rows.filter((row) => stuckBucket(row) === value).length,
+      })),
+    };
+  }
+
+  private commandCenterPanePayload(
+    pane: InventoryCommandCenterPane,
+    rows: PlainRecord[],
+    calculationDate: string,
+    query: InventoryPlanningCommandCenterQuery,
+  ) {
+    const page = asPositiveInteger(query.pane === pane ? query.page : undefined, 1, 10000);
+    const pageSize = asPositiveInteger(query.pane === pane ? query.pageSize : undefined, 25, 100);
+    const sortBy = query.pane === pane ? query.sortBy : undefined;
+    const sortDirection = query.pane === pane ? query.sortDirection ?? 'desc' : 'desc';
+    const filteredRows = this.sortCommandCenterRows(
+      this.commandCenterRowsForPane(pane, rows).filter((row) =>
+        this.matchesCommandCenterFilters(row, query.pane === pane ? query.filters : undefined, calculationDate),
+      ),
+      sortBy ?? this.defaultCommandCenterSort(pane),
+      sortDirection,
+      calculationDate,
+    );
+    const start = (page - 1) * pageSize;
+    return {
+      pane,
+      page,
+      pageSize,
+      total: filteredRows.length,
+      sortBy: sortBy ?? this.defaultCommandCenterSort(pane),
+      sortDirection,
+      rows: filteredRows
+        .slice(start, start + pageSize)
+        .map((row) => this.compactCommandCenterRow(row, calculationDate)),
+    };
+  }
+
+  private commandCenterRowsForPane(pane: InventoryCommandCenterPane, rows: PlainRecord[]) {
+    if (pane === 'activeOrders') {
+      return rows.filter((row) =>
+        ['purchased_pipeline', 'placed_not_purchased'].includes(String(row.supplierOrderState)),
+      );
+    }
+    if (pane === 'stuckInventory') {
+      return rows.filter((row) => asBoolean(row.stuck) || stuckBucket(row) !== 'none');
+    }
+    return rows.filter(
+      (row) =>
+        isProfitTier(row.tier) &&
+        ['overdue', 'order_today', 'order_soon', 'missing_lead_time', 'stale_lead_time'].includes(
+          String(row.actionStatus),
+        ),
+    );
+  }
+
+  private matchesCommandCenterFilters(
+    row: PlainRecord,
+    filters: Record<string, unknown> | undefined,
+    calculationDate: string,
+  ) {
+    if (!filters) return true;
+    const matchesList = (field: string, value: unknown) => {
+      const expected = Array.isArray(value) ? value : typeof value === 'string' && value ? [value] : [];
+      return expected.length === 0 || expected.includes(row[field]);
+    };
+    if (!matchesList('tier', filters.tier)) return false;
+    if (!matchesList('actionStatus', filters.actionStatus)) return false;
+    if (!matchesList('supplierOrderState', filters.supplierOrderState)) return false;
+    if (!matchesList('leadTimeFreshness', filters.leadTimeFreshness)) return false;
+    if (typeof filters.minProfitRisk === 'number' && (asNumber(row.estimatedProfitRisk) ?? 0) < filters.minProfitRisk)
+      return false;
+    if (typeof filters.maxDaysUntilOos === 'number') {
+      const daysUntilOos = daysUntilDate(row.estimatedOosDate, calculationDate);
+      if (typeof daysUntilOos !== 'number' || daysUntilOos > filters.maxDaysUntilOos) return false;
+    }
+    const search = asString(filters.search)?.toLowerCase();
+    if (search) {
+      const text = [row.asin, row.sku, row.title, row.supplierName]
+        .map((value) => String(value ?? '').toLowerCase())
+        .join(' ');
+      if (!text.includes(search)) return false;
+    }
+    return true;
+  }
+
+  private defaultCommandCenterSort(pane: InventoryCommandCenterPane) {
+    if (pane === 'activeOrders') return 'stockoutGapDays';
+    if (pane === 'stuckInventory') return 'daysOfCover';
+    return 'estimatedProfitRisk';
+  }
+
+  private sortCommandCenterRows(
+    rows: PlainRecord[],
+    sortBy: string,
+    direction: 'asc' | 'desc',
+    calculationDate: string,
+  ) {
+    return [...rows].sort((left, right) => {
+      const leftValue = this.commandCenterSortValue(left, sortBy, calculationDate);
+      const rightValue = this.commandCenterSortValue(right, sortBy, calculationDate);
+      if (leftValue === rightValue) return 0;
+      if (leftValue === undefined || leftValue === null) return 1;
+      if (rightValue === undefined || rightValue === null) return -1;
+      const result = leftValue > rightValue ? 1 : -1;
+      return direction === 'desc' ? -result : result;
+    });
+  }
+
+  private commandCenterSortValue(
+    row: PlainRecord,
+    sortBy: string,
+    calculationDate: string,
+  ): string | number | undefined {
+    if (sortBy === 'daysUntilOos') return daysUntilDate(row.estimatedOosDate, calculationDate);
+    if (sortBy === 'stockoutGapDays') return stockoutGapDays(row);
+    if (sortBy === 'tier') return profitTierRank(row.tier);
+    if (sortBy === 'actionStatus') return actionRank(row.actionStatus as InventoryPlanningActionStatus);
+    if (['estimatedProfitRisk', 'suggestedReorderQty', 'daysUntilSafeReorder', 'daysOfCover'].includes(sortBy)) {
+      return asNumber(row[sortBy]);
+    }
+    return asString(row[sortBy]);
+  }
+
+  private compactCommandCenterRow(row: PlainRecord, calculationDate: string) {
+    const daysUntilOos = daysUntilDate(row.estimatedOosDate, calculationDate);
+    const gapDays = stockoutGapDays(row);
+    return {
+      id:
+        asString(row.id) ??
+        asString(row.naturalKey) ??
+        `${asString(row.company) ?? ''}:${asString(row.asin) ?? ''}:${asString(row.sku) ?? ''}`,
+      company: asString(row.company),
+      planningProductId: asString(row.planningProductId),
+      companyProductId: asString(row.companyProductId),
+      asin: asString(row.asin),
+      sku: asString(row.sku),
+      title: asString(row.title),
+      tier: asString(row.tier),
+      actionStatus: asString(row.actionStatus),
+      estimatedProfitRisk: asNumber(row.estimatedProfitRisk) ?? 0,
+      salesVelocity: asNumber(row.salesVelocity),
+      profitPerUnit: asNumber(row.profitPerUnit),
+      targetCoverDays: asNumber(row.targetCoverDays),
+      suggestedReorderQty: asNumber(row.suggestedReorderQty) ?? 0,
+      currentPlanningStock: asNumber(row.currentPlanningStock) ?? 0,
+      daysOfCover: asNumber(row.daysOfCover),
+      estimatedOosDate: asString(row.estimatedOosDate),
+      daysUntilOos,
+      latestSafeReorderDate: asString(row.latestSafeReorderDate),
+      daysUntilSafeReorder: asNumber(row.daysUntilSafeReorder),
+      leadTimeDays: asNumber(row.leadTimeDays),
+      leadTimeFreshness: asString(row.leadTimeFreshness),
+      supplierName: asString(row.supplierName),
+      supplierOrderState: asString(row.supplierOrderState),
+      supplierOrderStatus: asString(row.supplierOrderStatus),
+      supplierOrderRef: asString(row.supplierOrderRef),
+      openOrderCoverageQty: asNumber(row.openOrderCoverageQty) ?? 0,
+      expectedSellableDate: asString(row.expectedSellableDate),
+      pipelineHealthBucket: pipelineHealthBucket(row, calculationDate),
+      stockoutGapDays: gapDays,
+      stuck: asBoolean(row.stuck) ?? false,
+      stuckBucket: stuckBucket(row),
+      tierMovement: asString(row.tierMovement),
+      recommendedAction: recommendedInventoryAction(row),
+    };
+  }
+
+  private commandCenterDrawerRow(row: PlainRecord, calculationDate: string) {
+    return {
+      ...this.compactCommandCenterRow(row, calculationDate),
+      stockBuckets: {
+        sellableStock: asNumber(row.sellableStock) ?? 0,
+        reservedStock: asNumber(row.reservedStock) ?? 0,
+        pipelineStock: asNumber(row.pipelineStock) ?? 0,
+        inboundStock: asNumber(row.inboundStock) ?? 0,
+        orderedStock: asNumber(row.orderedStock) ?? 0,
+        prepStock: asNumber(row.prepStock) ?? 0,
+        awdStock: asNumber(row.awdStock) ?? 0,
+      },
+      history: {
+        lastMonthQty: asNumber(row.lastMonthQty),
+        sixMonthAverageQty: asNumber(row.sixMonthAverageQty),
+        sixMonthWorstQty: asNumber(row.sixMonthWorstQty),
+        sixMonthBestQty: asNumber(row.sixMonthBestQty),
+        sixMonthMargin: asNumber(row.sixMonthMargin),
+      },
+      evidence: toPlainRecord(row.evidence),
+    };
+  }
+
+  private findCommandCenterSelectedRow(rows: PlainRecord[], query: InventoryPlanningCommandCenterQuery) {
+    return rows.find((row) => {
+      if (query.selectedRowId) {
+        const rowId = asString(row.id) ?? asString(row.naturalKey);
+        if (rowId === query.selectedRowId) return true;
+      }
+      if (query.planningProductId && row.planningProductId === query.planningProductId) return true;
+      if (query.companyProductId && row.companyProductId === query.companyProductId) return true;
+      if (query.asin && String(row.asin).toUpperCase() === query.asin.toUpperCase()) return true;
+      return Boolean(query.sku && row.sku === query.sku);
     });
   }
 

@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import {
   createEcobaseInventoryPlanningActions,
@@ -14,7 +23,16 @@ export function createInventoryPlanningResourceRegistration(): EcobaseFeatureRes
     acl: [
       {
         resource: 'ecobaseInventoryPlanning',
-        actions: ['filters', 'refreshReadModel', 'workspace', 'rows', 'digestPreview', 'rowWorkspace', 'optimizeBudget'],
+        actions: [
+          'filters',
+          'refreshReadModel',
+          'workspace',
+          'commandCenter',
+          'rows',
+          'digestPreview',
+          'rowWorkspace',
+          'optimizeBudget',
+        ],
         role: LOGGED_IN,
       },
       { resource: 'ecobasePlanningSettings', actions: ['get', 'save', 'reset'], role: LOGGED_IN },

@@ -39,7 +39,10 @@ import {
   NocoBaseEcoNarrativeProvider,
 } from '../features/daily-operations-brief/server/daily-operations-brief-narrative-service';
 import { EcobaseImportService } from '../features/source-import/server/import-service';
-import { EcobaseInventoryPlanningService } from '../features/inventory-planning/server/inventory-planning-service';
+import {
+  EcobaseInventoryPlanningService,
+  type InventoryCommandCenterPane,
+} from '../features/inventory-planning/server/inventory-planning-service';
 import { EcobaseOrderPlanningService } from '../features/order-planning/server/order-planning-service';
 import { EcobaseMedallionNormalizationService } from '../features/semantic-model/server/medallion-normalization-service';
 import { EcobaseMedallionOrderService } from '../features/semantic-model/server/medallion-order-service';
@@ -1071,6 +1074,24 @@ function inventoryPlanningQuery(values: Record<string, unknown>) {
   };
 }
 
+function inventoryPlanningCommandCenterQuery(values: Record<string, unknown>) {
+  const sortDirection = getOptionalString(values, 'sortDirection');
+  return {
+    ...inventoryPlanningQuery(values),
+    pane: getOptionalString(values, 'pane') as InventoryCommandCenterPane | undefined,
+    page: getOptionalNumber(values, 'page'),
+    pageSize: getOptionalNumber(values, 'pageSize'),
+    sortBy: getOptionalString(values, 'sortBy'),
+    sortDirection: sortDirection === 'asc' || sortDirection === 'desc' ? sortDirection : undefined,
+    filters: getOptionalRecord(values, 'filters'),
+    selectedRowId: getOptionalString(values, 'selectedRowId'),
+    planningProductId: getOptionalString(values, 'planningProductId'),
+    companyProductId: getOptionalString(values, 'companyProductId'),
+    asin: getOptionalString(values, 'asin'),
+    sku: getOptionalString(values, 'sku'),
+  };
+}
+
 export function createEcobaseInventoryPlanningActions() {
   return {
     filters: async (ctx, next) => {
@@ -1093,6 +1114,17 @@ export function createEcobaseInventoryPlanningActions() {
           digest: compactInventoryPlanningDigest(workspace.digest),
         },
       };
+      await next();
+    },
+    commandCenter: async (ctx, next) => {
+      const service = new EcobaseInventoryPlanningService(ctx.db);
+      try {
+        ctx.body = {
+          data: await service.commandCenter(inventoryPlanningCommandCenterQuery(getValues(ctx.action.params))),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase inventory command center request failed.');
+      }
       await next();
     },
     rows: async (ctx, next) => {
