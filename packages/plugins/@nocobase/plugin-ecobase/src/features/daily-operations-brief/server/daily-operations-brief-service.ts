@@ -1,11 +1,26 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { createHash, randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import type { EcobaseDatabase, EcobaseRepository } from '../../source-import/server/import-service';
 import { toPlainRecord } from '../../source-import/server/import-service';
 import { EcobaseDataWarningService } from '../../../server/services/data-warning-service';
 import type { EcobaseDataWarning } from '../../../server/services/data-warning-service';
-import { EcobaseInventoryPlanningService } from '../../inventory-planning/server/inventory-planning-service';
-import { isReliableSupplierOrderCoverageStatus, normalizeSupplierOrderStatus } from '../../supplier-management/server/supplier-order-service';
+import {
+  EcobaseInventoryPlanningService,
+  type InventoryCommandCenterPane,
+} from '../../inventory-planning/server/inventory-planning-service';
+import {
+  isReliableSupplierOrderCoverageStatus,
+  normalizeSupplierOrderStatus,
+} from '../../supplier-management/server/supplier-order-service';
 
 type PlainRecord = Record<string, unknown>;
 type DailyBriefFocus =
@@ -242,6 +257,22 @@ export type OkrAccountabilityRiskEvidence = {
   warnings: string[];
 };
 
+export type InventoryCommandCenterEvidence = {
+  generatedAt?: string;
+  metadata: PlainRecord;
+  summaryCards: PlainRecord[];
+  riskBars: PlainRecord;
+  dailyAlertPreview: PlainRecord[];
+  panes: Record<InventoryCommandCenterPane, PlainRecord>;
+  alerts: {
+    urgentNoOrder: PlainRecord[];
+    activeOrdersOffTrack: PlainRecord[];
+    followUpsDueToday: PlainRecord[];
+    leadTimeDataGaps: PlainRecord[];
+    stuckInventoryReview: PlainRecord[];
+  };
+};
+
 export type DailyEvidencePack = {
   generatedAt: string;
   date: string;
@@ -251,6 +282,7 @@ export type DailyEvidencePack = {
   focusReason: string;
   summaryCounts: Record<string, number>;
   sourceStatus: SourceStatusEvidence[];
+  inventoryCommandCenter: InventoryCommandCenterEvidence;
   inventoryRisks: InventoryRiskEvidence[];
   supplierOrderContext: SupplierOrderEvidence[];
   orderPlanningRisks: OrderPlanningRiskEvidence[];
@@ -619,6 +651,64 @@ function evidenceRefTypeFor(item: DailyBriefEvidenceItem) {
   return 'daily_data_warning';
 }
 
+function commandPaneRows(commandCenter: PlainRecord, pane: InventoryCommandCenterPane) {
+  const panes = toPlainRecord(commandCenter.panes);
+  const panePayload = toPlainRecord(panes[pane]);
+  return Array.isArray(panePayload.rows) ? (panePayload.rows as PlainRecord[]).map(toPlainRecord) : [];
+}
+
+function commandCenterAlerts(commandCenter: PlainRecord, maxItems: number): InventoryCommandCenterEvidence['alerts'] {
+  const supplyAction = commandPaneRows(commandCenter, 'supplyAction');
+  const activeOrders = commandPaneRows(commandCenter, 'activeOrders');
+  const stuckInventory = commandPaneRows(commandCenter, 'stuckInventory');
+  return {
+    urgentNoOrder: supplyAction
+      .filter(
+        (row) =>
+          ['overdue', 'order_today', 'order_soon', 'missing_lead_time'].includes(asString(row.actionStatus) ?? '') &&
+          (!asString(row.supplierOrderRef) || asString(row.supplierOrderState) === 'no_open_order'),
+      )
+      .slice(0, maxItems),
+    activeOrdersOffTrack: activeOrders
+      .filter((row) =>
+        ['late', 'late_with_grace', 'placed_not_purchased'].includes(asString(row.pipelineHealthBucket) ?? ''),
+      )
+      .slice(0, maxItems),
+    followUpsDueToday: activeOrders
+      .filter((row) => asString(row.recommendedAction) === 'follow_up_order')
+      .slice(0, maxItems),
+    leadTimeDataGaps: [...supplyAction, ...activeOrders]
+      .filter(
+        (row) =>
+          ['missing_lead_time', 'stale_lead_time'].includes(asString(row.actionStatus) ?? '') ||
+          ['missing', 'stale'].includes(asString(row.leadTimeFreshness) ?? ''),
+      )
+      .slice(0, maxItems),
+    stuckInventoryReview: stuckInventory.filter((row) => asString(row.actionStatus) !== 'excluded').slice(0, maxItems),
+  };
+}
+
+function inventoryCommandCenterEvidence(commandCenter: PlainRecord, maxItems: number): InventoryCommandCenterEvidence {
+  const panes = toPlainRecord(commandCenter.panes);
+  return {
+    generatedAt: asString(commandCenter.generatedAt),
+    metadata: toPlainRecord(commandCenter.metadata),
+    summaryCards: Array.isArray(commandCenter.summaryCards)
+      ? (commandCenter.summaryCards as PlainRecord[]).map(toPlainRecord)
+      : [],
+    riskBars: toPlainRecord(commandCenter.riskBars),
+    dailyAlertPreview: Array.isArray(commandCenter.dailyAlertPreview)
+      ? (commandCenter.dailyAlertPreview as PlainRecord[]).map(toPlainRecord).slice(0, maxItems)
+      : [],
+    panes: {
+      supplyAction: toPlainRecord(panes.supplyAction),
+      activeOrders: toPlainRecord(panes.activeOrders),
+      stuckInventory: toPlainRecord(panes.stuckInventory),
+    },
+    alerts: commandCenterAlerts(commandCenter, maxItems),
+  };
+}
+
 export class EcobaseDailyOperationsBriefService {
   constructor(private db: EcobaseDatabase) {}
 
@@ -708,7 +798,16 @@ export class EcobaseDailyOperationsBriefService {
     maxItems: number;
   }): Promise<DailyEvidencePack> {
     const sourceStatus = await this.buildSourceStatus(params.company, params.date);
-    const rows = await new EcobaseInventoryPlanningService(this.db).listRows({
+    const inventoryPlanning = new EcobaseInventoryPlanningService(this.db);
+    const commandCenterRaw = toPlainRecord(
+      await inventoryPlanning.commandCenter({
+        company: params.company,
+        calculationDate: params.date,
+        pageSize: params.maxItems,
+      }),
+    );
+    const inventoryCommandCenter = inventoryCommandCenterEvidence(commandCenterRaw, params.maxItems);
+    const rows = await inventoryPlanning.listRows({
       company: params.company,
       calculationDate: params.date,
       limit: Math.max(params.maxItems * 4, 100),
@@ -720,7 +819,7 @@ export class EcobaseDailyOperationsBriefService {
       if (safeReorder !== 0) return safeReorder;
       return safeNumber(right.estimatedProfitRisk) - safeNumber(left.estimatedProfitRisk);
     });
-    const riskRows = sortedRows.filter((row) =>
+    const riskRows = commandPaneRows(commandCenterRaw, 'supplyAction').filter((row) =>
       ['overdue', 'order_today', 'order_soon', 'missing_lead_time'].includes(asString(row.actionStatus) ?? ''),
     );
     const cappedRiskRows = riskRows.slice(0, params.maxItems);
@@ -747,6 +846,7 @@ export class EcobaseDailyOperationsBriefService {
       okrAccountabilityRisks,
     });
     if (
+      Object.values(inventoryCommandCenter.alerts).every((items) => items.length === 0) &&
       inventoryRisks.length === 0 &&
       supplierOrderContext.length === 0 &&
       orderPlanningRisks.length === 0 &&
@@ -766,6 +866,7 @@ export class EcobaseDailyOperationsBriefService {
       });
     }
     const focus = this.focusFor({
+      inventoryCommandCenter,
       inventoryRisks,
       supplierOrderContext,
       orderPlanningRisks,
@@ -777,6 +878,7 @@ export class EcobaseDailyOperationsBriefService {
     });
     const focusReason = this.focusReasonFor({
       focus,
+      inventoryCommandCenter,
       inventoryRisks,
       supplierOrderContext,
       orderPlanningRisks,
@@ -798,6 +900,13 @@ export class EcobaseDailyOperationsBriefService {
         inventoryRiskCount: riskRows.length,
         includedInventoryRiskCount: inventoryRisks.length,
         omittedInventoryRiskCount: Math.max(riskRows.length - inventoryRisks.length, 0),
+        inventoryCommandCenterAlertCount: Object.values(inventoryCommandCenter.alerts).reduce(
+          (total, items) => total + items.length,
+          0,
+        ),
+        activeOrderOffTrackCount: inventoryCommandCenter.alerts.activeOrdersOffTrack.length,
+        followUpDueTodayCount: inventoryCommandCenter.alerts.followUpsDueToday.length,
+        stuckInventoryReviewCount: inventoryCommandCenter.alerts.stuckInventoryReview.length,
         supplierOrderContextCount: supplierOrderContext.length,
         orderPlanningRiskCount: orderPlanningRisks.length,
         taskRiskCount: okrAccountabilityRisks.filter(
@@ -811,6 +920,7 @@ export class EcobaseDailyOperationsBriefService {
         dataWarningCount: dataWarnings.filter((warning) => warning.severity === 'warning').length,
       },
       sourceStatus,
+      inventoryCommandCenter,
       inventoryRisks,
       supplierOrderContext,
       orderPlanningRisks,
@@ -1478,6 +1588,7 @@ export class EcobaseDailyOperationsBriefService {
   }
 
   private focusFor(params: {
+    inventoryCommandCenter: InventoryCommandCenterEvidence;
     inventoryRisks: InventoryRiskEvidence[];
     supplierOrderContext: SupplierOrderEvidence[];
     orderPlanningRisks: OrderPlanningRiskEvidence[];
@@ -1494,8 +1605,19 @@ export class EcobaseDailyOperationsBriefService {
         ['missing_required_source', 'failed_latest_run', 'credential_blocked'].includes(warning.code),
     );
     if (sourceBlockingWarnings.length > 0) return 'source_quality';
-    if (params.inventoryRisks.length > 0) return 'inventory_risk';
-    if (params.orderPlanningRisks.length > 0) return 'supplier_orders';
+    const commandAlerts = params.inventoryCommandCenter.alerts;
+    if (
+      params.inventoryRisks.length > 0 ||
+      commandAlerts.urgentNoOrder.length > 0 ||
+      commandAlerts.stuckInventoryReview.length > 0
+    )
+      return 'inventory_risk';
+    if (
+      params.orderPlanningRisks.length > 0 ||
+      commandAlerts.activeOrdersOffTrack.length > 0 ||
+      commandAlerts.followUpsDueToday.length > 0
+    )
+      return 'supplier_orders';
     if (params.supplierOrderContext.some((order) => !order.isTrustedCoverage)) return 'supplier_orders';
     if (params.leadTimeIssues.length > 0) return 'source_quality';
     if (params.buyBoxRisks.length > 0) return 'buybox';
@@ -1510,6 +1632,7 @@ export class EcobaseDailyOperationsBriefService {
 
   private focusReasonFor(params: {
     focus: DailyBriefFocus;
+    inventoryCommandCenter: InventoryCommandCenterEvidence;
     inventoryRisks: InventoryRiskEvidence[];
     supplierOrderContext: SupplierOrderEvidence[];
     orderPlanningRisks: OrderPlanningRiskEvidence[];
@@ -1521,13 +1644,15 @@ export class EcobaseDailyOperationsBriefService {
   }) {
     if (params.focus === 'inventory_risk') {
       const overdue = params.inventoryRisks.filter((risk) => risk.actionStatus === 'overdue').length;
-      const missingLeadTime = params.leadTimeIssues.length;
-      return `${overdue} overdue reorder actions and ${missingLeadTime} missing/stale lead-time blocker(s) outrank other current signals.`;
+      const commandAlerts = params.inventoryCommandCenter.alerts;
+      const missingLeadTime = Math.max(params.leadTimeIssues.length, commandAlerts.leadTimeDataGaps.length);
+      return `${overdue} overdue reorder actions, ${commandAlerts.urgentNoOrder.length} urgent no-order risk(s), ${missingLeadTime} lead-time blocker(s), and ${commandAlerts.stuckInventoryReview.length} stuck-inventory review(s) outrank other current signals.`;
     }
     if (params.focus === 'supplier_orders') {
       const statusChecks = params.orderPlanningRisks.filter((order) => order.statusCheckRequired).length;
       const staleCoverage = params.supplierOrderContext.filter((order) => !order.isTrustedCoverage).length;
-      return `${params.orderPlanningRisks.length} order-planning action(s), ${statusChecks} status check(s), and ${staleCoverage} supplier coverage follow-up(s) need attention.`;
+      const commandAlerts = params.inventoryCommandCenter.alerts;
+      return `${params.orderPlanningRisks.length} order-planning action(s), ${statusChecks} status check(s), ${staleCoverage} supplier coverage follow-up(s), ${commandAlerts.activeOrdersOffTrack.length} off-track active order(s), and ${commandAlerts.followUpsDueToday.length} follow-up(s) due today need attention.`;
     }
     if (params.focus === 'buybox') {
       return `${params.buyBoxRisks.length} Buy Box deterioration signal(s) outrank lower-priority velocity, profit, and accountability signals.`;

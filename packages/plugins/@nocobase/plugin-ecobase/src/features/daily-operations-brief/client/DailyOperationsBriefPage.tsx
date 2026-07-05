@@ -1,18 +1,14 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { useAPIClient } from '@nocobase/client';
-import {
-  Alert,
-  Button,
-  Card,
-  Col,
-  DatePicker,
-  Row,
-  Segmented,
-  Select,
-  Space,
-  Table,
-  Tag,
-  Typography,
-} from 'antd';
+import { Alert, Button, Card, Col, DatePicker, Row, Segmented, Select, Space, Table, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FormulaHelp } from '../../../client/formula-help';
@@ -292,6 +288,36 @@ export default function DailyOperationsBriefPage() {
   }, [loadTrend, trendPeriod]);
 
   const pack = brief.evidencePack ?? {};
+  const inventoryCommandCenter = pack.inventoryCommandCenter ?? {};
+  const inventoryCommandAlerts = (inventoryCommandCenter as PlainRecord).alerts ?? {};
+  const urgentNoOrderAlerts = rows((inventoryCommandAlerts as PlainRecord).urgentNoOrder);
+  const activeOrdersOffTrackAlerts = rows((inventoryCommandAlerts as PlainRecord).activeOrdersOffTrack);
+  const followUpsDueTodayAlerts = rows((inventoryCommandAlerts as PlainRecord).followUpsDueToday);
+  const leadTimeDataGapAlerts = rows((inventoryCommandAlerts as PlainRecord).leadTimeDataGaps);
+  const stuckInventoryReviewAlerts = rows((inventoryCommandAlerts as PlainRecord).stuckInventoryReview);
+  const commandCenterAlertRows = [
+    ...urgentNoOrderAlerts.map((row) => ({ ...row, alertType: 'Urgent no order', action: 'Create PO draft' })),
+    ...activeOrdersOffTrackAlerts.map((row) => ({
+      ...row,
+      alertType: 'Active order off-track',
+      action: 'Expedite or update order',
+    })),
+    ...followUpsDueTodayAlerts.map((row) => ({
+      ...row,
+      alertType: 'Follow-up due today',
+      action: 'Contact supplier today',
+    })),
+    ...leadTimeDataGapAlerts.map((row) => ({
+      ...row,
+      alertType: 'Lead-time data gap',
+      action: 'Confirm supplier lead time',
+    })),
+    ...stuckInventoryReviewAlerts.map((row) => ({
+      ...row,
+      alertType: 'Stuck inventory review',
+      action: 'Review pricing/ad/reorder hold',
+    })),
+  ].slice(0, 15);
   const inventoryRisks = rows(pack.inventoryRisks);
   const orderPlanningRisks = rows(pack.orderPlanningRisks);
   const accountabilityRisks = rows(pack.okrAccountabilityRisks);
@@ -301,7 +327,7 @@ export default function DailyOperationsBriefPage() {
   const okrRisks = accountabilityRisks.filter((item) => item.riskType === 'okr_off_track');
   const futureSignals = [...rows(pack.performanceTrends), ...rows(pack.buyBoxRisks), ...okrRisks];
   const validationErrors = rows(brief.validationErrors);
-  const todayActionCount = inventoryRisks.length + orderPlanningRisks.length + taskRisks.length;
+  const todayActionCount = commandCenterAlertRows.length + orderPlanningRisks.length + taskRisks.length;
   const inventoryMoneyAtRisk = sumField(inventoryRisks, 'estimatedProfitRisk');
   const orderMoneyAtRisk = sumField(orderPlanningRisks, 'moneyAtRisk');
   const urgentInventoryCount = countBy(inventoryRisks, (item) =>
@@ -340,15 +366,25 @@ export default function DailyOperationsBriefPage() {
   const currentTrendWindowLabel = currentTrendWindow
     ? formatTrendWindowLabel(currentTrendWindow.sourceWindowStart, currentTrendWindow.sourceWindowEnd)
     : 'Period not available yet';
+  const inventoryDecisionRows = commandCenterAlertRows.length
+    ? commandCenterAlertRows
+    : inventoryRisks.slice(0, 5).map((row) => ({
+        ...row,
+        alertType: 'Inventory risk',
+        action: row.actionStatus === 'missing_lead_time' ? 'Confirm lead time' : 'Place or adjust order',
+      }));
   const managementActions = [
-    ...inventoryRisks.slice(0, 5).map((row) => ({
-      key: row.evidenceId ?? `inventory:${row.asin}:${row.sku}`,
-      area: 'Inventory',
+    ...inventoryDecisionRows.slice(0, 7).map((row) => ({
+      key: row.id ?? row.evidenceId ?? `inventory:${row.alertType}:${row.asin}:${row.sku}`,
+      area:
+        row.alertType === 'Active order off-track' || row.alertType === 'Follow-up due today'
+          ? 'Active order'
+          : 'Inventory',
       subject: row.asin ?? row.sku ?? 'Unknown product',
       detail: row.title ?? row.supplierName ?? row.company,
-      signal: row.actionStatus ?? 'review',
-      action: row.actionStatus === 'missing_lead_time' ? 'Confirm lead time' : 'Place or adjust order',
-      due: row.latestSafeReorderDate ?? row.estimatedOosDate,
+      signal: row.alertType ?? row.actionStatus ?? row.recommendedAction ?? 'review',
+      action: row.action ?? (row.actionStatus === 'missing_lead_time' ? 'Confirm lead time' : 'Place or adjust order'),
+      due: row.latestSafeReorderDate ?? row.expectedSellableDate ?? row.estimatedOosDate,
       money: row.estimatedProfitRisk,
       owner: row.supplierName,
     })),
@@ -564,15 +600,84 @@ export default function DailyOperationsBriefPage() {
                         </Space>
                       ),
                     },
-                    { title: String(t('Signal')), dataIndex: 'signal', key: 'signal', render: (value) => <Tag>{value}</Tag> },
+                    {
+                      title: String(t('Signal')),
+                      dataIndex: 'signal',
+                      key: 'signal',
+                      render: (value) => <Tag>{value}</Tag>,
+                    },
                     { title: String(t('Action')), dataIndex: 'action', key: 'action' },
-                    { title: String(t('Owner / supplier')), dataIndex: 'owner', key: 'owner', render: (value) => shortText(value) },
+                    {
+                      title: String(t('Owner / supplier')),
+                      dataIndex: 'owner',
+                      key: 'owner',
+                      render: (value) => shortText(value),
+                    },
                     { title: String(t('Due / OOS')), dataIndex: 'due', key: 'due', render: dateOnly },
                     { title: String(t('Risk')), dataIndex: 'money', key: 'money', render: formatMoney },
                   ]}
                 />
               ) : (
                 <Alert type="success" message={t('No action queue items found for this date/company.')} />
+              )}
+            </Card>
+
+            <Card title={t('Inventory command center alerts')} extra={<FormulaHelp group="dailyOosOverview" />}>
+              {commandCenterAlertRows.length ? (
+                <Table<PlainRecord>
+                  size="small"
+                  rowKey={(row, index) => row.id ?? `${row.alertType}:${row.asin}:${row.sku}:${index}`}
+                  dataSource={commandCenterAlertRows}
+                  pagination={false}
+                  columns={[
+                    {
+                      title: String(t('Alert')),
+                      dataIndex: 'alertType',
+                      key: 'alertType',
+                      render: (value) => <Tag color={value === 'Urgent no order' ? 'red' : 'orange'}>{value}</Tag>,
+                    },
+                    {
+                      title: String(t('Product')),
+                      key: 'product',
+                      render: (_, row) => (
+                        <Space direction="vertical" size={0}>
+                          <Typography.Text strong>{row.asin ?? row.sku ?? '—'}</Typography.Text>
+                          <Typography.Text type="secondary">{shortText(row.title ?? row.company)}</Typography.Text>
+                        </Space>
+                      ),
+                    },
+                    {
+                      title: String(t('Supplier')),
+                      dataIndex: 'supplierName',
+                      key: 'supplierName',
+                      render: (value) => shortText(value),
+                    },
+                    {
+                      title: String(t('Signal')),
+                      key: 'signal',
+                      render: (_, row) => (
+                        <Space size={4} wrap>
+                          <Tag>{row.actionStatus ?? row.pipelineHealthBucket ?? row.stuckBucket ?? 'review'}</Tag>
+                          {row.recommendedAction ? <Tag color="blue">{row.recommendedAction}</Tag> : null}
+                        </Space>
+                      ),
+                    },
+                    { title: String(t('Action')), dataIndex: 'action', key: 'action' },
+                    {
+                      title: String(t('OOS / expected sellable')),
+                      key: 'date',
+                      render: (_, row) => dateOnly(row.estimatedOosDate ?? row.expectedSellableDate),
+                    },
+                    {
+                      title: String(t('Risk')),
+                      dataIndex: 'estimatedProfitRisk',
+                      key: 'estimatedProfitRisk',
+                      render: formatMoney,
+                    },
+                  ]}
+                />
+              ) : (
+                <Alert type="success" message={t('No command-center inventory alerts found for this date/company.')} />
               )}
             </Card>
 
@@ -594,9 +699,24 @@ export default function DailyOperationsBriefPage() {
                         </Space>
                       ),
                     },
-                    { title: String(t('Company')), dataIndex: 'company', key: 'company', render: (value) => shortText(value) },
-                    { title: String(t('Supplier')), dataIndex: 'supplierName', key: 'supplierName', render: (value) => shortText(value) },
-                    { title: String(t('OOS date')), dataIndex: 'estimatedOosDate', key: 'estimatedOosDate', render: dateOnly },
+                    {
+                      title: String(t('Company')),
+                      dataIndex: 'company',
+                      key: 'company',
+                      render: (value) => shortText(value),
+                    },
+                    {
+                      title: String(t('Supplier')),
+                      dataIndex: 'supplierName',
+                      key: 'supplierName',
+                      render: (value) => shortText(value),
+                    },
+                    {
+                      title: String(t('OOS date')),
+                      dataIndex: 'estimatedOosDate',
+                      key: 'estimatedOosDate',
+                      render: dateOnly,
+                    },
                     {
                       title: String(t('Latest safe order')),
                       dataIndex: 'latestSafeReorderDate',
@@ -652,7 +772,12 @@ export default function DailyOperationsBriefPage() {
                         </Space>
                       ),
                     },
-                    { title: String(t('Supplier')), dataIndex: 'supplierName', key: 'supplierName', render: (value) => shortText(value) },
+                    {
+                      title: String(t('Supplier')),
+                      dataIndex: 'supplierName',
+                      key: 'supplierName',
+                      render: (value) => shortText(value),
+                    },
                     {
                       title: String(t('Status')),
                       key: 'status',
@@ -660,7 +785,12 @@ export default function DailyOperationsBriefPage() {
                         <Tag color={row.statusCheckRequired ? 'red' : 'blue'}>{row.currentStatus ?? 'review'}</Tag>
                       ),
                     },
-                    { title: String(t('Next action')), dataIndex: 'nextAction', key: 'nextAction', render: (value) => shortText(value) },
+                    {
+                      title: String(t('Next action')),
+                      dataIndex: 'nextAction',
+                      key: 'nextAction',
+                      render: (value) => shortText(value),
+                    },
                     { title: String(t('Due')), dataIndex: 'nextActionDueAt', key: 'nextActionDueAt', render: dateOnly },
                     {
                       title: String(t('Earliest OOS')),
@@ -674,7 +804,12 @@ export default function DailyOperationsBriefPage() {
                       key: 'daysSinceLastActivity',
                       render: (value) => `${formatNumber(value)}d`,
                     },
-                    { title: String(t('Money at risk')), dataIndex: 'moneyAtRisk', key: 'moneyAtRisk', render: formatMoney },
+                    {
+                      title: String(t('Money at risk')),
+                      dataIndex: 'moneyAtRisk',
+                      key: 'moneyAtRisk',
+                      render: formatMoney,
+                    },
                   ]}
                 />
               ) : (
