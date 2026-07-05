@@ -654,6 +654,7 @@ export default function InventoryPlanningPage() {
   const [activeCommandPane, setActiveCommandPane] = useState<CommandCenterPaneKey>('supplyAction');
   const [commandCenterSearch, setCommandCenterSearch] = useState('');
   const [commandCenterSortBy, setCommandCenterSortBy] = useState('estimatedProfitRisk');
+  const [selectedCommandPane, setSelectedCommandPane] = useState<CommandCenterPaneKey | null>(null);
   const [selectedRow, setSelectedRow] = useState<PlainRecord | null>(null);
   const [actionValues, setActionValues] = useState<DrawerActionValues | null>(null);
   const [supplierOptions, setSupplierOptions] = useState<PlainRecord[]>([]);
@@ -1072,7 +1073,7 @@ export default function InventoryPlanningPage() {
           dataSource={rowsForPane}
           columns={commandPaneColumns(pane)}
           pagination={false}
-          onRow={(row) => ({ onClick: () => openRow(row) })}
+          onRow={(row) => ({ onClick: () => openRow(row, [], pane) })}
         />
       </Card>
     );
@@ -1173,7 +1174,14 @@ export default function InventoryPlanningPage() {
     );
   };
 
-  const openRow = (row: PlainRecord, initialPanels: string[] = []) => {
+  const drawerPanelKeysByPane: Record<CommandCenterPaneKey, string[]> = {
+    supplyAction: ['draft', 'add', 'lead-time'],
+    activeOrders: ['history', 'order-status', 'edit-line'],
+    stuckInventory: ['product-tasks-targets', 'history'],
+  };
+
+  const openRow = (row: PlainRecord, initialPanels: string[] = [], pane?: CommandCenterPaneKey) => {
+    setSelectedCommandPane(pane ?? null);
     setSelectedRow(row);
     setActionValues(newActionValues(row));
     setSupplierOptions([]);
@@ -1184,7 +1192,7 @@ export default function InventoryPlanningPage() {
     setProductTargets([]);
     setLineEditValues(null);
     setOrderEditValues(null);
-    setManagePanels(initialPanels);
+    setManagePanels(initialPanels.length > 0 ? initialPanels : pane ? drawerPanelKeysByPane[pane] : []);
     void loadDrawerEntities(row);
   };
 
@@ -1355,6 +1363,79 @@ export default function InventoryPlanningPage() {
     });
     message.success(t('Product lead time updated'));
     await Promise.all([loadPlanning(), loadDrawerEntities(selectedRow)]);
+  };
+
+  const renderDrawerModeSummary = () => {
+    if (!selectedRow || !selectedCommandPane) return null;
+    if (selectedCommandPane === 'activeOrders') {
+      return (
+        <Card size="small" title={t('Active order follow-up')}>
+          <Space direction="vertical" style={{ width: '100%' }}>
+            <Space size={4} wrap>
+              <Tag color={supplierOrderStatusColor(selectedRow.supplierOrderStatus)}>
+                {t(selectedRow.supplierOrderStatus ?? selectedRow.supplierOrderState ?? 'unknown')}
+              </Tag>
+              <Tag color={selectedRow.pipelineHealthBucket === 'late' ? 'red' : 'blue'}>
+                {t(selectedRow.pipelineHealthBucket ?? 'pipeline')}
+              </Tag>
+              <Typography.Text>
+                {t('Expected sellable')} {formatDate(selectedRow.expectedSellableDate)} · {t('Gap')}{' '}
+                {formatNumber(selectedRow.stockoutGapDays)} {t('days')}
+              </Typography.Text>
+            </Space>
+            <Space size="small" wrap>
+              <Button type="primary" onClick={() => setManagePanels(['order-status'])}>
+                {t('Update status / comment')}
+              </Button>
+              <Button onClick={() => setManagePanels(['history'])}>{t('Review order lines')}</Button>
+              <Button onClick={() => setManagePanels(['edit-line'])}>{t('Edit active line')}</Button>
+            </Space>
+          </Space>
+        </Card>
+      );
+    }
+    if (selectedCommandPane === 'stuckInventory') {
+      return (
+        <Card size="small" title={t('Stuck inventory review')}>
+          <Space direction="vertical" style={{ width: '100%' }}>
+            <Space size={4} wrap>
+              <Tag color="purple">{t(selectedRow.stuckBucket ?? 'stuck')}</Tag>
+              <Typography.Text>
+                {formatNumber(selectedRow.currentPlanningStock)} {t('units')} · {formatNumber(selectedRow.daysOfCover)}{' '}
+                {t('days cover')} · {t('Capital/risk')} {formatCurrency(selectedRow.estimatedProfitRisk)}
+              </Typography.Text>
+            </Space>
+            <Space size="small" wrap>
+              <Button type="primary" onClick={() => setManagePanels(['product-tasks-targets'])}>
+                {t('Create review task')}
+              </Button>
+              <Button onClick={() => setManagePanels(['history'])}>{t('Review sell-through/order history')}</Button>
+            </Space>
+          </Space>
+        </Card>
+      );
+    }
+    return (
+      <Card size="small" title={t('Supply action plan')}>
+        <Space direction="vertical" style={{ width: '100%' }}>
+          <Space size={4} wrap>
+            <Tag color={actionColor(selectedRow.actionStatus)}>{t(selectedRow.actionStatus ?? 'action needed')}</Tag>
+            <Typography.Text>
+              {t('Recommended qty')} {formatNumber(selectedRow.suggestedReorderQty)} · {t('Target cover')}{' '}
+              {formatNumber(selectedRow.targetCoverDays)} {t('days')} · {t('Velocity')}{' '}
+              {formatNumber(selectedRow.salesVelocity)}
+            </Typography.Text>
+          </Space>
+          <Space size="small" wrap>
+            <Button type="primary" onClick={() => setManagePanels(['draft'])}>
+              {t('Create PO draft')}
+            </Button>
+            <Button onClick={() => setManagePanels(['add'])}>{t('Add to existing PO')}</Button>
+            <Button onClick={() => setManagePanels(['lead-time'])}>{t('Fix supplier / lead time')}</Button>
+          </Space>
+        </Space>
+      </Card>
+    );
   };
 
   const columns = [
@@ -2023,7 +2104,7 @@ export default function InventoryPlanningPage() {
             dataSource={dailyAlertPreview}
             columns={commandPaneColumns('supplyAction')}
             pagination={false}
-            onRow={(row) => ({ onClick: () => openRow(row) })}
+            onRow={(row) => ({ onClick: () => openRow(row, [], 'supplyAction') })}
           />
         </Card>
         <Space direction="vertical" size="large" style={{ width: '100%' }}>
@@ -2034,11 +2115,14 @@ export default function InventoryPlanningPage() {
         open={!!selectedRow}
         title={
           selectedRow
-            ? `${selectedRow.asin ?? selectedRow.sku ?? t('Inventory row')} · ${selectedRow.company ?? t('No company')}`
+            ? `${selectedCommandPane ? `${commandPaneTitles[selectedCommandPane]} · ` : ''}${
+                selectedRow.asin ?? selectedRow.sku ?? t('Inventory row')
+              } · ${selectedRow.company ?? t('No company')}`
             : t('Inventory row')
         }
         width={920}
         onClose={() => {
+          setSelectedCommandPane(null);
           setSelectedRow(null);
           setActionValues(null);
           setOrderLineHistory([]);
@@ -2054,6 +2138,7 @@ export default function InventoryPlanningPage() {
               <FormulaHelp group="inventoryDrawer" />
               <Button
                 onClick={() => {
+                  setSelectedCommandPane(null);
                   setSelectedRow(null);
                   setActionValues(null);
                   setOrderLineHistory([]);
@@ -2072,6 +2157,7 @@ export default function InventoryPlanningPage() {
       >
         {selectedRow ? (
           <Space direction="vertical" size="large" style={{ width: '100%' }}>
+            {renderDrawerModeSummary()}
             <Descriptions bordered column={1} size="small">
               <Descriptions.Item label={t('Action')}>
                 <Tag color={actionColor(selectedRow.actionStatus)}>{t(selectedRow.actionStatus ?? 'unknown')}</Tag>
@@ -2704,7 +2790,9 @@ export default function InventoryPlanningPage() {
                         </Row>
                       ),
                     },
-                  ]}
+                  ].filter((item) =>
+                    selectedCommandPane ? drawerPanelKeysByPane[selectedCommandPane].includes(String(item.key)) : true,
+                  )}
                 />
               </>
             ) : null}
