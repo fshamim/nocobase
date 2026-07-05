@@ -154,6 +154,7 @@ export default defineCollection({
     { name: 'suggestedReorderQty', type: 'double', interface: 'number', uiSchema: { title: 'Suggested Reorder Qty' } },
     { name: 'safetyBufferDays', type: 'integer', interface: 'integer', uiSchema: { title: 'Safety Buffer Days' } },
     { name: 'reorderCycleDays', type: 'integer', interface: 'integer', uiSchema: { title: 'Reorder Cycle Days' } },
+    { name: 'targetCoverDays', type: 'integer', interface: 'integer', uiSchema: { title: 'Target Cover Days' } },
     {
       name: 'orderSoonWindowDays',
       type: 'integer',

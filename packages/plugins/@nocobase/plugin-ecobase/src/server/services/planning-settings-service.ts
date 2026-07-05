@@ -1,12 +1,25 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import type { EcobaseDatabase } from '../../features/source-import/server/import-service';
-import { DEFAULT_PROFIT_TIER_THRESHOLDS, type ProfitTierThresholds } from '../../features/inventory-planning/server/profit-tier';
+import {
+  DEFAULT_PROFIT_TIER_THRESHOLDS,
+  type ProfitTierThresholds,
+} from '../../features/inventory-planning/server/profit-tier';
 import { normalizeSupplierOrderStatus } from '../../features/supplier-management/server/supplier-order-service';
 
 export type PlanningSettingKey =
   | 'safetyBufferDays'
   | 'reorderCycleDays'
+  | 'targetCoverDays'
   | 'orderSoonWindowDays'
   | 'leadTimeFreshnessDays'
   | 'purchasedPipelineGraceDays';
@@ -42,6 +55,7 @@ export type SaveEcobasePlanningSettingsParams = Partial<Record<NumberSettingKey,
 const SETTING_KEYS: PlanningSettingKey[] = [
   'safetyBufferDays',
   'reorderCycleDays',
+  'targetCoverDays',
   'orderSoonWindowDays',
   'leadTimeFreshnessDays',
   'purchasedPipelineGraceDays',
@@ -64,6 +78,7 @@ const STATUS_BUCKET_KEYS: SupplierOrderStatusBucketKey[] = [
 export const DEFAULT_PLANNING_SETTINGS: Record<PlanningSettingKey, number> = {
   safetyBufferDays: 7,
   reorderCycleDays: 30,
+  targetCoverDays: 45,
   orderSoonWindowDays: 14,
   leadTimeFreshnessDays: 60,
   purchasedPipelineGraceDays: 3,
@@ -90,6 +105,7 @@ export const DEFAULT_PLANNING_BUSINESS_RULES: Record<ProfitTierSettingKey, numbe
 const SETTING_LABELS: Record<NumberSettingKey, string> = {
   safetyBufferDays: 'Safety buffer days',
   reorderCycleDays: 'Reorder cycle days',
+  targetCoverDays: 'Target cover days',
   orderSoonWindowDays: 'Order-soon window days',
   leadTimeFreshnessDays: 'Lead-time freshness days',
   purchasedPipelineGraceDays: 'Purchased pipeline grace days',
@@ -148,6 +164,12 @@ function validateProfitTiers(settings: Record<ProfitTierSettingKey, number>) {
   }
 }
 
+function validatePlanningDays(settings: Record<PlanningSettingKey, number>) {
+  if (settings.targetCoverDays < 30) {
+    throw new Error('EcoBase planning settings require Target cover days to be at least 30 days.');
+  }
+}
+
 function validateStatusBuckets(settings: SupplierOrderStatusBuckets) {
   const ownerByStatus = new Map<string, SupplierOrderStatusBucketKey>();
   for (const key of STATUS_BUCKET_KEYS) {
@@ -180,6 +202,7 @@ function normalize(row: PlainRecord): EcobasePlanningSettings {
     isActive: asBoolean(row.isActive, true),
     safetyBufferDays: positiveInteger(row.safetyBufferDays, 'safetyBufferDays') ?? defaults.safetyBufferDays,
     reorderCycleDays: positiveInteger(row.reorderCycleDays, 'reorderCycleDays') ?? defaults.reorderCycleDays,
+    targetCoverDays: positiveInteger(row.targetCoverDays, 'targetCoverDays') ?? defaults.targetCoverDays,
     orderSoonWindowDays:
       positiveInteger(row.orderSoonWindowDays, 'orderSoonWindowDays') ?? defaults.orderSoonWindowDays,
     leadTimeFreshnessDays:
@@ -206,6 +229,7 @@ function normalize(row: PlainRecord): EcobasePlanningSettings {
     createdAt: asString(row.createdAt),
     updatedAt: asString(row.updatedAt),
   };
+  validatePlanningDays(settings);
   validateProfitTiers(settings);
   validateStatusBuckets(settings);
   return settings;

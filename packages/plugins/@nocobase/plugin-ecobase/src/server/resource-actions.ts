@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import {
   amazonOperationsCsvAdapter,
   amazonSpApiAccessCheckAdapter,
@@ -1056,6 +1065,7 @@ function inventoryPlanningQuery(values: Record<string, unknown>) {
     safetyBufferDays: getOptionalNumber(values, 'safetyBufferDays'),
     orderSoonWindowDays: getOptionalNumber(values, 'orderSoonWindowDays'),
     reorderCycleDays: getOptionalNumber(values, 'reorderCycleDays'),
+    targetCoverDays: getOptionalNumber(values, 'targetCoverDays'),
     purchasedPipelineGraceDays: getOptionalNumber(values, 'purchasedPipelineGraceDays'),
     limit: getOptionalNumber(values, 'limit'),
   };
@@ -2186,4 +2196,3 @@ export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
     },
   };
 }
-

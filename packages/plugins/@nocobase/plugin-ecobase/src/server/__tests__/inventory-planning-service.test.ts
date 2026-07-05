@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { describe, expect, it } from 'vitest';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { EcobaseInventoryPlanningService } from '../../features/inventory-planning/server/inventory-planning-service';
@@ -348,7 +357,7 @@ describe('EcobaseInventoryPlanningService', () => {
     const [row] = await new EcobaseInventoryPlanningService(db).listRows({
       company: 'Ecofission LLC',
       calculationDate: '2026-06-07',
-      reorderCycleDays: 30,
+      targetCoverDays: 30,
     });
 
     expect(row).toMatchObject({
@@ -360,8 +369,8 @@ describe('EcobaseInventoryPlanningService', () => {
       supplierSource: 'order_details',
       leadTimeFreshness: 'fresh',
       currentPlanningStock: 23,
-      stuck: true,
-      suggestedReorderQty: 88,
+      stuck: false,
+      suggestedReorderQty: 67,
     });
   });
 
@@ -1329,7 +1338,10 @@ describe('EcobaseInventoryPlanningService', () => {
     });
 
     expect(workspace.suppliers).toHaveLength(1);
-    expect(workspace.orderLineHistory[0]).toMatchObject({ asin: 'B000DRAWER', order: { externalOrderRef: 'DRAWER-1' } });
+    expect(workspace.orderLineHistory[0]).toMatchObject({
+      asin: 'B000DRAWER',
+      order: { externalOrderRef: 'DRAWER-1' },
+    });
     expect(workspace.orderActivities[0]).toMatchObject({ notes: 'Waiting on payment.' });
     expect(workspace.initialOrderEdit).toMatchObject({ supplierOrderId: orderId, status: 'approval_pending' });
     expect(workspace.actionDefaults).toMatchObject({

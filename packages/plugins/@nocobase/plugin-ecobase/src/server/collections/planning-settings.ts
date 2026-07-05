@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { defineCollection } from '@nocobase/database';
 import { ECOBASE_COLLECTIONS } from './names';
 
@@ -31,6 +40,14 @@ export default defineCollection({
       interface: 'integer',
       uiSchema: { title: 'Reorder cycle days' },
       allowNull: false,
+    },
+    {
+      name: 'targetCoverDays',
+      type: 'integer',
+      interface: 'integer',
+      uiSchema: { title: 'Target cover days' },
+      allowNull: false,
+      defaultValue: 45,
     },
     {
       name: 'orderSoonWindowDays',

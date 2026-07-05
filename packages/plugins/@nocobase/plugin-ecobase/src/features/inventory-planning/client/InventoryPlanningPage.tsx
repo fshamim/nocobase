@@ -637,7 +637,7 @@ export default function InventoryPlanningPage() {
   const [leadTimeFreshnessDays, setLeadTimeFreshnessDays] = useState(60);
   const [orderSoonWindowDays, setOrderSoonWindowDays] = useState(14);
   const [safetyBufferDays, setSafetyBufferDays] = useState(7);
-  const [reorderCycleDays, setReorderCycleDays] = useState(30);
+  const [targetCoverDays, setTargetCoverDays] = useState(45);
   const [purchasedPipelineGraceDays, setPurchasedPipelineGraceDays] = useState(3);
   const [planningSettingsWarning, setPlanningSettingsWarning] = useState<string | undefined>();
   const [limit, setLimit] = useState(150);
@@ -674,7 +674,7 @@ export default function InventoryPlanningPage() {
     setLeadTimeFreshnessDays(Number(settings.leadTimeFreshnessDays ?? 60));
     setOrderSoonWindowDays(Number(settings.orderSoonWindowDays ?? 14));
     setSafetyBufferDays(Number(settings.safetyBufferDays ?? 7));
-    setReorderCycleDays(Number(settings.reorderCycleDays ?? 30));
+    setTargetCoverDays(Number(settings.targetCoverDays ?? 45));
     setPurchasedPipelineGraceDays(Number(settings.purchasedPipelineGraceDays ?? 3));
     setPlanningSettingsWarning(typeof data.warning === 'string' ? data.warning : undefined);
   }, [api]);
@@ -689,7 +689,7 @@ export default function InventoryPlanningPage() {
         leadTimeFreshnessDays,
         orderSoonWindowDays,
         safetyBufferDays,
-        reorderCycleDays,
+        targetCoverDays,
         purchasedPipelineGraceDays,
         limit,
       };
@@ -712,8 +712,8 @@ export default function InventoryPlanningPage() {
     limit,
     orderSoonWindowDays,
     purchasedPipelineGraceDays,
-    reorderCycleDays,
     safetyBufferDays,
+    targetCoverDays,
   ]);
 
   useEffect(() => {
@@ -737,7 +737,7 @@ export default function InventoryPlanningPage() {
           leadTimeFreshnessDays,
           orderSoonWindowDays,
           safetyBufferDays,
-          reorderCycleDays,
+          targetCoverDays,
           purchasedPipelineGraceDays,
           limit: Math.max(limit, 500),
         },
@@ -756,8 +756,8 @@ export default function InventoryPlanningPage() {
     loadPlanning,
     orderSoonWindowDays,
     purchasedPipelineGraceDays,
-    reorderCycleDays,
     safetyBufferDays,
+    targetCoverDays,
   ]);
 
   const runBudgetOptimizer = useCallback(async () => {
@@ -777,7 +777,7 @@ export default function InventoryPlanningPage() {
           leadTimeFreshnessDays,
           orderSoonWindowDays,
           safetyBufferDays,
-          reorderCycleDays,
+          targetCoverDays,
           purchasedPipelineGraceDays,
           limit,
           budget: budgetAmount,
@@ -801,8 +801,8 @@ export default function InventoryPlanningPage() {
     message,
     orderSoonWindowDays,
     purchasedPipelineGraceDays,
-    reorderCycleDays,
     safetyBufferDays,
+    targetCoverDays,
     t,
   ]);
 
@@ -1285,7 +1285,10 @@ export default function InventoryPlanningPage() {
       },
     },
     {
-      title: columnHelp(t('Suggest qty'), t('Formula: velocity × target days − stock − reliable open-order coverage.')),
+      title: columnHelp(
+        t('Suggest qty'),
+        t('Formula: velocity × target cover days − stock − reliable open-order coverage.'),
+      ),
       dataIndex: 'suggestedReorderQty',
       width: 125,
       render: formatNumber,
@@ -1414,12 +1417,15 @@ export default function InventoryPlanningPage() {
                       style={{ width: '100%' }}
                     />
                   </FilterControl>
-                  <FilterControl title={t('Reorder cycle')} help={t('Extra selling days to cover after lead time.')}>
+                  <FilterControl
+                    title={t('Target cover')}
+                    help={t('Suggested quantity covers this many selling days.')}
+                  >
                     <InputNumber
                       addonAfter={t('days')}
-                      min={0}
-                      value={reorderCycleDays}
-                      onChange={(value) => setReorderCycleDays(Number(value ?? 30))}
+                      min={30}
+                      value={targetCoverDays}
+                      onChange={(value) => setTargetCoverDays(Number(value ?? 45))}
                       style={{ width: '100%' }}
                     />
                   </FilterControl>
@@ -2237,7 +2243,7 @@ export default function InventoryPlanningPage() {
               <Descriptions.Item
                 label={columnHelp(
                   t('Suggested quantity'),
-                  t('Formula: velocity × target days − stock − reliable open-order coverage.'),
+                  t('Formula: velocity × target cover days − stock − reliable open-order coverage.'),
                 )}
               >
                 {formatNumber(selectedRow.suggestedReorderQty)}

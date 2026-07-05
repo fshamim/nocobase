@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { describe, expect, it } from 'vitest';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { EcobaseInventoryPlanningService } from '../../features/inventory-planning/server/inventory-planning-service';
@@ -104,6 +113,7 @@ describe('EcobasePlanningSettingsService', () => {
     expect(saved).toMatchObject({
       safetyBufferDays: 10,
       reorderCycleDays: 45,
+      targetCoverDays: 45,
       profitTierAThreshold: 500,
       profitTierBThreshold: 200,
       profitTierCThreshold: 10,
@@ -111,6 +121,9 @@ describe('EcobasePlanningSettingsService', () => {
     });
     await expect(service.saveSettings({ safetyBufferDays: -1 })).rejects.toThrow(
       'EcoBase planning settings require Safety buffer days to be a zero-or-positive whole number.',
+    );
+    await expect(service.saveSettings({ targetCoverDays: 29 })).rejects.toThrow(
+      'EcoBase planning settings require Target cover days to be at least 30 days.',
     );
     await expect(service.saveSettings({ profitTierAThreshold: 100, profitTierBThreshold: 200 })).rejects.toThrow(
       'EcoBase profit tier thresholds must descend: A threshold > B threshold > C threshold.',
@@ -128,6 +141,7 @@ describe('EcobasePlanningSettingsService', () => {
     await new EcobasePlanningSettingsService(db).saveSettings({
       safetyBufferDays: 10,
       reorderCycleDays: 40,
+      targetCoverDays: 30,
       orderSoonWindowDays: 5,
       leadTimeFreshnessDays: 30,
       purchasedPipelineGraceDays: 1,
@@ -174,11 +188,12 @@ describe('EcobasePlanningSettingsService', () => {
     expect(row).toMatchObject({
       safetyBufferDays: 10,
       reorderCycleDays: 40,
+      targetCoverDays: 30,
       orderSoonWindowDays: 5,
       leadTimeFreshnessDays: 30,
       purchasedPipelineGraceDays: 1,
       tier: 'B',
-      suggestedReorderQty: 98,
+      suggestedReorderQty: 50,
     });
   });
 
@@ -248,7 +263,7 @@ describe('EcobasePlanningSettingsService', () => {
       supplierOrderState: 'purchased_pipeline',
       supplierOrderStatus: 'supplier_paid_wire',
       openOrderCoverageQty: 20,
-      suggestedReorderQty: 52,
+      suggestedReorderQty: 60,
     });
   });
 });

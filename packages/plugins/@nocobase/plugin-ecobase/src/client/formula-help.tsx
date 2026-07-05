@@ -197,7 +197,7 @@ const FORMULAS: Record<FormulaKey, FormulaDefinition> = {
       { text: 'openOrderCoverage', source: 'eco_calc' },
       ')',
     ],
-    note: 'Inputs: salesVelocity, supplier leadTimeDays, safetyBufferDays, reorderCycleDays, currentPlanningStock, and openOrderCoverage. Example: ceil(5 × (10 + 7 + 30) − 60 − 20) = 155 units.',
+    note: 'Inputs: salesVelocity, targetCoverDays, currentPlanningStock, and reliable openOrderCoverage. Example: ceil(5 × 45 − 60 − 20) = 145 units. Lead time and safety buffer still drive when to order.',
   },
   tierScore: {
     label: 'Tier score',

@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { useAPIClient } from '@nocobase/client';
 import { Alert, Button, Card, Col, InputNumber, Row, Select, Space, Table, Typography } from 'antd';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -7,7 +16,7 @@ type PlainRecord = Record<string, any>;
 
 type PlanningSettingKey =
   | 'safetyBufferDays'
-  | 'reorderCycleDays'
+  | 'targetCoverDays'
   | 'orderSoonWindowDays'
   | 'leadTimeFreshnessDays'
   | 'purchasedPipelineGraceDays';
@@ -22,7 +31,7 @@ type StatusBucketKey =
 
 const SETTING_KEYS: PlanningSettingKey[] = [
   'safetyBufferDays',
-  'reorderCycleDays',
+  'targetCoverDays',
   'orderSoonWindowDays',
   'leadTimeFreshnessDays',
   'purchasedPipelineGraceDays',
@@ -47,15 +56,15 @@ const SETTING_HELP: Record<NumberSettingKey, { label: string; meaning: string; e
     label: 'Safety buffer days',
     meaning: 'Extra cushion added before stockout so operators are not ordering at the last possible day.',
     example:
-      'If velocity is 5/day, increasing this from 7 to 10 adds 15 units to suggested quantity: 5 × 3 extra days.',
-    usedBy: 'Suggested quantity, latest safe reorder date, money at risk, Inventory Planning action status.',
+      'If supplier lead time is 10 days, increasing this from 7 to 10 moves the safe reorder date 3 days earlier.',
+    usedBy: 'Latest safe reorder date, money at risk, Inventory Planning action status.',
   },
-  reorderCycleDays: {
-    label: 'Reorder cycle days',
-    meaning: 'Extra selling days to cover after the supplier lead time, so the team is not placing tiny repeat orders.',
-    example:
-      'If velocity is 5/day, increasing this from 30 to 45 adds 75 units to suggested quantity: 5 × 15 extra days.',
-    usedBy: 'Suggested quantity and budget optimizer candidate sizing.',
+  targetCoverDays: {
+    label: 'Target cover days',
+    meaning:
+      'How many selling days suggested quantity should cover after subtracting current stock and reliable open orders.',
+    example: 'If velocity is 5/day, target cover 45, stock 60, and open orders 20, suggested quantity is 145.',
+    usedBy: 'Suggested quantity, gold inventory planning rows, and operator planning drawers.',
   },
   orderSoonWindowDays: {
     label: 'Order-soon window days',
@@ -278,7 +287,7 @@ export default function PlanningSettingsPage() {
               <Col xs={24} md={8} key={key}>
                 <Typography.Text strong>{t(SETTING_HELP[key].label)}</Typography.Text>
                 <InputNumber
-                  min={0}
+                  min={key === 'targetCoverDays' ? 30 : 0}
                   precision={0}
                   addonAfter={t('days')}
                   value={settingValue(settings, key)}

@@ -53,6 +53,7 @@ export interface InventoryPlanningQuery {
   safetyBufferDays?: number;
   orderSoonWindowDays?: number;
   reorderCycleDays?: number;
+  targetCoverDays?: number;
   purchasedPipelineGraceDays?: number;
   limit?: number;
 }
@@ -554,6 +555,7 @@ const INVENTORY_PLANNING_ROW_FIELDS = [
   'suggestedReorderQty',
   'safetyBufferDays',
   'reorderCycleDays',
+  'targetCoverDays',
   'orderSoonWindowDays',
   'leadTimeFreshnessDays',
   'purchasedPipelineGraceDays',
@@ -709,6 +711,7 @@ export class EcobaseInventoryPlanningService {
     const orderSoonWindowDays = settings.orderSoonWindowDays;
     const leadTimeFreshnessDays = settings.leadTimeFreshnessDays;
     const reorderCycleDays = settings.reorderCycleDays;
+    const targetCoverDays = settings.targetCoverDays;
     const purchasedPipelineGraceDays = settings.purchasedPipelineGraceDays;
     const profitTierThresholds: ProfitTierThresholds = settings;
     const statusRules = supplierOrderStatusRules(settings);
@@ -731,6 +734,7 @@ export class EcobaseInventoryPlanningService {
         orderSoonWindowDays,
         safetyBufferDays,
         reorderCycleDays,
+        targetCoverDays,
         purchasedPipelineGraceDays,
         profitTierThresholds,
         statusRules,
@@ -760,6 +764,7 @@ export class EcobaseInventoryPlanningService {
           leadTimeFreshnessDays,
           orderSoonWindowDays,
           reorderCycleDays,
+          targetCoverDays,
           purchasedPipelineGraceDays,
           profitTierThresholds,
           statusRules,
@@ -1235,6 +1240,7 @@ export class EcobaseInventoryPlanningService {
     orderSoonWindowDays: number;
     safetyBufferDays: number;
     reorderCycleDays: number;
+    targetCoverDays: number;
     purchasedPipelineGraceDays: number;
     profitTierThresholds: ProfitTierThresholds;
     statusRules: SupplierOrderStatusRules;
@@ -1297,6 +1303,7 @@ export class EcobaseInventoryPlanningService {
           orderSoonWindowDays: params.orderSoonWindowDays,
           safetyBufferDays: params.safetyBufferDays,
           reorderCycleDays: params.reorderCycleDays,
+          targetCoverDays: params.targetCoverDays,
           purchasedPipelineGraceDays: params.purchasedPipelineGraceDays,
           profitTierThresholds: params.profitTierThresholds,
           statusRules: params.statusRules,
@@ -1431,6 +1438,7 @@ export class EcobaseInventoryPlanningService {
     orderSoonWindowDays: number;
     safetyBufferDays: number;
     reorderCycleDays: number;
+    targetCoverDays: number;
     purchasedPipelineGraceDays: number;
     profitTierThresholds: ProfitTierThresholds;
     statusRules: SupplierOrderStatusRules;
@@ -1549,8 +1557,7 @@ export class EcobaseInventoryPlanningService {
     const suggestedReorderQty = this.suggestedReorderQuantity({
       salesVelocity,
       leadTimeDays,
-      safetyBufferDays: params.safetyBufferDays,
-      reorderCycleDays: params.reorderCycleDays,
+      targetCoverDays: params.targetCoverDays,
       currentPlanningStock: stockBuckets.currentPlanningStock,
       openOrderCoverageQty,
     });
@@ -1627,6 +1634,7 @@ export class EcobaseInventoryPlanningService {
       suggestedReorderQty,
       safetyBufferDays: params.safetyBufferDays,
       reorderCycleDays: params.reorderCycleDays,
+      targetCoverDays: params.targetCoverDays,
       orderSoonWindowDays: params.orderSoonWindowDays,
       leadTimeFreshnessDays: params.leadTimeFreshnessDays,
       purchasedPipelineGraceDays: params.purchasedPipelineGraceDays,
@@ -1664,6 +1672,7 @@ export class EcobaseInventoryPlanningService {
         planningSettings: {
           safetyBufferDays: params.safetyBufferDays,
           reorderCycleDays: params.reorderCycleDays,
+          targetCoverDays: params.targetCoverDays,
           orderSoonWindowDays: params.orderSoonWindowDays,
           leadTimeFreshnessDays: params.leadTimeFreshnessDays,
           purchasedPipelineGraceDays: params.purchasedPipelineGraceDays,
@@ -1682,6 +1691,7 @@ export class EcobaseInventoryPlanningService {
     leadTimeFreshnessDays: number;
     orderSoonWindowDays: number;
     reorderCycleDays: number;
+    targetCoverDays: number;
     purchasedPipelineGraceDays: number;
     profitTierThresholds: ProfitTierThresholds;
     statusRules: SupplierOrderStatusRules;
@@ -1791,8 +1801,7 @@ export class EcobaseInventoryPlanningService {
     const suggestedReorderQty = this.suggestedReorderQuantity({
       salesVelocity,
       leadTimeDays,
-      safetyBufferDays: asNumber(params.calculation.safetyBufferDays) ?? DEFAULT_PLANNING_SETTINGS.safetyBufferDays,
-      reorderCycleDays: params.reorderCycleDays,
+      targetCoverDays: params.targetCoverDays,
       currentPlanningStock: stockBuckets.currentPlanningStock,
       openOrderCoverageQty,
     });
@@ -1862,6 +1871,7 @@ export class EcobaseInventoryPlanningService {
       suggestedReorderQty,
       safetyBufferDays: asNumber(params.calculation.safetyBufferDays) ?? DEFAULT_PLANNING_SETTINGS.safetyBufferDays,
       reorderCycleDays: params.reorderCycleDays,
+      targetCoverDays: params.targetCoverDays,
       orderSoonWindowDays: params.orderSoonWindowDays,
       leadTimeFreshnessDays: params.leadTimeFreshnessDays,
       purchasedPipelineGraceDays: params.purchasedPipelineGraceDays,
@@ -1913,12 +1923,13 @@ export class EcobaseInventoryPlanningService {
         planningSettings: {
           safetyBufferDays: asNumber(params.calculation.safetyBufferDays) ?? DEFAULT_PLANNING_SETTINGS.safetyBufferDays,
           reorderCycleDays: params.reorderCycleDays,
+          targetCoverDays: params.targetCoverDays,
           orderSoonWindowDays: params.orderSoonWindowDays,
           leadTimeFreshnessDays: params.leadTimeFreshnessDays,
           purchasedPipelineGraceDays: params.purchasedPipelineGraceDays,
         },
         suggestedReorderQuantityFormula:
-          'max((velocity * (leadTimeDays + safetyBufferDays + reorderCycleDays)) - totalPlanningStock - openOrderCoverageQty, 0)',
+          'max((velocity * targetCoverDays) - totalPlanningStock - openOrderCoverageQty, 0)',
         estimatedProfitRiskBasis,
       },
     };
@@ -2252,16 +2263,14 @@ export class EcobaseInventoryPlanningService {
   private suggestedReorderQuantity(params: {
     salesVelocity?: number;
     leadTimeDays?: number;
-    safetyBufferDays: number;
-    reorderCycleDays: number;
+    targetCoverDays: number;
     currentPlanningStock: number;
     openOrderCoverageQty: number;
   }) {
     if (!params.salesVelocity || params.salesVelocity <= 0 || typeof params.leadTimeDays !== 'number') {
       return 0;
     }
-    const coverageTargetDays = params.leadTimeDays + params.safetyBufferDays + params.reorderCycleDays;
-    const neededUnits = params.salesVelocity * coverageTargetDays;
+    const neededUnits = params.salesVelocity * params.targetCoverDays;
     return Math.max(Math.ceil(neededUnits - params.currentPlanningStock - params.openOrderCoverageQty), 0);
   }
 
