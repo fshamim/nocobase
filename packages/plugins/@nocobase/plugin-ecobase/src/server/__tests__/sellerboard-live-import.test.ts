@@ -1,9 +1,22 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSourceAdapterRegistry, sellerboardApiAdapter } from '../../features/source-import/server/adapters';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
-import { EcobaseDatabase, EcobaseImportService, EcobaseRepository } from '../../features/source-import/server/import-service';
+import {
+  EcobaseDatabase,
+  EcobaseImportService,
+  EcobaseRepository,
+} from '../../features/source-import/server/import-service';
 
 interface FindParams {
   filter?: Record<string, unknown>;
@@ -32,7 +45,15 @@ class MemoryRepository implements EcobaseRepository {
     return record;
   }
 
-  async update({ filter, filterByTk, values }: { filter?: Record<string, unknown>; filterByTk?: string | number; values: Record<string, unknown> }) {
+  async update({
+    filter,
+    filterByTk,
+    values,
+  }: {
+    filter?: Record<string, unknown>;
+    filterByTk?: string | number;
+    values: Record<string, unknown>;
+  }) {
     const records = this.filterRecords({ filter, filterByTk });
     if (records.length === 0) {
       throw new Error('MemoryRepository update failed: matching record was not found.');
@@ -137,9 +158,44 @@ describe('Sellerboard live URL import', () => {
 
     expect(run).toMatchObject({ status: 'success', rowCount: 1, normalizedCount: 2, warningCount: 0 });
     expect(fetch).toHaveBeenCalledWith('https://sellerboard.test/report.csv?t=redacted', { headers: {} });
-    expect(db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).all()).toHaveLength(1);
+    const facts = db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).all();
+    expect(facts).toEqual([
+      expect.objectContaining({
+        snapshotDate: '2026-06-05',
+        asin: 'B007P55HOW',
+        sku: 'DC50944',
+        sales: 63.4,
+        units: 3,
+        netProfit: 15.2,
+      }),
+    ]);
     expect(db.getRepository(ECOBASE_COLLECTIONS.trafficSnapshots).all()).toHaveLength(1);
     expect(db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).all()[0].sourceKey).toContain('profit_by_product_daily');
+  });
+
+  it('sums live Sellerboard Dashboard by Product sales and unit channels', async () => {
+    const csv = `Date,Marketplace,ASIN,SKU,Name,SalesOrganic,SalesPPC,SalesSponsoredProducts,SalesSponsoredDisplay,UnitsOrganic,UnitsPPC,UnitsSponsoredProducts,UnitsSponsoredDisplay,Refunds,GrossProfit,NetProfit,Sessions,Unit Session Percentage
+2026-06-05,Amazon.com,B007P55HOW,DC50944,Dampp Chaser,63.40,10.10,5.50,1.00,3,2,1,1,0,20.1,35,30,10%`;
+    const { db, service } = createService(csv);
+
+    const run = await service.runAdapterImport({
+      sourceConnectionId: 'sellerboard-source-1',
+      adapterName: 'sellerboard-api',
+      sourceIdentifier: 'manual-live-check',
+      sourceVersion: '2026-06-05',
+      preserveAuditRun: true,
+    });
+
+    expect(run).toMatchObject({ status: 'success', rowCount: 1, normalizedCount: 2, warningCount: 0 });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).all()).toEqual([
+      expect.objectContaining({
+        sales: 80,
+        units: 7,
+        netProfit: 35,
+        margin: 43.75,
+        profitPerUnit: 5,
+      }),
+    ]);
   });
 
   it('marks scheduled imports stale and waits for retry when Sellerboard has not published fresh data yet', async () => {
@@ -170,7 +226,10 @@ describe('Sellerboard live URL import', () => {
     const second = await service.runScheduledSellerboardImports({ now: '2026-06-05T09:02:00.000Z' });
     expect(second.results[0]).toMatchObject({ status: 'skipped' });
     expect(db.getRepository(ECOBASE_COLLECTIONS.importRuns).all()).toEqual([
-      expect.objectContaining({ status: 'success', idempotencyKey: 'sellerboard-source-1:sellerboard-scheduled:2026-06-05' }),
+      expect.objectContaining({
+        status: 'success',
+        idempotencyKey: 'sellerboard-source-1:sellerboard-scheduled:2026-06-05',
+      }),
       expect.objectContaining({ status: 'skipped' }),
     ]);
     expect(db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).all()).toHaveLength(1);

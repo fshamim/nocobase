@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { Plugin } from '@nocobase/server';
 import {
   amazonOperationsCsvAdapter,
@@ -9,6 +18,7 @@ import {
   noopTestAdapter,
   sellerboardApiAdapter,
   sellerboardCsvAdapter,
+  sellerboardHistoryCsvAdapter,
 } from '../features/source-import/server/adapters';
 import type { SourceAdapterRegistry } from '../features/source-import/server/adapters';
 import { ECOBASE_COLLECTIONS } from './collections/names';
@@ -53,6 +63,7 @@ export class PluginEcobaseServer extends Plugin {
     googleSheetsMigrationCsvAdapter,
     sellerboardCsvAdapter,
     sellerboardApiAdapter,
+    sellerboardHistoryCsvAdapter,
     amazonSpApiAccessCheckAdapter,
     clickupFixtureAdapter,
     clickupAccessCheckAdapter,

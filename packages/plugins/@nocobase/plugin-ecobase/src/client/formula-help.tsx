@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import React, { useState } from 'react';
 import { Button, Divider, Modal, Space, Tag, Typography } from 'antd';
 import {
@@ -193,14 +202,18 @@ const FORMULAS: Record<FormulaKey, FormulaDefinition> = {
   tierScore: {
     label: 'Tier score',
     source: 'eco_derived',
-    equation: [{ text: 'profitPerUnit', source: 'sellerboard' }, ' × ', { text: 'recommendedBestQty', source: 'csv' }],
-    note: 'Profit importance score; profit per unit can fall back from planning inputs to Sellerboard profit metrics.',
+    equation: [
+      { text: 'profitPerUnit', source: 'eco_calc' },
+      ' × ',
+      { text: 'history quantity', source: 'sellerboard' },
+    ],
+    note: 'Profit per unit is dollars per unit, not margin %. With Sellerboard history, Current uses last complete month quantity, Avg uses the six-month average, and Best uses the best month. Stock recommended reorder quantity is not used for tiering.',
   },
   profitTier: {
     label: 'Tier',
     source: 'eco_derived',
-    equation: [{ text: 'A ≥ 250, B ≥ 100, C > 0', source: 'eco_calc' }],
-    note: 'A/B/C prioritization from tier score; missing or zero score becomes unclassified.',
+    equation: [{ text: 'tierScore compared with Planning Settings thresholds', source: 'eco_calc' }],
+    note: 'A/B/C prioritization from tier score. Defaults are A ≥ 250, B ≥ 100, C > 0. Current tier is the official displayed tier when six-month history exists; average and best tiers are shown for context.',
   },
   riskDays: {
     label: 'Risk days',
@@ -224,9 +237,9 @@ const FORMULAS: Record<FormulaKey, FormulaDefinition> = {
       ' × ',
       { text: 'salesVelocity', source: 'eco_calc' },
       ' × ',
-      { text: 'profitPerUnit', source: 'sellerboard' },
+      { text: 'profitPerUnit', source: 'eco_calc' },
     ],
-    note: 'Inputs: riskDays, salesVelocity, and profitPerUnit. Example: 5 risk days × 4 units/day × $8 profit = $160 money at risk. Untiered rows show zero until profit/tier inputs exist.',
+    note: 'Inputs: riskDays, salesVelocity, and profitPerUnit. Example: 5 risk days × 4 units/day × $8 profit/unit = $160 money at risk. Untiered rows show zero until profit/tier inputs exist; fallback rows may use an imported missed-profit or 30-day profit forecast when uncovered-day math is unavailable.',
   },
   trendChange: {
     label: 'Trend change %',
@@ -363,7 +376,22 @@ const INVENTORY_FIELDS: HelpEntry[] = [
   {
     label: 'Tier',
     description:
-      'A/B/C profit priority from tier score. A is highest priority; unclassified rows have missing or zero profit inputs.',
+      'Official current tier. With history it uses last complete month units × profit per unit; unclassified rows have missing or zero profit inputs.',
+    source: 'eco_derived',
+  },
+  {
+    label: '6M tiers',
+    description: 'Current, average, and best tier variants from the six complete Sellerboard history months.',
+    source: 'eco_derived',
+  },
+  {
+    label: '6M qty',
+    description: 'Last month, six-month average, worst month, and best month units used for tier context.',
+    source: 'sellerboard',
+  },
+  {
+    label: '6M margin',
+    description: 'Total six-month net profit divided by sales. Values below 8% are flagged for review.',
     source: 'eco_derived',
   },
   {
@@ -460,8 +488,7 @@ const INVENTORY_FIELDS: HelpEntry[] = [
   },
   {
     label: 'Stuck',
-    description:
-      'Check flag for rows where stock/order/lead-time evidence indicates the operator should inspect the row manually.',
+    description: 'Check flag for stuck inventory: days of cover greater than 60.',
     source: 'eco_calc',
   },
   {
@@ -477,6 +504,23 @@ const INVENTORY_DETAIL_FIELDS: HelpEntry[] = [
     label: 'Supplier source / confidence',
     description:
       'Shows whether the supplier came from confirmed mapping, import data, or order history, plus confidence level.',
+  },
+  {
+    label: 'Profit per unit',
+    description:
+      'Dollar profit per unit, not profit margin %. With history it is Sellerboard net profit divided by units across the six complete months; otherwise planning sheet profit inputs are used.',
+    source: 'eco_calc',
+  },
+  {
+    label: 'Recommended best qty',
+    description: 'Six-month best-month quantity when history exists; sheet Rec. Best Qty is only a fallback.',
+    source: 'sellerboard',
+  },
+  {
+    label: 'Projected sellable',
+    description:
+      'Earliest expected sellable date from matching supplier order lines. Imported from Expected Sellable Date, otherwise ETA on Amazon or Arrival to Amazon; operators can edit it on the order line.',
+    source: 'eco_calc',
   },
   {
     label: 'Risk basis',
@@ -529,7 +573,17 @@ const INVENTORY_TAGS: HelpEntry[] = [
   {
     label: 'STUCK',
     tagColor: 'purple',
-    description: 'Manual check needed because the row has conflicting or stalled stock/order evidence.',
+    description: 'Manual check needed because days of cover is greater than 60.',
+  },
+  {
+    label: 'Margin < 8%',
+    tagColor: 'red',
+    description: 'Six-month margin is below the operator warning threshold.',
+  },
+  {
+    label: 'Tier drop A→B / B→C / C→—',
+    tagColor: 'red',
+    description: 'Current tier is lower than the latest persisted prior tier.',
   },
   { label: 'fresh', tagColor: 'green', description: 'Lead-time evidence is recent enough for planning.' },
   { label: 'stale', tagColor: 'orange', description: 'Lead-time evidence exists but should be reconfirmed.' },

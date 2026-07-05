@@ -1,11 +1,24 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import { EcobaseDataWarningService } from '../../../server/services/data-warning-service';
 import type { EcobaseDataWarning } from '../../../server/services/data-warning-service';
 import type { EcobaseDatabase, EcobaseRepository } from '../../source-import/server/import-service';
 import { toPlainRecord } from '../../source-import/server/import-service';
-import { DEFAULT_PLANNING_SETTINGS, EcobasePlanningSettingsService } from '../../../server/services/planning-settings-service';
+import {
+  DEFAULT_PLANNING_SETTINGS,
+  EcobasePlanningSettingsService,
+} from '../../../server/services/planning-settings-service';
 import { addDays, diffDays, isoDate } from './planning-date';
 import { profitTierFor, type ProfitTierThresholds } from './profit-tier';
+import { summarizeHistoricalProductFacts } from './historical-product-metrics';
 
 const RULE_VERSION = 'spreadsheet_parity_v1';
 const ZERO_VELOCITY_DAYS_OF_COVER_SENTINEL = 999;
@@ -250,10 +263,11 @@ export class EcobasePlanningCalculationService {
       sourceEstimatedVelocity,
     ].filter((value): value is number => typeof value === 'number');
     const salesVelocity = velocityCandidates.length > 0 ? Math.max(...velocityCandidates) : undefined;
+    const historicalMetrics = summarizeHistoricalProductFacts(params.factRows, params.calculationDate);
     const recommendedBestQty =
-      sumFirstNumbers(latestInventoryRows, ['recommendedReorderQuantity', 'Recommended quantity for  reordering']) ??
+      historicalMetrics.sixMonthBestQty ??
       sumFirstNumbers(params.parameterRows, ['recommendedBestQty', 'Rec.Best Qty', 'Rec. Best Qty']);
-    const profitPerUnit = weightedProfitPerUnit(params.parameterRows);
+    const profitPerUnit = historicalMetrics.profitPerUnit ?? weightedProfitPerUnit(params.parameterRows);
     const safetyBufferDays =
       params.safetyBufferDays ??
       firstNumber(params.parameterRows, ['safetyBufferDays', 'Safety Buffer Days']) ??
@@ -317,7 +331,16 @@ export class EcobasePlanningCalculationService {
       profitPerUnit,
       recommendedBestQty,
     });
-    const { tier, tierScore } = profitTierFor(profitPerUnit, recommendedBestQty, params.profitTierThresholds);
+    const currentTierResult = profitTierFor(profitPerUnit, historicalMetrics.lastMonthQty, params.profitTierThresholds);
+    const averageTierResult = profitTierFor(
+      profitPerUnit,
+      historicalMetrics.sixMonthAverageQty,
+      params.profitTierThresholds,
+    );
+    const bestTierResult = profitTierFor(profitPerUnit, historicalMetrics.sixMonthBestQty, params.profitTierThresholds);
+    const legacyTierResult = profitTierFor(profitPerUnit, recommendedBestQty, params.profitTierThresholds);
+    const hasHistoricalQuantities = typeof historicalMetrics.sixMonthBestQty === 'number';
+    const selectedTierResult = hasHistoricalQuantities ? currentTierResult : legacyTierResult;
     return {
       naturalKey: `${params.planningProductId}:${RULE_VERSION}:${params.calculationDate}`,
       planningProductId: params.planningProductId,
@@ -325,8 +348,19 @@ export class EcobasePlanningCalculationService {
       ruleVersion: RULE_VERSION,
       company: asString(params.product.company),
       canonicalAsin: asString(params.product.canonicalAsin),
-      tier: tier ?? 'unclassified',
-      tierScore,
+      tier: selectedTierResult.tier ?? 'unclassified',
+      tierScore: selectedTierResult.tierScore,
+      currentTier: currentTierResult.tier ?? 'unclassified',
+      currentTierScore: currentTierResult.tierScore,
+      averageTier: averageTierResult.tier ?? 'unclassified',
+      averageTierScore: averageTierResult.tierScore,
+      bestTier: bestTierResult.tier ?? 'unclassified',
+      bestTierScore: bestTierResult.tierScore,
+      lastMonthQty: historicalMetrics.lastMonthQty,
+      sixMonthAverageQty: historicalMetrics.sixMonthAverageQty,
+      sixMonthWorstQty: historicalMetrics.sixMonthWorstQty,
+      sixMonthBestQty: historicalMetrics.sixMonthBestQty,
+      sixMonthMargin: historicalMetrics.margin,
       currentStockParity,
       sellableStock,
       pipelineStock,
@@ -367,6 +401,7 @@ export class EcobasePlanningCalculationService {
           sourceEstimatedVelocity,
         },
         riskDays,
+        historicalMetrics,
         warningCount: warnings.length,
         warnings,
       },

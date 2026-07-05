@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { defineCollection } from '@nocobase/database';
 import { ECOBASE_COLLECTIONS } from './names';
 
@@ -49,6 +58,7 @@ export default defineCollection({
     { name: 'grossProfit', type: 'double', interface: 'number', uiSchema: { title: 'Gross Profit' } },
     { name: 'netProfit', type: 'double', interface: 'number', uiSchema: { title: 'Net Profit' } },
     { name: 'margin', type: 'double', interface: 'number', uiSchema: { title: 'Margin' } },
+    { name: 'profitPerUnit', type: 'double', interface: 'number', uiSchema: { title: 'Profit Per Unit' } },
     { name: 'sessions', type: 'double', interface: 'number', uiSchema: { title: 'Sessions' } },
     {
       name: 'unitSessionPercentage',

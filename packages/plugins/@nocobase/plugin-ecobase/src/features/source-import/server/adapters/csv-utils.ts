@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 export interface CsvParseResult {
   headers: string[];
   rows: Record<string, string>[];
@@ -14,15 +23,16 @@ export function normalizeHeader(value: string) {
   return value.trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
-export function parseCsv(content: string): CsvParseResult {
+export function parseDelimitedCsv(content: string, delimiter: ',' | ';'): CsvParseResult {
   const records: string[][] = [];
   let row: string[] = [];
   let field = '';
   let quoted = false;
+  const input = content.replace(/^\uFEFF/, '');
 
-  for (let index = 0; index < content.length; index += 1) {
-    const char = content[index];
-    const next = content[index + 1];
+  for (let index = 0; index < input.length; index += 1) {
+    const char = input[index];
+    const next = input[index + 1];
 
     if (quoted) {
       if (char === '"' && next === '"') {
@@ -38,7 +48,7 @@ export function parseCsv(content: string): CsvParseResult {
 
     if (char === '"') {
       quoted = true;
-    } else if (char === ',') {
+    } else if (char === delimiter) {
       row.push(field);
       field = '';
     } else if (char === '\n') {
@@ -67,6 +77,10 @@ export function parseCsv(content: string): CsvParseResult {
     );
 
   return { headers, rows };
+}
+
+export function parseCsv(content: string): CsvParseResult {
+  return parseDelimitedCsv(content, ',');
 }
 
 export class CsvRowReader {

@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { defineCollection } from '@nocobase/database';
 import { ECOBASE_COLLECTIONS } from './names';
 
@@ -52,6 +61,17 @@ export default defineCollection({
       index: true,
     },
     { name: 'tierScore', type: 'double', interface: 'number', uiSchema: { title: 'Tier Score' } },
+    { name: 'currentTier', type: 'string', interface: 'input', uiSchema: { title: 'Current Tier' }, index: true },
+    { name: 'currentTierScore', type: 'double', interface: 'number', uiSchema: { title: 'Current Tier Score' } },
+    { name: 'averageTier', type: 'string', interface: 'input', uiSchema: { title: 'Average Tier' }, index: true },
+    { name: 'averageTierScore', type: 'double', interface: 'number', uiSchema: { title: 'Average Tier Score' } },
+    { name: 'bestTier', type: 'string', interface: 'input', uiSchema: { title: 'Best Tier' }, index: true },
+    { name: 'bestTierScore', type: 'double', interface: 'number', uiSchema: { title: 'Best Tier Score' } },
+    { name: 'lastMonthQty', type: 'double', interface: 'number', uiSchema: { title: 'Last Month Qty' } },
+    { name: 'sixMonthAverageQty', type: 'double', interface: 'number', uiSchema: { title: 'Six-Month Average Qty' } },
+    { name: 'sixMonthWorstQty', type: 'double', interface: 'number', uiSchema: { title: 'Six-Month Worst Qty' } },
+    { name: 'sixMonthBestQty', type: 'double', interface: 'number', uiSchema: { title: 'Six-Month Best Qty' } },
+    { name: 'sixMonthMargin', type: 'double', interface: 'number', uiSchema: { title: 'Six-Month Margin' } },
     { name: 'currentStockParity', type: 'double', interface: 'number', uiSchema: { title: 'Current Stock Parity' } },
     { name: 'sellableStock', type: 'double', interface: 'number', uiSchema: { title: 'Sellable Stock' } },
     { name: 'pipelineStock', type: 'double', interface: 'number', uiSchema: { title: 'Replenishment Stock' } },

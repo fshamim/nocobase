@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { useAPIClient } from '@nocobase/client';
 import {
   Alert,
@@ -279,16 +288,36 @@ function supplierOrderStatusColor(value?: string) {
   }
 }
 
-function formatNumber(value: any) {
+function finiteNumber(value: any) {
+  if (value === null || value === undefined || value === '') return undefined;
   const number = Number(value);
-  return Number.isFinite(number) ? number.toLocaleString(undefined, { maximumFractionDigits: 2 }) : '—';
+  return Number.isFinite(number) ? number : undefined;
+}
+
+function formatNumber(value: any) {
+  const number = finiteNumber(value);
+  return typeof number === 'number' ? number.toLocaleString(undefined, { maximumFractionDigits: 2 }) : '—';
 }
 
 function formatCurrency(value: any) {
-  const number = Number(value);
-  return Number.isFinite(number)
+  const number = finiteNumber(value);
+  return typeof number === 'number'
     ? number.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
     : '—';
+}
+
+function formatPercent(value: any) {
+  const number = finiteNumber(value);
+  return typeof number === 'number' ? `${number.toLocaleString(undefined, { maximumFractionDigits: 1 })}%` : '—';
+}
+
+function formatTier(value: any) {
+  return value && value !== 'unclassified' ? String(value) : '—';
+}
+
+function formatTierScore(value: any) {
+  const number = finiteNumber(value);
+  return typeof number === 'number' ? formatNumber(number) : '—';
 }
 
 function formatDate(value: any) {
@@ -346,18 +375,22 @@ function leadTimeSourceText(row: PlainRecord) {
 
 function monetaryRiskText(row: PlainRecord) {
   if (row.estimatedProfitRiskBasis === 'uncovered_oos_days × sales_velocity × profit_per_unit') {
-    return 'Potential profit loss if this product remains uncovered: max(lead time + safety buffer − days of cover, 0) × sales velocity × profit per unit.';
+    return 'Potential profit loss if this product remains uncovered: max(lead time + safety buffer − days of cover, 0) × sales velocity × profit per unit. Profit per unit is dollars/unit, not margin %.';
   }
   if (row.estimatedProfitRiskBasis === 'planning_calculation_estimated_profit_risk') {
-    return 'Potential profit loss from the planning calculation service. It uses uncovered days, sales velocity, and profit per unit when those inputs are available.';
+    return 'Potential profit loss from the planning calculation service. It uses uncovered days, sales velocity, and profit per unit when those inputs are available. Profit per unit is dollars/unit, not margin %.';
   }
   if (row.estimatedProfitRiskBasis === 'imported_missed_profit_or_30_day_profit_forecast') {
-    return 'Imported missed-profit estimate or 30-day profit forecast for a tiered product.';
+    return 'Imported missed-profit estimate or 30-day profit forecast for a tiered product because uncovered-day math was unavailable.';
   }
   if (row.estimatedProfitRiskBasis === 'not_tiered_profit_inputs_missing') {
     return 'No active money at risk: this product is not in profit tier A, B, or C because profit inputs are missing or zero.';
   }
   return 'Money at risk is unavailable until tierable profit data is imported.';
+}
+
+function profitInputText() {
+  return 'Profit per unit is dollar profit per sold unit, not profit margin %. When six-month Sellerboard history exists, EcoBase derives it from total net profit ÷ total units; otherwise it falls back to planning sheet profit inputs.';
 }
 
 function productStatusText() {
@@ -369,7 +402,43 @@ function orderCoverageText() {
 }
 
 function tierScoreText() {
-  return "Tier score follows the sheet's Top SKU logic: Profit Per Unit × Rec. Best Qty. It is separate from money at risk; when those profit inputs are missing the score is 0.";
+  return 'Tier score = profit per unit × quantity. Current tier uses last complete month quantity; average tier uses the six-month average; best tier uses the six-month best month. Stock recommended reorder quantity is not used for tiering.';
+}
+
+function TierMovementTag({ row, t }: { row: PlainRecord; t: (key: string) => string }) {
+  const movement = String(row.tierMovement ?? '');
+  const previous = formatTier(row.previousTier);
+  const current = formatTier(row.tier ?? row.currentTier);
+  if (movement === 'down' || movement === 'lost_tier') {
+    return <Tag color="red">{t(`Tier drop ${previous}→${current}`)}</Tag>;
+  }
+  return null;
+}
+
+function MarginAlertTag({ row, t }: { row: PlainRecord; t: (key: string) => string }) {
+  const margin = finiteNumber(row.sixMonthMargin);
+  return typeof margin === 'number' && margin < 8 ? <Tag color="red">{t('Margin < 8%')}</Tag> : null;
+}
+
+function HistoricalTierTags({ row, t }: { row: PlainRecord; t: (key: string) => string }) {
+  return (
+    <Space size={4} wrap>
+      <Tag color={tierColor(row.currentTier)}>{`${t('Current')} ${formatTier(row.currentTier)}`}</Tag>
+      <Tag color={tierColor(row.averageTier)}>{`${t('Avg')} ${formatTier(row.averageTier)}`}</Tag>
+      <Tag color={tierColor(row.bestTier)}>{`${t('Best')} ${formatTier(row.bestTier)}`}</Tag>
+    </Space>
+  );
+}
+
+function HistoricalQuantityTags({ row, t }: { row: PlainRecord; t: (key: string) => string }) {
+  return (
+    <Space size={4} wrap>
+      <Tag>{`${t('Last')} ${formatNumber(row.lastMonthQty)}`}</Tag>
+      <Tag>{`${t('Avg')} ${formatNumber(row.sixMonthAverageQty)}`}</Tag>
+      <Tag>{`${t('Worst')} ${formatNumber(row.sixMonthWorstQty)}`}</Tag>
+      <Tag>{`${t('Best')} ${formatNumber(row.sixMonthBestQty)}`}</Tag>
+    </Space>
+  );
 }
 
 function columnHelp(title: string, help: string) {
@@ -1103,10 +1172,44 @@ export default function InventoryPlanningPage() {
       render: (value: string) => <Tag color={actionColor(value)}>{t(value ?? 'unknown')}</Tag>,
     },
     {
-      title: String(t('Tier')),
+      title: columnHelp(t('Tier'), t(tierScoreText())),
       dataIndex: 'tier',
-      width: 90,
-      render: (value: string) => <Tag color={tierColor(value)}>{value ?? '—'}</Tag>,
+      width: 170,
+      render: (value: string, row: PlainRecord) => (
+        <Space size={4} wrap>
+          <Tag color={tierColor(value)}>{formatTier(value)}</Tag>
+          <TierMovementTag row={row} t={t} />
+          <MarginAlertTag row={row} t={t} />
+        </Space>
+      ),
+    },
+    {
+      title: columnHelp(
+        t('6M tiers'),
+        t('Current uses last complete month; Avg uses the six-month average; Best uses the best month.'),
+      ),
+      key: 'historicalTiers',
+      width: 210,
+      render: (_value: any, row: PlainRecord) => <HistoricalTierTags row={row} t={t} />,
+    },
+    {
+      title: columnHelp(t('6M qty'), t('Last, average, worst, and best month units from the six complete months.')),
+      key: 'historicalQuantities',
+      width: 230,
+      render: (_value: any, row: PlainRecord) => <HistoricalQuantityTags row={row} t={t} />,
+    },
+    {
+      title: columnHelp(t('6M margin'), t('Total six-month net profit ÷ sales. Values below 8% are flagged.')),
+      dataIndex: 'sixMonthMargin',
+      width: 120,
+      render: (value: number) => {
+        const margin = finiteNumber(value);
+        return typeof margin === 'number' && margin < 8 ? (
+          <Tag color="red">{formatPercent(margin)}</Tag>
+        ) : (
+          formatPercent(value)
+        );
+      },
     },
     { title: String(t('Company')), dataIndex: 'company', width: 170, render: (value: string) => value || '—' },
     { title: String(t('ASIN')), dataIndex: 'asin', width: 130 },
@@ -1211,7 +1314,7 @@ export default function InventoryPlanningPage() {
       render: formatNumber,
     },
     {
-      title: String(t('Stuck')),
+      title: columnHelp(t('Stuck'), t('Days cover over 60 is stuck inventory and needs operator review.')),
       dataIndex: 'stuck',
       width: 90,
       render: (value: boolean) => (value ? <Tag color="purple">{t('Check')}</Tag> : <Tag>{t('No')}</Tag>),
@@ -1505,7 +1608,11 @@ export default function InventoryPlanningPage() {
                             render: (value: string) => value || <Tag color="red">{t('Missing supplier')}</Tag>,
                           },
                           { title: String(t('Spend')), dataIndex: 'spend', render: formatCurrency },
-                          { title: String(t('Protected profit')), dataIndex: 'protectedProfit', render: formatCurrency },
+                          {
+                            title: String(t('Protected profit')),
+                            dataIndex: 'protectedProfit',
+                            render: formatCurrency,
+                          },
                           { title: String(t('Score')), dataIndex: 'adjustedScore', render: formatNumber },
                           {
                             title: String(t('Reasons')),
@@ -1546,7 +1653,11 @@ export default function InventoryPlanningPage() {
                             render: (value: string) => value || <Tag color="red">{t('Missing supplier')}</Tag>,
                           },
                           { title: String(t('Spend')), dataIndex: 'spend', render: formatCurrency },
-                          { title: String(t('Protected profit')), dataIndex: 'protectedProfit', render: formatCurrency },
+                          {
+                            title: String(t('Protected profit')),
+                            dataIndex: 'protectedProfit',
+                            render: formatCurrency,
+                          },
                         ]}
                       />
                       <Alert
@@ -2063,8 +2174,41 @@ export default function InventoryPlanningPage() {
                 <Tag>{selectedRow.productStatus ?? '—'}</Tag>
               </Descriptions.Item>
               <Descriptions.Item label={columnHelp(t('Tier'), t(tierScoreText()))}>
-                <Tag color={tierColor(selectedRow.tier)}>{selectedRow.tier}</Tag> {t('Score')}{' '}
-                {formatNumber(selectedRow.tierScore)}
+                <Space size={4} wrap>
+                  <Tag color={tierColor(selectedRow.tier)}>{formatTier(selectedRow.tier)}</Tag>
+                  <span>
+                    {t('Score')} {formatTierScore(selectedRow.tierScore)}
+                  </span>
+                  <TierMovementTag row={selectedRow} t={t} />
+                  <MarginAlertTag row={selectedRow} t={t} />
+                </Space>
+              </Descriptions.Item>
+              <Descriptions.Item label={columnHelp(t('Six-month tiering'), t(tierScoreText()))}>
+                <Space direction="vertical" size={4}>
+                  <HistoricalTierTags row={selectedRow} t={t} />
+                  <HistoricalQuantityTags row={selectedRow} t={t} />
+                  <Space size={4} wrap>
+                    <Tag color={(finiteNumber(selectedRow.sixMonthMargin) ?? 99) < 8 ? 'red' : 'blue'}>
+                      {t('6M margin')} {formatPercent(selectedRow.sixMonthMargin)}
+                    </Tag>
+                    <Tag color="orange">
+                      {t('Best tier score')} {formatTierScore(selectedRow.bestTierScore)}
+                    </Tag>
+                  </Space>
+                </Space>
+              </Descriptions.Item>
+              <Descriptions.Item label={columnHelp(t('Profit inputs'), t(profitInputText()))}>
+                <Space size={4} wrap>
+                  <Tag color="green">
+                    {t('Profit/unit')} {formatCurrency(selectedRow.profitPerUnit)}
+                  </Tag>
+                  <Tag color="purple">
+                    {t('Best qty')} {formatNumber(selectedRow.recommendedBestQty)}
+                  </Tag>
+                  <Tag color="orange">
+                    {t('Current score')} {formatTierScore(selectedRow.tierScore)}
+                  </Tag>
+                </Space>
               </Descriptions.Item>
               <Descriptions.Item label={t('Company')}>{selectedRow.company ?? '—'}</Descriptions.Item>
               <Descriptions.Item label={t('ASIN / SKU')}>
@@ -2161,10 +2305,22 @@ export default function InventoryPlanningPage() {
                               },
                               { title: String(t('Ordered')), dataIndex: 'orderedQty', render: formatNumber },
                               { title: String(t('Received')), dataIndex: 'receivedQty', render: formatNumber },
-                              { title: String(t('Expected delivery')), dataIndex: 'expectedDeliveryDate', render: formatDate },
-                              { title: String(t('Expected sellable')), dataIndex: 'expectedSellableDate', render: formatDate },
+                              {
+                                title: String(t('Expected delivery')),
+                                dataIndex: 'expectedDeliveryDate',
+                                render: formatDate,
+                              },
+                              {
+                                title: String(t('Expected sellable')),
+                                dataIndex: 'expectedSellableDate',
+                                render: formatDate,
+                              },
                               { title: String(t('Observed')), dataIndex: 'observedAt', render: formatDate },
-                              { title: String(t('Source')), dataIndex: 'sourceStage', render: (value: string) => value || '—' },
+                              {
+                                title: String(t('Source')),
+                                dataIndex: 'sourceStage',
+                                render: (value: string) => value || '—',
+                              },
                               {
                                 title: String(t('Actions')),
                                 key: 'actions',
@@ -2395,8 +2551,16 @@ export default function InventoryPlanningPage() {
                             locale={{ emptyText: t('No linked tasks for this product yet.') }}
                             columns={[
                               { title: String(t('Task')), dataIndex: 'title' },
-                              { title: String(t('Status')), dataIndex: 'status', render: (value: string) => value || '—' },
-                              { title: String(t('Priority')), dataIndex: 'priority', render: (value: string) => value || '—' },
+                              {
+                                title: String(t('Status')),
+                                dataIndex: 'status',
+                                render: (value: string) => value || '—',
+                              },
+                              {
+                                title: String(t('Priority')),
+                                dataIndex: 'priority',
+                                render: (value: string) => value || '—',
+                              },
                               { title: String(t('Due')), dataIndex: 'dueAt', render: formatDate },
                             ]}
                           />
@@ -2409,9 +2573,17 @@ export default function InventoryPlanningPage() {
                             locale={{ emptyText: t('No linked targets for this product yet.') }}
                             columns={[
                               { title: String(t('Metric')), dataIndex: 'metric' },
-                              { title: String(t('Period')), dataIndex: 'periodType', render: (value: string) => value || '—' },
+                              {
+                                title: String(t('Period')),
+                                dataIndex: 'periodType',
+                                render: (value: string) => value || '—',
+                              },
                               { title: String(t('Target')), dataIndex: 'targetValue', render: formatNumber },
-                              { title: String(t('Status')), dataIndex: 'status', render: (value: string) => value || '—' },
+                              {
+                                title: String(t('Status')),
+                                dataIndex: 'status',
+                                render: (value: string) => value || '—',
+                              },
                             ]}
                           />
                         </Space>

@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { defineCollection } from '@nocobase/database';
 import { ECOBASE_COLLECTIONS } from './names';
 
@@ -80,6 +89,35 @@ export default defineCollection({
     },
     { name: 'tier', type: 'string', interface: 'select', uiSchema: { title: 'Tier', enum: TIER_OPTIONS }, index: true },
     { name: 'tierScore', type: 'double', interface: 'number', uiSchema: { title: 'Tier Score' } },
+    {
+      name: 'currentTier',
+      type: 'string',
+      interface: 'select',
+      uiSchema: { title: 'Current Tier', enum: TIER_OPTIONS },
+      index: true,
+    },
+    { name: 'currentTierScore', type: 'double', interface: 'number', uiSchema: { title: 'Current Tier Score' } },
+    {
+      name: 'averageTier',
+      type: 'string',
+      interface: 'select',
+      uiSchema: { title: 'Average Tier', enum: TIER_OPTIONS },
+      index: true,
+    },
+    { name: 'averageTierScore', type: 'double', interface: 'number', uiSchema: { title: 'Average Tier Score' } },
+    {
+      name: 'bestTier',
+      type: 'string',
+      interface: 'select',
+      uiSchema: { title: 'Best Tier', enum: TIER_OPTIONS },
+      index: true,
+    },
+    { name: 'bestTierScore', type: 'double', interface: 'number', uiSchema: { title: 'Best Tier Score' } },
+    { name: 'lastMonthQty', type: 'double', interface: 'number', uiSchema: { title: 'Last Month Qty' } },
+    { name: 'sixMonthAverageQty', type: 'double', interface: 'number', uiSchema: { title: 'Six-Month Average Qty' } },
+    { name: 'sixMonthWorstQty', type: 'double', interface: 'number', uiSchema: { title: 'Six-Month Worst Qty' } },
+    { name: 'sixMonthBestQty', type: 'double', interface: 'number', uiSchema: { title: 'Six-Month Best Qty' } },
+    { name: 'sixMonthMargin', type: 'double', interface: 'number', uiSchema: { title: 'Six-Month Margin' } },
     {
       name: 'previousTier',
       type: 'string',

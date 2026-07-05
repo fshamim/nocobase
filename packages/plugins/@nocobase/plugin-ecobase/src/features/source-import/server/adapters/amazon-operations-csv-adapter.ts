@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { createHash } from 'node:crypto';
 import type {
   AdapterStreamItem,
@@ -7,6 +16,8 @@ import type {
   SourceAdapterImportInput,
 } from './types';
 import { CsvRowReader, CsvSourceFile, normalizedHeaderSet, normalizeHeader, parseCsv } from './csv-utils';
+import { sellerboardMetricValues } from './sellerboard-metrics';
+import { analyzeSellerboardHistoryCsvFile } from './sellerboard-history-csv-adapter';
 
 interface FileConfig {
   files?: CsvSourceFile[];
@@ -22,6 +33,7 @@ export type CsvShape =
   | 'buybox'
   | 'sellerboard-dashboard-goods'
   | 'sellerboard-dashboard-totals'
+  | 'sellerboard-history-dashboard-goods'
   | 'sellerboard-stock'
   | 'supplier-analysis-tracker'
   | 'supplier-analysis-2026'
@@ -119,6 +131,9 @@ export function targetForCsvShape(shape: CsvShape): Omit<CsvBundleAnalysisGroup,
   if (shape === 'supplier-analysis-tracker' || shape === 'supplier-analysis-2026') {
     return { adapterName: 'google-sheets-migration-csv', sourceType: 'google_sheets', domain: 'supplier_management' };
   }
+  if (shape === 'sellerboard-history-dashboard-goods') {
+    return { adapterName: 'sellerboard-history-csv', sourceType: 'sellerboard', domain: 'amazon_operations' };
+  }
   if (
     shape === 'sellerboard-dashboard-goods' ||
     shape === 'sellerboard-dashboard-totals' ||
@@ -138,18 +153,26 @@ export function analyzeCsvFile(file: CsvSourceFile): CsvFileAnalysis {
     warnings.push('CSV file content is empty.');
   }
   const parsed = parseCsv(file.content ?? '');
-  const detectedShape = detectCsvShape(parsed.headers);
+  let detectedShape = detectCsvShape(parsed.headers);
+  let rowCount = parsed.rows.length;
+  if (detectedShape === 'unknown') {
+    const historyAnalysis = analyzeSellerboardHistoryCsvFile(file);
+    if (historyAnalysis.detectedShape) {
+      detectedShape = historyAnalysis.detectedShape;
+      rowCount = historyAnalysis.rowCount;
+    }
+  }
   const target = targetForCsvShape(detectedShape);
   if (!target) {
     warnings.push(`Ecobase could not identify the CSV shape for ${file.name || '(unnamed file)'}.`);
   }
-  if (typeof file.expectedRowCount === 'number' && file.expectedRowCount !== parsed.rows.length) {
-    warnings.push(`Expected ${file.expectedRowCount} rows but parsed ${parsed.rows.length}.`);
+  if (typeof file.expectedRowCount === 'number' && file.expectedRowCount !== rowCount) {
+    warnings.push(`Expected ${file.expectedRowCount} rows but parsed ${rowCount}.`);
   }
   return {
     name: file.name,
     checksum: csvFileChecksum(file.content ?? ''),
-    rowCount: parsed.rows.length,
+    rowCount,
     detectedShape,
     adapterName: target?.adapterName ?? null,
     sourceType: target?.sourceType ?? null,
@@ -966,6 +989,7 @@ function dailyFactRecord(
 ): NormalizedRecord {
   const asin = canonicalAsin(row) ?? '__TOTAL__';
   const sku = row.string('SKU') ?? asin;
+  const sellerboardMetrics = sellerboardMetricValues(row);
   return {
     kind: 'listing_daily_fact',
     data: {
@@ -975,13 +999,14 @@ function dailyFactRecord(
       company: row.string('Company'),
       asin,
       sku,
-      sales: row.number('SalesOrganic', 'Ordered Product Sales', 'Total Sales'),
-      units: row.number('UnitsOrganic', 'Units Achieved', 'Units Ordered'),
+      sales: sellerboardMetrics.sales,
+      units: sellerboardMetrics.units,
       refunds: row.number('Refunds', 'Refund Units'),
       refundRate: row.number('% Refund', 'Sellable Returns %'),
-      grossProfit: row.number('GrossProfit'),
-      netProfit: row.number('NetProfit', 'Profit Achieved'),
-      margin: row.number('Margin', 'Margin '),
+      grossProfit: sellerboardMetrics.grossProfit,
+      netProfit: sellerboardMetrics.netProfit,
+      margin: sellerboardMetrics.margin,
+      profitPerUnit: sellerboardMetrics.profitPerUnit,
       sessions: row.number('Sessions', 'Sessions - Total'),
       unitSessionPercentage: row.number('Unit Session Percentage'),
       sourceKey,

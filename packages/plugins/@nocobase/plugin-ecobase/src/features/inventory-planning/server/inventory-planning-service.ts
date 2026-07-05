@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { createHash } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import type { EcobaseDatabase } from '../../source-import/server/import-service';
@@ -21,6 +30,7 @@ import {
   profitTierRank,
   type ProfitTierThresholds,
 } from './profit-tier';
+import { summarizeHistoricalProductFacts, type HistoricalProductMetrics } from './historical-product-metrics';
 
 const FALLBACK_RECORD_LIMIT = 100000;
 
@@ -75,6 +85,11 @@ type ProfitMetrics = {
 type ProfitMetricsIndex = {
   exact: Map<string, ProfitMetrics>;
   byAsin: Map<string, ProfitMetrics>;
+};
+
+type HistoricalProfitMetricsIndex = {
+  exact: Map<string, HistoricalProductMetrics>;
+  byAsin: Map<string, HistoricalProductMetrics>;
 };
 
 type SupplierOrderStatusRules = {
@@ -518,6 +533,17 @@ const INVENTORY_PLANNING_ROW_FIELDS = [
   'actionStatus',
   'tier',
   'tierScore',
+  'currentTier',
+  'currentTierScore',
+  'averageTier',
+  'averageTierScore',
+  'bestTier',
+  'bestTierScore',
+  'lastMonthQty',
+  'sixMonthAverageQty',
+  'sixMonthWorstQty',
+  'sixMonthBestQty',
+  'sixMonthMargin',
   'previousTier',
   'tierMovement',
   'profitPerUnit',
@@ -612,10 +638,16 @@ export class EcobaseInventoryPlanningService {
       }))
       .sort((left, right) => {
         const leftDate = new Date(
-          asString(left.observedAt) ?? asString(left.order?.lastMeaningfulUpdateAt) ?? asString(left.order?.createdAt) ?? 0,
+          asString(left.observedAt) ??
+            asString(left.order?.lastMeaningfulUpdateAt) ??
+            asString(left.order?.createdAt) ??
+            0,
         ).getTime();
         const rightDate = new Date(
-          asString(right.observedAt) ?? asString(right.order?.lastMeaningfulUpdateAt) ?? asString(right.order?.createdAt) ?? 0,
+          asString(right.observedAt) ??
+            asString(right.order?.lastMeaningfulUpdateAt) ??
+            asString(right.order?.createdAt) ??
+            0,
         ).getTime();
         return rightDate - leftDate;
       });
@@ -1234,6 +1266,11 @@ export class EcobaseInventoryPlanningService {
       calculationDate: params.calculationDate,
       sourceConnectionCompanies,
     });
+    const historicalProfitMetrics = await this.historicalProfitMetricsByProduct({
+      company: params.company,
+      calculationDate: params.calculationDate,
+      sourceConnectionCompanies,
+    });
     const parameterByProduct = new Map<string, PlainRecord>();
     for (const parameter of parameterRows) {
       const key = this.fallbackProductKey(parameter, sourceConnectionCompanies);
@@ -1254,6 +1291,7 @@ export class EcobaseInventoryPlanningService {
           parameter: parameterByProduct.get(key) ?? {},
           sourceConnectionCompanies,
           profitMetrics,
+          historicalProfitMetrics,
           calculationDate: params.calculationDate,
           leadTimeFreshnessDays: params.leadTimeFreshnessDays,
           orderSoonWindowDays: params.orderSoonWindowDays,
@@ -1314,6 +1352,44 @@ export class EcobaseInventoryPlanningService {
     return index;
   }
 
+  private async historicalProfitMetricsByProduct(params: {
+    company?: string;
+    calculationDate: string;
+    sourceConnectionCompanies: Map<string, string>;
+  }): Promise<HistoricalProfitMetricsIndex> {
+    const facts = await this.findFallbackRecords(ECOBASE_COLLECTIONS.listingDailyFacts, {
+      company: params.company,
+      sourceConnectionCompanies: params.sourceConnectionCompanies,
+      activeSourceConnectionIds: await this.activeSourceConnectionIds(),
+    });
+    const exactFacts = new Map<string, PlainRecord[]>();
+    const byAsinFacts = new Map<string, PlainRecord[]>();
+    const addFact = (groups: Map<string, PlainRecord[]>, key: string, fact: PlainRecord) => {
+      groups.set(key, [...(groups.get(key) ?? []), fact]);
+    };
+
+    for (const fact of facts) {
+      const company = companyFromRecord(fact, params.sourceConnectionCompanies);
+      const asin = asString(fact.asin);
+      if (!company || !asin || asin === '__TOTAL__') continue;
+      const sku = asString(fact.sku);
+      addFact(byAsinFacts, profitMetricKey(company, asin), fact);
+      if (sku && sku !== asin) {
+        addFact(exactFacts, profitMetricKey(company, asin, sku), fact);
+      }
+    }
+
+    const summarizeGroups = (groups: Map<string, PlainRecord[]>) =>
+      new Map(
+        [...groups.entries()].map(([key, groupedFacts]) => [
+          key,
+          summarizeHistoricalProductFacts(groupedFacts, params.calculationDate),
+        ]),
+      );
+
+    return { exact: summarizeGroups(exactFacts), byAsin: summarizeGroups(byAsinFacts) };
+  }
+
   private addProfitMetric(metrics: Map<string, ProfitMetrics>, key: string, fact: PlainRecord) {
     const metric = metrics.get(key) ?? { sales: 0, units: 0, profit: 0, refunds: 0 };
     metric.sales += asNumber(fact.sales) ?? 0;
@@ -1324,7 +1400,12 @@ export class EcobaseInventoryPlanningService {
     metrics.set(key, metric);
   }
 
-  private profitMetricsFor(metrics: ProfitMetricsIndex, company: string, asin?: string, sku?: string) {
+  private profitMetricsFor<T>(
+    metrics: { exact: Map<string, T>; byAsin: Map<string, T> },
+    company: string,
+    asin?: string,
+    sku?: string,
+  ) {
     if (!asin) return undefined;
     return (
       (sku ? metrics.exact.get(profitMetricKey(company, asin, sku)) : undefined) ??
@@ -1344,6 +1425,7 @@ export class EcobaseInventoryPlanningService {
     parameter: PlainRecord;
     sourceConnectionCompanies: Map<string, string>;
     profitMetrics: ProfitMetricsIndex;
+    historicalProfitMetrics: HistoricalProfitMetricsIndex;
     calculationDate: string;
     leadTimeFreshnessDays: number;
     orderSoonWindowDays: number;
@@ -1365,6 +1447,7 @@ export class EcobaseInventoryPlanningService {
       asString(params.inventory.sku) ?? asString(params.parameter.sku) ?? payloadString(params.inventory, ['SKU']);
     const planningProductId = `fallback:${company}:${asin ?? ''}:${sku ?? ''}`;
     const sellerboardProfitMetrics = this.profitMetricsFor(params.profitMetrics, company, asin, sku);
+    const historicalProfitMetrics = this.profitMetricsFor(params.historicalProfitMetrics, company, asin, sku);
     const stockBuckets = this.stockBuckets(params.inventory, {});
     const salesVelocity =
       asNumber(params.inventory.salesVelocity) ??
@@ -1395,17 +1478,36 @@ export class EcobaseInventoryPlanningService {
     const leadTimeDays =
       importedLeadTimeDays ?? asNumber(orderHistoryLeadTime.leadTimeDays) ?? orderHistoryDerivedLeadTime.leadTimeDays;
     const recommendedBestQty =
-      asNumber(params.inventory.recommendedReorderQuantity) ??
-      payloadNumber(params.inventory, ['Recommended quantity for  reordering']) ??
+      historicalProfitMetrics?.sixMonthBestQty ??
       payloadNumber(params.parameter, ['recommendedBestQty', 'Rec.Best Qty', 'Rec. Best Qty']);
     const profitPerUnit =
+      historicalProfitMetrics?.profitPerUnit ??
       asNumber(params.parameter.profitPerUnit) ??
       payloadNumber(params.parameter, ['profitPerUnit', 'Profit Per Unit', 'Per.Unit Profit']) ??
       sellerboardProfitMetrics?.profitPerUnit;
     const importedProfitRisk =
       payloadNumber(params.inventory, ['Missed profit (est)', 'Profit forecast (30 days)', 'profitForecast30Days']) ??
       payloadNumber(params.parameter, ['Missed profit (est)', 'Profit forecast (30 days)', 'profitForecast30Days']);
-    const { tier, tierScore } = profitTierFor(profitPerUnit, recommendedBestQty, params.profitTierThresholds);
+    const currentTierResult = profitTierFor(
+      profitPerUnit,
+      historicalProfitMetrics?.lastMonthQty,
+      params.profitTierThresholds,
+    );
+    const averageTierResult = profitTierFor(
+      profitPerUnit,
+      historicalProfitMetrics?.sixMonthAverageQty,
+      params.profitTierThresholds,
+    );
+    const bestTierResult = profitTierFor(
+      profitPerUnit,
+      historicalProfitMetrics?.sixMonthBestQty,
+      params.profitTierThresholds,
+    );
+    const fallbackTierResult = profitTierFor(profitPerUnit, recommendedBestQty, params.profitTierThresholds);
+    const hasHistoricalQuantities = typeof historicalProfitMetrics?.sixMonthBestQty === 'number';
+    const selectedTierResult = hasHistoricalQuantities ? currentTierResult : fallbackTierResult;
+    const tier = selectedTierResult.tier;
+    const tierScore = selectedTierResult.tierScore;
     const daysOfCover =
       salesVelocity && salesVelocity > 0 ? stockBuckets.currentPlanningStock / salesVelocity : undefined;
     const estimatedOosDate = typeof daysOfCover === 'number' ? addDays(params.calculationDate, daysOfCover) : undefined;
@@ -1494,6 +1596,17 @@ export class EcobaseInventoryPlanningService {
       planningExcluded,
       tier,
       tierScore,
+      currentTier: currentTierResult.tier ?? 'unclassified',
+      currentTierScore: currentTierResult.tierScore,
+      averageTier: averageTierResult.tier ?? 'unclassified',
+      averageTierScore: averageTierResult.tierScore,
+      bestTier: bestTierResult.tier ?? 'unclassified',
+      bestTierScore: bestTierResult.tierScore,
+      lastMonthQty: historicalProfitMetrics?.lastMonthQty,
+      sixMonthAverageQty: historicalProfitMetrics?.sixMonthAverageQty,
+      sixMonthWorstQty: historicalProfitMetrics?.sixMonthWorstQty,
+      sixMonthBestQty: historicalProfitMetrics?.sixMonthBestQty,
+      sixMonthMargin: historicalProfitMetrics?.margin,
       profitPerUnit,
       recommendedBestQty,
       salesVelocity,
@@ -1505,7 +1618,7 @@ export class EcobaseInventoryPlanningService {
       orderedStock: stockBuckets.orderedStock,
       prepStock: stockBuckets.prepStock,
       awdStock: stockBuckets.awdStock,
-      stuck: stockBuckets.sellableStock > stockBuckets.reservedStock,
+      stuck: typeof daysOfCover === 'number' && daysOfCover > 60,
       daysOfCover,
       estimatedOosDate,
       latestSafeReorderDate,
@@ -1557,6 +1670,7 @@ export class EcobaseInventoryPlanningService {
         },
         estimatedProfitRiskBasis,
         sellerboardProfitMetrics,
+        historicalProfitMetrics,
       },
     };
   }
@@ -1695,6 +1809,7 @@ export class EcobaseInventoryPlanningService {
       asString(leadTime.supplierName) ??
       asString(latestParameter.supplier) ??
       asString(orderHistorySupplier.supplierName);
+    const calculationDaysOfCover = asNumber(params.calculation.daysOfCover);
     const tier = isProfitTier(calculationTier) ? calculationTier : fallbackTier.tier;
     const calculatedProfitRisk = asNumber(params.calculation.estimatedProfitRisk);
     const estimatedProfitRisk = isProfitTier(tier) ? calculatedProfitRisk ?? 0 : 0;
@@ -1716,6 +1831,17 @@ export class EcobaseInventoryPlanningService {
       planningExcluded: excluded,
       tier,
       tierScore: asNumber(params.calculation.tierScore) ?? fallbackTier.tierScore,
+      currentTier: asString(params.calculation.currentTier),
+      currentTierScore: asNumber(params.calculation.currentTierScore),
+      averageTier: asString(params.calculation.averageTier),
+      averageTierScore: asNumber(params.calculation.averageTierScore),
+      bestTier: asString(params.calculation.bestTier),
+      bestTierScore: asNumber(params.calculation.bestTierScore),
+      lastMonthQty: asNumber(params.calculation.lastMonthQty),
+      sixMonthAverageQty: asNumber(params.calculation.sixMonthAverageQty),
+      sixMonthWorstQty: asNumber(params.calculation.sixMonthWorstQty),
+      sixMonthBestQty: asNumber(params.calculation.sixMonthBestQty),
+      sixMonthMargin: asNumber(params.calculation.sixMonthMargin),
       profitPerUnit: asNumber(params.calculation.profitPerUnit),
       recommendedBestQty: asNumber(params.calculation.recommendedBestQty),
       salesVelocity,
@@ -1727,8 +1853,8 @@ export class EcobaseInventoryPlanningService {
       orderedStock: stockBuckets.orderedStock,
       prepStock: stockBuckets.prepStock,
       awdStock: stockBuckets.awdStock,
-      stuck: stockBuckets.sellableStock > stockBuckets.reservedStock,
-      daysOfCover: asNumber(params.calculation.daysOfCover),
+      stuck: typeof calculationDaysOfCover === 'number' && calculationDaysOfCover > 60,
+      daysOfCover: calculationDaysOfCover,
       estimatedOosDate: asString(params.calculation.oosDate),
       latestSafeReorderDate,
       daysUntilSafeReorder,

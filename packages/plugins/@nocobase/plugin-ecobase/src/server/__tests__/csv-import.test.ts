@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { describe, expect, it, vi } from 'vitest';
 import {
   amazonOperationsCsvAdapter,
@@ -6,9 +15,14 @@ import {
   createSourceAdapterRegistry,
   googleSheetsMigrationCsvAdapter,
   sellerboardApiAdapter,
+  sellerboardHistoryCsvAdapter,
 } from '../../features/source-import/server/adapters';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
-import { EcobaseDatabase, EcobaseImportService, EcobaseRepository } from '../../features/source-import/server/import-service';
+import {
+  EcobaseDatabase,
+  EcobaseImportService,
+  EcobaseRepository,
+} from '../../features/source-import/server/import-service';
 import { EcobasePlanningCalculationService } from '../../features/inventory-planning/server/planning-calculation-service';
 import { EcobaseInventoryPlanningService } from '../../features/inventory-planning/server/inventory-planning-service';
 import { EcobaseSupplierOrderService } from '../../features/supplier-management/server/supplier-order-service';
@@ -257,6 +271,7 @@ function createService(sourceType = 'seller_central_file', domain = 'amazon_oper
       amazonOperationsCsvAdapter,
       googleSheetsMigrationCsvAdapter,
       sellerboardApiAdapter,
+      sellerboardHistoryCsvAdapter,
       amazonSpApiAccessCheckAdapter,
     ]),
   );
@@ -1337,6 +1352,121 @@ describe('Ecobase current Amazon operations CSV import', () => {
     expect(paidRows.find((row) => row.planningProductId === planningProductId)?.openOrderCoverageQty).toBe(120);
   });
 
+  it('derives inventory tiers from six complete Sellerboard months, not stock reorder suggestions', async () => {
+    const { db } = createService('sellerboard');
+    const inventoryRepo = db.getRepository(ECOBASE_COLLECTIONS.inventorySnapshots);
+    const factRepo = db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts);
+    await inventoryRepo.create({
+      values: {
+        sourceConnectionId: 'source-1',
+        snapshotDate: '2026-07-04',
+        company: 'Ecofission LLC',
+        asin: 'B007P55HOW',
+        sku: 'DC50944',
+        stock: 100,
+        salesVelocity: 1,
+        recommendedReorderQuantity: 1000,
+      },
+    });
+    for (const [month, units] of [
+      ['2026-01', 10],
+      ['2026-02', 20],
+      ['2026-03', 30],
+      ['2026-04', 40],
+      ['2026-05', 50],
+      ['2026-06', 60],
+    ] as const) {
+      await factRepo.create({
+        values: {
+          sourceConnectionId: 'source-1',
+          snapshotDate: `${month}-15`,
+          company: 'Ecofission LLC',
+          asin: 'B007P55HOW',
+          sku: 'DC50944',
+          sales: units * 10,
+          units,
+          netProfit: units * 5,
+        },
+      });
+    }
+
+    const rows = await new EcobaseInventoryPlanningService(db).listRows({
+      company: 'Ecofission LLC',
+      calculationDate: '2026-07-05',
+      limit: 10,
+    });
+
+    expect(rows[0]).toMatchObject({
+      tier: 'A',
+      tierScore: 300,
+      currentTier: 'A',
+      currentTierScore: 300,
+      averageTier: 'B',
+      averageTierScore: 175,
+      bestTier: 'A',
+      bestTierScore: 300,
+      lastMonthQty: 60,
+      sixMonthAverageQty: 35,
+      sixMonthWorstQty: 10,
+      sixMonthBestQty: 60,
+      sixMonthMargin: 50,
+      recommendedBestQty: 60,
+      profitPerUnit: 5,
+      stuck: true,
+    });
+  });
+
+  it('persists tier drops between inventory read-model refreshes', async () => {
+    const { db } = createService('sellerboard');
+    const inventoryRepo = db.getRepository(ECOBASE_COLLECTIONS.inventorySnapshots);
+    const factRepo = db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts);
+    await inventoryRepo.create({
+      values: {
+        sourceConnectionId: 'source-1',
+        snapshotDate: '2026-07-04',
+        company: 'Ecofission LLC',
+        asin: 'B007P55HOW',
+        sku: 'DC50944',
+        stock: 30,
+        salesVelocity: 1,
+      },
+    });
+    for (const [month, units] of [
+      ['2026-01', 60],
+      ['2026-02', 60],
+      ['2026-03', 60],
+      ['2026-04', 60],
+      ['2026-05', 60],
+      ['2026-06', 60],
+      ['2026-07', 10],
+    ] as const) {
+      await factRepo.create({
+        values: {
+          sourceConnectionId: 'source-1',
+          snapshotDate: `${month}-15`,
+          company: 'Ecofission LLC',
+          asin: 'B007P55HOW',
+          sku: 'DC50944',
+          sales: units * 10,
+          units,
+          netProfit: units * 5,
+        },
+      });
+    }
+    const service = new EcobaseInventoryPlanningService(db);
+
+    await service.refreshReadModel({ company: 'Ecofission LLC', calculationDate: '2026-07-05', limit: 10 });
+    await service.refreshReadModel({ company: 'Ecofission LLC', calculationDate: '2026-08-05', limit: 10 });
+
+    const goldRows = db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).all();
+    expect(goldRows.find((row) => row.calculationDate === '2026-08-05')).toMatchObject({
+      tier: 'C',
+      previousTier: 'A',
+      tierMovement: 'down',
+      currentTierScore: 50,
+    });
+  });
+
   it('uses product-specific supplier lead time before supplier default lead time in the operator workspace', async () => {
     const { db, planningProductId, supplierA } = await seedSupplierOrderSlice();
     const supplierOrderService = new EcobaseSupplierOrderService(db);
@@ -1575,6 +1705,134 @@ describe('Ecobase current Amazon operations CSV import', () => {
         }),
       ]),
     );
+  });
+
+  it('analyzes semicolon Sellerboard history files for the history adapter', () => {
+    const analysis = analyzeCsvFiles([
+      {
+        name: 'Fissionem_Dashboard_by_product_01_01_2026-03_07_2026.csv',
+        content:
+          '\uFEFFDate;Marketplace;ASIN;SKU;Name;SalesOrganic;SalesPPC;UnitsOrganic;UnitsPPC;NetProfit\n02/01/2026;Amazon.com;B007P55HOW;DC50944;Dampp Chaser;63.40;10.10;3;2;35',
+      },
+    ]);
+
+    expect(analysis.files).toEqual([
+      expect.objectContaining({
+        detectedShape: 'sellerboard-history-dashboard-goods',
+        adapterName: 'sellerboard-history-csv',
+        sourceType: 'sellerboard',
+        domain: 'amazon_operations',
+        rowCount: 1,
+        importable: true,
+      }),
+    ]);
+  });
+
+  it('imports one-time semicolon Sellerboard history rows with strict day-first dates', async () => {
+    const { db, service } = createService('sellerboard');
+    db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
+      filterByTk: 'source-1',
+      values: {
+        config: {
+          defaultCompany: 'Ecofission LLC',
+          files: [
+            {
+              name: 'Fissionem_Dashboard_by_product_01_01_2026-03_07_2026.csv',
+              content:
+                '\uFEFFDate;Marketplace;ASIN;SKU;Name;SalesOrganic;SalesPPC;SalesSponsoredProducts;SalesSponsoredDisplay;UnitsOrganic;UnitsPPC;UnitsSponsoredProducts;UnitsSponsoredDisplay;Refunds;GrossProfit;NetProfit;Sessions;Unit Session Percentage\n02/01/2026;Amazon.com;B007P55HOW;DC50944;Dampp Chaser;63.40;10.10;5.50;1.00;3;2;1;1;0;20.1;35;30;10%',
+            },
+          ],
+        },
+      },
+    });
+
+    const run = await service.runAdapterImport({
+      sourceConnectionId: 'source-1',
+      adapterName: 'sellerboard-history-csv',
+      sourceIdentifier: 'sellerboard-history-backfill',
+      sourceVersion: '2026-07-05',
+      preserveAuditRun: true,
+    });
+
+    expect(run).toMatchObject({ status: 'success', rowCount: 1, normalizedCount: 1, warningCount: 0 });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).all()).toEqual([
+      expect.objectContaining({
+        company: 'Ecofission LLC',
+        snapshotDate: '2026-01-02',
+        asin: 'B007P55HOW',
+        sku: 'DC50944',
+        sales: 80,
+        units: 7,
+        netProfit: 35,
+        margin: 43.75,
+        profitPerUnit: 5,
+      }),
+    ]);
+  });
+
+  it('imports one-time semicolon Sellerboard history rows with month-first dates', async () => {
+    const { db, service } = createService('sellerboard');
+    db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
+      filterByTk: 'source-1',
+      values: {
+        config: {
+          defaultCompany: 'Retail Heaven Inc',
+          files: [
+            {
+              name: 'Retail_Heaven_Inc_Dashboard_by_product_01_01_2026-03_07_2026.csv',
+              content:
+                'Date;Marketplace;ASIN;SKU;Name;SalesOrganic;UnitsOrganic;NetProfit\n1/2/2026;Amazon.com;B007P55HOW;DC50944;Dampp Chaser;10;2;8\n4/18/2026;Amazon.com;B007P55HOW;DC50944;Dampp Chaser;20;4;12',
+            },
+          ],
+        },
+      },
+    });
+
+    const run = await service.runAdapterImport({
+      sourceConnectionId: 'source-1',
+      adapterName: 'sellerboard-history-csv',
+      sourceIdentifier: 'sellerboard-history-backfill',
+      sourceVersion: '2026-07-05',
+      preserveAuditRun: true,
+    });
+
+    expect(run).toMatchObject({ status: 'success', rowCount: 2, normalizedCount: 2, warningCount: 0 });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).all()).toEqual([
+      expect.objectContaining({ company: 'Retail Heaven Inc', snapshotDate: '2026-01-02' }),
+      expect.objectContaining({ company: 'Retail Heaven Inc', snapshotDate: '2026-04-18' }),
+    ]);
+  });
+
+  it('rejects non-slash dates in Sellerboard history files', async () => {
+    const { db, service } = createService('sellerboard');
+    db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
+      filterByTk: 'source-1',
+      values: {
+        config: {
+          defaultCompany: 'Ecofission LLC',
+          files: [
+            {
+              name: 'Fissionem_Dashboard_by_product_01_01_2026-03_07_2026.csv',
+              content:
+                'Date;Marketplace;ASIN;SKU;Name;SalesOrganic;UnitsOrganic;NetProfit\n2026-01-02;Amazon.com;B007P55HOW;DC50944;Dampp Chaser;63.40;3;15',
+            },
+          ],
+        },
+      },
+    });
+
+    const run = await service.runAdapterImport({
+      sourceConnectionId: 'source-1',
+      adapterName: 'sellerboard-history-csv',
+      sourceIdentifier: 'sellerboard-history-backfill',
+      sourceVersion: '2026-07-05',
+      preserveAuditRun: true,
+    });
+
+    expect(run).toMatchObject({ status: 'failed', errorCount: 1, normalizedCount: 0 });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).all()).toEqual([
+      expect.objectContaining({ issueCode: 'sellerboard_history_date_invalid', normalizedStatus: 'failed' }),
+    ]);
   });
 
   it('imports CSV bundles without storing uploaded content in source connection config and skips unchanged re-uploads', async () => {
