@@ -33,6 +33,24 @@ const STATUS_MAP: Record<string, string> = {
   'to do': 'draft',
 };
 const COMMENT_PROPOSAL_LIMIT = 20;
+const CLICKUP_COMMENT_USER_EMAIL_BY_KEY: Record<string, string> = {
+  'nauman.ecofission': 'nauman.ecofission@gmail.com',
+  'nauman.ecofission@gmail.com': 'nauman.ecofission@gmail.com',
+  kiranecofission: 'kiranecofission@gmail.com',
+  'kiranecofission@gmail.com': 'kiranecofission@gmail.com',
+  'behroz.ecofission': 'behroz.ecofission@gmail.com',
+  'behroz.ecofission@gmail.com': 'behroz.ecofission@gmail.com',
+  'shabi.ecofission': 'shabi.ecofission@gmail.com',
+  'shabi.ecofission@gmail.com': 'shabi.ecofission@gmail.com',
+  'rafay.ecofission': 'rafay.ecofission@gmail.com',
+  'rafay.ecofission@gmail.com': 'rafay.ecofission@gmail.com',
+  'director@eco-fission.com': 'director@eco-fission.com',
+  syedatif: 'syedatif.ecofission@gmail.com',
+  'syedatif.ecofission': 'syedatif.ecofission@gmail.com',
+  'syedatif.ecofission@gmail.com': 'syedatif.ecofission@gmail.com',
+  'hassan.mehtab95': 'director@eco-fission.com',
+  'hassan.mehtab95@gmail.com': 'director@eco-fission.com',
+};
 
 type PlainRecord = Record<string, unknown>;
 
@@ -89,12 +107,28 @@ function asString(value: unknown) {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 }
 
+function asIdString(value: unknown) {
+  return (typeof value === 'string' || typeof value === 'number') && String(value).trim().length > 0
+    ? String(value).trim()
+    : undefined;
+}
+
 function asPlainRecord(value: unknown): PlainRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as PlainRecord) : {};
 }
 
 function normalizeOrderRef(value: string) {
   return value.trim().toUpperCase().replace(/\s+/g, '');
+}
+
+function normalizeClickupActorKey(value: string | undefined) {
+  return value?.trim().toLowerCase() || undefined;
+}
+
+export function resolveClickupCommentActorEmail(actor: string | undefined) {
+  const key = normalizeClickupActorKey(actor);
+  if (!key) return undefined;
+  return CLICKUP_COMMENT_USER_EMAIL_BY_KEY[key] ?? (key.includes('@') ? key : undefined);
 }
 
 export function extractClickupOrderRefsFromTitle(taskName: string) {
@@ -260,6 +294,7 @@ function commentActivityValues(params: {
   comment: ParsedClickupComment;
   order: PlainRecord;
   supplierOrderId: string;
+  actorUserId?: string;
 }) {
   const company = asString(params.order.company);
   const supplierId = asString(params.order.supplierId);
@@ -281,6 +316,7 @@ function commentActivityValues(params: {
     activityType: 'note',
     occurredAt: params.comment.occurredAt,
     actor: params.comment.actor,
+    actorUserId: params.actorUserId,
     notes: params.comment.text,
     source: 'clickup',
     payload: {
@@ -309,6 +345,31 @@ function commentProposal(params: { task: ParsedTask; comment: ParsedClickupComme
 
 export class EcobaseClickupOrderStatusService {
   constructor(private db: EcobaseDatabase) {}
+
+  private async clickupActorUserIdsByEmail(selectedTasks: Array<{ task: ParsedTask }>) {
+    const emails = [
+      ...new Set(
+        selectedTasks
+          .flatMap(({ task }) => task.comments.map((comment) => resolveClickupCommentActorEmail(comment.actor)))
+          .filter((email): email is string => Boolean(email)),
+      ),
+    ];
+    if (emails.length === 0) return new Map<string, string>();
+
+    let users: unknown[];
+    try {
+      users = await this.db.getRepository('users').find({ filter: { email: { $in: emails } }, limit: 10000 });
+    } catch {
+      return new Map<string, string>();
+    }
+
+    return new Map(
+      users
+        .map(toPlainRecord)
+        .map((user) => [normalizeClickupActorKey(asString(user.email)), asIdString(user.id)] as const)
+        .filter((entry): entry is [string, string] => Boolean(entry[0] && entry[1])),
+    );
+  }
 
   parseCsvFiles(files: CsvSourceFile[]) {
     const tasksByRef = new Map<string, ParsedTask[]>();
@@ -387,6 +448,7 @@ export class EcobaseClickupOrderStatusService {
     const unmappedStatuses: Array<Record<string, unknown>> = [];
     const selectedCommentCount = selectedTasks.reduce((count, item) => count + item.task.comments.length, 0);
     const invalidCommentCount = selectedTasks.reduce((count, item) => count + item.task.invalidCommentCount, 0);
+    const actorUserIdsByEmail = await this.clickupActorUserIdsByEmail(selectedTasks);
     let updatedOrderCount = 0;
     let proposedCommentCount = 0;
     let importedCommentCount = 0;
@@ -418,7 +480,15 @@ export class EcobaseClickupOrderStatusService {
         });
         if (supplierOrderId) {
           for (const comment of task.comments) {
-            const values = commentActivityValues({ sourceConnectionId, task, comment, order, supplierOrderId });
+            const actorEmail = resolveClickupCommentActorEmail(comment.actor);
+            const values = commentActivityValues({
+              sourceConnectionId,
+              task,
+              comment,
+              order,
+              supplierOrderId,
+              actorUserId: actorEmail ? actorUserIdsByEmail.get(actorEmail) : undefined,
+            });
             proposedCommentCount += 1;
             if (proposedComments.length < COMMENT_PROPOSAL_LIMIT) {
               proposedComments.push(commentProposal({ task, comment, supplierOrderId }));

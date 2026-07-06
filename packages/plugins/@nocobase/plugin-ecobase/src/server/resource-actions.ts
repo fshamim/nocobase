@@ -180,7 +180,7 @@ function getActorId(ctx: { state?: Record<string, unknown> }) {
   const currentUser = ctx.state?.currentUser;
   if (typeof currentUser === 'object' && currentUser !== null) {
     const id = (currentUser as Record<string, unknown>).id;
-    return typeof id === 'string' ? id : undefined;
+    return typeof id === 'string' || typeof id === 'number' ? String(id) : undefined;
   }
   return undefined;
 }
@@ -1507,6 +1507,7 @@ export function createEcobaseSupplierOrderActions() {
             contactEstablished: typeof values.contactEstablished === 'boolean' ? values.contactEstablished : undefined,
             source: getOptionalString(values, 'source'),
             actor: getActorId(ctx),
+            actorUserId: getActorId(ctx),
           }),
         };
       } catch (error) {

@@ -1173,14 +1173,17 @@ export default function InventoryPlanningPage() {
   const renderLatestOrderCommentPreview = (row: PlainRecord) => {
     const latestNote = String(row.latestSupplierOrderActivityNote ?? '').trim();
     if (!latestNote) return null;
-    const latestType = String(row.latestSupplierOrderActivityType ?? '').trim();
     const latestAt = String(row.latestSupplierOrderActivityAt ?? '').trim();
-    const label = latestType ? `${t(formatStatusLabel(latestType))}: ` : '';
+    const author = String(
+      row.latestSupplierOrderActivityActorDisplayName ?? row.latestSupplierOrderActivityActor ?? '',
+    ).trim();
+    const preview = author ? `${author}: ${latestNote}` : latestNote;
     return (
       <Tooltip
         title={
           <Space direction="vertical" size={0}>
-            <Typography.Text style={{ color: 'inherit' }}>{`${label}${latestNote}`}</Typography.Text>
+            {author ? <Typography.Text style={{ color: 'inherit' }}>{author}</Typography.Text> : null}
+            <Typography.Text style={{ color: 'inherit' }}>{latestNote}</Typography.Text>
             {latestAt ? (
               <Typography.Text style={{ color: 'inherit' }}>
                 {t('Last activity')} {formatDate(latestAt)}
@@ -1189,8 +1192,19 @@ export default function InventoryPlanningPage() {
           </Space>
         }
       >
-        <Typography.Text type="secondary" ellipsis style={{ display: 'block', maxWidth: 240 }}>
-          {`${label}${latestNote}`}
+        <Typography.Text
+          ellipsis
+          style={{
+            background: '#fff7e6',
+            borderLeft: '3px solid #faad14',
+            borderRadius: 4,
+            color: '#ad6800',
+            display: 'block',
+            maxWidth: 240,
+            padding: '2px 6px',
+          }}
+        >
+          {preview}
         </Typography.Text>
       </Tooltip>
     );
@@ -2354,47 +2368,38 @@ export default function InventoryPlanningPage() {
                               },
                             ]}
                           />
-                          <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                          <Space direction="vertical" size={8} style={{ width: '100%' }}>
                             <Typography.Text strong>{t('Recent order comments')}</Typography.Text>
                             {sortedOrderActivities.length > 0 ? (
-                              sortedOrderActivities.slice(0, 8).map((activity, index) => {
-                                const meta = [
-                                  activity.actor ? `${t('Actor')} ${activity.actor}` : undefined,
-                                  activity.source ? `${t('Source')} ${formatStatusLabel(activity.source)}` : undefined,
-                                ].filter(Boolean);
-                                return (
-                                  <Alert
-                                    key={String(activity.id ?? activity.naturalKey ?? index)}
-                                    type="info"
-                                    showIcon
-                                    message={
-                                      <Space size={4} wrap>
-                                        <Tag color={activity.source === 'clickup' ? 'purple' : 'blue'}>
-                                          {t(formatStatusLabel(activity.activityType ?? 'note'))}
-                                        </Tag>
-                                        <Typography.Text>{formatDate(activity.occurredAt)}</Typography.Text>
-                                        {meta.length > 0 ? (
-                                          <Typography.Text type="secondary">{meta.join(' · ')}</Typography.Text>
-                                        ) : null}
+                              <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                                {sortedOrderActivities.slice(0, 8).map((activity, index) => {
+                                  const author = String(
+                                    activity.actorDisplayName ?? activity.actor ?? t('Unknown user'),
+                                  );
+                                  return (
+                                    <div
+                                      key={String(activity.id ?? activity.naturalKey ?? index)}
+                                      style={{ borderBottom: '1px solid #f0f0f0', paddingBottom: 8 }}
+                                    >
+                                      <Space size={8} wrap>
+                                        <Typography.Text strong>{author}</Typography.Text>
+                                        <Typography.Text type="secondary">
+                                          {formatDate(activity.occurredAt)}
+                                        </Typography.Text>
                                       </Space>
-                                    }
-                                    description={
-                                      <Typography.Paragraph style={{ marginBottom: 0, whiteSpace: 'pre-wrap' }}>
+                                      <Typography.Paragraph
+                                        style={{ marginBottom: 0, marginTop: 4, whiteSpace: 'pre-wrap' }}
+                                      >
                                         {String(activity.notes ?? '—')}
                                       </Typography.Paragraph>
-                                    }
-                                  />
-                                );
-                              })
+                                    </div>
+                                  );
+                                })}
+                              </Space>
                             ) : (
-                              <Alert
-                                type="info"
-                                showIcon
-                                message={t('No comments recorded yet')}
-                                description={t(
-                                  'ClickUp imports and operator notes for this supplier order will appear here after they are saved.',
-                                )}
-                              />
+                              <Typography.Text type="secondary">
+                                {t('No comments recorded yet. ClickUp imports and operator notes will appear here.')}
+                              </Typography.Text>
                             )}
                           </Space>
                           {selectedCommandPane !== 'activeOrders' && selectedCommandPane !== 'stuckInventory' ? (

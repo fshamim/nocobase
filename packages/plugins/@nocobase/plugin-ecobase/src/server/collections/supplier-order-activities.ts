@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { defineCollection } from '@nocobase/database';
 import { ECOBASE_COLLECTIONS } from './names';
 
@@ -15,6 +24,7 @@ export default defineCollection({
     { name: 'activityType', type: 'string', allowNull: false, index: true },
     { name: 'occurredAt', type: 'datetimeTz', allowNull: false, index: true },
     { name: 'actor', type: 'string' },
+    { name: 'actorUserId', type: 'bigInt', autoFill: false, index: true },
     { name: 'notes', type: 'text' },
     { name: 'nextFollowUpAt', type: 'datetimeTz' },
     { name: 'leadTimeDays', type: 'double' },

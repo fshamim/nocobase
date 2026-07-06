@@ -27,7 +27,10 @@ import {
 } from '../plugin';
 import { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
 import { EcobaseSourceConnectionService } from '../../features/source-import/server/source-connection-service';
-import { extractClickupOrderRefsFromTitle } from '../../features/source-import/server/clickup-order-status-service';
+import {
+  extractClickupOrderRefsFromTitle,
+  resolveClickupCommentActorEmail,
+} from '../../features/source-import/server/clickup-order-status-service';
 
 interface FindParams {
   filter?: Record<string, unknown>;
@@ -122,6 +125,7 @@ class MemoryDatabase implements EcobaseDatabase {
 
   constructor() {
     Object.values(ECOBASE_COLLECTIONS).forEach((name) => this.repositories.set(name, new MemoryRepository()));
+    this.repositories.set('users', new MemoryRepository());
   }
 
   getRepository(name: string) {
@@ -133,10 +137,15 @@ class MemoryDatabase implements EcobaseDatabase {
   }
 }
 
-function createActionContext(db: EcobaseDatabase, values: Record<string, unknown> = {}) {
+function createActionContext(
+  db: EcobaseDatabase,
+  values: Record<string, unknown> = {},
+  currentUser?: Record<string, unknown>,
+) {
   return {
     action: { params: { values } },
     db,
+    state: currentUser ? { currentUser } : {},
     body: undefined,
     throw(status: number, message: string) {
       const error = new Error(message) as Error & { status?: number };
@@ -1031,16 +1040,20 @@ describe('Ecobase supplier-order workspace API seam', () => {
 
     const orderId = String(createOrderContext.body.data.order.id);
     await actions.recordActivity(
-      createActionContext(db, {
-        company: 'Ecofission LLC',
-        supplierId: '44444444-4444-4444-8444-444444444444',
-        supplierOrderId: orderId,
-        activityType: 'contacted_supplier',
-        occurredAt: '2025-07-10T09:30:00.000Z',
-        notes: 'supplier contacted',
-        nextFollowUpAt: '2025-07-12T09:30:00.000Z',
-        contactEstablished: false,
-      }),
+      createActionContext(
+        db,
+        {
+          company: 'Ecofission LLC',
+          supplierId: '44444444-4444-4444-8444-444444444444',
+          supplierOrderId: orderId,
+          activityType: 'contacted_supplier',
+          occurredAt: '2025-07-10T09:30:00.000Z',
+          notes: 'supplier contacted',
+          nextFollowUpAt: '2025-07-12T09:30:00.000Z',
+          contactEstablished: false,
+        },
+        { id: 201 },
+      ),
       vi.fn(),
     );
     await actions.recordActivity(
@@ -1073,6 +1086,15 @@ describe('Ecobase supplier-order workspace API seam', () => {
         source: 'manual',
       }),
     ]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities).all()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          activityType: 'contacted_supplier',
+          actor: '201',
+          actorUserId: '201',
+        }),
+      ]),
+    );
     for (const activityType of ['status_update', 'note', 'blocked', 'unblocked']) {
       await actions.recordActivity(
         createActionContext(db, {
@@ -1265,6 +1287,13 @@ describe('Ecobase import public API seam', () => {
     expect(extractClickupOrderRefsFromTitle('ASIN B07RGG7TXX and UK-KK-KM-250719-03 should not match')).toEqual([]);
   });
 
+  it('maps approved ClickUp comment actors to Ecobase user emails', () => {
+    expect(resolveClickupCommentActorEmail('nauman.ecofission')).toBe('nauman.ecofission@gmail.com');
+    expect(resolveClickupCommentActorEmail('nauman.ecofission@gmail.com')).toBe('nauman.ecofission@gmail.com');
+    expect(resolveClickupCommentActorEmail('hassan.mehtab95@gmail.com')).toBe('director@eco-fission.com');
+    expect(resolveClickupCommentActorEmail('unknown@example.com')).toBe('unknown@example.com');
+  });
+
   it('dry-runs ClickUp order-status imports without updating supplier orders', async () => {
     const db = new MemoryDatabase();
     const actions = createEcobaseImportActions(createSourceAdapterRegistry([noopTestAdapter]));
@@ -1395,6 +1424,13 @@ describe('Ecobase import public API seam', () => {
         payload: {},
       },
     });
+    await db.getRepository('users').create({
+      values: {
+        id: 101,
+        email: 'nauman.ecofission@gmail.com',
+        nickname: 'Ahmed Nauman',
+      },
+    });
     const csvCell = (value: string) => `"${value.replace(/"/g, '""')}"`;
     const validComments = JSON.stringify([
       {
@@ -1459,6 +1495,7 @@ describe('Ecobase import public API seam', () => {
         activityType: 'note',
         occurredAt: '2026-07-03T19:49:37.000Z',
         actor: 'nauman.ecofission@gmail.com',
+        actorUserId: '101',
         notes: 'Will proceed with the order on Monday.',
         source: 'clickup',
         payload: expect.objectContaining({

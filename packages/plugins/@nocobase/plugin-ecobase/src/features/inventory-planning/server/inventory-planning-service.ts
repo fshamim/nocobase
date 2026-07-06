@@ -139,6 +139,21 @@ function asString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 }
 
+function asRecordIdString(value: unknown): string | undefined {
+  return (typeof value === 'string' || typeof value === 'number') && String(value).trim().length > 0
+    ? String(value).trim()
+    : undefined;
+}
+
+function asRecordIdFilterValue(value: string) {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && String(parsed) === value ? parsed : value;
+}
+
+function displayNameForUser(user: PlainRecord) {
+  return asString(user.nickname) ?? asString(user.name) ?? asString(user.email) ?? asString(user.username);
+}
+
 function asNumber(value: unknown): number | undefined {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value === 'string' && value.trim().length > 0) {
@@ -816,7 +831,7 @@ export class EcobaseInventoryPlanningService {
     const suppliers = plainArray(workspace.suppliers).filter((supplier) => isUuidValue(supplier.id));
     const supplierOrders = plainArray(workspace.supplierOrders);
     const supplierOrderLines = plainArray(workspace.supplierOrderLines);
-    const activities = plainArray(workspace.activities);
+    const activities = await this.withActivityAuthors(plainArray(workspace.activities));
     const ordersById = new Map(supplierOrders.map((order) => [String(order.id), order]));
     const orderLineHistory = supplierOrderLines
       .filter((line) => inventoryRowMatchesLine(query, line))
@@ -1328,6 +1343,10 @@ export class EcobaseInventoryPlanningService {
       latestSupplierOrderActivityType: asString(row.latestSupplierOrderActivityType),
       latestSupplierOrderActivityAt: asString(row.latestSupplierOrderActivityAt),
       latestSupplierOrderActivityNote: asString(row.latestSupplierOrderActivityNote),
+      latestSupplierOrderActivityActor: asString(row.latestSupplierOrderActivityActor),
+      latestSupplierOrderActivityActorDisplayName: asString(row.latestSupplierOrderActivityActorDisplayName),
+      latestSupplierOrderActivityActorEmail: asString(row.latestSupplierOrderActivityActorEmail),
+      latestSupplierOrderActivitySource: asString(row.latestSupplierOrderActivitySource),
       openOrderCoverageQty: asNumber(row.openOrderCoverageQty) ?? 0,
       expectedSellableDate: asString(row.expectedSellableDate),
       pipelineHealthBucket: pipelineHealthBucket(row, calculationDate),
@@ -2656,6 +2675,31 @@ export class EcobaseInventoryPlanningService {
     return supplierOrderById;
   }
 
+  private async withActivityAuthors(activities: PlainRecord[]) {
+    const userIds = [
+      ...new Set(activities.map((activity) => asRecordIdString(activity.actorUserId)).filter(Boolean) as string[]),
+    ];
+    if (userIds.length === 0) return activities;
+
+    let users: PlainRecord[];
+    try {
+      users = (
+        await this.db
+          .getRepository('users')
+          .find({ filter: { id: { $in: userIds.map(asRecordIdFilterValue) } }, limit: userIds.length })
+      ).map(toPlainRecord);
+    } catch {
+      return activities;
+    }
+
+    const usersById = new Map(users.map((user) => [asRecordIdString(user.id), user]));
+    return activities.map((activity) => {
+      const user = usersById.get(asRecordIdString(activity.actorUserId) ?? '');
+      const actorDisplayName = user ? displayNameForUser(user) : undefined;
+      return actorDisplayName ? { ...activity, actorDisplayName, actorEmail: asString(user?.email) } : activity;
+    });
+  }
+
   private async withLatestSupplierOrderActivity(rows: PlainRecord[]) {
     const orderRepo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrders);
     const activityRepo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities);
@@ -2676,15 +2720,19 @@ export class EcobaseInventoryPlanningService {
       }
       const supplierOrderId = asString(order.id);
       const latestActivity = supplierOrderId
-        ? toPlainRecord(
-            (
-              await activityRepo.find({
-                filter: { supplierOrderId },
-                sort: ['-occurredAt'],
-                limit: 1,
-              })
-            )[0],
-          )
+        ? (
+            await this.withActivityAuthors([
+              toPlainRecord(
+                (
+                  await activityRepo.find({
+                    filter: { supplierOrderId },
+                    sort: ['-occurredAt'],
+                    limit: 1,
+                  })
+                )[0],
+              ),
+            ])
+          )[0] ?? {}
         : {};
       const fallbackActivityAt =
         latestActivity.occurredAt ??
@@ -2699,6 +2747,10 @@ export class EcobaseInventoryPlanningService {
         latestSupplierOrderActivityType: asString(latestActivity.activityType) ?? 'order_status',
         latestSupplierOrderActivityAt: fallbackActivityAt ? sortableDateValue(fallbackActivityAt) : undefined,
         latestSupplierOrderActivityNote: asString(latestActivity.notes) ?? fallbackActivityNote,
+        latestSupplierOrderActivityActor: asString(latestActivity.actor),
+        latestSupplierOrderActivityActorDisplayName: asString(latestActivity.actorDisplayName),
+        latestSupplierOrderActivityActorEmail: asString(latestActivity.actorEmail),
+        latestSupplierOrderActivitySource: asString(latestActivity.source),
       });
     }
     return result;

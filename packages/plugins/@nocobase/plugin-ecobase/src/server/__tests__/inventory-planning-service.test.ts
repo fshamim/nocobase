@@ -99,6 +99,7 @@ class MemoryDatabase implements EcobaseDatabase {
 
   constructor() {
     Object.values(ECOBASE_COLLECTIONS).forEach((name) => this.repositories.set(name, new MemoryRepository()));
+    this.repositories.set('users', new MemoryRepository());
   }
 
   getRepository(name: string) {
@@ -1429,6 +1430,63 @@ describe('EcobaseInventoryPlanningService', () => {
     expect(row('B000AMBIG')).toMatchObject({ unitCostStatus: 'ambiguous', estimatedOrderCost: undefined });
   });
 
+  it('resolves latest active-order comment authors for command-center rows', async () => {
+    const db = new MemoryDatabase();
+    const orderId = '11111111-1111-4111-8111-111111111111';
+    await createRecord(db, 'users', {
+      id: 201,
+      email: 'nauman.ecofission@gmail.com',
+      nickname: 'Ahmed Nauman',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrders, {
+      id: orderId,
+      naturalKey: 'order-author',
+      company: 'Ecofission LLC',
+      externalOrderRef: 'ORD-AUTHOR',
+      status: 'approval_pending',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrderActivities, {
+      id: '55555555-5555-4555-8555-555555555555',
+      naturalKey: 'activity-author',
+      company: 'Ecofission LLC',
+      supplierOrderId: orderId,
+      activityType: 'note',
+      actor: 'nauman.ecofission@gmail.com',
+      actorUserId: '201',
+      notes: 'Will proceed with the order on Monday.',
+      occurredAt: '2026-06-07T14:00:00.000Z',
+      source: 'clickup',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
+      id: 'active-author',
+      naturalKey: 'active-author',
+      calculationDate: '2026-06-07',
+      company: 'Ecofission LLC',
+      asin: 'B000AUTHOR',
+      sku: 'SKU-AUTHOR',
+      title: 'Author row',
+      actionStatus: 'already_ordered',
+      tier: 'A',
+      estimatedProfitRisk: 120,
+      supplierOrderState: 'purchased_pipeline',
+      supplierOrderRef: 'ORD-AUTHOR',
+    });
+
+    const commandCenter = await new EcobaseInventoryPlanningService(db).commandCenter({
+      calculationDate: '2026-06-07',
+      pane: 'activeOrders',
+      pageSize: 10,
+    });
+
+    expect(commandCenter.panes.activeOrders.rows[0]).toMatchObject({
+      latestSupplierOrderActivityActor: 'nauman.ecofission@gmail.com',
+      latestSupplierOrderActivityActorDisplayName: 'Ahmed Nauman',
+      latestSupplierOrderActivityActorEmail: 'nauman.ecofission@gmail.com',
+      latestSupplierOrderActivityNote: 'Will proceed with the order on Monday.',
+      latestSupplierOrderActivitySource: 'clickup',
+    });
+  });
+
   it('shapes row drawer supplier/order history behind the inventory workspace interface', async () => {
     const db = new MemoryDatabase();
     const supplierId = '33333333-3333-4333-8333-333333333333';
@@ -1461,6 +1519,11 @@ describe('EcobaseInventoryPlanningService', () => {
       receivedQty: 0,
       observedAt: '2026-06-07T13:00:00.000Z',
     });
+    await createRecord(db, 'users', {
+      id: 201,
+      email: 'nauman.ecofission@gmail.com',
+      nickname: 'Ahmed Nauman',
+    });
     await createRecord(db, ECOBASE_COLLECTIONS.supplierOrderActivities, {
       id: '55555555-5555-4555-8555-555555555555',
       naturalKey: 'activity-drawer',
@@ -1468,6 +1531,8 @@ describe('EcobaseInventoryPlanningService', () => {
       supplierOrderId: orderId,
       supplierId,
       activityType: 'status_update',
+      actor: 'nauman.ecofission@gmail.com',
+      actorUserId: '201',
       notes: 'Waiting on payment.',
       occurredAt: '2026-06-07T14:00:00.000Z',
     });
@@ -1484,7 +1549,12 @@ describe('EcobaseInventoryPlanningService', () => {
       asin: 'B000DRAWER',
       order: { externalOrderRef: 'DRAWER-1' },
     });
-    expect(workspace.orderActivities[0]).toMatchObject({ notes: 'Waiting on payment.' });
+    expect(workspace.orderActivities[0]).toMatchObject({
+      actor: 'nauman.ecofission@gmail.com',
+      actorDisplayName: 'Ahmed Nauman',
+      actorEmail: 'nauman.ecofission@gmail.com',
+      notes: 'Waiting on payment.',
+    });
     expect(workspace.initialOrderEdit).toMatchObject({ supplierOrderId: orderId, status: 'approval_pending' });
     expect(workspace.actionDefaults).toMatchObject({
       draftSupplierId: supplierId,
