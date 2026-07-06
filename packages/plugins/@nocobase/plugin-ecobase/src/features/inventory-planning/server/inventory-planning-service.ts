@@ -367,6 +367,29 @@ function latestByDate(records: PlainRecord[], field: string) {
   return [...records].sort((left, right) => String(right[field] ?? '').localeCompare(String(left[field] ?? '')))[0];
 }
 
+function inventorySnapshotSourceRank(record: PlainRecord, sellerboardSourceConnectionIds: Set<string>) {
+  const sourceConnectionId = asString(record.sourceConnectionId);
+  return sourceConnectionId && sellerboardSourceConnectionIds.has(sourceConnectionId) ? 0 : 1;
+}
+
+function latestPreferredInventorySnapshot(records: PlainRecord[], sellerboardSourceConnectionIds: Set<string>) {
+  return [...records].sort((left, right) => {
+    const sourceRank =
+      inventorySnapshotSourceRank(left, sellerboardSourceConnectionIds) -
+      inventorySnapshotSourceRank(right, sellerboardSourceConnectionIds);
+    if (sourceRank !== 0) return sourceRank;
+    return String(right.snapshotDate ?? '').localeCompare(String(left.snapshotDate ?? ''));
+  })[0];
+}
+
+function inventorySnapshotWins(
+  candidate: PlainRecord,
+  current: PlainRecord,
+  sellerboardSourceConnectionIds: Set<string>,
+) {
+  return latestPreferredInventorySnapshot([candidate, current], sellerboardSourceConnectionIds) === candidate;
+}
+
 function sortableDateValue(value: unknown) {
   if (value instanceof Date) return value.toISOString();
   return String(value ?? '');
@@ -861,6 +884,7 @@ export class EcobaseInventoryPlanningService {
     const statusRules = supplierOrderStatusRules(settings);
     const productFilter = query.company ? { company: query.company } : {};
     const scanLimit = query.limit ? Math.max(query.limit, Math.min(query.limit * 4, 500)) : undefined;
+    const sellerboardSourceConnectionIds = await this.sellerboardSourceConnectionIds();
     const products = (
       await this.db.getRepository(ECOBASE_COLLECTIONS.planningProducts).find({
         filter: productFilter,
@@ -912,6 +936,7 @@ export class EcobaseInventoryPlanningService {
           purchasedPipelineGraceDays,
           profitTierThresholds,
           statusRules,
+          sellerboardSourceConnectionIds,
         }),
       );
     }
@@ -1648,6 +1673,7 @@ export class EcobaseInventoryPlanningService {
   }) {
     const activeSourceConnectionIds = await this.activeSourceConnectionIds();
     const sourceConnectionCompanies = await this.sourceConnectionCompanies();
+    const sellerboardSourceConnectionIds = await this.sellerboardSourceConnectionIds();
     const inventoryRows = (
       await this.findFallbackRecords(ECOBASE_COLLECTIONS.inventorySnapshots, {
         company: params.company,
@@ -1684,12 +1710,18 @@ export class EcobaseInventoryPlanningService {
       }
     }
 
-    const seen = new Set<string>();
-    const rows: PlainRecord[] = [];
+    const inventoryByProduct = new Map<string, PlainRecord>();
     for (const inventory of inventoryRows) {
       const key = this.fallbackProductKey(inventory, sourceConnectionCompanies);
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
+      if (!key) continue;
+      const current = inventoryByProduct.get(key);
+      if (!current || inventorySnapshotWins(inventory, current, sellerboardSourceConnectionIds)) {
+        inventoryByProduct.set(key, inventory);
+      }
+    }
+
+    const rows: PlainRecord[] = [];
+    for (const [key, inventory] of inventoryByProduct) {
       rows.push(
         await this.buildFallbackRow({
           inventory,
@@ -2094,6 +2126,7 @@ export class EcobaseInventoryPlanningService {
     purchasedPipelineGraceDays: number;
     profitTierThresholds: ProfitTierThresholds;
     statusRules: SupplierOrderStatusRules;
+    sellerboardSourceConnectionIds: Set<string>;
   }) {
     const planningProductId = asString(params.product.id) ?? '';
     const company = asString(params.product.company);
@@ -2101,7 +2134,8 @@ export class EcobaseInventoryPlanningService {
     const parameterRows = await findRecords(this.db, ECOBASE_COLLECTIONS.planningParameters, { planningProductId });
     const supplierLinks = await findRecords(this.db, ECOBASE_COLLECTIONS.supplierProductLinks, { planningProductId });
     let orderLines = await findRecords(this.db, ECOBASE_COLLECTIONS.supplierOrderLines, { planningProductId });
-    const latestInventory = latestByDate(inventoryRows, 'snapshotDate') ?? {};
+    const latestInventory =
+      latestPreferredInventorySnapshot(inventoryRows, params.sellerboardSourceConnectionIds) ?? {};
     const latestParameter = latestByDate(parameterRows, 'lastImportRunId') ?? parameterRows[0] ?? {};
     const supplierLink = selectSupplierLink(supplierLinks) ?? {};
     const supplier = await this.findSupplier(supplierLink, latestParameter, company);
@@ -2362,6 +2396,18 @@ export class EcobaseInventoryPlanningService {
       (await this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).find({}))
         .map(toPlainRecord)
         .filter((connection) => asBoolean(connection.active) !== false)
+        .map((connection) => asString(connection.id))
+        .filter((id): id is string => Boolean(id)),
+    );
+  }
+
+  private async sellerboardSourceConnectionIds() {
+    return new Set(
+      (await this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).find({}))
+        .map(toPlainRecord)
+        .filter(
+          (connection) => asString(connection.sourceType) === 'sellerboard' && asBoolean(connection.active) !== false,
+        )
         .map((connection) => asString(connection.id))
         .filter((id): id is string => Boolean(id)),
     );

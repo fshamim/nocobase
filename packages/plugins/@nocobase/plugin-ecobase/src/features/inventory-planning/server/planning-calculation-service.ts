@@ -133,6 +133,14 @@ function recordsForDate(records: PlainRecord[], field: string, date?: string) {
   return date ? records.filter((record) => asString(record[field]) === date) : records;
 }
 
+function preferSellerboardInventoryRows(records: PlainRecord[], sellerboardSourceConnectionIds: Set<string>) {
+  const sellerboardRows = records.filter((record) => {
+    const sourceConnectionId = asString(record.sourceConnectionId);
+    return Boolean(sourceConnectionId && sellerboardSourceConnectionIds.has(sourceConnectionId));
+  });
+  return sellerboardRows.length > 0 ? sellerboardRows : records;
+}
+
 function averageUnitsForWindow(records: PlainRecord[], calculationDate: string, days: number) {
   const end = new Date(`${calculationDate}T00:00:00.000Z`).getTime();
   const start = end - (days - 1) * 86_400_000;
@@ -169,6 +177,18 @@ async function findByPlanningProduct(repo: EcobaseRepository, planningProductId:
 export class EcobasePlanningCalculationService {
   constructor(private db: EcobaseDatabase) {}
 
+  private async sellerboardSourceConnectionIds() {
+    const sourceConnections = (await this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).find({})).map(
+      toPlainRecord,
+    );
+    return new Set(
+      sourceConnections
+        .filter((connection) => asString(connection.sourceType) === 'sellerboard' && connection.active !== false)
+        .map((connection) => asString(connection.id))
+        .filter((id): id is string => Boolean(id)),
+    );
+  }
+
   async calculatePlanningProduct(params: CalculatePlanningProductParams) {
     const planningProductId = asString(params.planningProductId);
     if (!planningProductId) {
@@ -182,9 +202,9 @@ export class EcobasePlanningCalculationService {
       throw new Error(`Ecobase planning calculation failed: planning product "${planningProductId}" was not found.`);
     }
 
-    const inventoryRows = await findByPlanningProduct(
-      this.db.getRepository(ECOBASE_COLLECTIONS.inventorySnapshots),
-      planningProductId,
+    const inventoryRows = preferSellerboardInventoryRows(
+      await findByPlanningProduct(this.db.getRepository(ECOBASE_COLLECTIONS.inventorySnapshots), planningProductId),
+      await this.sellerboardSourceConnectionIds(),
     );
     const factRows = await findByPlanningProduct(
       this.db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts),

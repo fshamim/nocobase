@@ -374,6 +374,90 @@ describe('EcobaseInventoryPlanningService', () => {
     });
   });
 
+  it('prefers Sellerboard stock snapshots over manual CSV inventory buckets', async () => {
+    const db = new MemoryDatabase();
+    await createRecord(db, ECOBASE_COLLECTIONS.sourceConnections, {
+      id: 'manual-source',
+      name: 'Manual Amazon Operations CSV',
+      sourceType: 'seller_central_file',
+      domain: 'amazon_operations',
+      active: true,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.sourceConnections, {
+      id: 'sellerboard-source',
+      name: 'Sellerboard Stock Daily',
+      sourceType: 'sellerboard',
+      domain: 'amazon_operations',
+      active: true,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.planningProducts, {
+      id: 'planning-product-sellerboard-stock',
+      naturalKey: 'Ecofission LLC:B000SELLERBOARD',
+      company: 'Ecofission LLC',
+      canonicalAsin: 'B000SELLERBOARD',
+      title: 'Sellerboard stock product',
+      mappingStatus: 'confirmed',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
+      naturalKey: 'manual-inventory-sellerboard-stock',
+      sourceConnectionId: 'manual-source',
+      planningProductId: 'planning-product-sellerboard-stock',
+      snapshotDate: '2026-06-10',
+      company: 'Ecofission LLC',
+      asin: 'B000SELLERBOARD',
+      sku: 'SB-SKU',
+      stock: 999,
+      reserved: 0,
+      inbound: 0,
+      ordered: 0,
+      prepStock: 0,
+      salesVelocity: 99,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
+      naturalKey: 'sellerboard-inventory-sellerboard-stock',
+      sourceConnectionId: 'sellerboard-source',
+      planningProductId: 'planning-product-sellerboard-stock',
+      snapshotDate: '2026-06-09',
+      company: 'Ecofission LLC',
+      asin: 'B000SELLERBOARD',
+      sku: 'SB-SKU',
+      stock: 12,
+      reserved: 3,
+      inbound: 4,
+      ordered: 5,
+      prepStock: 6,
+      salesVelocity: 2,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.planningParameters, {
+      naturalKey: 'params-sellerboard-stock',
+      sourceConnectionId: 'manual-source',
+      planningProductId: 'planning-product-sellerboard-stock',
+      company: 'Ecofission LLC',
+      asin: 'B000SELLERBOARD',
+      sku: 'SB-SKU',
+      supplier: 'Stock Supplier',
+      supplierId: 'STOCK-SUPPLIER',
+      leadTimeDays: 5,
+      payload: { productStatus: 'Active' },
+    });
+
+    const [row] = await new EcobaseInventoryPlanningService(db).listRows({
+      company: 'Ecofission LLC',
+      calculationDate: '2026-06-11',
+    });
+
+    expect(row).toMatchObject({
+      planningProductId: 'planning-product-sellerboard-stock',
+      sellableStock: 12,
+      reservedStock: 3,
+      inboundStock: 4,
+      orderedStock: 5,
+      prepStock: 6,
+      currentPlanningStock: 30,
+      salesVelocity: 2,
+    });
+  });
+
   it('uses OrderDetails history to recover supplier and lead time when planning rows have no supplier mapping', async () => {
     const db = new MemoryDatabase();
     await createRecord(db, ECOBASE_COLLECTIONS.planningProducts, {
