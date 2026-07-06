@@ -693,6 +693,7 @@ export default function InventoryPlanningPage() {
   const [productTargets, setProductTargets] = useState<PlainRecord[]>([]);
   const [lineEditValues, setLineEditValues] = useState<LineEditValues | null>(null);
   const [orderEditValues, setOrderEditValues] = useState<OrderEditValues | null>(null);
+  const [orderCommentText, setOrderCommentText] = useState('');
   const [managePanels, setManagePanels] = useState<string[]>([]);
   const [budgetAmount, setBudgetAmount] = useState<number | null>(null);
   const [budgetHorizonDays, setBudgetHorizonDays] = useState(30);
@@ -700,6 +701,15 @@ export default function InventoryPlanningPage() {
   const [budgetLoading, setBudgetLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
+  const sortedOrderActivities = useMemo(
+    () =>
+      [...orderActivities].sort(
+        (left, right) =>
+          (new Date(String(right.occurredAt ?? right.createdAt ?? 0)).getTime() || 0) -
+          (new Date(String(left.occurredAt ?? left.createdAt ?? 0)).getTime() || 0),
+      ),
+    [orderActivities],
+  );
 
   const loadPlanningSettings = useCallback(async () => {
     const response = await api.request({ url: 'ecobasePlanningSettings:get', method: 'post', data: {} });
@@ -1160,6 +1170,31 @@ export default function InventoryPlanningPage() {
       </Space>
     );
   };
+  const renderLatestOrderCommentPreview = (row: PlainRecord) => {
+    const latestNote = String(row.latestSupplierOrderActivityNote ?? '').trim();
+    if (!latestNote) return null;
+    const latestType = String(row.latestSupplierOrderActivityType ?? '').trim();
+    const latestAt = String(row.latestSupplierOrderActivityAt ?? '').trim();
+    const label = latestType ? `${t(formatStatusLabel(latestType))}: ` : '';
+    return (
+      <Tooltip
+        title={
+          <Space direction="vertical" size={0}>
+            <Typography.Text style={{ color: 'inherit' }}>{`${label}${latestNote}`}</Typography.Text>
+            {latestAt ? (
+              <Typography.Text style={{ color: 'inherit' }}>
+                {t('Last activity')} {formatDate(latestAt)}
+              </Typography.Text>
+            ) : null}
+          </Space>
+        }
+      >
+        <Typography.Text type="secondary" ellipsis style={{ display: 'block', maxWidth: 240 }}>
+          {`${label}${latestNote}`}
+        </Typography.Text>
+      </Tooltip>
+    );
+  };
   const renderMoneyCell = (value: number) => (
     <Typography.Text strong style={{ color: MONEY_AT_RISK_COLOR }}>
       {formatCurrency(value)}
@@ -1250,6 +1285,7 @@ export default function InventoryPlanningPage() {
               <Typography.Text type="secondary">
                 {formatNumber(row.openOrderCoverageQty)} {t('units')} · {row.supplierName ?? t('Supplier missing')}
               </Typography.Text>
+              {renderLatestOrderCommentPreview(row)}
             </Space>
           ),
         },
@@ -1373,7 +1409,7 @@ export default function InventoryPlanningPage() {
           dataSource={rowsForPane}
           columns={commandPaneColumns(pane)}
           pagination={false}
-          onRow={(row) => ({ onClick: () => openRow(row, [], pane) })}
+          onRow={(row) => ({ onClick: () => openRow(row, undefined, pane) })}
         />
       </Card>
     );
@@ -1492,6 +1528,7 @@ export default function InventoryPlanningPage() {
     setProductTargets([]);
     setLineEditValues(null);
     setOrderEditValues(null);
+    setOrderCommentText('');
     setManagePanels(initialPanels ?? (pane ? drawerPanelKeysByPane[pane] : []));
     void loadDrawerEntities(row);
   };
@@ -1614,6 +1651,39 @@ export default function InventoryPlanningPage() {
     }
     message.success(t('Supplier order status updated'));
     setOrderEditValues(null);
+    await Promise.all([loadPlanning(), loadDrawerEntities(selectedRow)]);
+  };
+
+  const saveOrderComment = async () => {
+    if (!selectedRow) return;
+    const notes = orderCommentText.trim();
+    if (!notes) {
+      message.error(t('Enter a comment before saving.'));
+      return;
+    }
+    const supplierOrderId = orderEditValues?.supplierOrderId || String(selectedRow.supplierOrderId ?? '');
+    const supplierId = orderEditValues?.supplierId || String(selectedRow.supplierId ?? '');
+    if (!isUuid(supplierOrderId)) {
+      message.error(t('Select a supplier order before saving a comment.'));
+      return;
+    }
+    if (!isUuid(supplierId)) {
+      message.error(t('Select an order with a known supplier before saving a comment.'));
+      return;
+    }
+    await api.request({
+      url: 'ecobaseSupplierOrders:recordActivity',
+      method: 'post',
+      data: {
+        company: selectedRow.company,
+        supplierId,
+        supplierOrderId,
+        activityType: 'note',
+        notes,
+      },
+    });
+    message.success(t('Order comment saved'));
+    setOrderCommentText('');
     await Promise.all([loadPlanning(), loadDrawerEntities(selectedRow)]);
   };
 
@@ -2284,22 +2354,49 @@ export default function InventoryPlanningPage() {
                               },
                             ]}
                           />
-                          {orderActivities.length > 0 ? (
-                            <Space direction="vertical" size={4} style={{ width: '100%' }}>
-                              <Typography.Text strong>{t('Recent order/product notes')}</Typography.Text>
-                              {orderActivities.slice(0, 5).map((activity) => (
-                                <Alert
-                                  key={String(activity.id)}
-                                  type="info"
-                                  showIcon
-                                  message={`${t(String(activity.activityType ?? 'note'))} · ${formatDate(
-                                    activity.occurredAt,
-                                  )}`}
-                                  description={String(activity.notes ?? '—')}
-                                />
-                              ))}
-                            </Space>
-                          ) : null}
+                          <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                            <Typography.Text strong>{t('Recent order comments')}</Typography.Text>
+                            {sortedOrderActivities.length > 0 ? (
+                              sortedOrderActivities.slice(0, 8).map((activity, index) => {
+                                const meta = [
+                                  activity.actor ? `${t('Actor')} ${activity.actor}` : undefined,
+                                  activity.source ? `${t('Source')} ${formatStatusLabel(activity.source)}` : undefined,
+                                ].filter(Boolean);
+                                return (
+                                  <Alert
+                                    key={String(activity.id ?? activity.naturalKey ?? index)}
+                                    type="info"
+                                    showIcon
+                                    message={
+                                      <Space size={4} wrap>
+                                        <Tag color={activity.source === 'clickup' ? 'purple' : 'blue'}>
+                                          {t(formatStatusLabel(activity.activityType ?? 'note'))}
+                                        </Tag>
+                                        <Typography.Text>{formatDate(activity.occurredAt)}</Typography.Text>
+                                        {meta.length > 0 ? (
+                                          <Typography.Text type="secondary">{meta.join(' · ')}</Typography.Text>
+                                        ) : null}
+                                      </Space>
+                                    }
+                                    description={
+                                      <Typography.Paragraph style={{ marginBottom: 0, whiteSpace: 'pre-wrap' }}>
+                                        {String(activity.notes ?? '—')}
+                                      </Typography.Paragraph>
+                                    }
+                                  />
+                                );
+                              })
+                            ) : (
+                              <Alert
+                                type="info"
+                                showIcon
+                                message={t('No comments recorded yet')}
+                                description={t(
+                                  'ClickUp imports and operator notes for this supplier order will appear here after they are saved.',
+                                )}
+                              />
+                            )}
+                          </Space>
                           {selectedCommandPane !== 'activeOrders' && selectedCommandPane !== 'stuckInventory' ? (
                             <Button type="primary" onClick={() => void draftOrder()}>
                               {t('Draft new order for this product')}
@@ -2425,6 +2522,7 @@ export default function InventoryPlanningPage() {
                                   status: String(order.status ?? 'draft'),
                                   notes: orderEditValues.notes,
                                 });
+                                setOrderCommentText('');
                               }}
                               optionFilterProp="label"
                               style={{ width: '100%' }}
@@ -2462,6 +2560,22 @@ export default function InventoryPlanningPage() {
                               </Button>
                               <Button onClick={() => setOrderEditValues(null)}>{t('Cancel')}</Button>
                             </Space>
+                          </Col>
+                          <Col xs={24}>
+                            <Divider style={{ margin: '4px 0' }} />
+                            <Typography.Text strong>{t('Add comment only')}</Typography.Text>
+                            <Input.TextArea
+                              rows={3}
+                              value={orderCommentText}
+                              onChange={(event) => setOrderCommentText(event.target.value)}
+                              placeholder={t('Example: ClickUp says supplier is waiting on payment confirmation')}
+                            />
+                            <Typography.Text type="secondary">
+                              {t('Saves a note to this supplier order without changing status.')}
+                            </Typography.Text>
+                          </Col>
+                          <Col xs={24}>
+                            <Button onClick={() => void saveOrderComment()}>{t('Save comment')}</Button>
                           </Col>
                         </Row>
                       ) : (
