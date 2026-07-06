@@ -281,8 +281,26 @@ describe('Ecobase inventory-planning public API seam', () => {
       lastRefreshedAt: '2026-07-05T08:00:00.000Z',
       targetCoverDays: 45,
       tier: 'A',
+      tierScore: 250,
+      previousTier: 'B',
+      tierMovement: 'up',
+      profitPerUnit: 25,
+      recommendedBestQty: 10,
+      currentTier: 'A',
+      currentTierScore: 250,
+      averageTier: 'B',
+      averageTierScore: 175,
+      bestTier: 'A',
+      bestTierScore: 300,
       salesVelocity: 5,
       currentPlanningStock: 10,
+      sellableStock: 4,
+      reservedStock: 2,
+      pipelineStock: 4,
+      inboundStock: 1,
+      orderedStock: 2,
+      prepStock: 1,
+      sixMonthAverageQty: 22,
       suggestedReorderQty: 215,
       estimatedProfitRisk: 100,
       leadTimeFreshness: 'fresh',
@@ -331,12 +349,52 @@ describe('Ecobase inventory-planning public API seam', () => {
         asin: 'B003',
         sku: 'SKU-3',
         title: 'Stuck product',
-        tier: 'C',
+        tier: null,
         actionStatus: 'watch',
         estimatedProfitRisk: 0,
         daysOfCover: 90,
         supplierOrderState: 'closed_history',
         stuck: true,
+      },
+    });
+    await goldRows.create({
+      values: {
+        ...baseRow,
+        id: 'gold-4',
+        naturalKey: '2026-07-05:ACME:B004:SKU-4',
+        asin: 'B004',
+        sku: 'SKU-4',
+        title: 'Untiered active order product',
+        tier: null,
+        actionStatus: 'overdue',
+        estimatedProfitRisk: 900,
+        estimatedOosDate: '2026-07-06',
+        expectedSellableDate: '2026-07-12',
+        supplierOrderState: 'purchased_pipeline',
+        supplierOrderStatus: 'paid',
+        supplierOrderRef: 'PO-4',
+        stuck: false,
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).create({
+      values: {
+        id: 'supplier-order-po-2',
+        naturalKey: 'supplier-order:ACME:PO-2',
+        company: 'ACME',
+        status: 'paid',
+        statusSource: 'operator',
+        sourceStage: 'purchase_order',
+        externalOrderRef: 'PO-2',
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities).create({
+      values: {
+        id: 'activity-po-2',
+        naturalKey: 'supplier-order-activity:supplier-order-po-2:2026-07-01T10:00:00.000Z',
+        supplierOrderId: 'supplier-order-po-2',
+        activityType: 'status_update',
+        occurredAt: '2026-07-01T10:00:00.000Z',
+        notes: 'Paid confirmed',
       },
     });
 
@@ -352,11 +410,59 @@ describe('Ecobase inventory-planning public API seam', () => {
     const data = context.body?.data as Record<string, any>;
 
     expect(data.metadata).toMatchObject({ company: 'ACME', calculationDate: '2026-07-05', targetCoverDays: 45 });
-    expect(data.panes.supplyAction).toMatchObject({ total: 2, pageSize: 1 });
-    expect(data.panes.supplyAction.rows[0]).toMatchObject({ id: 'gold-2', daysUntilOos: 2, stockoutGapDays: 3 });
+    expect(data.summaryCards.map((card: Record<string, unknown>) => card.label)).toEqual([
+      'Urgent stockout risk',
+      'Money at risk',
+      'Supply action needed',
+      'Active orders off-track',
+      'Follow-ups due today',
+      'Stuck inventory',
+    ]);
+    expect(data.macroRisk.map((item: Record<string, unknown>) => item.label)).toContain('Stuck current stock');
+    expect(data.panes.supplyAction).toMatchObject({ total: 1, pageSize: 1 });
+    expect(data.panes.supplyAction.rows[0]).toMatchObject({
+      id: 'gold-1',
+      tierScore: 250,
+      previousTier: 'B',
+      tierMovement: 'up',
+      currentTier: 'A',
+      currentTierScore: 250,
+      averageTier: 'B',
+      averageTierScore: 175,
+      bestTier: 'A',
+      bestTierScore: 300,
+      profitPerUnit: 25,
+      recommendedBestQty: 10,
+      daysUntilOos: 3,
+      sellableStock: 4,
+      reservedStock: 2,
+      pipelineStock: 4,
+      sixMonthAverageQty: 22,
+    });
     expect(data.panes.activeOrders).toMatchObject({ total: 1 });
+    expect(data.panes.activeOrders.rows[0]).toMatchObject({
+      id: 'gold-2',
+      daysUntilOos: 2,
+      stockoutGapDays: 3,
+      latestSupplierOrderActivityAt: '2026-07-01T10:00:00.000Z',
+      latestSupplierOrderActivityNote: 'Paid confirmed',
+    });
     expect(data.panes.stuckInventory).toMatchObject({ total: 1 });
-    expect(data.selectedRow.row).toMatchObject({ id: 'gold-2', recommendedAction: 'follow_up_order' });
+    expect(data.panes.stuckInventory.rows[0]).toMatchObject({
+      id: 'gold-3',
+      tier: undefined,
+      stuckBucket: 'high_cover_slow_sales',
+    });
+    expect(data.selectedRow.row).toMatchObject({
+      id: 'gold-2',
+      tierScore: 250,
+      previousTier: 'B',
+      currentTier: 'A',
+      bestTierScore: 300,
+      recommendedBestQty: 10,
+      recommendedAction: 'follow_up_order',
+      orderedStock: 2,
+    });
   });
 });
 

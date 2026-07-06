@@ -33,7 +33,7 @@ import {
 } from 'antd';
 import dayjs from 'dayjs';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { FormulaHelp } from '../../../client/formula-help';
+import { FormulaHelp, type FormulaHelpGroupKey } from '../../../client/formula-help';
 import { useT } from '../../../client/locale';
 
 type PlainRecord = Record<string, any>;
@@ -316,6 +316,13 @@ function formatTier(value: any) {
   return value && value !== 'unclassified' ? String(value) : '—';
 }
 
+function formatStatusLabel(value: any) {
+  if (value === null || value === undefined || value === '') return '—';
+  return String(value)
+    .replace(/_/g, ' ')
+    .replace(/\b[a-z]/g, (char) => char.toUpperCase());
+}
+
 function formatTierScore(value: any) {
   const number = finiteNumber(value);
   return typeof number === 'number' ? formatNumber(number) : '—';
@@ -336,10 +343,21 @@ function relativeDateLabel(value: any, baseDate: string) {
   return { label: `In ${diff} days`, detail: value.slice(0, 10), color: diff <= 7 ? 'gold' : 'default' };
 }
 
+function daysSinceDate(value: any, baseDate: string) {
+  if (typeof value !== 'string' || value.length === 0) return undefined;
+  const activityDate = dayjs(value.slice(0, 10));
+  const base = dayjs(baseDate);
+  if (!activityDate.isValid() || !base.isValid()) return undefined;
+  return Math.max(0, base.diff(activityDate, 'day'));
+}
+
 function StockStatus({ row, t }: { row: PlainRecord; t: (key: string) => string }) {
   const reserved = Number(row.reservedStock ?? 0);
   const sellable = Number(row.sellableStock ?? 0);
   const pipeline = Number(row.pipelineStock ?? 0);
+  const inbound = Number(row.inboundStock ?? 0);
+  const ordered = Number(row.orderedStock ?? 0);
+  const prep = Number(row.prepStock ?? 0);
   const reservedColor = reserved > sellable ? 'red' : reserved > 0 ? 'orange' : 'default';
   return (
     <Space direction="vertical" size={4}>
@@ -358,6 +376,15 @@ function StockStatus({ row, t }: { row: PlainRecord; t: (key: string) => string 
         </Tag>
         <Tag color={pipeline > 0 ? 'cyan' : 'default'}>
           {t('Replenishment')} {formatNumber(pipeline)}
+        </Tag>
+        <Tag color={inbound > 0 ? 'geekblue' : 'default'}>
+          {t('Inbound')} {formatNumber(inbound)}
+        </Tag>
+        <Tag color={ordered > 0 ? 'purple' : 'default'}>
+          {t('Ordered')} {formatNumber(ordered)}
+        </Tag>
+        <Tag color={prep > 0 ? 'gold' : 'default'}>
+          {t('Prep')} {formatNumber(prep)}
         </Tag>
       </Space>
     </Space>
@@ -903,18 +930,25 @@ export default function InventoryPlanningPage() {
   const commandMetadata = unwrapData(commandCenter.metadata);
   const commandPanes = unwrapData(commandCenter.panes);
   const commandSummaryCards = Array.isArray(commandCenter.summaryCards) ? commandCenter.summaryCards : [];
+  const commandMacroRisk = unwrapRows(commandCenter.macroRisk);
   const commandRiskBars = unwrapData(commandCenter.riskBars);
-  const dailyAlertPreview = unwrapRows(commandCenter.dailyAlertPreview);
   const commandCalculationDate = String(commandMetadata.calculationDate ?? relativeBaseDate);
+  const commandTargetCoverDays = finiteNumber(commandMetadata.targetCoverDays) ?? targetCoverDays;
   const commandPaneTitles: Record<CommandCenterPaneKey, string> = {
-    supplyAction: t('Supply action needed'),
-    activeOrders: t('Active orders'),
+    supplyAction: t('Products needing supply action — no active order'),
+    activeOrders: t('Products with active orders — pipeline monitoring'),
     stuckInventory: t('Stuck inventory'),
   };
   const commandPaneDescriptions: Record<CommandCenterPaneKey, string> = {
-    supplyAction: t('Rows needing order, supplier, or lead-time action.'),
-    activeOrders: t('Placed and purchased pipeline that can still miss stockout.'),
-    stuckInventory: t('Slow, reserved, or stalled stock that should be reviewed.'),
+    supplyAction: t(
+      'Category A: stockout risk with no active purchased pipeline. Create or add a PO from the row drawer.',
+    ),
+    activeOrders: t(
+      'Category B: stockout risk with an order already in motion. Use this pane to find late, blocked, or follow-up-due orders.',
+    ),
+    stuckInventory: t(
+      'Slow-moving live stock that ties up capital. Rows must have sell-through evidence, so active stockouts are filtered out.',
+    ),
   };
   const commandPaneSortOptions: Record<CommandCenterPaneKey, { value: string; label: string }[]> = {
     supplyAction: [
@@ -934,6 +968,76 @@ export default function InventoryPlanningPage() {
       { value: 'estimatedProfitRisk', label: t('Money at risk') },
     ],
   };
+  const commandPaneHelpGroups: Record<CommandCenterPaneKey, FormulaHelpGroupKey> = {
+    supplyAction: 'inventorySupplyAction',
+    activeOrders: 'inventoryActiveOrders',
+    stuckInventory: 'inventoryStuckInventory',
+  };
+  const commandPaneHowThisWorks: Record<CommandCenterPaneKey, { risk: string; detail: string }[]> = {
+    supplyAction: [
+      {
+        risk: 'overdue / order today',
+        detail:
+          'DOC minus supplier lead time and safety buffer says the latest safe order date has passed or is today.',
+      },
+      {
+        risk: 'order soon',
+        detail:
+          'The latest safe order date is inside the soon window, so the product needs planning before it becomes urgent.',
+      },
+      {
+        risk: 'missing / stale lead time',
+        detail: 'The system cannot trust the order-by deadline until supplier lead time is entered or refreshed.',
+      },
+      {
+        risk: 'money at risk',
+        detail: 'Estimated missed profit for tiered products if stockout days are not covered by a reliable order.',
+      },
+    ],
+    activeOrders: [
+      {
+        risk: 'off-track / late',
+        detail:
+          'Expected sellable date is after estimated OOS, so the team should expedite or escalate with the supplier.',
+      },
+      {
+        risk: 'late with grace',
+        detail:
+          'The order is close enough to still count temporarily, but it needs monitoring before the grace window expires.',
+      },
+      {
+        risk: 'placed not purchased',
+        detail: 'An order exists but is not yet reliable purchased coverage, so it can still leak into stockout risk.',
+      },
+      {
+        risk: 'follow-up due today',
+        detail: 'The order needs a status/comment update so Daily Operations can see where it is held up.',
+      },
+    ],
+    stuckInventory: [
+      {
+        risk: '30+ / 60+ DOC',
+        detail:
+          'Stock has more cover than the review threshold, so capital may be tied up instead of available for urgent buys.',
+      },
+      {
+        risk: 'high cover, slow sales',
+        detail: 'Current stock is high while recent and six-month sell-through remain low.',
+      },
+      {
+        risk: 'reserved not selling',
+        detail: 'Stock is reserved or unavailable without matching sell-through, so it needs operational review.',
+      },
+      {
+        risk: 'pipeline stalled',
+        detail: 'Replenishment or prep stock is present but not converting into sellable units fast enough.',
+      },
+      {
+        risk: 'false positives filtered',
+        detail: 'Rows without sell-through because they were stocked out are not treated as stuck inventory.',
+      },
+    ],
+  };
   const renderRiskBars = (items: PlainRecord[]) => (
     <Space direction="vertical" size={6} style={{ width: '100%' }}>
       {items.map((item) => {
@@ -942,7 +1046,7 @@ export default function InventoryPlanningPage() {
         return (
           <div key={String(item.key)}>
             <Space style={{ width: '100%', justifyContent: 'space-between' }}>
-              <Typography.Text>{t(String(item.key))}</Typography.Text>
+              <Typography.Text>{t(formatStatusLabel(item.key))}</Typography.Text>
               <Typography.Text strong>{count}</Typography.Text>
             </Space>
             <div style={{ height: 8, borderRadius: 999, background: '#f0f0f0', overflow: 'hidden' }}>
@@ -960,83 +1064,232 @@ export default function InventoryPlanningPage() {
       <Space direction="vertical" size={0}>
         <span>{formatDate(row.estimatedOosDate)}</span>
         <Tag color={color}>{Number.isFinite(daysLeft) ? `${daysLeft} ${t('days left')}` : t('No velocity')}</Tag>
+        <Typography.Text type="secondary">
+          {t('velocity')} {formatNumber(row.salesVelocity)}/{t('day')}
+        </Typography.Text>
       </Space>
     );
   };
-  const commandPaneColumns = (pane: CommandCenterPaneKey) => [
-    {
-      title: String(t('Action')),
-      dataIndex: 'actionStatus',
-      render: (value: string, row: PlainRecord) => (
+  const renderCommandProductCell = (_value: any, row: PlainRecord) => (
+    <Space direction="vertical" size={0}>
+      <Typography.Text strong>{row.asin ?? '—'}</Typography.Text>
+      <Typography.Text type="secondary" ellipsis style={{ maxWidth: 220 }}>
+        {row.sku ?? '—'}
+      </Typography.Text>
+      <Typography.Text type="secondary">{row.company ?? '—'}</Typography.Text>
+    </Space>
+  );
+  const renderDocCell = (_value: any, row: PlainRecord) => (
+    <Typography.Text>
+      {formatNumber(row.daysOfCover)} {t('days')}
+    </Typography.Text>
+  );
+  const renderStockBucketTag = (label: string, title: string, value: any, color: string) => {
+    const number = finiteNumber(value);
+    const display = typeof number === 'number' ? formatNumber(number) : '—';
+    const tagColor =
+      typeof number === 'number' && number < 0 ? 'red' : typeof number === 'number' && number > 0 ? color : 'default';
+    return (
+      <Tooltip key={label} title={`${t(title)}: ${display}`}>
+        <Tag color={tagColor} style={{ marginInlineEnd: 0 }}>
+          {label} {display}
+        </Tag>
+      </Tooltip>
+    );
+  };
+  const renderCurrentStockCell = (_value: any, row: PlainRecord) => (
+    <Space direction="vertical" size={4} style={{ minWidth: 210 }}>
+      <Space size={4} wrap>
+        {renderStockBucketTag('Total', 'Total planning stock', row.currentPlanningStock, 'blue')}
+      </Space>
+      <Space size={[4, 4]} wrap>
+        {renderStockBucketTag('FBA', 'FBA', row.sellableStock, 'green')}
+        {renderStockBucketTag('RES', 'Reserved', row.reservedStock, 'gold')}
+        {renderStockBucketTag('INB', 'Inbound', row.inboundStock, 'cyan')}
+        {renderStockBucketTag('PRP', 'Prep', row.prepStock, 'magenta')}
+        {renderStockBucketTag('ORD', 'Ordered', row.orderedStock, 'geekblue')}
+      </Space>
+    </Space>
+  );
+  const renderOrderByCell = (_value: any, row: PlainRecord) => {
+    const label = relativeDateLabel(row.latestSafeReorderDate, commandCalculationDate);
+    const leadTime = finiteNumber(row.leadTimeDays);
+    const leadTimeSource =
+      row.leadTimeSource === 'planning_parameter_without_supplier_mapping'
+        ? 'planning import'
+        : row.leadTimeSource === 'supplier_or_planning_parameter'
+          ? 'supplier/import'
+          : 'source unknown';
+    return (
+      <Space direction="vertical" size={0} style={{ minWidth: 180 }}>
+        <Tag color={label.color}>{t(label.label)}</Tag>
+        <Typography.Text type="secondary">{label.detail ?? formatDate(row.latestSafeReorderDate)}</Typography.Text>
+        <Typography.Text type="secondary" ellipsis style={{ maxWidth: 180 }}>
+          {row.supplierName ?? t('Supplier missing')}
+        </Typography.Text>
         <Space size={4} wrap>
-          <Tag color={actionColor(value)}>{t(value ?? row.recommendedAction ?? 'watch')}</Tag>
-          {row.recommendedAction === 'follow_up_order' ? <Tag color="red">{t('Follow-up due today')}</Tag> : null}
+          <Tag color={freshnessColor(row.leadTimeFreshness)} style={{ marginInlineEnd: 0 }}>
+            {typeof leadTime === 'number'
+              ? `${formatNumber(leadTime)} ${t('days')} · ${t(row.leadTimeFreshness ?? 'unknown')}`
+              : t('lead time missing')}
+          </Tag>
+          <Tooltip title={t(leadTimeSourceText(row))}>
+            <Typography.Text type="secondary">{t(leadTimeSource)}</Typography.Text>
+          </Tooltip>
         </Space>
-      ),
-    },
-    {
-      title: String(t('Tier')),
-      dataIndex: 'tier',
-      render: (value: string) => <Tag color={tierColor(value)}>{value}</Tag>,
-    },
-    {
-      title: String(t('Product')),
-      key: 'product',
-      render: (_value: any, row: PlainRecord) => (
-        <Space direction="vertical" size={0}>
-          <Typography.Text strong>{row.asin ?? '—'}</Typography.Text>
-          <Typography.Text type="secondary" ellipsis style={{ maxWidth: 260 }}>
-            {row.sku ?? row.title ?? '—'}
+      </Space>
+    );
+  };
+  const renderSuggestedQtyCell = (_value: any, row: PlainRecord) => (
+    <Typography.Text strong>{formatNumber(row.suggestedReorderQty)}</Typography.Text>
+  );
+  const renderMoneyCell = (value: number) => <Typography.Text strong>{formatCurrency(value)}</Typography.Text>;
+  const renderPipelineGapCell = (_value: any, row: PlainRecord) => {
+    const gap = Number(row.stockoutGapDays ?? 0);
+    return (
+      <Tag color={gap > 0 ? 'red' : 'green'}>
+        {gap > 0 ? `${formatNumber(gap)} ${t('days late')}` : `${formatNumber(Math.abs(gap))} ${t('day buffer')}`}
+      </Tag>
+    );
+  };
+  const renderHeldUpAtCell = (_value: any, row: PlainRecord) => {
+    const heldDays = daysSinceDate(row.latestSupplierOrderActivityAt, commandCalculationDate);
+    const status = formatStatusLabel(row.supplierOrderStatus ?? row.supplierOrderState ?? 'unknown');
+    return (
+      <Space direction="vertical" size={0}>
+        <Typography.Text strong>
+          {typeof heldDays === 'number' ? `${formatNumber(heldDays)} ${t('days')}` : t('No activity logged')}
+        </Typography.Text>
+        <Typography.Text type="secondary">{t(status)}</Typography.Text>
+        {row.latestSupplierOrderActivityAt ? (
+          <Typography.Text type="secondary">
+            {t('Last activity')} {formatDate(row.latestSupplierOrderActivityAt)}
           </Typography.Text>
-        </Space>
-      ),
-    },
-    {
-      title: String(t('Supplier / order')),
-      key: 'supplier',
-      render: (_value: any, row: PlainRecord) => (
-        <Space direction="vertical" size={0}>
-          <span>{row.supplierName ?? t('Find supplier')}</span>
-          {row.supplierOrderRef ? <Tag color="blue">{String(row.supplierOrderRef)}</Tag> : null}
-        </Space>
-      ),
-    },
-    { title: String(t('OOS')), dataIndex: 'estimatedOosDate', render: renderOosCell },
-    {
-      title: String(pane === 'activeOrders' ? t('Pipeline') : pane === 'stuckInventory' ? t('Stock') : t('Qty')),
-      key: 'paneMetric',
-      render: (_value: any, row: PlainRecord) =>
-        pane === 'activeOrders' ? (
-          <Space direction="vertical" size={0}>
-            <Tag color={row.pipelineHealthBucket === 'late' ? 'red' : 'blue'}>
-              {t(row.pipelineHealthBucket ?? 'none')}
-            </Tag>
-            <Typography.Text type="secondary">
-              {t('Gap')} {formatNumber(row.stockoutGapDays)} {t('days')}
-            </Typography.Text>
-          </Space>
-        ) : pane === 'stuckInventory' ? (
-          <Space direction="vertical" size={0}>
-            <Tag color="purple">{t(row.stuckBucket ?? 'stuck')}</Tag>
-            <Typography.Text type="secondary">
-              {formatNumber(row.daysOfCover)} {t('days cover')}
-            </Typography.Text>
-          </Space>
-        ) : (
-          <Space direction="vertical" size={0}>
-            <Typography.Text strong>{formatNumber(row.suggestedReorderQty)}</Typography.Text>
-            <Typography.Text type="secondary">
-              {t('Target')} {formatNumber(row.targetCoverDays)} {t('days')}
-            </Typography.Text>
-          </Space>
-        ),
-    },
-    {
-      title: String(t('Money at risk')),
-      dataIndex: 'estimatedProfitRisk',
-      render: (value: number) => <Typography.Text strong>{formatCurrency(value)}</Typography.Text>,
-    },
-  ];
+        ) : null}
+      </Space>
+    );
+  };
+  const renderActiveRiskCell = (_value: any, row: PlainRecord) => {
+    const pipeline = String(row.pipelineHealthBucket ?? 'pipeline');
+    const followUpDue = row.recommendedAction === 'follow_up_order';
+    const label = followUpDue ? 'follow-up due today' : pipeline === 'late' ? 'off-track' : pipeline;
+    const detail = formatStatusLabel(row.supplierOrderStatus ?? row.supplierOrderState ?? 'active order');
+    return (
+      <Space direction="vertical" size={0}>
+        <Tag color={followUpDue || pipeline === 'late' ? 'red' : pipeline === 'late_with_grace' ? 'orange' : 'blue'}>
+          {t(formatStatusLabel(label))}
+        </Tag>
+        <Typography.Text type="secondary">
+          {t(detail === formatStatusLabel(label) ? 'Pipeline monitoring' : detail)}
+        </Typography.Text>
+      </Space>
+    );
+  };
+  const renderStuckRiskCell = (_value: any, row: PlainRecord) => {
+    const doc = Number(row.daysOfCover ?? 0);
+    const threshold = doc >= 60 ? '60+ DOC' : '30+ DOC';
+    return (
+      <Space direction="vertical" size={0}>
+        <Tag color={doc >= 60 ? 'red' : 'orange'}>{t(threshold)}</Tag>
+        <Typography.Text type="secondary">{t(formatStatusLabel(row.stuckBucket ?? 'stuck inventory'))}</Typography.Text>
+      </Space>
+    );
+  };
+  const renderSellThroughEvidenceCell = (_value: any, row: PlainRecord) => (
+    <Space direction="vertical" size={0}>
+      <Typography.Text>
+        {formatNumber(row.salesVelocity)}
+        {t('/day')}
+      </Typography.Text>
+      <Typography.Text type="secondary">
+        {t('6M average')} {formatNumber(row.sixMonthAverageQty)}
+      </Typography.Text>
+    </Space>
+  );
+  const renderDocOosCell = (_value: any, row: PlainRecord) => (
+    <Space direction="vertical" size={0}>
+      <Typography.Text>
+        {formatNumber(row.daysOfCover)} {t('days')}
+      </Typography.Text>
+      {renderOosCell('', row)}
+    </Space>
+  );
+  const commandPaneColumns = (pane: CommandCenterPaneKey) => {
+    if (pane === 'activeOrders') {
+      return [
+        { title: String(t('Risk')), key: 'risk', render: renderActiveRiskCell },
+        { title: String(t('Product')), key: 'product', render: renderCommandProductCell },
+        {
+          title: String(t('Order')),
+          key: 'order',
+          render: (_value: any, row: PlainRecord) => (
+            <Space direction="vertical" size={0}>
+              <Typography.Text strong>{row.supplierOrderRef ?? '—'}</Typography.Text>
+              <Typography.Text type="secondary">
+                {formatNumber(row.openOrderCoverageQty)} {t('units')} · {row.supplierName ?? t('Supplier missing')}
+              </Typography.Text>
+            </Space>
+          ),
+        },
+        { title: String(t('DOC / OOS')), key: 'docOos', render: renderDocOosCell },
+        { title: String(t('Expected sellable')), dataIndex: 'expectedSellableDate', render: formatDate },
+        { title: String(t('Gap')), key: 'gap', render: renderPipelineGapCell },
+        {
+          title: String(t('Held up at')),
+          key: 'heldUpAt',
+          render: renderHeldUpAtCell,
+        },
+        { title: String(t('Money at risk')), dataIndex: 'estimatedProfitRisk', render: renderMoneyCell },
+      ];
+    }
+    if (pane === 'stuckInventory') {
+      return [
+        { title: String(t('Risk')), key: 'risk', render: renderStuckRiskCell },
+        { title: String(t('Product')), key: 'product', render: renderCommandProductCell },
+        { title: String(t('DOC')), key: 'doc', render: renderDocCell },
+        { title: String(t('Sell-through evidence')), key: 'sellThrough', render: renderSellThroughEvidenceCell },
+        {
+          title: String(t('Stock')),
+          key: 'stock',
+          render: renderCurrentStockCell,
+        },
+        {
+          title: String(t('Capital / risk')),
+          dataIndex: 'estimatedProfitRisk',
+          render: (_value: number, row: PlainRecord) => (
+            <Space direction="vertical" size={0}>
+              <Typography.Text strong>{formatCurrency(row.estimatedProfitRisk)}</Typography.Text>
+              <Typography.Text type="secondary">
+                {t('Total stock')} {formatNumber(row.currentPlanningStock)}
+              </Typography.Text>
+            </Space>
+          ),
+        },
+      ];
+    }
+    return [
+      {
+        title: String(t('Risk')),
+        dataIndex: 'actionStatus',
+        render: (value: string) => <Tag color={actionColor(value)}>{t(formatStatusLabel(value ?? 'watch'))}</Tag>,
+      },
+      { title: String(t('Product')), key: 'product', render: renderCommandProductCell },
+      {
+        title: String(t('Tier')),
+        dataIndex: 'tier',
+        render: (value: string) => <Tag color={tierColor(value)}>{value}</Tag>,
+      },
+      { title: String(t('Current stock')), key: 'currentStock', render: renderCurrentStockCell },
+      { title: String(t('Coverage')), dataIndex: 'estimatedOosDate', render: renderOosCell },
+      { title: String(t('Order by')), key: 'orderBy', render: renderOrderByCell },
+      {
+        title: `${t('Suggested qty')} (${formatNumber(commandTargetCoverDays)}d)`,
+        key: 'suggestedQty',
+        render: renderSuggestedQtyCell,
+      },
+      { title: String(t('Money at risk')), dataIndex: 'estimatedProfitRisk', render: renderMoneyCell },
+    ];
+  };
   const renderCommandPane = (pane: CommandCenterPaneKey) => {
     const paneData = unwrapData(commandPanes[pane]);
     const rowsForPane = unwrapRows(paneData.rows);
@@ -1066,6 +1319,29 @@ export default function InventoryPlanningPage() {
         }
       >
         <Typography.Paragraph type="secondary">{commandPaneDescriptions[pane]}</Typography.Paragraph>
+        <Card
+          size="small"
+          title={
+            <Space size="small">
+              <span>{t('How this works')}</span>
+              <FormulaHelp group={commandPaneHelpGroups[pane]} label="Column/status guide" />
+            </Space>
+          }
+          style={{ marginBottom: 12, background: '#fafafa' }}
+        >
+          <Row gutter={[12, 12]}>
+            {commandPaneHowThisWorks[pane].map((item) => (
+              <Col xs={24} md={12} xl={pane === 'stuckInventory' ? 8 : 6} key={item.risk}>
+                <Space direction="vertical" size={0}>
+                  <Tag color={pane === 'stuckInventory' ? 'purple' : pane === 'activeOrders' ? 'blue' : 'orange'}>
+                    {t(formatStatusLabel(item.risk))}
+                  </Tag>
+                  <Typography.Text type="secondary">{t(item.detail)}</Typography.Text>
+                </Space>
+              </Col>
+            ))}
+          </Row>
+        </Card>
         <Table<PlainRecord>
           size="small"
           loading={loading}
@@ -1175,12 +1451,12 @@ export default function InventoryPlanningPage() {
   };
 
   const drawerPanelKeysByPane: Record<CommandCenterPaneKey, string[]> = {
-    supplyAction: ['draft', 'add', 'lead-time'],
+    supplyAction: ['history', 'draft', 'add', 'lead-time'],
     activeOrders: ['history', 'order-status', 'edit-line'],
     stuckInventory: ['product-tasks-targets', 'history'],
   };
 
-  const openRow = (row: PlainRecord, initialPanels: string[] = [], pane?: CommandCenterPaneKey) => {
+  const openRow = (row: PlainRecord, initialPanels?: string[], pane?: CommandCenterPaneKey) => {
     setSelectedCommandPane(pane ?? null);
     setSelectedRow(row);
     setActionValues(newActionValues(row));
@@ -1192,7 +1468,7 @@ export default function InventoryPlanningPage() {
     setProductTargets([]);
     setLineEditValues(null);
     setOrderEditValues(null);
-    setManagePanels(initialPanels.length > 0 ? initialPanels : pane ? drawerPanelKeysByPane[pane] : []);
+    setManagePanels(initialPanels ?? (pane ? drawerPanelKeysByPane[pane] : []));
     void loadDrawerEntities(row);
   };
 
@@ -1398,12 +1674,15 @@ export default function InventoryPlanningPage() {
       return (
         <Card size="small" title={t('Stuck inventory review')}>
           <Space direction="vertical" style={{ width: '100%' }}>
-            <Space size={4} wrap>
-              <Tag color="purple">{t(selectedRow.stuckBucket ?? 'stuck')}</Tag>
-              <Typography.Text>
-                {formatNumber(selectedRow.currentPlanningStock)} {t('units')} · {formatNumber(selectedRow.daysOfCover)}{' '}
-                {t('days cover')} · {t('Capital/risk')} {formatCurrency(selectedRow.estimatedProfitRisk)}
-              </Typography.Text>
+            <Space direction="vertical" size={4}>
+              <Space size={4} wrap>
+                <Tag color="purple">{t(selectedRow.stuckBucket ?? 'stuck')}</Tag>
+                <Typography.Text>
+                  {formatNumber(selectedRow.daysOfCover)} {t('days cover')} · {t('Capital/risk')}{' '}
+                  {formatCurrency(selectedRow.estimatedProfitRisk)}
+                </Typography.Text>
+              </Space>
+              <StockStatus row={selectedRow} t={t} />
             </Space>
             <Space size="small" wrap>
               <Button type="primary" onClick={() => setManagePanels(['product-tasks-targets'])}>
@@ -1632,11 +1911,9 @@ export default function InventoryPlanningPage() {
         .ecobase-inventory-table .ecobase-tier-C > td { background: #fff1f0 !important; }
       `}</style>
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
-        <Typography.Title level={3}>{t('Inventory planning')}</Typography.Title>
+        <Typography.Title level={3}>{t('Inventory Risk Command Center')}</Typography.Title>
         <Typography.Paragraph type="secondary">
-          {t(
-            'One-stop queue for what to order today, what should already have been ordered, and which supplier should be contacted first.',
-          )}
+          {t('First-eye view for stockout risk, active replenishment gaps, follow-ups due today, and stuck capital.')}
         </Typography.Paragraph>
         {error ? <Alert type="error" message={error.message} /> : null}
         {planningSettingsWarning ? <Alert type="warning" message={planningSettingsWarning} showIcon /> : null}
@@ -1666,57 +1943,20 @@ export default function InventoryPlanningPage() {
               />
             </Col>
             <Col xs={24} md={8} xl={4}>
-              <Typography.Text strong>{t('Planning date')}</Typography.Text>
-              <DatePicker
-                allowClear
-                value={calculationDate ? dayjs(calculationDate) : undefined}
-                onChange={(_date, dateString) =>
-                  setCalculationDate(Array.isArray(dateString) ? dateString[0] : dateString)
-                }
+              <Typography.Text strong>{t('Target cover')}</Typography.Text>
+              <InputNumber
+                addonAfter={t('days')}
+                min={30}
+                value={targetCoverDays}
+                onChange={(value) => setTargetCoverDays(Number(value ?? 45))}
                 style={{ width: '100%', marginTop: 4 }}
               />
             </Col>
-            <Col xs={24} md={8} xl={4}>
-              <Typography.Text strong>{t('Status')}</Typography.Text>
-              <Select
-                allowClear
-                placeholder={t('Any action')}
-                value={actionStatus}
-                onChange={setActionStatus}
-                style={{ width: '100%', marginTop: 4 }}
-                options={(Array.isArray(filterOptions.actionStatuses) ? filterOptions.actionStatuses : []).map(
-                  (value: string) => ({ value, label: t(value) }),
-                )}
-              />
-            </Col>
-            <Col xs={24} md={8} xl={3}>
-              <Typography.Text strong>{t('Tier')}</Typography.Text>
-              <Select
-                allowClear
-                placeholder={t('Any')}
-                value={tier}
-                onChange={setTier}
-                style={{ width: '100%', marginTop: 4 }}
-                options={(Array.isArray(filterOptions.tiers) ? filterOptions.tiers : ['A', 'B', 'C']).map(
-                  (value: string) => ({ value, label: value }),
-                )}
-              />
-            </Col>
-            <Col xs={24} md={8} xl={4}>
-              <Typography.Text strong>{t('Search')}</Typography.Text>
-              <Input
-                allowClear
-                placeholder={t('ASIN, SKU, supplier')}
-                value={commandCenterSearch}
-                onChange={(event) => setCommandCenterSearch(event.target.value)}
-                style={{ marginTop: 4 }}
-              />
-            </Col>
+
             <Col xs={24} xl={24}>
               <Space size="middle" wrap>
                 <Typography.Text type="secondary">
-                  {t('Latest data as of')} {formatDate(commandMetadata.latestDataAsOf)} · {t('Planning date')}{' '}
-                  {commandCalculationDate}
+                  {t('Data as of')} {formatDate(commandMetadata.latestDataAsOf)} · {t('Last 6 months sales history')}
                 </Typography.Text>
                 <Button href="/admin/ecobase/planning-settings">
                   {t('Rules & thresholds')} · {t('Target cover')} {formatNumber(commandMetadata.targetCoverDays)}{' '}
@@ -1732,381 +1972,60 @@ export default function InventoryPlanningPage() {
             </Col>
           </Row>
         </Card>
-        <Collapse
-          size="small"
-          items={[
-            {
-              key: 'operator-filters',
-              label: t('Operator filters'),
-              extra: <Typography.Text type="secondary">{t('Company, date, status, knobs, limits.')}</Typography.Text>,
-              children: (
-                <Row gutter={[24, 20]} align="bottom">
-                  <FilterControl title={t('Company')} help={t('Limit rows to one company.')}>
-                    <Select
-                      allowClear
-                      showSearch
-                      placeholder={t('All companies')}
-                      value={company || undefined}
-                      onChange={(value) => setCompany(value ?? '')}
-                      style={{ width: '100%' }}
-                      options={(Array.isArray(filterOptions.companies) ? filterOptions.companies : []).map(
-                        (value: string) => ({ value, label: value }),
-                      )}
-                    />
-                  </FilterControl>
-                  <FilterControl title={t('Planning date')} help={t('Blank uses latest saved planning date.')}>
-                    <DatePicker
-                      allowClear
-                      value={calculationDate ? dayjs(calculationDate) : undefined}
-                      onChange={(_date, dateString) =>
-                        setCalculationDate(Array.isArray(dateString) ? dateString[0] : dateString)
-                      }
-                      style={{ width: '100%' }}
-                    />
-                  </FilterControl>
-                  <FilterControl title={t('Action status')} help={t('Filter by action state.')}>
-                    <Select
-                      allowClear
-                      placeholder={t('Any action')}
-                      value={actionStatus}
-                      onChange={setActionStatus}
-                      style={{ width: '100%' }}
-                      options={(Array.isArray(filterOptions.actionStatuses) ? filterOptions.actionStatuses : []).map(
-                        (value: string) => ({ value, label: t(value) }),
-                      )}
-                    />
-                  </FilterControl>
-                  <FilterControl title={t('Profit tier')} help={t('Filter by profit tier.')}>
-                    <Select
-                      allowClear
-                      placeholder={t('Any tier')}
-                      value={tier}
-                      onChange={setTier}
-                      style={{ width: '100%' }}
-                      options={(Array.isArray(filterOptions.tiers) ? filterOptions.tiers : ['A', 'B', 'C']).map(
-                        (value: string) => ({ value, label: value }),
-                      )}
-                    />
-                  </FilterControl>
-                  <FilterControl
-                    title={t('Safety buffer')}
-                    help={t('Extra cushion before stockout, from Planning Settings.')}
-                  >
-                    <InputNumber
-                      addonAfter={t('days')}
-                      min={0}
-                      value={safetyBufferDays}
-                      onChange={(value) => setSafetyBufferDays(Number(value ?? 7))}
-                      style={{ width: '100%' }}
-                    />
-                  </FilterControl>
-                  <FilterControl
-                    title={t('Target cover')}
-                    help={t('Suggested quantity covers this many selling days.')}
-                  >
-                    <InputNumber
-                      addonAfter={t('days')}
-                      min={30}
-                      value={targetCoverDays}
-                      onChange={(value) => setTargetCoverDays(Number(value ?? 45))}
-                      style={{ width: '100%' }}
-                    />
-                  </FilterControl>
-                  <FilterControl title={t('Lead-time stale after')} help={t('When lead time becomes stale.')}>
-                    <InputNumber
-                      addonAfter={t('days')}
-                      min={1}
-                      value={leadTimeFreshnessDays}
-                      onChange={(value) => setLeadTimeFreshnessDays(Number(value ?? 60))}
-                      style={{ width: '100%' }}
-                    />
-                  </FilterControl>
-                  <FilterControl title={t('Soon window')} help={t('Mark due rows order soon.')}>
-                    <InputNumber
-                      addonAfter={t('days')}
-                      min={1}
-                      value={orderSoonWindowDays}
-                      onChange={(value) => setOrderSoonWindowDays(Number(value ?? 14))}
-                      style={{ width: '100%' }}
-                    />
-                  </FilterControl>
-                  <FilterControl
-                    title={t('Pipeline grace')}
-                    help={t('Days after expected sellable date that purchased pipeline still counts as coverage.')}
-                  >
-                    <InputNumber
-                      addonAfter={t('days')}
-                      min={0}
-                      value={purchasedPipelineGraceDays}
-                      onChange={(value) => setPurchasedPipelineGraceDays(Number(value ?? 3))}
-                      style={{ width: '100%' }}
-                    />
-                  </FilterControl>
-                  <FilterControl title={t('Rows to load')} help={t('Cap rows for speed.')}>
-                    <InputNumber
-                      min={25}
-                      max={500}
-                      value={limit}
-                      onChange={(value) => setLimit(Number(value ?? 150))}
-                      style={{ width: '100%' }}
-                    />
-                  </FilterControl>
-                  <Col xs={24} md={12} xl={6}>
-                    <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                      <Button type="primary" block loading={loading} onClick={loadPlanning}>
-                        {t('Refresh planning')}
-                      </Button>
-                      <Button block loading={loading} onClick={syncEditableRows}>
-                        {t('Rebuild gold inventory')}
-                      </Button>
-                      <Typography.Text type="secondary">
-                        {t(
-                          'Saved Planning Settings load as defaults. Local edits affect this page and rebuild requests.',
-                        )}
+
+        <Row gutter={[16, 16]}>
+          {commandSummaryCards.map((card: PlainRecord) => {
+            const isCurrency = String(card.format) === 'currency';
+            return (
+              <Col xs={24} sm={12} lg={4} key={String(card.key)}>
+                <Card>
+                  <Statistic
+                    title={t(String(card.label ?? card.key))}
+                    value={Number(card.value ?? 0)}
+                    precision={isCurrency ? 2 : 0}
+                    prefix={isCurrency ? '$' : undefined}
+                    valueStyle={isCurrency ? { color: '#cf1322' } : undefined}
+                  />
+                  {card.description ? (
+                    <Typography.Text type="secondary">{t(String(card.description))}</Typography.Text>
+                  ) : null}
+                </Card>
+              </Col>
+            );
+          })}
+        </Row>
+        <Row gutter={[16, 16]}>
+          <Col xs={24} lg={12}>
+            <Card
+              title={t('Macro risk assessment')}
+              extra={<Typography.Text type="secondary">{t('Shows where the team should look first.')}</Typography.Text>}
+            >
+              <Row gutter={[12, 12]}>
+                {commandMacroRisk.map((item: PlainRecord) => (
+                  <Col xs={24} md={12} key={String(item.key)}>
+                    <Space direction="vertical" size={0}>
+                      <Typography.Text strong>{t(String(item.label ?? item.key))}</Typography.Text>
+                      <Typography.Text>
+                        {String(item.format) === 'currency'
+                          ? formatCurrency(item.value)
+                          : `${formatNumber(item.value)}${item.suffix ? ` ${t(String(item.suffix))}` : ''}`}
                       </Typography.Text>
                     </Space>
                   </Col>
-                </Row>
-              ),
-            },
-          ]}
-        />
-        <Collapse
-          size="small"
-          items={[
-            {
-              key: 'budget-optimizer',
-              label: t('Optional budget optimizer'),
-              extra: (
-                <Typography.Text type="secondary">{t('Budget-constrained approve/pay/order ranking.')}</Typography.Text>
-              ),
-              children: (
-                <>
-                  <Row gutter={[16, 16]} align="bottom">
-                    <Col xs={24} md={8} lg={6}>
-                      <Space direction="vertical" size={4} style={{ width: '100%' }}>
-                        <Typography.Text strong>{t('Available budget')}</Typography.Text>
-                        <InputNumber
-                          min={0}
-                          precision={2}
-                          addonBefore="$"
-                          placeholder={t('Optional')}
-                          value={budgetAmount ?? undefined}
-                          onChange={(value) => setBudgetAmount(typeof value === 'number' ? value : null)}
-                          style={{ width: '100%' }}
-                        />
-                      </Space>
-                    </Col>
-                    <Col xs={24} md={8} lg={5}>
-                      <Space direction="vertical" size={4} style={{ width: '100%' }}>
-                        <Typography.Text strong>{t('Profit horizon')}</Typography.Text>
-                        <InputNumber
-                          addonAfter={t('days')}
-                          min={1}
-                          value={budgetHorizonDays}
-                          onChange={(value) => setBudgetHorizonDays(Number(value ?? 30))}
-                          style={{ width: '100%' }}
-                        />
-                      </Space>
-                    </Col>
-                    <Col xs={24} md={8} lg={5}>
-                      <Button
-                        type="primary"
-                        block
-                        disabled={!budgetAmount || budgetAmount <= 0}
-                        loading={budgetLoading}
-                        onClick={runBudgetOptimizer}
-                      >
-                        {t('Run optimizer')}
-                      </Button>
-                    </Col>
-                    <Col xs={24} lg={8}>
-                      <Alert
-                        type={budgetAmount && budgetAmount > 0 ? 'info' : 'success'}
-                        showIcon
-                        message={
-                          budgetAmount && budgetAmount > 0
-                            ? t('Ranks actions within budget.')
-                            : t('Daily digest remains primary.')
-                        }
-                      />
-                    </Col>
-                  </Row>
-                  {budgetResult ? (
-                    <Space direction="vertical" size="middle" style={{ width: '100%', marginTop: 16 }}>
-                      <Row gutter={[16, 16]}>
-                        <Col xs={12} md={6}>
-                          <Statistic
-                            title={t('Selected spend')}
-                            value={Number(budgetResult.selectedSpend ?? 0)}
-                            precision={2}
-                            prefix="$"
-                          />
-                        </Col>
-                        <Col xs={12} md={6}>
-                          <Statistic
-                            title={t('Budget')}
-                            value={Number(budgetResult.budget ?? 0)}
-                            precision={2}
-                            prefix="$"
-                          />
-                        </Col>
-                        <Col xs={12} md={6}>
-                          <Statistic
-                            title={t('Remaining')}
-                            value={Number(budgetResult.remainingBudget ?? 0)}
-                            precision={2}
-                            prefix="$"
-                          />
-                        </Col>
-                        <Col xs={12} md={6}>
-                          <Statistic
-                            title={t('Protected profit')}
-                            value={Number(budgetResult.expectedProtectedProfit ?? 0)}
-                            precision={2}
-                            prefix="$"
-                            valueStyle={{ color: '#3f8600' }}
-                          />
-                        </Col>
-                      </Row>
-                      <Table<PlainRecord>
-                        size="small"
-                        rowKey={(row) => String(row.key)}
-                        title={() => t('Recommended approvals / payments')}
-                        dataSource={Array.isArray(budgetResult.recommendations) ? budgetResult.recommendations : []}
-                        pagination={false}
-                        columns={[
-                          {
-                            title: String(t('Action')),
-                            dataIndex: 'recommendedAction',
-                            render: (value: string) => (
-                              <Tag color={value === 'pay' ? 'red' : value === 'approve' ? 'orange' : 'blue'}>
-                                {t(value)}
-                              </Tag>
-                            ),
-                          },
-                          {
-                            title: String(t('Order / product')),
-                            key: 'target',
-                            render: (_value: any, row: PlainRecord) =>
-                              row.supplierOrderRef ?? row.asin ?? row.planningProductId,
-                          },
-                          {
-                            title: String(t('Supplier')),
-                            dataIndex: 'supplierName',
-                            render: (value: string) => value || <Tag color="red">{t('Missing supplier')}</Tag>,
-                          },
-                          { title: String(t('Spend')), dataIndex: 'spend', render: formatCurrency },
-                          {
-                            title: String(t('Protected profit')),
-                            dataIndex: 'protectedProfit',
-                            render: formatCurrency,
-                          },
-                          { title: String(t('Score')), dataIndex: 'adjustedScore', render: formatNumber },
-                          {
-                            title: String(t('Reasons')),
-                            dataIndex: 'reasonCodes',
-                            render: (values: string[]) => (
-                              <Space size={4} wrap>
-                                {(Array.isArray(values) ? values : []).map((value) => (
-                                  <Tag key={value}>{t(value)}</Tag>
-                                ))}
-                              </Space>
-                            ),
-                          },
-                        ]}
-                      />
-                      <Table<PlainRecord>
-                        size="small"
-                        rowKey={(row) => String(row.key)}
-                        title={() => t('Skipped but still important')}
-                        dataSource={Array.isArray(budgetResult.skipped) ? budgetResult.skipped : []}
-                        pagination={false}
-                        columns={[
-                          {
-                            title: String(t('Reason')),
-                            dataIndex: 'skipReason',
-                            render: (value: string) => (
-                              <Tag color={value === 'missing_unit_cost' ? 'red' : 'default'}>{t(value)}</Tag>
-                            ),
-                          },
-                          {
-                            title: String(t('Order / product')),
-                            key: 'target',
-                            render: (_value: any, row: PlainRecord) =>
-                              row.supplierOrderRef ?? row.asin ?? row.planningProductId,
-                          },
-                          {
-                            title: String(t('Supplier')),
-                            dataIndex: 'supplierName',
-                            render: (value: string) => value || <Tag color="red">{t('Missing supplier')}</Tag>,
-                          },
-                          { title: String(t('Spend')), dataIndex: 'spend', render: formatCurrency },
-                          {
-                            title: String(t('Protected profit')),
-                            dataIndex: 'protectedProfit',
-                            render: formatCurrency,
-                          },
-                        ]}
-                      />
-                      <Alert
-                        type="info"
-                        showIcon
-                        message={t('Optimizer assumptions')}
-                        description={(Array.isArray(budgetResult.assumptions) ? budgetResult.assumptions : []).join(
-                          ' ',
-                        )}
-                      />
-                    </Space>
-                  ) : null}
-                </>
-              ),
-            },
-          ]}
-        />
-
-        <Row gutter={[16, 16]}>
-          {commandSummaryCards.map((card: PlainRecord) => (
-            <Col xs={24} sm={12} lg={4} key={String(card.key)}>
-              <Card>
-                <Statistic
-                  title={t(String(card.label ?? card.key))}
-                  value={Number(card.value ?? 0)}
-                  precision={String(card.key) === 'profitRisk' ? 2 : 0}
-                  prefix={String(card.key) === 'profitRisk' ? '$' : undefined}
-                  valueStyle={String(card.key) === 'profitRisk' ? { color: '#cf1322' } : undefined}
-                />
-              </Card>
-            </Col>
-          ))}
-        </Row>
-        <Row gutter={[16, 16]}>
-          <Col xs={24} lg={8}>
+                ))}
+              </Row>
+            </Card>
+          </Col>
+          <Col xs={24} lg={4}>
             <Card title={t('Supply action risk')}>{renderRiskBars(unwrapRows(commandRiskBars.supplyAction))}</Card>
           </Col>
-          <Col xs={24} lg={8}>
+          <Col xs={24} lg={4}>
             <Card title={t('Active order health')}>{renderRiskBars(unwrapRows(commandRiskBars.pipelineHealth))}</Card>
           </Col>
-          <Col xs={24} lg={8}>
+          <Col xs={24} lg={4}>
             <Card title={t('Stuck inventory risk')}>{renderRiskBars(unwrapRows(commandRiskBars.stuckInventory))}</Card>
           </Col>
         </Row>
-        <Card
-          title={t('Daily alert preview')}
-          extra={
-            <Typography.Text type="secondary">{t('Top urgent rows only. No export digest here.')}</Typography.Text>
-          }
-        >
-          <Table<PlainRecord>
-            size="small"
-            loading={loading}
-            rowKey={(row) => String(row.id ?? row.planningProductId ?? row.asin ?? row.sku)}
-            dataSource={dailyAlertPreview}
-            columns={commandPaneColumns('supplyAction')}
-            pagination={false}
-            onRow={(row) => ({ onClick: () => openRow(row, [], 'supplyAction') })}
-          />
-        </Card>
         <Space direction="vertical" size="large" style={{ width: '100%' }}>
           {(['supplyAction', 'activeOrders', 'stuckInventory'] as CommandCenterPaneKey[]).map(renderCommandPane)}
         </Space>
@@ -2355,9 +2274,11 @@ export default function InventoryPlanningPage() {
                               ))}
                             </Space>
                           ) : null}
-                          <Button type="primary" onClick={() => void draftOrder()}>
-                            {t('Draft new order for this product')}
-                          </Button>
+                          {selectedCommandPane !== 'activeOrders' && selectedCommandPane !== 'stuckInventory' ? (
+                            <Button type="primary" onClick={() => void draftOrder()}>
+                              {t('Draft new order for this product')}
+                            </Button>
+                          ) : null}
                         </Space>
                       ),
                     },

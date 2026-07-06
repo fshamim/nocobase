@@ -63,6 +63,9 @@ export type FormulaHelpGroupKey =
   | 'dailyOrderOverview'
   | 'inventoryDigest'
   | 'inventoryQueue'
+  | 'inventorySupplyAction'
+  | 'inventoryActiveOrders'
+  | 'inventoryStuckInventory'
   | 'inventoryDrawer'
   | 'orderPlanning'
   | 'orderDrawer'
@@ -96,7 +99,7 @@ const SOURCE_COLORS: Record<FormulaSource, string> = {
 // Add every user-visible EcoBase calculated field here before exposing it in page help.
 const FORMULAS: Record<FormulaKey, FormulaDefinition> = {
   stockParity: {
-    label: 'Stock parity',
+    label: 'Current planning stock',
     source: 'eco_calc',
     equation: [
       { text: 'sellable', source: 'sellerboard' },
@@ -108,11 +111,13 @@ const FORMULAS: Record<FormulaKey, FormulaDefinition> = {
       { text: 'ordered', source: 'sellerboard' },
       ' + ',
       { text: 'prep', source: 'csv' },
+      ' + ',
+      { text: 'AWD', source: 'csv' },
     ],
-    note: 'Latest stock buckets are added into one planning stock number; prep stock may come from sheet/import data.',
+    note: 'This is the Total stock shown in Inventory Planning. Pane bucket tags use the Google Sheets names: FBA, RES, INB, PRP, and ORD.',
   },
   pipelineStock: {
-    label: 'Pipeline stock',
+    label: 'Replenishment stock',
     source: 'eco_calc',
     equation: [
       { text: 'inbound', source: 'sellerboard' },
@@ -120,8 +125,10 @@ const FORMULAS: Record<FormulaKey, FormulaDefinition> = {
       { text: 'ordered', source: 'sellerboard' },
       ' + ',
       { text: 'prep', source: 'csv' },
+      ' + ',
+      { text: 'AWD', source: 'csv' },
     ],
-    note: 'Incoming or reserved pipeline stock that is not fully sellable yet, but still affects reorder planning.',
+    note: 'Incoming pipeline stock behind the INB, PRP, and ORD bucket tags; it is not sellable stock yet.',
   },
   salesVelocity: {
     label: 'Sales velocity',
@@ -145,7 +152,7 @@ const FORMULAS: Record<FormulaKey, FormulaDefinition> = {
       ' / ',
       { text: 'salesVelocity', source: 'eco_calc' },
     ],
-    note: 'Inputs: currentPlanningStock is sellable + reserved + replenishment; salesVelocity is latest Sellerboard/import velocity. Example: 60 units / 5 units per day = 12 days of cover.',
+    note: 'Inputs: currentPlanningStock is sellable + reserved + replenishment; salesVelocity is latest Sellerboard/import velocity. Example: Total 60 units / 5 units per day = 12 days of cover.',
   },
   estimatedOosDate: {
     label: 'Estimated OOS date',
@@ -177,27 +184,23 @@ const FORMULAS: Record<FormulaKey, FormulaDefinition> = {
       { text: 'expectedSellableDate is inside pipeline grace', source: 'operator' },
       ')',
     ],
-    note: 'Inputs: orderedQty − receivedQty from order lines, reliable status from order lifecycle, and purchasedPipelineGraceDays from Planning Settings. Example: 100 ordered, 40 received, paid, expected sellable 2 days ago with 3-day grace = 60 coverage.',
+    note: 'Inputs: orderedQty − receivedQty from supplier-order lines, a configured purchased-pipeline status such as paid/supplier preparing/shipped, and purchasedPipelineGraceDays from Planning Settings. Placed-not-purchased orders do not count. Older purchased orders are ignored when a newer placed-not-purchased recovery cycle exists. Example: 100 ordered − 40 received, paid, expected sellable 2 days ago with 3-day grace = 60 coverage.',
   },
   suggestedReorderQty: {
     label: 'Suggested quantity',
     source: 'eco_derived',
     equation: [
-      'ceil(',
+      'max(ceil(',
       { text: 'salesVelocity', source: 'eco_calc' },
-      ' × (',
-      { text: 'leadTimeDays', source: 'csv' },
-      ' + ',
-      { text: 'safetyBuffer', source: 'eco_calc' },
-      ' + ',
-      { text: 'reorderCycle', source: 'eco_calc' },
-      ') - ',
+      ' × ',
+      { text: 'targetCoverDays', source: 'operator' },
+      ' - ',
       { text: 'currentPlanningStock', source: 'eco_calc' },
       ' - ',
       { text: 'openOrderCoverage', source: 'eco_calc' },
-      ')',
+      '), 0)',
     ],
-    note: 'Inputs: salesVelocity, targetCoverDays, currentPlanningStock, and reliable openOrderCoverage. Example: ceil(5 × 45 − 60 − 20) = 145 units. Lead time and safety buffer still drive when to order.',
+    note: 'Inputs: salesVelocity, targetCoverDays, currentPlanningStock, and reliable openOrderCoverage. Example: max(ceil(5 × 45 − 60 − 20), 0) = 145 units. Lead time must exist before EcoBase suggests a quantity, but lead time and safety buffer drive the Order by date, not the quantity.',
   },
   tierScore: {
     label: 'Tier score',
@@ -406,12 +409,13 @@ const INVENTORY_FIELDS: HelpEntry[] = [
   {
     label: 'Current stock status',
     description:
-      'Compact stock summary: Total planning stock, sellable units, reserved units, and replenishment/pipeline units.',
+      'Compact stock summary used by the current panes: Total planning stock plus FBA, RES, INB, PRP, and ORD buckets.',
     source: 'eco_calc',
   },
   {
     label: 'Total',
-    description: 'Current planning stock: sellable + reserved + replenishment pipeline.',
+    description:
+      'Current planning stock: sellable + reserved + replenishment pipeline. Replenishment is inbound + ordered + prep/AWD.',
     source: 'eco_calc',
   },
   {
@@ -427,7 +431,7 @@ const INVENTORY_FIELDS: HelpEntry[] = [
   },
   {
     label: 'Replenishment',
-    description: 'Inbound + ordered + prep/AWD stock. This is incoming pipeline stock, not current sellable stock.',
+    description: 'Inbound + ordered + prep/AWD stock. This is incoming pipeline stock, not sellable stock yet.',
     source: 'eco_calc',
   },
   {
@@ -476,14 +480,15 @@ const INVENTORY_FIELDS: HelpEntry[] = [
     source: 'eco_derived',
   },
   {
-    label: 'Suggest qty',
-    description: 'Recommended reorder quantity after target coverage, current stock, and reliable open-order coverage.',
+    label: 'Suggested qty',
+    description:
+      'Recommended reorder quantity: max(ceil(sales velocity × target cover − current planning stock − reliable open-order coverage), 0).',
     source: 'eco_derived',
   },
   {
     label: 'Open order coverage',
     description:
-      'Only reliable purchased pipeline counts: paid, supplier preparing, or shipped inbound orders in the current recovery cycle.',
+      'Only reliable purchased pipeline counts: open order-line quantity on configured purchased statuses such as paid, supplier preparing, or shipped. Placed-not-purchased orders do not reduce Suggested qty.',
     source: 'eco_calc',
   },
   {
@@ -568,7 +573,7 @@ const INVENTORY_TAGS: HelpEntry[] = [
   {
     label: 'excluded',
     description:
-      'Planning is excluded because product status indicates inactive, not selling, hold, or one-time handling.',
+      'Planning is excluded because product status indicates inactive, discontinued, do not reorder, not selling, hold, or one-time handling.',
   },
   {
     label: 'STUCK',
@@ -606,6 +611,199 @@ const INVENTORY_TAGS: HelpEntry[] = [
   {
     label: 'No open order',
     description: 'Only closed historical order evidence exists; it does not cover the current risk.',
+  },
+];
+
+const INVENTORY_SUPPLY_ACTION_FIELDS: HelpEntry[] = [
+  {
+    label: 'Risk',
+    description: 'Immediate supply-action status: overdue, order today, order soon, or lead-time issue.',
+    source: 'eco_calc',
+  },
+  {
+    label: 'Product',
+    description: 'ASIN, SKU, and company. Long product title is kept out of the pane to keep scanning fast.',
+  },
+  { label: 'Tier', description: 'Profitability tier used to prioritize A/B/C products first.', source: 'eco_derived' },
+  {
+    label: 'Current stock',
+    description:
+      'Current planning stock only: Total on the first line, then FBA, RES, INB, PRP, and ORD buckets on the second line.',
+    source: 'eco_calc',
+  },
+  {
+    label: 'Total',
+    description: 'Current planning stock: FBA + reserved + inbound + prep/AWD + ordered.',
+    source: 'eco_calc',
+  },
+  { label: 'FBA', description: 'FBA/sellable units currently available to sell.', source: 'sellerboard' },
+  { label: 'RES', description: 'Reserved units held by Amazon or operations.', source: 'sellerboard' },
+  { label: 'INB', description: 'Inbound units already moving toward Amazon/FBA.', source: 'sellerboard' },
+  { label: 'PRP', description: 'Units in prep center or prep/AWD buckets.', source: 'csv' },
+  { label: 'ORD', description: 'Ordered units not yet counted as sellable.', source: 'sellerboard' },
+  {
+    label: 'Coverage',
+    description: 'Projected out-of-stock date, row-level days-left label, and current sales velocity for the product.',
+    source: 'eco_derived',
+  },
+  {
+    label: 'Order by',
+    description:
+      'Latest safe reorder date plus the supplier name, lead-time days, freshness, and whether the lead time came from supplier data or planning import.',
+    source: 'eco_derived',
+  },
+  {
+    label: 'Suggested qty (45d)',
+    description:
+      'Recommended reorder quantity. The column header shows the current target-cover days, for example “Suggested qty (45d)”.',
+    source: 'eco_derived',
+  },
+  {
+    label: 'Money at risk',
+    description: 'Estimated missed profit if the stockout risk is not covered.',
+    source: 'eco_derived',
+  },
+];
+
+const INVENTORY_SUPPLY_ACTION_TAGS: HelpEntry[] = [
+  { label: 'Overdue', tagColor: 'red', description: 'The latest safe reorder date has passed.' },
+  { label: 'Order Today', tagColor: 'volcano', description: 'The latest safe reorder date is today.' },
+  {
+    label: 'Order Soon',
+    tagColor: 'orange',
+    description: 'The latest safe reorder date is inside the configured soon window.',
+  },
+  {
+    label: 'Missing Lead Time',
+    tagColor: 'gold',
+    description: 'Supplier lead time is missing, so the order-by date cannot be trusted.',
+  },
+  {
+    label: 'Stale Lead Time',
+    tagColor: 'orange',
+    description: 'Lead time exists but is older than the freshness setting.',
+  },
+];
+
+const INVENTORY_ACTIVE_ORDER_FIELDS: HelpEntry[] = [
+  {
+    label: 'Risk',
+    description: 'Pipeline risk: off-track, late with grace, follow-up due today, or monitoring.',
+    source: 'eco_calc',
+  },
+  { label: 'Product', description: 'ASIN, SKU, and company for the product attached to the active order.' },
+  {
+    label: 'Order',
+    description:
+      'Supplier order reference, supplier name, and reliable open-order coverage units that reduce Suggested qty.',
+  },
+  { label: 'DOC / OOS', description: 'Current days of cover plus projected stockout date.', source: 'eco_derived' },
+  {
+    label: 'Expected sellable',
+    description: 'Date the active order is expected to become sellable inventory.',
+    source: 'eco_calc',
+  },
+  {
+    label: 'Gap',
+    description: 'Days between expected sellable date and OOS. Positive means late; buffer means currently safe.',
+    source: 'eco_derived',
+  },
+  {
+    label: 'Held up at',
+    description: 'Days since the latest supplier-order activity, with the current order status shown as context.',
+    source: 'eco_calc',
+  },
+  {
+    label: 'Money at risk',
+    description: 'Estimated missed profit if the active order does not land before stockout.',
+    source: 'eco_derived',
+  },
+];
+
+const INVENTORY_ACTIVE_ORDER_TAGS: HelpEntry[] = [
+  { label: 'Off-Track', tagColor: 'red', description: 'Expected sellable date is after OOS; escalate or expedite.' },
+  {
+    label: 'Late With Grace',
+    tagColor: 'orange',
+    description: 'Expected sellable date is close enough to count temporarily but needs monitoring.',
+  },
+  {
+    label: 'Placed Not Purchased',
+    tagColor: 'orange',
+    description: 'An order exists but does not count as reliable purchased coverage yet.',
+  },
+  {
+    label: 'Follow-Up Due Today',
+    tagColor: 'red',
+    description: 'Supplier/order status needs an operator update today.',
+  },
+  {
+    label: 'Pipeline Monitoring',
+    tagColor: 'blue',
+    description: 'An active order exists; monitor status instead of creating a duplicate PO.',
+  },
+];
+
+const INVENTORY_STUCK_FIELDS: HelpEntry[] = [
+  {
+    label: 'Risk',
+    description: 'Stuck signal: 30+ DOC, 60+ DOC, or a stock-bucket issue that needs review.',
+    source: 'eco_calc',
+  },
+  { label: 'Product', description: 'ASIN, SKU, and company for the slow-moving product.' },
+  {
+    label: 'DOC',
+    description: 'Days of cover; high values indicate capital tied up in inventory.',
+    source: 'eco_derived',
+  },
+  {
+    label: 'Sell-through evidence',
+    description: 'Recent sales velocity and six-month average proving the row is slow-moving, not merely stocked out.',
+    source: 'eco_derived',
+  },
+  {
+    label: 'Stock',
+    description:
+      'Total current planning stock plus the same FBA, RES, INB, PRP, and ORD buckets used in the no-active-order pane.',
+    source: 'eco_calc',
+  },
+  {
+    label: 'Capital / risk',
+    description: 'Estimated tied-up capital or profit risk plus current planning stock.',
+    source: 'eco_derived',
+  },
+];
+
+const INVENTORY_STUCK_TAGS: HelpEntry[] = [
+  {
+    label: '30+ DOC',
+    tagColor: 'orange',
+    description: 'More than 30 days of cover; review if capital should be freed.',
+  },
+  {
+    label: '60+ DOC',
+    tagColor: 'red',
+    description: 'More than 60 days of cover; high-priority stuck inventory review.',
+  },
+  {
+    label: 'High Cover Slow Sales',
+    tagColor: 'purple',
+    description: 'Current cover is high while recent sell-through remains low.',
+  },
+  {
+    label: 'Reserved Not Selling',
+    tagColor: 'purple',
+    description: 'Reserved or unavailable stock is not converting into sales.',
+  },
+  {
+    label: 'Pipeline Stalled',
+    tagColor: 'purple',
+    description: 'Pipeline/prep stock exists but is not becoming sellable fast enough.',
+  },
+  {
+    label: 'False Positives Filtered',
+    tagColor: 'green',
+    description: 'Rows without sell-through because they were stocked out are excluded from stuck inventory.',
   },
 ];
 
@@ -872,8 +1070,10 @@ const GROUPS: Record<FormulaHelpGroupKey, HelpGroup> = {
     title: 'Inventory planning queue',
     formulas: [
       'stockParity',
+      'pipelineStock',
       'salesVelocity',
       'daysOfCover',
+      'estimatedOosDate',
       'latestSafeReorderDate',
       'openOrderCoverage',
       'suggestedReorderQty',
@@ -882,7 +1082,47 @@ const GROUPS: Record<FormulaHelpGroupKey, HelpGroup> = {
     tags: INVENTORY_TAGS,
     notes: [
       'Rows are sorted by action urgency, OOS timing, profit tier, and supplier context so operators can work top-down.',
-      'Planning Settings controls safety buffer, reorder cycle, lead-time freshness, order-soon window, and purchased-pipeline grace. Local filter edits override them for the current page request.',
+      'Planning Settings controls target cover, safety buffer, reorder cycle, lead-time freshness, order-soon window, and purchased-pipeline grace. Suggested qty uses target cover; Order by uses lead time plus safety buffer.',
+    ],
+  },
+  inventorySupplyAction: {
+    title: 'Products needing supply action',
+    formulas: [
+      'stockParity',
+      'pipelineStock',
+      'daysOfCover',
+      'estimatedOosDate',
+      'latestSafeReorderDate',
+      'openOrderCoverage',
+      'suggestedReorderQty',
+      'inventoryMoneyAtRisk',
+    ],
+    fields: INVENTORY_SUPPLY_ACTION_FIELDS,
+    tags: INVENTORY_SUPPLY_ACTION_TAGS,
+    notes: [
+      'This pane answers: which tiered products need a new or updated purchase order because no reliable active pipeline exists?',
+      'Suggested qty uses the Target cover control. Lead time and safety buffer decide the Order by date; they no longer increase the quantity directly.',
+      'Current stock intentionally does not repeat days-of-cover; Coverage owns the OOS/date timing, Order by owns supplier plus lead-time context, and Suggested qty shows the target-cover days in the column header.',
+    ],
+  },
+  inventoryActiveOrders: {
+    title: 'Products with active orders',
+    formulas: ['daysOfCover', 'estimatedOosDate', 'openOrderCoverage', 'orderLifecycle', 'inventoryMoneyAtRisk'],
+    fields: INVENTORY_ACTIVE_ORDER_FIELDS,
+    tags: INVENTORY_ACTIVE_ORDER_TAGS,
+    notes: [
+      'This pane answers: which products already have an order, and is that order on-track or late versus OOS?',
+      'Open order coverage only counts purchased-pipeline quantities; placed-not-purchased rows stay in monitoring and do not reduce Suggested qty.',
+    ],
+  },
+  inventoryStuckInventory: {
+    title: 'Stuck inventory',
+    formulas: ['stockParity', 'pipelineStock', 'salesVelocity', 'daysOfCover', 'inventoryMoneyAtRisk'],
+    fields: INVENTORY_STUCK_FIELDS,
+    tags: INVENTORY_STUCK_TAGS,
+    notes: [
+      'This pane answers: which live products are tying up capital because stock cover is high and sell-through evidence is low?',
+      'Stock uses the same current planning stock buckets as the supply-action pane: Total plus FBA, RES, INB, PRP, and ORD.',
     ],
   },
   inventoryDrawer: {

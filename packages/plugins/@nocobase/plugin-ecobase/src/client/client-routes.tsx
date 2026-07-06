@@ -1,9 +1,20 @@
-import React, { useMemo } from 'react';
-import { lazy } from '@nocobase/client';
-import { Layout, Menu, Typography } from 'antd';
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
+import React, { useMemo, useState } from 'react';
+import { Icon, lazy } from '@nocobase/client';
+import { Button, Layout, Menu, Space, Typography } from 'antd';
 import { useLocation, useNavigate } from 'react-router-dom';
 
-const DailyOperationsBriefPage = lazy(() => import('../features/daily-operations-brief/client/DailyOperationsBriefPage'));
+const DailyOperationsBriefPage = lazy(
+  () => import('../features/daily-operations-brief/client/DailyOperationsBriefPage'),
+);
 const DailyBriefPromptSettingsPage = lazy(
   () => import('../features/daily-operations-brief/client/DailyBriefPromptSettingsPage'),
 );
@@ -22,42 +33,49 @@ const ecobaseWorkspacePages = [
   {
     key: 'daily-operations-brief',
     label: 'Daily Operations Brief',
+    icon: 'DashboardOutlined',
     path: `${ECOBASE_WORKSPACE_ROOT}/daily-operations-brief`,
     Component: DailyOperationsBriefPage,
   },
   {
     key: 'silver-data',
     label: 'Semantic Model',
+    icon: 'DatabaseOutlined',
     path: `${ECOBASE_WORKSPACE_ROOT}/silver-data`,
     Component: SilverDataPage,
   },
   {
     key: 'inventory-planning',
     label: 'Inventory Planning',
+    icon: 'InboxOutlined',
     path: `${ECOBASE_WORKSPACE_ROOT}/inventory-planning`,
     Component: InventoryPlanningPage,
   },
   {
     key: 'order-planning',
     label: 'Order Planning',
+    icon: 'ShoppingCartOutlined',
     path: `${ECOBASE_WORKSPACE_ROOT}/order-planning`,
     Component: OrderPlanningPage,
   },
   {
     key: 'supplier-management',
     label: 'Supplier Management',
+    icon: 'TeamOutlined',
     path: `${ECOBASE_WORKSPACE_ROOT}/supplier-management`,
     Component: SupplierManagementPage,
   },
   {
     key: 'planning-settings',
     label: 'Planning Settings',
+    icon: 'ControlOutlined',
     path: `${ECOBASE_WORKSPACE_ROOT}/planning-settings`,
     Component: PlanningSettingsPage,
   },
   {
     key: 'import-status',
     label: 'Import & Source Status',
+    icon: 'CloudUploadOutlined',
     path: `${ECOBASE_WORKSPACE_ROOT}/import-status`,
     Component: ImportStatusPage,
   },
@@ -77,20 +95,54 @@ const EcobaseWorkspacePage = () => {
       ? defaultEcobaseWorkspacePage
       : undefined);
   const ActivePageComponent = activePage?.Component;
-  const menuItems = useMemo(() => ecobaseWorkspacePages.map((page) => ({ key: page.key, label: page.label })), []);
+  const [navCollapsed, setNavCollapsed] = useState(false);
+  const menuItems = useMemo(
+    () =>
+      ecobaseWorkspacePages.map((page) => ({
+        key: page.key,
+        label: page.label,
+        title: page.label,
+        icon: <Icon type={page.icon} />,
+      })),
+    [],
+  );
 
   return (
     <Layout style={{ minHeight: 'calc(100vh - 64px)', background: 'transparent' }}>
-      <Layout.Sider theme="light" width={260} style={{ borderRight: '1px solid #f0f0f0' }}>
-        <div style={{ padding: '16px 20px 8px' }}>
-          <Typography.Title level={4} style={{ margin: 0 }}>
-            EcoBase
-          </Typography.Title>
-          <Typography.Text type="secondary">Operations workspace</Typography.Text>
+      <Layout.Sider
+        theme="light"
+        width={260}
+        collapsedWidth={72}
+        collapsed={navCollapsed}
+        trigger={null}
+        style={{ borderRight: '1px solid #f0f0f0' }}
+      >
+        <div style={{ padding: navCollapsed ? '16px 12px 8px' : '16px 20px 8px' }}>
+          <Space align="center" style={{ width: '100%', justifyContent: navCollapsed ? 'center' : 'space-between' }}>
+            {navCollapsed ? (
+              <Icon type="AppstoreOutlined" />
+            ) : (
+              <div>
+                <Typography.Title level={4} style={{ margin: 0 }}>
+                  EcoBase
+                </Typography.Title>
+                <Typography.Text type="secondary">Operations workspace</Typography.Text>
+              </div>
+            )}
+            <Button
+              size="small"
+              type="text"
+              aria-label={navCollapsed ? 'Expand EcoBase navigation' : 'Collapse EcoBase navigation'}
+              title={navCollapsed ? 'Expand navigation' : 'Collapse navigation'}
+              icon={<Icon type={navCollapsed ? 'MenuUnfoldOutlined' : 'MenuFoldOutlined'} />}
+              onClick={() => setNavCollapsed((value) => !value)}
+            />
+          </Space>
         </div>
         <Menu
           mode="inline"
           selectedKeys={activePage ? [activePage.key] : []}
+          inlineCollapsed={navCollapsed}
           items={menuItems}
           onClick={({ key }) => {
             const targetPage = ecobaseWorkspacePages.find((page) => page.key === key);

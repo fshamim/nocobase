@@ -734,6 +734,9 @@ export class EcobaseInventoryPlanningService {
     }
 
     const rows = await this.listRows({ ...query, limit: undefined });
+    const activeOrderRowsWithActivity = await this.withLatestSupplierOrderActivity(
+      this.commandCenterRowsForPane('activeOrders', rows),
+    );
     const settings = await new EcobasePlanningSettingsService(this.db).getResolvedSettings(query);
     const calculationDate = asString(rows[0]?.calculationDate) ?? isoDate(query.calculationDate ?? new Date());
     const targetCoverDays = asNumber(rows[0]?.targetCoverDays) ?? settings.targetCoverDays;
@@ -750,14 +753,20 @@ export class EcobaseInventoryPlanningService {
         },
         targetCoverDays,
       },
-      summaryCards: this.commandCenterSummaryCards(rows, targetCoverDays),
+      summaryCards: this.commandCenterSummaryCards(rows),
+      macroRisk: this.commandCenterMacroRisk(rows, calculationDate),
       riskBars: this.commandCenterRiskBars(rows, calculationDate),
       dailyAlertPreview: this.commandCenterRowsForPane('supplyAction', rows)
         .slice(0, 5)
         .map((row) => this.compactCommandCenterRow(row, calculationDate)),
       panes: {
         supplyAction: this.commandCenterPanePayload('supplyAction', rows, calculationDate, query),
-        activeOrders: this.commandCenterPanePayload('activeOrders', rows, calculationDate, query),
+        activeOrders: this.commandCenterPanePayload(
+          'activeOrders',
+          activeOrderRowsWithActivity,
+          calculationDate,
+          query,
+        ),
         stuckInventory: this.commandCenterPanePayload('stuckInventory', rows, calculationDate, query),
       },
       selectedRow: selectedRow
@@ -1014,41 +1023,107 @@ export class EcobaseInventoryPlanningService {
     );
   }
 
-  private commandCenterSummaryCards(rows: PlainRecord[], targetCoverDays: number) {
+  private commandCenterSummaryCards(rows: PlainRecord[]) {
     const tieredRows = rows.filter((row) => isProfitTier(row.tier));
     const supplyRows = this.commandCenterRowsForPane('supplyAction', rows);
     const activeOrderRows = this.commandCenterRowsForPane('activeOrders', rows);
     const stuckRows = this.commandCenterRowsForPane('stuckInventory', rows);
-    const profitRisk = rows.reduce((total, row) => total + (asNumber(row.estimatedProfitRisk) ?? 0), 0);
+    const urgentRows = [...supplyRows, ...activeOrderRows].filter((row) =>
+      ['overdue', 'order_today'].includes(String(row.actionStatus)),
+    );
+    const offTrackRows = activeOrderRows.filter(
+      (row) => (stockoutGapDays(row) ?? 0) > 0 || String(row.supplierOrderState) === 'placed_not_purchased',
+    );
+    const followUpRows = activeOrderRows.filter((row) => recommendedInventoryAction(row) === 'follow_up_order');
+    const profitRisk = tieredRows.reduce((total, row) => total + (asNumber(row.estimatedProfitRisk) ?? 0), 0);
     return [
-      { key: 'tieredSkus', label: 'Tiered SKUs', value: tieredRows.length },
-      { key: 'supplyActions', label: 'Supply actions', value: supplyRows.length },
-      { key: 'activeOrders', label: 'Active orders', value: activeOrderRows.length },
-      { key: 'stuckInventory', label: 'Stuck inventory', value: stuckRows.length },
-      { key: 'profitRisk', label: 'Profit risk', value: Math.round(profitRisk * 100) / 100 },
-      { key: 'targetCoverDays', label: 'Target cover days', value: targetCoverDays },
+      {
+        key: 'urgentStockoutRisk',
+        label: 'Urgent stockout risk',
+        description: 'Overdue or order today',
+        value: urgentRows.length,
+      },
+      {
+        key: 'moneyAtRisk',
+        label: 'Money at risk',
+        description: 'A/B/C tier profit exposure',
+        value: Math.round(profitRisk * 100) / 100,
+        format: 'currency',
+      },
+      {
+        key: 'supplyActionNeeded',
+        label: 'Supply action needed',
+        description: 'No active order placed',
+        value: supplyRows.length,
+      },
+      {
+        key: 'activeOrdersOffTrack',
+        label: 'Active orders off-track',
+        description: 'Expected after stockout',
+        value: offTrackRows.length,
+      },
+      {
+        key: 'followUpsDueToday',
+        label: 'Follow-ups due today',
+        description: 'Order comments/status needed',
+        value: followUpRows.length,
+      },
+      {
+        key: 'stuckInventory',
+        label: 'Stuck inventory',
+        description: '30/60+ DOC with sell-through',
+        value: stuckRows.length,
+      },
+    ];
+  }
+
+  private commandCenterMacroRisk(rows: PlainRecord[], calculationDate: string) {
+    const supplyRows = this.commandCenterRowsForPane('supplyAction', rows);
+    const activeOrderRows = this.commandCenterRowsForPane('activeOrders', rows);
+    const stuckRows = this.commandCenterRowsForPane('stuckInventory', rows);
+    const sumRisk = (items: PlainRecord[]) =>
+      Math.round(items.reduce((total, row) => total + (asNumber(row.estimatedProfitRisk) ?? 0), 0) * 100) / 100;
+    const activeLateRows = activeOrderRows.filter(
+      (row) => (stockoutGapDays(row) ?? 0) > 0 || pipelineHealthBucket(row, calculationDate) !== 'on_track',
+    );
+    const followUpRows = activeOrderRows.filter((row) => recommendedInventoryAction(row) === 'follow_up_order');
+    const leadTimeGapRows = [...supplyRows, ...activeOrderRows].filter((row) => row.leadTimeFreshness !== 'fresh');
+    return [
+      { key: 'noOrderUrgent', label: 'No order + urgent', value: sumRisk(supplyRows), format: 'currency' },
+      { key: 'activeOrderLate', label: 'Active order late', value: sumRisk(activeLateRows), format: 'currency' },
+      { key: 'followUpsToday', label: 'Follow-ups today', value: followUpRows.length, suffix: 'orders' },
+      {
+        key: 'stuckCurrentStock',
+        label: 'Stuck current stock',
+        value: stuckRows.reduce((total, row) => total + (asNumber(row.currentPlanningStock) ?? 0), 0),
+        suffix: 'units',
+      },
+      { key: 'leadTimeGaps', label: 'Lead-time gaps', value: leadTimeGapRows.length, suffix: 'rows' },
     ];
   }
 
   private commandCenterRiskBars(rows: PlainRecord[], calculationDate: string) {
-    const countBy = (values: string[]) =>
+    const supplyRows = this.commandCenterRowsForPane('supplyAction', rows);
+    const activeOrderRows = this.commandCenterRowsForPane('activeOrders', rows);
+    const stuckRows = this.commandCenterRowsForPane('stuckInventory', rows);
+    const countByAction = (values: string[]) =>
       values.map((value) => ({
         key: value,
-        count: rows.filter((row) => String(row.actionStatus ?? row.supplierOrderState ?? '') === value).length,
+        count: supplyRows.filter((row) => String(row.actionStatus) === value).length,
       }));
     return {
-      supplyAction: countBy(['overdue', 'order_today', 'order_soon', 'missing_lead_time', 'stale_lead_time']),
-      activeOrders: ['purchased_pipeline', 'placed_not_purchased', 'closed_history', 'no_open_order'].map((value) => ({
+      supplyAction: countByAction(['overdue', 'order_today', 'order_soon', 'missing_lead_time', 'stale_lead_time']),
+      activeOrders: ['purchased_pipeline', 'placed_not_purchased'].map((value) => ({
         key: value,
-        count: rows.filter((row) => row.supplierOrderState === value).length,
+        count: activeOrderRows.filter((row) => row.supplierOrderState === value).length,
       })),
       pipelineHealth: ['on_track', 'late_with_grace', 'late', 'placed_not_purchased', 'none'].map((value) => ({
         key: value,
-        count: rows.filter((row) => pipelineHealthBucket(row, calculationDate) === value).length,
+        count: activeOrderRows.filter((row) => pipelineHealthBucket(row, calculationDate) === value).length,
       })),
       stuckInventory: ['high_cover_slow_sales', 'reserved_not_selling', 'pipeline_stalled'].map((value) => ({
         key: value,
-        count: rows.filter((row) => stuckBucket(row) === value).length,
+        count: stuckRows.filter((row) => stuckBucket(row) === value).length,
       })),
     };
   }
@@ -1086,9 +1161,13 @@ export class EcobaseInventoryPlanningService {
   }
 
   private commandCenterRowsForPane(pane: InventoryCommandCenterPane, rows: PlainRecord[]) {
+    const stockoutActionStatuses = ['overdue', 'order_today', 'order_soon', 'missing_lead_time', 'stale_lead_time'];
     if (pane === 'activeOrders') {
-      return rows.filter((row) =>
-        ['purchased_pipeline', 'placed_not_purchased'].includes(String(row.supplierOrderState)),
+      return rows.filter(
+        (row) =>
+          isProfitTier(row.tier) &&
+          ['purchased_pipeline', 'placed_not_purchased'].includes(String(row.supplierOrderState)) &&
+          [...stockoutActionStatuses, 'already_ordered'].includes(String(row.actionStatus)),
       );
     }
     if (pane === 'stuckInventory') {
@@ -1097,9 +1176,8 @@ export class EcobaseInventoryPlanningService {
     return rows.filter(
       (row) =>
         isProfitTier(row.tier) &&
-        ['overdue', 'order_today', 'order_soon', 'missing_lead_time', 'stale_lead_time'].includes(
-          String(row.actionStatus),
-        ),
+        ['no_open_order', 'closed_history', ''].includes(String(row.supplierOrderState ?? '')) &&
+        stockoutActionStatuses.includes(String(row.actionStatus)),
     );
   }
 
@@ -1194,13 +1272,29 @@ export class EcobaseInventoryPlanningService {
       sku: asString(row.sku),
       title: asString(row.title),
       tier: asString(row.tier),
+      tierScore: asNumber(row.tierScore),
+      previousTier: asString(row.previousTier),
+      currentTier: asString(row.currentTier),
+      currentTierScore: asNumber(row.currentTierScore),
+      averageTier: asString(row.averageTier),
+      averageTierScore: asNumber(row.averageTierScore),
+      bestTier: asString(row.bestTier),
+      bestTierScore: asNumber(row.bestTierScore),
       actionStatus: asString(row.actionStatus),
       estimatedProfitRisk: asNumber(row.estimatedProfitRisk) ?? 0,
+      estimatedProfitRiskBasis: asString(row.estimatedProfitRiskBasis),
       salesVelocity: asNumber(row.salesVelocity),
       profitPerUnit: asNumber(row.profitPerUnit),
+      recommendedBestQty: asNumber(row.recommendedBestQty),
       targetCoverDays: asNumber(row.targetCoverDays),
       suggestedReorderQty: asNumber(row.suggestedReorderQty) ?? 0,
       currentPlanningStock: asNumber(row.currentPlanningStock) ?? 0,
+      sellableStock: asNumber(row.sellableStock) ?? 0,
+      reservedStock: asNumber(row.reservedStock) ?? 0,
+      pipelineStock: asNumber(row.pipelineStock) ?? 0,
+      inboundStock: asNumber(row.inboundStock) ?? 0,
+      orderedStock: asNumber(row.orderedStock) ?? 0,
+      prepStock: asNumber(row.prepStock) ?? 0,
       daysOfCover: asNumber(row.daysOfCover),
       estimatedOosDate: asString(row.estimatedOosDate),
       daysUntilOos,
@@ -1208,10 +1302,16 @@ export class EcobaseInventoryPlanningService {
       daysUntilSafeReorder: asNumber(row.daysUntilSafeReorder),
       leadTimeDays: asNumber(row.leadTimeDays),
       leadTimeFreshness: asString(row.leadTimeFreshness),
+      leadTimeSource:
+        asString(row.leadTimeSource) ??
+        (asString(row.supplierName) ? 'supplier_or_planning_parameter' : 'planning_parameter_without_supplier_mapping'),
       supplierName: asString(row.supplierName),
       supplierOrderState: asString(row.supplierOrderState),
       supplierOrderStatus: asString(row.supplierOrderStatus),
       supplierOrderRef: asString(row.supplierOrderRef),
+      latestSupplierOrderActivityType: asString(row.latestSupplierOrderActivityType),
+      latestSupplierOrderActivityAt: asString(row.latestSupplierOrderActivityAt),
+      latestSupplierOrderActivityNote: asString(row.latestSupplierOrderActivityNote),
       openOrderCoverageQty: asNumber(row.openOrderCoverageQty) ?? 0,
       expectedSellableDate: asString(row.expectedSellableDate),
       pipelineHealthBucket: pipelineHealthBucket(row, calculationDate),
@@ -1220,6 +1320,11 @@ export class EcobaseInventoryPlanningService {
       stuckBucket: stuckBucket(row),
       tierMovement: asString(row.tierMovement),
       recommendedAction: recommendedInventoryAction(row),
+      lastMonthQty: asNumber(row.lastMonthQty),
+      sixMonthAverageQty: asNumber(row.sixMonthAverageQty),
+      sixMonthWorstQty: asNumber(row.sixMonthWorstQty),
+      sixMonthBestQty: asNumber(row.sixMonthBestQty),
+      sixMonthMargin: asNumber(row.sixMonthMargin),
     };
   }
 
@@ -2562,12 +2667,19 @@ export class EcobaseInventoryPlanningService {
             )[0],
           )
         : {};
+      const fallbackActivityAt =
+        latestActivity.occurredAt ??
+        order.lastMeaningfulUpdateAt ??
+        order.statusUpdatedAt ??
+        order.orderDate ??
+        order.updatedAt;
+      const fallbackActivityNote = asString(order.status) ? `Order status ${asString(order.status)}` : undefined;
       result.push({
         ...row,
         supplierOrderId,
-        latestSupplierOrderActivityType: asString(latestActivity.activityType),
-        latestSupplierOrderActivityAt: sortableDateValue(latestActivity.occurredAt),
-        latestSupplierOrderActivityNote: asString(latestActivity.notes),
+        latestSupplierOrderActivityType: asString(latestActivity.activityType) ?? 'order_status',
+        latestSupplierOrderActivityAt: fallbackActivityAt ? sortableDateValue(fallbackActivityAt) : undefined,
+        latestSupplierOrderActivityNote: asString(latestActivity.notes) ?? fallbackActivityNote,
       });
     }
     return result;
