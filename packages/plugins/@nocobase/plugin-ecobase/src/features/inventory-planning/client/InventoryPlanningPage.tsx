@@ -37,6 +37,7 @@ import { FormulaHelp, type FormulaHelpGroupKey } from '../../../client/formula-h
 import { useT } from '../../../client/locale';
 
 type PlainRecord = Record<string, any>;
+const MONEY_AT_RISK_COLOR = '#8b1a1a';
 type OrderNowQuickFilter =
   | 'all'
   | 'urgent_today'
@@ -1140,10 +1141,30 @@ export default function InventoryPlanningPage() {
       </Space>
     );
   };
-  const renderSuggestedQtyCell = (_value: any, row: PlainRecord) => (
-    <Typography.Text strong>{formatNumber(row.suggestedReorderQty)}</Typography.Text>
+  const renderSuggestedQtyCell = (_value: any, row: PlainRecord) => {
+    const estimatedOrderCost = finiteNumber(row.estimatedOrderCost);
+    const unitCostStatus = String(row.unitCostStatus ?? 'missing');
+    const costText =
+      typeof estimatedOrderCost === 'number'
+        ? `${t('Est. COGS')} ${formatCurrency(estimatedOrderCost)}`
+        : unitCostStatus === 'ambiguous'
+          ? t('COGS ambiguous')
+          : t('COGS missing');
+    return (
+      <Space direction="vertical" size={0}>
+        <Typography.Text strong>{formatNumber(row.suggestedReorderQty)}</Typography.Text>
+        <Typography.Text type="secondary">{costText}</Typography.Text>
+        <Typography.Text type="secondary">
+          {t('Margin')} {formatPercent(row.sixMonthMargin)}
+        </Typography.Text>
+      </Space>
+    );
+  };
+  const renderMoneyCell = (value: number) => (
+    <Typography.Text strong style={{ color: MONEY_AT_RISK_COLOR }}>
+      {formatCurrency(value)}
+    </Typography.Text>
   );
-  const renderMoneyCell = (value: number) => <Typography.Text strong>{formatCurrency(value)}</Typography.Text>;
   const renderPipelineGapCell = (_value: any, row: PlainRecord) => {
     const gap = Number(row.stockoutGapDays ?? 0);
     return (
@@ -1211,6 +1232,7 @@ export default function InventoryPlanningPage() {
       <Typography.Text>
         {formatNumber(row.daysOfCover)} {t('days')}
       </Typography.Text>
+      {(row.stuck || (row.stuckBucket && row.stuckBucket !== 'none')) && <Tag color="red">{t('60+ DOC / stuck')}</Tag>}
       {renderOosCell('', row)}
     </Space>
   );
@@ -1258,7 +1280,9 @@ export default function InventoryPlanningPage() {
           dataIndex: 'estimatedProfitRisk',
           render: (_value: number, row: PlainRecord) => (
             <Space direction="vertical" size={0}>
-              <Typography.Text strong>{formatCurrency(row.estimatedProfitRisk)}</Typography.Text>
+              <Typography.Text strong style={{ color: MONEY_AT_RISK_COLOR }}>
+                {formatCurrency(row.estimatedProfitRisk)}
+              </Typography.Text>
               <Typography.Text type="secondary">
                 {t('Total stock')} {formatNumber(row.currentPlanningStock)}
               </Typography.Text>
@@ -1283,7 +1307,7 @@ export default function InventoryPlanningPage() {
       { title: String(t('Coverage')), dataIndex: 'estimatedOosDate', render: renderOosCell },
       { title: String(t('Order by')), key: 'orderBy', render: renderOrderByCell },
       {
-        title: `${t('Suggested qty')} (${formatNumber(commandTargetCoverDays)}d)`,
+        title: `${t('Suggested qty / COGS / margin')} (${formatNumber(commandTargetCoverDays)}d)`,
         key: 'suggestedQty',
         render: renderSuggestedQtyCell,
       },
@@ -1679,7 +1703,9 @@ export default function InventoryPlanningPage() {
                 <Tag color="purple">{t(selectedRow.stuckBucket ?? 'stuck')}</Tag>
                 <Typography.Text>
                   {formatNumber(selectedRow.daysOfCover)} {t('days cover')} · {t('Capital/risk')}{' '}
-                  {formatCurrency(selectedRow.estimatedProfitRisk)}
+                  <Typography.Text strong style={{ color: MONEY_AT_RISK_COLOR }}>
+                    {formatCurrency(selectedRow.estimatedProfitRisk)}
+                  </Typography.Text>
                 </Typography.Text>
               </Space>
               <StockStatus row={selectedRow} t={t} />
@@ -2156,7 +2182,7 @@ export default function InventoryPlanningPage() {
               <Descriptions.Item label={columnHelp(t('Money at risk'), t(monetaryRiskText(selectedRow)))}>
                 <Typography.Text
                   strong
-                  style={{ background: '#fff1f0', color: '#cf1322', padding: '2px 8px', borderRadius: 4 }}
+                  style={{ background: '#fff1f0', color: MONEY_AT_RISK_COLOR, padding: '2px 8px', borderRadius: 4 }}
                 >
                   {formatCurrency(selectedRow.estimatedProfitRisk)}
                 </Typography.Text>

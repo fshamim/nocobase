@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { useAPIClient } from '@nocobase/client';
 import { Alert, App, Button, Card, Descriptions, Input, Select, Space, Table, Tag, Typography, Upload } from 'antd';
 import type { UploadFile, UploadProps } from 'antd';
@@ -65,6 +74,17 @@ type ImportRunResult = {
   warningCount?: number;
   errorCount?: number;
   errorMessage?: string | null;
+  matchedOrderCount?: number;
+  updatedOrderCount?: number;
+  selectedRefCount?: number;
+  unmatchedRefCount?: number;
+  duplicateRefCount?: number;
+  unmappedStatusCount?: number;
+  selectedCommentCount?: number;
+  proposedCommentCount?: number;
+  importedCommentCount?: number;
+  duplicateCommentCount?: number;
+  invalidCommentCount?: number;
 };
 
 function unwrapRows(response: unknown): PlainRecord[] {
@@ -107,14 +127,21 @@ function shortChecksum(value: string) {
   return value ? value.slice(0, 12) : '—';
 }
 
+const CLICKUP_ORDER_STATUS_ADAPTER = 'clickup-order-status-csv';
+
 function groupKey(group: CsvBundleAnalysisGroup) {
   return `${group.adapterName}:${group.sourceType}:${group.domain}`;
+}
+
+function isClickupOrderStatusGroup(group: CsvBundleAnalysisGroup) {
+  return group.adapterName === CLICKUP_ORDER_STATUS_ADAPTER;
 }
 
 function csvSourceConnectionName(group: CsvBundleAnalysisGroup) {
   if (group.sourceType === 'google_sheets' && group.domain === 'supplier_management')
     return 'Supplier Management CSV upload';
   if (group.sourceType === 'google_sheets' && group.domain === 'order_management') return 'Order Management CSV upload';
+  if (isClickupOrderStatusGroup(group)) return 'ClickUp order status CSV upload';
   if (group.sourceType === 'seller_central_file' && group.domain === 'amazon_operations') {
     return 'Buybox / Amazon Operations CSV upload';
   }
@@ -255,23 +282,59 @@ export default function DataSourcesPage() {
       const groupFiles = files
         .filter((file) => group.files.includes(file.name))
         .map(({ name, content }) => ({ name, content }));
-      const response = await api.request({
-        url: 'ecobaseImport:runCsvBundle',
-        method: 'post',
-        data: {
-          sourceConnectionId,
-          adapterName: group.adapterName,
-          sourceIdentifier: `manual-${group.adapterName}`,
-          sourceVersion,
-          defaultCompany: company,
-          files: groupFiles,
-        },
-      });
-      const result = unwrapRecord(response) as ImportRunResult;
+      const clickupOrderStatus = isClickupOrderStatusGroup(group);
+      let result: ImportRunResult;
+      if (clickupOrderStatus) {
+        const response = await api.request({
+          url: 'ecobaseImport:importClickupOrderStatuses',
+          method: 'post',
+          data: { sourceConnectionId, dryRun: false, snapshotDate: sourceVersion, files: groupFiles },
+        });
+        const resultRecord = unwrapRecord(response);
+        result = {
+          status: 'success',
+          rowCount: resultRecord.rowCount as number | undefined,
+          normalizedCount: resultRecord.updatedOrderCount as number | undefined,
+          warningCount:
+            ((resultRecord.unmatchedRefCount as number | undefined) ?? 0) +
+            ((resultRecord.duplicateRefCount as number | undefined) ?? 0) +
+            ((resultRecord.unmappedStatusCount as number | undefined) ?? 0) +
+            ((resultRecord.duplicateCommentCount as number | undefined) ?? 0) +
+            ((resultRecord.invalidCommentCount as number | undefined) ?? 0),
+          errorCount: 0,
+          matchedOrderCount: resultRecord.matchedOrderCount as number | undefined,
+          updatedOrderCount: resultRecord.updatedOrderCount as number | undefined,
+          selectedRefCount: resultRecord.selectedRefCount as number | undefined,
+          unmatchedRefCount: resultRecord.unmatchedRefCount as number | undefined,
+          duplicateRefCount: resultRecord.duplicateRefCount as number | undefined,
+          unmappedStatusCount: resultRecord.unmappedStatusCount as number | undefined,
+          selectedCommentCount: resultRecord.selectedCommentCount as number | undefined,
+          proposedCommentCount: resultRecord.proposedCommentCount as number | undefined,
+          importedCommentCount: resultRecord.importedCommentCount as number | undefined,
+          duplicateCommentCount: resultRecord.duplicateCommentCount as number | undefined,
+          invalidCommentCount: resultRecord.invalidCommentCount as number | undefined,
+        };
+      } else {
+        const response = await api.request({
+          url: 'ecobaseImport:runCsvBundle',
+          method: 'post',
+          data: {
+            sourceConnectionId,
+            adapterName: group.adapterName,
+            sourceIdentifier: `manual-${group.adapterName}`,
+            sourceVersion,
+            defaultCompany: company,
+            files: groupFiles,
+          },
+        });
+        result = unwrapRecord(response) as ImportRunResult;
+      }
       setResults((current) => ({ ...current, [key]: result }));
       if (result.status === 'pending' && result.id) {
         setRunningGroups((current) => ({ ...current, [key]: result.id as string }));
         message.info(t('CSV import is running in the background. This page will refresh until it completes.'));
+      } else if (clickupOrderStatus) {
+        message.success(t('ClickUp order statuses imported'));
       } else {
         message.success(t('CSV import finished'));
       }
@@ -434,7 +497,7 @@ export default function DataSourcesPage() {
             <p>{t('Drop CSV files here or click to select files')}</p>
             <p>
               {t(
-                'OrderDetails, Purchase Orders, Pre-Order Sheet, Supplier IDs, Supplier Analysis Tracker, Supplier 2026, Buybox, MasterStock, and Sellerboard/Amazon operation CSVs are supported.',
+                'OrderDetails, Purchase Orders, Pre-Order Sheet, Supplier IDs, Supplier Analysis Tracker, Supplier 2026, ClickUp Order Management, Buybox, MasterStock, and Sellerboard/Amazon operation CSVs are supported.',
               )}
             </p>
           </Upload.Dragger>
@@ -552,11 +615,27 @@ export default function DataSourcesPage() {
                         type={result.status === 'success' || result.status === 'skipped' ? 'success' : 'warning'}
                         showIcon
                         message={`${t('Import run')}: ${result.id ?? '—'} (${result.status ?? 'unknown'})`}
-                        description={`${t('Rows')}: ${result.rowCount ?? 0}; ${t('Normalized')}: ${
-                          result.normalizedCount ?? 0
-                        }; ${t('Warnings')}: ${result.warningCount ?? 0}; ${t('Errors')}: ${result.errorCount ?? 0}${
-                          result.errorMessage ? `; ${result.errorMessage}` : ''
-                        }`}
+                        description={
+                          result.matchedOrderCount !== undefined
+                            ? `${t('Rows')}: ${result.rowCount ?? 0}; ${t('Selected refs')}: ${
+                                result.selectedRefCount ?? 0
+                              }; ${t('Matched orders')}: ${result.matchedOrderCount ?? 0}; ${t('Updated orders')}: ${
+                                result.updatedOrderCount ?? 0
+                              }; ${t('Unmatched refs')}: ${result.unmatchedRefCount ?? 0}; ${t('Duplicate refs')}: ${
+                                result.duplicateRefCount ?? 0
+                              }; ${t('Unmapped statuses')}: ${result.unmappedStatusCount ?? 0}; ${t(
+                                'ClickUp comments',
+                              )}: ${result.importedCommentCount ?? 0}/${result.proposedCommentCount ?? 0} ${t(
+                                'imported',
+                              )}; ${t('Duplicate comments')}: ${result.duplicateCommentCount ?? 0}; ${t(
+                                'Invalid comments',
+                              )}: ${result.invalidCommentCount ?? 0}`
+                            : `${t('Rows')}: ${result.rowCount ?? 0}; ${t('Normalized')}: ${
+                                result.normalizedCount ?? 0
+                              }; ${t('Warnings')}: ${result.warningCount ?? 0}; ${t('Errors')}: ${
+                                result.errorCount ?? 0
+                              }${result.errorMessage ? `; ${result.errorMessage}` : ''}`
+                        }
                       />
                     ) : null}
                   </Space>

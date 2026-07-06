@@ -39,9 +39,12 @@ import {
   NocoBaseEcoNarrativeProvider,
 } from '../features/daily-operations-brief/server/daily-operations-brief-narrative-service';
 import { EcobaseImportService } from '../features/source-import/server/import-service';
+import { EcobaseClickupOrderStatusService } from '../features/source-import/server/clickup-order-status-service';
+import { EcobaseSellerboardCogsService } from '../features/source-import/server/sellerboard-cogs-service';
 import {
   EcobaseInventoryPlanningService,
   type InventoryCommandCenterPane,
+  type InventoryPlanningCommandCenterQuery,
 } from '../features/inventory-planning/server/inventory-planning-service';
 import { EcobaseOrderPlanningService } from '../features/order-planning/server/order-planning-service';
 import { EcobaseMedallionNormalizationService } from '../features/semantic-model/server/medallion-normalization-service';
@@ -1074,7 +1077,7 @@ function inventoryPlanningQuery(values: Record<string, unknown>) {
   };
 }
 
-function inventoryPlanningCommandCenterQuery(values: Record<string, unknown>) {
+function inventoryPlanningCommandCenterQuery(values: Record<string, unknown>): InventoryPlanningCommandCenterQuery {
   const sortDirection = getOptionalString(values, 'sortDirection');
   return {
     ...inventoryPlanningQuery(values),
@@ -2179,6 +2182,50 @@ export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
         };
       } catch (error) {
         ctx.throw(400, error instanceof Error ? error.message : 'Ecobase CSV bundle import failed.');
+        return;
+      }
+      await next();
+    },
+    importSellerboardCogs: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const files = getCsvFiles(values);
+      if (files.length === 0) {
+        ctx.throw(400, 'Ecobase Sellerboard COGS import requires at least one file.');
+        return;
+      }
+      try {
+        ctx.body = {
+          data: await new EcobaseSellerboardCogsService(ctx.db).importCsvFiles({
+            files,
+            defaultCompany: getOptionalString(values, 'defaultCompany'),
+            importedAt: getOptionalString(values, 'importedAt'),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase Sellerboard COGS import failed.');
+        return;
+      }
+      await next();
+    },
+    importClickupOrderStatuses: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const files = getCsvFiles(values);
+      if (files.length === 0) {
+        ctx.throw(400, 'Ecobase ClickUp order-status import requires at least one file.');
+        return;
+      }
+      try {
+        ctx.body = {
+          data: await new EcobaseClickupOrderStatusService(ctx.db).importCsvFiles({
+            files,
+            dryRun: values.dryRun !== false,
+            sourceConnectionId: getOptionalString(values, 'sourceConnectionId'),
+            importedAt: getOptionalString(values, 'importedAt'),
+            snapshotDate: getOptionalString(values, 'snapshotDate'),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase ClickUp order-status import failed.');
         return;
       }
       await next();

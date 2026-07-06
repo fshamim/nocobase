@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { describe, expect, it } from 'vitest';
 import accuracyEvaluationRuns from '../collections/accuracy-evaluation-runs';
 import aiAnswers from '../collections/ai-answers';
@@ -28,6 +37,7 @@ import rawListings from '../collections/raw-listings';
 import reportItems from '../collections/report-items';
 import reportRuns from '../collections/report-runs';
 import ruleVersions from '../collections/rule-versions';
+import sellerboardProductCosts from '../collections/sellerboard-product-costs';
 import sourceAccessAudits from '../collections/source-access-audits';
 import sourceConnections from '../collections/source-connections';
 import sourceWarningPolicies from '../collections/source-warning-policies';
@@ -85,6 +95,7 @@ describe('Ecobase plugin-owned schema', () => {
     expect(listingDailyFacts.name).toBe(ECOBASE_COLLECTIONS.listingDailyFacts);
     expect(inventorySnapshots.name).toBe(ECOBASE_COLLECTIONS.inventorySnapshots);
     expect(inventoryPlanningRows.name).toBe(ECOBASE_COLLECTIONS.inventoryPlanningRows);
+    expect(sellerboardProductCosts.name).toBe(ECOBASE_COLLECTIONS.sellerboardProductCosts);
     expect(trafficSnapshots.name).toBe(ECOBASE_COLLECTIONS.trafficSnapshots);
     expect(planningParameters.name).toBe(ECOBASE_COLLECTIONS.planningParameters);
     expect(suppliers.name).toBe(ECOBASE_COLLECTIONS.suppliers);
@@ -124,6 +135,7 @@ describe('Ecobase plugin-owned schema', () => {
       importRuns,
       rawImportRows,
       inventoryPlanningRows,
+      sellerboardProductCosts,
       planningProducts,
       planningProductListings,
       planningProductMappingAudits,
@@ -164,6 +176,9 @@ describe('Ecobase plugin-owned schema', () => {
     expect(field(rawImportRows, 'payload')).toMatchObject({ type: 'jsonb' });
     expect(field(rawImportRows, 'normalizedError')).toMatchObject({ type: 'text' });
     expect(field(rawListings, 'naturalKey')).toMatchObject({ type: 'string', unique: true });
+    expect(field(sellerboardProductCosts, 'naturalKey')).toMatchObject({ type: 'string', unique: true });
+    expect(field(sellerboardProductCosts, 'unitCost')).toMatchObject({ type: 'double' });
+    expect(field(sellerboardProductCosts, 'rawPayload')).toMatchObject({ type: 'jsonb' });
     expect(field(planningProducts, 'id')).toMatchObject({ type: 'uuid', primaryKey: true });
     expect(field(planningProducts, 'canonicalAsin')).toMatchObject({ type: 'string' });
     expect(field(planningProducts, 'listings')).toMatchObject({

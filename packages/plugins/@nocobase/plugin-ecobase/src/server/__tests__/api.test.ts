@@ -27,6 +27,7 @@ import {
 } from '../plugin';
 import { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
 import { EcobaseSourceConnectionService } from '../../features/source-import/server/source-connection-service';
+import { extractClickupOrderRefsFromTitle } from '../../features/source-import/server/clickup-order-status-service';
 
 interface FindParams {
   filter?: Record<string, unknown>;
@@ -376,6 +377,42 @@ describe('Ecobase inventory-planning public API seam', () => {
         stuck: false,
       },
     });
+    await goldRows.create({
+      values: {
+        ...baseRow,
+        id: 'gold-5',
+        naturalKey: '2026-07-05:ACME:B005:SKU-5',
+        asin: 'B005',
+        sku: 'SKU-5',
+        title: 'No active order stuck product',
+        tier: 'C',
+        actionStatus: 'stale_lead_time',
+        estimatedProfitRisk: 0,
+        daysOfCover: 75,
+        supplierOrderState: 'closed_history',
+        stuck: true,
+      },
+    });
+    await goldRows.create({
+      values: {
+        ...baseRow,
+        id: 'gold-6',
+        naturalKey: '2026-07-05:ACME:B006:SKU-6',
+        asin: 'B006',
+        sku: 'SKU-6',
+        title: 'Active order stuck product',
+        tier: 'C',
+        actionStatus: 'already_ordered',
+        estimatedProfitRisk: 0,
+        daysOfCover: 90,
+        estimatedOosDate: '2026-09-30',
+        expectedSellableDate: '2026-07-12',
+        supplierOrderState: 'purchased_pipeline',
+        supplierOrderStatus: 'paid',
+        supplierOrderRef: 'PO-6',
+        stuck: true,
+      },
+    });
     await db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).create({
       values: {
         id: 'supplier-order-po-2',
@@ -439,20 +476,28 @@ describe('Ecobase inventory-planning public API seam', () => {
       pipelineStock: 4,
       sixMonthAverageQty: 22,
     });
-    expect(data.panes.activeOrders).toMatchObject({ total: 1 });
-    expect(data.panes.activeOrders.rows[0]).toMatchObject({
-      id: 'gold-2',
-      daysUntilOos: 2,
-      stockoutGapDays: 3,
-      latestSupplierOrderActivityAt: '2026-07-01T10:00:00.000Z',
-      latestSupplierOrderActivityNote: 'Paid confirmed',
-    });
-    expect(data.panes.stuckInventory).toMatchObject({ total: 1 });
-    expect(data.panes.stuckInventory.rows[0]).toMatchObject({
-      id: 'gold-3',
-      tier: undefined,
-      stuckBucket: 'high_cover_slow_sales',
-    });
+    expect(data.panes.activeOrders).toMatchObject({ total: 2 });
+    expect(data.panes.activeOrders.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'gold-2',
+          daysUntilOos: 2,
+          stockoutGapDays: 3,
+          latestSupplierOrderActivityAt: '2026-07-01T10:00:00.000Z',
+          latestSupplierOrderActivityNote: 'Paid confirmed',
+        }),
+        expect.objectContaining({ id: 'gold-6', stuck: true, stuckBucket: 'high_cover_slow_sales' }),
+      ]),
+    );
+    expect(data.panes.stuckInventory).toMatchObject({ total: 2 });
+    expect(data.panes.stuckInventory.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'gold-3', tier: undefined, stuckBucket: 'high_cover_slow_sales' }),
+        expect.objectContaining({ id: 'gold-5', stuckBucket: 'high_cover_slow_sales' }),
+      ]),
+    );
+    expect(data.panes.supplyAction.rows.map((row: Record<string, unknown>) => row.id)).not.toContain('gold-5');
+    expect(data.panes.stuckInventory.rows.map((row: Record<string, unknown>) => row.id)).not.toContain('gold-6');
     expect(data.selectedRow.row).toMatchObject({
       id: 'gold-2',
       tierScore: 250,
@@ -1174,6 +1219,271 @@ describe('Ecobase import public API seam', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).all()).toEqual([]);
   });
 
+  it('imports Sellerboard COGS CSV files into product costs', async () => {
+    const db = new MemoryDatabase();
+    const actions = createEcobaseImportActions(createSourceAdapterRegistry([noopTestAdapter]));
+    const next = vi.fn();
+    const content = [
+      'ASIN;"SKU";"Title";"Labels";"CostPeriodStartDate";"Cost";"ShippingCostPerOrder";"ShippingProfile";"SurchargeForShippingAbroad";"Value_of_unsellable_returns";"VAT";"VAT_DE_2020";"VAT_CATEGORY";"Hide";"Marketplace"',
+      'B003WH3SIE;"Black Patina 8 Oz";"Novacan Black Patina for Solder";"";"01/04/2026";"4,61";"";"";"";"";"";"";"A_GEN_STANDARD";"NO";"Amazon.com"',
+      'B0006SDOFO;"Olfa-RM-MG-Green";"OLFA Cutting Mat";"";"11/02/2026";"33.4";"";"";"";"";"";"";"A_GEN_STANDARD";"NO";"Amazon.com"',
+      'B000SKIP;"Missing cost";"Missing cost";"";"";"";"";"";"";"";"";"";"A_GEN_STANDARD";"NO";"Amazon.com"',
+    ].join('\n');
+
+    const context = createActionContext(db, {
+      files: [{ name: 'Muxtex_Cost_of_Goods_Sold_(2026_07_04_08_59_22_030).csv', content }],
+      importedAt: '2026-07-06T00:00:00.000Z',
+    });
+    await actions.importSellerboardCogs(context, next);
+
+    expect(context.body).toMatchObject({ data: { rowCount: 3, importedCount: 2, skippedCount: 1 } });
+    expect(next).toHaveBeenCalledOnce();
+    expect(db.getRepository(ECOBASE_COLLECTIONS.sellerboardProductCosts).all()).toEqual([
+      expect.objectContaining({ company: 'Muxtex INC', asin: 'B003WH3SIE', sku: 'Black Patina 8 Oz', unitCost: 4.61 }),
+      expect.objectContaining({ company: 'Muxtex INC', asin: 'B0006SDOFO', sku: 'Olfa-RM-MG-Green', unitCost: 33.4 }),
+    ]);
+
+    const updateContext = createActionContext(db, {
+      files: [
+        {
+          name: 'Muxtex_Cost_of_Goods_Sold_(2026_07_04_08_59_22_030).csv',
+          content: content.replace('"4,61"', '"5,25"'),
+        },
+      ],
+    });
+    await actions.importSellerboardCogs(updateContext, vi.fn());
+
+    const rows = db.getRepository(ECOBASE_COLLECTIONS.sellerboardProductCosts).all();
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({ unitCost: 5.25 });
+  });
+
+  it('extracts only compact ClickUp order refs from task titles', () => {
+    expect(extractClickupOrderRefsFromTitle('New Order – SS7226A–Stop Shop Inc – USA – My Weigh')).toEqual(['SS7226A']);
+    expect(extractClickupOrderRefsFromTitle('Restock Order – MX101725B – Muxtex')).toEqual(['MX101725B']);
+    expect(extractClickupOrderRefsFromTitle('Shipping labels required EF11425C')).toEqual(['EF11425C']);
+    expect(extractClickupOrderRefsFromTitle('ASIN B07RGG7TXX and UK-KK-KM-250719-03 should not match')).toEqual([]);
+  });
+
+  it('dry-runs ClickUp order-status imports without updating supplier orders', async () => {
+    const db = new MemoryDatabase();
+    const actions = createEcobaseImportActions(createSourceAdapterRegistry([noopTestAdapter]));
+    await db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).create({
+      values: {
+        id: 'supplier-order-1',
+        naturalKey: 'source:order:SS7226A',
+        sourceConnectionId: 'source-orders',
+        company: 'Stop Shop LLC',
+        supplierId: 'supplier-1',
+        externalOrderRef: 'SS7226A',
+        sourceStage: 'order_detail',
+        status: 'approval_pending',
+        statusSource: 'google_sheets',
+        payload: {},
+      },
+    });
+    const content = [
+      'Task ID,Task Link,Task Name,Task Content,Status,Date Created,Date Created Text,Parent ID,List Name',
+      'task-1,https://app.clickup.com/t/task-1,New Order – SS7226A–Stop Shop Inc – USA – My Weigh,,approved-to-order,1782921599420,"7/1/2026, 1:00 PM GMT+5",null,Order Management (ORM)',
+      'task-asin,https://app.clickup.com/t/task-asin,OBJ-8 ASIN B07RGG7TXX,,in progress,1782921599421,"7/1/2026, 1:01 PM GMT+5",null,Order Management (ORM)',
+    ].join('\n');
+
+    const context = createActionContext(db, {
+      files: [{ name: 'Order Management Clickup Data 06-07-2026.csv', content }],
+      importedAt: '2026-07-06T00:00:00.000Z',
+    });
+    await actions.importClickupOrderStatuses(context, vi.fn());
+
+    expect(context.body).toMatchObject({
+      data: {
+        dryRun: true,
+        rowCount: 2,
+        selectedRefCount: 1,
+        matchedOrderCount: 1,
+        updatedOrderCount: 0,
+      },
+    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).all()[0]).toMatchObject({
+      status: 'approval_pending',
+      statusSource: 'google_sheets',
+    });
+  });
+
+  it('applies ClickUp order-status imports to matched supplier orders with evidence', async () => {
+    const db = new MemoryDatabase();
+    const actions = createEcobaseImportActions(createSourceAdapterRegistry([noopTestAdapter]));
+    await db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).create({
+      values: {
+        id: 'supplier-order-1',
+        naturalKey: 'source:order:SS7226A',
+        sourceConnectionId: 'source-orders',
+        company: 'Stop Shop LLC',
+        supplierId: 'supplier-1',
+        externalOrderRef: 'SS7226A',
+        sourceStage: 'order_detail',
+        status: 'approval_pending',
+        statusSource: 'google_sheets',
+        payload: { existing: true },
+      },
+    });
+    const content = [
+      'Task ID,Task Link,Task Name,Task Content,Status,Date Created,Date Created Text,Parent ID,List Name',
+      'task-helper,https://app.clickup.com/t/task-helper,Shipping labels required SS7226A,,complete,1782921599421,"7/1/2026, 1:01 PM GMT+5",task-main,Order Management (ORM)',
+      'task-main,https://app.clickup.com/t/task-main,New Order – SS7226A–Stop Shop Inc – USA – My Weigh,,inbound-monitoring,1782921599420,"7/1/2026, 1:00 PM GMT+5",null,Order Management (ORM)',
+    ].join('\n');
+
+    const context = createActionContext(db, {
+      files: [{ name: 'Order Management Clickup Data 06-07-2026.csv', content }],
+      dryRun: false,
+      importedAt: '2026-07-06T00:00:00.000Z',
+      sourceConnectionId: '00000000-0000-4000-8000-000000000123',
+    });
+    await actions.importClickupOrderStatuses(context, vi.fn());
+
+    expect(context.body).toMatchObject({ data: { dryRun: false, matchedOrderCount: 1, updatedOrderCount: 1 } });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).all()[0]).toMatchObject({
+      status: 'shipped_inbound',
+      statusSource: 'clickup_csv',
+      statusUpdatedAt: '2026-07-06T00:00:00.000Z',
+      payload: {
+        existing: true,
+        clickupStatusImport: expect.objectContaining({
+          clickupStatus: 'inbound-monitoring',
+          extraction: 'task_name_compact_order_ref',
+          taskId: 'task-main',
+        }),
+      },
+    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.clickupTaskSnapshots).all()).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.taskLinks).all()).toEqual([
+      expect.objectContaining({
+        externalTaskId: 'task-main',
+        targetType: 'supplier_order',
+        supplierOrderId: 'supplier-order-1',
+      }),
+    ]);
+  });
+
+  it('imports ClickUp comments as idempotent supplier-order notes', async () => {
+    const db = new MemoryDatabase();
+    const actions = createEcobaseImportActions(createSourceAdapterRegistry([noopTestAdapter]));
+    await db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).create({
+      values: {
+        id: 'supplier-order-1',
+        naturalKey: 'source:order:SS7226A',
+        sourceConnectionId: 'source-orders',
+        company: 'Stop Shop LLC',
+        supplierId: 'supplier-1',
+        externalOrderRef: 'SS7226A',
+        sourceStage: 'order_detail',
+        status: 'approval_pending',
+        statusSource: 'google_sheets',
+        payload: {},
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).create({
+      values: {
+        id: 'supplier-order-2',
+        naturalKey: 'source:order:EF11425C',
+        sourceConnectionId: 'source-orders',
+        company: 'Ecofission LLC',
+        supplierId: 'supplier-2',
+        externalOrderRef: 'EF11425C',
+        sourceStage: 'order_detail',
+        status: 'approval_pending',
+        statusSource: 'google_sheets',
+        payload: {},
+      },
+    });
+    const csvCell = (value: string) => `"${value.replace(/"/g, '""')}"`;
+    const validComments = JSON.stringify([
+      {
+        text: 'Will proceed with the order on Monday.',
+        by: 'nauman.ecofission@gmail.com',
+        assigned: false,
+        date: '7/4/2026, 12:49:37 AM GMT+5',
+        resolved: 'N/A',
+      },
+      { text: '   ', by: 'nauman.ecofission@gmail.com', date: '7/4/2026, 12:50:00 AM GMT+5' },
+      { text: 'Bad date should be skipped.', by: 'nauman.ecofission@gmail.com', date: 'not a date' },
+    ]);
+    const content = [
+      'Task ID,Task Link,Task Name,Task Content,Status,Date Created,Date Created Text,Parent ID,List Name,Comments',
+      `task-main,https://app.clickup.com/t/task-main,New Order – SS7226A–Stop Shop Inc – USA – My Weigh,,approved-to-order,1782921599420,"7/1/2026, 1:00 PM GMT+5",null,Order Management (ORM),${csvCell(
+        validComments,
+      )}`,
+      `task-invalid,https://app.clickup.com/t/task-invalid,Restock - EF11425C - Ecofission,,complete,1782921599421,"7/1/2026, 1:01 PM GMT+5",null,Order Management (ORM),${csvCell(
+        '[{"text":',
+      )}`,
+    ].join('\n');
+
+    const dryRunContext = createActionContext(db, {
+      files: [{ name: 'Order Management Clickup Data 06-07-2026.csv', content }],
+      importedAt: '2026-07-06T00:00:00.000Z',
+    });
+    await actions.importClickupOrderStatuses(dryRunContext, vi.fn());
+    expect(dryRunContext.body).toMatchObject({
+      data: {
+        dryRun: true,
+        matchedOrderCount: 2,
+        selectedCommentCount: 1,
+        proposedCommentCount: 1,
+        importedCommentCount: 0,
+        duplicateCommentCount: 0,
+        invalidCommentCount: 3,
+      },
+    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities).all()).toHaveLength(0);
+
+    const applyContext = createActionContext(db, {
+      files: [{ name: 'Order Management Clickup Data 06-07-2026.csv', content }],
+      dryRun: false,
+      importedAt: '2026-07-06T00:00:00.000Z',
+      sourceConnectionId: '00000000-0000-4000-8000-000000000123',
+    });
+    await actions.importClickupOrderStatuses(applyContext, vi.fn());
+    expect(applyContext.body).toMatchObject({
+      data: {
+        dryRun: false,
+        proposedCommentCount: 1,
+        importedCommentCount: 1,
+        duplicateCommentCount: 0,
+        invalidCommentCount: 3,
+      },
+    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities).all()).toEqual([
+      expect.objectContaining({
+        supplierOrderId: 'supplier-order-1',
+        supplierId: 'supplier-1',
+        company: 'Stop Shop LLC',
+        activityType: 'note',
+        occurredAt: '2026-07-03T19:49:37.000Z',
+        actor: 'nauman.ecofission@gmail.com',
+        notes: 'Will proceed with the order on Monday.',
+        source: 'clickup',
+        payload: expect.objectContaining({
+          source: 'clickup_csv',
+          orderRef: 'SS7226A',
+          taskId: 'task-main',
+          taskName: 'New Order – SS7226A–Stop Shop Inc – USA – My Weigh',
+          comment: expect.objectContaining({ resolved: 'N/A' }),
+        }),
+      }),
+    ]);
+
+    const rerunContext = createActionContext(db, {
+      files: [{ name: 'Order Management Clickup Data 06-07-2026.csv', content }],
+      dryRun: false,
+      importedAt: '2026-07-06T00:00:00.000Z',
+      sourceConnectionId: '00000000-0000-4000-8000-000000000123',
+    });
+    await actions.importClickupOrderStatuses(rerunContext, vi.fn());
+    expect(rerunContext.body).toMatchObject({
+      data: { proposedCommentCount: 1, importedCommentCount: 0, duplicateCommentCount: 1 },
+    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities).all()).toHaveLength(1);
+  });
+
   it('normalizes pending bronze rows through resource actions', async () => {
     const db = new MemoryDatabase();
     await db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).create({
@@ -1294,6 +1604,21 @@ describe('Ecobase import public API seam', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.companies).all()).toEqual([
       expect.objectContaining({ name: 'Ecofission LLC' }),
     ]);
+
+    const clickupContext = createActionContext(db, {
+      name: 'ClickUp order status CSV upload',
+      sourceType: 'clickup',
+      domain: 'order_management',
+    });
+    await actions.saveCsvSourceConnection(clickupContext, vi.fn());
+
+    expect(clickupContext.body.data).toMatchObject({
+      name: 'ClickUp order status CSV upload',
+      sourceType: 'clickup',
+      domain: 'order_management',
+      config: { manualCsvBundle: true },
+      active: true,
+    });
   });
 
   it('ensures default manual CSV source connections', async () => {
@@ -1325,6 +1650,11 @@ describe('Ecobase import public API seam', () => {
           domain: 'order_management',
         }),
         expect.objectContaining({
+          name: 'ClickUp order status CSV upload',
+          sourceType: 'clickup',
+          domain: 'order_management',
+        }),
+        expect.objectContaining({
           id: 'legacy-buybox-csv-source',
           name: 'Buybox / Amazon Operations CSV upload',
           sourceType: 'seller_central_file',
@@ -1332,7 +1662,7 @@ describe('Ecobase import public API seam', () => {
         }),
       ]),
     );
-    expect(db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).all()).toHaveLength(3);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).all()).toHaveLength(4);
   });
 
   it('lists available adapters through the public action', async () => {

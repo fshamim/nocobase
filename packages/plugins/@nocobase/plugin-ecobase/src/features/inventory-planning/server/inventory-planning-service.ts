@@ -15,6 +15,7 @@ import {
   normalizeSupplierOrderStatus,
 } from '../../supplier-management/server/supplier-order-service';
 import { toPlainRecord } from '../../source-import/server/import-service';
+import { EcobaseSellerboardCogsService } from '../../source-import/server/sellerboard-cogs-service';
 import { EcobasePlanningCalculationService } from './planning-calculation-service';
 import { EcobaseSilverDataService } from '../../semantic-model/server/silver-data-service';
 import { addDays, diffDays, isoDate, optionalIsoDate } from './planning-date';
@@ -733,7 +734,7 @@ export class EcobaseInventoryPlanningService {
       );
     }
 
-    const rows = await this.listRows({ ...query, limit: undefined });
+    const rows = await this.withSellerboardCosts(await this.listRows({ ...query, limit: undefined }));
     const activeOrderRowsWithActivity = await this.withLatestSupplierOrderActivity(
       this.commandCenterRowsForPane('activeOrders', rows),
     );
@@ -784,6 +785,15 @@ export class EcobaseInventoryPlanningService {
           }
         : null,
     };
+  }
+
+  private async withSellerboardCosts(rows: PlainRecord[]): Promise<PlainRecord[]> {
+    if (rows.length === 0) return rows;
+    const companies = [
+      ...new Set(rows.map((row) => asString(row.company)).filter((company): company is string => Boolean(company))),
+    ];
+    const resolver = await new EcobaseSellerboardCogsService(this.db).createResolver(companies);
+    return rows.map((row) => ({ ...row, ...resolver.resolve(row) }));
   }
 
   async rowWorkspace(query: InventoryPlanningRowWorkspaceQuery) {
@@ -1162,19 +1172,21 @@ export class EcobaseInventoryPlanningService {
 
   private commandCenterRowsForPane(pane: InventoryCommandCenterPane, rows: PlainRecord[]) {
     const stockoutActionStatuses = ['overdue', 'order_today', 'order_soon', 'missing_lead_time', 'stale_lead_time'];
+    const isStuckRow = (row: PlainRecord) => asBoolean(row.stuck) || stuckBucket(row) !== 'none';
+    const isActiveOrderRow = (row: PlainRecord) =>
+      isProfitTier(row.tier) &&
+      ['purchased_pipeline', 'placed_not_purchased'].includes(String(row.supplierOrderState)) &&
+      ([...stockoutActionStatuses, 'already_ordered'].includes(String(row.actionStatus)) || isStuckRow(row));
+
     if (pane === 'activeOrders') {
-      return rows.filter(
-        (row) =>
-          isProfitTier(row.tier) &&
-          ['purchased_pipeline', 'placed_not_purchased'].includes(String(row.supplierOrderState)) &&
-          [...stockoutActionStatuses, 'already_ordered'].includes(String(row.actionStatus)),
-      );
+      return rows.filter(isActiveOrderRow);
     }
     if (pane === 'stuckInventory') {
-      return rows.filter((row) => asBoolean(row.stuck) || stuckBucket(row) !== 'none');
+      return rows.filter((row) => !isActiveOrderRow(row) && isStuckRow(row));
     }
     return rows.filter(
       (row) =>
+        !isStuckRow(row) &&
         isProfitTier(row.tier) &&
         ['no_open_order', 'closed_history', ''].includes(String(row.supplierOrderState ?? '')) &&
         stockoutActionStatuses.includes(String(row.actionStatus)),
@@ -1288,6 +1300,10 @@ export class EcobaseInventoryPlanningService {
       recommendedBestQty: asNumber(row.recommendedBestQty),
       targetCoverDays: asNumber(row.targetCoverDays),
       suggestedReorderQty: asNumber(row.suggestedReorderQty) ?? 0,
+      unitCost: asNumber(row.unitCost),
+      unitCostStatus: asString(row.unitCostStatus) ?? 'missing',
+      unitCostSource: asString(row.unitCostSource),
+      estimatedOrderCost: asNumber(row.estimatedOrderCost),
       currentPlanningStock: asNumber(row.currentPlanningStock) ?? 0,
       sellableStock: asNumber(row.sellableStock) ?? 0,
       reservedStock: asNumber(row.reservedStock) ?? 0,
@@ -2021,9 +2037,13 @@ export class EcobaseInventoryPlanningService {
     );
     const leadTimeDays =
       importedLeadTimeDays ?? asNumber(orderHistoryLeadTime.leadTimeDays) ?? orderHistoryDerivedLeadTime.leadTimeDays;
-    const recommendedBestQty =
-      historicalProfitMetrics?.sixMonthBestQty ??
-      payloadNumber(params.parameter, ['recommendedBestQty', 'Rec.Best Qty', 'Rec. Best Qty']);
+    const hasCompleteHistoricalWindow = Object.keys(historicalProfitMetrics?.monthlyUnits ?? {}).length >= 6;
+    const importedRecommendedBestQty =
+      payloadNumber(params.parameter, ['recommendedBestQty', 'Rec.Best Qty', 'Rec. Best Qty']) ??
+      asNumber(params.inventory.recommendedReorderQuantity);
+    const recommendedBestQty = hasCompleteHistoricalWindow
+      ? historicalProfitMetrics?.sixMonthBestQty ?? importedRecommendedBestQty
+      : importedRecommendedBestQty ?? historicalProfitMetrics?.sixMonthBestQty;
     const profitPerUnit =
       historicalProfitMetrics?.profitPerUnit ??
       asNumber(params.parameter.profitPerUnit) ??
@@ -2048,8 +2068,7 @@ export class EcobaseInventoryPlanningService {
       params.profitTierThresholds,
     );
     const fallbackTierResult = profitTierFor(profitPerUnit, recommendedBestQty, params.profitTierThresholds);
-    const hasHistoricalQuantities = typeof historicalProfitMetrics?.sixMonthBestQty === 'number';
-    const selectedTierResult = hasHistoricalQuantities ? currentTierResult : fallbackTierResult;
+    const selectedTierResult = hasCompleteHistoricalWindow ? currentTierResult : fallbackTierResult;
     const tier = selectedTierResult.tier;
     const tierScore = selectedTierResult.tierScore;
     const daysOfCover =

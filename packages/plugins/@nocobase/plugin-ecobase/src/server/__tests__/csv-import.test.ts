@@ -1649,6 +1649,12 @@ describe('Ecobase current Amazon operations CSV import', () => {
     const analysis = analyzeCsvFiles([
       { name: 'OrderDetails.csv', content: orderDetailsDetailedCsv },
       { name: 'Purchase Orders.csv', content: purchaseOrdersDetailedCsv },
+      {
+        name: 'Order Management Clickup Data.csv',
+        content:
+          'Task ID,Task Link,Task Name,Task Content,Status,Date Created,Date Created Text,Parent ID,List Name\n' +
+          'task-1,https://app.clickup.com/t/task-1,New Order – SS7226A–Stop Shop Inc – USA – My Weigh,,approved-to-order,1782921599420,"7/1/2026, 1:00 PM GMT+5",null,Order Management (ORM)',
+      },
       { name: 'Buybox.csv', content: buyboxCsv },
       { name: 'Unknown.csv', content: 'Not,A,Known,Shape\n1,2,3,4' },
     ]);
@@ -1668,6 +1674,14 @@ describe('Ecobase current Amazon operations CSV import', () => {
           detectedShape: 'purchase-orders',
           adapterName: 'google-sheets-migration-csv',
           sourceType: 'google_sheets',
+          domain: 'order_management',
+          importable: true,
+        }),
+        expect.objectContaining({
+          name: 'Order Management Clickup Data.csv',
+          detectedShape: 'clickup-order-status',
+          adapterName: 'clickup-order-status-csv',
+          sourceType: 'clickup',
           domain: 'order_management',
           importable: true,
         }),
@@ -1696,6 +1710,12 @@ describe('Ecobase current Amazon operations CSV import', () => {
           sourceType: 'google_sheets',
           domain: 'order_management',
           files: ['OrderDetails.csv', 'Purchase Orders.csv'],
+        }),
+        expect.objectContaining({
+          adapterName: 'clickup-order-status-csv',
+          sourceType: 'clickup',
+          domain: 'order_management',
+          files: ['Order Management Clickup Data.csv'],
         }),
         expect.objectContaining({
           adapterName: 'amazon-operations-csv',

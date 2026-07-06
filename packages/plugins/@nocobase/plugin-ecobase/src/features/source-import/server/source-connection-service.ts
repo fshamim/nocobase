@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import type { EcobaseDatabase, EcobaseRepository } from './import-service';
@@ -48,6 +57,7 @@ type SaveCsvSourceConnectionParams = {
 const DEFAULT_CSV_SOURCE_CONNECTIONS = [
   { name: 'Supplier Management CSV upload', sourceType: 'google_sheets', domain: 'supplier_management' },
   { name: 'Order Management CSV upload', sourceType: 'google_sheets', domain: 'order_management' },
+  { name: 'ClickUp order status CSV upload', sourceType: 'clickup', domain: 'order_management' },
   { name: 'Buybox / Amazon Operations CSV upload', sourceType: 'seller_central_file', domain: 'amazon_operations' },
 ];
 
@@ -405,9 +415,9 @@ export class EcobaseSourceConnectionService {
   async saveCsvSourceConnection(params: SaveCsvSourceConnectionParams) {
     const sourceType = params.sourceType?.trim();
     const domain = params.domain?.trim();
-    if (!sourceType || !['seller_central_file', 'google_sheets', 'sellerboard'].includes(sourceType)) {
+    if (!sourceType || !['seller_central_file', 'google_sheets', 'sellerboard', 'clickup'].includes(sourceType)) {
       throw new Error(
-        'Ecobase CSV source save failed: sourceType must be seller_central_file, google_sheets, or sellerboard.',
+        'Ecobase CSV source save failed: sourceType must be seller_central_file, google_sheets, sellerboard, or clickup.',
       );
     }
     if (

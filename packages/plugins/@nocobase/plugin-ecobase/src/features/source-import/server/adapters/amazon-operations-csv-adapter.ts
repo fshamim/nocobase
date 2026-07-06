@@ -41,6 +41,7 @@ export type CsvShape =
   | 'order-details'
   | 'purchase-orders'
   | 'pre-order-sheet'
+  | 'clickup-order-status'
   | 'unknown';
 
 export interface CsvFileAnalysis {
@@ -96,6 +97,8 @@ export function detectCsvShape(headers: string[]): CsvShape {
   if (has(normalized, 'SR ID') && has(normalized, 'Supplier Name') && has(normalized, 'Supplier Type'))
     return 'supplier-analysis-2026';
   if (has(normalized, 'SR ID') && has(normalized, 'Supplier Name')) return 'supplier-ids';
+  if (has(normalized, 'Task ID') && has(normalized, 'Task Name') && has(normalized, 'Status'))
+    return 'clickup-order-status';
   if (has(normalized, 'Order ID') && has(normalized, 'Lead time(day)')) return 'order-details';
   if (has(normalized, 'Timestamp') && has(normalized, 'Order ID') && has(normalized, 'Payment Status'))
     return 'purchase-orders';
@@ -130,6 +133,9 @@ export function targetForCsvShape(shape: CsvShape): Omit<CsvBundleAnalysisGroup,
   }
   if (shape === 'supplier-analysis-tracker' || shape === 'supplier-analysis-2026') {
     return { adapterName: 'google-sheets-migration-csv', sourceType: 'google_sheets', domain: 'supplier_management' };
+  }
+  if (shape === 'clickup-order-status') {
+    return { adapterName: 'clickup-order-status-csv', sourceType: 'clickup', domain: 'order_management' };
   }
   if (shape === 'sellerboard-history-dashboard-goods') {
     return { adapterName: 'sellerboard-history-csv', sourceType: 'sellerboard', domain: 'amazon_operations' };

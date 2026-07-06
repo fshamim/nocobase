@@ -67,7 +67,14 @@ class MemoryRepository implements EcobaseRepository {
       return this.records.filter((record) => record.id === params.filterByTk);
     }
     const filter = params.filter ?? {};
-    return this.records.filter((record) => Object.entries(filter).every(([key, expected]) => record[key] === expected));
+    return this.records.filter((record) =>
+      Object.entries(filter).every(([key, expected]) => {
+        if (typeof expected === 'object' && expected !== null && Array.isArray((expected as { $in?: unknown[] }).$in)) {
+          return (expected as { $in: unknown[] }).$in.includes(record[key]);
+        }
+        return record[key] === expected;
+      }),
+    );
   }
 
   private sortRecords(records: Record<string, unknown>[], sort: string[] = []) {
@@ -1369,6 +1376,57 @@ describe('EcobaseInventoryPlanningService', () => {
     expect(workspace.rows[0]).toMatchObject({ asin: 'B000WORK', actionStatus: 'order_today' });
     expect(workspace.digest.summary).toMatchObject({ orderToday: 1, atRisk: 1 });
     expect(workspace.digest.sections.orderNow[0]).toMatchObject({ asin: 'B000WORK' });
+  });
+
+  it('exposes Sellerboard COGS cost on command-center rows without guessing ambiguous ASIN costs', async () => {
+    const db = new MemoryDatabase();
+    for (const row of [
+      { id: 'exact', asin: 'B000EXACT', sku: 'SKU-EXACT', qty: 10, risk: 300 },
+      { id: 'safe', asin: 'B000SAFE', sku: 'amzn.gr.safe', qty: 4, risk: 200 },
+      { id: 'ambiguous', asin: 'B000AMBIG', sku: 'amzn.gr.ambig', qty: 3, risk: 100 },
+    ]) {
+      await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
+        id: row.id,
+        naturalKey: row.id,
+        calculationDate: '2026-06-07',
+        company: 'Ecofission LLC',
+        asin: row.asin,
+        sku: row.sku,
+        title: row.id,
+        actionStatus: 'order_today',
+        tier: 'A',
+        estimatedProfitRisk: row.risk,
+        suggestedReorderQty: row.qty,
+        supplierOrderState: 'no_open_order',
+      });
+    }
+    for (const cost of [
+      { asin: 'B000EXACT', sku: 'SKU-EXACT', unitCost: 4.5 },
+      { asin: 'B000SAFE', sku: 'SAFE-1', unitCost: 7 },
+      { asin: 'B000SAFE', sku: 'SAFE-2', unitCost: 7 },
+      { asin: 'B000AMBIG', sku: 'AMBIG-1', unitCost: 11 },
+      { asin: 'B000AMBIG', sku: 'AMBIG-2', unitCost: 12 },
+    ]) {
+      await createRecord(db, ECOBASE_COLLECTIONS.sellerboardProductCosts, {
+        id: `cost-${cost.sku}`,
+        naturalKey: `Ecofission LLC:${cost.asin}:${cost.sku}`,
+        company: 'Ecofission LLC',
+        sourceFile: 'cogs.csv',
+        ...cost,
+      });
+    }
+
+    const commandCenter = await new EcobaseInventoryPlanningService(db).commandCenter({
+      calculationDate: '2026-06-07',
+      pane: 'supplyAction',
+      pageSize: 10,
+    });
+    const rows = commandCenter.panes.supplyAction.rows;
+    const row = (asin: string) => rows.find((item) => item.asin === asin);
+
+    expect(row('B000EXACT')).toMatchObject({ unitCost: 4.5, unitCostStatus: 'exact', estimatedOrderCost: 45 });
+    expect(row('B000SAFE')).toMatchObject({ unitCost: 7, unitCostStatus: 'asin_same_cost', estimatedOrderCost: 28 });
+    expect(row('B000AMBIG')).toMatchObject({ unitCostStatus: 'ambiguous', estimatedOrderCost: undefined });
   });
 
   it('shapes row drawer supplier/order history behind the inventory workspace interface', async () => {
