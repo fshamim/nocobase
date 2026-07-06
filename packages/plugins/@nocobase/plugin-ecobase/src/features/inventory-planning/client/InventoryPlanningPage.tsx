@@ -333,6 +333,27 @@ function formatDate(value: any) {
   return typeof value === 'string' && value.length > 0 ? value.slice(0, 10) : '—';
 }
 
+function formatDateTime(value: any) {
+  const date = typeof value === 'string' && value.length > 0 ? dayjs(value) : undefined;
+  return date?.isValid() ? date.format('YYYY-MM-DD HH:mm') : formatDate(value);
+}
+
+function formatRelativeTime(value: any) {
+  const date = typeof value === 'string' && value.length > 0 ? dayjs(value) : undefined;
+  if (!date?.isValid()) return '—';
+  const seconds = Math.max(0, dayjs().diff(date, 'second'));
+  if (seconds < 60) return 'now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  const weeks = Math.floor(days / 7);
+  if (days < 365) return `${weeks}wk ago`;
+  return `${Math.floor(days / 365)}yr ago`;
+}
+
 function relativeDateLabel(value: any, baseDate: string) {
   if (typeof value !== 'string' || value.length === 0) return { label: '—', detail: undefined };
   const target = dayjs(value.slice(0, 10));
@@ -1177,7 +1198,6 @@ export default function InventoryPlanningPage() {
     const author = String(
       row.latestSupplierOrderActivityActorDisplayName ?? row.latestSupplierOrderActivityActor ?? '',
     ).trim();
-    const preview = author ? `${author}: ${latestNote}` : latestNote;
     return (
       <Tooltip
         title={
@@ -1204,7 +1224,7 @@ export default function InventoryPlanningPage() {
             padding: '2px 6px',
           }}
         >
-          {preview}
+          {latestNote}
         </Typography.Text>
       </Tooltip>
     );
@@ -2383,9 +2403,11 @@ export default function InventoryPlanningPage() {
                                     >
                                       <Space size={8} wrap>
                                         <Typography.Text strong>{author}</Typography.Text>
-                                        <Typography.Text type="secondary">
-                                          {formatDate(activity.occurredAt)}
-                                        </Typography.Text>
+                                        <Tooltip title={formatDateTime(activity.occurredAt)}>
+                                          <Typography.Text type="secondary">
+                                            {formatRelativeTime(activity.occurredAt)}
+                                          </Typography.Text>
+                                        </Tooltip>
                                       </Space>
                                       <Typography.Paragraph
                                         style={{ marginBottom: 0, marginTop: 4, whiteSpace: 'pre-wrap' }}
