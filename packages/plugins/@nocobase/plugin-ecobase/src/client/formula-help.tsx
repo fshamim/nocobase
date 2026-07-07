@@ -712,8 +712,8 @@ const INVENTORY_ACTIVE_ORDER_FIELDS: HelpEntry[] = [
     source: 'eco_derived',
   },
   {
-    label: 'Held up at',
-    description: 'Last activity age plus the latest order comment, wrapped to two lines.',
+    label: 'Last Activity',
+    description: 'Relative activity time plus the latest order comment, capped and wrapped to two lines.',
     source: 'eco_calc',
   },
   {
@@ -738,7 +738,7 @@ const INVENTORY_ACTIVE_ORDER_TAGS: HelpEntry[] = [
   {
     label: 'Follow-Up Due Today',
     tagColor: 'red',
-    description: 'The row has a bought order. Add a status note today. Held up at shows the last activity age.',
+    description: 'The row has a bought order. Add a status note today. Last Activity shows the last activity age.',
   },
   {
     label: 'Pipeline Monitoring',

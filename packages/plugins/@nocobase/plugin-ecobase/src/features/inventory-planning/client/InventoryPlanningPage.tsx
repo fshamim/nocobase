@@ -1081,12 +1081,14 @@ export default function InventoryPlanningPage() {
     );
   };
   const renderCommandProductCell = (_value: any, row: PlainRecord) => (
-    <Space direction="vertical" size={0}>
+    <Space direction="vertical" size={0} style={{ maxWidth: 180 }}>
       <Typography.Text strong>{row.asin ?? '—'}</Typography.Text>
-      <Typography.Text type="secondary" ellipsis style={{ maxWidth: 220 }}>
+      <Typography.Text type="secondary" ellipsis style={{ maxWidth: 180 }}>
         {row.sku ?? '—'}
       </Typography.Text>
-      <Typography.Text type="secondary">{row.company ?? '—'}</Typography.Text>
+      <Typography.Text type="secondary" ellipsis style={{ maxWidth: 180 }}>
+        {row.company ?? '—'}
+      </Typography.Text>
     </Space>
   );
   const renderDocCell = (_value: any, row: PlainRecord) => (
@@ -1173,6 +1175,8 @@ export default function InventoryPlanningPage() {
     const latestNote = String(row.latestSupplierOrderActivityNote ?? '').trim();
     if (!latestNote) return null;
     const latestAt = String(row.latestSupplierOrderActivityAt ?? '').trim();
+    const previewWords = latestNote.split(/\s+/);
+    const previewNote = previewWords.length > 18 ? `${previewWords.slice(0, 18).join(' ')}…` : latestNote;
     const author = String(
       row.latestSupplierOrderActivityActorDisplayName ?? row.latestSupplierOrderActivityActor ?? '',
     ).trim();
@@ -1198,7 +1202,7 @@ export default function InventoryPlanningPage() {
               borderRadius: 4,
               color: '#ad6800',
               display: '-webkit-box',
-              maxWidth: 260,
+              maxWidth: 320,
               overflow: 'hidden',
               padding: '2px 6px',
               whiteSpace: 'normal',
@@ -1207,7 +1211,7 @@ export default function InventoryPlanningPage() {
             } as React.CSSProperties
           }
         >
-          {latestNote}
+          {previewNote}
         </Typography.Text>
       </Tooltip>
     );
@@ -1254,12 +1258,9 @@ export default function InventoryPlanningPage() {
     const status = formatStatusLabel(row.supplierOrderStatus ?? row.supplierOrderState ?? 'unknown');
     const latestAt = String(row.latestSupplierOrderActivityAt ?? '').trim();
     return (
-      <Space direction="vertical" size={0}>
-        <Typography.Text strong>{t('Last activity:')}</Typography.Text>
+      <Space direction="vertical" size={0} style={{ minWidth: 260, maxWidth: 340 }}>
         <Tooltip title={latestAt ? formatDateTime(latestAt) : undefined}>
-          <Typography.Text type="secondary">
-            {latestAt ? formatRelativeTime(latestAt) : t('No activity logged')}
-          </Typography.Text>
+          <Typography.Text strong>{latestAt ? formatRelativeTime(latestAt) : t('No activity logged')}</Typography.Text>
         </Tooltip>
         {renderLatestOrderCommentPreview(row) ?? <Typography.Text type="secondary">{t(status)}</Typography.Text>}
       </Space>
@@ -1319,7 +1320,7 @@ export default function InventoryPlanningPage() {
     if (pane === 'activeOrders') {
       return [
         { title: String(t('Risk')), key: 'risk', render: renderActiveRiskCell },
-        { title: String(t('Product')), key: 'product', render: renderCommandProductCell },
+        { title: String(t('Product')), key: 'product', width: 180, render: renderCommandProductCell },
         {
           title: String(t('Order')),
           key: 'order',
@@ -1340,8 +1341,9 @@ export default function InventoryPlanningPage() {
         { title: String(t('Expected sellable')), dataIndex: 'expectedSellableDate', render: renderRelativeDateCell },
         { title: String(t('Gap')), key: 'gap', render: renderPipelineGapCell },
         {
-          title: String(t('Held up at')),
+          title: String(t('Last Activity')),
           key: 'heldUpAt',
+          width: 320,
           render: renderHeldUpAtCell,
         },
         { title: String(t('Money at risk')), dataIndex: 'estimatedProfitRisk', render: renderMoneyCell },
