@@ -93,6 +93,11 @@ interface OrderEditValues {
   notes: string;
 }
 
+interface ActivityCommentEditValues {
+  id: string;
+  notes: string;
+}
+
 const SUPPLIER_ORDER_STATUS_OPTIONS = [
   'draft',
   'supplier_contacted',
@@ -371,6 +376,14 @@ function daysSinceDate(value: any, baseDate: string) {
   const base = dayjs(baseDate);
   if (!activityDate.isValid() || !base.isValid()) return undefined;
   return Math.max(0, base.diff(activityDate, 'day'));
+}
+
+function canChangeActivityComment(activity: PlainRecord) {
+  return (
+    !activity.deletedAt &&
+    String(activity.source ?? 'manual') === 'manual' &&
+    String(activity.activityType ?? '') === 'note'
+  );
 }
 
 function StockStatus({ row, t }: { row: PlainRecord; t: (key: string) => string }) {
@@ -715,6 +728,7 @@ export default function InventoryPlanningPage() {
   const [lineEditValues, setLineEditValues] = useState<LineEditValues | null>(null);
   const [orderEditValues, setOrderEditValues] = useState<OrderEditValues | null>(null);
   const [orderCommentText, setOrderCommentText] = useState('');
+  const [activityCommentEdit, setActivityCommentEdit] = useState<ActivityCommentEditValues | null>(null);
   const [managePanels, setManagePanels] = useState<string[]>([]);
   const [budgetAmount, setBudgetAmount] = useState<number | null>(null);
   const [budgetHorizonDays, setBudgetHorizonDays] = useState(30);
@@ -1563,6 +1577,7 @@ export default function InventoryPlanningPage() {
     setLineEditValues(null);
     setOrderEditValues(null);
     setOrderCommentText('');
+    setActivityCommentEdit(null);
     setManagePanels(initialPanels ?? (pane ? drawerPanelKeysByPane[pane] : []));
     void loadDrawerEntities(row);
   };
@@ -1718,6 +1733,37 @@ export default function InventoryPlanningPage() {
     });
     message.success(t('Order comment saved'));
     setOrderCommentText('');
+    await Promise.all([loadPlanning(), loadDrawerEntities(selectedRow)]);
+  };
+
+  const updateActivityComment = async () => {
+    if (!selectedRow || !activityCommentEdit) return;
+    const notes = activityCommentEdit.notes.trim();
+    if (!notes) {
+      message.error(t('Enter a comment before saving.'));
+      return;
+    }
+    await api.request({
+      url: 'ecobaseSupplierOrders:updateActivityComment',
+      method: 'post',
+      data: { company: selectedRow.company, activityId: activityCommentEdit.id, notes },
+    });
+    message.success(t('Order comment updated'));
+    setActivityCommentEdit(null);
+    await Promise.all([loadPlanning(), loadDrawerEntities(selectedRow)]);
+  };
+
+  const deleteActivityComment = async (activity: PlainRecord) => {
+    if (!selectedRow) return;
+    const activityId = String(activity.id ?? '');
+    if (!activityId) return;
+    await api.request({
+      url: 'ecobaseSupplierOrders:deleteActivityComment',
+      method: 'post',
+      data: { company: selectedRow.company, activityId },
+    });
+    message.success(t('Order comment deleted'));
+    if (activityCommentEdit?.id === activityId) setActivityCommentEdit(null);
     await Promise.all([loadPlanning(), loadDrawerEntities(selectedRow)]);
   };
 
@@ -2180,6 +2226,7 @@ export default function InventoryPlanningPage() {
           setProductTargets([]);
           setLineEditValues(null);
           setOrderEditValues(null);
+          setActivityCommentEdit(null);
         }}
         extra={
           selectedRow ? (
@@ -2196,6 +2243,7 @@ export default function InventoryPlanningPage() {
                   setProductTargets([]);
                   setLineEditValues(null);
                   setOrderEditValues(null);
+                  setActivityCommentEdit(null);
                 }}
               >
                 {t('Close')}
@@ -2393,27 +2441,98 @@ export default function InventoryPlanningPage() {
                             {sortedOrderActivities.length > 0 ? (
                               <Space direction="vertical" size={8} style={{ width: '100%' }}>
                                 {sortedOrderActivities.slice(0, 8).map((activity, index) => {
+                                  const activityId = String(activity.id ?? activity.naturalKey ?? index);
                                   const author = String(
                                     activity.actorDisplayName ?? activity.actor ?? t('Unknown user'),
                                   );
+                                  const deleted = Boolean(activity.deletedAt);
+                                  const editable = canChangeActivityComment(activity);
+                                  const editing = activityCommentEdit?.id === activityId;
                                   return (
                                     <div
-                                      key={String(activity.id ?? activity.naturalKey ?? index)}
-                                      style={{ borderBottom: '1px solid #f0f0f0', paddingBottom: 8 }}
+                                      key={activityId}
+                                      style={{
+                                        background: deleted ? '#fafafa' : undefined,
+                                        borderBottom: '1px solid #f0f0f0',
+                                        paddingBottom: 8,
+                                      }}
                                     >
                                       <Space size={8} wrap>
-                                        <Typography.Text strong>{author}</Typography.Text>
-                                        <Tooltip title={formatDateTime(activity.occurredAt)}>
+                                        <Typography.Text strong type={deleted ? 'secondary' : undefined}>
+                                          {deleted ? t('Comment deleted') : author}
+                                        </Typography.Text>
+                                        <Tooltip
+                                          title={formatDateTime(deleted ? activity.deletedAt : activity.occurredAt)}
+                                        >
                                           <Typography.Text type="secondary">
-                                            {formatRelativeTime(activity.occurredAt)}
+                                            {formatRelativeTime(deleted ? activity.deletedAt : activity.occurredAt)}
                                           </Typography.Text>
                                         </Tooltip>
+                                        {!deleted && activity.editedAt ? (
+                                          <Tooltip title={formatDateTime(activity.editedAt)}>
+                                            <Typography.Text type="secondary">{t('edited')}</Typography.Text>
+                                          </Tooltip>
+                                        ) : null}
+                                        {editable && !editing ? (
+                                          <>
+                                            <Button
+                                              size="small"
+                                              type="link"
+                                              onClick={() =>
+                                                setActivityCommentEdit({
+                                                  id: activityId,
+                                                  notes: String(activity.notes ?? ''),
+                                                })
+                                              }
+                                            >
+                                              {t('Edit')}
+                                            </Button>
+                                            <Popconfirm
+                                              title={t('Delete this comment?')}
+                                              okText={t('Delete')}
+                                              cancelText={t('Cancel')}
+                                              onConfirm={() => void deleteActivityComment(activity)}
+                                            >
+                                              <Button size="small" type="link" danger>
+                                                {t('Delete')}
+                                              </Button>
+                                            </Popconfirm>
+                                          </>
+                                        ) : null}
                                       </Space>
-                                      <Typography.Paragraph
-                                        style={{ marginBottom: 0, marginTop: 4, whiteSpace: 'pre-wrap' }}
-                                      >
-                                        {String(activity.notes ?? '—')}
-                                      </Typography.Paragraph>
+                                      {deleted ? (
+                                        <Typography.Text type="secondary" italic>
+                                          {t('This comment was deleted and kept for audit history.')}
+                                        </Typography.Text>
+                                      ) : editing ? (
+                                        <Space direction="vertical" size={8} style={{ marginTop: 4, width: '100%' }}>
+                                          <Input.TextArea
+                                            autoSize={{ minRows: 2, maxRows: 5 }}
+                                            value={activityCommentEdit.notes}
+                                            onChange={(event) =>
+                                              setActivityCommentEdit({ id: activityId, notes: event.target.value })
+                                            }
+                                          />
+                                          <Space size={8}>
+                                            <Button
+                                              size="small"
+                                              type="primary"
+                                              onClick={() => void updateActivityComment()}
+                                            >
+                                              {t('Save')}
+                                            </Button>
+                                            <Button size="small" onClick={() => setActivityCommentEdit(null)}>
+                                              {t('Cancel')}
+                                            </Button>
+                                          </Space>
+                                        </Space>
+                                      ) : (
+                                        <Typography.Paragraph
+                                          style={{ marginBottom: 0, marginTop: 4, whiteSpace: 'pre-wrap' }}
+                                        >
+                                          {String(activity.notes ?? '—')}
+                                        </Typography.Paragraph>
+                                      )}
                                     </div>
                                   );
                                 })}

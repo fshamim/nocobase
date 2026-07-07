@@ -1457,6 +1457,18 @@ describe('EcobaseInventoryPlanningService', () => {
       occurredAt: '2026-06-07T14:00:00.000Z',
       source: 'clickup',
     });
+    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrderActivities, {
+      id: '66666666-6666-4666-8666-666666666666',
+      naturalKey: 'activity-author-deleted',
+      company: 'Ecofission LLC',
+      supplierOrderId: orderId,
+      activityType: 'note',
+      actor: 'operator',
+      notes: 'Deleted comment should not drive table preview.',
+      occurredAt: '2026-06-07T15:00:00.000Z',
+      deletedAt: '2026-06-07T16:00:00.000Z',
+      source: 'manual',
+    });
     await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
       id: 'active-author',
       naturalKey: 'active-author',
@@ -1536,6 +1548,20 @@ describe('EcobaseInventoryPlanningService', () => {
       notes: 'Waiting on payment.',
       occurredAt: '2026-06-07T14:00:00.000Z',
     });
+    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrderActivities, {
+      id: '66666666-6666-4666-8666-666666666666',
+      naturalKey: 'activity-drawer-deleted',
+      company: 'Ecofission LLC',
+      supplierOrderId: orderId,
+      supplierId,
+      activityType: 'note',
+      actor: 'operator',
+      notes: 'Deleted but retained.',
+      occurredAt: '2026-06-07T15:00:00.000Z',
+      deletedAt: '2026-06-07T16:00:00.000Z',
+      deletedById: '201',
+      source: 'manual',
+    });
 
     const workspace = await new EcobaseInventoryPlanningService(db).rowWorkspace({
       company: 'Ecofission LLC',
@@ -1549,12 +1575,21 @@ describe('EcobaseInventoryPlanningService', () => {
       asin: 'B000DRAWER',
       order: { externalOrderRef: 'DRAWER-1' },
     });
-    expect(workspace.orderActivities[0]).toMatchObject({
-      actor: 'nauman.ecofission@gmail.com',
-      actorDisplayName: 'Ahmed Nauman',
-      actorEmail: 'nauman.ecofission@gmail.com',
-      notes: 'Waiting on payment.',
-    });
+    expect(workspace.orderActivities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          actor: 'nauman.ecofission@gmail.com',
+          actorDisplayName: 'Ahmed Nauman',
+          actorEmail: 'nauman.ecofission@gmail.com',
+          notes: 'Waiting on payment.',
+        }),
+        expect.objectContaining({
+          id: '66666666-6666-4666-8666-666666666666',
+          deletedAt: '2026-06-07T16:00:00.000Z',
+          notes: 'Deleted but retained.',
+        }),
+      ]),
+    );
     expect(workspace.initialOrderEdit).toMatchObject({ supplierOrderId: orderId, status: 'approval_pending' });
     expect(workspace.actionDefaults).toMatchObject({
       draftSupplierId: supplierId,

@@ -251,6 +251,10 @@ describe('Ecobase plugin-owned schema', () => {
     expect(field(supplierOrderActivities, 'id')).toMatchObject({ type: 'uuid', primaryKey: true });
     expect(field(supplierOrderActivities, 'occurredAt')).toMatchObject({ type: 'datetimeTz' });
     expect(field(supplierOrderActivities, 'actorUserId')).toMatchObject({ type: 'bigInt', autoFill: false });
+    expect(field(supplierOrderActivities, 'editedAt')).toMatchObject({ type: 'datetimeTz' });
+    expect(field(supplierOrderActivities, 'editedById')).toMatchObject({ type: 'bigInt', autoFill: false });
+    expect(field(supplierOrderActivities, 'deletedAt')).toMatchObject({ type: 'datetimeTz' });
+    expect(field(supplierOrderActivities, 'deletedById')).toMatchObject({ type: 'bigInt', autoFill: false });
     expect(field(supplierOrderSettings, 'numberValue')).toMatchObject({ type: 'double' });
     expect(field(targetRows, 'planningProductId')).toMatchObject({ type: 'uuid', autoFill: false });
     expect(field(targetRows, 'targetScope')).toMatchObject({ type: 'string' });

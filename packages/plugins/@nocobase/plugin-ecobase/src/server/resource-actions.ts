@@ -1516,6 +1516,54 @@ export function createEcobaseSupplierOrderActions() {
       }
       await next();
     },
+    updateActivityComment: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const company = getOptionalString(values, 'company');
+      const activityId = getOptionalString(values, 'activityId');
+      const notes = getOptionalString(values, 'notes');
+      if (!company || !activityId || !notes) {
+        ctx.throw(400, 'Ecobase supplier-order comment update requires company, activityId, and notes.');
+        return;
+      }
+
+      try {
+        ctx.body = {
+          data: await new EcobaseSupplierOrderService(ctx.db).updateActivityComment({
+            company,
+            activityId,
+            notes,
+            actorUserId: getActorId(ctx),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier-order comment update failed.');
+        return;
+      }
+      await next();
+    },
+    deleteActivityComment: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const company = getOptionalString(values, 'company');
+      const activityId = getOptionalString(values, 'activityId');
+      if (!company || !activityId) {
+        ctx.throw(400, 'Ecobase supplier-order comment delete requires company and activityId.');
+        return;
+      }
+
+      try {
+        ctx.body = {
+          data: await new EcobaseSupplierOrderService(ctx.db).deleteActivityComment({
+            company,
+            activityId,
+            actorUserId: getActorId(ctx),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier-order comment delete failed.');
+        return;
+      }
+      await next();
+    },
     getCoverage: async (ctx, next) => {
       const values = getValues(ctx.action.params);
       const planningProductId = getOptionalString(values, 'planningProductId');

@@ -162,6 +162,19 @@ export interface RecordSupplierOrderActivityParams {
   source?: string;
 }
 
+export interface UpdateSupplierOrderActivityCommentParams {
+  company: string;
+  activityId: string;
+  notes: string;
+  actorUserId?: string;
+}
+
+export interface DeleteSupplierOrderActivityCommentParams {
+  company: string;
+  activityId: string;
+  actorUserId?: string;
+}
+
 export interface CreatePlannedSupplierOrderParams {
   company: string;
   planningProductId: string;
@@ -1383,6 +1396,50 @@ export class EcobaseSupplierOrderService {
     return toPlainRecord(record);
   }
 
+  async updateActivityComment(params: UpdateSupplierOrderActivityCommentParams) {
+    const activity = await this.editableManualComment(params.activityId, params.company, 'update');
+    const notes = params.notes.trim();
+    if (!notes) {
+      throw new Error('Ecobase supplier-order activity update failed: notes are required.');
+    }
+    const now = new Date().toISOString();
+    const payload = toPlainRecord(activity.payload);
+    const editHistory = Array.isArray(payload.editHistory) ? payload.editHistory : [];
+    await this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities).update({
+      filterByTk: params.activityId,
+      values: {
+        notes,
+        editedAt: now,
+        editedById: params.actorUserId,
+        payload: {
+          ...payload,
+          editHistory: [
+            ...editHistory,
+            { notes: asString(activity.notes) ?? '', editedAt: now, editedById: params.actorUserId },
+          ],
+        },
+      },
+    });
+    return toPlainRecord(
+      await this.db
+        .getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities)
+        .findOne({ filterByTk: params.activityId }),
+    );
+  }
+
+  async deleteActivityComment(params: DeleteSupplierOrderActivityCommentParams) {
+    await this.editableManualComment(params.activityId, params.company, 'delete');
+    await this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities).update({
+      filterByTk: params.activityId,
+      values: { deletedAt: new Date().toISOString(), deletedById: params.actorUserId },
+    });
+    return toPlainRecord(
+      await this.db
+        .getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities)
+        .findOne({ filterByTk: params.activityId }),
+    );
+  }
+
   async updateSupplierLeadTime(params: UpdateSupplierLeadTimeParams) {
     if (!params.company) {
       throw new Error('Ecobase supplier lead-time update failed: company is required.');
@@ -2520,6 +2577,34 @@ export class EcobaseSupplierOrderService {
       (row) => asString(row.planningProductId) === params.planningProductId,
     );
     return asNumber(productByExternalCode?.leadTimeDays);
+  }
+
+  private async editableManualComment(activityId: string, company: string, action: 'update' | 'delete') {
+    if (!activityId) {
+      throw new Error(`Ecobase supplier-order activity ${action} failed: activityId is required.`);
+    }
+    if (!company) {
+      throw new Error(`Ecobase supplier-order activity ${action} failed: company is required.`);
+    }
+    const activity = toPlainRecord(
+      await this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities).findOne({ filterByTk: activityId }),
+    );
+    if (!asString(activity.id)) {
+      throw new Error(`Ecobase supplier-order activity ${action} failed: activity "${activityId}" was not found.`);
+    }
+    if (asString(activity.company) !== company) {
+      throw new Error(`Ecobase supplier-order activity ${action} failed: activity belongs to a different company.`);
+    }
+    if ((asString(activity.source) ?? 'manual') !== 'manual') {
+      throw new Error(`Ecobase supplier-order activity ${action} failed: imported comments are read-only.`);
+    }
+    if (asString(activity.activityType) !== 'note') {
+      throw new Error(`Ecobase supplier-order activity ${action} failed: only manual comments can be changed.`);
+    }
+    if (asString(activity.deletedAt)) {
+      throw new Error(`Ecobase supplier-order activity ${action} failed: comment is already deleted.`);
+    }
+    return activity;
   }
 
   private async resolveContactRecency(params: { company: string; supplierId: string; supplierOrderId?: string }) {

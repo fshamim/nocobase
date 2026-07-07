@@ -2722,15 +2722,9 @@ export class EcobaseInventoryPlanningService {
       const latestActivity = supplierOrderId
         ? (
             await this.withActivityAuthors([
-              toPlainRecord(
-                (
-                  await activityRepo.find({
-                    filter: { supplierOrderId },
-                    sort: ['-occurredAt'],
-                    limit: 1,
-                  })
-                )[0],
-              ),
+              (await activityRepo.find({ filter: { supplierOrderId }, sort: ['-occurredAt'], limit: 20 }))
+                .map(toPlainRecord)
+                .find((activity) => !asString(activity.deletedAt)) ?? {},
             ])
           )[0] ?? {}
         : {};

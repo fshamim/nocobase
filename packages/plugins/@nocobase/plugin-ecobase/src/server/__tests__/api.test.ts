@@ -1171,6 +1171,94 @@ describe('Ecobase supplier-order workspace API seam', () => {
       latestContactAt: '2025-07-10T09:30:00.000Z',
     });
   });
+
+  it('edits and soft-deletes manual comments but keeps imported comments read-only', async () => {
+    const db = new MemoryDatabase();
+    const actions = createEcobaseSupplierOrderActions();
+    await db.getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities).create({
+      values: {
+        id: 'manual-comment',
+        naturalKey: 'manual-comment',
+        company: 'Ecofission LLC',
+        supplierId: 'supplier-1',
+        activityType: 'note',
+        occurredAt: '2026-07-07T10:00:00.000Z',
+        notes: 'Original note',
+        source: 'manual',
+        payload: {},
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities).create({
+      values: {
+        id: 'clickup-comment',
+        naturalKey: 'clickup-comment',
+        company: 'Ecofission LLC',
+        supplierId: 'supplier-1',
+        activityType: 'note',
+        occurredAt: '2026-07-07T11:00:00.000Z',
+        notes: 'Imported note',
+        source: 'clickup',
+        payload: {},
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities).create({
+      values: {
+        id: 'manual-status',
+        naturalKey: 'manual-status',
+        company: 'Ecofission LLC',
+        supplierId: 'supplier-1',
+        activityType: 'status_update',
+        occurredAt: '2026-07-07T12:00:00.000Z',
+        notes: 'Status evidence',
+        source: 'manual',
+        payload: {},
+      },
+    });
+
+    const updateContext = createActionContext(
+      db,
+      { company: 'Ecofission LLC', activityId: 'manual-comment', notes: 'Edited note' },
+      { id: 201 },
+    );
+    await actions.updateActivityComment(updateContext, vi.fn());
+    expect(updateContext.body.data).toMatchObject({
+      notes: 'Edited note',
+      editedById: '201',
+      payload: { editHistory: [expect.objectContaining({ notes: 'Original note', editedById: '201' })] },
+    });
+
+    const deleteContext = createActionContext(
+      db,
+      { company: 'Ecofission LLC', activityId: 'manual-comment' },
+      { id: 202 },
+    );
+    await actions.deleteActivityComment(deleteContext, vi.fn());
+    expect(deleteContext.body.data).toMatchObject({ deletedById: '202' });
+    expect(String(deleteContext.body.data.deletedAt)).toMatch(/^202/);
+
+    await expect(
+      actions.updateActivityComment(
+        createActionContext(
+          db,
+          { company: 'Ecofission LLC', activityId: 'clickup-comment', notes: 'Nope' },
+          { id: 201 },
+        ),
+        vi.fn(),
+      ),
+    ).rejects.toThrow('Ecobase supplier-order activity update failed: imported comments are read-only.');
+    await expect(
+      actions.deleteActivityComment(
+        createActionContext(db, { company: 'Ecofission LLC', activityId: 'clickup-comment' }, { id: 201 }),
+        vi.fn(),
+      ),
+    ).rejects.toThrow('Ecobase supplier-order activity delete failed: imported comments are read-only.');
+    await expect(
+      actions.updateActivityComment(
+        createActionContext(db, { company: 'Ecofission LLC', activityId: 'manual-status', notes: 'Nope' }, { id: 201 }),
+        vi.fn(),
+      ),
+    ).rejects.toThrow('Ecobase supplier-order activity update failed: only manual comments can be changed.');
+  });
 });
 
 describe('Ecobase import public API seam', () => {
