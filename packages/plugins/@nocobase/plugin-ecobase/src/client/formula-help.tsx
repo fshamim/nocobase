@@ -688,7 +688,7 @@ const INVENTORY_SUPPLY_ACTION_TAGS: HelpEntry[] = [
 const INVENTORY_ACTIVE_ORDER_FIELDS: HelpEntry[] = [
   {
     label: 'Risk',
-    description: 'Why this active order needs eyes: late, in grace, not bought, needs a note, or just watch it.',
+    description: 'Why this active order needs eyes: late, in buffer, not bought, needs a note, or just watch it.',
     source: 'eco_calc',
   },
   { label: 'Product', description: 'ASIN, SKU, and company for the product on the order.' },
@@ -723,9 +723,9 @@ const INVENTORY_ACTIVE_ORDER_FIELDS: HelpEntry[] = [
 const INVENTORY_ACTIVE_ORDER_TAGS: HelpEntry[] = [
   { label: 'Off-Track', tagColor: 'red', description: 'Expected sellable is after OOS. Stock may run out first.' },
   {
-    label: 'Late With Grace',
+    label: 'Late With Buffer',
     tagColor: 'orange',
-    description: 'Expected sellable is already past, but it is still inside the grace days setting.',
+    description: 'Expected sellable is already past, but it is still inside the buffer days setting.',
   },
   {
     label: 'Placed Not Purchased',

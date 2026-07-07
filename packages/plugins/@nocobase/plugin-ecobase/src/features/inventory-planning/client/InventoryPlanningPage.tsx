@@ -329,6 +329,10 @@ function formatStatusLabel(value: any) {
     .replace(/\b[a-z]/g, (char) => char.toUpperCase());
 }
 
+function formatPipelineHealthLabel(value: any) {
+  return value === 'late_with_grace' ? 'Late With Buffer' : formatStatusLabel(value);
+}
+
 function formatTierScore(value: any) {
   const number = finiteNumber(value);
   return typeof number === 'number' ? formatNumber(number) : '—';
@@ -1020,84 +1024,6 @@ export default function InventoryPlanningPage() {
     activeOrders: 'inventoryActiveOrders',
     stuckInventory: 'inventoryStuckInventory',
   };
-  const commandPaneHowThisWorks: Record<CommandCenterPaneKey, { risk: string; detail: string }[]> = {
-    supplyAction: [
-      {
-        risk: 'overdue / order today',
-        detail:
-          'DOC minus supplier lead time and safety buffer says the latest safe order date has passed or is today.',
-      },
-      {
-        risk: 'order soon',
-        detail:
-          'The latest safe order date is inside the soon window, so the product needs planning before it becomes urgent.',
-      },
-      {
-        risk: 'missing / stale lead time',
-        detail: 'The system cannot trust the order-by deadline until supplier lead time is entered or refreshed.',
-      },
-      {
-        risk: 'money at risk',
-        detail: 'Estimated missed profit for tiered products if stockout days are not covered by a reliable order.',
-      },
-    ],
-    activeOrders: [
-      {
-        risk: 'expected sellable',
-        detail: 'The first sellable date on the product order lines. You can edit it in the row drawer.',
-      },
-      {
-        risk: 'gap',
-        detail:
-          'Gap compares Expected sellable with OOS. Late means stock may run out first. Buffer means the order should land first.',
-      },
-      {
-        risk: 'off-track',
-        detail: 'Expected sellable is after OOS. Stock may run out before the order is ready to sell.',
-      },
-      {
-        risk: 'late with grace',
-        detail:
-          'Expected sellable is already past, but it is still inside the grace days setting. Check it before grace ends.',
-      },
-      {
-        risk: 'placed not purchased',
-        detail: 'An order was started, but it is not paid or bought yet. It does not count as safe cover.',
-      },
-      {
-        risk: 'follow-up due today',
-        detail:
-          'The row has a bought order. EcoBase asks for a status note today. Held up at shows the last activity age.',
-      },
-      {
-        risk: 'pipeline monitoring',
-        detail: 'A bought order is open and not late. Watch it so the team does not make a duplicate order.',
-      },
-    ],
-    stuckInventory: [
-      {
-        risk: '30+ / 60+ DOC',
-        detail:
-          'Stock has more cover than the review threshold, so capital may be tied up instead of available for urgent buys.',
-      },
-      {
-        risk: 'high cover, slow sales',
-        detail: 'Current stock is high while recent and six-month sell-through remain low.',
-      },
-      {
-        risk: 'reserved not selling',
-        detail: 'Stock is reserved or unavailable without matching sell-through, so it needs operational review.',
-      },
-      {
-        risk: 'pipeline stalled',
-        detail: 'Replenishment or prep stock is present but not converting into sellable units fast enough.',
-      },
-      {
-        risk: 'false positives filtered',
-        detail: 'Rows without sell-through because they were stocked out are not treated as stuck inventory.',
-      },
-    ],
-  };
   const renderRiskBars = (items: PlainRecord[]) => (
     <Space direction="vertical" size={6} style={{ width: '100%' }}>
       {items.map((item) => {
@@ -1106,7 +1032,7 @@ export default function InventoryPlanningPage() {
         return (
           <div key={String(item.key)}>
             <Space style={{ width: '100%', justifyContent: 'space-between' }}>
-              <Typography.Text>{t(formatStatusLabel(item.key))}</Typography.Text>
+              <Typography.Text>{t(formatPipelineHealthLabel(item.key))}</Typography.Text>
               <Typography.Text strong>{count}</Typography.Text>
             </Space>
             <div style={{ height: 8, borderRadius: 999, background: '#f0f0f0', overflow: 'hidden' }}>
@@ -1294,9 +1220,7 @@ export default function InventoryPlanningPage() {
           <Tag color={late ? 'red' : 'green'}>
             {late ? `${formatNumber(gap)} ${t('days late')}` : `${formatNumber(Math.abs(gap))} ${t('day buffer')}`}
           </Tag>
-          <Typography.Text type="secondary">
-            {late ? t('Stock may run out first') : t('Order should land first')}
-          </Typography.Text>
+          {late ? <Typography.Text type="secondary">{t('Stock may run out first')}</Typography.Text> : null}
         </Space>
       </Tooltip>
     );
@@ -1328,7 +1252,7 @@ export default function InventoryPlanningPage() {
       pipeline === 'late'
         ? 'off-track'
         : pipeline === 'late_with_grace'
-          ? 'late with grace'
+          ? 'late with buffer'
           : pipeline === 'placed_not_purchased'
             ? 'placed not purchased'
             : followUpDue
@@ -1338,7 +1262,7 @@ export default function InventoryPlanningPage() {
     const color =
       label === 'off-track' || label === 'follow-up due today'
         ? 'red'
-        : label === 'late with grace' || label === 'placed not purchased'
+        : label === 'late with buffer' || label === 'placed not purchased'
           ? 'orange'
           : 'blue';
     return (
@@ -1465,7 +1389,12 @@ export default function InventoryPlanningPage() {
     return (
       <Card
         key={pane}
-        title={commandPaneTitles[pane]}
+        title={
+          <Space size="small" wrap>
+            <span>{commandPaneTitles[pane]}</span>
+            <FormulaHelp group={commandPaneHelpGroups[pane]} label="Column/status guide" />
+          </Space>
+        }
         extra={
           <Space size="small" wrap>
             <Typography.Text type="secondary">
@@ -1488,29 +1417,6 @@ export default function InventoryPlanningPage() {
         }
       >
         <Typography.Paragraph type="secondary">{commandPaneDescriptions[pane]}</Typography.Paragraph>
-        <Card
-          size="small"
-          title={
-            <Space size="small">
-              <span>{t('How this works')}</span>
-              <FormulaHelp group={commandPaneHelpGroups[pane]} label="Column/status guide" />
-            </Space>
-          }
-          style={{ marginBottom: 12, background: '#fafafa' }}
-        >
-          <Row gutter={[12, 12]}>
-            {commandPaneHowThisWorks[pane].map((item) => (
-              <Col xs={24} md={12} xl={pane === 'stuckInventory' ? 8 : 6} key={item.risk}>
-                <Space direction="vertical" size={0}>
-                  <Tag color={pane === 'stuckInventory' ? 'purple' : pane === 'activeOrders' ? 'blue' : 'orange'}>
-                    {t(formatStatusLabel(item.risk))}
-                  </Tag>
-                  <Typography.Text type="secondary">{t(item.detail)}</Typography.Text>
-                </Space>
-              </Col>
-            ))}
-          </Row>
-        </Card>
         <Table<PlainRecord>
           size="small"
           loading={loading}
@@ -1888,7 +1794,7 @@ export default function InventoryPlanningPage() {
                 {t(selectedRow.supplierOrderStatus ?? selectedRow.supplierOrderState ?? 'unknown')}
               </Tag>
               <Tag color={selectedRow.pipelineHealthBucket === 'late' ? 'red' : 'blue'}>
-                {t(selectedRow.pipelineHealthBucket ?? 'pipeline')}
+                {t(formatPipelineHealthLabel(selectedRow.pipelineHealthBucket ?? 'pipeline'))}
               </Tag>
               <Typography.Text>
                 {t('Expected sellable')} {t(expectedSellableLabel.label)} (
