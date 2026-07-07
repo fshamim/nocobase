@@ -119,23 +119,16 @@ export class EcobaseMedallionNormalizationService {
         : null;
     if (product) entities.push(entity('silverProduct', product, 'product'));
 
-    const account =
+    const companyProductIdentity =
       company && product
-        ? await this.identity.ensureDefaultAmazonAccount({
+        ? await this.resolveCompanyProductIdentity({
             companyId: idOf(company),
-            marketplace: row.string('Marketplace', 'Market ', 'Amazon Account') ?? 'default',
-          })
-        : null;
-    const companyProduct =
-      company && product && account
-        ? await this.identity.upsertCompanyProduct({
-            companyId: idOf(company),
-            amazonAccountId: idOf(account),
             productId: idOf(product),
-            lifecycleStatus: 'active',
-            listingStatus: 'listed',
+            marketplace: row.string('Marketplace', 'Market ', 'Amazon Account'),
           })
         : null;
+    const account = companyProductIdentity?.account ?? null;
+    const companyProduct = companyProductIdentity?.companyProduct ?? null;
     if (account) entities.push(entity('silverAmazonAccount', account, 'amazon_account'));
     if (companyProduct) entities.push(entity('silverCompanyProduct', companyProduct, 'company_product'));
 
@@ -379,6 +372,68 @@ export class EcobaseMedallionNormalizationService {
     }
 
     return entities;
+  }
+
+  private async resolveCompanyProductIdentity(params: { companyId: string; productId: string; marketplace?: string }) {
+    const marketplace = params.marketplace?.trim();
+    if (!marketplace) {
+      const existing = await this.preferredExistingCompanyProduct(params.companyId, params.productId);
+      if (existing) {
+        const accountId = textValue(toPlainRecord(existing).amazonAccountId);
+        const account = accountId
+          ? await this.repo(ECOBASE_COLLECTIONS.silverAmazonAccounts).findOne({ filterByTk: accountId })
+          : null;
+        return { account, companyProduct: existing };
+      }
+    }
+
+    const account = await this.identity.ensureDefaultAmazonAccount({
+      companyId: params.companyId,
+      marketplace: marketplace ?? 'default',
+    });
+    const companyProduct = await this.identity.upsertCompanyProduct({
+      companyId: params.companyId,
+      amazonAccountId: idOf(account),
+      productId: params.productId,
+      lifecycleStatus: 'active',
+      listingStatus: 'listed',
+    });
+    return { account, companyProduct };
+  }
+
+  private async preferredExistingCompanyProduct(companyId: string, productId: string) {
+    const candidates = await this.repo(ECOBASE_COLLECTIONS.silverCompanyProducts).find({
+      filter: { companyId, productId },
+      limit: 100,
+    });
+    let best: unknown;
+    let bestScore = 0;
+    for (const candidate of candidates) {
+      const candidateRecord = toPlainRecord(candidate);
+      const candidateId = textValue(candidateRecord.id);
+      if (!candidateId) continue;
+      const score = await this.companyProductEvidenceScore(candidateId, textValue(candidateRecord.amazonAccountId));
+      if (score > bestScore) {
+        best = candidate;
+        bestScore = score;
+      }
+    }
+    return best;
+  }
+
+  private async companyProductEvidenceScore(companyProductId: string, amazonAccountId: string | undefined) {
+    const [fact, inventory, traffic, account] = await Promise.all([
+      this.repo(ECOBASE_COLLECTIONS.silverListingDailyFacts).findOne({ filter: { companyProductId } }),
+      this.repo(ECOBASE_COLLECTIONS.silverInventorySnapshots).findOne({ filter: { companyProductId } }),
+      this.repo(ECOBASE_COLLECTIONS.silverTrafficSnapshots).findOne({ filter: { companyProductId } }),
+      amazonAccountId
+        ? this.repo(ECOBASE_COLLECTIONS.silverAmazonAccounts).findOne({ filterByTk: amazonAccountId })
+        : Promise.resolve(null),
+    ]);
+    const evidenceScore = (fact ? 1000 : 0) + (inventory ? 500 : 0) + (traffic ? 100 : 0);
+    if (evidenceScore === 0) return 0;
+    const marketplace = textValue(toPlainRecord(account).marketplace);
+    return evidenceScore + (marketplace === 'Amazon.com' ? 5 : marketplace && marketplace !== 'default' ? 1 : 0);
   }
 
   private async sourceCompanyName(sourceConnectionId: string | undefined) {

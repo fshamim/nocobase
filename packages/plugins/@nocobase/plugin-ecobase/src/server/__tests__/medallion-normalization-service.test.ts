@@ -107,6 +107,47 @@ describe('EcobaseMedallionNormalizationService', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverNormalizationLinks).rows[0].relation).toBe('created_from');
   });
 
+  it('links missing-marketplace order details to the existing Sellerboard company product', async () => {
+    const db = new FakeDatabase();
+    await seedBronze(db, {
+      Company: 'Ecofission LLC',
+      ASIN: 'B00PUSNY5A',
+      SKU: 'W101',
+      Marketplace: 'Amazon.com',
+      'FBA/FBM Stock': '386',
+      SalesOrganic: '100',
+      UnitsOrganic: '8',
+    });
+    await seedBronze(
+      db,
+      {
+        'Order ID': 'EF-ORDER-1',
+        Timestamp: '10/07/2023 08:00:00',
+        Company: 'Ecofission LLC',
+        Supplier: 'Beta Supply',
+        ASIN: 'B00PUSNY5A',
+        SKU: 'W101',
+        Qty: '60',
+        PPU: '1.25',
+      },
+      { sourceDataset: 'OrderDetails.csv' },
+    );
+
+    const result = await new EcobaseMedallionNormalizationService(db).normalizePending();
+
+    expect(result.failed).toBe(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverAmazonAccounts).rows).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverAmazonAccounts).rows[0]).toMatchObject({
+      marketplace: 'Amazon.com',
+    });
+    const companyProducts = db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).rows;
+    expect(companyProducts).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).rows[0].companyProductId).toBe(
+      companyProducts[0].id,
+    );
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[0].companyProductId).toBe(companyProducts[0].id);
+  });
+
   it('normalizes order detail rows into silver orders and lines', async () => {
     const db = new FakeDatabase();
     await seedBronze(
