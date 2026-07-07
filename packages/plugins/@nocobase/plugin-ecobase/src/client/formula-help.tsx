@@ -648,8 +648,7 @@ const INVENTORY_SUPPLY_ACTION_FIELDS: HelpEntry[] = [
   },
   {
     label: 'Order by',
-    description:
-      'Latest safe reorder date plus the supplier name, lead-time days, freshness, and whether the lead time came from supplier data or planning import.',
+    description: 'Latest safe reorder date, supplier name, lead-time days, and lead-time freshness.',
     source: 'eco_derived',
   },
   {
@@ -694,7 +693,7 @@ const INVENTORY_ACTIVE_ORDER_FIELDS: HelpEntry[] = [
   { label: 'Product', description: 'ASIN, SKU, and company for the product on the order.' },
   {
     label: 'Order',
-    description: 'Order ID, supplier name, and open units that count as safe cover.',
+    description: 'Order ID, open units, supplier, lead-time freshness, and product order cost.',
   },
   {
     label: 'Coverage',
@@ -714,7 +713,7 @@ const INVENTORY_ACTIVE_ORDER_FIELDS: HelpEntry[] = [
   },
   {
     label: 'Held up at',
-    description: 'How long since the last comment or status change, plus the current order status.',
+    description: 'Last activity age plus the latest order comment, wrapped to two lines.',
     source: 'eco_calc',
   },
   {

@@ -375,14 +375,6 @@ function relativeDateLabel(value: any, baseDate: string) {
   return { label: `In ${diff} days`, detail: value.slice(0, 10), color: diff <= 7 ? 'gold' : 'default' };
 }
 
-function daysSinceDate(value: any, baseDate: string) {
-  if (typeof value !== 'string' || value.length === 0) return undefined;
-  const activityDate = dayjs(value.slice(0, 10));
-  const base = dayjs(baseDate);
-  if (!activityDate.isValid() || !base.isValid()) return undefined;
-  return Math.max(0, base.diff(activityDate, 'day'));
-}
-
 function canChangeActivityComment(activity: PlainRecord) {
   return (
     !activity.deletedAt &&
@@ -1129,15 +1121,22 @@ export default function InventoryPlanningPage() {
       </Space>
     </Space>
   );
+  const leadTimeFreshnessText = (row: PlainRecord) => {
+    const leadTime = finiteNumber(row.leadTimeDays);
+    if (typeof leadTime !== 'number') return t('Lead time missing');
+    const freshness = String(row.leadTimeFreshness ?? '').trim();
+    return freshness
+      ? `${formatNumber(leadTime)} ${t('days')} · ${t(freshness)}`
+      : `${formatNumber(leadTime)} ${t('days')}`;
+  };
+  const activeOrderCost = (row: PlainRecord) => {
+    const units = finiteNumber(row.openOrderCoverageQty);
+    const unitCost = finiteNumber(row.unitCost);
+    if (String(row.unitCostStatus ?? '') === 'ambiguous') return undefined;
+    return typeof units === 'number' && typeof unitCost === 'number' ? units * unitCost : undefined;
+  };
   const renderOrderByCell = (_value: any, row: PlainRecord) => {
     const label = relativeDateLabel(row.latestSafeReorderDate, commandCalculationDate);
-    const leadTime = finiteNumber(row.leadTimeDays);
-    const leadTimeSource =
-      row.leadTimeSource === 'planning_parameter_without_supplier_mapping'
-        ? 'planning import'
-        : row.leadTimeSource === 'supplier_or_planning_parameter'
-          ? 'supplier/import'
-          : 'source unknown';
     return (
       <Space direction="vertical" size={0} style={{ minWidth: 180 }}>
         <Tag color={label.color}>{t(label.label)}</Tag>
@@ -1145,16 +1144,9 @@ export default function InventoryPlanningPage() {
         <Typography.Text type="secondary" ellipsis style={{ maxWidth: 180 }}>
           {row.supplierName ?? t('Supplier missing')}
         </Typography.Text>
-        <Space size={4} wrap>
-          <Tag color={freshnessColor(row.leadTimeFreshness)} style={{ marginInlineEnd: 0 }}>
-            {typeof leadTime === 'number'
-              ? `${formatNumber(leadTime)} ${t('days')} · ${t(row.leadTimeFreshness ?? 'unknown')}`
-              : t('lead time missing')}
-          </Tag>
-          <Tooltip title={t(leadTimeSourceText(row))}>
-            <Typography.Text type="secondary">{t(leadTimeSource)}</Typography.Text>
-          </Tooltip>
-        </Space>
+        <Tag color={freshnessColor(row.leadTimeFreshness)} style={{ marginInlineEnd: 0 }}>
+          {leadTimeFreshnessText(row)}
+        </Tag>
       </Space>
     );
   };
@@ -1199,16 +1191,21 @@ export default function InventoryPlanningPage() {
         }
       >
         <Typography.Text
-          ellipsis
-          style={{
-            background: '#fff7e6',
-            borderLeft: '3px solid #faad14',
-            borderRadius: 4,
-            color: '#ad6800',
-            display: 'block',
-            maxWidth: 240,
-            padding: '2px 6px',
-          }}
+          style={
+            {
+              background: '#fff7e6',
+              borderLeft: '3px solid #faad14',
+              borderRadius: 4,
+              color: '#ad6800',
+              display: '-webkit-box',
+              maxWidth: 260,
+              overflow: 'hidden',
+              padding: '2px 6px',
+              whiteSpace: 'normal',
+              WebkitBoxOrient: 'vertical',
+              WebkitLineClamp: 2,
+            } as React.CSSProperties
+          }
         >
           {latestNote}
         </Typography.Text>
@@ -1254,22 +1251,17 @@ export default function InventoryPlanningPage() {
     );
   };
   const renderHeldUpAtCell = (_value: any, row: PlainRecord) => {
-    const heldDays = daysSinceDate(row.latestSupplierOrderActivityAt, commandCalculationDate);
     const status = formatStatusLabel(row.supplierOrderStatus ?? row.supplierOrderState ?? 'unknown');
     const latestAt = String(row.latestSupplierOrderActivityAt ?? '').trim();
     return (
       <Space direction="vertical" size={0}>
+        <Typography.Text strong>{t('Last activity:')}</Typography.Text>
         <Tooltip title={latestAt ? formatDateTime(latestAt) : undefined}>
-          <Typography.Text strong>
-            {latestAt ? `${t('Last activity')} ${formatRelativeTime(latestAt)}` : t('No activity logged')}
+          <Typography.Text type="secondary">
+            {latestAt ? formatRelativeTime(latestAt) : t('No activity logged')}
           </Typography.Text>
         </Tooltip>
-        <Typography.Text type="secondary">{t(status)}</Typography.Text>
-        {typeof heldDays === 'number' ? (
-          <Typography.Text type="secondary">
-            {formatNumber(heldDays)} {t('days without new activity')}
-          </Typography.Text>
-        ) : null}
+        {renderLatestOrderCommentPreview(row) ?? <Typography.Text type="secondary">{t(status)}</Typography.Text>}
       </Space>
     );
   };
@@ -1337,7 +1329,10 @@ export default function InventoryPlanningPage() {
               <Typography.Text type="secondary">
                 {formatNumber(row.openOrderCoverageQty)} {t('units')} · {row.supplierName ?? t('Supplier missing')}
               </Typography.Text>
-              {renderLatestOrderCommentPreview(row)}
+              <Tag color={freshnessColor(row.leadTimeFreshness)} style={{ marginInlineEnd: 0 }}>
+                {leadTimeFreshnessText(row)}
+              </Tag>
+              <Typography.Text type="secondary">{formatCurrency(activeOrderCost(row))}</Typography.Text>
             </Space>
           ),
         },
