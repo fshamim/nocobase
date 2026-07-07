@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { randomUUID } from 'node:crypto';
 import { CsvRowReader } from '../../source-import/server/adapters/csv-utils';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
@@ -315,6 +324,12 @@ export class EcobaseMedallionNormalizationService {
       entities.push(entity('silverOrder', order, 'order'));
 
       if (companyProduct && supplierProduct && row.number('Qty', 'Ordered') !== undefined) {
+        const linkedExpectedSellableDate = await this.linkedSupplierOrderLineExpectedSellableDate({
+          companyName,
+          orderRef,
+          asin,
+          sku,
+        });
         entities.push(
           entity(
             'silverOrderLine',
@@ -333,7 +348,7 @@ export class EcobaseMedallionNormalizationService {
                 unitCost: row.number('PPU', 'COGS', 'Exp. Cost '),
                 expectedProfit: row.number('T.Profit', 'Rec.Best Profit'),
                 expectedDeliveryDate: row.string('Expected Delivery', 'Expected Delivery Date', 'ETA'),
-                expectedSellableDate: row.string('Expected Sellable Date'),
+                expectedSellableDate: row.string('Expected Sellable Date') ?? linkedExpectedSellableDate,
                 productAnalysisStatus: 'imported',
               },
             ),
@@ -369,6 +384,34 @@ export class EcobaseMedallionNormalizationService {
     }
 
     return entities;
+  }
+
+  private async linkedSupplierOrderLineExpectedSellableDate(params: {
+    companyName?: string;
+    orderRef?: string;
+    asin?: string;
+    sku?: string;
+  }) {
+    if (!params.companyName || !params.orderRef || (!params.asin && !params.sku)) return undefined;
+    const order = toPlainRecord(
+      await this.repo(ECOBASE_COLLECTIONS.supplierOrders).findOne({
+        filter: { company: params.companyName, externalOrderRef: params.orderRef },
+      }),
+    );
+    const supplierOrderId = textValue(order.id);
+    if (!supplierOrderId) return undefined;
+    const filters = [
+      ...(params.asin ? [{ supplierOrderId, asin: params.asin }] : []),
+      ...(params.sku ? [{ supplierOrderId, sku: params.sku }] : []),
+    ];
+    for (const filter of filters) {
+      const line = toPlainRecord(await this.repo(ECOBASE_COLLECTIONS.supplierOrderLines).findOne({ filter }));
+      const lineAsin = textValue(line.asin);
+      if (params.asin && lineAsin && lineAsin !== params.asin) continue;
+      const expectedSellableDate = textValue(line.expectedSellableDate);
+      if (expectedSellableDate) return expectedSellableDate;
+    }
+    return undefined;
   }
 
   private async sourceCompanyName(sourceConnectionId: string | undefined) {

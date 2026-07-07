@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { describe, expect, it } from 'vitest';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
@@ -130,6 +139,50 @@ describe('EcobaseMedallionNormalizationService', () => {
       orderedQty: 60,
       unitCost: 1.25,
       expectedProfit: 240,
+    });
+  });
+
+  it('copies supplier-order derived expected sellable dates into silver order lines', async () => {
+    const db = new FakeDatabase();
+    await db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).create({
+      values: {
+        id: 'supplier-order-mx2626c',
+        company: 'Muxtex INC',
+        externalOrderRef: 'MX2626C',
+        status: 'approval_pending',
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).create({
+      values: {
+        id: 'supplier-line-mx2626c',
+        supplierOrderId: 'supplier-order-mx2626c',
+        asin: 'B0002DHFIU',
+        sku: 'SUP02745',
+        expectedSellableDate: '2026-03-02',
+      },
+    });
+    await seedBronze(
+      db,
+      {
+        'Order ID': 'MX2626C',
+        Timestamp: '06/02/2026',
+        Company: 'Muxtex INC',
+        Supplier: 'Discount Pond Supply',
+        ASIN: 'B0002DHFIU',
+        SKU: 'SUP02745',
+        Qty: '3',
+        PPU: '197.91',
+        'AM Status': 'Cleared',
+      },
+      { sourceDataset: 'OrderDetails.csv' },
+    );
+
+    const result = await new EcobaseMedallionNormalizationService(db).normalizePending();
+
+    expect(result.failed).toBe(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[0]).toMatchObject({
+      orderedQty: 3,
+      expectedSellableDate: '2026-03-02',
     });
   });
 

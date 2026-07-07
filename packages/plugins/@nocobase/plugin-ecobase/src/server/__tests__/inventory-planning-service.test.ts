@@ -1301,6 +1301,162 @@ describe('EcobaseInventoryPlanningService', () => {
     });
   });
 
+  it('materializes expected sellable from the selected supplier order line', async () => {
+    const db = new MemoryDatabase();
+    await createRecord(db, ECOBASE_COLLECTIONS.planningProducts, {
+      id: 'planning-product-linked-order-date',
+      naturalKey: 'Muxtex INC:B000LINKED',
+      company: 'Muxtex INC',
+      canonicalAsin: 'B000LINKED',
+      title: 'Linked order date product',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
+      naturalKey: 'inventory-linked-order-date',
+      sourceConnectionId: 'source-1',
+      planningProductId: 'planning-product-linked-order-date',
+      company: 'Muxtex INC',
+      asin: 'B000LINKED',
+      sku: 'SKU-LINKED',
+      snapshotDate: '2026-07-07',
+      stock: 1,
+      reserved: 0,
+      salesVelocity: 1,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.planningParameters, {
+      naturalKey: 'params-linked-order-date',
+      sourceConnectionId: 'source-1',
+      planningProductId: 'planning-product-linked-order-date',
+      company: 'Muxtex INC',
+      asin: 'B000LINKED',
+      sku: 'SKU-LINKED',
+      supplier: 'Discount Pond Supply',
+      profitPerUnit: 10,
+      leadTimeDays: 30,
+      payload: { recommendedBestQty: 30 },
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrders, {
+      id: 'old-order-linked-date',
+      naturalKey: 'supplier-order:Muxtex INC:OLD-LINKED',
+      sourceConnectionId: 'source-1',
+      company: 'Muxtex INC',
+      externalOrderRef: 'OLD-LINKED',
+      status: 'completed',
+      lastMeaningfulUpdateAt: '2025-11-01T00:00:00.000Z',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrderLines, {
+      id: 'old-line-linked-date',
+      naturalKey: 'supplier-order-line:OLD-LINKED',
+      sourceConnectionId: 'source-1',
+      company: 'Muxtex INC',
+      supplierOrderId: 'old-order-linked-date',
+      asin: 'B000LINKED',
+      sku: 'SKU-LINKED',
+      orderedQty: 5,
+      receivedQty: 5,
+      expectedSellableDate: '2025-11-10',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrders, {
+      id: 'selected-order-linked-date',
+      naturalKey: 'supplier-order:Muxtex INC:MX2626C',
+      sourceConnectionId: 'source-1',
+      company: 'Muxtex INC',
+      externalOrderRef: 'MX2626C',
+      status: 'approval_pending',
+      lastMeaningfulUpdateAt: '2026-02-06T00:00:00.000Z',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrderLines, {
+      id: 'selected-line-linked-date',
+      naturalKey: 'supplier-order-line:MX2626C',
+      sourceConnectionId: 'source-1',
+      company: 'Muxtex INC',
+      supplierOrderId: 'selected-order-linked-date',
+      asin: 'B000LINKED',
+      sku: 'SKU-LINKED',
+      orderedQty: 10,
+      receivedQty: 0,
+      expectedSellableDate: '2026-03-02',
+    });
+
+    await new EcobaseInventoryPlanningService(db).refreshReadModel({
+      company: 'Muxtex INC',
+      calculationDate: '2026-07-07',
+    });
+
+    const materializedRows = db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).all();
+    expect(materializedRows[0]).toMatchObject({
+      supplierOrderRef: 'MX2626C',
+      supplierOrderState: 'placed_not_purchased',
+      expectedSellableDate: '2026-03-02',
+    });
+  });
+
+  it('does not link supplier orders by SKU when the order line belongs to a different ASIN', async () => {
+    const db = new MemoryDatabase();
+    await createRecord(db, ECOBASE_COLLECTIONS.planningProducts, {
+      id: 'planning-product-sku-cross-link',
+      naturalKey: 'Muxtex INC:B000TARGET',
+      company: 'Muxtex INC',
+      canonicalAsin: 'B000TARGET',
+      title: 'SKU cross-link product',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
+      naturalKey: 'inventory-sku-cross-link',
+      sourceConnectionId: 'source-1',
+      planningProductId: 'planning-product-sku-cross-link',
+      company: 'Muxtex INC',
+      asin: 'B000TARGET',
+      sku: 'SHARED-SKU',
+      snapshotDate: '2026-07-07',
+      stock: 1,
+      reserved: 0,
+      salesVelocity: 1,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.planningParameters, {
+      naturalKey: 'params-sku-cross-link',
+      sourceConnectionId: 'source-1',
+      planningProductId: 'planning-product-sku-cross-link',
+      company: 'Muxtex INC',
+      asin: 'B000TARGET',
+      sku: 'SHARED-SKU',
+      supplier: 'Supplier',
+      profitPerUnit: 10,
+      leadTimeDays: 30,
+      payload: { recommendedBestQty: 30 },
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrders, {
+      id: 'different-asin-order',
+      naturalKey: 'supplier-order:Muxtex INC:OTHER-ASIN-ORDER',
+      sourceConnectionId: 'source-1',
+      company: 'Muxtex INC',
+      externalOrderRef: 'OTHER-ASIN-ORDER',
+      status: 'approval_pending',
+      lastMeaningfulUpdateAt: '2026-02-06T00:00:00.000Z',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrderLines, {
+      id: 'different-asin-line',
+      naturalKey: 'supplier-order-line:OTHER-ASIN-ORDER',
+      sourceConnectionId: 'source-1',
+      company: 'Muxtex INC',
+      supplierOrderId: 'different-asin-order',
+      asin: 'B000OTHER',
+      sku: 'SHARED-SKU',
+      orderedQty: 10,
+      receivedQty: 0,
+      expectedSellableDate: '2026-03-02',
+    });
+
+    const [row] = await new EcobaseInventoryPlanningService(db).listRows({
+      company: 'Muxtex INC',
+      calculationDate: '2026-07-07',
+    });
+
+    expect(row).toMatchObject({
+      supplierOrderState: 'no_open_order',
+    });
+    expect(row.supplierOrderRef).toBeUndefined();
+    expect(row.expectedSellableDate).toBeUndefined();
+  });
+
   it('serves inventory planning from gold rows ordered by actionable money at risk', async () => {
     const db = new MemoryDatabase();
     await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {

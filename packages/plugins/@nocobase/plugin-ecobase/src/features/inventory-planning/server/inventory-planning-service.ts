@@ -490,6 +490,7 @@ function summarizeSupplierOrderState(
     supplierOrderState: state,
     supplierOrderStatus: reference?.order ? supplierCoverageStatus(reference.order, rules) : undefined,
     supplierOrderRef: asString(reference?.order.externalOrderRef) ?? asString(reference?.order.id),
+    expectedSellableDate: asString(reference?.line.expectedSellableDate),
     supplierOrderOpenQty:
       asNumber(reference?.line.orderedQty) !== undefined
         ? Math.max((asNumber(reference?.line.orderedQty) ?? 0) - (asNumber(reference?.line.receivedQty) ?? 0), 0)
@@ -2127,7 +2128,11 @@ export class EcobaseInventoryPlanningService {
       statusRules: params.statusRules,
     });
     const openOrderCoverageQty = supplierOrderState.supplierOrderPurchasedOpenQty;
-    const expectedSellableDate = await this.earliestFallbackExpectedSellableDate({ company, asin, sku });
+    const expectedSellableDate =
+      asString(supplierOrderState.expectedSellableDate) ??
+      (asString(supplierOrderState.supplierOrderRef)
+        ? undefined
+        : await this.earliestFallbackExpectedSellableDate({ company, asin, sku }));
     const suggestedReorderQty = this.suggestedReorderQuantity({
       salesVelocity,
       leadTimeDays,
@@ -2471,7 +2476,9 @@ export class EcobaseInventoryPlanningService {
       leadTimeSource: supplierName ? 'supplier_or_planning_parameter' : 'planning_parameter_without_supplier_mapping',
       openOrderCoverageQty,
       ...supplierOrderState,
-      expectedSellableDate: this.earliestExpectedSellableDate(orderLines),
+      expectedSellableDate:
+        asString(supplierOrderState.expectedSellableDate) ??
+        (asString(supplierOrderState.supplierOrderRef) ? undefined : this.earliestExpectedSellableDate(orderLines)),
       estimatedProfitRisk,
       estimatedProfitRiskBasis,
       monthToDateRevenue: payloadNumber(latestInventory, [
@@ -2791,6 +2798,8 @@ export class EcobaseInventoryPlanningService {
     for (const filter of filters) {
       const lines = (await lineRepo.find({ filter, limit: 100 })).map(toPlainRecord);
       for (const line of lines) {
+        const lineAsin = asString(line.asin);
+        if (params.asin && lineAsin && lineAsin !== params.asin) continue;
         const id =
           asString(line.id) ?? `${asString(line.supplierOrderId) ?? ''}:${asString(line.sourceOrderLineRef) ?? ''}`;
         byId.set(id, line);
