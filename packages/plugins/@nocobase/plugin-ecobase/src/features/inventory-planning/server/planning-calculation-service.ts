@@ -10,7 +10,7 @@
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import { EcobaseDataWarningService } from '../../../server/services/data-warning-service';
 import type { EcobaseDataWarning } from '../../../server/services/data-warning-service';
-import type { EcobaseDatabase, EcobaseRepository } from '../../source-import/server/import-service';
+import type { EcobaseDatabase } from '../../source-import/server/import-service';
 import { toPlainRecord } from '../../source-import/server/import-service';
 import {
   DEFAULT_PLANNING_SETTINGS,
@@ -170,10 +170,6 @@ function weightedProfitPerUnit(parameterRows: PlainRecord[]) {
     : firstNumber(parameterRows, ['profitPerUnit', 'Profit Per Unit', 'Per.Unit Profit']);
 }
 
-async function findByPlanningProduct(repo: EcobaseRepository, planningProductId: string) {
-  return (await repo.find({ filter: { planningProductId } })).map(toPlainRecord);
-}
-
 export class EcobasePlanningCalculationService {
   constructor(private db: EcobaseDatabase) {}
 
@@ -189,6 +185,71 @@ export class EcobasePlanningCalculationService {
     );
   }
 
+  private async sourceRowsForPlanningProduct(product: PlainRecord, listings: PlainRecord[]) {
+    const [companies, silverProducts, companyProducts, inventoryRows, factRows, supplierProducts, targetRows] =
+      await Promise.all([
+        this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).find({ limit: 100000 }),
+        this.db.getRepository(ECOBASE_COLLECTIONS.silverProducts).find({ limit: 100000 }),
+        this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).find({ limit: 100000 }),
+        this.db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).find({ limit: 100000 }),
+        this.db.getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts).find({ limit: 100000 }),
+        this.db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).find({ limit: 100000 }),
+        this.db.getRepository(ECOBASE_COLLECTIONS.silverTargets).find({ limit: 100000 }),
+      ]);
+    const companyName = asString(product.company);
+    const companyIds = new Set(
+      companies
+        .map(toPlainRecord)
+        .filter((company) => !companyName || asString(company.name) === companyName)
+        .map((company) => asString(company.id))
+        .filter((id): id is string => Boolean(id)),
+    );
+    const productKeys = new Set(
+      [product, ...listings]
+        .map((row) => `${asString(row.canonicalAsin) ?? asString(row.asin) ?? ''}:${asString(row.sku) ?? ''}`)
+        .filter((key) => key !== ':'),
+    );
+    const productIds = new Set(
+      silverProducts
+        .map(toPlainRecord)
+        .filter((row) => productKeys.has(`${asString(row.asin) ?? ''}:${asString(row.sku) ?? ''}`))
+        .map((row) => asString(row.id))
+        .filter((id): id is string => Boolean(id)),
+    );
+    const companyProductIds = new Set(
+      companyProducts
+        .map(toPlainRecord)
+        .filter(
+          (row) =>
+            productIds.has(asString(row.productId) ?? '') &&
+            (companyIds.size === 0 || companyIds.has(asString(row.companyId) ?? '')),
+        )
+        .map((row) => asString(row.id))
+        .filter((id): id is string => Boolean(id)),
+    );
+    const mappedInventoryRows = inventoryRows
+      .map(toPlainRecord)
+      .filter((row) => companyProductIds.has(asString(row.companyProductId) ?? ''))
+      .map((row) => ({ ...row, stock: asNumber(row.sellableStock) ?? asNumber(row.stock) }));
+    const mappedFactRows = factRows
+      .map(toPlainRecord)
+      .filter((row) => companyProductIds.has(asString(row.companyProductId) ?? ''))
+      .map((row) => ({ ...row, netProfit: asNumber(row.profit) ?? asNumber(row.netProfit) }));
+    const mappedParameterRows = supplierProducts
+      .map(toPlainRecord)
+      .filter((row) => productIds.has(asString(row.productId) ?? ''));
+    const mappedTargetRows = targetRows
+      .map(toPlainRecord)
+      .filter((row) => !companyName || asString(row.company) === companyName)
+      .map((row) => ({ ...row, profitTarget: asNumber(row.targetValue) ?? asNumber(row.profitTarget) }));
+    return {
+      inventoryRows: mappedInventoryRows,
+      factRows: mappedFactRows,
+      parameterRows: mappedParameterRows,
+      targetRows: mappedTargetRows,
+    };
+  }
+
   async calculatePlanningProduct(params: CalculatePlanningProductParams) {
     const planningProductId = asString(params.planningProductId);
     if (!planningProductId) {
@@ -202,26 +263,17 @@ export class EcobasePlanningCalculationService {
       throw new Error(`Ecobase planning calculation failed: planning product "${planningProductId}" was not found.`);
     }
 
+    const planningProductListings = (
+      await this.db.getRepository(ECOBASE_COLLECTIONS.planningProductListings).find({ filter: { planningProductId } })
+    ).map(toPlainRecord);
+    const sourceRows = await this.sourceRowsForPlanningProduct(product, planningProductListings);
     const inventoryRows = preferSellerboardInventoryRows(
-      await findByPlanningProduct(this.db.getRepository(ECOBASE_COLLECTIONS.inventorySnapshots), planningProductId),
+      sourceRows.inventoryRows,
       await this.sellerboardSourceConnectionIds(),
     );
-    const factRows = await findByPlanningProduct(
-      this.db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts),
-      planningProductId,
-    );
-    const parameterRows = await findByPlanningProduct(
-      this.db.getRepository(ECOBASE_COLLECTIONS.planningParameters),
-      planningProductId,
-    );
-    const targetRows = await findByPlanningProduct(
-      this.db.getRepository(ECOBASE_COLLECTIONS.targetRows),
-      planningProductId,
-    );
-    const planningProductListings = await findByPlanningProduct(
-      this.db.getRepository(ECOBASE_COLLECTIONS.planningProductListings),
-      planningProductId,
-    );
+    const factRows = sourceRows.factRows;
+    const parameterRows = sourceRows.parameterRows;
+    const targetRows = sourceRows.targetRows;
     const settings = await new EcobasePlanningSettingsService(this.db).getResolvedSettings({
       safetyBufferDays: params.safetyBufferDays,
     });
@@ -237,10 +289,6 @@ export class EcobasePlanningCalculationService {
       safetyBufferDays: settings.safetyBufferDays,
       profitTierThresholds: params.profitTierThresholds ?? settings,
     });
-
-    if (params.persist !== false) {
-      await this.upsertSnapshot(this.snapshotValues(result));
-    }
 
     return result;
   }
@@ -511,43 +559,8 @@ export class EcobasePlanningCalculationService {
     return { status: rows.every((row) => row.status === 'pass') ? 'pass' : 'fail', rows };
   }
 
-  private async resolveLeadTimeDays(product: PlainRecord, parameterRows: PlainRecord[]) {
-    const directLeadTime = firstNumber(parameterRows, [
-      'leadTimeDays',
-      'Lead Time',
-      'Lead time(day)',
-      'Manuf. time days',
-    ]);
-    if (typeof directLeadTime === 'number') {
-      return directLeadTime;
-    }
-    const leadTimeRepo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierLeadTimes);
-    for (const parameterRow of parameterRows) {
-      const sourceConnectionId = asString(parameterRow.sourceConnectionId);
-      const company = asString(parameterRow.company) ?? asString(product.company);
-      const supplierId = asString(parameterRow.supplierId);
-      const supplierName = asString(parameterRow.supplier);
-      const asin = asString(parameterRow.asin) ?? asString(product.canonicalAsin);
-      const sku = asString(parameterRow.sku);
-      const scopedFilter = (identity: Record<string, string>) => ({
-        ...identity,
-        ...(sourceConnectionId ? { sourceConnectionId } : {}),
-        ...(company ? { company } : {}),
-      });
-      const productScope = (identity: Record<string, string>) =>
-        scopedFilter({ ...identity, scope: 'product', ...(asin ? { asin } : sku ? { sku } : {}) });
-      const byProductId =
-        supplierId && (asin || sku) ? await leadTimeRepo.findOne({ filter: productScope({ supplierId }) }) : null;
-      const byProductName =
-        !byProductId && supplierName && (asin || sku)
-          ? await leadTimeRepo.findOne({ filter: productScope({ supplierName }) })
-          : null;
-      const leadTimeDays = asNumber(toPlainRecord(byProductId ?? byProductName).leadTimeDays);
-      if (typeof leadTimeDays === 'number') {
-        return leadTimeDays;
-      }
-    }
-    return undefined;
+  private async resolveLeadTimeDays(_product: PlainRecord, parameterRows: PlainRecord[]) {
+    return firstNumber(parameterRows, ['leadTimeDays', 'Lead Time', 'Lead time(day)', 'Manuf. time days']);
   }
 
   private sumMonthlyProfitTargets(targetRows: PlainRecord[], month: string) {
@@ -586,32 +599,5 @@ export class EcobasePlanningCalculationService {
     evidence: Record<string, unknown>,
   ): PlanningBenchmarkResult {
     return { key, label, expected, actual, evidence, status: Object.is(expected, actual) ? 'pass' : 'fail' };
-  }
-
-  private snapshotValues(result: PlanningCalculationResult): PlainRecord {
-    const { warningCount, warnings, ...snapshot } = result;
-    return {
-      ...snapshot,
-      evidence: {
-        ...toPlainRecord(snapshot.evidence),
-        warningCount,
-        warnings,
-      },
-    };
-  }
-
-  private async upsertSnapshot(values: PlainRecord) {
-    const repo = this.db.getRepository(ECOBASE_COLLECTIONS.planningCalculationSnapshots);
-    const naturalKey = asString(values.naturalKey);
-    if (!naturalKey) {
-      throw new Error('Ecobase planning calculation failed: snapshot naturalKey is required.');
-    }
-    const existing = toPlainRecord(await repo.findOne({ filter: { naturalKey } }));
-    const existingId = existing.id;
-    if (typeof existingId === 'string' || typeof existingId === 'number') {
-      await repo.update({ filterByTk: existingId, values });
-    } else {
-      await repo.create({ values });
-    }
   }
 }

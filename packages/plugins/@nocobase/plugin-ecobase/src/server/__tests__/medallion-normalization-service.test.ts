@@ -142,25 +142,23 @@ describe('EcobaseMedallionNormalizationService', () => {
     });
   });
 
-  it('copies supplier-order derived expected sellable dates into silver order lines', async () => {
+  it('keeps expected sellable dates in silver without falling back to legacy supplier order lines', async () => {
     const db = new FakeDatabase();
-    await db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).create({
-      values: {
-        id: 'supplier-order-mx2626c',
-        company: 'Muxtex INC',
-        externalOrderRef: 'MX2626C',
-        status: 'approval_pending',
+    await seedBronze(
+      db,
+      {
+        'Order ID': 'MX2626C',
+        Timestamp: '06/02/2026',
+        Company: 'Muxtex INC',
+        Supplier: 'Discount Pond Supply',
+        ASIN: 'B0002DHFIU',
+        SKU: 'SUP02745',
+        Qty: '3',
+        PPU: '197.91',
+        'ETA on Amazon': '2026-03-02',
       },
-    });
-    await db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).create({
-      values: {
-        id: 'supplier-line-mx2626c',
-        supplierOrderId: 'supplier-order-mx2626c',
-        asin: 'B0002DHFIU',
-        sku: 'SUP02745',
-        expectedSellableDate: '2026-03-02',
-      },
-    });
+      { sourceDataset: 'Pre-Order Sheet.csv' },
+    );
     await seedBronze(
       db,
       {
@@ -176,14 +174,29 @@ describe('EcobaseMedallionNormalizationService', () => {
       },
       { sourceDataset: 'OrderDetails.csv' },
     );
+    await seedBronze(
+      db,
+      {
+        'Order ID': 'MX2626C',
+        Timestamp: '06/02/2026',
+        Company: 'Muxtex INC',
+        Supplier: 'Discount Pond Supply',
+        ASIN: 'B0009YYURQ',
+        SKU: 'SUP02745',
+        Qty: '1',
+        PPU: '10.00',
+      },
+      { sourceDataset: 'OrderDetails.csv' },
+    );
 
     const result = await new EcobaseMedallionNormalizationService(db).normalizePending();
 
     expect(result.failed).toBe(0);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[0]).toMatchObject({
-      orderedQty: 3,
-      expectedSellableDate: '2026-03-02',
-    });
+    const lines = db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows;
+    expect(lines).toEqual(
+      expect.arrayContaining([expect.objectContaining({ orderedQty: 3, expectedSellableDate: '2026-03-02' })]),
+    );
+    expect(lines.find((line) => line.orderedQty === 1)).not.toHaveProperty('expectedSellableDate');
   });
 
   it('is idempotent when the same bronze row is normalized again', async () => {

@@ -1,8 +1,25 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { describe, expect, it, vi } from 'vitest';
-import { amazonOperationsCsvAdapter, createSourceAdapterRegistry, SourceAdapter } from '../../features/source-import/server/adapters';
+import {
+  amazonOperationsCsvAdapter,
+  createSourceAdapterRegistry,
+  SourceAdapter,
+} from '../../features/source-import/server/adapters';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { createEcobasePlanningActions } from '../plugin';
-import { EcobaseDatabase, EcobaseImportService, EcobaseRepository } from '../../features/source-import/server/import-service';
+import {
+  EcobaseDatabase,
+  EcobaseImportService,
+  EcobaseRepository,
+} from '../../features/source-import/server/import-service';
 import { EcobasePlanningProductService } from '../../features/inventory-planning/server/planning-product-service';
 
 interface FindParams {
@@ -132,7 +149,15 @@ const knownDuplicateAdapter: SourceAdapter = {
         type: 'record' as const,
         rowNumber: row.rowNumber,
         sourceKey,
-        payload: row,
+        payload: {
+          Company: 'Ecofission LLC',
+          ASIN: 'B0DX35PTCL',
+          SKU: row.sku,
+          Title: row.title,
+          'FBA/FBM Stock': row.stock,
+          UnitsOrganic: row.units,
+          Date: '2025-07-01',
+        },
         record: [
           {
             kind: 'raw_listing',
@@ -235,6 +260,36 @@ function createActionContext(db: EcobaseDatabase, values: Record<string, unknown
 }
 
 describe('Ecobase planning product identity layer', () => {
+  it('compacts long fallback listing keys during planning sync', async () => {
+    const db = new MemoryDatabase();
+    const planning = new EcobasePlanningProductService(db);
+    const longSku =
+      'MDQ54047 , MDQ53965 , MDQ54078 , MDQ54092 , MDQ53972 , MDQ54023 , MDQ54030 , MDQ53996 , MDQ54108 , MDQ54061 , MDQ54085 , MDQ54016 , MDQ54054 , MDQ53958 , MDQ54009 , MDQ54115 , MDQ53989 , MDQ54122 , MDQ53941';
+
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
+      values: { id: 'company-1', name: 'Stop Shop LLC', companyKey: 'stop-shop-llc' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+      values: { id: 'product-1', asin: 'B06WVWNHM4', sku: longSku },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+      values: {
+        id: 'company-product-1',
+        companyId: 'company-1',
+        productId: 'product-1',
+        amazonAccountId: 'ceb758f2-7026-4f07-b493-0a2ba7209529',
+      },
+    });
+
+    await planning.syncFromSilverCompanyProducts();
+
+    const [listing] = db.getRepository(ECOBASE_COLLECTIONS.planningProductListings).all();
+    expect(String(listing.rawListingNaturalKey).length).toBeLessThanOrEqual(255);
+    expect(String(listing.naturalKey).length).toBeLessThanOrEqual(255);
+    expect(listing.rawListingNaturalKey).toMatch(/^silver-listing:Stop Shop LLC:B06WVWNHM4:/);
+    expect(listing.naturalKey).toMatch(/^raw-listing:silver-listing:Stop Shop LLC:B06WVWNHM4:/);
+  });
+
   it('preserves duplicate MasterStock listing rows through the production amazon-operations-csv adapter', async () => {
     const { db, service, planning } = createProductionAdapterFixture();
 
@@ -246,14 +301,18 @@ describe('Ecobase planning product identity layer', () => {
     });
 
     expect(run).toMatchObject({ status: 'success', rowCount: 2, normalizedCount: 6, warningCount: 0 });
-    expect(db.getRepository(ECOBASE_COLLECTIONS.rawListings).all()).toEqual([
-      expect.objectContaining({ company: 'Ecofission LLC', asin: 'B0DX35PTCL', sku: 'RM-CLIPS/3-01' }),
-      expect.objectContaining({ company: 'Ecofission LLC', asin: 'B0DX35PTCL', sku: 'FBA1935C9P1P.missing1' }),
-    ]);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.inventorySnapshots).all()).toEqual([
-      expect.objectContaining({ asin: 'B0DX35PTCL', sku: 'RM-CLIPS/3-01', stock: 10 }),
-      expect.objectContaining({ asin: 'B0DX35PTCL', sku: 'FBA1935C9P1P.missing1', stock: 6 }),
-    ]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).all()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ asin: 'B0DX35PTCL', sku: 'RM-CLIPS/3-01' }),
+        expect.objectContaining({ asin: 'B0DX35PTCL', sku: 'FBA1935C9P1P.missing1' }),
+      ]),
+    );
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).all()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ sellableStock: 10 }),
+        expect.objectContaining({ sellableStock: 6 }),
+      ]),
+    );
     expect(db.getRepository(ECOBASE_COLLECTIONS.planningProducts).all()).toEqual([
       expect.objectContaining({
         company: 'Ecofission LLC',
@@ -262,10 +321,12 @@ describe('Ecobase planning product identity layer', () => {
         listingCount: 2,
       }),
     ]);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.planningProductListings).all()).toEqual([
-      expect.objectContaining({ sku: 'RM-CLIPS/3-01', mappingStatus: 'needs_review' }),
-      expect.objectContaining({ sku: 'FBA1935C9P1P.missing1', mappingStatus: 'needs_review' }),
-    ]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.planningProductListings).all()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ sku: 'RM-CLIPS/3-01', mappingStatus: 'needs_review' }),
+        expect.objectContaining({ sku: 'FBA1935C9P1P.missing1', mappingStatus: 'needs_review' }),
+      ]),
+    );
 
     expect(await planning.listDuplicateMappings()).toEqual([
       expect.objectContaining({
@@ -290,7 +351,7 @@ describe('Ecobase planning product identity layer', () => {
       sourceVersion: '2025-07-01',
     });
 
-    expect(db.getRepository(ECOBASE_COLLECTIONS.rawListings).all()).toHaveLength(2);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).all()).toHaveLength(2);
     expect(db.getRepository(ECOBASE_COLLECTIONS.planningProducts).all()).toEqual([
       expect.objectContaining({
         company: 'Ecofission LLC',
@@ -299,10 +360,16 @@ describe('Ecobase planning product identity layer', () => {
         listingCount: 2,
       }),
     ]);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.planningProductListings).all()).toEqual([
-      expect.objectContaining({ sku: 'RM-CLIPS/3-01', mappingMode: 'default', mappingStatus: 'needs_review' }),
-      expect.objectContaining({ sku: 'FBA1935C9P1P.missing1', mappingMode: 'default', mappingStatus: 'needs_review' }),
-    ]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.planningProductListings).all()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ sku: 'RM-CLIPS/3-01', mappingMode: 'default', mappingStatus: 'needs_review' }),
+        expect.objectContaining({
+          sku: 'FBA1935C9P1P.missing1',
+          mappingMode: 'default',
+          mappingStatus: 'needs_review',
+        }),
+      ]),
+    );
 
     const reviewRows = await planning.listDuplicateMappings();
     expect(reviewRows).toEqual([
@@ -375,7 +442,7 @@ describe('Ecobase planning product identity layer', () => {
 
     expect(adjusted).toEqual(expect.objectContaining({ mappingMode: 'manual', mappingStatus: 'adjusted' }));
     const manualProductId = adjusted.planningProductId;
-    await planning.syncFromRawListings();
+    await planning.syncFromSilverCompanyProducts();
 
     expect(
       db

@@ -324,12 +324,7 @@ export class EcobaseMedallionNormalizationService {
       entities.push(entity('silverOrder', order, 'order'));
 
       if (companyProduct && supplierProduct && row.number('Qty', 'Ordered') !== undefined) {
-        const linkedExpectedSellableDate = await this.linkedSupplierOrderLineExpectedSellableDate({
-          companyName,
-          orderRef,
-          asin,
-          sku,
-        });
+        const expectedSellableDate = expectedSellableDateFor(row);
         entities.push(
           entity(
             'silverOrderLine',
@@ -348,7 +343,7 @@ export class EcobaseMedallionNormalizationService {
                 unitCost: row.number('PPU', 'COGS', 'Exp. Cost '),
                 expectedProfit: row.number('T.Profit', 'Rec.Best Profit'),
                 expectedDeliveryDate: row.string('Expected Delivery', 'Expected Delivery Date', 'ETA'),
-                expectedSellableDate: row.string('Expected Sellable Date') ?? linkedExpectedSellableDate,
+                expectedSellableDate,
                 productAnalysisStatus: 'imported',
               },
             ),
@@ -386,40 +381,12 @@ export class EcobaseMedallionNormalizationService {
     return entities;
   }
 
-  private async linkedSupplierOrderLineExpectedSellableDate(params: {
-    companyName?: string;
-    orderRef?: string;
-    asin?: string;
-    sku?: string;
-  }) {
-    if (!params.companyName || !params.orderRef || (!params.asin && !params.sku)) return undefined;
-    const order = toPlainRecord(
-      await this.repo(ECOBASE_COLLECTIONS.supplierOrders).findOne({
-        filter: { company: params.companyName, externalOrderRef: params.orderRef },
-      }),
-    );
-    const supplierOrderId = textValue(order.id);
-    if (!supplierOrderId) return undefined;
-    const filters = [
-      ...(params.asin ? [{ supplierOrderId, asin: params.asin }] : []),
-      ...(params.sku ? [{ supplierOrderId, sku: params.sku }] : []),
-    ];
-    for (const filter of filters) {
-      const line = toPlainRecord(await this.repo(ECOBASE_COLLECTIONS.supplierOrderLines).findOne({ filter }));
-      const lineAsin = textValue(line.asin);
-      if (params.asin && lineAsin && lineAsin !== params.asin) continue;
-      const expectedSellableDate = textValue(line.expectedSellableDate);
-      if (expectedSellableDate) return expectedSellableDate;
-    }
-    return undefined;
-  }
-
   private async sourceCompanyName(sourceConnectionId: string | undefined) {
     if (!sourceConnectionId) return undefined;
     const source = await this.repo(ECOBASE_COLLECTIONS.sourceConnections).findOne({ filterByTk: sourceConnectionId });
     const companyId = textValue(toPlainRecord(source).companyId);
     if (!companyId) return undefined;
-    const company = await this.repo(ECOBASE_COLLECTIONS.companies).findOne({ filterByTk: companyId });
+    const company = await this.repo(ECOBASE_COLLECTIONS.silverCompanies).findOne({ filterByTk: companyId });
     return textValue(toPlainRecord(company).name);
   }
 
@@ -519,6 +486,16 @@ function cleanValues(values: Record<string, unknown>) {
 
 function hasAnyNumber(row: CsvRowReader, ...headers: string[]) {
   return headers.some((header) => row.number(header) !== undefined);
+}
+
+function expectedSellableDateFor(row: CsvRowReader) {
+  return optionalDateOnly(
+    row.string('Expected Sellable Date') ?? row.string('ETA on Amazon') ?? row.string('Arrival to Amazon'),
+  );
+}
+
+function optionalDateOnly(value: string | undefined) {
+  return value ? dateOnly(value) : undefined;
 }
 
 function dateOnly(value: string | undefined) {

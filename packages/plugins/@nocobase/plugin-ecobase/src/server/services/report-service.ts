@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { EcobaseComparisonService } from './comparison-service';
@@ -150,7 +159,9 @@ export class EcobaseReportService {
         generatedAt,
         executiveSummary,
         summary: {
-          criticalAlertCount: (dashboard.openAlerts ?? []).filter((alert: PlainRecord) => asString(alert.severity) === 'critical').length,
+          criticalAlertCount: (dashboard.openAlerts ?? []).filter(
+            (alert: PlainRecord) => asString(alert.severity) === 'critical',
+          ).length,
           warningCount: dashboard.warningSummary?.warningCount ?? 0,
           comparisonRows: comparison.rows.length,
           dailySchedule: dashboard.settings?.dailyReportSchedule ?? '08:00',
@@ -162,9 +173,11 @@ export class EcobaseReportService {
 
     const createdItems = [] as PlainRecord[];
     for (let index = 0; index < items.length; index += 1) {
-      createdItems.push(await this.db.getRepository(ECOBASE_COLLECTIONS.reportItems).create({
-        values: { id: randomUUID(), reportRunId, sortOrder: index + 1, severity: 'info', ...items[index] },
-      }) as PlainRecord);
+      createdItems.push(
+        (await this.db.getRepository(ECOBASE_COLLECTIONS.reportItems).create({
+          values: { id: randomUUID(), reportRunId, sortOrder: index + 1, severity: 'info', ...items[index] },
+        })) as PlainRecord,
+      );
     }
 
     return {
@@ -184,15 +197,23 @@ export class EcobaseReportService {
     const items: ReportItemInput[] = [];
     const openAlerts = Array.isArray(dashboard.openAlerts) ? dashboard.openAlerts.map(asRecord) : [];
     const atRiskProducts = Array.isArray(dashboard.atRiskProducts) ? dashboard.atRiskProducts.map(asRecord) : [];
-    const supplierOrderDelays = Array.isArray(dashboard.supplierOrderDelays) ? dashboard.supplierOrderDelays.map(asRecord) : [];
-    const taskRows = Array.isArray(asRecord(dashboard.accountability).latestTasks) ? (asRecord(dashboard.accountability).latestTasks as unknown[]).map(asRecord) : [];
-    const okrRows = Array.isArray(asRecord(dashboard.accountability).latestOkrMetrics) ? (asRecord(dashboard.accountability).latestOkrMetrics as unknown[]).map(asRecord) : [];
+    const supplierOrderDelays = Array.isArray(dashboard.supplierOrderDelays)
+      ? dashboard.supplierOrderDelays.map(asRecord)
+      : [];
+    const taskRows = Array.isArray(asRecord(dashboard.accountability).latestTasks)
+      ? (asRecord(dashboard.accountability).latestTasks as unknown[]).map(asRecord)
+      : [];
+    const okrRows = Array.isArray(asRecord(dashboard.accountability).latestOkrMetrics)
+      ? (asRecord(dashboard.accountability).latestOkrMetrics as unknown[]).map(asRecord)
+      : [];
     const comparisonRows = Array.isArray(comparison.rows) ? comparison.rows.map(asRecord) : [];
 
     items.push({
       itemType: 'executive_summary',
       title: 'Executive summary',
-      body: `Open alerts: ${openAlerts.length}. At-risk products: ${atRiskProducts.length}. Source warnings: ${asRecord(dashboard.warningSummary).warningCount ?? 0}.`,
+      body: `Open alerts: ${openAlerts.length}. At-risk products: ${atRiskProducts.length}. Source warnings: ${
+        asRecord(dashboard.warningSummary).warningCount ?? 0
+      }.`,
       evidenceRefType: 'dashboard_summary',
       evidence: { warningSummary: dashboard.warningSummary },
     });
@@ -201,7 +222,9 @@ export class EcobaseReportService {
       items.push({
         itemType: 'critical_alert',
         severity: asString(alert.severity) ?? 'critical',
-        title: `${asString(alert.alertType) ?? 'alert'}: ${asString(alert.canonicalAsin) ?? asString(alert.subjectRef) ?? 'unknown subject'}`,
+        title: `${asString(alert.alertType) ?? 'alert'}: ${
+          asString(alert.canonicalAsin) ?? asString(alert.subjectRef) ?? 'unknown subject'
+        }`,
         body: asString(alert.actionRequired) ?? 'Review the alert evidence and take the required operational action.',
         evidenceRefType: 'alert',
         evidenceRefId: asString(alert.id),
@@ -214,7 +237,9 @@ export class EcobaseReportService {
         itemType: 'oos_reorder_risk',
         severity: asString(product.severity) ?? 'warning',
         title: `OOS/reorder risk: ${asString(product.canonicalAsin) ?? asString(product.planningProductId)}`,
-        body: `Days of cover: ${asNumber(product.daysOfCover) ?? 'unknown'}; restock deadline: ${asString(product.restockDeadline) ?? 'unknown'}; order action: ${asString(product.actionRequired) ?? 'review order status'}.`,
+        body: `Days of cover: ${asNumber(product.daysOfCover) ?? 'unknown'}; restock deadline: ${
+          asString(product.restockDeadline) ?? 'unknown'
+        }; order action: ${asString(product.actionRequired) ?? 'review order status'}.`,
         evidenceRefType: 'planning_product',
         evidenceRefId: asString(product.planningProductId),
         evidence: { product },
@@ -226,7 +251,11 @@ export class EcobaseReportService {
         itemType: 'supplier_order_risk',
         severity: asString(order.severity) ?? 'warning',
         title: `Supplier-order risk: ${asString(order.orderRef) ?? 'unknown order'}`,
-        body: `Supplier ${asString(order.supplier) ?? 'unknown'}; status ${asString(order.status) ?? 'unknown'}; expected sellable ${asString(order.expectedSellableDate) ?? 'unknown'}; latest contact ${asString(order.latestSupplierContactAt) ?? 'not recorded'}; lead-time age ${asNumber(order.leadTimeAgeDays) ?? 'unknown'} days.`,
+        body: `Supplier ${asString(order.supplier) ?? 'unknown'}; status ${
+          asString(order.status) ?? 'unknown'
+        }; expected sellable ${asString(order.expectedSellableDate) ?? 'unknown'}; latest contact ${
+          asString(order.latestSupplierContactAt) ?? 'not recorded'
+        }; lead-time age ${asNumber(order.leadTimeAgeDays) ?? 'unknown'} days.`,
         evidenceRefType: 'supplier_order',
         evidenceRefId: asString(order.orderRef),
         evidence: { order },
@@ -237,21 +266,29 @@ export class EcobaseReportService {
       items.push({
         itemType: 'accountability_task',
         severity: 'warning',
-        title: `Accountability task: ${asString(task.taskName) ?? asString(task.externalTaskId) ?? 'unknown task'}`,
-        body: `Owner: ${asString(task.assignee) ?? 'missing'}; area: ${asString(task.operationalArea) ?? 'missing'}; priority: ${asString(task.priority) ?? 'unknown'}; last meaningful update: ${asString(task.lastMeaningfulUpdateAt) ?? 'missing'}.`,
-        evidenceRefType: 'clickup_task_snapshot',
-        evidenceRefId: asString(task.externalTaskId),
+        title: `Accountability task: ${asString(task.taskName) ?? asString(task.sourceTaskRef) ?? 'unknown task'}`,
+        body: `Owner: ${asString(task.assignee) ?? 'missing'}; area: ${
+          asString(task.operationalArea) ?? 'missing'
+        }; priority: ${asString(task.priority) ?? 'unknown'}; last meaningful update: ${
+          asString(task.lastMeaningfulUpdateAt) ?? 'missing'
+        }.`,
+        evidenceRefType: 'task',
+        evidenceRefId: asString(task.sourceTaskRef),
         evidence: { task },
       });
     }
 
     for (const okr of okrRows.slice(0, 25)) {
       items.push({
-        itemType: 'okr_status',
+        itemType: 'target_status',
         severity: asString(okr.status) === 'off_track' ? 'warning' : 'info',
-        title: `OKR metric: ${asString(okr.okrId) ?? asString(okr.id) ?? 'unknown OKR'}`,
-        body: `Status: ${asString(okr.status) ?? 'unknown'}; owner: ${asString(okr.owner) ?? 'missing'}; area: ${asString(okr.area) ?? asString(okr.operationalArea) ?? 'missing'}.`,
-        evidenceRefType: 'okr_metric_snapshot',
+        title: `Target metric: ${
+          asString(okr.parentTargetId) ?? asString(okr.sourceTargetRef) ?? asString(okr.id) ?? 'unknown target'
+        }`,
+        body: `Status: ${asString(okr.status) ?? 'unknown'}; owner: ${asString(okr.owner) ?? 'missing'}; area: ${
+          asString(okr.area) ?? asString(okr.operationalArea) ?? 'missing'
+        }.`,
+        evidenceRefType: 'target_metric_snapshot',
         evidenceRefId: asString(okr.id),
         evidence: { okr },
       });
@@ -260,25 +297,42 @@ export class EcobaseReportService {
     for (const row of comparisonRows.slice(0, 25)) {
       items.push({
         itemType: 'comparative_trend',
-        severity: asString(row.classification) === 'declining' || asString(row.classification) === 'consistently_underperforming' ? 'warning' : 'info',
+        severity:
+          asString(row.classification) === 'declining' ||
+          asString(row.classification) === 'consistently_underperforming'
+            ? 'warning'
+            : 'info',
         title: `Trend: ${asString(row.label) ?? asString(row.key) ?? 'unknown group'}`,
-        body: `Classification: ${asString(row.classification) ?? 'unknown'}; net profit change: ${asNumber(asRecord(row.change).netProfit) ?? 0}; target gap: ${asNumber(asRecord(row.current).targetGap) ?? 'not targeted'}.`,
+        body: `Classification: ${asString(row.classification) ?? 'unknown'}; net profit change: ${
+          asNumber(asRecord(row.change).netProfit) ?? 0
+        }; target gap: ${asNumber(asRecord(row.current).targetGap) ?? 'not targeted'}.`,
         evidenceRefType: 'comparison_row',
         evidenceRefId: asString(row.key),
         evidence: { row, correlationNote: 'Evidence-based correlation only; this does not prove causation.' },
       });
     }
 
-    const sourceWarnings = Array.isArray(asRecord(dashboard.warningSummary).staleOrBlockedSources) ? asRecord(dashboard.warningSummary).staleOrBlockedSources as unknown[] : [];
+    const sourceWarnings = Array.isArray(asRecord(dashboard.warningSummary).staleOrBlockedSources)
+      ? (asRecord(dashboard.warningSummary).staleOrBlockedSources as unknown[])
+      : [];
     if (sourceWarnings.length === 0) {
-      items.push({ itemType: 'data_quality', title: 'Source freshness/data warnings', body: 'No source freshness warnings were recorded for this report window.', evidenceRefType: 'source_status' });
+      items.push({
+        itemType: 'data_quality',
+        title: 'Source freshness/data warnings',
+        body: 'No source freshness warnings were recorded for this report window.',
+        evidenceRefType: 'source_status',
+      });
     } else {
       for (const warning of sourceWarnings.map(asRecord)) {
         items.push({
           itemType: 'data_quality',
           severity: 'warning',
-          title: `Source warning: ${asString(warning.connectionName) ?? asString(warning.sourceConnectionId) ?? 'unknown source'}`,
-          body: asString(asRecord(warning.latestWarning).message) ?? 'Source warning recorded; inspect source status evidence.',
+          title: `Source warning: ${
+            asString(warning.connectionName) ?? asString(warning.sourceConnectionId) ?? 'unknown source'
+          }`,
+          body:
+            asString(asRecord(warning.latestWarning).message) ??
+            'Source warning recorded; inspect source status evidence.',
           evidenceRefType: 'source_connection',
           evidenceRefId: asString(warning.sourceConnectionId),
           evidence: warning,
@@ -290,7 +344,7 @@ export class EcobaseReportService {
 
   private executiveSummary(dashboard: PlainRecord, comparison: PlainRecord, items: ReportItemInput[]) {
     const criticalCount = items.filter((item) => item.itemType === 'critical_alert').length;
-    const trendLabels = (Array.isArray(comparison.rows) ? comparison.rows as PlainRecord[] : [])
+    const trendLabels = (Array.isArray(comparison.rows) ? (comparison.rows as PlainRecord[]) : [])
       .filter((row) => ['declining', 'consistently_underperforming'].includes(asString(row.classification) ?? ''))
       .slice(0, 5)
       .map((row) => asString(row.label) ?? asString(row.key) ?? 'unknown');

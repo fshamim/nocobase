@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { describe, expect, it, vi } from 'vitest';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { createEcobaseComparisonActions } from '../plugin';
@@ -31,7 +40,15 @@ class MemoryRepository implements EcobaseRepository {
     return record;
   }
 
-  async update({ filter, filterByTk, values }: { filter?: Record<string, unknown>; filterByTk?: string | number; values: Record<string, unknown> }) {
+  async update({
+    filter,
+    filterByTk,
+    values,
+  }: {
+    filter?: Record<string, unknown>;
+    filterByTk?: string | number;
+    values: Record<string, unknown>;
+  }) {
     const records = this.filterRecords({ filter, filterByTk });
     if (records.length === 0) {
       throw new Error('MemoryRepository update failed: matching record was not found.');
@@ -112,21 +129,61 @@ async function seedFact(
     tier?: string;
   },
 ) {
-  await db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).create({
+  const company = values.company ?? 'ACME';
+  const accountKey = values.accountKey ?? 'US';
+  const planningProductId = values.planningProductId ?? 'product-1';
+  const productId = `product:${planningProductId}`;
+  await db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
+    values: { id: `company:${company}`, name: company, companyKey: company.toLowerCase() },
+  });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverAmazonAccounts).create({
     values: {
-      naturalKey: values.id ?? `${values.company ?? 'ACME'}:${values.asin ?? 'B00'}:${values.sku ?? 'SKU'}:${values.snapshotDate}`,
-      sourceConnectionId: 'source-1',
-      planningProductId: values.planningProductId ?? 'product-1',
-      snapshotDate: values.snapshotDate,
-      company: values.company ?? 'ACME',
-      asin: values.asin ?? 'B00TEST',
-      sku: values.sku ?? 'SKU-1',
-      netProfit: values.netProfit,
-      sales: values.sales ?? values.netProfit * 2,
-      units: values.units ?? 1,
-      payload: { accountKey: values.accountKey ?? 'US', tier: values.tier },
+      id: `account:${company}:${accountKey}`,
+      companyId: `company:${company}`,
+      name: accountKey,
+      marketplace: 'US',
+      isDefault: true,
+      status: 'active',
     },
   });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+    values: { id: productId, asin: values.asin ?? 'B00TEST', sku: values.sku ?? 'SKU-1' },
+  });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+    values: {
+      id: planningProductId,
+      companyId: `company:${company}`,
+      amazonAccountId: `account:${company}:${accountKey}`,
+      productId,
+    },
+  });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts).create({
+    values: {
+      id: values.id ?? `${company}:${values.asin ?? 'B00'}:${values.sku ?? 'SKU'}:${values.snapshotDate}`,
+      companyProductId: planningProductId,
+      snapshotDate: values.snapshotDate,
+      profit: values.netProfit,
+      sales: values.sales ?? values.netProfit * 2,
+      units: values.units ?? 1,
+      refunds: 0,
+    },
+  });
+  if (values.tier) {
+    await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).create({
+      values: {
+        id: `gold:${planningProductId}:${values.snapshotDate}`,
+        naturalKey: `gold:${planningProductId}:${values.snapshotDate}`,
+        companyProductId: planningProductId,
+        planningProductId,
+        calculationDate: values.snapshotDate,
+        company,
+        asin: values.asin ?? 'B00TEST',
+        sku: values.sku ?? 'SKU-1',
+        actionStatus: 'watch',
+        tier: values.tier,
+      },
+    });
+  }
 }
 
 async function seedTarget(
@@ -143,20 +200,31 @@ async function seedTarget(
     tier?: string;
   },
 ) {
-  await db.getRepository(ECOBASE_COLLECTIONS.targetRows).create({
+  await db.getRepository(ECOBASE_COLLECTIONS.silverTargets).create({
     values: {
-      naturalKey: `target:${values.periodType}:${values.period}:${values.planningProductId ?? values.accountKey ?? values.sku ?? values.tier ?? values.company}`,
+      id: `target:${values.periodType}:${values.period}:${
+        values.planningProductId ?? values.accountKey ?? values.sku ?? values.tier ?? values.company
+      }`,
+      naturalKey: `target:${values.periodType}:${values.period}:${
+        values.planningProductId ?? values.accountKey ?? values.sku ?? values.tier ?? values.company
+      }`,
       sourceConnectionId: 'source-1',
-      targetScope: values.tier ? 'tier' : values.accountKey ? 'account' : values.planningProductId ? 'planning_product' : 'company',
+      recordKind: 'target',
+      entityType: values.tier
+        ? 'tier'
+        : values.accountKey
+          ? 'account'
+          : values.planningProductId
+            ? 'company_product'
+            : 'company',
+      entityId: values.planningProductId,
+      metric: 'profit',
       periodType: values.periodType,
       period: values.period,
-      profitTarget: values.profitTarget,
+      targetValue: values.profitTarget,
       company: values.company ?? 'ACME',
-      accountKey: values.accountKey,
-      planningProductId: values.planningProductId,
-      asin: values.asin,
-      sku: values.sku,
-      payload: { tier: values.tier },
+      payload: { accountKey: values.accountKey, sku: values.sku, tier: values.tier },
+      status: 'active',
     },
   });
 }
@@ -164,10 +232,34 @@ async function seedTarget(
 describe('Ecobase comparison service', () => {
   it('returns week-over-week change and improving/declining product classifications', async () => {
     const db = new MemoryDatabase();
-    await seedFact(db, { planningProductId: 'product-up', asin: 'BUP', sku: 'SKU-UP', snapshotDate: '2026-06-01', netProfit: 100 });
-    await seedFact(db, { planningProductId: 'product-up', asin: 'BUP', sku: 'SKU-UP', snapshotDate: '2026-05-25', netProfit: 40 });
-    await seedFact(db, { planningProductId: 'product-down', asin: 'BDOWN', sku: 'SKU-DOWN', snapshotDate: '2026-06-02', netProfit: 25 });
-    await seedFact(db, { planningProductId: 'product-down', asin: 'BDOWN', sku: 'SKU-DOWN', snapshotDate: '2026-05-26', netProfit: 90 });
+    await seedFact(db, {
+      planningProductId: 'product-up',
+      asin: 'BUP',
+      sku: 'SKU-UP',
+      snapshotDate: '2026-06-01',
+      netProfit: 100,
+    });
+    await seedFact(db, {
+      planningProductId: 'product-up',
+      asin: 'BUP',
+      sku: 'SKU-UP',
+      snapshotDate: '2026-05-25',
+      netProfit: 40,
+    });
+    await seedFact(db, {
+      planningProductId: 'product-down',
+      asin: 'BDOWN',
+      sku: 'SKU-DOWN',
+      snapshotDate: '2026-06-02',
+      netProfit: 25,
+    });
+    await seedFact(db, {
+      planningProductId: 'product-down',
+      asin: 'BDOWN',
+      sku: 'SKU-DOWN',
+      snapshotDate: '2026-05-26',
+      netProfit: 90,
+    });
 
     const report = await new EcobaseComparisonService(db).comparePerformance({
       periodType: 'weekly',
@@ -191,8 +283,18 @@ describe('Ecobase comparison service', () => {
     const db = new MemoryDatabase();
     await seedFact(db, { planningProductId: 'product-1', snapshotDate: '2026-06-05', netProfit: 80 });
     await seedFact(db, { planningProductId: 'product-1', snapshotDate: '2026-05-05', netProfit: 90 });
-    await seedTarget(db, { periodType: 'monthly', period: '2026-06', planningProductId: 'product-1', profitTarget: 120 });
-    await seedTarget(db, { periodType: 'monthly', period: '2026-05', planningProductId: 'product-1', profitTarget: 120 });
+    await seedTarget(db, {
+      periodType: 'monthly',
+      period: '2026-06',
+      planningProductId: 'product-1',
+      profitTarget: 120,
+    });
+    await seedTarget(db, {
+      periodType: 'monthly',
+      period: '2026-05',
+      planningProductId: 'product-1',
+      profitTarget: 120,
+    });
 
     const report = await new EcobaseComparisonService(db).comparePerformance({
       periodType: 'monthly',
@@ -221,7 +323,10 @@ describe('Ecobase comparison service', () => {
       groupBy: 'planning_product',
     });
 
-    expect(report.warnings.map((warning) => warning.code)).toEqual(['missing_prior_period', 'incomplete_source_period']);
+    expect(report.warnings.map((warning) => warning.code)).toEqual([
+      'missing_prior_period',
+      'incomplete_source_period',
+    ]);
     expect(report.rows[0].warnings.map((warning) => warning.code)).toEqual(['missing_prior_period']);
   });
 
@@ -230,7 +335,12 @@ describe('Ecobase comparison service', () => {
     await seedFact(db, { planningProductId: 'product-1', snapshotDate: '2026-06-01', netProfit: 70, accountKey: 'US' });
     await seedFact(db, { planningProductId: 'product-2', snapshotDate: '2026-06-02', netProfit: 30, accountKey: 'US' });
     await seedFact(db, { planningProductId: 'product-1', snapshotDate: '2026-05-25', netProfit: 75, accountKey: 'US' });
-    await seedTarget(db, { periodType: 'weekly', period: '2026-06-01:2026-06-07', accountKey: 'US', profitTarget: 150 });
+    await seedTarget(db, {
+      periodType: 'weekly',
+      period: '2026-06-01:2026-06-07',
+      accountKey: 'US',
+      profitTarget: 150,
+    });
 
     const report = await new EcobaseComparisonService(db).comparePerformance({
       periodType: 'weekly',
@@ -250,8 +360,20 @@ describe('Ecobase comparison service', () => {
 
   it('supports raw listing/SKU rollups and the public comparison action seam', async () => {
     const db = new MemoryDatabase();
-    await seedFact(db, { planningProductId: 'product-1', asin: 'BRAW', sku: 'SKU-A', snapshotDate: '2026-06-05', netProfit: 12 });
-    await seedFact(db, { planningProductId: 'product-1', asin: 'BRAW', sku: 'SKU-A', snapshotDate: '2026-06-04', netProfit: 10 });
+    await seedFact(db, {
+      planningProductId: 'product-1',
+      asin: 'BRAW',
+      sku: 'SKU-A',
+      snapshotDate: '2026-06-05',
+      netProfit: 12,
+    });
+    await seedFact(db, {
+      planningProductId: 'product-1',
+      asin: 'BRAW',
+      sku: 'SKU-A',
+      snapshotDate: '2026-06-04',
+      netProfit: 10,
+    });
     const context = createActionContext(db, {
       periodType: 'daily',
       period: '2026-06-05',

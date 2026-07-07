@@ -21,6 +21,7 @@ import {
   isReliableSupplierOrderCoverageStatus,
   normalizeSupplierOrderStatus,
 } from '../../supplier-management/server/supplier-order-service';
+import { silverSupplierOrderReadModel } from '../../supplier-management/server/silver-supplier-order-read-model';
 
 type PlainRecord = Record<string, unknown>;
 type DailyBriefFocus =
@@ -236,9 +237,9 @@ export type OkrAccountabilityRiskEvidence = {
   evidenceId: string;
   riskType: 'okr_off_track' | 'task_overdue' | 'task_inactive';
   company?: string;
-  okrId?: string;
-  externalOkrId?: string;
-  okrTitle?: string;
+  targetId?: string;
+  sourceTargetRef?: string;
+  targetTitle?: string;
   metricName?: string;
   owner?: string;
   operationalArea?: string;
@@ -499,7 +500,7 @@ function reportItemTitle(item: DailyBriefEvidenceItem) {
   }
   if (isOkrAccountabilityRiskEvidence(item)) {
     return item.riskType === 'okr_off_track'
-      ? `OKR off track: ${item.okrTitle ?? item.metricName ?? item.externalOkrId ?? 'unknown OKR'}`
+      ? `Target off track: ${item.targetTitle ?? item.metricName ?? item.sourceTargetRef ?? 'unknown target'}`
       : `Task needs attention: ${item.taskName ?? item.taskId ?? 'unknown task'}`;
   }
   return `Data warning: ${item.code}`;
@@ -632,7 +633,7 @@ function itemTypeFor(item: DailyBriefEvidenceItem) {
   if (isBuyBoxRiskEvidence(item)) return 'buybox_risk';
   if (isPerformanceTrendEvidence(item)) return item.trendType === 'profit_gap' ? 'profit_gap' : 'velocity_drop';
   if (isOkrAccountabilityRiskEvidence(item))
-    return item.riskType === 'okr_off_track' ? 'okr_status' : 'accountability_task';
+    return item.riskType === 'okr_off_track' ? 'target_status' : 'accountability_task';
   return item.code === 'no_action_required'
     ? 'no_action_required'
     : item.code.includes('source') || item.sourceConnectionId
@@ -1040,25 +1041,9 @@ export class EcobaseDailyOperationsBriefService {
   }
 
   private async buildSupplierOrderContext(riskRows: PlainRecord[], company: string | undefined, maxItems: number) {
-    const orderFilter = company ? { company } : {};
-    const orders = (
-      await this.db
-        .getRepository(ECOBASE_COLLECTIONS.supplierOrders)
-        .find({ filter: orderFilter, sort: ['-lastMeaningfulUpdateAt'], limit: 1000 })
-    ).map(toPlainRecord);
-    const lines = (
-      await this.db
-        .getRepository(ECOBASE_COLLECTIONS.supplierOrderLines)
-        .find({ filter: orderFilter, sort: ['-observedAt'], limit: 5000 })
-    ).map(toPlainRecord);
-    const suppliers = (
-      await this.db.getRepository(ECOBASE_COLLECTIONS.suppliers).find({ filter: orderFilter, limit: 2000 })
-    ).map(toPlainRecord);
-    const supplierNameById = new Map(
-      suppliers
-        .map((supplier) => [asString(supplier.id), asString(supplier.name)] as const)
-        .filter((entry): entry is [string, string] => Boolean(entry[0] && entry[1])),
-    );
+    const silverOrders = await silverSupplierOrderReadModel(this.db, { company, limit: 1000 });
+    const orders = silverOrders.supplierOrders;
+    const lines = silverOrders.supplierOrderLines;
     const riskMatchingLines = lines.filter((line) => riskRows.some((risk) => orderLineMatchesRisk(line, risk)));
     const linesByOrderId = new Map<string, PlainRecord[]>();
     for (const line of riskMatchingLines) {
@@ -1091,10 +1076,7 @@ export class EcobaseDailyOperationsBriefService {
           supplierOrderId,
           externalOrderRef: asString(order.externalOrderRef),
           supplierId: asString(order.supplierId),
-          supplierName:
-            supplierNameById.get(asString(order.supplierId) ?? '') ??
-            asString(order.supplierName) ??
-            payloadString(order, ['Supplier', 'supplier']),
+          supplierName: asString(order.supplierName) ?? payloadString(order, ['Supplier', 'supplier']),
           status,
           coverageState: orderCoverageState(status),
           isTrustedCoverage: isReliableSupplierOrderCoverageStatus(status),
@@ -1200,18 +1182,8 @@ export class EcobaseDailyOperationsBriefService {
   }
 
   private async buildPerformanceTrends(params: { date: string; company?: string; maxItems: number }) {
-    const factFilter = params.company ? { company: params.company } : {};
-    const targetFilter = params.company ? { company: params.company } : {};
-    const facts = (
-      await this.db
-        .getRepository(ECOBASE_COLLECTIONS.listingDailyFacts)
-        .find({ filter: factFilter, sort: ['-snapshotDate'], limit: 5000 })
-    ).map(toPlainRecord);
-    const targets = (
-      await this.db
-        .getRepository(ECOBASE_COLLECTIONS.targetRows)
-        .find({ filter: targetFilter, sort: ['-period'], limit: 5000 })
-    ).map(toPlainRecord);
+    const facts = await this.silverListingFacts(params.company, 5000);
+    const targets = await this.silverTargets(params.company, 5000);
     const currentFacts = facts.filter((fact) => asString(fact.snapshotDate) === params.date);
     const priorDate = dateBefore(params.date, 1);
     const priorByIdentity = new Map<string, PlainRecord>();
@@ -1312,18 +1284,86 @@ export class EcobaseDailyOperationsBriefService {
     );
   }
 
+  private async silverListingFacts(company?: string, limit = 5000) {
+    const [facts, companyProducts, products, companies] = await Promise.all([
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts).find({ sort: ['-snapshotDate'], limit }),
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).find({ limit: 50000 }),
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverProducts).find({ limit: 50000 }),
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).find({ limit: 5000 }),
+    ]);
+    const companyProductById = new Map(companyProducts.map(toPlainRecord).map((row) => [asString(row.id), row]));
+    const productById = new Map(products.map(toPlainRecord).map((row) => [asString(row.id), row]));
+    const companyById = new Map(companies.map(toPlainRecord).map((row) => [asString(row.id), row]));
+    return facts
+      .map(toPlainRecord)
+      .map((fact) => {
+        const companyProduct = companyProductById.get(asString(fact.companyProductId));
+        const product = productById.get(asString(companyProduct?.productId));
+        const companyRow = companyById.get(asString(companyProduct?.companyId));
+        return {
+          ...fact,
+          company: asString(companyRow?.name),
+          planningProductId: asString(fact.companyProductId),
+          asin: asString(product?.asin),
+          sku: asString(product?.sku),
+          netProfit: asNumber(fact.profit),
+          grossProfit: asNumber(fact.profit),
+        };
+      })
+      .filter((row) => !company || asString(row.company) === company);
+  }
+
+  private async silverTargets(company?: string, limit = 5000) {
+    return (await this.db.getRepository(ECOBASE_COLLECTIONS.silverTargets).find({ limit }))
+      .map(toPlainRecord)
+      .map((target) => ({
+        ...target,
+        planningProductId: asString(target.entityType) === 'company_product' ? asString(target.entityId) : undefined,
+        period: asString(target.period),
+        profitTarget: asNumber(target.targetValue),
+        unitTarget: asNumber(recordPayload(target).unitTarget),
+        company: asString(target.company),
+      }))
+      .filter((row) => !company || asString(row.company) === company);
+  }
+
+  private async silverTrafficRows(company?: string, limit = 5000) {
+    const [trafficRows, companyProducts, products, companies] = await Promise.all([
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverTrafficSnapshots).find({ sort: ['-snapshotDate'], limit }),
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).find({ limit: 50000 }),
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverProducts).find({ limit: 50000 }),
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).find({ limit: 5000 }),
+    ]);
+    const companyProductById = new Map(companyProducts.map(toPlainRecord).map((row) => [asString(row.id), row]));
+    const productById = new Map(products.map(toPlainRecord).map((row) => [asString(row.id), row]));
+    const companyById = new Map(companies.map(toPlainRecord).map((row) => [asString(row.id), row]));
+    return trafficRows
+      .map(toPlainRecord)
+      .map((traffic) => {
+        const companyProduct = companyProductById.get(asString(traffic.companyProductId));
+        const product = productById.get(asString(companyProduct?.productId));
+        const companyRow = companyById.get(asString(companyProduct?.companyId));
+        return {
+          ...traffic,
+          company: asString(companyRow?.name),
+          planningProductId: asString(traffic.companyProductId),
+          asin: asString(product?.asin),
+          sku: asString(product?.sku),
+        };
+      })
+      .filter((row) => !company || asString(row.company) === company);
+  }
+
   private async buildBuyBoxRisks(params: { date: string; company?: string; maxItems: number }) {
-    const trafficRows = (
-      await this.db.getRepository(ECOBASE_COLLECTIONS.trafficSnapshots).find({ sort: ['-snapshotDate'], limit: 5000 })
-    ).map(toPlainRecord);
+    const trafficRows = await this.silverTrafficRows(params.company, 5000);
     const products = (
       await this.db
-        .getRepository(ECOBASE_COLLECTIONS.planningProducts)
+        .getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows)
         .find({ filter: params.company ? { company: params.company } : {}, limit: 5000 })
     ).map(toPlainRecord);
     const productByAsinSku = new Map<string, PlainRecord>();
     for (const product of products) {
-      const asin = asString(product.canonicalAsin) ?? asString(product.asin);
+      const asin = asString(product.asin) ?? asString(product.canonicalAsin);
       const sku = asString(product.sku);
       if (asin || sku) productByAsinSku.set([asin?.toUpperCase() ?? '', sku ?? ''].join(':'), product);
     }
@@ -1349,7 +1389,8 @@ export class EcobaseDailyOperationsBriefService {
       risks.push({
         evidenceId: evidenceId('buybox', `${key}:${params.date}`),
         company: asString(product?.company),
-        planningProductId: asString(product?.id),
+        planningProductId:
+          asString(product?.companyProductId) ?? asString(product?.planningProductId) ?? asString(product?.id),
         asin: asString(current.asin),
         sku: asString(current.sku),
         currentDate: params.date,
@@ -1370,28 +1411,33 @@ export class EcobaseDailyOperationsBriefService {
   }
 
   private async buildOkrAccountabilityRisks(params: { date: string; company?: string; maxItems: number }) {
-    const okrFilter = params.company ? { company: params.company } : {};
-    const okrs = (await this.db.getRepository(ECOBASE_COLLECTIONS.okrs).find({ filter: okrFilter, limit: 2000 })).map(
-      toPlainRecord,
-    );
+    const okrFilter = { ...(params.company ? { company: params.company } : {}), recordKind: 'target' };
+    const okrs = (
+      await this.db.getRepository(ECOBASE_COLLECTIONS.silverTargets).find({ filter: okrFilter, limit: 2000 })
+    ).map(toPlainRecord);
     const okrById = new Map(
       okrs
-        .map((okr) => [asString(okr.id), okr] as const)
+        .flatMap((okr) =>
+          [asString(okr.id), asString(okr.sourceTargetRef)].filter(Boolean).map((key) => [key, okr] as const),
+        )
         .filter((entry): entry is [string, PlainRecord] => Boolean(entry[0])),
     );
     const okrSnapshots = (
-      await this.db
-        .getRepository(ECOBASE_COLLECTIONS.okrMetricSnapshots)
-        .find({ filter: { snapshotDate: params.date }, sort: ['progressPercent'], limit: 2000 })
+      await this.db.getRepository(ECOBASE_COLLECTIONS.silverTargets).find({
+        filter: { recordKind: 'metric_snapshot', snapshotDate: params.date },
+        sort: ['progressPercent'],
+        limit: 2000,
+      })
     ).map(toPlainRecord);
     const taskSnapshots = (
       await this.db
-        .getRepository(ECOBASE_COLLECTIONS.clickupTaskSnapshots)
+        .getRepository(ECOBASE_COLLECTIONS.silverTasks)
         .find({ filter: { snapshotDate: params.date }, sort: ['dueDate'], limit: 2000 })
     ).map(toPlainRecord);
     const risks: OkrAccountabilityRiskEvidence[] = [];
     for (const snapshot of okrSnapshots) {
-      const okr = okrById.get(asString(snapshot.okrId) ?? '');
+      const okr =
+        okrById.get(asString(snapshot.parentTargetId) ?? '') ?? okrById.get(asString(snapshot.sourceTargetRef) ?? '');
       if (params.company && !okr) continue;
       const status = asString(snapshot.status) ?? 'unknown';
       const progressPercent = asNumber(snapshot.progressPercent);
@@ -1403,15 +1449,15 @@ export class EcobaseDailyOperationsBriefService {
       risks.push({
         evidenceId: evidenceId(
           'okr',
-          `${asString(snapshot.okrId) ?? asString(snapshot.externalOkrId)}:${asString(snapshot.metricName)}:${
-            params.date
-          }`,
+          `${asString(snapshot.parentTargetId) ?? asString(snapshot.sourceTargetRef)}:${asString(
+            snapshot.metricName,
+          )}:${params.date}`,
         ),
         riskType: 'okr_off_track',
         company: asString(okr?.company),
-        okrId: asString(snapshot.okrId),
-        externalOkrId: asString(snapshot.externalOkrId) ?? asString(okr?.externalOkrId),
-        okrTitle: asString(okr?.title),
+        targetId: asString(snapshot.parentTargetId),
+        sourceTargetRef: asString(snapshot.sourceTargetRef) ?? asString(okr?.sourceTargetRef),
+        targetTitle: asString(okr?.title),
         metricName: asString(snapshot.metricName),
         owner: asString(snapshot.owner) ?? asString(okr?.owner),
         operationalArea: asString(snapshot.operationalArea) ?? asString(okr?.operationalArea),
@@ -1436,10 +1482,10 @@ export class EcobaseDailyOperationsBriefService {
       risks.push({
         evidenceId: evidenceId(
           'task',
-          `${asString(task.externalTaskId)}:${params.date}:${overdue ? 'overdue' : 'inactive'}`,
+          `${asString(task.sourceTaskRef)}:${params.date}:${overdue ? 'overdue' : 'inactive'}`,
         ),
         riskType: overdue ? 'task_overdue' : 'task_inactive',
-        taskId: asString(task.externalTaskId),
+        taskId: asString(task.sourceTaskRef),
         taskName: asString(task.taskName),
         taskStatus: asString(task.status),
         taskPriority: asString(task.priority),
@@ -1558,7 +1604,7 @@ export class EcobaseDailyOperationsBriefService {
           code: 'accountability_link_limited',
           message: warning,
           severity: 'warning',
-          metadata: { evidenceId: risk.evidenceId, okrId: risk.okrId ?? null, taskId: risk.taskId ?? null },
+          metadata: { evidenceId: risk.evidenceId, targetId: risk.targetId ?? null, taskId: risk.taskId ?? null },
         });
       }
     }

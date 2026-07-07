@@ -1,9 +1,26 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { describe, expect, it } from 'vitest';
-import { clickupAccessCheckAdapter, clickupFixtureAdapter, createSourceAdapterRegistry } from '../../features/source-import/server/adapters';
+import {
+  clickupAccessCheckAdapter,
+  clickupFixtureAdapter,
+  createSourceAdapterRegistry,
+} from '../../features/source-import/server/adapters';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { EcobaseAccountabilityService } from '../services/accountability-service';
 import { EcobaseDataWarningService } from '../services/data-warning-service';
-import { EcobaseDatabase, EcobaseImportService, EcobaseRepository } from '../../features/source-import/server/import-service';
+import {
+  EcobaseDatabase,
+  EcobaseImportService,
+  EcobaseRepository,
+} from '../../features/source-import/server/import-service';
 
 interface FindParams {
   filter?: Record<string, unknown>;
@@ -32,7 +49,15 @@ class MemoryRepository implements EcobaseRepository {
     return record;
   }
 
-  async update({ filter, filterByTk, values }: { filter?: Record<string, unknown>; filterByTk?: string | number; values: Record<string, unknown> }) {
+  async update({
+    filter,
+    filterByTk,
+    values,
+  }: {
+    filter?: Record<string, unknown>;
+    filterByTk?: string | number;
+    values: Record<string, unknown>;
+  }) {
     const records = this.filterRecords({ filter, filterByTk });
     if (records.length === 0) {
       throw new Error('MemoryRepository update failed: matching record was not found.');
@@ -90,11 +115,17 @@ class MemoryDatabase implements EcobaseDatabase {
 
 function createDb() {
   const db = new MemoryDatabase();
-  db.getRepository(ECOBASE_COLLECTIONS.companies).create({
+  db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
     values: { id: 'company-1', name: 'ACME', code: 'ACME', timezone: 'UTC' },
   });
   db.getRepository(ECOBASE_COLLECTIONS.planningProducts).create({
-    values: { id: 'product-1', company: 'ACME', canonicalAsin: 'B013TASK', title: 'Accountability SKU', mappingStatus: 'confirmed' },
+    values: {
+      id: 'product-1',
+      company: 'ACME',
+      canonicalAsin: 'B013TASK',
+      title: 'Accountability SKU',
+      mappingStatus: 'confirmed',
+    },
   });
   return db;
 }
@@ -122,8 +153,18 @@ describe('Ecobase accountability import and alert evaluation', () => {
               operationalArea: 'supplier_orders',
             },
           ],
-          okrs: [{ externalOkrId: 'OKR-1', company: 'ACME', title: 'Restore stockouts', owner: 'ops', period: '2026-Q2' }],
-          okrMetricSnapshots: [{ externalOkrId: 'OKR-1', metricName: 'OOS recovery', snapshotDate: '2026-06-05', progressPercent: 45, status: 'off_track' }],
+          okrs: [
+            { externalOkrId: 'OKR-1', company: 'ACME', title: 'Restore stockouts', owner: 'ops', period: '2026-Q2' },
+          ],
+          okrMetricSnapshots: [
+            {
+              externalOkrId: 'OKR-1',
+              metricName: 'OOS recovery',
+              snapshotDate: '2026-06-05',
+              progressPercent: 45,
+              status: 'off_track',
+            },
+          ],
         },
         active: true,
       },
@@ -139,10 +180,14 @@ describe('Ecobase accountability import and alert evaluation', () => {
     });
 
     expect(run.status).toBe('success');
-    expect(db.getRepository(ECOBASE_COLLECTIONS.clickupTaskSnapshots).all()).toHaveLength(1);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.taskLinks).all()).toHaveLength(1);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.okrs).all()).toHaveLength(1);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.okrMetricSnapshots).all()).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverTasks).all()).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverTaskLinks).all()).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverTargets).all()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ recordKind: 'okr', externalOkrId: 'OKR-1' }),
+        expect.objectContaining({ recordKind: 'okr_metric_snapshot', externalOkrId: 'OKR-1' }),
+      ]),
+    );
 
     const alerts = db.getRepository(ECOBASE_COLLECTIONS.alerts).all();
     expect(alerts.map((alert) => alert.primaryRootCauseCode).sort()).toEqual([
@@ -162,7 +207,7 @@ describe('Ecobase accountability import and alert evaluation', () => {
 
   it('resolves stale task alerts when the latest snapshot becomes assigned, updated, and not overdue', async () => {
     const db = createDb();
-    const taskRepo = db.getRepository(ECOBASE_COLLECTIONS.clickupTaskSnapshots);
+    const taskRepo = db.getRepository(ECOBASE_COLLECTIONS.silverTasks);
     taskRepo.create({
       values: {
         id: 'task-snapshot-1',
@@ -171,6 +216,7 @@ describe('Ecobase accountability import and alert evaluation', () => {
         snapshotDate: '2026-06-05',
         externalTaskId: 'CU-1',
         taskName: 'Contact supplier',
+        title: 'Contact supplier',
         status: 'open',
         priority: 'high',
         dueDate: '2026-06-03',
@@ -180,7 +226,12 @@ describe('Ecobase accountability import and alert evaluation', () => {
 
     const service = new EcobaseAccountabilityService(db);
     await service.evaluateAccountability({ sourceConnectionId: 'source-clickup-1', evaluationDate: '2026-06-05' });
-    expect(db.getRepository(ECOBASE_COLLECTIONS.alerts).all().filter((alert) => alert.status === 'open')).toHaveLength(3);
+    expect(
+      db
+        .getRepository(ECOBASE_COLLECTIONS.alerts)
+        .all()
+        .filter((alert) => alert.status === 'open'),
+    ).toHaveLength(3);
 
     taskRepo.create({
       values: {
@@ -190,6 +241,7 @@ describe('Ecobase accountability import and alert evaluation', () => {
         snapshotDate: '2026-06-06',
         externalTaskId: 'CU-1',
         taskName: 'Contact supplier',
+        title: 'Contact supplier',
         status: 'open',
         priority: 'high',
         assignee: 'Ops Owner',
@@ -199,8 +251,18 @@ describe('Ecobase accountability import and alert evaluation', () => {
     });
 
     await service.evaluateAccountability({ sourceConnectionId: 'source-clickup-1', evaluationDate: '2026-06-06' });
-    expect(db.getRepository(ECOBASE_COLLECTIONS.alerts).all().filter((alert) => alert.status === 'open')).toEqual([]);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.alerts).all().filter((alert) => alert.status === 'resolved')).toHaveLength(3);
+    expect(
+      db
+        .getRepository(ECOBASE_COLLECTIONS.alerts)
+        .all()
+        .filter((alert) => alert.status === 'open'),
+    ).toEqual([]);
+    expect(
+      db
+        .getRepository(ECOBASE_COLLECTIONS.alerts)
+        .all()
+        .filter((alert) => alert.status === 'resolved'),
+    ).toHaveLength(3);
   });
 
   it('exposes scheduled no-newer-data skips as source warnings', async () => {
@@ -250,7 +312,10 @@ describe('Ecobase accountability import and alert evaluation', () => {
       },
     });
 
-    const warnings = await new EcobaseDataWarningService(db).assessSourceConnection('source-clickup-scheduled', '2026-06-05');
+    const warnings = await new EcobaseDataWarningService(db).assessSourceConnection(
+      'source-clickup-scheduled',
+      '2026-06-05',
+    );
 
     expect(warnings.warnings.map((warning) => warning.code)).toContain('no_newer_data_skipped');
   });
@@ -278,7 +343,10 @@ describe('Ecobase accountability import and alert evaluation', () => {
     });
 
     expect(db.getRepository(ECOBASE_COLLECTIONS.sourceAccessAudits).all()).toHaveLength(1);
-    const warnings = await new EcobaseDataWarningService(db).assessSourceConnection('source-clickup-blocked', '2026-06-05');
+    const warnings = await new EcobaseDataWarningService(db).assessSourceConnection(
+      'source-clickup-blocked',
+      '2026-06-05',
+    );
     expect(warnings.warnings.map((warning) => warning.code)).toContain('credential_blocked');
   });
 });

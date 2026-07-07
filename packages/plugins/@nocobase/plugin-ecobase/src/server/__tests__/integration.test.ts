@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { createMockServer, MockServer } from '@nocobase/test';
 import { afterEach, describe, expect, it } from 'vitest';
 import PluginEcobaseServer from '..';
@@ -52,7 +61,7 @@ describe('Ecobase plugin NocoBase integration seam', () => {
     const agent = (await app.agent().login(user)).set('X-Role', 'admin');
 
     const companyId = '07a31b86-0ab3-4f54-9717-91500e78a7b2';
-    await app.db.getRepository(ECOBASE_COLLECTIONS.companies).create({
+    await app.db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
       values: { id: companyId, name: 'Workspace LLC', active: true },
     });
     const sourceConnectionId = '67a31b86-0ab3-4f54-9717-91500e78a7b2';
@@ -147,12 +156,17 @@ describe('Ecobase plugin NocoBase integration seam', () => {
     );
     const preview = await workspaceService.previewView({ viewKey: 'latest-products', filters: { sourceConnectionId } });
     expect(preview.rows).toEqual([expect.objectContaining({ company: 'Workspace LLC', canonicalAsin: 'B00REAL' })]);
-    const forbiddenRawCreate = await agent.resource(ECOBASE_COLLECTIONS.rawImportRows).create({
+    const forbiddenRawCreate = await agent.resource(ECOBASE_COLLECTIONS.bronzeSourceRecords).create({
       values: { id: 'blocked-raw-row', importRunId: runResponse.body.data.data.id, rowNumber: 1, payload: {} },
     });
     expect(forbiddenRawCreate.status).toBe(403);
     const forbiddenConfigCreate = await agent.resource(ECOBASE_COLLECTIONS.sourceConnections).create({
-      values: { id: '77a31b86-0ab3-4f54-9717-91500e78a7b2', name: 'Forbidden config', sourceType: 'noop_test', domain: 'foundation' },
+      values: {
+        id: '77a31b86-0ab3-4f54-9717-91500e78a7b2',
+        name: 'Forbidden config',
+        sourceType: 'noop_test',
+        domain: 'foundation',
+      },
     });
     expect(forbiddenConfigCreate.status).toBe(403);
   });
@@ -285,7 +299,9 @@ describe('Ecobase plugin NocoBase integration seam', () => {
     const targetProductId = adjustedMapping.planningProductId as string;
     expect(targetProductId).toEqual(expect.stringMatching(uuidPattern));
     expect(targetProductId).not.toBe(productId);
-    const targetProductData = await planningProductService.getPlanningProductData({ planningProductId: targetProductId });
+    const targetProductData = await planningProductService.getPlanningProductData({
+      planningProductId: targetProductId,
+    });
     expect(targetProductData).toMatchObject({
       product: expect.objectContaining({ id: targetProductId }),
       listings: [expect.objectContaining({ sku: 'FBA1935C9P1P.missing1', mappingMode: 'manual' })],

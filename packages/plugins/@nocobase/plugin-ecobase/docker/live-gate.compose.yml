@@ -43,6 +43,7 @@ services:
       DB_PASSWORD: nocobase
       INIT_ROOT_EMAIL: ${ECOBASE_LIVE_GATE_ADMIN_EMAIL:-admin@nocobase.com}
       INIT_ROOT_PASSWORD: ${ECOBASE_LIVE_GATE_ADMIN_PASSWORD:-admin123}
+      REQUEST_BODY_LIMIT: ${REQUEST_BODY_LIMIT:-50mb}
     volumes:
       - ./live-gate-startup.sh:/app/nocobase/storage/scripts/010-enable-ecobase.sh:ro
     ports:

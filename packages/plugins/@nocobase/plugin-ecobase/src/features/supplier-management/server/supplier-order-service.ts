@@ -10,6 +10,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import type { EcobaseDatabase, EcobaseRepository } from '../../source-import/server/import-service';
+import { silverSupplierOrderReadModel } from './silver-supplier-order-read-model';
 
 export const SUPPLIER_ORDER_STATUS_HELP = {
   draft: 'Order is being prepared. Supplier has not been contacted yet.',
@@ -615,70 +616,119 @@ export class EcobaseSupplierOrderService {
         activities: [],
         suppliers: [],
         leadTimes: [],
-        rawImportRows: [],
+        bronzeSourceRecords: [],
         dataWarnings: ['company_filter_required'],
       };
     }
-    const companyFilter = { company: filters.company };
     const requestedStatus = filters.status ? normalizeSupplierOrderStatus(filters.status) : undefined;
+    const companies = (await this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).find({ limit: 500 })).map(
+      toPlainRecord,
+    );
+    const companyId = asString(companies.find((company) => asString(company.name) === filters.company)?.id);
     const planningProducts = (
-      await this.db.getRepository(ECOBASE_COLLECTIONS.planningProducts).find({
-        filter: companyFilter,
-        sort: ['company', 'canonicalAsin'],
-        limit,
-      })
-    ).map(toPlainRecord);
-    const supplierOrders = (
-      await this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).find({
-        filter: companyFilter,
-        sort: ['-lastMeaningfulUpdateAt'],
+      await this.db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).find({
+        filter: { company: filters.company },
+        sort: ['company', 'asin'],
         limit,
       })
     )
       .map(toPlainRecord)
+      .map((row) => ({
+        ...row,
+        id: asString(row.companyProductId) ?? asString(row.planningProductId) ?? asString(row.id),
+        canonicalAsin: asString(row.asin),
+      }));
+    const silverOrders = await silverSupplierOrderReadModel(this.db, { company: filters.company, limit });
+    const supplierOrders = silverOrders.supplierOrders
       .map((order) => ({ ...order, status: normalizeSupplierOrderStatus(asString(order.status)) }))
       .filter((order) => !requestedStatus || asString(order.status) === requestedStatus);
-    const supplierOrderLines = (
-      await this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).find({
-        filter: companyFilter,
-        sort: ['-observedAt'],
-        limit: limit * 3,
+    const supplierOrderLines = silverOrders.supplierOrderLines;
+    const [
+      supplierAccounts,
+      silverSuppliers,
+      companyProducts,
+      silverProducts,
+      supplierProducts,
+      companyProductSuppliers,
+      activityComments,
+    ] = await Promise.all([
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverSupplierAccounts).find({ limit: limit * 3 }),
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).find({ limit: limit * 3 }),
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).find({ limit: limit * 4 }),
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverProducts).find({ limit: limit * 4 }),
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).find({ limit: limit * 4 }),
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductSuppliers).find({ limit: limit * 4 }),
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).find({ limit }),
+    ]).then((groups) => groups.map((group) => group.map(toPlainRecord)));
+    const supplierById = new Map(silverSuppliers.map((supplier) => [asString(supplier.id), supplier]));
+    const companyProductById = new Map(companyProducts.map((product) => [asString(product.id), product]));
+    const productById = new Map(silverProducts.map((product) => [asString(product.id), product]));
+    const supplierProductById = new Map(supplierProducts.map((product) => [asString(product.id), product]));
+    const supplierProductLinks = companyProductSuppliers
+      .map((link) => {
+        const companyProduct = companyProductById.get(asString(link.companyProductId));
+        if (companyId && asString(companyProduct?.companyId) !== companyId) return undefined;
+        const supplierProduct = supplierProductById.get(asString(link.supplierProductId));
+        const supplier = supplierById.get(asString(supplierProduct?.supplierId));
+        const product = productById.get(asString(companyProduct?.productId) ?? asString(supplierProduct?.productId));
+        return {
+          ...link,
+          company: filters.company,
+          planningProductId: asString(link.companyProductId),
+          supplierId: asString(supplierProduct?.supplierId),
+          supplierName: asString(supplier?.displayName),
+          role: asString(link.role),
+          active: true,
+          asin: asString(product?.asin),
+          sku: asString(product?.sku) ?? asString(supplierProduct?.supplierSku),
+        };
       })
-    ).map(toPlainRecord);
-    const supplierProductLinks = (
-      await this.db.getRepository(ECOBASE_COLLECTIONS.supplierProductLinks).find({
-        filter: companyFilter,
-        sort: ['company', 'role'],
-        limit: limit * 3,
+      .filter((link): link is PlainRecord => Boolean(link?.planningProductId));
+    const orderIds = new Set(supplierOrders.map((order) => asString(order.id)).filter(Boolean));
+    const activities = activityComments
+      .filter(
+        (comment) =>
+          asString(comment.entityType) === 'supplier_order' && orderIds.has(asString(comment.entityId) ?? ''),
+      )
+      .map((comment) => ({
+        ...comment,
+        company: filters.company,
+        supplierOrderId: asString(comment.entityId),
+        activityType: asString(comment.commentType),
+        notes: asString(comment.body),
+        occurredAt: asString(comment.createdAt) ?? asString(comment.updatedAt),
+      }));
+    const scopedSupplierIds = new Set(
+      [
+        ...supplierAccounts
+          .filter((account) => !companyId || asString(account.companyId) === companyId)
+          .map((account) => asString(account.supplierId)),
+        ...supplierOrders.map((order) => asString(order.supplierId)),
+        ...supplierProductLinks.map((link) => asString(link.supplierId)),
+      ].filter((id): id is string => Boolean(id)),
+    );
+    const suppliers = silverSuppliers
+      .filter((supplier) => scopedSupplierIds.has(asString(supplier.id) ?? ''))
+      .map((supplier) => ({ ...supplier, name: asString(supplier.displayName), company: filters.company }));
+    const leadTimes = supplierProductLinks
+      .map((link) => {
+        const supplierProduct = supplierProductById.get(asString(link.supplierProductId));
+        return {
+          id: asString(supplierProduct?.id),
+          company: filters.company,
+          supplierRefId: asString(supplierProduct?.supplierId),
+          supplierName: asString(link.supplierName),
+          planningProductId: asString(link.planningProductId),
+          asin: asString(link.asin),
+          sku: asString(link.sku),
+          scope: 'product',
+          leadTimeDays: asNumber(supplierProduct?.leadTimeDays),
+          confirmedAt: asString(supplierProduct?.updatedAt) ?? asString(supplierProduct?.createdAt),
+        };
       })
-    ).map(toPlainRecord);
-    const activities = (
-      await this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities).find({
-        filter: companyFilter,
-        sort: ['-occurredAt'],
-        limit,
-      })
-    ).map(toPlainRecord);
-    const suppliers = (
-      await this.db.getRepository(ECOBASE_COLLECTIONS.suppliers).find({
-        filter: companyFilter,
-        sort: ['company', 'name'],
-        limit: limit * 2,
-      })
-    ).map(toPlainRecord);
-    const leadTimes = (
-      await this.db.getRepository(ECOBASE_COLLECTIONS.supplierLeadTimes).find({
-        filter: companyFilter,
-        sort: ['-confirmedAt'],
-        limit: limit * 2,
-      })
-    ).map(toPlainRecord);
-    let rawImportRows: PlainRecord[];
+      .filter((leadTime) => typeof leadTime.leadTimeDays === 'number');
+    let bronzeSourceRecords: PlainRecord[];
     if (filters.company) {
-      const companies = (await this.db.getRepository(ECOBASE_COLLECTIONS.companies).find({ limit: 500 })).map(
-        toPlainRecord,
-      );
-      const companyId = asString(companies.find((company) => asString(company.name) === filters.company)?.id);
       const sourceConnections = (
         await this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).find({ limit: 500 })
       ).map(toPlainRecord);
@@ -700,14 +750,15 @@ export class EcobaseSupplierOrderService {
           .map((run) => asString(run.id))
           .filter((runId): runId is string => Boolean(runId)),
       );
-      rawImportRows = (
-        await this.db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).find({ sort: ['-rowNumber'], limit: 5000 })
+      bronzeSourceRecords = (
+        await this.db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).find({ sort: ['-rowNumber'], limit: 5000 })
       )
         .map(toPlainRecord)
         .filter((row) => importRunIds.has(String(row.importRunId ?? '')))
+        .map((row) => ({ ...row, normalizedStatus: row.normalizationStatus }))
         .slice(0, limit);
     } else {
-      rawImportRows = [];
+      bronzeSourceRecords = [];
     }
 
     const supplierNameById = new Map(
@@ -786,7 +837,7 @@ export class EcobaseSupplierOrderService {
       activities,
       suppliers,
       leadTimes,
-      rawImportRows,
+      bronzeSourceRecords,
     };
   }
 
@@ -816,50 +867,43 @@ export class EcobaseSupplierOrderService {
       throw new Error('Ecobase planned order failed: selected supplier must be chosen from the supplier lookup.');
     }
     const supplier = toPlainRecord(
-      await this.db.getRepository(ECOBASE_COLLECTIONS.suppliers).findOne({ filterByTk: supplierId }),
+      await this.db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).findOne({ filterByTk: supplierId }),
     );
     if (!asString(supplier.id)) {
       throw new Error(`Ecobase planned order failed: supplier "${supplierId}" was not found.`);
-    }
-    if (asString(supplier.company) && asString(supplier.company) !== params.company) {
-      throw new Error('Ecobase planned order failed: supplier belongs to a different company.');
-    }
-    const sourceConnectionId = asString(supplier.sourceConnectionId);
-    if (!sourceConnectionId) {
-      throw new Error('Ecobase planned order failed: supplier sourceConnectionId is required.');
     }
 
     const now = new Date().toISOString();
     const externalOrderRef =
       params.externalOrderRef ??
       `planned-${asString(planningProduct.canonicalAsin) ?? params.planningProductId}-${now}`;
-    const orderRepo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrders);
+    const orderRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverOrders);
     let order = toPlainRecord(
-      await orderRepo.findOne({ filter: { naturalKey: `supplier-order:${params.company}:${externalOrderRef}` } }),
+      await orderRepo.findOne({
+        filter: { companyId: asString(planningProduct.companyId), orderRef: externalOrderRef },
+      }),
     );
     if (!asString(order.id)) {
       order = toPlainRecord(
         await orderRepo.create({
           values: {
             id: randomUUID(),
-            naturalKey: `supplier-order:${params.company}:${externalOrderRef}`,
-            sourceConnectionId,
-            company: params.company,
+            companyId: asString(planningProduct.companyId),
             supplierId,
-            externalOrderRef,
-            sourceStage: 'manual',
-            status: 'draft',
-            statusSource: 'manual',
-            statusUpdatedAt: now,
-            lastMeaningfulUpdateAt: now,
-            lastOperatorEditAt: now,
-            lastOperatorActor: params.actor,
+            orderRef: externalOrderRef,
+            dailySequenceLetter: externalOrderRef,
+            orderIntent: 'manual',
+            lifecyclePhase: 'manual',
+            lifecycleStatus: 'draft',
+            canonicalStatus: 'draft',
+            statusSource: 'operator',
+            operatorStatusOverrideAt: now,
             orderDate: isoDate(now),
+            fulfillmentRoute: 'unknown',
             expectedDeliveryDate: params.expectedDeliveryDate
               ? requireIsoDate(params.expectedDeliveryDate, 'expectedDeliveryDate')
               : undefined,
-            expectedDeliveryDateSource: params.expectedDeliveryDate ? 'manual' : 'missing',
-            payload: { notes: params.notes },
+            remarks: params.notes,
           },
         }),
       );
@@ -895,52 +939,54 @@ export class EcobaseSupplierOrderService {
     }
 
     const order = toPlainRecord(
-      await this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).findOne({ filterByTk: params.supplierOrderId }),
+      await this.db.getRepository(ECOBASE_COLLECTIONS.silverOrders).findOne({ filterByTk: params.supplierOrderId }),
     );
     if (order.id === undefined || order.id === null) {
       throw new Error(`Ecobase supplier-order line create failed: order "${params.supplierOrderId}" was not found.`);
     }
     const product = await this.ensurePlanningProduct(
       params.planningProductId,
-      asString(order.company),
+      undefined,
       'Ecobase supplier-order line create failed',
     );
+    const supplierProductRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts);
+    let supplierProduct = toPlainRecord(
+      await supplierProductRepo.findOne({
+        filter: { supplierId: asString(order.supplierId), productId: asString(product.productId) },
+      }),
+    );
+    if (!asString(supplierProduct.id)) {
+      supplierProduct = toPlainRecord(
+        await supplierProductRepo.create({
+          values: {
+            id: randomUUID(),
+            supplierId: asString(order.supplierId),
+            productId: asString(product.productId),
+            unitCost: params.unitCost,
+            analysisStatus: 'manual',
+          },
+        }),
+      );
+    }
 
-    const now = new Date().toISOString();
-    const orderId = asString(order.id) ?? String(order.id);
-    const externalOrderRef = asString(order.externalOrderRef) ?? orderId;
-    const sourceOrderLineRef = `${externalOrderRef}:manual:${randomUUID()}`;
     const values: PlainRecord = {
       id: randomUUID(),
-      naturalKey: supplierOrderLineNaturalKey(asString(order.naturalKey) ?? orderId, sourceOrderLineRef),
-      supplierOrderId: order.id,
-      company: order.company,
-      supplierId: order.supplierId,
-      planningProductId: asString(product.id),
-      asin: asString(product.canonicalAsin),
+      orderId: order.id,
+      companyProductId: asString(product.id),
+      supplierProductId: asString(supplierProduct.id),
       orderedQty: params.orderedQty,
-      receivedQty: 0,
-      receivedQtySource: 'manual',
+      confirmedQty: 0,
+      unitCost: params.unitCost,
       expectedDeliveryDate: params.expectedDeliveryDate
         ? requireIsoDate(params.expectedDeliveryDate, 'expectedDeliveryDate')
         : undefined,
       expectedSellableDate: params.expectedSellableDate
         ? requireIsoDate(params.expectedSellableDate, 'expectedSellableDate')
         : undefined,
-      expectedSellableDateSource: params.expectedSellableDate ? 'manual' : 'missing',
-      expectedSellableDateEvidence: params.expectedSellableDate ? { source: 'operator', actor: params.actor } : {},
-      expectedSellableDateDerivedAt: params.expectedSellableDate ? now : undefined,
-      lastOperatorEditAt: now,
-      lastOperatorActor: params.actor,
-      unitCost: params.unitCost,
-      sourceOrderLineRef,
-      sourceStage: 'manual',
-      observedAt: now,
-      unresolvedMapping: false,
-      payload: { notes: params.notes },
+      productAnalysisStatus: 'manual',
     };
 
-    return this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).create({ values });
+    return this.db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({ values });
   }
 
   async applyImportRecord(
@@ -1022,21 +1068,8 @@ export class EcobaseSupplierOrderService {
     return { handled: false, warnings: [] };
   }
 
-  async reconcileAfterImport(importRunId: string) {
-    const orderLineRepo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines);
-    const importedLines = (await orderLineRepo.find({ filter: { lastImportRunId: importRunId } })).map(toPlainRecord);
-    const affectedPlanningProductIds = new Set<string>();
-
-    importedLines.forEach((line) => {
-      const planningProductId = asString(line.planningProductId);
-      if (planningProductId) {
-        affectedPlanningProductIds.add(planningProductId);
-      }
-    });
-
-    for (const planningProductId of affectedPlanningProductIds) {
-      await this.refreshSupplierProductLinks(planningProductId);
-    }
+  async reconcileAfterImport(_importRunId: string) {
+    return undefined;
   }
 
   async updateOrderOperatorFields(params: UpdateSupplierOrderOperatorFieldsParams) {
@@ -1063,9 +1096,9 @@ export class EcobaseSupplierOrderService {
       );
     }
 
-    const orderRepo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrders);
-    const existing = toPlainRecord(await orderRepo.findOne({ filterByTk: params.supplierOrderId }));
-    if (existing.id === undefined || existing.id === null) {
+    const orderRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverOrders);
+    const existing = await this.findSupplierOrder(params.supplierOrderId);
+    if (!existing) {
       throw new Error(`Ecobase supplier-order update failed: order "${params.supplierOrderId}" was not found.`);
     }
     if (asString(existing.company) !== params.company) {
@@ -1077,46 +1110,43 @@ export class EcobaseSupplierOrderService {
         throw new Error('Ecobase supplier-order update failed: supplierId cannot be empty.');
       }
       supplier = toPlainRecord(
-        await this.db.getRepository(ECOBASE_COLLECTIONS.suppliers).findOne({ filterByTk: params.supplierId }),
+        await this.db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).findOne({ filterByTk: params.supplierId }),
       );
       if (!asString(supplier.id)) {
         throw new Error(`Ecobase supplier-order update failed: supplier "${params.supplierId}" was not found.`);
-      }
-      if (asString(supplier.company) !== params.company) {
-        throw new Error('Ecobase supplier-order update failed: supplier belongs to a different company.');
       }
     }
 
     const editedAt = new Date().toISOString();
     const values: PlainRecord = {
-      lastOperatorEditAt: editedAt,
-      lastOperatorActor: params.actor,
-      lastMeaningfulUpdateAt: editedAt,
+      operatorStatusOverrideAt: editedAt,
     };
     if (params.supplierId !== undefined) {
       values.supplierId = params.supplierId;
-      values.supplierName = asString(supplier.name) ?? asString(supplier.supplierId);
     }
     if (params.externalOrderRef !== undefined) {
-      values.externalOrderRef = params.externalOrderRef;
+      values.orderRef = params.externalOrderRef;
     }
     if (params.orderDate !== undefined) {
       values.orderDate = requireIsoDate(params.orderDate, 'orderDate');
     }
     if (params.status) {
-      values.status = validateSupplierOrderStatus(params.status);
-      values.statusSource = 'manual';
-      values.statusUpdatedAt = editedAt;
+      const status = validateSupplierOrderStatus(params.status);
+      values.canonicalStatus = status;
+      values.lifecycleStatus = status;
+      values.statusSource = 'operator';
     }
     if (params.expectedDeliveryDate) {
       values.expectedDeliveryDate = requireIsoDate(params.expectedDeliveryDate, 'expectedDeliveryDate');
-      values.expectedDeliveryDateSource = 'manual';
     }
     if (params.approvalStatus) {
-      values.approvalStatus = params.approvalStatus;
+      values.statusEvidenceJson = {
+        ...toPlainRecord(values.statusEvidenceJson),
+        approvalStatus: params.approvalStatus,
+      };
     }
     if (params.paymentStatus) {
-      values.paymentStatus = params.paymentStatus;
+      values.statusEvidenceJson = { ...toPlainRecord(values.statusEvidenceJson), paymentStatus: params.paymentStatus };
     }
     if (params.shippingCarrier) {
       values.shippingCarrier = params.shippingCarrier;
@@ -1125,17 +1155,11 @@ export class EcobaseSupplierOrderService {
       values.trackingId = params.trackingId;
     }
     if (params.blockedReason) {
-      values.blockedReason = params.blockedReason;
+      values.remarks = params.blockedReason;
     }
 
     await orderRepo.update({ filterByTk: params.supplierOrderId, values });
-    if (params.supplierId !== undefined) {
-      await this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).update({
-        filter: { supplierOrderId: params.supplierOrderId },
-        values: { supplierId: params.supplierId, lastOperatorEditAt: editedAt, lastOperatorActor: params.actor },
-      });
-    }
-    return orderRepo.findOne({ filterByTk: params.supplierOrderId });
+    return this.findSupplierOrder(params.supplierOrderId);
   }
 
   async updateLineOperatorFields(params: UpdateSupplierOrderLineOperatorFieldsParams) {
@@ -1160,25 +1184,17 @@ export class EcobaseSupplierOrderService {
       );
     }
 
-    const lineRepo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines);
-    const existing = toPlainRecord(await lineRepo.findOne({ filterByTk: params.supplierOrderLineId }));
-    if (existing.id === undefined || existing.id === null) {
+    const lineRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines);
+    const readModel = await silverSupplierOrderReadModel(this.db, { company: params.company, limit: 10000 });
+    const existing = readModel.supplierOrderLines.find((line) => asString(line.id) === params.supplierOrderLineId);
+    if (!existing) {
       throw new Error(`Ecobase supplier-order line update failed: line "${params.supplierOrderLineId}" was not found.`);
     }
-    if (asString(existing.company) !== params.company) {
-      throw new Error('Ecobase supplier-order line update failed: line belongs to a different company.');
-    }
-    const order = await this.findSupplierOrder((existing.supplierOrderId as string | number | undefined) ?? '');
+    const order = readModel.supplierOrders.find(
+      (candidate) => asString(candidate.id) === asString(existing.supplierOrderId),
+    );
     if (!order) {
       throw new Error('Ecobase supplier-order line update failed: parent order was not found.');
-    }
-    if (asString(order.company) !== params.company) {
-      throw new Error('Ecobase supplier-order line update failed: parent order belongs to a different company.');
-    }
-    const lineSupplierId = asString(existing.supplierId);
-    const orderSupplierId = asString(order.supplierId);
-    if (lineSupplierId && orderSupplierId && lineSupplierId !== orderSupplierId) {
-      throw new Error('Ecobase supplier-order line update failed: line supplier does not match parent order supplier.');
     }
 
     const editedAt = new Date().toISOString();
@@ -1187,41 +1203,53 @@ export class EcobaseSupplierOrderService {
       if (!externalOrderRef) {
         throw new Error('Ecobase supplier-order line update failed: externalOrderRef must not be empty.');
       }
-      const naturalKey = `supplier-order:${params.company}:${externalOrderRef}`;
-      const duplicate = toPlainRecord(
-        await this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).findOne({ filter: { naturalKey } }),
+      const duplicate = readModel.supplierOrders.find(
+        (candidate) =>
+          asString(candidate.company) === params.company &&
+          asString(candidate.externalOrderRef) === externalOrderRef &&
+          asString(candidate.id) !== asString(order.id),
       );
-      if (duplicate.id !== undefined && duplicate.id !== null && String(duplicate.id) !== String(order.id)) {
+      if (duplicate) {
         throw new Error(
           `Ecobase supplier-order line update failed: supplier order "${externalOrderRef}" already exists for ${params.company}.`,
         );
       }
-      await this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).update({
-        filterByTk: existing.supplierOrderId as string | number,
+      await this.db.getRepository(ECOBASE_COLLECTIONS.silverOrders).update({
+        filterByTk: asString(order.id) as string,
         values: {
-          externalOrderRef,
-          naturalKey,
-          lastOperatorEditAt: editedAt,
-          lastOperatorActor: params.actor,
-          lastMeaningfulUpdateAt: editedAt,
+          orderRef: externalOrderRef,
+          operatorStatusOverrideAt: editedAt,
         },
       });
     }
 
-    const values: PlainRecord = {
-      lastOperatorEditAt: editedAt,
-      lastOperatorActor: params.actor,
-    };
+    const values: PlainRecord = {};
     if (params.planningProductId) {
       const product = await this.ensurePlanningProduct(
         params.planningProductId,
         asString(existing.company),
         'Ecobase supplier-order line update failed',
       );
-      values.planningProductId = asString(product.id);
-      values.asin = asString(product.canonicalAsin);
-      values.unresolvedMapping = false;
-      values.mappingWarning = null;
+      values.companyProductId = asString(product.id);
+      const supplierProductRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts);
+      let supplierProduct = toPlainRecord(
+        await supplierProductRepo.findOne({
+          filter: { supplierId: asString(order.supplierId), productId: asString(product.productId) },
+        }),
+      );
+      if (!asString(supplierProduct.id)) {
+        supplierProduct = toPlainRecord(
+          await supplierProductRepo.create({
+            values: {
+              id: randomUUID(),
+              supplierId: asString(order.supplierId),
+              productId: asString(product.productId),
+              analysisStatus: 'manual',
+            },
+          }),
+        );
+      }
+      values.supplierProductId = asString(supplierProduct.id);
     }
     if (params.orderedQty !== undefined) {
       if (!Number.isFinite(params.orderedQty) || params.orderedQty <= 0) {
@@ -1233,8 +1261,7 @@ export class EcobaseSupplierOrderService {
       if (!Number.isFinite(params.receivedQty) || params.receivedQty < 0) {
         throw new Error('Ecobase supplier-order line update failed: receivedQty must be zero or greater.');
       }
-      values.receivedQty = params.receivedQty;
-      values.receivedQtySource = 'manual';
+      values.confirmedQty = params.receivedQty;
     }
     if (params.unitCost !== undefined) {
       if (!Number.isFinite(params.unitCost) || params.unitCost < 0) {
@@ -1247,19 +1274,17 @@ export class EcobaseSupplierOrderService {
     }
     if (params.expectedSellableDate) {
       values.expectedSellableDate = requireIsoDate(params.expectedSellableDate, 'expectedSellableDate');
-      values.expectedSellableDateSource = 'manual';
-      values.expectedSellableDateEvidence = {
-        source: 'operator',
-        actor: params.actor,
-      };
-      values.expectedSellableDateDerivedAt = new Date();
+      values.prepInstruction = `manual_expected_sellable:${params.actor ?? 'operator'}`;
     }
     if (params.notes) {
-      values.payload = { ...toPlainRecord(existing.payload), notes: params.notes };
+      const currentInstruction = asString(values.prepInstruction);
+      values.prepInstruction = currentInstruction ? `${currentInstruction}\n${params.notes}` : params.notes;
     }
 
     await lineRepo.update({ filterByTk: params.supplierOrderLineId, values });
-    return lineRepo.findOne({ filterByTk: params.supplierOrderLineId });
+    return (
+      await silverSupplierOrderReadModel(this.db, { company: params.company, limit: 10000 })
+    ).supplierOrderLines.find((line) => asString(line.id) === params.supplierOrderLineId);
   }
 
   async deleteLineOperatorFields(params: DeleteSupplierOrderLineOperatorFieldsParams) {
@@ -1270,20 +1295,13 @@ export class EcobaseSupplierOrderService {
       throw new Error('Ecobase supplier-order line delete failed: company is required.');
     }
 
-    const lineRepo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines);
-    const existing = toPlainRecord(await lineRepo.findOne({ filterByTk: params.supplierOrderLineId }));
-    if (existing.id === undefined || existing.id === null) {
+    const lineRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines);
+    const readModel = await silverSupplierOrderReadModel(this.db, { company: params.company, limit: 10000 });
+    const existing = readModel.supplierOrderLines.find(
+      (line) => asString(line.id) === String(params.supplierOrderLineId),
+    );
+    if (!existing) {
       throw new Error(`Ecobase supplier-order line delete failed: line "${params.supplierOrderLineId}" was not found.`);
-    }
-    if (asString(existing.company) !== params.company) {
-      throw new Error('Ecobase supplier-order line delete failed: line belongs to a different company.');
-    }
-    const order = await this.findSupplierOrder((existing.supplierOrderId as string | number | undefined) ?? '');
-    if (!order) {
-      throw new Error('Ecobase supplier-order line delete failed: parent order was not found.');
-    }
-    if (asString(order.company) !== params.company) {
-      throw new Error('Ecobase supplier-order line delete failed: parent order belongs to a different company.');
     }
 
     await (
@@ -1308,13 +1326,10 @@ export class EcobaseSupplierOrderService {
       throw new Error('Ecobase supplier-order activity failed: leadTimeDays is required for lead_time_checked.');
     }
     const supplier = toPlainRecord(
-      await this.db.getRepository(ECOBASE_COLLECTIONS.suppliers).findOne({ filterByTk: params.supplierId }),
+      await this.db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).findOne({ filterByTk: params.supplierId }),
     );
     if (!asString(supplier.id)) {
       throw new Error(`Ecobase supplier-order activity failed: supplier "${params.supplierId}" was not found.`);
-    }
-    if (asString(supplier.company) !== params.company) {
-      throw new Error('Ecobase supplier-order activity failed: supplier belongs to a different company.');
     }
     if (params.supplierOrderId) {
       const order = await this.findSupplierOrder(params.supplierOrderId);
@@ -1324,58 +1339,48 @@ export class EcobaseSupplierOrderService {
       if (asString(order.company) !== params.company) {
         throw new Error('Ecobase supplier-order activity failed: order belongs to a different company.');
       }
-      if (asString(order.supplierId) && asString(order.supplierId) !== params.supplierId) {
+      if (
+        asString(order.supplierId) &&
+        asString(order.supplierId) !== params.supplierId &&
+        asString(order.supplierName) !== asString(supplier.displayName)
+      ) {
         throw new Error('Ecobase supplier-order activity failed: order belongs to a different supplier.');
       }
     }
 
-    const activityRepo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities);
+    const activityRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments);
     const occurredAt = maybeIsoDateTime(params.occurredAt) ?? new Date().toISOString();
-    const naturalKey = [
-      params.company,
-      params.supplierId,
-      params.supplierOrderId ?? 'supplier',
-      activityType,
-      occurredAt,
-      params.notes ?? '',
-    ].join(':');
-
-    const existing = await activityRepo.findOne({ filter: { naturalKey } });
     const values = {
-      naturalKey,
-      supplierOrderId: params.supplierOrderId,
-      supplierId: params.supplierId,
-      company: params.company,
-      activityType,
-      occurredAt,
-      actor: params.actor,
+      id: randomUUID(),
+      entityType: params.supplierOrderId ? 'supplier_order' : 'supplier',
+      entityId: params.supplierOrderId ?? params.supplierId,
+      actorType: params.actorUserId ? 'user' : 'operator',
       actorUserId: params.actorUserId,
-      notes: params.notes,
-      nextFollowUpAt: maybeIsoDateTime(params.nextFollowUpAt),
-      leadTimeDays,
-      source: params.source ?? 'manual',
-      payload: {},
+      commentType: activityType,
+      body: params.notes ?? activityType,
+      followUpAt: maybeIsoDateTime(params.nextFollowUpAt),
+      contextSnapshotJson: {
+        company: params.company,
+        supplierId: params.supplierId,
+        supplierOrderId: params.supplierOrderId,
+        occurredAt,
+        leadTimeDays,
+        source: params.source ?? 'manual',
+        actor: params.actor,
+      },
     };
 
-    let record: unknown;
-    const existingActivityId = asString(toPlainRecord(existing).id);
-    if (existingActivityId) {
-      await activityRepo.update({ filterByTk: existingActivityId, values });
-      record = await activityRepo.findOne({ filterByTk: existingActivityId });
-    } else {
-      record = await activityRepo.create({ values: { id: randomUUID(), ...values } });
-    }
+    const record = await activityRepo.create({ values });
 
     if (activityType === 'contacted_supplier') {
       const supplierValues: Record<string, unknown> = {
         lastContactedAt: occurredAt,
-        contactEstablished: params.contactEstablished !== false,
         approvalStatus: 'contacting',
       };
       const nextFollowUpAt = maybeIsoDateTime(params.nextFollowUpAt);
       if (nextFollowUpAt) supplierValues.nextFollowUpAt = nextFollowUpAt;
       await this.db
-        .getRepository(ECOBASE_COLLECTIONS.suppliers)
+        .getRepository(ECOBASE_COLLECTIONS.silverSuppliers)
         .update({ filterByTk: params.supplierId, values: supplierValues });
     }
 
@@ -1383,9 +1388,9 @@ export class EcobaseSupplierOrderService {
       await this.upsertLeadTime({
         supplierId: params.supplierId,
         company: params.company,
-        supplierName: asString(supplier.name) ?? '(unknown supplier)',
-        externalSupplierCode: asString(supplier.supplierId),
-        sourceConnectionId: asString(supplier.sourceConnectionId) ?? 'manual',
+        supplierName: asString(supplier.displayName) ?? '(unknown supplier)',
+        externalSupplierCode: asString(supplier.normalizedName),
+        sourceConnectionId: 'manual',
         source: 'manual',
         leadTimeDays,
         confirmedAt: occurredAt,
@@ -1405,37 +1410,35 @@ export class EcobaseSupplierOrderService {
     const now = new Date().toISOString();
     const payload = toPlainRecord(activity.payload);
     const editHistory = Array.isArray(payload.editHistory) ? payload.editHistory : [];
-    await this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities).update({
+    await this.db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).update({
       filterByTk: params.activityId,
       values: {
-        notes,
-        editedAt: now,
-        editedById: params.actorUserId,
-        payload: {
+        body: notes,
+        contextSnapshotJson: {
           ...payload,
           editHistory: [
             ...editHistory,
-            { notes: asString(activity.notes) ?? '', editedAt: now, editedById: params.actorUserId },
+            { notes: asString(activity.body) ?? '', editedAt: now, editedById: params.actorUserId },
           ],
         },
       },
     });
     return toPlainRecord(
       await this.db
-        .getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities)
+        .getRepository(ECOBASE_COLLECTIONS.silverActivityComments)
         .findOne({ filterByTk: params.activityId }),
     );
   }
 
   async deleteActivityComment(params: DeleteSupplierOrderActivityCommentParams) {
     await this.editableManualComment(params.activityId, params.company, 'delete');
-    await this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities).update({
+    await this.db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).update({
       filterByTk: params.activityId,
-      values: { deletedAt: new Date().toISOString(), deletedById: params.actorUserId },
+      values: { deletedAt: new Date().toISOString(), deletedByUserId: params.actorUserId },
     });
     return toPlainRecord(
       await this.db
-        .getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities)
+        .getRepository(ECOBASE_COLLECTIONS.silverActivityComments)
         .findOne({ filterByTk: params.activityId }),
     );
   }
@@ -1453,13 +1456,10 @@ export class EcobaseSupplierOrderService {
     }
 
     const supplier = toPlainRecord(
-      await this.db.getRepository(ECOBASE_COLLECTIONS.suppliers).findOne({ filterByTk: params.supplierId }),
+      await this.db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).findOne({ filterByTk: params.supplierId }),
     );
     if (!asString(supplier.id)) {
       throw new Error(`Ecobase supplier lead-time update failed: supplier "${params.supplierId}" was not found.`);
-    }
-    if (asString(supplier.company) !== params.company) {
-      throw new Error('Ecobase supplier lead-time update failed: supplier belongs to a different company.');
     }
 
     let product: PlainRecord = {};
@@ -1476,9 +1476,9 @@ export class EcobaseSupplierOrderService {
     await this.upsertLeadTime({
       supplierId: params.supplierId,
       company: params.company,
-      supplierName: asString(supplier.name),
-      externalSupplierCode: asString(supplier.supplierId),
-      sourceConnectionId: asString(supplier.sourceConnectionId) ?? 'manual',
+      supplierName: asString(supplier.displayName),
+      externalSupplierCode: asString(supplier.normalizedName),
+      sourceConnectionId: 'manual',
       source: 'manual',
       leadTimeDays,
       confirmedAt: confirmedAt ?? new Date().toISOString(),
@@ -1492,26 +1492,21 @@ export class EcobaseSupplierOrderService {
       },
     });
 
-    return this.db.getRepository(ECOBASE_COLLECTIONS.supplierLeadTimes).findOne({
-      filter: {
-        naturalKey: this.leadTimeNaturalKey({
-          company: params.company,
-          supplierId: params.supplierId,
-          planningProductId: leadTimePlanningProductId,
-          asin: params.asin ?? asString(product.canonicalAsin),
-          sku: params.sku,
-        }),
-      },
+    return this.db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).findOne({
+      filter: { supplierId: params.supplierId, productId: asString(product.productId) },
     });
   }
 
   async getCoverage(planningProductId: string, projectedStockoutDate?: string): Promise<SupplierOrderCoverageView> {
-    const lineRepo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines);
-    const lines = (await lineRepo.find({ filter: { planningProductId } })).map(toPlainRecord);
+    const silverOrders = await silverSupplierOrderReadModel(this.db, { limit: 10000 });
+    const ordersById = new Map(silverOrders.supplierOrders.map((order) => [asString(order.id), order]));
+    const lines = silverOrders.supplierOrderLines.filter(
+      (line) => asString(line.planningProductId) === planningProductId,
+    );
     const coverageLines: SupplierOrderCoverageLine[] = [];
 
     for (const line of lines) {
-      const order = await this.findSupplierOrder(asString(line.supplierOrderId) ?? '');
+      const order = ordersById.get(asString(line.supplierOrderId));
       if (!order) {
         continue;
       }
@@ -1742,7 +1737,7 @@ export class EcobaseSupplierOrderService {
       },
       importRunId,
     );
-    const resolvedSupplierName = asString(supplier.name) ?? record.supplierName;
+    const resolvedSupplierName = asString(supplier.displayName) ?? record.supplierName;
     const supplierId = asString(supplier.id);
     if (!supplierId) {
       return {
@@ -1769,9 +1764,20 @@ export class EcobaseSupplierOrderService {
       };
     }
 
-    const orderRepo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrders);
+    const company = toPlainRecord(
+      await this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).findOne({ filter: { name: record.company } }),
+    );
+    const companyId = asString(company.id);
+    if (!companyId) {
+      throw new Error(
+        `Ecobase supplier order import failed: company "${record.company}" was not found in silverCompanies.`,
+      );
+    }
+    const orderRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverOrders);
     const orderNaturalKey = `supplier-order:${record.company}:${record.externalOrderRef}`;
-    const existingOrder = toPlainRecord(await orderRepo.findOne({ filter: { naturalKey: orderNaturalKey } }));
+    const existingOrder = toPlainRecord(
+      await orderRepo.findOne({ filter: { companyId, orderRef: record.externalOrderRef } }),
+    );
     const existingOrderId = asString(existingOrder.id);
     const importedStatusUpdatedAt =
       record.statusUpdatedAt ??
@@ -1779,39 +1785,36 @@ export class EcobaseSupplierOrderService {
       `${record.orderDate ?? isoDate(new Date())}T00:00:00.000Z`;
 
     const orderValues: PlainRecord = {
-      naturalKey: orderNaturalKey,
-      sourceConnectionId: record.sourceConnectionId,
-      company: record.company,
+      companyId,
       supplierId,
-      externalOrderRef: record.externalOrderRef,
-      sourceStage: chooseStage(asString(existingOrder.sourceStage), record.sourceStage),
-      approvalStatus: record.approvalStatus,
-      paymentStatus: record.paymentStatus,
+      orderRef: record.externalOrderRef,
+      orderDate: record.orderDate ?? isoDate(new Date()),
+      dailySequenceLetter: record.externalOrderRef,
+      orderIntent: record.sourceStage,
+      fulfillmentRoute: 'unknown',
+      expectedDeliveryDate: record.expectedDeliveryDate,
       shippingCarrier: record.shippingCarrier,
       trackingId: record.trackingId,
-      orderDate: record.orderDate,
-      lastMeaningfulUpdateAt: maxIsoDate([
-        asString(existingOrder.lastMeaningfulUpdateAt),
-        record.lastMeaningfulUpdateAt,
-        importedStatusUpdatedAt,
-      ]),
-      payload: record.payload ?? {},
-      lastImportRunId: importRunId,
+      remarks: record.blockedReason,
+      statusEvidenceJson: {
+        approvalStatus: record.approvalStatus,
+        paymentStatus: record.paymentStatus,
+        sourceConnectionId: record.sourceConnectionId,
+        sourceStage: chooseStage(asString(existingOrder.orderIntent), record.sourceStage),
+        payload: record.payload ?? {},
+        lastImportRunId: importRunId,
+        lastMeaningfulUpdateAt: maxIsoDate([
+          asString(toPlainRecord(existingOrder.statusEvidenceJson).lastMeaningfulUpdateAt),
+          record.lastMeaningfulUpdateAt,
+          importedStatusUpdatedAt,
+        ]),
+      },
     };
 
-    if (asString(existingOrder.statusSource) !== 'manual' || !asString(existingOrder.lastOperatorEditAt)) {
-      orderValues.status = record.status;
+    if (asString(existingOrder.statusSource) !== 'operator' || !asString(existingOrder.operatorStatusOverrideAt)) {
+      orderValues.canonicalStatus = record.status;
+      orderValues.lifecycleStatus = record.status;
       orderValues.statusSource = 'import';
-      orderValues.statusUpdatedAt = importedStatusUpdatedAt;
-      orderValues.blockedReason = record.blockedReason;
-    }
-
-    if (
-      asString(existingOrder.expectedDeliveryDateSource) !== 'manual' ||
-      !asString(existingOrder.lastOperatorEditAt)
-    ) {
-      orderValues.expectedDeliveryDate = record.expectedDeliveryDate;
-      orderValues.expectedDeliveryDateSource = record.expectedDeliveryDate ? 'import' : 'missing';
     }
 
     let persistedOrder: unknown;
@@ -1823,14 +1826,21 @@ export class EcobaseSupplierOrderService {
         values: {
           id: randomUUID(),
           ...orderValues,
-          status: record.status,
+          canonicalStatus: record.status,
+          lifecycleStatus: record.status,
           statusSource: 'import',
-          statusUpdatedAt: importedStatusUpdatedAt,
-          expectedDeliveryDateSource: record.expectedDeliveryDate ? 'import' : 'missing',
         },
       });
     }
-    const order = toPlainRecord(persistedOrder);
+    const order = {
+      ...toPlainRecord(persistedOrder),
+      naturalKey: orderNaturalKey,
+      company: record.company,
+      supplierId,
+      externalOrderRef: record.externalOrderRef,
+      status: record.status,
+      sourceStage: record.sourceStage,
+    };
     const orderId = asString(order.id);
     if (!orderId) {
       throw new Error(`Ecobase supplier order import failed: order "${orderNaturalKey}" was saved without an id.`);
@@ -1884,15 +1894,7 @@ export class EcobaseSupplierOrderService {
     sourceStage: SupplierOrderRecord['sourceStage'];
     line: SupplierOrderLineImport;
   }) {
-    const lineRepo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines);
-    const existing = toPlainRecord(
-      await lineRepo.findOne({
-        filter: {
-          naturalKey: supplierOrderLineNaturalKey(asString(params.order.naturalKey), params.line.sourceOrderLineRef),
-        },
-      }),
-    );
-    const lineId = asString(existing.id);
+    const lineRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines);
     const resolved = await this.resolvePlanningProduct({
       company: params.company,
       asin: params.line.asin,
@@ -1903,31 +1905,55 @@ export class EcobaseSupplierOrderService {
       warnings.push(resolved.warning);
     }
 
-    const baseValues: PlainRecord = {
-      naturalKey: supplierOrderLineNaturalKey(asString(params.order.naturalKey), params.line.sourceOrderLineRef),
-      supplierOrderId: asString(params.order.id),
-      company: params.company,
-      supplierId: params.supplierId,
-      planningProductId: resolved.planningProductId,
-      asin: params.line.asin,
-      sku: params.line.sku,
-      brand: params.line.brand,
-      orderedQty: params.line.orderedQty,
-      expectedDeliveryDate: params.line.expectedDeliveryDate ?? asString(params.order.expectedDeliveryDate),
-      unitCost: params.line.unitCost,
-      sourceOrderLineRef: params.line.sourceOrderLineRef,
-      sourceStage: params.sourceStage,
-      observedAt: params.line.observedAt,
-      unresolvedMapping: !resolved.planningProductId,
-      mappingWarning: resolved.warning?.message,
-      payload: params.line.payload ?? {},
-      lastImportRunId: params.importRunId,
-    };
-
-    if (asString(existing.receivedQtySource) !== 'manual' || !asString(existing.lastOperatorEditAt)) {
-      baseValues.receivedQty = params.line.receivedQty ?? 0;
-      baseValues.receivedQtySource = 'import';
+    const companyProduct = resolved.planningProductId
+      ? await this.ensurePlanningProduct(
+          resolved.planningProductId,
+          params.company,
+          'Ecobase supplier-order import failed',
+        )
+      : {};
+    const supplierProductRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts);
+    let supplierProduct = toPlainRecord(
+      await supplierProductRepo.findOne({
+        filter: { supplierId: params.supplierId, productId: asString(companyProduct.productId) },
+      }),
+    );
+    if (asString(companyProduct.productId) && !asString(supplierProduct.id)) {
+      supplierProduct = toPlainRecord(
+        await supplierProductRepo.create({
+          values: {
+            id: randomUUID(),
+            supplierId: params.supplierId,
+            productId: asString(companyProduct.productId),
+            supplierSku: params.line.sku,
+            unitCost: params.line.unitCost,
+            leadTimeDays: params.line.leadTimeDays,
+            analysisStatus: 'imported',
+          },
+        }),
+      );
     }
+    const existing = resolved.planningProductId
+      ? toPlainRecord(
+          await lineRepo.findOne({
+            filter: { orderId: asString(params.order.id), companyProductId: resolved.planningProductId },
+          }),
+        )
+      : {};
+    const lineId = asString(existing.id);
+    const baseValues: PlainRecord = {
+      orderId: asString(params.order.id),
+      companyProductId: resolved.planningProductId,
+      supplierProductId: asString(supplierProduct.id),
+      orderedQty: params.line.orderedQty,
+      confirmedQty: params.line.receivedQty ?? 0,
+      expectedDeliveryDate: params.line.expectedDeliveryDate ?? asString(params.order.expectedDeliveryDate),
+      expectedSellableDate: params.line.expectedSellableDate,
+      unitCost: params.line.unitCost,
+      productAnalysisStatus: resolved.planningProductId ? 'imported' : 'mapping_missing',
+      priority: params.sourceStage,
+      prepInstruction: resolved.warning?.message,
+    };
 
     let persisted: unknown;
     if (lineId) {
@@ -1938,8 +1964,6 @@ export class EcobaseSupplierOrderService {
         values: {
           id: randomUUID(),
           ...baseValues,
-          receivedQty: params.line.receivedQty ?? 0,
-          receivedQtySource: 'import',
         },
       });
     }
@@ -1969,7 +1993,11 @@ export class EcobaseSupplierOrderService {
     const prepBufferDays = await this.getPrepBufferDays(company);
     const existingSource = asString(line.expectedSellableDateSource);
     const existingOperatorEditAt = asString(line.lastOperatorEditAt);
-    if (existingSource === 'manual' && existingOperatorEditAt) {
+    const prepInstruction = asString(line.prepInstruction);
+    if (
+      (existingSource === 'manual' && existingOperatorEditAt) ||
+      prepInstruction?.startsWith('manual_expected_sellable:')
+    ) {
       return { values: {}, warning: undefined };
     }
 
@@ -1982,13 +2010,6 @@ export class EcobaseSupplierOrderService {
       return {
         values: {
           expectedSellableDate: importedExpectedSellableDate,
-          expectedSellableDateSource: params.importedLine?.expectedSellableDateSource ?? 'imported_arrival',
-          expectedSellableDateEvidence: {
-            precedence: 2,
-            sourceOrderLineRef: asString(line.sourceOrderLineRef),
-            importedExpectedSellableDate,
-          },
-          expectedSellableDateDerivedAt: new Date(),
         },
         warning: undefined,
       };
@@ -1999,14 +2020,7 @@ export class EcobaseSupplierOrderService {
       return {
         values: {
           expectedSellableDate: addDays(expectedDeliveryDate, prepBufferDays),
-          expectedSellableDateSource: 'po_delivery_plus_prep_buffer',
-          expectedSellableDateEvidence: {
-            precedence: 3,
-            expectedDeliveryDate,
-            prepBufferDays,
-            supplierOrderId: asString(order.id),
-          },
-          expectedSellableDateDerivedAt: new Date(),
+          prepInstruction: `Expected sellable = delivery date + ${prepBufferDays} prep days`,
         },
         warning: undefined,
       };
@@ -2018,7 +2032,7 @@ export class EcobaseSupplierOrderService {
         supplierId: asString(line.supplierId) ?? asString(order.supplierId),
         company,
         externalSupplierCode: undefined,
-        planningProductId: asString(line.planningProductId),
+        planningProductId: asString(line.companyProductId) ?? asString(line.planningProductId),
       }));
     if (typeof leadTime === 'number') {
       try {
@@ -2032,15 +2046,7 @@ export class EcobaseSupplierOrderService {
       return {
         values: {
           expectedSellableDate: addDays(baseDate, leadTime + prepBufferDays),
-          expectedSellableDateSource: 'lead_time_plus_prep_buffer',
-          expectedSellableDateEvidence: {
-            precedence: 4,
-            baseDate,
-            leadTimeDays: leadTime,
-            prepBufferDays,
-            supplierOrderId: asString(order.id),
-          },
-          expectedSellableDateDerivedAt: new Date(),
+          prepInstruction: `Expected sellable = order date + ${leadTime} lead-time days + ${prepBufferDays} prep days`,
         },
         warning: undefined,
       };
@@ -2049,14 +2055,7 @@ export class EcobaseSupplierOrderService {
     return {
       values: {
         expectedSellableDate: null,
-        expectedSellableDateSource: 'missing',
-        expectedSellableDateEvidence: {
-          precedence: 5,
-          supplierOrderId: asString(order.id),
-          supplierOrderLineId: asString(line.id),
-          prepBufferDays,
-        },
-        expectedSellableDateDerivedAt: new Date(),
+        prepInstruction: `Missing expected delivery date and lead time; prep buffer is ${prepBufferDays} days`,
       },
       warning: {
         code: 'missing_expected_sellable_date',
@@ -2079,163 +2078,38 @@ export class EcobaseSupplierOrderService {
       throw new Error(`${errorPrefix}: planning product must be selected from a persisted planning-product record.`);
     }
 
-    const product = toPlainRecord(
-      await this.db.getRepository(ECOBASE_COLLECTIONS.planningProducts).findOne({ filterByTk: planningProductId }),
+    const companyProduct = toPlainRecord(
+      await this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).findOne({ filterByTk: planningProductId }),
     );
-    if (!asString(product.id)) {
+    if (!asString(companyProduct.id)) {
       throw new Error(`${errorPrefix}: planning product "${planningProductId}" was not found.`);
     }
-    if (expectedCompany && asString(product.company) !== expectedCompany) {
+    const [company, product] = await Promise.all([
+      this.db
+        .getRepository(ECOBASE_COLLECTIONS.silverCompanies)
+        .findOne({ filterByTk: asString(companyProduct.companyId) }),
+      this.db
+        .getRepository(ECOBASE_COLLECTIONS.silverProducts)
+        .findOne({ filterByTk: asString(companyProduct.productId) }),
+    ]);
+    const companyPlain = toPlainRecord(company);
+    const productPlain = toPlainRecord(product);
+    if (expectedCompany && asString(companyPlain.name) !== expectedCompany) {
       throw new Error(`${errorPrefix}: planning product belongs to a different company.`);
     }
-    return product;
-  }
-
-  private async refreshSupplierProductLinks(planningProductId: string) {
-    const orderRepo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrders);
-    const lineRepo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines);
-    const linkRepo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierProductLinks);
-    const lines = (await lineRepo.find({ filter: { planningProductId } })).map(toPlainRecord);
-    const historicalLines: Array<PlainRecord & { order: PlainRecord }> = [];
-
-    for (const line of lines) {
-      const order = await orderRepo.findOne({ filterByTk: asString(line.supplierOrderId) });
-      const orderPlain = toPlainRecord(order);
-      if (asString(orderPlain.sourceStage) !== 'order_detail') {
-        continue;
-      }
-      historicalLines.push({ ...line, order: orderPlain });
-    }
-
-    const existingLinks = (await linkRepo.find({ filter: { planningProductId } })).map(toPlainRecord);
-    const preferredLinks = existingLinks.filter(
-      (link) => asString(link.role) === 'preferred' && asBoolean(link.active) !== false,
-    );
-    const preferredSupplierId = asString(preferredLinks[0]?.supplierId);
-
-    for (const link of existingLinks) {
-      const linkId = asRecordId(link.id);
-      if (linkId !== undefined && ['candidate', 'latest_history', 'discovered'].includes(asString(link.role) ?? '')) {
-        await linkRepo.update({ filterByTk: linkId, values: { active: false, lastImportRunId: link.lastImportRunId } });
-      }
-    }
-
-    if (historicalLines.length === 0) {
-      return;
-    }
-
-    const company = asString(historicalLines[0]?.company) ?? asString(historicalLines[0]?.order.company) ?? '';
-    const groups = new Map<string, PlainRecord[]>();
-    for (const line of historicalLines) {
-      const supplierId = asString(line.supplierId);
-      if (!supplierId) {
-        continue;
-      }
-      const group = groups.get(supplierId) ?? [];
-      group.push(line);
-      groups.set(supplierId, group);
-    }
-
-    const observedDate = (line: PlainRecord) =>
-      asString(line.observedAt) ?? asString(toPlainRecord(line.order).orderDate);
-    const latestLine = [...historicalLines].sort((left, right) => {
-      const leftObserved = observedDate(left) ?? '';
-      const rightObserved = observedDate(right) ?? '';
-      return rightObserved.localeCompare(leftObserved);
-    })[0];
-    const latestSupplierId = asString(latestLine?.supplierId);
-
-    for (const [supplierId, supplierLines] of groups.entries()) {
-      const sorted = [...supplierLines].sort((left, right) => {
-        const leftObserved = observedDate(left) ?? '';
-        const rightObserved = observedDate(right) ?? '';
-        return leftObserved.localeCompare(rightObserved);
-      });
-      const firstLine = sorted[0];
-      const lastLine = sorted[sorted.length - 1];
-      const lastObservedAt = observedDate(lastLine) ?? undefined;
-      const role = supplierId === latestSupplierId ? 'latest_history' : 'candidate';
-      await this.upsertSupplierProductLink({
-        company,
-        planningProductId,
-        supplierId,
-        role,
-        source: 'order_details',
-        confidence: supplierId === latestSupplierId ? 'high' : 'medium',
-        firstOrderedAt: observedDate(firstLine),
-        lastOrderedAt: lastObservedAt,
-        orderCount: sorted.length,
-        lastUnitCost: asNumber(lastLine.unitCost),
-        latestBrand: asString(lastLine.brand),
-        active: true,
-        importPayload: {
-          supplierOrderLineIds: sorted.map((line) => asString(line.id)),
-          supplierOrderIds: sorted.map((line) => asString(line.supplierOrderId)),
-        },
-      });
-    }
-
-    if (latestSupplierId && preferredSupplierId && latestSupplierId !== preferredSupplierId) {
-      await this.upsertSupplierProductLink({
-        company,
-        planningProductId,
-        supplierId: latestSupplierId,
-        role: 'discovered',
-        source: 'order_details',
-        confidence: 'medium',
-        firstOrderedAt: latestLine ? observedDate(latestLine) : undefined,
-        lastOrderedAt: latestLine ? observedDate(latestLine) : undefined,
-        orderCount: 1,
-        lastUnitCost: asNumber(latestLine?.unitCost),
-        latestBrand: asString(latestLine?.brand),
-        active: true,
-        importPayload: { latestHistorySupplierId: latestSupplierId, preferredSupplierId },
-      });
-    }
-  }
-
-  private async upsertSupplierProductLink(params: {
-    company: string;
-    planningProductId: string;
-    supplierId: string;
-    role: string;
-    source: string;
-    confidence: string;
-    firstOrderedAt?: string;
-    lastOrderedAt?: string;
-    orderCount: number;
-    lastUnitCost?: number;
-    latestBrand?: string;
-    active: boolean;
-    importPayload: PlainRecord;
-  }) {
-    const repo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierProductLinks);
-    const naturalKey = `supplier-product-link:${params.company}:${params.planningProductId}:${params.supplierId}:${params.role}:${params.source}`;
-    const existing = toPlainRecord(await repo.findOne({ filter: { naturalKey } }));
-    const values = {
-      naturalKey,
-      company: params.company,
-      planningProductId: params.planningProductId,
-      supplierId: params.supplierId,
-      role: params.role,
-      source: params.source,
-      confidence: params.confidence,
-      firstOrderedAt: params.firstOrderedAt ? isoDateTime(params.firstOrderedAt) : undefined,
-      lastOrderedAt: params.lastOrderedAt ? isoDateTime(params.lastOrderedAt) : undefined,
-      orderCount: params.orderCount,
-      lastUnitCost: params.lastUnitCost,
-      latestBrand: params.latestBrand,
-      active: params.active,
-      evidence: params.importPayload,
-      payload: params.importPayload,
+    return {
+      ...companyProduct,
+      company: asString(companyPlain.name),
+      canonicalAsin: asString(productPlain.asin),
+      asin: asString(productPlain.asin),
+      sku: asString(productPlain.sku),
+      title: asString(productPlain.title),
+      brand: asString(productPlain.brand),
     };
+  }
 
-    const existingId = asRecordId(existing.id);
-    if (existingId !== undefined) {
-      await repo.update({ filterByTk: existingId, values });
-      return;
-    }
-    await repo.create({ values });
+  private async refreshSupplierProductLinks(_planningProductId: string) {
+    return undefined;
   }
 
   private async resolvePlanningProduct(params: { company: string; asin?: string; sku?: string }) {
@@ -2251,36 +2125,31 @@ export class EcobaseSupplierOrderService {
       };
     }
 
-    const productRepo = this.db.getRepository(ECOBASE_COLLECTIONS.planningProducts);
-    const listingRepo = this.db.getRepository(ECOBASE_COLLECTIONS.planningProductListings);
-    const matchingProducts = (await productRepo.find({ filter: { company: params.company } }))
-      .map(toPlainRecord)
-      .filter((product) => asString(product.canonicalAsin) === params.asin);
-
-    if (matchingProducts.length === 1) {
-      return { planningProductId: asString(matchingProducts[0].id), warning: undefined };
-    }
-
-    if (matchingProducts.length > 1) {
-      return {
-        planningProductId: undefined,
-        warning: {
-          code: 'planning_product_mapping_ambiguous',
-          message: `Ecobase supplier-order import found multiple planning products for ${params.company}/${params.asin}.`,
-          payload: { company: params.company, asin: params.asin, sku: params.sku },
-        } as SupplierOrderImportWarning,
-      };
-    }
-
-    const matchingListings = (await listingRepo.find({ filter: { company: params.company } }))
-      .map(toPlainRecord)
-      .filter((listing) => {
-        const listingAsin = asString(listing.canonicalAsin) ?? asString(listing.asin);
-        const listingSku = asString(listing.sku);
-        return listingAsin === params.asin || (!!params.sku && listingSku === params.sku);
-      });
-
-    const planningProductIds = uniqueStrings(matchingListings.map((listing) => asString(listing.planningProductId)));
+    const company = toPlainRecord(
+      await this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).findOne({ filter: { name: params.company } }),
+    );
+    const companyId = asString(company.id);
+    const companyProducts = companyId
+      ? (await this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).find({ filter: { companyId } })).map(
+          toPlainRecord,
+        )
+      : [];
+    const productsById = new Map(
+      (await this.db.getRepository(ECOBASE_COLLECTIONS.silverProducts).find({ limit: 50000 }))
+        .map(toPlainRecord)
+        .map((product) => [asString(product.id), product]),
+    );
+    const planningProductIds = uniqueStrings(
+      companyProducts
+        .filter((companyProduct) => {
+          const product = productsById.get(asString(companyProduct.productId));
+          const productAsin = asString(product?.asin);
+          const productSku = asString(product?.sku);
+          if (params.asin) return productAsin === params.asin;
+          return Boolean(params.sku && productSku === params.sku);
+        })
+        .map((companyProduct) => asString(companyProduct.id)),
+    );
     if (planningProductIds.length === 1) {
       return { planningProductId: planningProductIds[0], warning: undefined };
     }
@@ -2310,139 +2179,52 @@ export class EcobaseSupplierOrderService {
     };
   }
 
-  private async findOrCreateSupplier(identity: SupplierIdentityRecord, importRunId: string) {
-    const supplierRepo = this.db.getRepository(ECOBASE_COLLECTIONS.suppliers);
-    const identityRepo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierExternalIdentities);
-    const identitySupplierName = asString(identity.supplierName);
-    const identityNaturalKey = identity.externalSupplierCode
-      ? `supplier-identity:${identity.company}:${identity.sourceSystem}:code:${identity.externalSupplierCode}`
-      : `supplier-identity:${identity.company}:${identity.sourceSystem}:name:${normalizeName(
-          identitySupplierName ?? '',
-        )}`;
-    const existingIdentity = toPlainRecord(await identityRepo.findOne({ filter: { naturalKey: identityNaturalKey } }));
-    const identityRows = (
-      await identityRepo.find({
-        filter: identity.externalSupplierCode ? { externalSupplierCode: identity.externalSupplierCode } : {},
-        limit: 100,
-      })
-    ).map(toPlainRecord);
-    const codeIdentity = identity.externalSupplierCode
-      ? identityRows.find(
-          (record) =>
-            asString(record.externalSupplierCode) === identity.externalSupplierCode &&
-            asString(record.company) === identity.company &&
-            asString(record.externalSupplierName),
-        )
-      : undefined;
-    let resolvedSupplierName = identitySupplierName ?? asString(codeIdentity?.externalSupplierName);
-    let normalizedSupplierName = resolvedSupplierName ? normalizeName(resolvedSupplierName) : undefined;
-    let supplier = existingIdentity.supplierId
-      ? toPlainRecord(await supplierRepo.findOne({ filterByTk: asString(existingIdentity.supplierId) }))
-      : {};
+  private async findOrCreateSupplier(identity: SupplierIdentityRecord, _importRunId: string) {
+    const resolvedSupplierName = asString(identity.supplierName) ?? identity.externalSupplierCode;
+    if (!resolvedSupplierName) return {};
 
-    if (!asString(supplier.id) && codeIdentity?.supplierId && asString(codeIdentity.company) === identity.company) {
-      supplier = toPlainRecord(await supplierRepo.findOne({ filterByTk: asString(codeIdentity.supplierId) }));
-    }
-
-    if (!asString(supplier.id) && identity.externalSupplierCode) {
-      supplier = toPlainRecord(
-        await supplierRepo.findOne({
-          filter: { company: identity.company, supplierId: identity.externalSupplierCode },
-        }),
-      );
-    }
-
-    if (!asString(supplier.id) && normalizedSupplierName) {
-      supplier =
-        (await supplierRepo.find({ filter: { company: identity.company } }))
-          .map(toPlainRecord)
-          .find((record) => normalizeName(asString(record.name) ?? '') === normalizedSupplierName) ?? {};
-    }
-
-    if (!resolvedSupplierName) {
-      resolvedSupplierName = asString(supplier.name);
-      normalizedSupplierName = resolvedSupplierName ? normalizeName(resolvedSupplierName) : undefined;
-    }
-
-    const supplierNaturalKey = identity.externalSupplierCode
-      ? `supplier:${identity.company}:code:${identity.externalSupplierCode}`
-      : `supplier:${identity.company}:name:${normalizedSupplierName}`;
-    if (!asString(supplier.id) && !resolvedSupplierName) {
-      return {};
-    }
+    const normalizedSupplierName = normalizeName(resolvedSupplierName);
+    const supplierRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers);
+    let supplier = toPlainRecord(await supplierRepo.findOne({ filter: { normalizedName: normalizedSupplierName } }));
     if (!asString(supplier.id)) {
       supplier = toPlainRecord(
         await supplierRepo.create({
           values: {
             id: randomUUID(),
-            naturalKey: supplierNaturalKey,
-            sourceConnectionId: identity.sourceConnectionId,
-            supplierId: identity.externalSupplierCode,
-            name: resolvedSupplierName,
             normalizedName: normalizedSupplierName,
-            company: identity.company,
-            active: true,
-            lastSeenAt: identity.observedAt,
-            payload: identity.payload ?? {},
-            lastImportRunId: importRunId,
+            displayName: resolvedSupplierName,
+            approvalStatus: 'new',
+            analysisStatus: 'imported',
           },
         }),
       );
     } else {
       await supplierRepo.update({
         filterByTk: asString(supplier.id),
-        values: {
-          sourceConnectionId: identity.sourceConnectionId,
-          supplierId: asString(supplier.supplierId) ?? identity.externalSupplierCode,
-          name: asString(supplier.name) ?? resolvedSupplierName,
-          normalizedName: asString(supplier.normalizedName) ?? normalizedSupplierName,
-          company: identity.company,
-          active: true,
-          lastSeenAt: identity.observedAt,
-          payload: identity.payload ?? {},
-          lastImportRunId: importRunId,
-        },
+        values: { displayName: asString(supplier.displayName) ?? resolvedSupplierName, analysisStatus: 'imported' },
       });
       supplier = toPlainRecord(await supplierRepo.findOne({ filterByTk: asString(supplier.id) }));
     }
 
-    const identityValues = {
-      naturalKey: identityNaturalKey,
-      supplierId: asString(supplier.id),
-      company: identity.company,
-      sourceSystem: identity.sourceSystem,
-      externalSupplierCode: identity.externalSupplierCode,
-      externalSupplierName: resolvedSupplierName,
-      normalizedExternalSupplierName: normalizedSupplierName,
-      firstSeenAt: asString(existingIdentity.firstSeenAt) ?? identity.observedAt,
-      lastSeenAt: identity.observedAt,
-      active: true,
-      payload: identity.payload ?? {},
-      lastImportRunId: importRunId,
-    };
-    if (asString(existingIdentity.id)) {
-      await identityRepo.update({ filterByTk: asString(existingIdentity.id), values: identityValues });
-    } else {
-      try {
-        const updated = await identityRepo.update({
-          filter: { naturalKey: identityNaturalKey },
-          values: identityValues,
+    const company = toPlainRecord(
+      await this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).findOne({ filter: { name: identity.company } }),
+    );
+    const supplierId = asString(supplier.id);
+    const companyId = asString(company.id);
+    if (supplierId && companyId) {
+      const accountRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverSupplierAccounts);
+      const existingAccount = toPlainRecord(await accountRepo.findOne({ filter: { supplierId, companyId } }));
+      if (!asString(existingAccount.id)) {
+        await accountRepo.create({
+          values: {
+            id: randomUUID(),
+            supplierId,
+            companyId,
+            accountName: resolvedSupplierName,
+            orderingMethod: 'unknown',
+            status: 'active',
+          },
         });
-        if (Array.isArray(updated) && updated.length === 0) {
-          throw new Error('Ecobase supplier identity update found no matching record.');
-        }
-      } catch (error) {
-        if (!isMissingRecordError(error)) {
-          throw error;
-        }
-        try {
-          await identityRepo.create({ values: identityValues });
-        } catch (createError) {
-          if (!isUniqueConstraintError(createError)) {
-            throw createError;
-          }
-          await identityRepo.update({ filter: { naturalKey: identityNaturalKey }, values: identityValues });
-        }
       }
     }
 
@@ -2480,49 +2262,34 @@ export class EcobaseSupplierOrderService {
     sku?: string;
     notes?: string;
   }) {
-    const repo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierLeadTimes);
-    const naturalKey = this.leadTimeNaturalKey(params);
-    const existing = toPlainRecord(await repo.findOne({ filter: { naturalKey } }));
+    const leadTimeDays = validateSupplierLeadTimeDays(params.leadTimeDays, 'Ecobase supplier lead-time upsert failed');
+    if (leadTimeDays === undefined) return;
+    const resolved = params.planningProductId
+      ? { planningProductId: params.planningProductId }
+      : await this.resolvePlanningProduct({ company: params.company, asin: params.asin, sku: params.sku });
+    if (!resolved.planningProductId) return;
+
+    const companyProduct = await this.ensurePlanningProduct(
+      resolved.planningProductId,
+      params.company,
+      'Ecobase supplier lead-time upsert failed',
+    );
+    const repo = this.db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts);
+    const existing = toPlainRecord(
+      await repo.findOne({ filter: { supplierId: params.supplierId, productId: asString(companyProduct.productId) } }),
+    );
     const values = {
-      naturalKey,
-      sourceConnectionId: params.sourceConnectionId,
-      supplierId: params.externalSupplierCode,
-      supplierRefId: params.supplierId,
-      supplierName: params.supplierName,
-      company: params.company,
-      planningProductId: params.planningProductId,
-      asin: params.asin,
-      sku: params.sku,
-      scope: params.planningProductId || params.asin || params.sku ? 'product' : 'default',
-      leadTimeDays: validateSupplierLeadTimeDays(params.leadTimeDays, 'Ecobase supplier lead-time upsert failed'),
-      confirmedAt: params.confirmedAt,
-      source: params.source,
-      notes: params.notes,
-      payload: params.payload,
-      ...(params.importRunId ? { lastImportRunId: params.importRunId } : {}),
+      supplierId: params.supplierId,
+      productId: asString(companyProduct.productId),
+      supplierSku: params.sku,
+      leadTimeDays,
+      analysisStatus: params.source,
     };
     if (asString(existing.id)) {
       await repo.update({ filterByTk: asString(existing.id), values });
       return;
     }
-    try {
-      const updated = await repo.update({ filter: { naturalKey }, values });
-      if (Array.isArray(updated) && updated.length === 0) {
-        throw new Error('Ecobase supplier lead-time update found no matching record.');
-      }
-    } catch (error) {
-      if (!isMissingRecordError(error)) {
-        throw error;
-      }
-      try {
-        await repo.create({ values });
-      } catch (createError) {
-        if (!isUniqueConstraintError(createError)) {
-          throw createError;
-        }
-        await repo.update({ filter: { naturalKey }, values });
-      }
-    }
+    await repo.create({ values: { id: randomUUID(), ...values } });
   }
 
   private async findLeadTime(params: {
@@ -2531,52 +2298,18 @@ export class EcobaseSupplierOrderService {
     externalSupplierCode?: string;
     planningProductId?: string;
   }) {
-    const repo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierLeadTimes);
-    const rows = (await repo.find()).map(toPlainRecord);
-    const product = params.planningProductId
-      ? toPlainRecord(
-          await this.db
-            .getRepository(ECOBASE_COLLECTIONS.planningProducts)
-            .findOne({ filterByTk: params.planningProductId }),
-        )
-      : {};
-    const supplier = params.supplierId
-      ? toPlainRecord(
-          await this.db.getRepository(ECOBASE_COLLECTIONS.suppliers).findOne({ filterByTk: params.supplierId }),
-        )
-      : {};
-    const supplierName = asString(supplier.name)?.toLowerCase();
-    const canonicalAsin = asString(product.canonicalAsin);
-    const bySupplierRef = rows.filter(
-      (row) =>
-        asString(row.company) === params.company &&
-        asString(row.scope) === 'product' &&
-        asString(row.supplierRefId) === params.supplierId,
+    if (!params.supplierId || !params.planningProductId) return undefined;
+    const companyProduct = await this.ensurePlanningProduct(
+      params.planningProductId,
+      params.company,
+      'Ecobase supplier lead-time lookup failed',
     );
-    const productSpecific = bySupplierRef.find((row) => asString(row.planningProductId) === params.planningProductId);
-    if (typeof asNumber(productSpecific?.leadTimeDays) === 'number') {
-      return asNumber(productSpecific?.leadTimeDays);
-    }
-    const productBySupplierName = rows.find(
-      (row) =>
-        asString(row.company) === params.company &&
-        asString(row.scope) === 'product' &&
-        supplierName === asString(row.supplierName)?.toLowerCase() &&
-        canonicalAsin === asString(row.asin),
+    const supplierProduct = toPlainRecord(
+      await this.db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).findOne({
+        filter: { supplierId: params.supplierId, productId: asString(companyProduct.productId) },
+      }),
     );
-    if (typeof asNumber(productBySupplierName?.leadTimeDays) === 'number') {
-      return asNumber(productBySupplierName?.leadTimeDays);
-    }
-    const byExternalCode = rows.filter(
-      (row) =>
-        asString(row.company) === params.company &&
-        asString(row.scope) === 'product' &&
-        asString(row.supplierId) === params.externalSupplierCode,
-    );
-    const productByExternalCode = byExternalCode.find(
-      (row) => asString(row.planningProductId) === params.planningProductId,
-    );
-    return asNumber(productByExternalCode?.leadTimeDays);
+    return asNumber(supplierProduct.leadTimeDays);
   }
 
   private async editableManualComment(activityId: string, company: string, action: 'update' | 'delete') {
@@ -2587,18 +2320,16 @@ export class EcobaseSupplierOrderService {
       throw new Error(`Ecobase supplier-order activity ${action} failed: company is required.`);
     }
     const activity = toPlainRecord(
-      await this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities).findOne({ filterByTk: activityId }),
+      await this.db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).findOne({ filterByTk: activityId }),
     );
     if (!asString(activity.id)) {
       throw new Error(`Ecobase supplier-order activity ${action} failed: activity "${activityId}" was not found.`);
     }
-    if (asString(activity.company) !== company) {
+    const context = toPlainRecord(activity.contextSnapshotJson);
+    if (asString(context.company) !== company) {
       throw new Error(`Ecobase supplier-order activity ${action} failed: activity belongs to a different company.`);
     }
-    if ((asString(activity.source) ?? 'manual') !== 'manual') {
-      throw new Error(`Ecobase supplier-order activity ${action} failed: imported comments are read-only.`);
-    }
-    if (asString(activity.activityType) !== 'note') {
+    if (asString(activity.commentType) !== 'note') {
       throw new Error(`Ecobase supplier-order activity ${action} failed: only manual comments can be changed.`);
     }
     if (asString(activity.deletedAt)) {
@@ -2608,32 +2339,39 @@ export class EcobaseSupplierOrderService {
   }
 
   private async resolveContactRecency(params: { company: string; supplierId: string; supplierOrderId?: string }) {
-    const repo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities);
-    const activities = (await repo.find({ filter: { company: params.company, supplierId: params.supplierId } }))
+    const comments = (await this.db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).find({ limit: 10000 }))
       .map(toPlainRecord)
-      .filter((activity) => asString(activity.activityType) === 'contacted_supplier');
+      .filter((comment) => asString(comment.commentType) === 'contacted_supplier');
+    const occurredAt = (comment: PlainRecord) =>
+      asString(toPlainRecord(comment.contextSnapshotJson).occurredAt) ?? asString(comment.createdAt) ?? '';
 
-    const orderSpecific = activities
-      .filter((activity) => asString(activity.supplierOrderId) === params.supplierOrderId)
-      .sort((left, right) => (asString(right.occurredAt) ?? '').localeCompare(asString(left.occurredAt) ?? ''))[0];
+    const orderSpecific = params.supplierOrderId
+      ? comments
+          .filter(
+            (comment) =>
+              asString(comment.entityType) === 'supplier_order' &&
+              asString(comment.entityId) === params.supplierOrderId,
+          )
+          .sort((left, right) => occurredAt(right).localeCompare(occurredAt(left)))[0]
+      : undefined;
     if (orderSpecific) {
       return {
-        occurredAt: asString(orderSpecific.occurredAt) ?? '',
-        notes: asString(orderSpecific.notes),
+        occurredAt: occurredAt(orderSpecific),
+        notes: asString(orderSpecific.body),
         source: 'order' as const,
         activityId: asString(orderSpecific.id) ?? '',
       };
     }
 
-    const supplierLevel = activities
-      .filter((activity) => !asString(activity.supplierOrderId))
-      .sort((left, right) => (asString(right.occurredAt) ?? '').localeCompare(asString(left.occurredAt) ?? ''))[0];
-    if (!supplierLevel) {
-      return null;
-    }
+    const supplierLevel = comments
+      .filter(
+        (comment) => asString(comment.entityType) === 'supplier' && asString(comment.entityId) === params.supplierId,
+      )
+      .sort((left, right) => occurredAt(right).localeCompare(occurredAt(left)))[0];
+    if (!supplierLevel) return null;
     return {
-      occurredAt: asString(supplierLevel.occurredAt) ?? '',
-      notes: asString(supplierLevel.notes),
+      occurredAt: occurredAt(supplierLevel),
+      notes: asString(supplierLevel.body),
       source: 'supplier' as const,
       activityId: asString(supplierLevel.id) ?? '',
     };
@@ -2643,7 +2381,10 @@ export class EcobaseSupplierOrderService {
     if (!orderId) {
       return null;
     }
-    const order = await this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).findOne({ filterByTk: orderId });
-    return order ? toPlainRecord(order) : null;
+    const silverOrder = (await silverSupplierOrderReadModel(this.db, { limit: 10000 })).supplierOrders.find(
+      (order) => asString(order.id) === String(orderId),
+    );
+    if (silverOrder) return silverOrder;
+    return null;
   }
 }

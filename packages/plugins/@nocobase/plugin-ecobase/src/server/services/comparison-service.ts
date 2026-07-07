@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import type { EcobaseDatabase } from '../../features/source-import/server/import-service';
 
@@ -207,13 +216,14 @@ function weekRange(period: string): PeriodRange {
 }
 
 function deriveRanges(params: ComparePerformanceParams): { current: PeriodRange; previous: PeriodRange } {
-  const current = params.currentStartDate && params.currentEndDate
-    ? { startDate: params.currentStartDate, endDate: params.currentEndDate }
-    : params.periodType === 'daily'
-      ? { startDate: params.period ?? '', endDate: params.period ?? '' }
-      : params.periodType === 'weekly'
-        ? weekRange(params.period ?? '')
-        : monthRange(params.period ?? '');
+  const current =
+    params.currentStartDate && params.currentEndDate
+      ? { startDate: params.currentStartDate, endDate: params.currentEndDate }
+      : params.periodType === 'daily'
+        ? { startDate: params.period ?? '', endDate: params.period ?? '' }
+        : params.periodType === 'weekly'
+          ? weekRange(params.period ?? '')
+          : monthRange(params.period ?? '');
 
   parseIsoDate(current.startDate, 'currentStartDate');
   parseIsoDate(current.endDate, 'currentEndDate');
@@ -278,13 +288,27 @@ function targetMatchesGroup(target: PlainRecord, groupBy: ComparisonGroupBy, gro
   if (groupBy === 'raw_listing_sku') {
     return asString(target.sku) === group.sku && (!group.company || asString(target.company) === group.company);
   }
-  return payloadString(target, 'tier') === group.tier || asString(target.targetScope) === 'tier' && asString(target.asin) === group.tier;
+  return (
+    payloadString(target, 'tier') === group.tier ||
+    (asString(target.targetScope) === 'tier' && asString(target.asin) === group.tier)
+  );
 }
 
-function targetTotal(targets: PlainRecord[], periodType: ComparisonPeriodType, range: PeriodRange, groupBy: ComparisonGroupBy, group: GroupAccumulator) {
+function targetTotal(
+  targets: PlainRecord[],
+  periodType: ComparisonPeriodType,
+  range: PeriodRange,
+  groupBy: ComparisonGroupBy,
+  group: GroupAccumulator,
+) {
   const period = periodCode(periodType, range);
   return targets
-    .filter((target) => asString(target.periodType) === periodType && asString(target.period) === period && targetMatchesGroup(target, groupBy, group))
+    .filter(
+      (target) =>
+        asString(target.periodType) === periodType &&
+        asString(target.period) === period &&
+        targetMatchesGroup(target, groupBy, group),
+    )
     .reduce((total, target) => total + (asNumber(target.profitTarget) ?? 0), 0);
 }
 
@@ -310,16 +334,20 @@ export class EcobaseComparisonService {
   async comparePerformance(params: ComparePerformanceParams): Promise<ComparisonReport> {
     const groupBy = params.groupBy ?? 'planning_product';
     const { current, previous } = deriveRanges(params);
-    const facts = (await this.db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).find({})).map(toPlainRecord);
-    const targets = (await this.db.getRepository(ECOBASE_COLLECTIONS.targetRows).find({})).map(toPlainRecord);
-    const calculationSnapshots = (await this.db.getRepository(ECOBASE_COLLECTIONS.planningCalculationSnapshots).find({})).map(toPlainRecord);
+    const facts = await this.listingFacts();
+    const targets = await this.targetRows();
+    const calculationSnapshots = (
+      await this.db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).find({ limit: 50000 })
+    ).map(toPlainRecord);
     const importRuns = (await this.db.getRepository(ECOBASE_COLLECTIONS.importRuns).find({})).map(toPlainRecord);
 
     const groups = new Map<string, GroupAccumulator>();
     this.assignFacts(groups, facts, current, previous, groupBy, params, calculationSnapshots);
     const warnings = this.periodWarnings(facts, importRuns, current, previous);
 
-    const rows = [...groups.values()].map((group) => this.resultRow(group, targets, params.periodType, current, previous));
+    const rows = [...groups.values()].map((group) =>
+      this.resultRow(group, targets, params.periodType, current, previous),
+    );
     rows.forEach((row) => {
       if (row.previous.factCount === 0) {
         row.warnings.push({
@@ -341,10 +369,59 @@ export class EcobaseComparisonService {
         improving: rows.filter((row) => row.classification === 'improving'),
         declining: rows.filter((row) => row.classification === 'declining'),
         consistentlyUnderperforming: rows.filter((row) => row.classification === 'consistently_underperforming'),
-        accountTargetGaps: rows.filter((row) => row.groupBy === 'account' && row.current.targetGap !== null && row.current.targetGap < 0),
+        accountTargetGaps: rows.filter(
+          (row) => row.groupBy === 'account' && row.current.targetGap !== null && row.current.targetGap < 0,
+        ),
       },
       warnings,
     };
+  }
+
+  private async listingFacts() {
+    const [facts, companyProducts, products, companies, accounts] = await Promise.all([
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts).find({ limit: 50000 }),
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).find({ limit: 50000 }),
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverProducts).find({ limit: 50000 }),
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).find({ limit: 5000 }),
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverAmazonAccounts).find({ limit: 5000 }),
+    ]);
+    const companyProductsById = new Map(companyProducts.map(toPlainRecord).map((row) => [asString(row.id), row]));
+    const productsById = new Map(products.map(toPlainRecord).map((row) => [asString(row.id), row]));
+    const companiesById = new Map(companies.map(toPlainRecord).map((row) => [asString(row.id), row]));
+    const accountsById = new Map(accounts.map(toPlainRecord).map((row) => [asString(row.id), row]));
+    return facts.map(toPlainRecord).map((fact) => {
+      const companyProduct = companyProductsById.get(asString(fact.companyProductId));
+      const product = productsById.get(asString(companyProduct?.productId));
+      const company = companiesById.get(asString(companyProduct?.companyId));
+      const account = accountsById.get(asString(companyProduct?.amazonAccountId));
+      return {
+        ...fact,
+        company: asString(company?.name),
+        planningProductId: asString(fact.companyProductId),
+        asin: asString(product?.asin),
+        sku: asString(product?.sku),
+        grossProfit: asNumber(fact.profit) ?? 0,
+        netProfit: asNumber(fact.profit) ?? 0,
+        sessions: 0,
+        payload: { accountKey: asString(account?.name) ?? asString(account?.id) },
+      };
+    });
+  }
+
+  private async targetRows() {
+    return (await this.db.getRepository(ECOBASE_COLLECTIONS.silverTargets).find({ limit: 50000 }))
+      .map(toPlainRecord)
+      .map((target) => {
+        const targetPayload = payload(target);
+        return {
+          ...target,
+          profitTarget: asNumber(target.targetValue),
+          targetScope: asString(target.entityType),
+          planningProductId: asString(target.entityType) === 'company_product' ? asString(target.entityId) : undefined,
+          accountKey: asString(targetPayload.accountKey),
+          sku: asString(targetPayload.sku),
+        };
+      });
   }
 
   private assignFacts(
@@ -377,7 +454,10 @@ export class EcobaseComparisonService {
   }
 
   private inAnyRange(snapshotDate: string, current: PeriodRange, previous: PeriodRange) {
-    return (snapshotDate >= current.startDate && snapshotDate <= current.endDate) || (snapshotDate >= previous.startDate && snapshotDate <= previous.endDate);
+    return (
+      (snapshotDate >= current.startDate && snapshotDate <= current.endDate) ||
+      (snapshotDate >= previous.startDate && snapshotDate <= previous.endDate)
+    );
   }
 
   private groupForFact(
@@ -397,7 +477,12 @@ export class EcobaseComparisonService {
     return record;
   }
 
-  private groupKey(fact: PlainRecord, groupBy: ComparisonGroupBy, calculationSnapshots: PlainRecord[], currentEndDate: string) {
+  private groupKey(
+    fact: PlainRecord,
+    groupBy: ComparisonGroupBy,
+    calculationSnapshots: PlainRecord[],
+    currentEndDate: string,
+  ) {
     if (groupBy === 'company') {
       return asString(fact.company) ?? 'unknown-company';
     }
@@ -405,10 +490,17 @@ export class EcobaseComparisonService {
       return payloadString(fact, 'accountKey') ?? 'unknown-account';
     }
     if (groupBy === 'planning_product') {
-      return asString(fact.planningProductId) ?? `${asString(fact.company) ?? 'unknown'}:${asString(fact.asin) ?? 'unknown-asin'}`;
+      return (
+        asString(fact.planningProductId) ??
+        `${asString(fact.company) ?? 'unknown'}:${asString(fact.asin) ?? 'unknown-asin'}`
+      );
     }
     if (groupBy === 'raw_listing_sku') {
-      return [asString(fact.company) ?? 'unknown-company', asString(fact.asin) ?? 'unknown-asin', asString(fact.sku) ?? 'unknown-sku'].join(':');
+      return [
+        asString(fact.company) ?? 'unknown-company',
+        asString(fact.asin) ?? 'unknown-asin',
+        asString(fact.sku) ?? 'unknown-sku',
+      ].join(':');
     }
     return this.tierForFact(fact, calculationSnapshots, currentEndDate) ?? 'unclassified';
   }
@@ -465,13 +557,23 @@ export class EcobaseComparisonService {
       return undefined;
     }
     return calculationSnapshots
-      .filter((snapshot) => asString(snapshot.planningProductId) === planningProductId && asString(snapshot.calculationDate) <= currentEndDate)
+      .filter(
+        (snapshot) =>
+          asString(snapshot.planningProductId) === planningProductId &&
+          asString(snapshot.calculationDate) <= currentEndDate,
+      )
       .sort((left, right) => String(right.calculationDate ?? '').localeCompare(String(left.calculationDate ?? '')))
       .map((snapshot) => asString(snapshot.tier))
       .find(Boolean);
   }
 
-  private resultRow(group: GroupAccumulator, targets: PlainRecord[], periodType: ComparisonPeriodType, currentRange: PeriodRange, previousRange: PeriodRange): ComparisonResultRow {
+  private resultRow(
+    group: GroupAccumulator,
+    targets: PlainRecord[],
+    periodType: ComparisonPeriodType,
+    currentRange: PeriodRange,
+    previousRange: PeriodRange,
+  ): ComparisonResultRow {
     const currentTarget = targetTotal(targets, periodType, currentRange, group.groupBy, group);
     const previousTarget = targetTotal(targets, periodType, previousRange, group.groupBy, group);
     const current = this.metricSet(group.current, currentTarget);
@@ -509,7 +611,12 @@ export class EcobaseComparisonService {
     };
   }
 
-  private periodWarnings(facts: PlainRecord[], importRuns: PlainRecord[], current: PeriodRange, previous: PeriodRange): ComparisonWarning[] {
+  private periodWarnings(
+    facts: PlainRecord[],
+    importRuns: PlainRecord[],
+    current: PeriodRange,
+    previous: PeriodRange,
+  ): ComparisonWarning[] {
     const currentCount = facts.filter((fact) => {
       const snapshotDate = asString(fact.snapshotDate);
       return snapshotDate && snapshotDate >= current.startDate && snapshotDate <= current.endDate;
@@ -520,18 +627,32 @@ export class EcobaseComparisonService {
     }).length;
     const warnings: ComparisonWarning[] = [];
     if (currentCount === 0) {
-      warnings.push({ code: 'missing_current_period', severity: 'critical', message: 'No current-period facts are available for this comparison.' });
+      warnings.push({
+        code: 'missing_current_period',
+        severity: 'critical',
+        message: 'No current-period facts are available for this comparison.',
+      });
     }
     if (previousCount === 0) {
-      warnings.push({ code: 'missing_prior_period', severity: 'warning', message: 'No prior-period facts are available for this comparison.' });
+      warnings.push({
+        code: 'missing_prior_period',
+        severity: 'warning',
+        message: 'No prior-period facts are available for this comparison.',
+      });
     }
-    const incompleteRuns = importRuns.filter((run) => ['partial', 'failed', 'skipped'].includes(asString(run.status) ?? ''));
+    const incompleteRuns = importRuns.filter((run) =>
+      ['partial', 'failed', 'skipped'].includes(asString(run.status) ?? ''),
+    );
     for (const run of incompleteRuns) {
       warnings.push({
         code: asString(run.status) === 'skipped' ? 'no_newer_data_skipped' : 'incomplete_source_period',
         severity: asString(run.status) === 'failed' ? 'critical' : 'warning',
         message: `Comparison may be affected by ${asString(run.status)} import run ${asString(run.id) ?? '(unknown)'}.`,
-        evidence: { importRunId: asString(run.id), status: asString(run.status), sourceVersion: asString(run.sourceVersion) },
+        evidence: {
+          importRunId: asString(run.id),
+          status: asString(run.status),
+          sourceVersion: asString(run.sourceVersion),
+        },
       });
     }
     return warnings;

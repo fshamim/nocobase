@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { createHash, randomUUID } from 'node:crypto';
 import { analyzeCsvFiles, targetForCsvShape } from './adapters/amazon-operations-csv-adapter';
 import type {
@@ -20,7 +29,7 @@ import type { NormalizePendingResult } from '../../semantic-model/server/medalli
 import { EcobaseOrderPlanningService } from '../../order-planning/server/order-planning-service';
 import { EcobasePlanningProductService } from '../../inventory-planning/server/planning-product-service';
 import { EcobaseSupplierManagementService } from '../../supplier-management/server/supplier-management-service';
-import { EcobaseSupplierOrderService, validateSupplierLeadTimeDays } from '../../supplier-management/server/supplier-order-service';
+import { EcobaseSupplierOrderService } from '../../supplier-management/server/supplier-order-service';
 
 type Filter = Record<string, unknown>;
 
@@ -57,7 +66,6 @@ type AdapterImportStreamResult = {
 
 type AdapterImportStreamParams = {
   importRunId: string;
-  rawImportRowRepo: EcobaseRepository;
   supplierOrderService: EcobaseSupplierOrderService;
   bronzeService: EcobaseBronzeImportService;
   bronzeContext: {
@@ -74,21 +82,104 @@ type AdapterImportStreamParams = {
 };
 
 const NORMALIZED_RECORD_COLLECTIONS: Record<string, string> = {
-  raw_listing: ECOBASE_COLLECTIONS.rawListings,
-  listing_daily_fact: ECOBASE_COLLECTIONS.listingDailyFacts,
-  inventory_snapshot: ECOBASE_COLLECTIONS.inventorySnapshots,
-  traffic_snapshot: ECOBASE_COLLECTIONS.trafficSnapshots,
-  planning_parameter: ECOBASE_COLLECTIONS.planningParameters,
-  supplier: ECOBASE_COLLECTIONS.suppliers,
-  supplier_lead_time: ECOBASE_COLLECTIONS.supplierLeadTimes,
-  target_row: ECOBASE_COLLECTIONS.targetRows,
   source_access_audit: ECOBASE_COLLECTIONS.sourceAccessAudits,
-  clickup_task_snapshot: ECOBASE_COLLECTIONS.clickupTaskSnapshots,
-  task_link: ECOBASE_COLLECTIONS.taskLinks,
-  okr: ECOBASE_COLLECTIONS.okrs,
-  okr_metric_snapshot: ECOBASE_COLLECTIONS.okrMetricSnapshots,
 };
 
+type NormalizedRecordTarget = {
+  collectionName: string;
+  values: Record<string, unknown>;
+  createValues?: Record<string, unknown>;
+};
+
+function normalizedRecordTarget(record: NormalizedRecord, importRunId: string): NormalizedRecordTarget {
+  const data = toPlainRecord(record.data);
+  const values: Record<string, unknown> = { ...data, lastImportRunId: importRunId };
+  if (record.kind === 'clickup_task_snapshot') {
+    const sourceTaskRef = getString(values, 'sourceTaskRef') ?? getString(values, 'externalTaskId') ?? 'unknown-task';
+    const taskName = getString(values, 'taskName') ?? sourceTaskRef;
+    delete values.externalTaskId;
+    return {
+      collectionName: ECOBASE_COLLECTIONS.silverTasks,
+      values: { ...values, sourceTaskRef, title: taskName, taskName, dueAt: getString(values, 'dueDate') },
+      createValues: { id: randomUUID() },
+    };
+  }
+  if (record.kind === 'task_link') {
+    const sourceTaskRef = getString(values, 'sourceTaskRef') ?? getString(values, 'externalTaskId') ?? 'unknown-task';
+    const targetType = getString(values, 'targetType') ?? 'general';
+    const targetId = getString(values, 'targetId') ?? getString(values, 'okrId');
+    const entityId = getString(values, 'planningProductId') ?? getString(values, 'supplierOrderId') ?? targetId;
+    delete values.externalTaskId;
+    delete values.okrId;
+    return {
+      collectionName: ECOBASE_COLLECTIONS.silverTaskLinks,
+      values: { ...values, sourceTaskRef, targetId, entityType: targetType, entityId, relation: 'related' },
+      createValues: { id: randomUUID() },
+    };
+  }
+  if (record.kind === 'okr') {
+    const sourceTargetRef =
+      getString(values, 'sourceTargetRef') ?? getString(values, 'externalOkrId') ?? 'unknown-target';
+    const period = getString(values, 'period') ?? 'unknown';
+    delete values.externalOkrId;
+    delete values.okrId;
+    return {
+      collectionName: ECOBASE_COLLECTIONS.silverTargets,
+      values: {
+        ...values,
+        sourceTargetRef,
+        recordKind: 'target',
+        entityType: 'objective',
+        metric: 'objective',
+        periodType: period,
+        periodStart: period,
+        periodEnd: period,
+      },
+      createValues: { id: randomUUID() },
+    };
+  }
+  if (record.kind === 'okr_metric_snapshot') {
+    const snapshotDate = getString(values, 'snapshotDate') ?? new Date().toISOString().slice(0, 10);
+    const metricName = getString(values, 'metricName') ?? 'primary';
+    const sourceTargetRef =
+      getString(values, 'sourceTargetRef') ?? getString(values, 'externalOkrId') ?? 'unknown-target';
+    const parentTargetId = getString(values, 'parentTargetId') ?? getString(values, 'okrId');
+    delete values.externalOkrId;
+    delete values.okrId;
+    return {
+      collectionName: ECOBASE_COLLECTIONS.silverTargets,
+      values: {
+        ...values,
+        sourceTargetRef,
+        parentTargetId,
+        recordKind: 'metric_snapshot',
+        entityType: 'objective',
+        metric: metricName,
+        periodType: 'snapshot',
+        periodStart: snapshotDate,
+        periodEnd: snapshotDate,
+        snapshotDate,
+        metricName,
+      },
+      createValues: { id: randomUUID() },
+    };
+  }
+  const collectionName = NORMALIZED_RECORD_COLLECTIONS[record.kind];
+  return { collectionName, values };
+}
+
+const BRONZE_ONLY_RECORD_KINDS = new Set([
+  'raw_listing',
+  'listing_daily_fact',
+  'inventory_snapshot',
+  'traffic_snapshot',
+  'planning_parameter',
+  'supplier',
+  'supplier_identity',
+  'supplier_lead_time',
+  'supplier_order',
+  'target_row',
+]);
 const ACCOUNTABILITY_RECORD_KINDS = new Set(['clickup_task_snapshot', 'task_link', 'okr', 'okr_metric_snapshot']);
 const CSV_BUNDLE_SYNC_ROW_LIMIT = 1000;
 const AUTOMATIC_GOLD_REFRESH_LIMIT = 10000;
@@ -230,25 +321,6 @@ function getOptionalNumber(record: unknown, key: string): number | undefined {
   const plain = toPlainRecord(record);
   const value = plain[key];
   return typeof value === 'number' ? value : undefined;
-}
-
-function hasField(record: Record<string, unknown>, key: string): boolean {
-  return Object.prototype.hasOwnProperty.call(record, key);
-}
-
-function requireNumberField(record: Record<string, unknown>, key: string, context: string): number {
-  const value = record[key];
-  if (typeof value !== 'number') {
-    throw new Error(`${context}: ${key} must be a number.`);
-  }
-  return value;
-}
-
-function getOptionalNumberField(record: Record<string, unknown>, key: string, context: string): number | undefined {
-  if (!hasField(record, key) || record[key] === undefined) {
-    return undefined;
-  }
-  return requireNumberField(record, key, context);
 }
 
 function getConfig(record: unknown): Record<string, unknown> {
@@ -671,7 +743,6 @@ export class EcobaseImportService {
 
     const sourceConnectionRepo = this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections);
     const importRunRepo = this.db.getRepository(ECOBASE_COLLECTIONS.importRuns);
-    const rawImportRowRepo = this.db.getRepository(ECOBASE_COLLECTIONS.rawImportRows);
     const sourceConnection = await sourceConnectionRepo.findOne({ filterByTk: params.sourceConnectionId });
 
     if (!sourceConnection) {
@@ -744,7 +815,6 @@ export class EcobaseImportService {
     };
     const stream = await this.runAdapterStream({
       importRunId,
-      rawImportRowRepo,
       supplierOrderService,
       bronzeService,
       bronzeContext,
@@ -760,25 +830,39 @@ export class EcobaseImportService {
       },
       skipExistingNormalizedKinds: new Set(params.skipExistingNormalizedKinds ?? []),
     });
-    let {
+    const {
       rowCount,
       normalizedCount,
       warningCount,
-      errorCount,
       errorMessage,
-      statusMessage,
       firstErrorIssueMessage,
       finalStatusOverride,
       supplierOrderTouched,
       accountabilityTouched,
     } = stream;
+    let { errorCount, statusMessage } = stream;
     const fileSummaries = stream.fileSummaries;
     let goldRefresh: AutomaticGoldRefreshResult | null = null;
     let medallionNormalization: NormalizePendingResult | null = null;
 
+    if (!errorMessage && rowCount > 0) {
+      try {
+        medallionNormalization = await new EcobaseMedallionNormalizationService(this.db).normalizePending({
+          sourceConnectionId: params.sourceConnectionId,
+        });
+        errorCount += medallionNormalization.failed;
+      } catch (error) {
+        statusMessage =
+          error instanceof Error
+            ? `Ecobase import completed with a medallion normalization warning: ${error.message}`
+            : 'Ecobase import completed with a medallion normalization warning: normalization threw a non-Error value.';
+        errorCount += 1;
+      }
+    }
+
     if (!errorMessage && normalizedCount > 0) {
       try {
-        await new EcobasePlanningProductService(this.db).syncFromRawListings();
+        await new EcobasePlanningProductService(this.db).syncFromSilverCompanyProducts();
         if (supplierOrderTouched) {
           await supplierOrderService.reconcileAfterImport(importRunId);
         }
@@ -793,21 +877,6 @@ export class EcobaseImportService {
           error instanceof Error
             ? `Ecobase import completed with a post-import reconciliation warning: ${error.message}`
             : 'Ecobase import completed with a post-import reconciliation warning: reconciliation threw a non-Error value.';
-        errorCount += 1;
-      }
-    }
-
-    if (!errorMessage && rowCount > 0) {
-      try {
-        medallionNormalization = await new EcobaseMedallionNormalizationService(this.db).normalizePending({
-          sourceConnectionId: params.sourceConnectionId,
-        });
-        errorCount += medallionNormalization.failed;
-      } catch (error) {
-        statusMessage =
-          error instanceof Error
-            ? `Ecobase import completed with a medallion normalization warning: ${error.message}`
-            : 'Ecobase import completed with a medallion normalization warning: normalization threw a non-Error value.';
         errorCount += 1;
       }
     }
@@ -867,12 +936,11 @@ export class EcobaseImportService {
     try {
       await params.bronzeService.createSourceFiles(params.bronzeContext, inlineCsvFiles(params.adapterConfig));
       for await (const item of params.adapter.import(params.adapterInput)) {
-        await params.bronzeService.createSourceRecord(params.bronzeContext, item);
+        const bronzeRecord = await params.bronzeService.createSourceRecord(params.bronzeContext, item);
         if (item.type === 'record') {
           const records = Array.isArray(item.record) ? item.record : [item.record];
           const fileName = getSourceFileName(item.sourceKey);
           result.rowCount += 1;
-          const rawRow = await this.createRawRow(params.rawImportRowRepo, params.importRunId, item);
           const normalized = await this.upsertNormalizedRecords(
             records,
             params.importRunId,
@@ -892,18 +960,7 @@ export class EcobaseImportService {
             sampleMappedRecord: normalized.sample ?? summarizeRecord(records[0]),
           });
           if (normalized.warnings.length > 0) {
-            const rawRowId = getString(rawRow, 'id');
-            if (rawRowId) {
-              await params.rawImportRowRepo.update({
-                filterByTk: rawRowId,
-                values: {
-                  normalizedStatus: 'pending',
-                  normalizedError: normalized.warnings.map((warning) => warning.message).join(' | '),
-                  issueSeverity: 'warning',
-                  issueCode: normalized.warnings[0]?.code,
-                },
-              });
-            }
+            await this.markBronzeRecordWarning(bronzeRecord, normalized.warnings);
           }
         } else if (item.type === 'rowIssue') {
           const fileName = getSourceFileName(item.issue.sourceKey);
@@ -918,18 +975,6 @@ export class EcobaseImportService {
             result.errorCount += 1;
             result.firstErrorIssueMessage = result.firstErrorIssueMessage ?? item.issue.message;
           }
-          await params.rawImportRowRepo.create({
-            values: {
-              importRunId: params.importRunId,
-              rowNumber: item.issue.rowNumber,
-              sourceKey: item.issue.sourceKey,
-              payload: item.issue.payload ?? {},
-              normalizedStatus: item.issue.severity === 'error' ? 'failed' : 'pending',
-              normalizedError: item.issue.message,
-              issueSeverity: item.issue.severity,
-              issueCode: item.issue.code,
-            },
-          });
         } else {
           result.finalStatusOverride = item.status;
           if (item.status === 'blocked' || item.status === 'failed') {
@@ -937,22 +982,11 @@ export class EcobaseImportService {
           } else {
             result.statusMessage = item.message;
           }
-          await params.rawImportRowRepo.create({
-            values: {
-              importRunId: params.importRunId,
-              rowNumber: 0,
-              sourceKey: item.status,
-              payload: item.payload ?? {},
-              normalizedStatus: item.status,
-              normalizedError: item.message,
-              issueSeverity: 'warning',
-              issueCode: item.status,
-            },
-          });
         }
       }
     } catch (error) {
-      result.errorMessage = error instanceof Error ? error.message : 'Ecobase import failed: adapter threw a non-Error value.';
+      result.errorMessage =
+        error instanceof Error ? error.message : 'Ecobase import failed: adapter threw a non-Error value.';
       result.errorCount += 1;
     }
 
@@ -961,7 +995,7 @@ export class EcobaseImportService {
 
   async listSourceStatuses(): Promise<SourceStatusView[]> {
     const sourceConnectionRepo = this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections);
-    const companyRepo = this.db.getRepository(ECOBASE_COLLECTIONS.companies);
+    const companyRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanies);
     const importRunRepo = this.db.getRepository(ECOBASE_COLLECTIONS.importRuns);
     const sourceConnections = await sourceConnectionRepo.find({ sort: ['name'] });
     const warningService = new EcobaseDataWarningService(this.db);
@@ -1249,18 +1283,18 @@ export class EcobaseImportService {
     return toPlainRecord(skippedRun);
   }
 
-  private async createRawRow(
-    rawImportRowRepo: EcobaseRepository,
-    importRunId: string,
-    item: Extract<AdapterStreamItem, { type: 'record' }>,
+  private async markBronzeRecordWarning(
+    bronzeRecord: unknown,
+    warnings: Array<{ code: string; message: string; payload?: Record<string, unknown> }>,
   ) {
-    return rawImportRowRepo.create({
+    const bronzeRecordId = getString(bronzeRecord, 'id');
+    if (!bronzeRecordId) return;
+    await this.db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).update({
+      filterByTk: bronzeRecordId,
       values: {
-        importRunId,
-        rowNumber: item.rowNumber,
-        sourceKey: item.sourceKey,
-        payload: item.payload,
-        normalizedStatus: 'success',
+        normalizedError: warnings.map((warning) => warning.message).join(' | '),
+        issueSeverity: 'warning',
+        issueCode: warnings[0]?.code,
       },
     });
   }
@@ -1278,6 +1312,12 @@ export class EcobaseImportService {
     let accountabilityTouched = false;
 
     for (const record of records) {
+      if (BRONZE_ONLY_RECORD_KINDS.has(record.kind)) {
+        normalizedCount += 1;
+        sample = sample ?? summarizeRecord(record);
+        continue;
+      }
+
       const customResult = await supplierOrderService.applyImportRecord(
         record as { kind: string; data: Record<string, unknown> },
         importRunId,
@@ -1291,30 +1331,12 @@ export class EcobaseImportService {
       }
 
       accountabilityTouched = accountabilityTouched || ACCOUNTABILITY_RECORD_KINDS.has(record.kind);
-      const collectionName = NORMALIZED_RECORD_COLLECTIONS[record.kind];
+      const target = normalizedRecordTarget(record, importRunId);
+      const { collectionName, values } = target;
       if (!collectionName) {
         throw new Error(
           `Ecobase import failed: normalized record kind "${record.kind}" is not mapped to a collection.`,
         );
-      }
-      const values: Record<string, unknown> = { ...record.data, lastImportRunId: importRunId };
-      if (record.kind === 'supplier_lead_time') {
-        const context = 'Ecobase import failed: supplier_lead_time';
-        const leadTimeDays = validateSupplierLeadTimeDays(requireNumberField(values, 'leadTimeDays', context), context);
-        if (leadTimeDays === undefined) {
-          throw new Error('Ecobase import failed: supplier_lead_time leadTimeDays is required.');
-        }
-        values.leadTimeDays = leadTimeDays;
-      }
-      if (record.kind === 'planning_parameter') {
-        const context = 'Ecobase import failed: planning_parameter';
-        const leadTimeDays = validateSupplierLeadTimeDays(
-          getOptionalNumberField(values, 'leadTimeDays', context),
-          context,
-        );
-        if (leadTimeDays !== undefined) {
-          values.leadTimeDays = leadTimeDays;
-        }
       }
       const naturalKey = getString(values, 'naturalKey');
       if (!naturalKey) {
@@ -1332,7 +1354,7 @@ export class EcobaseImportService {
         }
         await repository.update({ filterByTk: existingId, values });
       } else {
-        await repository.create({ values });
+        await repository.create({ values: { ...target.createValues, ...values } });
       }
       normalizedCount += 1;
       sample = sample ?? summarizeRecord(record);

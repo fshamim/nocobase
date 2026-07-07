@@ -213,10 +213,6 @@ describe('Ecobase AI public API seam', () => {
     const oldBusinessTables = new Set([
       ECOBASE_COLLECTIONS.planningCalculationSnapshots,
       ECOBASE_COLLECTIONS.alerts,
-      ECOBASE_COLLECTIONS.inventoryPlanningRows,
-      ECOBASE_COLLECTIONS.supplierOrders,
-      ECOBASE_COLLECTIONS.supplierOrderLines,
-      ECOBASE_COLLECTIONS.supplierOrderActivities,
       ECOBASE_COLLECTIONS.supplierLeadTimes,
       ECOBASE_COLLECTIONS.supplierProductLinks,
       ECOBASE_COLLECTIONS.listingDailyFacts,
@@ -422,7 +418,7 @@ describe('Ecobase inventory-planning public API seam', () => {
         stuck: true,
       },
     });
-    await db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
       values: {
         id: 'supplier-order-po-2',
         naturalKey: 'supplier-order:ACME:PO-2',
@@ -433,7 +429,7 @@ describe('Ecobase inventory-planning public API seam', () => {
         externalOrderRef: 'PO-2',
       },
     });
-    await db.getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).create({
       values: {
         id: 'activity-po-2',
         naturalKey: 'supplier-order-activity:supplier-order-po-2:2026-07-01T10:00:00.000Z',
@@ -614,7 +610,7 @@ describe('Ecobase supplier-order public API seam', () => {
         canonicalAsin: 'B00TEST',
       },
     });
-    await db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
       values: {
         id: 'supplier-order-1',
         naturalKey: 'supplier-order:Ecofission LLC:PO-1',
@@ -627,7 +623,7 @@ describe('Ecobase supplier-order public API seam', () => {
         lastImportRunId: 'import-run-1',
       },
     });
-    await db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
       values: {
         id: 'supplier-order-line-1',
         naturalKey: 'supplier-order-line:PO-1:1',
@@ -756,7 +752,7 @@ describe('Ecobase supplier-order public API seam', () => {
       data: expect.objectContaining({ expectedSellableDate: '2024-02-29' }),
     });
 
-    await db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
       values: {
         id: 1,
         naturalKey: 'legacy-order-1',
@@ -765,7 +761,7 @@ describe('Ecobase supplier-order public API seam', () => {
         status: 'planned',
       },
     });
-    await db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
       values: {
         id: 1,
         naturalKey: 'legacy-line-1',
@@ -786,7 +782,7 @@ describe('Ecobase supplier-order public API seam', () => {
     );
     expect(
       db
-        .getRepository(ECOBASE_COLLECTIONS.supplierOrders)
+        .getRepository(ECOBASE_COLLECTIONS.silverOrders)
         .all()
         .find((record) => record.id === 1),
     ).toMatchObject({
@@ -795,7 +791,7 @@ describe('Ecobase supplier-order public API seam', () => {
     });
     expect(
       db
-        .getRepository(ECOBASE_COLLECTIONS.supplierOrderLines)
+        .getRepository(ECOBASE_COLLECTIONS.silverOrderLines)
         .all()
         .find((record) => record.id === 1),
     ).toMatchObject({
@@ -833,7 +829,7 @@ describe('Ecobase supplier-order workspace API seam', () => {
         name: 'Other Supplier',
       },
     });
-    await db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
       values: {
         id: 'order-1',
         naturalKey: 'supplier-order:Ecofission LLC:ORDER-1',
@@ -842,7 +838,7 @@ describe('Ecobase supplier-order workspace API seam', () => {
         status: 'approval_pending',
       },
     });
-    await db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
       values: {
         id: 'line-1',
         naturalKey: 'supplier-order-line:Ecofission LLC:ORDER-1:1',
@@ -867,7 +863,7 @@ describe('Ecobase supplier-order workspace API seam', () => {
 
     expect(
       db
-        .getRepository(ECOBASE_COLLECTIONS.supplierOrders)
+        .getRepository(ECOBASE_COLLECTIONS.silverOrders)
         .all()
         .find((record) => record.id === 'order-1'),
     ).toMatchObject({
@@ -878,7 +874,7 @@ describe('Ecobase supplier-order workspace API seam', () => {
     });
     expect(
       db
-        .getRepository(ECOBASE_COLLECTIONS.supplierOrderLines)
+        .getRepository(ECOBASE_COLLECTIONS.silverOrderLines)
         .all()
         .find((record) => record.id === 'line-1'),
     ).toMatchObject({
@@ -951,7 +947,7 @@ describe('Ecobase supplier-order workspace API seam', () => {
         active: true,
       },
     });
-    await db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).create({
       values: {
         id: 'raw-row-eco-company',
         importRunId: 'eco-import-run',
@@ -959,7 +955,7 @@ describe('Ecobase supplier-order workspace API seam', () => {
         payload: { company: 'Ecofission LLC' },
       },
     });
-    await db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).create({
       values: {
         id: 'raw-row-other-company',
         importRunId: 'other-import-run',
@@ -974,7 +970,7 @@ describe('Ecobase supplier-order workspace API seam', () => {
       reorderCandidates: [],
       supplierOrders: [],
       supplierOrderLines: [],
-      rawImportRows: [],
+      bronzeSourceRecords: [],
       dataWarnings: ['company_filter_required'],
     });
 
@@ -989,7 +985,7 @@ describe('Ecobase supplier-order workspace API seam', () => {
             coverage: expect.objectContaining({ coverageState: 'no_open_order' }),
           }),
         ],
-        rawImportRows: [expect.objectContaining({ id: 'raw-row-eco-company', importRunId: 'eco-import-run' })],
+        bronzeSourceRecords: [expect.objectContaining({ id: 'raw-row-eco-company', importRunId: 'eco-import-run' })],
       },
     });
 
@@ -1030,7 +1026,7 @@ describe('Ecobase supplier-order workspace API seam', () => {
     );
     expect(
       db
-        .getRepository(ECOBASE_COLLECTIONS.supplierOrderLines)
+        .getRepository(ECOBASE_COLLECTIONS.silverOrderLines)
         .all()
         .find((record) => record.id === lineId),
     ).toMatchObject({
@@ -1086,7 +1082,7 @@ describe('Ecobase supplier-order workspace API seam', () => {
         source: 'manual',
       }),
     ]);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities).all()).toEqual(
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).all()).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           activityType: 'contacted_supplier',
@@ -1109,7 +1105,7 @@ describe('Ecobase supplier-order workspace API seam', () => {
     }
     expect(
       db
-        .getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities)
+        .getRepository(ECOBASE_COLLECTIONS.silverActivityComments)
         .all()
         .map((activity) => activity.activityType),
     ).toEqual(
@@ -1175,7 +1171,7 @@ describe('Ecobase supplier-order workspace API seam', () => {
   it('edits and soft-deletes manual comments but keeps imported comments read-only', async () => {
     const db = new MemoryDatabase();
     const actions = createEcobaseSupplierOrderActions();
-    await db.getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).create({
       values: {
         id: 'manual-comment',
         naturalKey: 'manual-comment',
@@ -1188,7 +1184,7 @@ describe('Ecobase supplier-order workspace API seam', () => {
         payload: {},
       },
     });
-    await db.getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).create({
       values: {
         id: 'clickup-comment',
         naturalKey: 'clickup-comment',
@@ -1201,7 +1197,7 @@ describe('Ecobase supplier-order workspace API seam', () => {
         payload: {},
       },
     });
-    await db.getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).create({
       values: {
         id: 'manual-status',
         naturalKey: 'manual-status',
@@ -1326,7 +1322,7 @@ describe('Ecobase import public API seam', () => {
       ],
     });
     expect(statusNext).toHaveBeenCalledOnce();
-    expect(db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).all()).toEqual([]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toEqual([]);
   });
 
   it('imports Sellerboard COGS CSV files into product costs', async () => {
@@ -1385,7 +1381,7 @@ describe('Ecobase import public API seam', () => {
   it('dry-runs ClickUp order-status imports without updating supplier orders', async () => {
     const db = new MemoryDatabase();
     const actions = createEcobaseImportActions(createSourceAdapterRegistry([noopTestAdapter]));
-    await db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
       values: {
         id: 'supplier-order-1',
         naturalKey: 'source:order:SS7226A',
@@ -1420,7 +1416,7 @@ describe('Ecobase import public API seam', () => {
         updatedOrderCount: 0,
       },
     });
-    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).all()[0]).toMatchObject({
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).all()[0]).toMatchObject({
       status: 'approval_pending',
       statusSource: 'google_sheets',
     });
@@ -1429,7 +1425,7 @@ describe('Ecobase import public API seam', () => {
   it('applies ClickUp order-status imports to matched supplier orders with evidence', async () => {
     const db = new MemoryDatabase();
     const actions = createEcobaseImportActions(createSourceAdapterRegistry([noopTestAdapter]));
-    await db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
       values: {
         id: 'supplier-order-1',
         naturalKey: 'source:order:SS7226A',
@@ -1458,23 +1454,23 @@ describe('Ecobase import public API seam', () => {
     await actions.importClickupOrderStatuses(context, vi.fn());
 
     expect(context.body).toMatchObject({ data: { dryRun: false, matchedOrderCount: 1, updatedOrderCount: 1 } });
-    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).all()[0]).toMatchObject({
-      status: 'shipped_inbound',
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).all()[0]).toMatchObject({
+      canonicalStatus: 'shipped_inbound',
+      lifecycleStatus: 'shipped_inbound',
       statusSource: 'clickup_csv',
-      statusUpdatedAt: '2026-07-06T00:00:00.000Z',
-      payload: {
-        existing: true,
+      statusEvidenceJson: {
         clickupStatusImport: expect.objectContaining({
           clickupStatus: 'inbound-monitoring',
           extraction: 'task_name_compact_order_ref',
           taskId: 'task-main',
         }),
+        importedAt: '2026-07-06T00:00:00.000Z',
       },
     });
-    expect(db.getRepository(ECOBASE_COLLECTIONS.clickupTaskSnapshots).all()).toHaveLength(1);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.taskLinks).all()).toEqual([
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverTasks).all()).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverTaskLinks).all()).toEqual([
       expect.objectContaining({
-        externalTaskId: 'task-main',
+        sourceTaskRef: 'task-main',
         targetType: 'supplier_order',
         supplierOrderId: 'supplier-order-1',
       }),
@@ -1484,7 +1480,7 @@ describe('Ecobase import public API seam', () => {
   it('imports ClickUp comments as idempotent supplier-order notes', async () => {
     const db = new MemoryDatabase();
     const actions = createEcobaseImportActions(createSourceAdapterRegistry([noopTestAdapter]));
-    await db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
       values: {
         id: 'supplier-order-1',
         naturalKey: 'source:order:SS7226A',
@@ -1498,7 +1494,7 @@ describe('Ecobase import public API seam', () => {
         payload: {},
       },
     });
-    await db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
       values: {
         id: 'supplier-order-2',
         naturalKey: 'source:order:EF11425C',
@@ -1557,7 +1553,7 @@ describe('Ecobase import public API seam', () => {
         invalidCommentCount: 3,
       },
     });
-    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities).all()).toHaveLength(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).all()).toHaveLength(0);
 
     const applyContext = createActionContext(db, {
       files: [{ name: 'Order Management Clickup Data 06-07-2026.csv', content }],
@@ -1575,22 +1571,23 @@ describe('Ecobase import public API seam', () => {
         invalidCommentCount: 3,
       },
     });
-    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities).all()).toEqual([
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).all()).toEqual([
       expect.objectContaining({
-        supplierOrderId: 'supplier-order-1',
-        supplierId: 'supplier-1',
-        company: 'Stop Shop LLC',
-        activityType: 'note',
-        occurredAt: '2026-07-03T19:49:37.000Z',
-        actor: 'nauman.ecofission@gmail.com',
+        entityType: 'supplier_order',
+        entityId: 'supplier-order-1',
+        commentType: 'note',
+        createdAt: '2026-07-03T19:49:37.000Z',
         actorUserId: '101',
-        notes: 'Will proceed with the order on Monday.',
-        source: 'clickup',
-        payload: expect.objectContaining({
+        body: 'Will proceed with the order on Monday.',
+        contextSnapshotJson: expect.objectContaining({
           source: 'clickup_csv',
+          company: 'Stop Shop LLC',
+          supplierId: 'supplier-1',
+          supplierOrderId: 'supplier-order-1',
           orderRef: 'SS7226A',
           taskId: 'task-main',
           taskName: 'New Order – SS7226A–Stop Shop Inc – USA – My Weigh',
+          actor: 'nauman.ecofission@gmail.com',
           comment: expect.objectContaining({ resolved: 'N/A' }),
         }),
       }),
@@ -1606,7 +1603,7 @@ describe('Ecobase import public API seam', () => {
     expect(rerunContext.body).toMatchObject({
       data: { proposedCommentCount: 1, importedCommentCount: 0, duplicateCommentCount: 1 },
     });
-    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities).all()).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).all()).toHaveLength(1);
   });
 
   it('normalizes pending bronze rows through resource actions', async () => {
@@ -1726,7 +1723,7 @@ describe('Ecobase import public API seam', () => {
       config: { manualCsvBundle: true },
       active: true,
     });
-    expect(db.getRepository(ECOBASE_COLLECTIONS.companies).all()).toEqual([
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).all()).toEqual([
       expect.objectContaining({ name: 'Ecofission LLC' }),
     ]);
 
@@ -1870,12 +1867,13 @@ describe('Ecobase import public API seam', () => {
         errorMessage: 'Sellerboard live import failed: URL returned HTTP 401.',
       },
     });
-    await db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).create({
       values: {
         importRunId: latestRun.id,
+        sourceConnectionId: source.id,
         rowNumber: 0,
         sourceKey: 'profit_dashboard:Profit Dashboard Data',
-        normalizedStatus: 'failed',
+        normalizationStatus: 'failed',
         normalizedError: 'Sellerboard live import failed: URL returned HTTP 401.',
         issueSeverity: 'error',
         issueCode: 'sellerboard_live_fetch_failed',
@@ -1918,11 +1916,11 @@ describe('Ecobase import public API seam', () => {
       sourceConnectionId: source.id,
       deleted: true,
       deletedImportRuns: 1,
-      deletedRawImportRows: 1,
+      deletedSourceOwnedRows: 1,
     });
     expect(db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).all()).toEqual([]);
     expect(db.getRepository(ECOBASE_COLLECTIONS.importRuns).all()).toEqual([]);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).all()).toEqual([]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toEqual([]);
   });
 });
 

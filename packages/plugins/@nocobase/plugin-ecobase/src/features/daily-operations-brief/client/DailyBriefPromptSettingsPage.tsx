@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { useAPIClient } from '@nocobase/client';
 import { Alert, Button, Card, Col, Input, Row, Select, Space, Typography } from 'antd';
 import React, { useCallback, useEffect, useState } from 'react';
@@ -50,7 +59,7 @@ export default function DailyBriefPromptSettingsPage() {
   const [error, setError] = useState<Error | null>(null);
 
   const loadCompanies = useCallback(async () => {
-    const response = await api.request({ url: 'ecobaseCompanies:list?paginate=false', method: 'get' });
+    const response = await api.request({ url: 'silverCompanies:list?paginate=false', method: 'get' });
     setCompanies(
       unwrapRows(response)
         .map((row) => ({ label: typeof row.name === 'string' ? row.name : '', value: String(row.name ?? '') }))

@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import type { EcobaseDatabase } from '../../features/source-import/server/import-service';
@@ -25,7 +34,7 @@ interface ScopeContext {
   importRunIds: Set<string>;
   importRuns: PlainRecord[];
   sourceAudits: PlainRecord[];
-  rawRows: PlainRecord[];
+  bronzeRows: PlainRecord[];
 }
 
 export interface BusinessViewDefinition {
@@ -58,20 +67,6 @@ const DOMAIN_TITLES: Record<string, string> = {
 const COLLECTIONS: CollectionDefinition[] = [
   {
     domain: 'source_import',
-    collectionName: ECOBASE_COLLECTIONS.companies,
-    title: 'Companies',
-    access: 'configuration',
-    companyScoped: true,
-  },
-  {
-    domain: 'source_import',
-    collectionName: ECOBASE_COLLECTIONS.amazonAccounts,
-    title: 'Amazon accounts',
-    access: 'configuration',
-    companyScoped: true,
-  },
-  {
-    domain: 'source_import',
     collectionName: ECOBASE_COLLECTIONS.sourceConnections,
     title: 'Source connections',
     access: 'configuration',
@@ -84,13 +79,6 @@ const COLLECTIONS: CollectionDefinition[] = [
     title: 'Import runs',
     access: 'read_only_audit',
     sourceScoped: true,
-  },
-  {
-    domain: 'source_import',
-    collectionName: ECOBASE_COLLECTIONS.rawImportRows,
-    title: 'Raw import rows',
-    access: 'read_only_audit',
-    latestImportRunScoped: true,
   },
   {
     domain: 'source_import',
@@ -168,126 +156,73 @@ const COLLECTIONS: CollectionDefinition[] = [
     access: 'read_only_audit',
   },
   {
-    domain: 'product_listing_facts',
-    collectionName: ECOBASE_COLLECTIONS.rawListings,
-    title: 'Raw listings',
+    domain: 'medallion',
+    collectionName: ECOBASE_COLLECTIONS.silverSuppliers,
+    title: 'Silver suppliers',
     access: 'read_only_audit',
-    companyScoped: true,
-    sourceScoped: true,
   },
   {
-    domain: 'product_listing_facts',
-    collectionName: ECOBASE_COLLECTIONS.listingDailyFacts,
-    title: 'Listing daily facts',
-    access: 'system_managed',
-    companyScoped: true,
-    sourceScoped: true,
-  },
-  {
-    domain: 'product_listing_facts',
-    collectionName: ECOBASE_COLLECTIONS.inventorySnapshots,
-    title: 'Inventory snapshots',
-    access: 'system_managed',
-    companyScoped: true,
-    sourceScoped: true,
-  },
-  {
-    domain: 'product_listing_facts',
-    collectionName: ECOBASE_COLLECTIONS.trafficSnapshots,
-    title: 'Traffic and buy-box snapshots',
-    access: 'system_managed',
-    companyScoped: true,
-    sourceScoped: true,
-  },
-  {
-    domain: 'planning',
-    collectionName: ECOBASE_COLLECTIONS.planningProducts,
-    title: 'Planning products',
-    access: 'system_managed',
-    companyScoped: true,
-  },
-  {
-    domain: 'planning',
-    collectionName: ECOBASE_COLLECTIONS.planningProductListings,
-    title: 'Planning product listing links',
-    access: 'system_managed',
-    sourceScoped: true,
-  },
-  {
-    domain: 'planning',
-    collectionName: ECOBASE_COLLECTIONS.planningProductMappingAudits,
-    title: 'Planning mapping audits',
+    domain: 'medallion',
+    collectionName: ECOBASE_COLLECTIONS.silverSupplierAccounts,
+    title: 'Silver supplier accounts',
     access: 'read_only_audit',
-    companyScoped: true,
   },
   {
-    domain: 'planning',
-    collectionName: ECOBASE_COLLECTIONS.planningParameters,
-    title: 'Planning parameters',
+    domain: 'medallion',
+    collectionName: ECOBASE_COLLECTIONS.silverSupplierProducts,
+    title: 'Silver supplier products',
+    access: 'read_only_audit',
+  },
+  {
+    domain: 'medallion',
+    collectionName: ECOBASE_COLLECTIONS.silverCompanyProductSuppliers,
+    title: 'Silver company product suppliers',
+    access: 'read_only_audit',
+  },
+  {
+    domain: 'medallion',
+    collectionName: ECOBASE_COLLECTIONS.silverOrders,
+    title: 'Silver orders',
     access: 'operator_editable',
-    companyScoped: true,
+  },
+  {
+    domain: 'medallion',
+    collectionName: ECOBASE_COLLECTIONS.silverOrderLines,
+    title: 'Silver order lines',
+    access: 'operator_editable',
+  },
+  {
+    domain: 'medallion',
+    collectionName: ECOBASE_COLLECTIONS.silverInvoices,
+    title: 'Silver invoices',
+    access: 'read_only_audit',
   },
   {
     domain: 'planning',
-    collectionName: ECOBASE_COLLECTIONS.targetRows,
-    title: 'Target rows',
+    collectionName: ECOBASE_COLLECTIONS.goldInventoryPlanningRows,
+    title: 'Gold inventory planning rows',
     access: 'system_managed',
     companyScoped: true,
   },
   {
     domain: 'planning',
-    collectionName: ECOBASE_COLLECTIONS.planningCalculationSnapshots,
-    title: 'Planning calculation snapshots',
-    access: 'read_only_audit',
-    companyScoped: true,
-  },
-  {
-    domain: 'suppliers_orders',
-    collectionName: ECOBASE_COLLECTIONS.suppliers,
-    title: 'Suppliers',
+    collectionName: ECOBASE_COLLECTIONS.goldOrderPlanningRows,
+    title: 'Gold order planning rows',
     access: 'system_managed',
     companyScoped: true,
   },
   {
-    domain: 'suppliers_orders',
-    collectionName: ECOBASE_COLLECTIONS.supplierLeadTimes,
-    title: 'Supplier lead times',
-    access: 'operator_editable',
+    domain: 'planning',
+    collectionName: ECOBASE_COLLECTIONS.goldSupplierAttentionRows,
+    title: 'Gold supplier attention rows',
+    access: 'system_managed',
     companyScoped: true,
   },
   {
-    domain: 'suppliers_orders',
-    collectionName: ECOBASE_COLLECTIONS.supplierExternalIdentities,
-    title: 'Supplier external identities',
-    access: 'read_only_audit',
-    companyScoped: true,
-  },
-  {
-    domain: 'suppliers_orders',
-    collectionName: ECOBASE_COLLECTIONS.supplierProductLinks,
-    title: 'Supplier product links',
-    access: 'operator_editable',
-    companyScoped: true,
-  },
-  {
-    domain: 'suppliers_orders',
-    collectionName: ECOBASE_COLLECTIONS.supplierOrders,
-    title: 'Supplier orders',
-    access: 'operator_editable',
-    companyScoped: true,
-  },
-  {
-    domain: 'suppliers_orders',
-    collectionName: ECOBASE_COLLECTIONS.supplierOrderLines,
-    title: 'Supplier order lines',
-    access: 'operator_editable',
-    companyScoped: true,
-  },
-  {
-    domain: 'suppliers_orders',
-    collectionName: ECOBASE_COLLECTIONS.supplierOrderActivities,
-    title: 'Supplier order activities',
-    access: 'operator_editable',
+    domain: 'planning',
+    collectionName: ECOBASE_COLLECTIONS.goldTargetEvaluations,
+    title: 'Gold target evaluations',
+    access: 'system_managed',
     companyScoped: true,
   },
   {
@@ -314,34 +249,6 @@ const COLLECTIONS: CollectionDefinition[] = [
     collectionName: ECOBASE_COLLECTIONS.alerts,
     title: 'Alerts',
     access: 'operator_editable',
-    companyScoped: true,
-  },
-  {
-    domain: 'accountability',
-    collectionName: ECOBASE_COLLECTIONS.clickupTaskSnapshots,
-    title: 'ClickUp task snapshots',
-    access: 'read_only_audit',
-    companyScoped: true,
-  },
-  {
-    domain: 'accountability',
-    collectionName: ECOBASE_COLLECTIONS.taskLinks,
-    title: 'Task links',
-    access: 'system_managed',
-    companyScoped: true,
-  },
-  {
-    domain: 'accountability',
-    collectionName: ECOBASE_COLLECTIONS.okrs,
-    title: 'OKRs',
-    access: 'system_managed',
-    companyScoped: true,
-  },
-  {
-    domain: 'accountability',
-    collectionName: ECOBASE_COLLECTIONS.okrMetricSnapshots,
-    title: 'OKR metric snapshots',
-    access: 'read_only_audit',
     companyScoped: true,
   },
   {
@@ -391,21 +298,21 @@ const STARTER_VIEWS: BusinessViewDefinition[] = [
   starterView(
     'latest-products',
     'Latest imported products',
-    'product_listing_facts',
-    ECOBASE_COLLECTIONS.planningProducts,
+    'planning',
+    ECOBASE_COLLECTIONS.goldInventoryPlanningRows,
     'Review current planning products by company.',
-    ['company', 'canonicalAsin', 'title', 'mappingStatus', 'listingCount', 'lastImportRunId'],
-    { mappingStatus: 'needs_review' },
-    ['company', 'canonicalAsin'],
+    ['company', 'asin', 'sku', 'title', 'tier', 'actionStatus', 'lastRefreshedAt'],
+    {},
+    ['company', 'asin'],
   ),
   starterView(
     'oos-reorder-candidates',
     'OOS and reorder candidates',
     'planning',
-    ECOBASE_COLLECTIONS.planningCalculationSnapshots,
+    ECOBASE_COLLECTIONS.goldInventoryPlanningRows,
     'Find products with reorder or OOS risk evidence.',
-    ['company', 'planningProductId', 'tier', 'calculationStatus', 'estimatedProfitRisk', 'evidence'],
-    { calculationStatus: 'needs_reorder' },
+    ['company', 'asin', 'sku', 'tier', 'actionStatus', 'estimatedProfitRisk', 'evidence'],
+    { actionStatus: 'order_today' },
     ['-estimatedProfitRisk'],
   ),
   starterView(
@@ -423,12 +330,12 @@ const STARTER_VIEWS: BusinessViewDefinition[] = [
     'open-supplier-orders',
     'Open supplier orders',
     'suppliers_orders',
-    ECOBASE_COLLECTIONS.supplierOrders,
+    ECOBASE_COLLECTIONS.goldOrderPlanningRows,
     'Supplier orders still in an active operational state.',
-    ['company', 'externalOrderRef', 'supplierId', 'status', 'expectedDeliveryDate', 'lastSupplierContactAt'],
-    { status: 'open' },
-    ['company', 'expectedDeliveryDate'],
-    ['company'],
+    ['companyName', 'orderRef', 'supplierName', 'currentStatus', 'expectedDeliveryDate', 'daysSinceLastActivity'],
+    {},
+    ['companyName', 'expectedDeliveryDate'],
+    ['companyName'],
   ),
   starterView(
     'report-preview-items',
@@ -699,7 +606,7 @@ export class EcobaseOperatorWorkspaceService {
   private async resolveScope(filters: PlainRecord): Promise<ScopeContext> {
     const requestedCompany = asString(filters.company);
     const requestedSourceConnectionId = asString(filters.sourceConnectionId);
-    const companies = await this.findAll(ECOBASE_COLLECTIONS.companies);
+    const companies = await this.findAll(ECOBASE_COLLECTIONS.silverCompanies);
     const companiesById = new Map(companies.map((company) => [String(company.id), company]));
     const companyByRequestedValue = requestedCompany
       ? companies.find((company) => company.name === requestedCompany || company.id === requestedCompany)
@@ -741,13 +648,14 @@ export class EcobaseOperatorWorkspaceService {
       sourceIds.size > 0 ? { sourceConnectionId: { $in: [...sourceIds] } } : {},
       { limit: 500 },
     );
-    const rawRows = await this.findAll(
-      ECOBASE_COLLECTIONS.rawImportRows,
+    const bronzeRows = await this.findAll(
+      ECOBASE_COLLECTIONS.bronzeSourceRecords,
       importRunIds.size > 0 ? { importRunId: { $in: [...importRunIds] } } : {},
       { limit: 500 },
     );
     const derivedCompanyId = requestedCompanyId ?? sourceCompanyId(scopedSources[0] ?? {});
-    const derivedCompanyName = requestedCompanyName ?? requestedCompany ?? sourceCompanyName(scopedSources[0] ?? {}, companiesById);
+    const derivedCompanyName =
+      requestedCompanyName ?? requestedCompany ?? sourceCompanyName(scopedSources[0] ?? {}, companiesById);
     return {
       company: derivedCompanyName,
       companyId: derivedCompanyId,
@@ -757,7 +665,7 @@ export class EcobaseOperatorWorkspaceService {
       importRunIds,
       importRuns: scopedImportRuns,
       sourceAudits,
-      rawRows,
+      bronzeRows,
     };
   }
 
@@ -778,8 +686,9 @@ export class EcobaseOperatorWorkspaceService {
     const latestImportRun = latestByDate(scope.importRuns, 'startedAt');
     const warningCount =
       scope.sourceAudits.filter(isWarningAudit).length +
-      scope.rawRows.filter(
-        (row) => row.issueSeverity === 'warning' || row.issueSeverity === 'error' || row.normalizedStatus === 'failed',
+      scope.bronzeRows.filter(
+        (row) =>
+          row.issueSeverity === 'warning' || row.issueSeverity === 'error' || row.normalizationStatus === 'failed',
       ).length;
     const latestRunStatus = asString(latestImportRun?.status);
     return {
@@ -857,11 +766,18 @@ export class EcobaseOperatorWorkspaceService {
       }
       return scope.sourceIds.size > 0 ? { sourceConnectionId: { $in: [...scope.sourceIds] } } : null;
     }
-    if (definition.collectionName === ECOBASE_COLLECTIONS.companies && scope.company) {
+    if (definition.collectionName === ECOBASE_COLLECTIONS.silverCompanies && scope.company) {
       return scope.companyId ? { id: scope.companyId } : { name: scope.company };
     }
-    if (definition.collectionName === ECOBASE_COLLECTIONS.amazonAccounts && scope.companyId) {
+    if (definition.collectionName === ECOBASE_COLLECTIONS.silverAmazonAccounts && scope.companyId) {
       return { companyId: scope.companyId };
+    }
+    if (
+      (definition.collectionName === ECOBASE_COLLECTIONS.goldOrderPlanningRows ||
+        definition.collectionName === ECOBASE_COLLECTIONS.goldSupplierAttentionRows) &&
+      scope.company
+    ) {
+      return scope.companyId ? { companyId: scope.companyId } : { companyName: scope.company };
     }
     if (definition.companyScoped && scope.company) {
       return { company: scope.company };
@@ -887,11 +803,18 @@ export class EcobaseOperatorWorkspaceService {
         return scope.sourceIds.has(String(row.sourceConnectionId));
       }
       if (
-        definition.collectionName === ECOBASE_COLLECTIONS.amazonAccounts &&
+        definition.collectionName === ECOBASE_COLLECTIONS.silverAmazonAccounts &&
         scope.companyId &&
         row.companyId !== undefined
       ) {
         return row.companyId === scope.companyId;
+      }
+      if (
+        (definition.collectionName === ECOBASE_COLLECTIONS.goldOrderPlanningRows ||
+          definition.collectionName === ECOBASE_COLLECTIONS.goldSupplierAttentionRows) &&
+        scope.company
+      ) {
+        return row.companyId === scope.companyId || row.companyName === scope.company;
       }
       if (definition.companyScoped && scope.company && row.company !== undefined) {
         return row.company === scope.company;
@@ -900,7 +823,7 @@ export class EcobaseOperatorWorkspaceService {
         definition.companyScoped &&
         scope.company &&
         row.name !== undefined &&
-        definition.collectionName === ECOBASE_COLLECTIONS.companies
+        definition.collectionName === ECOBASE_COLLECTIONS.silverCompanies
       ) {
         return row.name === scope.company;
       }

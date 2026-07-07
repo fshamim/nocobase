@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { defineCollection } from '@nocobase/database';
 import { ECOBASE_COLLECTIONS } from './names';
 
@@ -99,9 +108,9 @@ export default defineCollection({
     { name: 'errorMessage', type: 'text', interface: 'textarea', uiSchema: { title: 'Error Message' } },
     { name: 'summary', type: 'jsonb', interface: 'json', uiSchema: { title: 'Summary' }, defaultValue: {} },
     {
-      name: 'rawImportRows',
+      name: 'bronzeSourceRecords',
       type: 'hasMany',
-      target: ECOBASE_COLLECTIONS.rawImportRows,
+      target: ECOBASE_COLLECTIONS.bronzeSourceRecords,
       foreignKey: 'importRunId',
       onDelete: 'CASCADE',
     },

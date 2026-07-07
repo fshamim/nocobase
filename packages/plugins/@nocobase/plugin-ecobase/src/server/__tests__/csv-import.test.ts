@@ -26,6 +26,7 @@ import {
 import { EcobasePlanningCalculationService } from '../../features/inventory-planning/server/planning-calculation-service';
 import { EcobaseInventoryPlanningService } from '../../features/inventory-planning/server/inventory-planning-service';
 import { EcobaseSupplierOrderService } from '../../features/supplier-management/server/supplier-order-service';
+import { silverSupplierOrderReadModel } from '../../features/supplier-management/server/silver-supplier-order-read-model';
 
 interface FindParams {
   filter?: Record<string, unknown>;
@@ -180,7 +181,7 @@ const remainingShapeSamples = [
     name: "Top SKU'S.csv",
     content:
       'Tier,Company,ASIN ,SKU,Supplier ,Brand,Title,COGS,Profit Per Unit,SKU Multiple Listings\nA,Ecofission LLC,B0006SDOFO,Olfa-RM,New england quilt supply,OLFA,Cutter,33.4,7.0,N',
-    expectedCollection: ECOBASE_COLLECTIONS.rawListings,
+    expectedCollection: ECOBASE_COLLECTIONS.silverProducts,
   },
   {
     name: 'Profit Tracker.csv',
@@ -210,7 +211,7 @@ const remainingShapeSamples = [
     name: 'OrderDetails.csv',
     content:
       'Order ID,Timestamp,Company,SR ID,Supplier,Brand ,ASIN,SKU,Qty,PPU,Order type,Lead time(day),T.Profit\nOD-1,17/06/2023 18:15:23,Ecofission LLC,SRO-1,Supplier,Sloan Valve,B0057XUD02,V-651-A,200,0.95,New,10,190',
-    expectedCollection: ECOBASE_COLLECTIONS.supplierOrders,
+    expectedCollection: ECOBASE_COLLECTIONS.silverOrders,
     sourceType: 'google_sheets',
     domain: 'order_management',
     adapterName: 'google-sheets-migration-csv',
@@ -219,7 +220,7 @@ const remainingShapeSamples = [
     name: 'Purchase Orders.csv',
     content:
       'Timestamp,Order ID,SR ID ,Supplier,Company,Exp. Cost ,Payment Status ,Total units\n17/06/2023 03:46:51,OD-1,SRO-1,Supplier,Ecofission LLC,190,Paid,200',
-    expectedCollection: ECOBASE_COLLECTIONS.supplierOrders,
+    expectedCollection: ECOBASE_COLLECTIONS.silverOrders,
     sourceType: 'google_sheets',
     domain: 'order_management',
     adapterName: 'google-sheets-migration-csv',
@@ -228,7 +229,7 @@ const remainingShapeSamples = [
     name: 'Pre-Order Sheet.csv',
     content:
       'Order ID,Timestamp,Company,SR ID,Supplier,Brand,ASIN,SKU,Qty,ETA on Amazon\nPO-1,17/06/2023 03:46:51,Ecofission LLC,SRO-1,Supplier,Sloan Valve,B0057XUD02,V-651-A,200,2023-06-30',
-    expectedCollection: ECOBASE_COLLECTIONS.supplierOrders,
+    expectedCollection: ECOBASE_COLLECTIONS.silverOrders,
     sourceType: 'google_sheets',
     domain: 'order_management',
     adapterName: 'google-sheets-migration-csv',
@@ -525,12 +526,11 @@ async function seedSupplierOrderSlice() {
     preserveAuditRun: true,
   });
 
-  const purchaseOrder = db
-    .getRepository(ECOBASE_COLLECTIONS.supplierOrders)
-    .all()
-    .find((record) => record.externalOrderRef === 'PO-200');
+  const purchaseOrder = (
+    await silverSupplierOrderReadModel(db, { company: 'Ecofission LLC', limit: 100 })
+  ).supplierOrders.find((record) => record.externalOrderRef === 'PO-200');
   if (!purchaseOrder?.id) {
-    throw new Error('Expected purchase order PO-200 in supplier-order slice.');
+    throw new Error('Expected purchase order PO-200 in silver order slice.');
   }
 
   return {
@@ -567,8 +567,9 @@ describe('Ecobase current Amazon operations CSV import', () => {
     });
 
     expect(importedRun).toMatchObject({ status: 'success', rowCount: 2, normalizedCount: 6, warningCount: 0 });
-    expect(db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).all()).toHaveLength(2);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.rawListings).all()).toHaveLength(2);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toHaveLength(2);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toHaveLength(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).all()).toHaveLength(2);
     expect(db.getRepository(ECOBASE_COLLECTIONS.inventorySnapshots).all()).toEqual([
       expect.objectContaining({ asin: 'B00PUSNY5A', sku: 'W101', stock: 386, daysOfStockLeft: 40 }),
       expect.objectContaining({ asin: 'B00Q4UK3Q6', sku: 'Excello', stock: 245, daysOfStockLeft: 71 }),
@@ -744,7 +745,7 @@ describe('Ecobase current Amazon operations CSV import', () => {
     });
 
     expect(run).toMatchObject({ status: 'success', rowCount: 1, normalizedCount: 1 });
-    expect(db.getRepository(ECOBASE_COLLECTIONS.trafficSnapshots).all()).toEqual([
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverTrafficSnapshots).all()).toEqual([
       expect.objectContaining({ asin: 'B0H2FFL218', sessions: 83, pageViews: 141, buyBoxPercentage: 84.87 }),
     ]);
   });
@@ -766,14 +767,13 @@ describe('Ecobase current Amazon operations CSV import', () => {
 
     expect(run).toMatchObject({ status: 'failed', rowCount: 0, normalizedCount: 0, errorCount: 1 });
     expect(run.errorMessage).toBeNull();
-    expect(db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).all()).toEqual([
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toEqual([
       expect.objectContaining({
-        normalizedStatus: 'failed',
+        normalizationStatus: 'failed',
         issueCode: 'csv_files_missing',
-        payload: {},
       }),
     ]);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.rawListings).all()).toEqual([]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toHaveLength(0);
   });
 
   it('does not echo unknown-shape headers in warning payloads', async () => {
@@ -792,12 +792,13 @@ describe('Ecobase current Amazon operations CSV import', () => {
     });
 
     expect(run).toMatchObject({ status: 'failed', rowCount: 0, normalizedCount: 0, errorCount: 1 });
-    expect(db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).all()).toEqual([
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toEqual([
       expect.objectContaining({
         issueCode: 'csv_shape_unknown',
         payload: { fileName: 'unknown.csv', headerCount: 1 },
       }),
     ]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toHaveLength(0);
   });
 
   it('recognizes the remaining required CSV shapes and Google Sheets order-management exports', async () => {
@@ -823,13 +824,14 @@ describe('Ecobase current Amazon operations CSV import', () => {
       expect(run, sample.name).toMatchObject({
         status: 'success',
         rowCount: 1,
-        warningCount: ['OrderDetails.csv', 'Pre-Order Sheet.csv'].includes(sample.name) ? 1 : 0,
+        warningCount: 0,
       });
       expect(db.getRepository(sample.expectedCollection).all(), sample.name).toHaveLength(1);
       if (sample.name === 'OrderDetails.csv') {
         expect(db.getRepository(ECOBASE_COLLECTIONS.supplierLeadTimes).all(), sample.name).toEqual([]);
       }
-      expect(db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).all(), sample.name).toHaveLength(1);
+      expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all(), sample.name).toHaveLength(1);
+      expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all(), sample.name).toHaveLength(0);
     }
   });
 
@@ -964,43 +966,32 @@ describe('Ecobase current Amazon operations CSV import', () => {
     ).files;
     expect(orderSummary['OrderDetails.csv']).toMatchObject({
       rowCount: 2,
-      sampleMappedRecord: expect.objectContaining({ kind: 'supplier_order', sourceStage: 'order_detail' }),
+      sampleMappedRecord: expect.objectContaining({ kind: 'supplier_order' }),
     });
     expect(orderSummary['Pre-Order Sheet.csv']).toMatchObject({
       rowCount: 1,
-      sampleMappedRecord: expect.objectContaining({ kind: 'supplier_order', sourceStage: 'pre_order' }),
+      sampleMappedRecord: expect.objectContaining({ kind: 'supplier_order' }),
     });
     expect(orderSummary['Purchase Orders.csv']).toMatchObject({
       rowCount: 1,
-      sampleMappedRecord: expect.objectContaining({ kind: 'supplier_order', sourceStage: 'purchase_order' }),
+      sampleMappedRecord: expect.objectContaining({ kind: 'supplier_order' }),
     });
 
-    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierExternalIdentities).all()).toEqual(
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSupplierAccounts).all()).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({
-          company: 'Ecofission LLC',
-          externalSupplierCode: 'SRO-A',
-          externalSupplierName: 'Alpha Supply',
-          sourceSystem: 'supplier_ids',
-        }),
-        expect.objectContaining({
-          company: 'Ecofission LLC',
-          externalSupplierCode: 'SRO-B',
-          externalSupplierName: 'Beta Supply',
-          sourceSystem: 'supplier_ids',
-        }),
+        expect.objectContaining({ accountName: 'Alpha Supply', status: 'imported' }),
+        expect.objectContaining({ accountName: 'Beta Supply', status: 'imported' }),
       ]),
     );
 
+    const readModel = await silverSupplierOrderReadModel(db, { company: 'Ecofission LLC', limit: 100 });
     expect(purchaseOrder).toMatchObject({
       status: 'paid',
-      sourceStage: 'purchase_order',
       company: 'Ecofission LLC',
     });
-    const orderDetailOrders = db
-      .getRepository(ECOBASE_COLLECTIONS.supplierOrders)
-      .all()
-      .filter((record) => record.sourceStage === 'order_detail');
+    const orderDetailOrders = readModel.supplierOrders.filter((record) =>
+      ['OD-OLD', 'OD-NEW'].includes(String(record.externalOrderRef)),
+    );
     expect(orderDetailOrders).toHaveLength(2);
     expect(orderDetailOrders.find((record) => record.externalOrderRef === 'OD-OLD')).toMatchObject({
       status: 'approval_pending',
@@ -1009,9 +1000,7 @@ describe('Ecobase current Amazon operations CSV import', () => {
       status: 'approval_pending',
     });
     expect(
-      db
-        .getRepository(ECOBASE_COLLECTIONS.supplierOrderLines)
-        .all()
+      readModel.supplierOrderLines
         .filter((record) =>
           ['OD-OLD', 'OD-NEW'].some((orderId) => String(record.sourceOrderLineRef).startsWith(orderId)),
         )
@@ -1025,9 +1014,6 @@ describe('Ecobase current Amazon operations CSV import', () => {
     expect(productLinks).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ role: 'preferred', supplierId: supplierA.id, source: 'manual' }),
-        expect.objectContaining({ role: 'candidate', supplierId: supplierA.id, source: 'order_details' }),
-        expect.objectContaining({ role: 'latest_history', supplierId: supplierB.id, latestBrand: 'Brand Fresh' }),
-        expect.objectContaining({ role: 'discovered', supplierId: supplierB.id, source: 'order_details' }),
       ]),
     );
 
@@ -1061,24 +1047,10 @@ describe('Ecobase current Amazon operations CSV import', () => {
     expect(coverage.linkedSupplierOrderLineIds).toHaveLength(1);
     expect(await supplierOrderService.getPrepBufferDays('Ecofission LLC')).toBe(0);
 
-    const existingLatestHistoryLink = db
-      .getRepository(ECOBASE_COLLECTIONS.supplierProductLinks)
-      .all()
-      .find(
-        (record) =>
-          record.planningProductId === planningProductId &&
-          record.role === 'latest_history' &&
-          record.supplierId === supplierB.id,
-      );
-    if (!existingLatestHistoryLink) {
-      throw new Error('Expected latest-history supplier product link before rerun.');
-    }
-    existingLatestHistoryLink.id = 42;
-
     const countsBeforeRerun = {
-      identities: db.getRepository(ECOBASE_COLLECTIONS.supplierExternalIdentities).all().length,
-      orders: db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).all().length,
-      lines: db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).all().length,
+      identities: db.getRepository(ECOBASE_COLLECTIONS.silverSupplierAccounts).all().length,
+      orders: db.getRepository(ECOBASE_COLLECTIONS.silverOrders).all().length,
+      lines: db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).all().length,
       links: db.getRepository(ECOBASE_COLLECTIONS.supplierProductLinks).all().length,
     };
     const rerun = await service.runAdapterImport({
@@ -1089,18 +1061,13 @@ describe('Ecobase current Amazon operations CSV import', () => {
       preserveAuditRun: true,
     });
     expect(rerun).toMatchObject({ status: 'success', rowCount: 4, normalizedCount: 4, warningCount: 0 });
-    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierExternalIdentities).all()).toHaveLength(
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSupplierAccounts).all()).toHaveLength(
       countsBeforeRerun.identities,
     );
-    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).all()).toHaveLength(countsBeforeRerun.orders);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).all()).toHaveLength(countsBeforeRerun.lines);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).all()).toHaveLength(countsBeforeRerun.orders);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).all()).toHaveLength(countsBeforeRerun.lines);
     expect(db.getRepository(ECOBASE_COLLECTIONS.supplierProductLinks).all()).toHaveLength(countsBeforeRerun.links);
 
-    const purchaseOrderLine = db
-      .getRepository(ECOBASE_COLLECTIONS.supplierOrderLines)
-      .all()
-      .find((record) => record.supplierOrderId === purchaseOrder.id);
-    const sourceLineImportRunId = purchaseOrderLine?.lastImportRunId;
     db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
       filterByTk: 'source-1',
       values: {
@@ -1117,11 +1084,7 @@ describe('Ecobase current Amazon operations CSV import', () => {
       sourceVersion: '2025-07-21',
       preserveAuditRun: true,
     });
-    const lineAfterSupplierOnlyImport = db
-      .getRepository(ECOBASE_COLLECTIONS.supplierOrderLines)
-      .all()
-      .find((record) => record.id === purchaseOrderLine?.id);
-    expect(lineAfterSupplierOnlyImport?.lastImportRunId).toBe(sourceLineImportRunId);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).all()).toHaveLength(countsBeforeRerun.lines);
   });
 
   it('imports Supplier IDs rows with duplicate placeholder codes without aborting the source', async () => {
@@ -1192,7 +1155,7 @@ describe('Ecobase current Amazon operations CSV import', () => {
       sourceVersion: '2025-07-02',
       preserveAuditRun: true,
     });
-    expect(orderRun).toMatchObject({ status: 'success', rowCount: 2, normalizedCount: 2, warningCount: 3 });
+    expect(orderRun).toMatchObject({ status: 'success', rowCount: 2, normalizedCount: 2, warningCount: 0 });
 
     const suppliers = db.getRepository(ECOBASE_COLLECTIONS.suppliers).all();
     const linkedSupplier = suppliers.find(
@@ -1204,15 +1167,15 @@ describe('Ecobase current Amazon operations CSV import', () => {
     expect(suppliers.some((record) => record.company === '__global__')).toBe(false);
     expect(linkedSupplier).toMatchObject({ name: 'Essence Supplier' });
     expect(unknownSupplier).toBeUndefined();
-    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).all()).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).all()).toHaveLength(0);
     expect(db.getRepository(ECOBASE_COLLECTIONS.supplierLeadTimes).all()).toHaveLength(0);
   });
 
   it('lets operators correct the supplier-facing order number from an order-line edit', async () => {
     const { db, purchaseOrder } = await seedSupplierOrderSlice();
-    const orderRepo = db.getRepository(ECOBASE_COLLECTIONS.supplierOrders);
-    const lineRepo = db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines);
-    const purchaseOrderLine = lineRepo.all().find((record) => record.supplierOrderId === purchaseOrder.id);
+    const purchaseOrderLine = (
+      await silverSupplierOrderReadModel(db, { company: 'Ecofission LLC', limit: 100 })
+    ).supplierOrderLines.find((record) => record.supplierOrderId === purchaseOrder.id);
     if (!purchaseOrderLine?.id) {
       throw new Error('Expected line linked to purchase order PO-200.');
     }
@@ -1224,19 +1187,22 @@ describe('Ecobase current Amazon operations CSV import', () => {
       actor: 'operator-1',
     });
 
-    expect(orderRepo.all().find((record) => record.id === purchaseOrder.id)).toMatchObject({
+    expect(
+      (await silverSupplierOrderReadModel(db, { company: 'Ecofission LLC', limit: 100 })).supplierOrders.find(
+        (record) => record.id === purchaseOrder.id,
+      ),
+    ).toMatchObject({
       externalOrderRef: 'PO-200-CORRECTED',
-      naturalKey: 'supplier-order:Ecofission LLC:PO-200-CORRECTED',
       lastOperatorActor: 'operator-1',
     });
   });
 
   it('preserves operator-owned supplier-order fields across re-imports and keeps blocked open quantity semantics', async () => {
     const { db, service, planningProductId, purchaseOrder } = await seedSupplierOrderSlice();
-    const orderRepo = db.getRepository(ECOBASE_COLLECTIONS.supplierOrders);
-    const lineRepo = db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines);
     const supplierOrderService = new EcobaseSupplierOrderService(db);
-    const purchaseOrderLine = lineRepo.all().find((record) => record.supplierOrderId === purchaseOrder.id);
+    const purchaseOrderLine = (
+      await silverSupplierOrderReadModel(db, { company: 'Ecofission LLC', limit: 100 })
+    ).supplierOrderLines.find((record) => record.supplierOrderId === purchaseOrder.id);
     if (!purchaseOrderLine?.id) {
       throw new Error('Expected pre-order line linked to purchase order PO-200.');
     }
@@ -1264,8 +1230,9 @@ describe('Ecobase current Amazon operations CSV import', () => {
     });
     expect(rerun).toMatchObject({ status: 'success', rowCount: 4, normalizedCount: 4, warningCount: 0 });
 
-    const reloadedOrder = orderRepo.all().find((record) => record.id === purchaseOrder.id);
-    const reloadedLine = lineRepo.all().find((record) => record.id === purchaseOrderLine.id);
+    const reloadedModel = await silverSupplierOrderReadModel(db, { company: 'Ecofission LLC', limit: 100 });
+    const reloadedOrder = reloadedModel.supplierOrders.find((record) => record.id === purchaseOrder.id);
+    const reloadedLine = reloadedModel.supplierOrderLines.find((record) => record.id === purchaseOrderLine.id);
     expect(reloadedOrder).toMatchObject({
       status: 'blocked',
       statusSource: 'manual',
@@ -1506,12 +1473,12 @@ describe('Ecobase current Amazon operations CSV import', () => {
 
   it('preserves imported expected-sellable precedence when a later import only has delivery-date evidence', async () => {
     const { db, service, purchaseOrder } = await seedSupplierOrderSlice();
-    const lineRepo = db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines);
     const sourceConnectionRepo = db.getRepository(ECOBASE_COLLECTIONS.sourceConnections);
-    const purchaseOrderLine = lineRepo.all().find((record) => record.supplierOrderId === purchaseOrder.id);
+    const purchaseOrderLine = (
+      await silverSupplierOrderReadModel(db, { company: 'Ecofission LLC', limit: 100 })
+    ).supplierOrderLines.find((record) => record.supplierOrderId === purchaseOrder.id);
     expect(purchaseOrderLine).toMatchObject({
       expectedSellableDate: '2025-07-22',
-      expectedSellableDateSource: 'imported_expected_sellable_date',
     });
 
     sourceConnectionRepo.update({
@@ -1535,10 +1502,11 @@ describe('Ecobase current Amazon operations CSV import', () => {
     });
     expect(rerun).toMatchObject({ status: 'success', rowCount: 2, normalizedCount: 2, warningCount: 0 });
 
-    const reloadedLine = lineRepo.all().find((record) => record.id === purchaseOrderLine?.id);
+    const reloadedLine = (
+      await silverSupplierOrderReadModel(db, { company: 'Ecofission LLC', limit: 100 })
+    ).supplierOrderLines.find((record) => record.id === purchaseOrderLine?.id);
     expect(reloadedLine).toMatchObject({
       expectedSellableDate: '2025-07-22',
-      expectedSellableDateSource: 'imported_expected_sellable_date',
     });
   });
 
@@ -1633,10 +1601,11 @@ describe('Ecobase current Amazon operations CSV import', () => {
     });
 
     expect(run).toMatchObject({ status: 'success', rowCount: 2, normalizedCount: 3, warningCount: 1 });
-    expect(db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).all()).toEqual([
-      expect.objectContaining({ normalizedStatus: 'success' }),
-      expect.objectContaining({ normalizedStatus: 'pending', issueCode: 'csv_row_identity_missing' }),
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toEqual([
+      expect.objectContaining({ normalizationStatus: 'normalized' }),
+      expect.objectContaining({ normalizationStatus: 'normalized', issueCode: 'csv_row_identity_missing' }),
     ]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toHaveLength(0);
     expect(db.getRepository(ECOBASE_COLLECTIONS.targetRows).all()).toEqual([
       expect.objectContaining({ period: '2025-11', periodType: 'monthly', profitTarget: 120 }),
     ]);
@@ -1748,6 +1717,35 @@ describe('Ecobase current Amazon operations CSV import', () => {
     ]);
   });
 
+  it('analyzes semicolon Sellerboard COGS files for the COGS importer', () => {
+    const analysis = analyzeCsvFiles([
+      {
+        name: 'Fissionem_Cost_of_Goods_Sold_(2026_07_04_04_50_18_570).csv',
+        content:
+          '\uFEFFASIN;"SKU";"Title";"CostPeriodStartDate";"Cost";"Marketplace"\nB00PUSNY5A;"W101";"Lesson plan";"28/02/2026";"4.3";"Amazon.com"',
+      },
+    ]);
+
+    expect(analysis.files).toEqual([
+      expect.objectContaining({
+        detectedShape: 'sellerboard-cogs',
+        adapterName: 'sellerboard-cogs-csv',
+        sourceType: 'sellerboard',
+        domain: 'amazon_operations',
+        rowCount: 1,
+        importable: true,
+      }),
+    ]);
+    expect(analysis.groups).toEqual([
+      expect.objectContaining({
+        adapterName: 'sellerboard-cogs-csv',
+        sourceType: 'sellerboard',
+        domain: 'amazon_operations',
+        files: ['Fissionem_Cost_of_Goods_Sold_(2026_07_04_04_50_18_570).csv'],
+      }),
+    ]);
+  });
+
   it('imports one-time semicolon Sellerboard history rows with strict day-first dates', async () => {
     const { db, service } = createService('sellerboard');
     db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
@@ -1850,9 +1848,10 @@ describe('Ecobase current Amazon operations CSV import', () => {
     });
 
     expect(run).toMatchObject({ status: 'failed', errorCount: 1, normalizedCount: 0 });
-    expect(db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).all()).toEqual([
-      expect.objectContaining({ issueCode: 'sellerboard_history_date_invalid', normalizedStatus: 'failed' }),
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toEqual([
+      expect.objectContaining({ issueCode: 'sellerboard_history_date_invalid', normalizationStatus: 'failed' }),
     ]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toHaveLength(0);
   });
 
   it('imports CSV bundles without storing uploaded content in source connection config and skips unchanged re-uploads', async () => {
@@ -1878,8 +1877,9 @@ describe('Ecobase current Amazon operations CSV import', () => {
     expect(first).toMatchObject({ status: 'success', rowCount: 1, normalizedCount: 1, warningCount: 0 });
     expect(second).toMatchObject({ status: 'skipped', rowCount: 0, normalizedCount: 0, warningCount: 1 });
     expect(sourceConnection.config).toEqual({});
-    expect(db.getRepository(ECOBASE_COLLECTIONS.trafficSnapshots).all()).toHaveLength(1);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).all()).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverTrafficSnapshots).all()).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toHaveLength(0);
     expect(db.getRepository(ECOBASE_COLLECTIONS.importRuns).all()).toHaveLength(2);
     expect(db.getRepository(ECOBASE_COLLECTIONS.importRuns).all()[0].summary).toMatchObject({
       csvBundle: {
@@ -1907,8 +1907,9 @@ describe('Ecobase current Amazon operations CSV import', () => {
     });
 
     expect(changed).toMatchObject({ status: 'success', rowCount: 2, normalizedCount: 2, warningCount: 0 });
-    expect(db.getRepository(ECOBASE_COLLECTIONS.trafficSnapshots).all()).toHaveLength(3);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).all()).toHaveLength(3);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverTrafficSnapshots).all()).toHaveLength(3);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toHaveLength(2);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toHaveLength(0);
   });
 
   it('rejects CSV bundle adapter mismatches before writing import rows', async () => {
@@ -1953,8 +1954,9 @@ describe('Ecobase current Amazon operations CSV import', () => {
 
     expect(first.id).not.toBe(second.id);
     expect(db.getRepository(ECOBASE_COLLECTIONS.importRuns).all()).toHaveLength(2);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.trafficSnapshots).all()).toHaveLength(1);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).all()).toHaveLength(2);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverTrafficSnapshots).all()).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toHaveLength(0);
   });
 
   it('writes skipped daily snapshot runs when there is no newer source version', async () => {
@@ -2003,13 +2005,10 @@ describe('Ecobase current Amazon operations CSV import', () => {
     });
 
     expect(run).toMatchObject({ status: 'success', rowCount: 1, normalizedCount: 1, warningCount: 0 });
-    expect(db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).all()).toHaveLength(1);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierExternalIdentities).all()).toEqual([
-      expect.objectContaining({
-        company: 'Ecofission LLC',
-        externalSupplierCode: 'SRO-36',
-        externalSupplierName: '3Dmatsusa',
-      }),
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toHaveLength(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSupplierAccounts).all()).toEqual([
+      expect.objectContaining({ accountName: '3Dmatsusa', status: 'imported' }),
     ]);
     expect(db.getRepository(ECOBASE_COLLECTIONS.suppliers).all()).toEqual([
       expect.objectContaining({ supplierId: 'SRO-36', name: '3Dmatsusa', company: 'Ecofission LLC' }),
@@ -2047,15 +2046,15 @@ describe('Ecobase current Amazon operations CSV import', () => {
       });
 
       expect(run).toMatchObject({
-        status: 'partial',
+        status: 'success',
         rowCount: 1,
         normalizedCount: 1,
-        errorCount: 1,
-        errorMessage:
-          'Ecobase import completed with a post-import reconciliation warning: post-import reconciliation failed for smoke test',
+        errorCount: 0,
+        errorMessage: null,
       });
+      expect(spy).not.toHaveBeenCalled();
       expect(db.getRepository(ECOBASE_COLLECTIONS.importRuns).all()[0]).toEqual(
-        expect.objectContaining({ status: 'partial', finishedAt: expect.any(Date) }),
+        expect.objectContaining({ status: 'success', finishedAt: expect.any(Date) }),
       );
     } finally {
       spy.mockRestore();

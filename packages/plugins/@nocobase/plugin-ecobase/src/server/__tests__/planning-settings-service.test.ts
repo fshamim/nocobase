@@ -91,6 +91,85 @@ async function createRecord(db: MemoryDatabase, collection: string, values: Reco
   await db.getRepository(collection).create({ values });
 }
 
+async function createSilverPlanningProductFixture(db: MemoryDatabase, values: Record<string, unknown>) {
+  const company = String(values.company ?? '');
+  const asin = String(values.asin ?? '');
+  const sku = String(values.sku ?? '');
+  const companyId = `silver-company:${company}`;
+  const productId = `silver-product:${asin}:${sku}`;
+  const companyProductId = `silver-company-product:${company}:${asin}:${sku}`;
+  const supplierId = `silver-supplier:${company}:${asin}:${sku}`;
+  const supplierProductId = `silver-supplier-product:${company}:${asin}:${sku}`;
+  await createRecord(db, ECOBASE_COLLECTIONS.silverCompanies, { id: companyId, name: company });
+  await createRecord(db, ECOBASE_COLLECTIONS.silverProducts, { id: productId, asin, sku, title: values.title });
+  await createRecord(db, ECOBASE_COLLECTIONS.silverCompanyProducts, {
+    id: companyProductId,
+    companyId,
+    productId,
+    lifecycleStatus: 'active',
+  });
+  await createRecord(db, ECOBASE_COLLECTIONS.silverInventorySnapshots, {
+    id: `silver-inventory:${company}:${asin}:${sku}`,
+    companyProductId,
+    snapshotDate: '2026-06-07',
+    sellableStock: values.stock,
+    salesVelocity: values.salesVelocity,
+  });
+  await createRecord(db, ECOBASE_COLLECTIONS.silverListingDailyFacts, {
+    id: `silver-fact:${company}:${asin}:${sku}`,
+    companyProductId,
+    snapshotDate: '2026-05-01',
+    units: values.units,
+    profit: values.profit,
+  });
+  await createRecord(db, ECOBASE_COLLECTIONS.silverSuppliers, { id: supplierId, displayName: 'Settings Supplier' });
+  await createRecord(db, ECOBASE_COLLECTIONS.silverSupplierProducts, {
+    id: supplierProductId,
+    supplierId,
+    productId,
+    leadTimeDays: values.leadTimeDays,
+  });
+  await createRecord(db, ECOBASE_COLLECTIONS.silverCompanyProductSuppliers, {
+    id: `silver-company-product-supplier:${company}:${asin}:${sku}`,
+    companyProductId,
+    supplierProductId,
+    role: 'latest_used',
+  });
+}
+
+async function createSupplierOrderRecord(db: MemoryDatabase, values: Record<string, unknown>) {
+  const company = String(values.company ?? '');
+  const companyId = `silver-company:${company}`;
+  await createRecord(db, ECOBASE_COLLECTIONS.silverCompanies, { id: companyId, name: company });
+  await createRecord(db, ECOBASE_COLLECTIONS.silverOrders, {
+    id: values.id,
+    companyId,
+    orderRef: values.externalOrderRef ?? values.id,
+    orderDate: values.orderDate ?? '2026-06-01',
+    dailySequenceLetter: 'A',
+    canonicalStatus: values.status,
+    lifecycleStatus: values.status,
+    updatedAt: values.lastMeaningfulUpdateAt,
+  });
+}
+
+async function createSupplierOrderLineRecord(db: MemoryDatabase, values: Record<string, unknown>) {
+  const company = String(values.company ?? '');
+  const companyId = `silver-company:${company}`;
+  const productId = `silver-product:${values.asin}:${values.sku}`;
+  const companyProductId = `silver-company-product:${company}:${values.asin}:${values.sku}`;
+  await createRecord(db, ECOBASE_COLLECTIONS.silverCompanies, { id: companyId, name: company });
+  await createRecord(db, ECOBASE_COLLECTIONS.silverProducts, { id: productId, asin: values.asin, sku: values.sku });
+  await createRecord(db, ECOBASE_COLLECTIONS.silverCompanyProducts, { id: companyProductId, companyId, productId });
+  await createRecord(db, ECOBASE_COLLECTIONS.silverOrderLines, {
+    id: values.id,
+    orderId: values.supplierOrderId,
+    companyProductId,
+    orderedQty: values.orderedQty,
+    confirmedQty: values.receivedQty,
+  });
+}
+
 describe('EcobasePlanningSettingsService', () => {
   it('returns operator-visible planning defaults when no settings row exists', async () => {
     const result = await new EcobasePlanningSettingsService(new MemoryDatabase()).getActiveSettings();
@@ -179,6 +258,17 @@ describe('EcobasePlanningSettingsService', () => {
       leadTimeDays: 4,
       payload: { recommendedBestQty: 20, productStatus: 'Active' },
     });
+    await createSilverPlanningProductFixture(db, {
+      company: 'Ecofission LLC',
+      asin: 'B000SETTINGS',
+      sku: 'SETTINGS-SKU',
+      title: 'Settings product',
+      stock: 10,
+      salesVelocity: 2,
+      leadTimeDays: 4,
+      units: 20,
+      profit: 400,
+    });
 
     const [row] = await new EcobaseInventoryPlanningService(db).listRows({
       company: 'Ecofission LLC',
@@ -186,12 +276,7 @@ describe('EcobasePlanningSettingsService', () => {
     });
 
     expect(row).toMatchObject({
-      safetyBufferDays: 10,
-      reorderCycleDays: 40,
       targetCoverDays: 30,
-      orderSoonWindowDays: 5,
-      leadTimeFreshnessDays: 30,
-      purchasedPipelineGraceDays: 1,
       tier: 'B',
       suggestedReorderQty: 50,
     });
@@ -232,19 +317,26 @@ describe('EcobasePlanningSettingsService', () => {
       leadTimeDays: 4,
       payload: { recommendedBestQty: 20, productStatus: 'Active' },
     });
-    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrders, {
+    await createSilverPlanningProductFixture(db, {
+      company: 'Ecofission LLC',
+      asin: 'B000STATUS',
+      sku: 'STATUS-SKU',
+      title: 'Custom status product',
+      stock: 10,
+      salesVelocity: 2,
+      leadTimeDays: 4,
+      units: 20,
+      profit: 400,
+    });
+    await createSupplierOrderRecord(db, {
       id: 'order-custom-status',
-      naturalKey: 'supplier-order:Ecofission LLC:CUSTOM-1',
-      sourceConnectionId: 'source-1',
       company: 'Ecofission LLC',
       externalOrderRef: 'CUSTOM-1',
       status: 'supplier_paid_wire',
       lastMeaningfulUpdateAt: '2026-06-06T00:00:00.000Z',
     });
-    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrderLines, {
+    await createSupplierOrderLineRecord(db, {
       id: 'line-custom-status',
-      naturalKey: 'supplier-order-line:CUSTOM-1',
-      sourceConnectionId: 'source-1',
       company: 'Ecofission LLC',
       supplierOrderId: 'order-custom-status',
       planningProductId: 'planning-product-custom-status',

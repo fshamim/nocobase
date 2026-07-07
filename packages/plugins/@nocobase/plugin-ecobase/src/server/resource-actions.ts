@@ -63,11 +63,7 @@ import { EcobaseSilverDataService } from '../features/semantic-model/server/silv
 import type { SilverFocus } from '../features/semantic-model/server/silver-data-service';
 import { EcobaseSourceConnectionService } from '../features/source-import/server/source-connection-service';
 import { EcobaseSupplierManagementService } from '../features/supplier-management/server/supplier-management-service';
-import {
-  EcobaseSupplierOrderService,
-  validateSupplierLeadTimeDays,
-  validateSupplierOrderActivityType,
-} from '../features/supplier-management/server/supplier-order-service';
+import { EcobaseSupplierOrderService } from '../features/supplier-management/server/supplier-order-service';
 
 function getValues(params: unknown): Record<string, unknown> {
   if (typeof params !== 'object' || params === null) {
@@ -183,32 +179,6 @@ function getActorId(ctx: { state?: Record<string, unknown> }) {
     return typeof id === 'string' || typeof id === 'number' ? String(id) : undefined;
   }
   return undefined;
-}
-
-function readModelValue(model: { get?: (key?: string) => unknown }, key: string): unknown {
-  if (typeof model.get !== 'function') {
-    return undefined;
-  }
-  return model.get(key);
-}
-
-export function validateSupplierOrderActivityModel(model: { get?: (key?: string) => unknown }) {
-  const activityType = readModelValue(model, 'activityType');
-  if (typeof activityType !== 'string') {
-    throw new Error('Ecobase supplier-order activity failed: activityType is required.');
-  }
-  validateSupplierOrderActivityType(activityType);
-  const leadTimeDays = readModelValue(model, 'leadTimeDays');
-  if (leadTimeDays !== undefined && leadTimeDays !== null && typeof leadTimeDays !== 'number') {
-    throw new Error('Ecobase supplier-order activity failed: leadTimeDays must be a number.');
-  }
-  const validatedLeadTimeDays = validateSupplierLeadTimeDays(
-    typeof leadTimeDays === 'number' ? leadTimeDays : undefined,
-    'Ecobase supplier-order activity failed',
-  );
-  if (activityType === 'lead_time_checked' && validatedLeadTimeDays === undefined) {
-    throw new Error('Ecobase supplier-order activity failed: leadTimeDays is required for lead_time_checked.');
-  }
 }
 
 export function createEcobaseAccuracyActions() {

@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { createHash, randomUUID } from 'node:crypto';
 import type { AdapterStreamItem, SourceAdapter } from './adapters';
 import type { CsvSourceFile } from './adapters/csv-utils';
@@ -63,10 +72,15 @@ export class EcobaseBronzeImportService {
         sourceType: context.adapter.metadata.sourceType,
         sourceDataset,
         sourceRecordKey: sourceKey,
+        sourceKey: sourceKeyForAudit(item),
+        rowNumber: rowNumberFor(item),
         observedAt: context.sourceVersion,
         payload,
         rowHash,
-        normalizationStatus: item.type === 'rowIssue' && item.issue.severity === 'error' ? 'failed' : 'pending',
+        normalizationStatus: normalizationStatusFor(item),
+        normalizedError: normalizedErrorFor(item),
+        issueSeverity: issueSeverityFor(item),
+        issueCode: issueCodeFor(item),
         retentionUntil: retentionDate(context.sourceVersion),
       },
     });
@@ -90,6 +104,42 @@ function payloadFor(item: AdapterStreamItem) {
   if (item.type === 'record') return item.payload;
   if (item.type === 'rowIssue') return item.issue.payload ?? { message: item.issue.message, code: item.issue.code };
   return item.payload ?? { message: item.message, status: item.status };
+}
+
+function sourceKeyForAudit(item: AdapterStreamItem) {
+  if (item.type === 'record') return item.sourceKey;
+  if (item.type === 'rowIssue') return item.issue.sourceKey;
+  return item.status;
+}
+
+function rowNumberFor(item: AdapterStreamItem) {
+  if (item.type === 'record') return item.rowNumber;
+  if (item.type === 'rowIssue') return item.issue.rowNumber;
+  return 0;
+}
+
+function normalizationStatusFor(item: AdapterStreamItem) {
+  if (item.type === 'record') return 'pending';
+  if (item.type === 'rowIssue') return item.issue.severity === 'error' ? 'failed' : 'pending';
+  return item.status;
+}
+
+function normalizedErrorFor(item: AdapterStreamItem) {
+  if (item.type === 'rowIssue') return item.issue.message;
+  if (item.type === 'status') return item.message;
+  return undefined;
+}
+
+function issueSeverityFor(item: AdapterStreamItem) {
+  if (item.type === 'rowIssue') return item.issue.severity;
+  if (item.type === 'status') return 'warning';
+  return undefined;
+}
+
+function issueCodeFor(item: AdapterStreamItem) {
+  if (item.type === 'rowIssue') return item.issue.code;
+  if (item.type === 'status') return item.status;
+  return undefined;
 }
 
 function retentionDate(sourceVersion: string) {

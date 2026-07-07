@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { describe, expect, it, vi } from 'vitest';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { createEcobaseDashboardActions } from '../plugin';
@@ -9,12 +18,16 @@ class MemoryRepository implements EcobaseRepository {
 
   constructor(private records: Record<string, unknown>[] = []) {}
 
-  async find(params: { filter?: Record<string, unknown>; filterByTk?: string | number; sort?: string[]; limit?: number } = {}) {
+  async find(
+    params: { filter?: Record<string, unknown>; filterByTk?: string | number; sort?: string[]; limit?: number } = {},
+  ) {
     const filtered = this.filterRecords(params);
     return this.sortRecords(filtered, params.sort).slice(0, params.limit ?? filtered.length);
   }
 
-  async findOne(params: { filter?: Record<string, unknown>; filterByTk?: string | number; sort?: string[]; limit?: number } = {}) {
+  async findOne(
+    params: { filter?: Record<string, unknown>; filterByTk?: string | number; sort?: string[]; limit?: number } = {},
+  ) {
     return (await this.find({ ...params, limit: 1 }))[0] ?? null;
   }
 
@@ -24,7 +37,15 @@ class MemoryRepository implements EcobaseRepository {
     return record;
   }
 
-  async update({ filter, filterByTk, values }: { filter?: Record<string, unknown>; filterByTk?: string | number; values: Record<string, unknown> }) {
+  async update({
+    filter,
+    filterByTk,
+    values,
+  }: {
+    filter?: Record<string, unknown>;
+    filterByTk?: string | number;
+    values: Record<string, unknown>;
+  }) {
     const records = this.filterRecords({ filter, filterByTk });
     if (records.length === 0) {
       throw new Error('MemoryRepository update failed: matching record was not found.');
@@ -86,37 +107,164 @@ function createActionContext(db: EcobaseDatabase, values: Record<string, unknown
 
 async function seedDashboard(db: MemoryDatabase) {
   await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).create({
-    values: { id: 'source-1', name: 'Sellerboard QA', sourceType: 'sellerboard', domain: 'amazon_operations', active: true, required: true, freshnessSlaMinutes: 1440 },
+    values: {
+      id: 'source-1',
+      name: 'Sellerboard QA',
+      sourceType: 'sellerboard',
+      domain: 'amazon_operations',
+      active: true,
+      required: true,
+      freshnessSlaMinutes: 1440,
+    },
   });
   await db.getRepository(ECOBASE_COLLECTIONS.importRuns).create({
-    values: { id: 'run-1', sourceConnectionId: 'source-1', status: 'success', rowCount: 10, normalizedCount: 10, warningCount: 1, startedAt: '2026-06-05T08:00:00.000Z', completedAt: '2026-06-05T08:01:00.000Z' },
+    values: {
+      id: 'run-1',
+      sourceConnectionId: 'source-1',
+      status: 'success',
+      rowCount: 10,
+      normalizedCount: 10,
+      warningCount: 1,
+      startedAt: '2026-06-05T08:00:00.000Z',
+      completedAt: '2026-06-05T08:01:00.000Z',
+    },
   });
   await db.getRepository(ECOBASE_COLLECTIONS.planningProducts).create({
-    values: { id: 'product-1', naturalKey: 'ACME:B00DASH', company: 'ACME', canonicalAsin: 'B00DASH', title: 'Dashboard product' },
+    values: {
+      id: 'product-1',
+      naturalKey: 'ACME:B00DASH',
+      company: 'ACME',
+      canonicalAsin: 'B00DASH',
+      title: 'Dashboard product',
+    },
   });
   await db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).create({
-    values: { naturalKey: 'fact-current', sourceConnectionId: 'source-1', planningProductId: 'product-1', snapshotDate: '2026-06-05', company: 'ACME', asin: 'B00DASH', sku: 'SKU-DASH', sales: 200, units: 10, netProfit: 100, payload: { accountKey: 'US', tier: 'A' } },
+    values: {
+      naturalKey: 'fact-current',
+      sourceConnectionId: 'source-1',
+      planningProductId: 'product-1',
+      snapshotDate: '2026-06-05',
+      company: 'ACME',
+      asin: 'B00DASH',
+      sku: 'SKU-DASH',
+      sales: 200,
+      units: 10,
+      netProfit: 100,
+      payload: { accountKey: 'US', tier: 'A' },
+    },
   });
   await db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).create({
-    values: { naturalKey: 'fact-prior', sourceConnectionId: 'source-1', planningProductId: 'product-1', snapshotDate: '2026-06-04', company: 'ACME', asin: 'B00DASH', sku: 'SKU-DASH', sales: 160, units: 8, netProfit: 80, payload: { accountKey: 'US', tier: 'A' } },
+    values: {
+      naturalKey: 'fact-prior',
+      sourceConnectionId: 'source-1',
+      planningProductId: 'product-1',
+      snapshotDate: '2026-06-04',
+      company: 'ACME',
+      asin: 'B00DASH',
+      sku: 'SKU-DASH',
+      sales: 160,
+      units: 8,
+      netProfit: 80,
+      payload: { accountKey: 'US', tier: 'A' },
+    },
   });
   await db.getRepository(ECOBASE_COLLECTIONS.planningCalculationSnapshots).create({
-    values: { naturalKey: 'calc-1', planningProductId: 'product-1', calculationDate: '2026-06-05', company: 'ACME', canonicalAsin: 'B00DASH', tier: 'A', sellableStock: 2, pipelineStock: 30, daysOfCover: 2, restockDeadlineImproved: '2026-06-07', profitGap: -50, estimatedProfitRisk: 300, calculationStatus: 'complete', dataCompleteness: 'complete' },
+    values: {
+      naturalKey: 'calc-1',
+      planningProductId: 'product-1',
+      calculationDate: '2026-06-05',
+      company: 'ACME',
+      canonicalAsin: 'B00DASH',
+      tier: 'A',
+      sellableStock: 2,
+      pipelineStock: 30,
+      daysOfCover: 2,
+      restockDeadlineImproved: '2026-06-07',
+      profitGap: -50,
+      estimatedProfitRisk: 300,
+      calculationStatus: 'complete',
+      dataCompleteness: 'complete',
+    },
   });
   await db.getRepository(ECOBASE_COLLECTIONS.alerts).create({
-    values: { id: 'alert-1', planningProductId: 'product-1', company: 'ACME', canonicalAsin: 'B00DASH', alertType: 'reorder_needed', severity: 'critical', status: 'open', primaryRootCauseCode: 'reorder_needed', subjectRef: 'planning_product:product-1', actionRequired: 'Place supplier order.', evidence: { source: 'test' }, dataWarnings: [{ code: 'stale_successful_run' }], rootCauses: [{ code: 'reorder_needed' }], lastSeenAt: '2026-06-05T08:05:00.000Z' },
+    values: {
+      id: 'alert-1',
+      planningProductId: 'product-1',
+      company: 'ACME',
+      canonicalAsin: 'B00DASH',
+      alertType: 'reorder_needed',
+      severity: 'critical',
+      status: 'open',
+      primaryRootCauseCode: 'reorder_needed',
+      subjectRef: 'planning_product:product-1',
+      actionRequired: 'Place supplier order.',
+      evidence: { source: 'test' },
+      dataWarnings: [{ code: 'stale_successful_run' }],
+      rootCauses: [{ code: 'reorder_needed' }],
+      lastSeenAt: '2026-06-05T08:05:00.000Z',
+    },
   });
-  await db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).create({
-    values: { id: 'order-1', company: 'ACME', supplierId: 'supplier-1', supplierName: 'Supplier One', externalOrderRef: 'PO-1', status: 'ordered', lastMeaningfulUpdateAt: '2026-06-01T00:00:00.000Z' },
+  await db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
+    values: { id: 'company-1', name: 'ACME', code: 'ACME', timezone: 'UTC' },
   });
-  await db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).create({
-    values: { id: 'line-1', company: 'ACME', supplierOrderId: 'order-1', planningProductId: 'product-1', asin: 'B00DASH', openQty: 20, expectedDeliveryDate: '2026-06-10', expectedSellableDate: '2026-06-12', status: 'ordered', observedAt: '2026-06-05T08:00:00.000Z' },
+  await db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).create({
+    values: { id: 'supplier-1', displayName: 'Supplier One', name: 'Supplier One' },
   });
-  await db.getRepository(ECOBASE_COLLECTIONS.clickupTaskSnapshots).create({
-    values: { id: 'task-1', sourceConnectionId: 'source-1', snapshotDate: '2026-06-05', externalTaskId: 'CU-1', taskName: 'Call Supplier One', assignee: 'Ops', status: 'open', priority: 'high', lastMeaningfulUpdateAt: '2026-06-03T00:00:00.000Z', operationalArea: 'Purchasing' },
+  await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+    values: { id: 'silver-product-1', asin: 'B00DASH', sku: 'SKU-DASH', title: 'Dashboard product' },
   });
-  await db.getRepository(ECOBASE_COLLECTIONS.okrMetricSnapshots).create({
-    values: { id: 'okr-snap-1', okrId: 'okr-1', snapshotDate: '2026-06-05', status: 'off_track', owner: 'Ops', area: 'Purchasing' },
+  await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+    values: { id: 'company-product-1', companyId: 'company-1', productId: 'silver-product-1' },
+  });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+    values: {
+      id: 'order-1',
+      companyId: 'company-1',
+      supplierId: 'supplier-1',
+      orderRef: 'PO-1',
+      canonicalStatus: 'ordered',
+      updatedAt: '2026-06-01T00:00:00.000Z',
+    },
+  });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+    values: {
+      id: 'line-1',
+      orderId: 'order-1',
+      companyProductId: 'company-product-1',
+      orderedQty: 20,
+      expectedDeliveryDate: '2026-06-10',
+      expectedSellableDate: '2026-06-12',
+      status: 'ordered',
+    },
+  });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverTasks).create({
+    values: {
+      id: 'task-1',
+      sourceConnectionId: 'source-1',
+      snapshotDate: '2026-06-05',
+      externalTaskId: 'CU-1',
+      taskName: 'Call Supplier One',
+      title: 'Call Supplier One',
+      assignee: 'Ops',
+      status: 'open',
+      priority: 'high',
+      lastMeaningfulUpdateAt: '2026-06-03T00:00:00.000Z',
+      operationalArea: 'Purchasing',
+    },
+  });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverTargets).create({
+    values: {
+      id: 'okr-snap-1',
+      recordKind: 'okr_metric_snapshot',
+      entityType: 'okr',
+      metric: 'primary',
+      periodType: 'snapshot',
+      okrId: 'okr-1',
+      snapshotDate: '2026-06-05',
+      status: 'off_track',
+      owner: 'Ops',
+      area: 'Purchasing',
+    },
   });
 }
 
@@ -125,18 +273,46 @@ describe('Ecobase dashboard service', () => {
     const db = new MemoryDatabase();
     await seedDashboard(db);
 
-    const dashboard = await new EcobaseDashboardService(db).getDashboard({ company: 'ACME', periodType: 'daily', period: '2026-06-05' });
+    const dashboard = await new EcobaseDashboardService(db).getDashboard({
+      company: 'ACME',
+      periodType: 'daily',
+      period: '2026-06-05',
+    });
 
     expect(dashboard.importStatuses).toHaveLength(1);
     expect(dashboard.warningSummary).toMatchObject({ sourceCount: 1 });
-    expect(dashboard.profitStockRollups.byCompany[0]).toMatchObject({ key: 'ACME', sellableStock: 2, pipelineStock: 30, profitGap: -50 });
-    expect(dashboard.comparison.accountOrCompany.rows[0]).toMatchObject({ key: 'ACME', change: expect.objectContaining({ netProfit: 20 }) });
+    expect(dashboard.profitStockRollups.byCompany[0]).toMatchObject({
+      key: 'ACME',
+      sellableStock: 2,
+      pipelineStock: 30,
+      profitGap: -50,
+    });
+    expect(dashboard.comparison.accountOrCompany.rows[0]).toMatchObject({
+      key: 'ACME',
+      change: expect.objectContaining({ netProfit: 20 }),
+    });
     expect(dashboard.comparison.planningProducts.rows[0]).toMatchObject({ key: 'product-1' });
     expect(dashboard.comparison.rawListings.rows[0]).toMatchObject({ key: 'ACME:B00DASH:SKU-DASH' });
-    expect(dashboard.atRiskProducts[0]).toMatchObject({ canonicalAsin: 'B00DASH', primaryRootCauseCode: 'reorder_needed', actionRequired: 'Place supplier order.' });
-    expect(dashboard.supplierOrderDelays[0]).toMatchObject({ supplier: 'Supplier One', orderRef: 'PO-1', expectedSellableDate: '2026-06-12', linkedPlanningProductId: 'product-1' });
-    expect(dashboard.accountability.latestTasks[0]).toMatchObject({ externalTaskId: 'CU-1', assignee: 'Ops', operationalArea: 'Purchasing' });
-    expect(dashboard.drilldowns.alerts[0]).toMatchObject({ alertId: 'alert-1', dataWarnings: [{ code: 'stale_successful_run' }] });
+    expect(dashboard.atRiskProducts[0]).toMatchObject({
+      canonicalAsin: 'B00DASH',
+      primaryRootCauseCode: 'reorder_needed',
+      actionRequired: 'Place supplier order.',
+    });
+    expect(dashboard.supplierOrderDelays[0]).toMatchObject({
+      supplier: 'Supplier One',
+      orderRef: 'PO-1',
+      expectedSellableDate: '2026-06-12',
+      linkedPlanningProductId: 'product-1',
+    });
+    expect(dashboard.accountability.latestTasks[0]).toMatchObject({
+      externalTaskId: 'CU-1',
+      assignee: 'Ops',
+      operationalArea: 'Purchasing',
+    });
+    expect(dashboard.drilldowns.alerts[0]).toMatchObject({
+      alertId: 'alert-1',
+      dataWarnings: [{ code: 'stale_successful_run' }],
+    });
   });
 
   it('updates MVP dashboard settings through the public action seam', async () => {
@@ -146,7 +322,13 @@ describe('Ecobase dashboard service', () => {
 
     await createEcobaseDashboardActions().updateSettings(context, next);
 
-    expect(context.body).toEqual({ data: expect.objectContaining({ buyBoxRiskThreshold: 75, dailyReportSchedule: '08:30', timezone: 'Asia/Karachi' }) });
+    expect(context.body).toEqual({
+      data: expect.objectContaining({
+        buyBoxRiskThreshold: 75,
+        dailyReportSchedule: '08:30',
+        timezone: 'Asia/Karachi',
+      }),
+    });
     expect(next).toHaveBeenCalledOnce();
 
     const settingsContext = createActionContext(db);

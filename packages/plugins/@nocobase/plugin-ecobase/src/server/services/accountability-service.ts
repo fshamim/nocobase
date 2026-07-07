@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import type { EcobaseDatabase } from '../../features/source-import/server/import-service';
@@ -73,11 +82,15 @@ function daysBefore(referenceDate: string, value: string | undefined) {
   if (!value) {
     return undefined;
   }
-  return Math.floor((new Date(`${referenceDate}T00:00:00.000Z`).getTime() - new Date(`${value}T00:00:00.000Z`).getTime()) / 86_400_000);
+  return Math.floor(
+    (new Date(`${referenceDate}T00:00:00.000Z`).getTime() - new Date(`${value}T00:00:00.000Z`).getTime()) / 86_400_000,
+  );
 }
 
 function isClosedStatus(status: string | undefined) {
-  return ['closed', 'complete', 'completed', 'done', 'cancelled', 'canceled', 'archived'].includes((status ?? '').toLowerCase());
+  return ['closed', 'complete', 'completed', 'done', 'cancelled', 'canceled', 'archived'].includes(
+    (status ?? '').toLowerCase(),
+  );
 }
 
 function priorityThresholdHours(priority: string | undefined, config: PlainRecord) {
@@ -92,11 +105,13 @@ function priorityThresholdHours(priority: string | undefined, config: PlainRecor
 }
 
 function taskSubject(task: PlainRecord) {
-  return `clickup_task:${asString(task.externalTaskId) ?? asString(task.id) ?? 'unknown'}`;
+  return `task:${asString(task.sourceTaskRef) ?? asString(task.id) ?? 'unknown'}`;
 }
 
-function okrSubject(snapshot: PlainRecord) {
-  return `okr:${asString(snapshot.okrId) ?? asString(snapshot.externalOkrId) ?? asString(snapshot.id) ?? 'unknown'}`;
+function targetSubject(snapshot: PlainRecord) {
+  return `target:${
+    asString(snapshot.parentTargetId) ?? asString(snapshot.sourceTargetRef) ?? asString(snapshot.id) ?? 'unknown'
+  }`;
 }
 
 function taskAction(code: string) {
@@ -124,7 +139,12 @@ export class EcobaseAccountabilityService {
     const taskConditions = await this.evaluateTasks(tasks, evaluationDate, asRecord(ruleVersion.config));
     const okrConditions = await this.evaluateOkrs(okrSnapshots, evaluationDate, asRecord(ruleVersion.config));
     const conditions = [...taskConditions, ...okrConditions];
-    const evaluation = await this.createEvaluation({ ruleVersion, evaluationDate, conditions, sourceConnectionId: params.sourceConnectionId });
+    const evaluation = await this.createEvaluation({
+      ruleVersion,
+      evaluationDate,
+      conditions,
+      sourceConnectionId: params.sourceConnectionId,
+    });
     const openAlerts = await this.upsertAlerts(conditions, evaluation);
     await this.resolveClearedAlerts(conditions, evaluation, params.sourceConnectionId);
     return {
@@ -138,12 +158,30 @@ export class EcobaseAccountabilityService {
   }
 
   async listAccountabilityEvidence(params: { sourceConnectionId?: string; limit?: number } = {}) {
-    const taskFilter = params.sourceConnectionId ? { sourceConnectionId: params.sourceConnectionId } : undefined;
+    const taskFilter = params.sourceConnectionId ? { sourceConnectionId: params.sourceConnectionId } : {};
     return {
-      tasks: (await this.db.getRepository(ECOBASE_COLLECTIONS.clickupTaskSnapshots).find({ filter: taskFilter, sort: ['-snapshotDate'], limit: params.limit ?? 100 })).map(toPlainRecord),
-      taskLinks: (await this.db.getRepository(ECOBASE_COLLECTIONS.taskLinks).find({ filter: taskFilter, limit: params.limit ?? 100 })).map(toPlainRecord),
-      okrs: (await this.db.getRepository(ECOBASE_COLLECTIONS.okrs).find({ filter: taskFilter, limit: params.limit ?? 100 })).map(toPlainRecord),
-      okrMetricSnapshots: (await this.db.getRepository(ECOBASE_COLLECTIONS.okrMetricSnapshots).find({ filter: taskFilter, sort: ['-snapshotDate'], limit: params.limit ?? 100 })).map(toPlainRecord),
+      tasks: (
+        await this.db
+          .getRepository(ECOBASE_COLLECTIONS.silverTasks)
+          .find({ filter: taskFilter, sort: ['-snapshotDate'], limit: params.limit ?? 100 })
+      ).map(toPlainRecord),
+      taskLinks: (
+        await this.db
+          .getRepository(ECOBASE_COLLECTIONS.silverTaskLinks)
+          .find({ filter: taskFilter, limit: params.limit ?? 100 })
+      ).map(toPlainRecord),
+      okrs: (
+        await this.db
+          .getRepository(ECOBASE_COLLECTIONS.silverTargets)
+          .find({ filter: { ...taskFilter, recordKind: 'target' }, limit: params.limit ?? 100 })
+      ).map(toPlainRecord),
+      okrMetricSnapshots: (
+        await this.db.getRepository(ECOBASE_COLLECTIONS.silverTargets).find({
+          filter: { ...taskFilter, recordKind: 'metric_snapshot' },
+          sort: ['-snapshotDate'],
+          limit: params.limit ?? 100,
+        })
+      ).map(toPlainRecord),
     };
   }
 
@@ -170,10 +208,10 @@ export class EcobaseAccountabilityService {
 
   private async latestTaskSnapshots(sourceConnectionId?: string) {
     const filter = sourceConnectionId ? { sourceConnectionId } : undefined;
-    const rows = (await this.db.getRepository(ECOBASE_COLLECTIONS.clickupTaskSnapshots).find({ filter })).map(toPlainRecord);
+    const rows = (await this.db.getRepository(ECOBASE_COLLECTIONS.silverTasks).find({ filter })).map(toPlainRecord);
     const latestByTask = new Map<string, PlainRecord>();
     for (const row of rows) {
-      const key = asString(row.externalTaskId) ?? asString(row.id);
+      const key = asString(row.sourceTaskRef) ?? asString(row.id);
       if (!key) {
         continue;
       }
@@ -186,11 +224,18 @@ export class EcobaseAccountabilityService {
   }
 
   private async latestOkrMetricSnapshots(sourceConnectionId?: string) {
-    const filter = sourceConnectionId ? { sourceConnectionId } : undefined;
-    const rows = (await this.db.getRepository(ECOBASE_COLLECTIONS.okrMetricSnapshots).find({ filter })).map(toPlainRecord);
+    const filter = sourceConnectionId ? { sourceConnectionId } : {};
+    const rows = (
+      await this.db
+        .getRepository(ECOBASE_COLLECTIONS.silverTargets)
+        .find({ filter: { ...filter, recordKind: 'metric_snapshot' } })
+    ).map(toPlainRecord);
     const latestByMetric = new Map<string, PlainRecord>();
     for (const row of rows) {
-      const key = [asString(row.okrId) ?? asString(row.externalOkrId), asString(row.metricName) ?? 'primary'].join(':');
+      const key = [
+        asString(row.parentTargetId) ?? asString(row.sourceTargetRef),
+        asString(row.metricName) ?? 'primary',
+      ].join(':');
       const current = latestByMetric.get(key);
       if (!current || String(row.snapshotDate ?? '') > String(current.snapshotDate ?? '')) {
         latestByMetric.set(key, row);
@@ -217,16 +262,44 @@ export class EcobaseAccountabilityService {
       };
       const assignee = asString(task.assignee) ?? asString(task.assigneeEmail);
       if (!assignee) {
-        conditions.push(this.taskCondition(task, common, 'clickup_task_missing_owner', 'critical', { code: 'missing_assignee', message: 'ClickUp task has no assignee.', taskId: asString(task.externalTaskId) }));
+        conditions.push(
+          this.taskCondition(task, common, 'clickup_task_missing_owner', 'critical', {
+            code: 'missing_assignee',
+            message: 'Operational task has no assignee.',
+            taskId: asString(task.sourceTaskRef),
+          }),
+        );
       }
       const dueAgeDays = daysBefore(evaluationDate, asString(task.dueDate));
       if (typeof dueAgeDays === 'number' && dueAgeDays > 0) {
-        conditions.push(this.taskCondition(task, common, 'clickup_task_overdue', 'critical', { code: 'overdue_task', message: 'ClickUp task is overdue.', dueDate: asString(task.dueDate), dueAgeDays }));
+        conditions.push(
+          this.taskCondition(task, common, 'clickup_task_overdue', 'critical', {
+            code: 'overdue_task',
+            message: 'Operational task is overdue.',
+            dueDate: asString(task.dueDate),
+            dueAgeDays,
+          }),
+        );
       }
       const thresholdHours = priorityThresholdHours(asString(task.priority), config);
-      const meaningfulUpdateAgeHours = hoursSince(evaluationDate, asString(task.lastMeaningfulUpdateAt)) ?? hoursSince(evaluationDate, asString(task.updatedAtSource));
+      const meaningfulUpdateAgeHours =
+        hoursSince(evaluationDate, asString(task.lastMeaningfulUpdateAt)) ??
+        hoursSince(evaluationDate, asString(task.updatedAtSource));
       if (meaningfulUpdateAgeHours === undefined || meaningfulUpdateAgeHours > thresholdHours) {
-        conditions.push(this.taskCondition(task, common, 'missing_operational_action_inactive_clickup', asString(task.priority)?.toLowerCase() === 'high' ? 'critical' : 'warning', { code: 'inactive_task', message: 'ClickUp task has no recent meaningful update.', thresholdHours, meaningfulUpdateAgeHours }));
+        conditions.push(
+          this.taskCondition(
+            task,
+            common,
+            'missing_operational_action_inactive_clickup',
+            asString(task.priority)?.toLowerCase() === 'high' ? 'critical' : 'warning',
+            {
+              code: 'inactive_task',
+              message: 'Operational task has no recent meaningful update.',
+              thresholdHours,
+              meaningfulUpdateAgeHours,
+            },
+          ),
+        );
       }
     }
     return conditions;
@@ -240,33 +313,47 @@ export class EcobaseAccountabilityService {
     warning: PlainRecord,
   ): AccountabilityCondition {
     const sourceConnectionId = asString(task.sourceConnectionId) ?? 'unknown-source';
-    const externalTaskId = asString(task.externalTaskId) ?? asString(task.id) ?? 'unknown-task';
+    const sourceTaskRef = asString(task.sourceTaskRef) ?? asString(task.id) ?? 'unknown-task';
     return {
-      dedupeKey: ['accountability', sourceConnectionId, externalTaskId, code].join(':'),
+      dedupeKey: ['accountability', sourceConnectionId, sourceTaskRef, code].join(':'),
       alertType: code === 'missing_operational_action_inactive_clickup' ? 'task_inactive' : 'accountability',
       severity,
       primaryRootCauseCode: code,
       actionRequired: taskAction(code),
-      rootCauses: [{ code, priority: code === 'clickup_task_missing_owner' ? 10 : code === 'clickup_task_overdue' ? 20 : 30, severity, message: asString(warning.message) ?? code, evidence: warning }],
+      rootCauses: [
+        {
+          code,
+          priority: code === 'clickup_task_missing_owner' ? 10 : code === 'clickup_task_overdue' ? 20 : 30,
+          severity,
+          message: asString(warning.message) ?? code,
+          evidence: warning,
+        },
+      ],
       dataWarnings: [warning],
       ...common,
     };
   }
 
   private async resolveTaskLink(task: PlainRecord) {
-    const externalTaskId = asString(task.externalTaskId);
-    const link = externalTaskId
-      ? toPlainRecord(await this.db.getRepository(ECOBASE_COLLECTIONS.taskLinks).findOne({ filter: { externalTaskId } }))
+    const sourceTaskRef = asString(task.sourceTaskRef);
+    const link = sourceTaskRef
+      ? toPlainRecord(
+          await this.db.getRepository(ECOBASE_COLLECTIONS.silverTaskLinks).findOne({ filter: { sourceTaskRef } }),
+        )
       : {};
     const planningProductId = asString(link.planningProductId);
     const product = planningProductId
-      ? toPlainRecord(await this.db.getRepository(ECOBASE_COLLECTIONS.planningProducts).findOne({ filterByTk: planningProductId }))
+      ? toPlainRecord(
+          await this.db
+            .getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows)
+            .findOne({ filter: { companyProductId: planningProductId }, sort: ['-calculationDate'] }),
+        )
       : {};
     return {
       link,
       planningProductId,
       company: asString(product.company),
-      canonicalAsin: asString(product.canonicalAsin),
+      canonicalAsin: asString(product.asin) ?? asString(product.canonicalAsin),
     };
   }
 
@@ -275,23 +362,46 @@ export class EcobaseAccountabilityService {
     for (const snapshot of snapshots) {
       const status = asString(snapshot.status)?.toLowerCase();
       const progressPercent = asNumber(snapshot.progressPercent);
-      const offTrack = status === 'off_track' || (typeof progressPercent === 'number' && progressPercent < (asNumber(config.okrOffTrackProgressThresholdPercent) ?? DEFAULT_ACCOUNTABILITY_CONFIG.okrOffTrackProgressThresholdPercent));
+      const offTrack =
+        status === 'off_track' ||
+        (typeof progressPercent === 'number' &&
+          progressPercent <
+            (asNumber(config.okrOffTrackProgressThresholdPercent) ??
+              DEFAULT_ACCOUNTABILITY_CONFIG.okrOffTrackProgressThresholdPercent));
       if (!offTrack) {
         continue;
       }
       const okr = await this.resolveOkr(snapshot);
       const sourceConnectionId = asString(snapshot.sourceConnectionId) ?? 'unknown-source';
-      const okrRef = asString(snapshot.okrId) ?? asString(snapshot.externalOkrId) ?? asString(snapshot.id) ?? 'unknown-okr';
+      const okrRef =
+        asString(snapshot.parentTargetId) ??
+        asString(snapshot.sourceTargetRef) ??
+        asString(snapshot.id) ??
+        'unknown-target';
       conditions.push({
-        dedupeKey: ['accountability', sourceConnectionId, okrRef, asString(snapshot.metricName) ?? 'primary', 'okr_off_track'].join(':'),
+        dedupeKey: [
+          'accountability',
+          sourceConnectionId,
+          okrRef,
+          asString(snapshot.metricName) ?? 'primary',
+          'okr_off_track',
+        ].join(':'),
         alertType: 'off_track',
         severity: 'critical',
         primaryRootCauseCode: 'okr_off_track',
         actionRequired: 'Review the off-track OKR and assign a recovery action.',
-        subjectRef: okrSubject(snapshot),
+        subjectRef: targetSubject(snapshot),
         company: asString(okr.company),
         title: asString(okr.title) ?? asString(snapshot.metricName),
-        rootCauses: [{ code: 'okr_off_track', priority: 40, severity: 'critical', message: 'OKR metric is off track.', evidence: { snapshot, okr } }],
+        rootCauses: [
+          {
+            code: 'okr_off_track',
+            priority: 40,
+            severity: 'critical',
+            message: 'OKR metric is off track.',
+            evidence: { snapshot, okr },
+          },
+        ],
         dataWarnings: [],
         evidence: { snapshot, okr, evaluationDate },
       });
@@ -300,32 +410,45 @@ export class EcobaseAccountabilityService {
   }
 
   private async resolveOkr(snapshot: PlainRecord) {
-    const okrId = asString(snapshot.okrId);
-    if (okrId) {
-      const byId = await this.db.getRepository(ECOBASE_COLLECTIONS.okrs).findOne({ filterByTk: okrId });
+    const parentTargetId = asString(snapshot.parentTargetId);
+    if (parentTargetId) {
+      const byId = await this.db
+        .getRepository(ECOBASE_COLLECTIONS.silverTargets)
+        .findOne({ filterByTk: parentTargetId });
       if (byId) {
         return toPlainRecord(byId);
       }
     }
-    const externalOkrId = asString(snapshot.externalOkrId);
-    if (externalOkrId) {
-      return toPlainRecord(await this.db.getRepository(ECOBASE_COLLECTIONS.okrs).findOne({ filter: { externalOkrId } }));
+    const sourceTargetRef = asString(snapshot.sourceTargetRef);
+    if (sourceTargetRef) {
+      return toPlainRecord(
+        await this.db
+          .getRepository(ECOBASE_COLLECTIONS.silverTargets)
+          .findOne({ filter: { sourceTargetRef, recordKind: 'target' } }),
+      );
     }
     return {};
   }
 
-  private async createEvaluation(params: { ruleVersion: PlainRecord; evaluationDate: string; conditions: AccountabilityCondition[]; sourceConnectionId?: string }) {
-    return toPlainRecord(await this.db.getRepository(ECOBASE_COLLECTIONS.alertEvaluations).create({
-      values: {
-        id: randomUUID(),
-        evaluatedAt: new Date(`${params.evaluationDate}T00:00:00.000Z`).toISOString(),
-        ruleVersionId: asString(params.ruleVersion.id),
-        tier: 'accountability',
-        rootCauses: params.conditions.flatMap((condition) => condition.rootCauses),
-        dataWarnings: params.conditions.flatMap((condition) => condition.dataWarnings),
-        evidence: { sourceConnectionId: params.sourceConnectionId, conditionCount: params.conditions.length },
-      },
-    }));
+  private async createEvaluation(params: {
+    ruleVersion: PlainRecord;
+    evaluationDate: string;
+    conditions: AccountabilityCondition[];
+    sourceConnectionId?: string;
+  }) {
+    return toPlainRecord(
+      await this.db.getRepository(ECOBASE_COLLECTIONS.alertEvaluations).create({
+        values: {
+          id: randomUUID(),
+          evaluatedAt: new Date(`${params.evaluationDate}T00:00:00.000Z`).toISOString(),
+          ruleVersionId: asString(params.ruleVersion.id),
+          tier: 'accountability',
+          rootCauses: params.conditions.flatMap((condition) => condition.rootCauses),
+          dataWarnings: params.conditions.flatMap((condition) => condition.dataWarnings),
+          evidence: { sourceConnectionId: params.sourceConnectionId, conditionCount: params.conditions.length },
+        },
+      }),
+    );
   }
 
   private async upsertAlerts(conditions: AccountabilityCondition[], evaluation: PlainRecord) {
@@ -354,16 +477,29 @@ export class EcobaseAccountabilityService {
       const existing = toPlainRecord(await repo.findOne({ filter: { dedupeKey: condition.dedupeKey } }));
       const existingId = asString(existing.id);
       if (existingId) {
-        await repo.update({ filterByTk: existingId, values: { ...values, openedAt: asString(existing.openedAt) ?? now } });
+        await repo.update({
+          filterByTk: existingId,
+          values: { ...values, openedAt: asString(existing.openedAt) ?? now },
+        });
         alerts.push(toPlainRecord(await repo.findOne({ filterByTk: existingId })));
       } else {
-        alerts.push(toPlainRecord(await repo.create({ values: { id: randomUUID(), dedupeKey: condition.dedupeKey, ...values, openedAt: now } })));
+        alerts.push(
+          toPlainRecord(
+            await repo.create({
+              values: { id: randomUUID(), dedupeKey: condition.dedupeKey, ...values, openedAt: now },
+            }),
+          ),
+        );
       }
     }
     return alerts;
   }
 
-  private async resolveClearedAlerts(conditions: AccountabilityCondition[], evaluation: PlainRecord, sourceConnectionId?: string) {
+  private async resolveClearedAlerts(
+    conditions: AccountabilityCondition[],
+    evaluation: PlainRecord,
+    sourceConnectionId?: string,
+  ) {
     const repo = this.db.getRepository(ECOBASE_COLLECTIONS.alerts);
     const expected = new Set(conditions.map((condition) => condition.dedupeKey));
     const openAlerts = (await repo.find({ filter: { status: 'open' } })).map(toPlainRecord).filter((alert) => {
@@ -378,7 +514,10 @@ export class EcobaseAccountabilityService {
       const key = asString(alert.dedupeKey);
       const id = asString(alert.id);
       if (id && key && !expected.has(key)) {
-        await repo.update({ filterByTk: id, values: { status: 'resolved', resolvedAt: now, lastSeenAt: now, alertEvaluationId: asString(evaluation.id) } });
+        await repo.update({
+          filterByTk: id,
+          values: { status: 'resolved', resolvedAt: now, lastSeenAt: now, alertEvaluationId: asString(evaluation.id) },
+        });
       }
     }
   }

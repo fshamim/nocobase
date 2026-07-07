@@ -14,9 +14,9 @@ import {
   EcobaseSupplierOrderService,
   normalizeSupplierOrderStatus,
 } from '../../supplier-management/server/supplier-order-service';
+import { silverSupplierOrderReadModel } from '../../supplier-management/server/silver-supplier-order-read-model';
 import { toPlainRecord } from '../../source-import/server/import-service';
 import { EcobaseSellerboardCogsService } from '../../source-import/server/sellerboard-cogs-service';
-import { EcobasePlanningCalculationService } from './planning-calculation-service';
 import { EcobaseSilverDataService } from '../../semantic-model/server/silver-data-service';
 import { addDays, diffDays, isoDate, optionalIsoDate } from './planning-date';
 import {
@@ -562,17 +562,6 @@ function inventoryRowMatchesLine(query: InventoryPlanningRowWorkspaceQuery, line
   );
 }
 
-function selectSupplierLink(links: PlainRecord[]) {
-  const active = links.filter((link) => asBoolean(link.active) !== false);
-  return (
-    active.find((link) => asString(link.role) === 'preferred') ??
-    active.find((link) => asString(link.role) === 'latest_history') ??
-    active.find((link) => asString(link.role) === 'candidate') ??
-    active.find((link) => asString(link.role) === 'discovered') ??
-    active[0]
-  );
-}
-
 function companyNameFromRelation(value: unknown) {
   const relation = toPlainRecord(value);
   return asString(relation.name);
@@ -909,74 +898,213 @@ export class EcobaseInventoryPlanningService {
   private async calculateRows(query: InventoryPlanningQuery = {}) {
     const calculationDate = isoDate(query.calculationDate ?? new Date());
     const settings = await new EcobasePlanningSettingsService(this.db).getResolvedSettings(query);
-    const safetyBufferDays = settings.safetyBufferDays;
     const orderSoonWindowDays = settings.orderSoonWindowDays;
-    const leadTimeFreshnessDays = settings.leadTimeFreshnessDays;
-    const reorderCycleDays = settings.reorderCycleDays;
     const targetCoverDays = settings.targetCoverDays;
     const purchasedPipelineGraceDays = settings.purchasedPipelineGraceDays;
     const profitTierThresholds: ProfitTierThresholds = settings;
     const statusRules = supplierOrderStatusRules(settings);
-    const productFilter = query.company ? { company: query.company } : {};
-    const scanLimit = query.limit ? Math.max(query.limit, Math.min(query.limit * 4, 500)) : undefined;
     const sellerboardSourceConnectionIds = await this.sellerboardSourceConnectionIds();
-    const products = (
-      await this.db.getRepository(ECOBASE_COLLECTIONS.planningProducts).find({
-        filter: productFilter,
-        ...(scanLimit ? { limit: scanLimit } : {}),
-      })
-    )
-      .map(toPlainRecord)
-      .filter((product) => asString(toPlainRecord(product.auditSummary).source) !== 'inventory_planning_fallback');
 
-    if (products.length === 0) {
-      return this.listFallbackRows({
-        company: query.company,
-        calculationDate,
-        leadTimeFreshnessDays,
-        orderSoonWindowDays,
-        safetyBufferDays,
-        reorderCycleDays,
-        targetCoverDays,
-        purchasedPipelineGraceDays,
-        profitTierThresholds,
-        statusRules,
-        limit: query.limit,
-        scanLimit,
-      });
+    const [
+      companies,
+      products,
+      companyProducts,
+      inventorySnapshots,
+      dailyFacts,
+      suppliers,
+      supplierProducts,
+      productSuppliers,
+      orders,
+      orderLines,
+    ] = await Promise.all([
+      this.repoRows(ECOBASE_COLLECTIONS.silverCompanies),
+      this.repoRows(ECOBASE_COLLECTIONS.silverProducts),
+      this.repoRows(ECOBASE_COLLECTIONS.silverCompanyProducts),
+      this.repoRows(ECOBASE_COLLECTIONS.silverInventorySnapshots),
+      this.repoRows(ECOBASE_COLLECTIONS.silverListingDailyFacts),
+      this.repoRows(ECOBASE_COLLECTIONS.silverSuppliers),
+      this.repoRows(ECOBASE_COLLECTIONS.silverSupplierProducts),
+      this.repoRows(ECOBASE_COLLECTIONS.silverCompanyProductSuppliers),
+      this.repoRows(ECOBASE_COLLECTIONS.silverOrders),
+      this.repoRows(ECOBASE_COLLECTIONS.silverOrderLines),
+    ]);
+
+    const companiesById = new Map(companies.map((row) => [asString(row.id), row]));
+    const productsById = new Map(products.map((row) => [asString(row.id), row]));
+    const suppliersById = new Map(suppliers.map((row) => [asString(row.id), row]));
+    const supplierProductsById = new Map(supplierProducts.map((row) => [asString(row.id), row]));
+    const supplierByProductId = new Map<string, PlainRecord>();
+    for (const link of productSuppliers) {
+      const companyProductId = asString(link.companyProductId);
+      const supplierProduct = supplierProductsById.get(asString(link.supplierProductId));
+      const supplier = suppliersById.get(asString(supplierProduct?.supplierId));
+      if (companyProductId && supplierProduct) supplierByProductId.set(companyProductId, { supplierProduct, supplier });
     }
 
-    const rows = [] as PlainRecord[];
-    for (const product of products) {
-      const planningProductId = asString(product.id);
-      if (!planningProductId) continue;
-      const calculation = toPlainRecord(
-        await new EcobasePlanningCalculationService(this.db).calculatePlanningProduct({
-          planningProductId,
-          calculationDate,
-          safetyBufferDays,
-          profitTierThresholds,
-          persist: false,
-        }),
+    const snapshotsByCompanyProduct = this.groupBy(inventorySnapshots, 'companyProductId');
+    const factsByCompanyProduct = this.groupBy(dailyFacts, 'companyProductId');
+    const ordersById = new Map(
+      orders.map((order) => [
+        asString(order.id),
+        {
+          ...order,
+          status: asString(order.canonicalStatus) ?? asString(order.lifecycleStatus),
+          externalOrderRef: asString(order.orderRef),
+        },
+      ]),
+    );
+    const linesByCompanyProduct = this.groupBy(
+      orderLines.map((line) => ({
+        ...line,
+        supplierOrderId: asString(line.orderId),
+        receivedQty: asNumber(line.confirmedQty) ?? 0,
+      })),
+      'companyProductId',
+    );
+
+    const rows: PlainRecord[] = [];
+    for (const companyProduct of companyProducts) {
+      const company = companiesById.get(asString(companyProduct.companyId));
+      const companyName = asString(company?.name);
+      if (query.company && companyName !== query.company) continue;
+      const product = productsById.get(asString(companyProduct.productId));
+      const companyProductId = asString(companyProduct.id);
+      if (!companyProductId || !companyName || !product) continue;
+
+      const inventory = latestPreferredInventorySnapshot(
+        snapshotsByCompanyProduct.get(companyProductId) ?? [],
+        sellerboardSourceConnectionIds,
       );
+      const stockBuckets = this.stockBuckets(
+        {
+          stock: asNumber(inventory?.sellableStock),
+          reserved: asNumber(inventory?.reserved),
+          inbound: asNumber(inventory?.inbound),
+          ordered: asNumber(inventory?.ordered),
+          prepStock: asNumber(inventory?.prepStock),
+        },
+        {},
+      );
+      const historical = summarizeHistoricalProductFacts(
+        factsByCompanyProduct.get(companyProductId) ?? [],
+        calculationDate,
+      );
+      const salesVelocity = asNumber(inventory?.salesVelocity) ?? (historical.sixMonthAverageQty ?? 0) / 30;
+      const supplierContext = supplierByProductId.get(companyProductId);
+      const supplierProduct = toPlainRecord(supplierContext?.supplierProduct);
+      const supplier = toPlainRecord(supplierContext?.supplier);
+      const leadTimeDays = asNumber(supplierProduct.leadTimeDays);
+      const leadTimeFreshness = typeof leadTimeDays === 'number' ? 'fresh' : 'missing';
+      const openOrder = summarizeSupplierOrderState(
+        linesByCompanyProduct.get(companyProductId) ?? [],
+        ordersById,
+        calculationDate,
+        purchasedPipelineGraceDays,
+        statusRules,
+      );
+      const openOrderCoverageQty =
+        (asNumber(openOrder.supplierOrderPurchasedOpenQty) ?? 0) +
+        (asNumber(openOrder.supplierOrderPlacedNotPurchasedOpenQty) ?? 0);
+      const estimatedOosDate =
+        salesVelocity > 0
+          ? addDays(calculationDate, Math.floor(stockBuckets.currentPlanningStock / salesVelocity))
+          : undefined;
+      const latestSafeReorderDate =
+        estimatedOosDate && typeof leadTimeDays === 'number' ? addDays(estimatedOosDate, -leadTimeDays) : undefined;
+      const daysUntilSafeReorder = latestSafeReorderDate ? diffDays(latestSafeReorderDate, calculationDate) : undefined;
+      const suggestedReorderQty = this.suggestedReorderQuantity({
+        salesVelocity,
+        leadTimeDays,
+        targetCoverDays,
+        currentPlanningStock: stockBuckets.currentPlanningStock,
+        openOrderCoverageQty,
+      });
+      const tierQuantity =
+        historical.sixMonthBestQty ?? historical.sixMonthAverageQty ?? salesVelocity * targetCoverDays;
+      const { tier, tierScore } = profitTierFor(historical.profitPerUnit, tierQuantity, profitTierThresholds);
+      const actionStatus = this.actionStatus({
+        excluded: isPlanningExcluded(asString(companyProduct.lifecycleStatus)),
+        salesVelocity,
+        leadTimeFreshness,
+        daysUntilSafeReorder,
+        orderSoonWindowDays,
+        openOrderCoverageQty,
+      });
+      const estimatedProfitRisk = isProfitTier(tier) ? (historical.profitPerUnit ?? 0) * suggestedReorderQty : 0;
+
       rows.push(
-        await this.buildRow({
-          product,
-          calculation,
+        this.applyProfitTierRiskGate({
+          planningProductId: companyProductId,
+          companyProductId,
+          productId: asString(product.id),
           calculationDate,
-          leadTimeFreshnessDays,
-          orderSoonWindowDays,
-          reorderCycleDays,
+          company: companyName,
+          asin: asString(product.asin),
+          sku: asString(product.sku),
+          title: asString(product.title),
+          productStatus: derivedProductStatus(asString(companyProduct.lifecycleStatus), stockBuckets),
+          actionStatus,
+          tier,
+          tierScore,
+          salesVelocity,
+          profitPerUnit: historical.profitPerUnit,
+          sixMonthMargin: historical.margin,
+          lastMonthQty: historical.lastMonthQty,
+          sixMonthAverageQty: historical.sixMonthAverageQty,
+          sixMonthWorstQty: historical.sixMonthWorstQty,
+          sixMonthBestQty: historical.sixMonthBestQty,
+          ...stockBuckets,
+          daysOfCover: salesVelocity > 0 ? stockBuckets.currentPlanningStock / salesVelocity : undefined,
+          estimatedOosDate,
+          latestSafeReorderDate,
+          daysUntilSafeReorder,
+          suggestedReorderQty,
           targetCoverDays,
-          purchasedPipelineGraceDays,
-          profitTierThresholds,
-          statusRules,
-          sellerboardSourceConnectionIds,
+          leadTimeDays,
+          leadTimeFreshness,
+          supplierId: asString(supplier?.id),
+          supplierName: asString(supplier?.displayName),
+          supplierSource: supplier ? 'silver_supplier_product' : undefined,
+          supplierRole: supplierContext ? 'latest_used' : undefined,
+          supplierConfidence: supplierContext ? 1 : undefined,
+          unitCost: asNumber(supplierProduct.unitCost),
+          estimatedOrderCost:
+            typeof asNumber(supplierProduct.unitCost) === 'number'
+              ? (asNumber(supplierProduct.unitCost) ?? 0) * suggestedReorderQty
+              : undefined,
+          openOrderCoverageQty,
+          ...openOrder,
+          stuck: salesVelocity <= 0 && stockBuckets.currentPlanningStock > 0,
+          estimatedProfitRisk,
+          estimatedProfitRiskBasis: isProfitTier(tier)
+            ? 'silver_profit_per_unit_x_suggested_qty'
+            : 'not_tiered_profit_inputs_missing',
+          digestPriority: this.digestPriority(actionStatus, tier),
+          evidence: {
+            sourceLayer: 'silver',
+            inventorySnapshotId: asString(inventory?.id),
+            supplierProductId: asString(supplierProduct.id),
+            historicalFactCount: (factsByCompanyProduct.get(companyProductId) ?? []).length,
+          },
         }),
       );
     }
 
     return this.sortPlanningRows(rows).slice(0, query.limit ?? rows.length);
+  }
+
+  private async repoRows(collectionName: string, limit = FALLBACK_RECORD_LIMIT) {
+    return (await this.db.getRepository(collectionName).find({ limit })).map(toPlainRecord);
+  }
+
+  private groupBy(rows: PlainRecord[], field: string) {
+    const grouped = new Map<string, PlainRecord[]>();
+    for (const row of rows) {
+      const key = asString(row[field]);
+      if (!key) continue;
+      grouped.set(key, [...(grouped.get(key) ?? []), row]);
+    }
+    return grouped;
   }
 
   private async readGoldRows(query: InventoryPlanningQuery = {}) {
@@ -1452,33 +1580,9 @@ export class EcobaseInventoryPlanningService {
           row.supplierOrderState !== 'purchased_pipeline',
       ),
     );
-    const orderFilter = query.company ? { company: query.company } : {};
-    const supplierOrders = (
-      await this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).find({
-        filter: orderFilter,
-        sort: ['-lastMeaningfulUpdateAt'],
-        limit: 1000,
-      })
-    ).map(toPlainRecord);
-    const supplierOrderLines = (
-      await this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).find({
-        filter: orderFilter,
-        sort: ['-observedAt'],
-        limit: 5000,
-      })
-    ).map(toPlainRecord);
-    const suppliers = (
-      await this.db.getRepository(ECOBASE_COLLECTIONS.suppliers).find({
-        filter: orderFilter,
-        sort: ['company', 'name'],
-        limit: 2000,
-      })
-    ).map(toPlainRecord);
-    const supplierNameById = new Map(
-      suppliers
-        .map((supplier) => [asString(supplier.id), asString(supplier.name)] as const)
-        .filter((entry): entry is [string, string] => Boolean(entry[0] && entry[1])),
-    );
+    const silverOrders = await silverSupplierOrderReadModel(this.db, { company: query.company, limit: 1000 });
+    const supplierOrders = silverOrders.supplierOrders;
+    const supplierOrderLines = silverOrders.supplierOrderLines;
     const orderById = new Map(
       supplierOrders
         .map((order) => [asString(order.id), order] as const)
@@ -1575,8 +1679,7 @@ export class EcobaseInventoryPlanningService {
             supplierOrderStatus: asString(existingOrder.status),
             company,
             supplierId: asString(existingOrder.supplierId),
-            supplierName:
-              supplierNameById.get(asString(existingOrder.supplierId) ?? '') ?? asString(existingOrder.supplierName),
+            supplierName: asString(existingOrder.supplierName),
             spend: missingCost || spend <= 0 ? undefined : Math.round(spend * 100) / 100,
             openQty: openQuantity,
             protectedProfit: 0,
@@ -1816,7 +1919,7 @@ export class EcobaseInventoryPlanningService {
     const sourceConnectionCompanies = await this.sourceConnectionCompanies();
     const sellerboardSourceConnectionIds = await this.sellerboardSourceConnectionIds();
     const inventoryRows = (
-      await this.findFallbackRecords(ECOBASE_COLLECTIONS.inventorySnapshots, {
+      await this.findFallbackRecords(ECOBASE_COLLECTIONS.silverInventorySnapshots, {
         company: params.company,
         sourceConnectionCompanies,
         activeSourceConnectionIds,
@@ -1827,7 +1930,7 @@ export class EcobaseInventoryPlanningService {
       const snapshotDate = optionalIsoDate(row.snapshotDate);
       return Boolean(snapshotDate && snapshotDate <= params.calculationDate);
     });
-    const parameterRows = await this.findFallbackRecords(ECOBASE_COLLECTIONS.planningParameters, {
+    const parameterRows = await this.findFallbackRecords(ECOBASE_COLLECTIONS.silverSupplierProducts, {
       company: params.company,
       sourceConnectionCompanies,
       activeSourceConnectionIds,
@@ -1891,7 +1994,7 @@ export class EcobaseInventoryPlanningService {
     calculationDate: string;
     sourceConnectionCompanies: Map<string, string>;
   }): Promise<ProfitMetricsIndex> {
-    const facts = await this.findFallbackRecords(ECOBASE_COLLECTIONS.listingDailyFacts, {
+    const facts = await this.findFallbackRecords(ECOBASE_COLLECTIONS.silverListingDailyFacts, {
       company: params.company,
       sourceConnectionCompanies: params.sourceConnectionCompanies,
       activeSourceConnectionIds: await this.activeSourceConnectionIds(),
@@ -1936,7 +2039,7 @@ export class EcobaseInventoryPlanningService {
     calculationDate: string;
     sourceConnectionCompanies: Map<string, string>;
   }): Promise<HistoricalProfitMetricsIndex> {
-    const facts = await this.findFallbackRecords(ECOBASE_COLLECTIONS.listingDailyFacts, {
+    const facts = await this.findFallbackRecords(ECOBASE_COLLECTIONS.silverListingDailyFacts, {
       company: params.company,
       sourceConnectionCompanies: params.sourceConnectionCompanies,
       activeSourceConnectionIds: await this.activeSourceConnectionIds(),
@@ -2038,25 +2141,12 @@ export class EcobaseInventoryPlanningService {
     const orderHistorySupplier = !asString(params.parameter.supplier)
       ? await this.findOrderHistorySupplier({ company, asin, sku })
       : {};
-    const orderHistoryLeadTime =
-      typeof importedLeadTimeDays !== 'number' && asString(orderHistorySupplier.supplierId)
-        ? await this.findLeadTime(
-            { id: asString(orderHistorySupplier.supplierId), name: asString(orderHistorySupplier.supplierName) },
-            {},
-            {},
-            company,
-            undefined,
-            asin,
-            sku,
-          )
-        : ({} as PlainRecord);
     const orderHistoryLines = await this.findOrderLinesByProduct({ company, asin, sku });
     const orderHistoryDerivedLeadTime = this.leadTimeFromOrderHistory(
       orderHistoryLines,
       await this.supplierOrdersByLine(orderHistoryLines),
     );
-    const leadTimeDays =
-      importedLeadTimeDays ?? asNumber(orderHistoryLeadTime.leadTimeDays) ?? orderHistoryDerivedLeadTime.leadTimeDays;
+    const leadTimeDays = importedLeadTimeDays ?? orderHistoryDerivedLeadTime.leadTimeDays;
     const hasCompleteHistoricalWindow = Object.keys(historicalProfitMetrics?.monthlyUnits ?? {}).length >= 6;
     const importedRecommendedBestQty =
       payloadNumber(params.parameter, ['recommendedBestQty', 'Rec.Best Qty', 'Rec. Best Qty']) ??
@@ -2278,15 +2368,19 @@ export class EcobaseInventoryPlanningService {
   }) {
     const planningProductId = asString(params.product.id) ?? '';
     const company = asString(params.product.company);
-    const inventoryRows = await findRecords(this.db, ECOBASE_COLLECTIONS.inventorySnapshots, { planningProductId });
-    const parameterRows = await findRecords(this.db, ECOBASE_COLLECTIONS.planningParameters, { planningProductId });
-    const supplierLinks = await findRecords(this.db, ECOBASE_COLLECTIONS.supplierProductLinks, { planningProductId });
-    let orderLines = await findRecords(this.db, ECOBASE_COLLECTIONS.supplierOrderLines, { planningProductId });
+    const inventoryRows = await findRecords(this.db, ECOBASE_COLLECTIONS.silverInventorySnapshots, {
+      companyProductId: planningProductId,
+    });
+    const parameterRows = await findRecords(this.db, ECOBASE_COLLECTIONS.silverSupplierProducts, {
+      productId: planningProductId,
+    });
+    let orderLines = (await silverSupplierOrderReadModel(this.db, { company, limit: 5000 })).supplierOrderLines.filter(
+      (line) => asString(line.planningProductId) === planningProductId,
+    );
     const latestInventory =
       latestPreferredInventorySnapshot(inventoryRows, params.sellerboardSourceConnectionIds) ?? {};
     const latestParameter = latestByDate(parameterRows, 'lastImportRunId') ?? parameterRows[0] ?? {};
-    const supplierLink = selectSupplierLink(supplierLinks) ?? {};
-    const supplier = await this.findSupplier(supplierLink, latestParameter, company);
+    const supplier = await this.findSupplier(latestParameter);
     const stockBuckets = this.stockBuckets(latestInventory, params.calculation);
     const productStatus = derivedProductStatus(
       payloadString(latestParameter, ['productStatus', 'Product Status', 'Product Status ', 'status', 'Status']) ??
@@ -2327,29 +2421,10 @@ export class EcobaseInventoryPlanningService {
     );
     const openOrderCoverageQty = supplierOrderState.supplierOrderPurchasedOpenQty;
     const orderHistorySupplier =
-      !asString(supplier.name) && !asString(latestParameter.supplier)
+      !asString(supplier.displayName) && !asString(latestParameter.supplier)
         ? await this.findOrderHistorySupplier({ company, asin, sku })
         : {};
-    let leadTime = await this.findLeadTime(
-      supplier,
-      supplierLink,
-      latestParameter,
-      company,
-      planningProductId,
-      asin,
-      sku,
-    );
-    if (typeof asNumber(leadTime.leadTimeDays) !== 'number' && asString(orderHistorySupplier.supplierId)) {
-      leadTime = await this.findLeadTime(
-        { id: asString(orderHistorySupplier.supplierId), name: asString(orderHistorySupplier.supplierName) },
-        {},
-        {},
-        company,
-        planningProductId,
-        asin,
-        sku,
-      );
-    }
+    const leadTime = latestParameter;
     const orderHistoryLeadTime = this.leadTimeFromOrderHistory(orderLines, supplierOrderById);
     const leadTimeDays =
       asNumber(leadTime.leadTimeDays) ??
@@ -2395,7 +2470,7 @@ export class EcobaseInventoryPlanningService {
       openOrderCoverageQty,
     });
     const supplierName =
-      asString(supplier.name) ??
+      asString(supplier.displayName) ??
       asString(leadTime.supplierName) ??
       asString(latestParameter.supplier) ??
       asString(orderHistorySupplier.supplierName);
@@ -2415,8 +2490,7 @@ export class EcobaseInventoryPlanningService {
       asin,
       sku,
       title: asString(params.product.title),
-      brand:
-        payloadString(supplierLink, ['latestBrand', 'brand']) ?? payloadString(latestParameter, ['Brand', 'brand']),
+      brand: payloadString(latestParameter, ['Brand', 'brand']),
       productStatus,
       planningExcluded: excluded,
       tier,
@@ -2457,19 +2531,13 @@ export class EcobaseInventoryPlanningService {
       leadTimeFreshnessDays: params.leadTimeFreshnessDays,
       purchasedPipelineGraceDays: params.purchasedPipelineGraceDays,
       supplierId:
-        asString(supplier.id) ??
-        asString(supplierLink.supplierId) ??
-        asString(latestParameter.supplierId) ??
-        asString(orderHistorySupplier.supplierId),
+        asString(supplier.id) ?? asString(latestParameter.supplierId) ?? asString(orderHistorySupplier.supplierId),
       supplierName,
-      supplierSource:
-        asString(supplierLink.source) ??
-        (asString(orderHistorySupplier.supplierName) ? 'order_details_history' : 'planning_parameter'),
-      supplierRole:
-        asString(supplierLink.role) ??
-        (asString(orderHistorySupplier.supplierName) ? 'latest_order_history' : 'latest_history'),
-      supplierConfidence:
-        asString(supplierLink.confidence) ?? (asString(orderHistorySupplier.supplierName) ? 'medium' : 'medium'),
+      supplierSource: asString(orderHistorySupplier.supplierName) ? 'order_details_history' : 'silver_supplier_product',
+      supplierRole: asString(orderHistorySupplier.supplierName)
+        ? 'latest_order_history'
+        : 'latest_silver_supplier_product',
+      supplierConfidence: asString(orderHistorySupplier.supplierName) ? 'medium' : 'medium',
       leadTimeDays,
       leadTimeConfirmedAt,
       leadTimeFreshness,
@@ -2567,7 +2635,7 @@ export class EcobaseInventoryPlanningService {
     const connections = (await this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).find({}))
       .map(toPlainRecord)
       .filter((connection) => asBoolean(connection.active) !== false);
-    const companyRows = (await this.db.getRepository(ECOBASE_COLLECTIONS.companies).find({})).map(toPlainRecord);
+    const companyRows = (await this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).find({})).map(toPlainRecord);
     const companyNamesById = new Map(
       companyRows
         .map((company) => [asString(company.id), asString(company.name)] as const)
@@ -2633,20 +2701,13 @@ export class EcobaseInventoryPlanningService {
     return !sourceConnectionId || activeSourceConnectionIds.has(sourceConnectionId);
   }
 
-  private async findSupplier(link: PlainRecord, parameter: PlainRecord, company?: string) {
-    const supplierRepo = this.db.getRepository(ECOBASE_COLLECTIONS.suppliers);
-    const linkSupplierId = asString(link.supplierId);
-    const parameterSupplierId = asString(parameter.supplierId);
-    const byLinkId = linkSupplierId ? toPlainRecord(await supplierRepo.findOne({ filterByTk: linkSupplierId })) : {};
-    if (asString(byLinkId.id)) return byLinkId;
-    const byParameterId = parameterSupplierId
-      ? toPlainRecord(await supplierRepo.findOne({ filterByTk: parameterSupplierId }))
-      : {};
-    if (asString(byParameterId.id)) return byParameterId;
-    const supplierName = asString(parameter.supplier);
-    return supplierName
-      ? toPlainRecord(await supplierRepo.findOne({ filter: { name: supplierName, ...(company ? { company } : {}) } }))
-      : {};
+  private async findSupplier(parameter: PlainRecord) {
+    const supplierRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers);
+    const supplierId = asString(parameter.supplierId);
+    const byId = supplierId ? toPlainRecord(await supplierRepo.findOne({ filterByTk: supplierId })) : {};
+    if (asString(byId.id)) return byId;
+    const supplierName = asString(parameter.supplier) ?? asString(parameter.supplierName);
+    return supplierName ? toPlainRecord(await supplierRepo.findOne({ filter: { displayName: supplierName } })) : {};
   }
 
   private async supplierOrderStateForProduct(params: {
@@ -2668,18 +2729,13 @@ export class EcobaseInventoryPlanningService {
   }
 
   private async supplierOrdersByLine(lines: PlainRecord[]) {
-    const supplierOrderRepo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrders);
-    const supplierOrderById = new Map<string, PlainRecord>();
-    for (const line of lines) {
-      const supplierOrderId = asString(line.supplierOrderId);
-      if (supplierOrderId && !supplierOrderById.has(supplierOrderId)) {
-        supplierOrderById.set(
-          supplierOrderId,
-          toPlainRecord(await supplierOrderRepo.findOne({ filterByTk: supplierOrderId })),
-        );
-      }
-    }
-    return supplierOrderById;
+    const company = [...new Set(lines.map((line) => asString(line.company)).filter(Boolean))][0];
+    const silverOrders = await silverSupplierOrderReadModel(this.db, { company, limit: 10000 });
+    return new Map(
+      silverOrders.supplierOrders
+        .map((order) => [asString(order.id), order] as const)
+        .filter((entry): entry is [string, PlainRecord] => Boolean(entry[0])),
+    );
   }
 
   private async withActivityAuthors(activities: PlainRecord[]) {
@@ -2708,9 +2764,16 @@ export class EcobaseInventoryPlanningService {
   }
 
   private async withLatestSupplierOrderActivity(rows: PlainRecord[]) {
-    const orderRepo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrders);
-    const activityRepo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities);
-    const orderCache = new Map<string, PlainRecord>();
+    const activityRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments);
+    const silverOrders = await silverSupplierOrderReadModel(this.db, { limit: 10000 });
+    const orderCache = new Map(
+      silverOrders.supplierOrders
+        .map((order): [string, PlainRecord] => [
+          `${asString(order.company) ?? ''}:${asString(order.externalOrderRef) ?? asString(order.id) ?? ''}`,
+          order,
+        ])
+        .filter(([key]) => !key.endsWith(':')),
+    );
     const result: PlainRecord[] = [];
     for (const row of rows) {
       const company = asString(row.company);
@@ -2720,23 +2783,46 @@ export class EcobaseInventoryPlanningService {
         continue;
       }
       const cacheKey = `${company}:${ref}`;
-      let order = orderCache.get(cacheKey);
-      if (!order) {
-        order = toPlainRecord(await orderRepo.findOne({ filter: { company, externalOrderRef: ref } }));
-        orderCache.set(cacheKey, order);
-      }
+      const order = orderCache.get(cacheKey) ?? {};
       const supplierOrderId = asString(order.id);
       const latestActivity = supplierOrderId
         ? (
             await this.withActivityAuthors([
-              (await activityRepo.find({ filter: { supplierOrderId }, sort: ['-occurredAt'], limit: 20 }))
+              (await activityRepo.find({ limit: 1000 }))
                 .map(toPlainRecord)
-                .find((activity) => !asString(activity.deletedAt)) ?? {},
+                .filter(
+                  (activity) =>
+                    !asString(activity.deletedAt) &&
+                    ((asString(activity.entityType) === 'supplier_order' &&
+                      asString(activity.entityId) === supplierOrderId) ||
+                      asString(activity.supplierOrderId) === supplierOrderId),
+                )
+                .sort((left, right) =>
+                  String(
+                    toPlainRecord(right.contextSnapshotJson).occurredAt ??
+                      right.occurredAt ??
+                      right.createdAt ??
+                      right.updatedAt ??
+                      '',
+                  ).localeCompare(
+                    String(
+                      toPlainRecord(left.contextSnapshotJson).occurredAt ??
+                        left.occurredAt ??
+                        left.createdAt ??
+                        left.updatedAt ??
+                        '',
+                    ),
+                  ),
+                )[0] ?? {},
             ])
           )[0] ?? {}
         : {};
+      const activityContext = toPlainRecord(latestActivity.contextSnapshotJson);
       const fallbackActivityAt =
+        activityContext.occurredAt ??
         latestActivity.occurredAt ??
+        latestActivity.createdAt ??
+        latestActivity.updatedAt ??
         order.lastMeaningfulUpdateAt ??
         order.statusUpdatedAt ??
         order.orderDate ??
@@ -2745,13 +2831,15 @@ export class EcobaseInventoryPlanningService {
       result.push({
         ...row,
         supplierOrderId,
-        latestSupplierOrderActivityType: asString(latestActivity.activityType) ?? 'order_status',
+        latestSupplierOrderActivityType:
+          asString(latestActivity.commentType) ?? asString(latestActivity.activityType) ?? 'order_status',
         latestSupplierOrderActivityAt: fallbackActivityAt ? sortableDateValue(fallbackActivityAt) : undefined,
-        latestSupplierOrderActivityNote: asString(latestActivity.notes) ?? fallbackActivityNote,
-        latestSupplierOrderActivityActor: asString(latestActivity.actor),
+        latestSupplierOrderActivityNote:
+          asString(latestActivity.body) ?? asString(latestActivity.notes) ?? fallbackActivityNote,
+        latestSupplierOrderActivityActor: asString(activityContext.actor) ?? asString(latestActivity.actor),
         latestSupplierOrderActivityActorDisplayName: asString(latestActivity.actorDisplayName),
         latestSupplierOrderActivityActorEmail: asString(latestActivity.actorEmail),
-        latestSupplierOrderActivitySource: asString(latestActivity.source),
+        latestSupplierOrderActivitySource: asString(activityContext.source),
       });
     }
     return result;
@@ -2790,16 +2878,15 @@ export class EcobaseInventoryPlanningService {
   }
 
   private async findOrderLinesByProduct(params: { company?: string; asin?: string; sku?: string }) {
-    const lineRepo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines);
-    const filters: PlainRecord[] = [];
-    if (params.asin) filters.push({ asin: params.asin, ...(params.company ? { company: params.company } : {}) });
-    if (params.sku) filters.push({ sku: params.sku, ...(params.company ? { company: params.company } : {}) });
+    const lines = (await silverSupplierOrderReadModel(this.db, { company: params.company, limit: 10000 }))
+      .supplierOrderLines;
     const byId = new Map<string, PlainRecord>();
-    for (const filter of filters) {
-      const lines = (await lineRepo.find({ filter, limit: 100 })).map(toPlainRecord);
-      for (const line of lines) {
-        const lineAsin = asString(line.asin);
-        if (params.asin && lineAsin && lineAsin !== params.asin) continue;
+    for (const line of lines) {
+      const lineAsin = asString(line.asin);
+      const lineSku = asString(line.sku);
+      if (params.asin && lineAsin && lineAsin !== params.asin) continue;
+      if (!params.asin && params.sku && lineSku !== params.sku) continue;
+      if (params.asin || (params.sku && lineSku === params.sku)) {
         const id =
           asString(line.id) ?? `${asString(line.supplierOrderId) ?? ''}:${asString(line.sourceOrderLineRef) ?? ''}`;
         byId.set(id, line);
@@ -2809,86 +2896,20 @@ export class EcobaseInventoryPlanningService {
   }
 
   private async findOrderHistorySupplier(params: { company?: string; asin?: string; sku?: string }) {
-    const filters: PlainRecord[] = [];
-    if (params.asin) filters.push({ asin: params.asin, ...(params.company ? { company: params.company } : {}) });
-    if (params.sku) filters.push({ sku: params.sku, ...(params.company ? { company: params.company } : {}) });
-    for (const filter of filters) {
-      const lines = (
-        await this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).find({ filter, limit: 20 })
-      ).map(toPlainRecord);
-      const latestLine = latestByDate(lines, 'observedAt') ?? latestByDate(lines, 'expectedDeliveryDate') ?? lines[0];
-      const supplierId = asString(latestLine?.supplierId);
-      if (!supplierId) continue;
-      const supplier = toPlainRecord(
-        await this.db.getRepository(ECOBASE_COLLECTIONS.suppliers).findOne({ filterByTk: supplierId }),
-      );
-      return {
-        supplierId,
-        supplierName:
-          asString(supplier.name) ?? payloadString(latestLine, ['Supplier', 'Supplier Name', 'supplierName']),
-        evidence: {
-          source: 'supplier_order_lines',
-          sourceOrderLineRef: asString(latestLine.sourceOrderLineRef),
-          observedAt: asString(latestLine.observedAt),
-        },
-      };
-    }
-    return {};
-  }
-
-  private async findLeadTime(
-    supplier: PlainRecord,
-    link: PlainRecord,
-    parameter: PlainRecord,
-    company?: string,
-    planningProductId?: string,
-    asin?: string,
-    sku?: string,
-  ) {
-    const leadTimeRepo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierLeadTimes);
-    const supplierRefId = asString(supplier.id) ?? asString(link.supplierId);
-    const externalSupplierCode = asString(supplier.supplierId) ?? asString(parameter.supplierId);
-    const supplierName = asString(supplier.name) ?? asString(parameter.supplier);
-    const scoped = (filter: PlainRecord) => ({ ...filter, ...(company ? { company } : {}) });
-    const findScoped = async (base: PlainRecord) => {
-      const productScopedRows = planningProductId
-        ? (
-            await leadTimeRepo.find({
-              filter: scoped({ ...base, planningProductId }),
-              sort: ['-confirmedAt'],
-              limit: 1,
-            })
-          ).map(toPlainRecord)
-        : [];
-      if (productScopedRows[0]) return productScopedRows[0];
-      const productFilters = [
-        ...(asin ? [{ ...base, asin: asin.toUpperCase(), scope: 'product' }] : []),
-        ...(sku ? [{ ...base, sku, scope: 'product' }] : []),
-      ];
-      for (const filter of productFilters) {
-        const productRows = (
-          await leadTimeRepo.find({
-            filter: scoped(filter),
-            sort: ['-confirmedAt'],
-            limit: 1,
-          })
-        ).map(toPlainRecord);
-        if (productRows[0]) return productRows[0];
-      }
-      const orderHistoryRows = (
-        await leadTimeRepo.find({
-          filter: scoped({ ...base, source: 'order_details' }),
-          sort: ['-confirmedAt'],
-          limit: 1,
-        })
-      ).map(toPlainRecord);
-      return orderHistoryRows[0] ?? {};
+    const lines = await this.findOrderLinesByProduct(params);
+    const latestLine = latestByDate(lines, 'observedAt') ?? latestByDate(lines, 'expectedDeliveryDate') ?? lines[0];
+    const supplierId = asString(latestLine?.supplierId);
+    if (!supplierId) return {};
+    return {
+      supplierId,
+      supplierName:
+        asString(latestLine.supplierName) ?? payloadString(latestLine, ['Supplier', 'Supplier Name', 'supplierName']),
+      evidence: {
+        source: 'silver_order_lines',
+        sourceOrderLineRef: asString(latestLine.sourceOrderLineRef),
+        observedAt: asString(latestLine.observedAt),
+      },
     };
-    const bySupplierRef = supplierRefId ? await findScoped({ supplierRefId }) : {};
-    if (asString(bySupplierRef.id) || typeof bySupplierRef.leadTimeDays === 'number') return bySupplierRef;
-    const byExternalCode = externalSupplierCode ? await findScoped({ supplierId: externalSupplierCode }) : {};
-    if (asString(byExternalCode.id) || typeof byExternalCode.leadTimeDays === 'number') return byExternalCode;
-    return supplierName ? await findScoped({ supplierName }) : {};
   }
 
   private suggestedReorderQuantity(params: {

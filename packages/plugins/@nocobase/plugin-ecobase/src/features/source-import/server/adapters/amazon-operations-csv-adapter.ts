@@ -15,7 +15,14 @@ import type {
   SourceAdapter,
   SourceAdapterImportInput,
 } from './types';
-import { CsvRowReader, CsvSourceFile, normalizedHeaderSet, normalizeHeader, parseCsv } from './csv-utils';
+import {
+  CsvRowReader,
+  CsvSourceFile,
+  normalizedHeaderSet,
+  normalizeHeader,
+  parseCsv,
+  parseDelimitedCsv,
+} from './csv-utils';
 import { sellerboardMetricValues } from './sellerboard-metrics';
 import { analyzeSellerboardHistoryCsvFile } from './sellerboard-history-csv-adapter';
 
@@ -34,6 +41,7 @@ export type CsvShape =
   | 'sellerboard-dashboard-goods'
   | 'sellerboard-dashboard-totals'
   | 'sellerboard-history-dashboard-goods'
+  | 'sellerboard-cogs'
   | 'sellerboard-stock'
   | 'supplier-analysis-tracker'
   | 'supplier-analysis-2026'
@@ -78,6 +86,18 @@ function getFiles(config: FileConfig): CsvSourceFile[] {
 
 function has(headers: Set<string>, name: string) {
   return headers.has(normalizeHeader(name));
+}
+
+function analyzeSellerboardCogsCsvFile(file: CsvSourceFile) {
+  const parsed = parseDelimitedCsv(file.content ?? '', ';');
+  const headers = normalizedHeaderSet(parsed.headers);
+  return {
+    rowCount: parsed.rows.length,
+    detectedShape:
+      has(headers, 'ASIN') && has(headers, 'CostPeriodStartDate') && has(headers, 'Cost')
+        ? ('sellerboard-cogs' as const)
+        : undefined,
+  };
 }
 
 export function detectCsvShape(headers: string[]): CsvShape {
@@ -140,6 +160,9 @@ export function targetForCsvShape(shape: CsvShape): Omit<CsvBundleAnalysisGroup,
   if (shape === 'sellerboard-history-dashboard-goods') {
     return { adapterName: 'sellerboard-history-csv', sourceType: 'sellerboard', domain: 'amazon_operations' };
   }
+  if (shape === 'sellerboard-cogs') {
+    return { adapterName: 'sellerboard-cogs-csv', sourceType: 'sellerboard', domain: 'amazon_operations' };
+  }
   if (
     shape === 'sellerboard-dashboard-goods' ||
     shape === 'sellerboard-dashboard-totals' ||
@@ -166,6 +189,12 @@ export function analyzeCsvFile(file: CsvSourceFile): CsvFileAnalysis {
     if (historyAnalysis.detectedShape) {
       detectedShape = historyAnalysis.detectedShape;
       rowCount = historyAnalysis.rowCount;
+    } else {
+      const cogsAnalysis = analyzeSellerboardCogsCsvFile(file);
+      if (cogsAnalysis.detectedShape) {
+        detectedShape = cogsAnalysis.detectedShape;
+        rowCount = cogsAnalysis.rowCount;
+      }
     }
   }
   const target = targetForCsvShape(detectedShape);

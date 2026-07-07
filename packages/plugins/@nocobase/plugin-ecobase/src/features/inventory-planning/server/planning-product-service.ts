@@ -1,4 +1,13 @@
-import { randomUUID } from 'node:crypto';
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
+import { createHash, randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import type { EcobaseDatabase } from '../../source-import/server/import-service';
 
@@ -38,13 +47,6 @@ type ListingMatch = {
   lastImportRunId?: string;
 };
 
-const PRODUCT_FACT_COLLECTIONS = [
-  ECOBASE_COLLECTIONS.inventorySnapshots,
-  ECOBASE_COLLECTIONS.listingDailyFacts,
-  ECOBASE_COLLECTIONS.planningParameters,
-  ECOBASE_COLLECTIONS.targetRows,
-];
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
@@ -76,8 +78,21 @@ function planningProductNaturalKey(company: string, asin: string) {
   return `${company}:${asin}`;
 }
 
-function defaultListingNaturalKey(rawListingNaturalKey: string) {
-  return `raw-listing:${rawListingNaturalKey}`;
+const LISTING_KEY_MAX_LENGTH = 255;
+const LISTING_KEY_HASH_LENGTH = 16;
+
+function compactListingKey(value: string) {
+  if (value.length <= LISTING_KEY_MAX_LENGTH) return value;
+  const hash = createHash('sha256').update(value).digest('hex').slice(0, LISTING_KEY_HASH_LENGTH);
+  return `${value.slice(0, LISTING_KEY_MAX_LENGTH - LISTING_KEY_HASH_LENGTH - 1)}:${hash}`;
+}
+
+function rawListingNaturalKey(sourceRecordKey: string) {
+  return compactListingKey(`silver-listing:${sourceRecordKey}`);
+}
+
+function defaultListingNaturalKey(rawListingKey: string) {
+  return compactListingKey(`raw-listing:${rawListingKey}`);
 }
 
 function auditEntry(action: string, actorId?: string, note?: string, metadata: Record<string, unknown> = {}) {
@@ -89,44 +104,14 @@ function getAuditTrail(record: unknown) {
   return Array.isArray(trail) ? trail : [];
 }
 
-function listingMatchFromRawListing(record: unknown): ListingMatch | null {
-  const raw = toPlainRecord(record);
-  const company = asString(raw.company);
-  const asin = canonicalAsin(raw.asin);
-  const sourceConnectionId = asString(raw.sourceConnectionId);
-  const rawListingNaturalKey = asString(raw.naturalKey);
-
-  if (!company || !asin || !sourceConnectionId || !rawListingNaturalKey) {
-    return null;
-  }
-
-  return {
-    sourceConnectionId,
-    company,
-    canonicalAsin: asin,
-    asin,
-    sku: asString(raw.sku),
-    title: asString(raw.title),
-    rawListingNaturalKey,
-    lastImportRunId: asString(raw.lastImportRunId),
-  };
-}
-
 export class EcobasePlanningProductService {
   constructor(private db: EcobaseDatabase) {}
 
-  async syncFromRawListings(params: SyncPlanningProductsParams = {}) {
-    const rawListingRepo = this.db.getRepository(ECOBASE_COLLECTIONS.rawListings);
-    const filter = params.importRunId ? { lastImportRunId: params.importRunId } : undefined;
-    const rawListings = await rawListingRepo.find({ filter, sort: ['company', 'asin', 'sku'] });
+  async syncFromSilverCompanyProducts(params: SyncPlanningProductsParams = {}) {
+    const matches = await this.listingMatchesFromSilverCompanyProducts(params);
     const changedProductIds = new Set<string>();
 
-    for (const rawListing of rawListings) {
-      const match = listingMatchFromRawListing(rawListing);
-      if (!match) {
-        continue;
-      }
-
+    for (const match of matches) {
       const product = await this.findOrCreateDefaultProduct(match);
       const productId = asString(toPlainRecord(product).id);
       if (!productId) {
@@ -137,7 +122,6 @@ export class EcobasePlanningProductService {
       const listingProductId = asString(toPlainRecord(listing).planningProductId);
       if (listingProductId) {
         changedProductIds.add(listingProductId);
-        await this.linkFactsToPlanningProduct(match, listingProductId);
       }
     }
 
@@ -149,7 +133,65 @@ export class EcobasePlanningProductService {
       }
     }
 
-    return { data: { processedRawListings: rawListings.length, changedProductIds: [...changedProductIds] } };
+    return { data: { processedListings: matches.length, changedProductIds: [...changedProductIds] } };
+  }
+
+  private async listingMatchesFromSilverCompanyProducts(params: SyncPlanningProductsParams) {
+    const [companyProducts, products, companies, links, bronzeRecords] = await Promise.all([
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).find({ limit: 100000 }),
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverProducts).find({ limit: 100000 }),
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).find({ limit: 100000 }),
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverNormalizationLinks).find({ limit: 100000 }),
+      this.db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).find({ limit: 100000 }),
+    ]);
+    const productById = new Map(
+      products.map((product) => [asString(toPlainRecord(product).id), toPlainRecord(product)]),
+    );
+    const companyById = new Map(
+      companies.map((company) => [asString(toPlainRecord(company).id), toPlainRecord(company)]),
+    );
+    const bronzeById = new Map(
+      bronzeRecords.map((record) => [asString(toPlainRecord(record).id), toPlainRecord(record)]),
+    );
+    const linkByEntityId = new Map<string, Record<string, unknown>>();
+    for (const link of links.map(toPlainRecord)) {
+      if (params.importRunId && asString(link.importRunId) !== params.importRunId) continue;
+      const entityId = asString(link.silverEntityId);
+      if (entityId && !linkByEntityId.has(entityId)) linkByEntityId.set(entityId, link);
+    }
+
+    return companyProducts
+      .map(toPlainRecord)
+      .map((companyProduct): ListingMatch | null => {
+        const product = productById.get(asString(companyProduct.productId));
+        const company = companyById.get(asString(companyProduct.companyId));
+        const companyName = asString(company?.name);
+        const asin = canonicalAsin(product?.asin);
+        if (!companyName || !asin) return null;
+        const evidenceLink =
+          linkByEntityId.get(asString(companyProduct.id) ?? '') ?? linkByEntityId.get(asString(product?.id) ?? '');
+        if (params.importRunId && !evidenceLink) return null;
+        const bronze = bronzeById.get(asString(evidenceLink?.bronzeRecordId) ?? '');
+        const sourceRecordKey =
+          asString(evidenceLink?.sourceRecordKey) ?? `${companyName}:${asin}:${asString(product?.sku) ?? ''}`;
+        return {
+          sourceConnectionId:
+            asString(bronze?.sourceConnectionId) ?? asString(companyProduct.amazonAccountId) ?? 'medallion',
+          company: companyName,
+          canonicalAsin: asin,
+          asin,
+          sku: asString(product?.sku),
+          title: asString(product?.title),
+          rawListingNaturalKey: rawListingNaturalKey(sourceRecordKey),
+          lastImportRunId: asString(evidenceLink?.importRunId),
+        };
+      })
+      .filter((match): match is ListingMatch => Boolean(match))
+      .sort((left, right) =>
+        [left.company, left.asin, left.sku ?? '']
+          .join(':')
+          .localeCompare([right.company, right.asin, right.sku ?? ''].join(':')),
+      );
   }
 
   async listDuplicateMappings() {
@@ -325,32 +367,81 @@ export class EcobasePlanningProductService {
       );
     }
 
+    const listings = (
+      await this.db.getRepository(ECOBASE_COLLECTIONS.planningProductListings).find({
+        filter: { planningProductId },
+        sort: ['sku'],
+      })
+    ).map(toPlainRecord);
+    const silverFacts = await this.silverFactsForPlanningListings(toPlainRecord(product), listings);
+
     return {
       product: toPlainRecord(product),
-      listings: (
-        await this.db.getRepository(ECOBASE_COLLECTIONS.planningProductListings).find({
-          filter: { planningProductId },
-          sort: ['sku'],
-        })
-      ).map(toPlainRecord),
-      inventorySnapshots: (
-        await this.db.getRepository(ECOBASE_COLLECTIONS.inventorySnapshots).find({
-          filter: { planningProductId },
-          sort: ['snapshotDate'],
-        })
-      ).map(toPlainRecord),
-      listingDailyFacts: (
-        await this.db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).find({
-          filter: { planningProductId },
-          sort: ['snapshotDate'],
-        })
-      ).map(toPlainRecord),
+      listings,
+      inventorySnapshots: silverFacts.inventorySnapshots,
+      listingDailyFacts: silverFacts.listingDailyFacts,
       mappingAudits: (
         await this.db.getRepository(ECOBASE_COLLECTIONS.planningProductMappingAudits).find({
           filter: { nextPlanningProductId: planningProductId },
           sort: ['occurredAt'],
         })
       ).map(toPlainRecord),
+    };
+  }
+
+  private async silverFactsForPlanningListings(product: Record<string, unknown>, listings: Record<string, unknown>[]) {
+    const [silverProducts, companyProducts, inventorySnapshots, listingDailyFacts] = await Promise.all([
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverProducts).find({ limit: 100000 }),
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).find({ limit: 100000 }),
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).find({ limit: 100000 }),
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts).find({ limit: 100000 }),
+    ]);
+    const productByListingKey = new Map(
+      silverProducts.map((silverProduct) => {
+        const plain = toPlainRecord(silverProduct);
+        return [`${canonicalAsin(plain.asin) ?? ''}:${asString(plain.sku) ?? ''}`, plain];
+      }),
+    );
+    const listingByCompanyProductId = new Map<string, Record<string, unknown>>();
+    for (const listing of listings) {
+      const silverProduct = productByListingKey.get(
+        `${canonicalAsin(listing.asin) ?? ''}:${asString(listing.sku) ?? ''}`,
+      );
+      const silverProductId = asString(silverProduct?.id);
+      const companyProduct = companyProducts
+        .map(toPlainRecord)
+        .find((row) => asString(row.productId) === silverProductId);
+      const companyProductId = asString(companyProduct?.id);
+      if (companyProductId) listingByCompanyProductId.set(companyProductId, listing);
+    }
+    return {
+      inventorySnapshots: inventorySnapshots
+        .map(toPlainRecord)
+        .filter((row) => listingByCompanyProductId.has(asString(row.companyProductId) ?? ''))
+        .map((row) => {
+          const listing = listingByCompanyProductId.get(asString(row.companyProductId) ?? '') ?? {};
+          return {
+            ...row,
+            planningProductId: product.id,
+            company: product.company,
+            asin: listing.asin,
+            sku: listing.sku,
+            stock: row.sellableStock,
+          };
+        }),
+      listingDailyFacts: listingDailyFacts
+        .map(toPlainRecord)
+        .filter((row) => listingByCompanyProductId.has(asString(row.companyProductId) ?? ''))
+        .map((row) => {
+          const listing = listingByCompanyProductId.get(asString(row.companyProductId) ?? '') ?? {};
+          return {
+            ...row,
+            planningProductId: product.id,
+            company: product.company,
+            asin: listing.asin,
+            sku: listing.sku,
+          };
+        }),
     };
   }
 
@@ -546,33 +637,6 @@ export class EcobasePlanningProductService {
         filterByTk: listingId,
         values: { mappingStatus: listings.length > 1 ? 'needs_review' : 'auto_mapped' },
       });
-    }
-  }
-
-  private async linkFactsToPlanningProduct(match: ListingMatch, planningProductId: string) {
-    if (!match.sourceConnectionId || !match.asin) {
-      return;
-    }
-
-    for (const collectionName of PRODUCT_FACT_COLLECTIONS) {
-      const repo = this.db.getRepository(collectionName);
-      const filter: Record<string, unknown> = {
-        sourceConnectionId: match.sourceConnectionId,
-        asin: match.asin,
-      };
-      if (match.sku) {
-        filter.sku = match.sku;
-      } else if (match.company) {
-        filter.company = match.company;
-      }
-      const records = await repo.find({ filter });
-      for (const record of records) {
-        const naturalKey = asString(toPlainRecord(record).naturalKey);
-        if (!naturalKey) {
-          throw new Error(`Ecobase planning product sync failed: ${collectionName} record has no naturalKey.`);
-        }
-        await repo.update({ filter: { naturalKey }, values: { planningProductId, company: match.company } });
-      }
     }
   }
 

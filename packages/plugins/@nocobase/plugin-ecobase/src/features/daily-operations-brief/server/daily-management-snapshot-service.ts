@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import type { DailyEvidencePack } from './daily-operations-brief-service';
@@ -425,18 +434,18 @@ function numericDelta(
     previous === 0 && current !== 0
       ? 'new'
       : Math.abs(absoluteDelta) < 0.0001
-      ? 'flat'
-      : (higherIsBetter ? absoluteDelta > 0 : absoluteDelta < 0)
-      ? 'improved'
-      : 'regressed';
+        ? 'flat'
+        : (higherIsBetter ? absoluteDelta > 0 : absoluteDelta < 0)
+          ? 'improved'
+          : 'regressed';
   const tone: KpiTone =
     direction === 'improved'
       ? 'success'
       : direction === 'regressed'
-      ? 'error'
-      : direction === 'new'
-      ? 'warning'
-      : 'default';
+        ? 'error'
+        : direction === 'new'
+          ? 'warning'
+          : 'default';
   return { absoluteDelta, percentDelta, direction, tone };
 }
 
@@ -478,8 +487,8 @@ function compareMetric(
       absoluteDelta === 0
         ? 'flat'
         : (definition.higherIsBetter ? absoluteDelta > 0 : absoluteDelta < 0)
-        ? 'improved'
-        : 'regressed';
+          ? 'improved'
+          : 'regressed';
     return {
       ...base,
       absoluteDelta,
@@ -706,14 +715,7 @@ export class EcobaseDailyManagementSnapshotService {
 
   private async listingMetrics(date: string, company?: string) {
     const start = dateAdd(date, -6);
-    const rows = (
-      await this.db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).find({
-        filter: company ? { company } : {},
-        sort: ['-snapshotDate'],
-        limit: 20000,
-      })
-    )
-      .map(toPlainRecord)
+    const rows = (await this.silverListingRows(company))
       .filter((row) => matchesCompany(row, company))
       .filter((row) => inRange(row.snapshotDate, start, date));
     const sales7d = sum(rows, 'sales');
@@ -735,10 +737,7 @@ export class EcobaseDailyManagementSnapshotService {
   private async trafficMetrics(date: string, company?: string) {
     const start = dateAdd(date, -6);
     const productKeys = company ? await this.companyProductTrafficKeys(company) : undefined;
-    const rows = (
-      await this.db.getRepository(ECOBASE_COLLECTIONS.trafficSnapshots).find({ sort: ['-snapshotDate'], limit: 20000 })
-    )
-      .map(toPlainRecord)
+    const rows = (await this.silverTrafficRows())
       .filter((row) => inRange(row.snapshotDate, start, date))
       .filter((row) => !productKeys || productKeys.has(trafficKey(row)));
     const sessions = sum(rows, 'sessions');
@@ -750,19 +749,60 @@ export class EcobaseDailyManagementSnapshotService {
     return { buyBoxPct7d, conversionRate7d };
   }
 
+  private async silverTrafficRows() {
+    const [trafficRows, companyProducts, products] = await Promise.all([
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverTrafficSnapshots).find({ sort: ['-snapshotDate'], limit: 20000 }),
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).find({ limit: 50000 }),
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverProducts).find({ limit: 50000 }),
+    ]);
+    const companyProductById = new Map(companyProducts.map(toPlainRecord).map((row) => [asString(row.id), row]));
+    const productById = new Map(products.map(toPlainRecord).map((row) => [asString(row.id), row]));
+    return trafficRows.map(toPlainRecord).map((traffic) => {
+      const companyProduct = companyProductById.get(asString(traffic.companyProductId));
+      const product = productById.get(asString(companyProduct?.productId));
+      return {
+        ...traffic,
+        asin: asString(product?.asin),
+        sku: asString(product?.sku),
+      };
+    });
+  }
+
   private async companyProductTrafficKeys(company: string) {
     const products = (
-      await this.db.getRepository(ECOBASE_COLLECTIONS.planningProducts).find({ filter: { company }, limit: 10000 })
+      await this.db
+        .getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows)
+        .find({ filter: { company }, limit: 10000 })
     ).map(toPlainRecord);
     return new Set(
       products
-        .map((product) =>
-          [
-            asString(product.canonicalAsin)?.toUpperCase() ?? asString(product.asin)?.toUpperCase() ?? '',
-            asString(product.sku) ?? '',
-          ].join(':'),
-        )
+        .map((product) => [asString(product.asin)?.toUpperCase() ?? '', asString(product.sku) ?? ''].join(':'))
         .filter((key) => key !== ':'),
     );
+  }
+
+  private async silverListingRows(company?: string) {
+    const [facts, companyProducts, companies] = await Promise.all([
+      this.db
+        .getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts)
+        .find({ sort: ['-snapshotDate'], limit: 20000 }),
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).find({ limit: 50000 }),
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).find({ limit: 5000 }),
+    ]);
+    const companyById = new Map(companies.map(toPlainRecord).map((row) => [asString(row.id), row]));
+    const companyProductById = new Map(companyProducts.map(toPlainRecord).map((row) => [asString(row.id), row]));
+    return facts
+      .map(toPlainRecord)
+      .map((fact) => {
+        const companyProduct = companyProductById.get(asString(fact.companyProductId));
+        const companyRow = companyById.get(asString(companyProduct?.companyId));
+        return {
+          ...fact,
+          company: asString(companyRow?.name),
+          netProfit: asNumber(fact.profit),
+          grossProfit: asNumber(fact.profit),
+        };
+      })
+      .filter((row) => !company || asString(row.company) === company);
   }
 }

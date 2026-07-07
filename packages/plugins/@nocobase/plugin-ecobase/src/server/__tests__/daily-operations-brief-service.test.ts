@@ -79,14 +79,42 @@ function service(db = new MemoryDatabase()) {
 }
 
 async function seedProduct(db: MemoryDatabase, values: Record<string, unknown> = {}) {
+  const id = String(values.id ?? 'product-1');
+  const company = String(values.company ?? 'ACME');
+  const asin = String(values.canonicalAsin ?? 'B00FOCUS');
+  const sku = typeof values.sku === 'string' ? values.sku : undefined;
+  const title = String(values.title ?? 'Focus product');
   await db.getRepository(ECOBASE_COLLECTIONS.planningProducts).create({
     values: {
-      id: values.id ?? 'product-1',
-      naturalKey: values.naturalKey ?? 'ACME:B00FOCUS',
-      company: values.company ?? 'ACME',
-      canonicalAsin: values.canonicalAsin ?? 'B00FOCUS',
-      sku: values.sku,
-      title: values.title ?? 'Focus product',
+      id,
+      naturalKey: values.naturalKey ?? `${company}:${asin}`,
+      company,
+      canonicalAsin: asin,
+      sku,
+      title,
+    },
+  });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
+    values: { id: `company:${company}`, name: company, companyKey: company.toLowerCase() },
+  });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+    values: { id: `product:${id}`, asin, sku, title },
+  });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+    values: { id, companyId: `company:${company}`, productId: `product:${id}` },
+  });
+  await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).create({
+    values: {
+      id: `gold:${id}`,
+      naturalKey: `gold:${id}`,
+      company,
+      planningProductId: id,
+      companyProductId: id,
+      asin,
+      sku,
+      title,
+      calculationDate: '2026-06-10',
+      actionStatus: 'watch',
     },
   });
 }
@@ -205,10 +233,10 @@ describe('EcobaseDailyOperationsBriefService broader evidence focus', () => {
   it('chooses Buy Box focus from a deterministic win-rate drop', async () => {
     const { db, brief } = service();
     await seedProduct(db, { id: 'product-buybox', canonicalAsin: 'B00BUYBOX' });
-    await db.getRepository(ECOBASE_COLLECTIONS.trafficSnapshots).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverTrafficSnapshots).create({
       values: {
-        naturalKey: 'traffic-prior',
-        sourceConnectionId: 'source-1',
+        id: 'traffic-prior',
+        companyProductId: 'product-buybox',
         snapshotDate: '2026-06-09',
         asin: 'B00BUYBOX',
         buyBoxPercentage: 96,
@@ -216,10 +244,10 @@ describe('EcobaseDailyOperationsBriefService broader evidence focus', () => {
         orderedProductSales: 400,
       },
     });
-    await db.getRepository(ECOBASE_COLLECTIONS.trafficSnapshots).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverTrafficSnapshots).create({
       values: {
-        naturalKey: 'traffic-current',
-        sourceConnectionId: 'source-1',
+        id: 'traffic-current',
+        companyProductId: 'product-buybox',
         snapshotDate: '2026-06-10',
         asin: 'B00BUYBOX',
         buyBoxPercentage: 52,
@@ -346,10 +374,14 @@ describe('EcobaseDailyOperationsBriefService broader evidence focus', () => {
 
   it('chooses OKR focus for off-track OKR and stale task evidence', async () => {
     const { db, brief } = service();
-    await db.getRepository(ECOBASE_COLLECTIONS.okrs).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverTargets).create({
       values: {
         id: 'okr-1',
         naturalKey: 'okr-1',
+        recordKind: 'okr',
+        entityType: 'okr',
+        metric: 'okr',
+        periodType: '2026-Q2',
         company: 'ACME',
         title: 'Recover Buy Box',
         owner: 'Ops',
@@ -358,9 +390,14 @@ describe('EcobaseDailyOperationsBriefService broader evidence focus', () => {
         status: 'active',
       },
     });
-    await db.getRepository(ECOBASE_COLLECTIONS.okrMetricSnapshots).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverTargets).create({
       values: {
+        id: 'okr-snapshot-1',
         naturalKey: 'okr-snapshot-1',
+        recordKind: 'okr_metric_snapshot',
+        entityType: 'okr',
+        metric: 'Buy Box recovery',
+        periodType: 'snapshot',
         okrId: 'okr-1',
         snapshotDate: '2026-06-10',
         metricName: 'Buy Box recovery',
@@ -370,13 +407,15 @@ describe('EcobaseDailyOperationsBriefService broader evidence focus', () => {
         operationalArea: 'Marketplace',
       },
     });
-    await db.getRepository(ECOBASE_COLLECTIONS.clickupTaskSnapshots).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverTasks).create({
       values: {
+        id: 'task-snapshot-1',
         naturalKey: 'task-snapshot-1',
         sourceConnectionId: 'source-1',
         snapshotDate: '2026-06-10',
         externalTaskId: 'CU-1',
         taskName: 'Contact marketplace owner',
+        title: 'Contact marketplace owner',
         status: 'open',
         priority: 'high',
         assignee: 'Ops',
@@ -425,19 +464,19 @@ describe('EcobaseDailyOperationsBriefService broader evidence focus', () => {
         finishedAt: '2026-06-10T07:01:00.000Z',
       },
     });
-    await db.getRepository(ECOBASE_COLLECTIONS.trafficSnapshots).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverTrafficSnapshots).create({
       values: {
-        naturalKey: 'source-traffic-prior',
-        sourceConnectionId: 'source-bad',
+        id: 'source-traffic-prior',
+        companyProductId: 'product-source',
         snapshotDate: '2026-06-09',
         asin: 'B00SOURCE',
         buyBoxPercentage: 95,
       },
     });
-    await db.getRepository(ECOBASE_COLLECTIONS.trafficSnapshots).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverTrafficSnapshots).create({
       values: {
-        naturalKey: 'source-traffic-current',
-        sourceConnectionId: 'source-bad',
+        id: 'source-traffic-current',
+        companyProductId: 'product-source',
         snapshotDate: '2026-06-10',
         asin: 'B00SOURCE',
         buyBoxPercentage: 50,
@@ -498,19 +537,19 @@ describe('EcobaseDailyOperationsBriefService broader evidence focus', () => {
   it('uses mixed-domain priority order after inventory and supplier orders', async () => {
     const { db, brief } = service();
     await seedProduct(db, { id: 'product-mixed', canonicalAsin: 'B00MIXED' });
-    await db.getRepository(ECOBASE_COLLECTIONS.trafficSnapshots).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverTrafficSnapshots).create({
       values: {
-        naturalKey: 'mixed-traffic-prior',
-        sourceConnectionId: 'source-1',
+        id: 'mixed-traffic-prior',
+        companyProductId: 'product-mixed',
         snapshotDate: '2026-06-09',
         asin: 'B00MIXED',
         buyBoxPercentage: 90,
       },
     });
-    await db.getRepository(ECOBASE_COLLECTIONS.trafficSnapshots).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverTrafficSnapshots).create({
       values: {
-        naturalKey: 'mixed-traffic-current',
-        sourceConnectionId: 'source-1',
+        id: 'mixed-traffic-current',
+        companyProductId: 'product-mixed',
         snapshotDate: '2026-06-10',
         asin: 'B00MIXED',
         buyBoxPercentage: 55,
@@ -542,19 +581,28 @@ describe('EcobaseDailyOperationsBriefService broader evidence focus', () => {
         netProfit: 30,
       },
     });
-    await db.getRepository(ECOBASE_COLLECTIONS.okrs).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverTargets).create({
       values: {
         id: 'okr-mixed',
         naturalKey: 'okr-mixed',
+        recordKind: 'okr',
+        entityType: 'okr',
+        metric: 'okr',
+        periodType: 'unknown',
         company: 'ACME',
         title: 'Ops hygiene',
         owner: 'Ops',
         status: 'active',
       },
     });
-    await db.getRepository(ECOBASE_COLLECTIONS.okrMetricSnapshots).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverTargets).create({
       values: {
+        id: 'mixed-okr',
         naturalKey: 'mixed-okr',
+        recordKind: 'okr_metric_snapshot',
+        entityType: 'okr',
+        metric: 'Ops hygiene',
+        periodType: 'snapshot',
         okrId: 'okr-mixed',
         snapshotDate: '2026-06-10',
         metricName: 'Ops hygiene',

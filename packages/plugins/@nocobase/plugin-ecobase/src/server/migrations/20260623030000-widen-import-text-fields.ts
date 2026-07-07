@@ -1,20 +1,17 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { Migration } from '@nocobase/server';
 import { DataTypes } from 'sequelize';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 
 const TEXT_FIELDS: Record<string, string[]> = {
-  [ECOBASE_COLLECTIONS.suppliers]: [
-    'wholesalePriceList',
-    'productCatalog',
-    'mapAgreement',
-    'prPortalLink',
-    'amazonAllow',
-    'feedback',
-    'sheetLink',
-    'remarksSa',
-    'analysisIssueRemarks',
-  ],
-  [ECOBASE_COLLECTIONS.supplierOrders]: ['trackingId'],
   [ECOBASE_COLLECTIONS.silverOrders]: ['trackingId'],
   [ECOBASE_COLLECTIONS.silverSupplierAccounts]: ['portalUrl'],
   [ECOBASE_COLLECTIONS.silverProducts]: ['title'],

@@ -184,7 +184,7 @@ export default function DailyOperationsBriefPage() {
   const loadCompanies = useCallback(async () => {
     setCompanyLoading(true);
     try {
-      const response = await api.request({ url: 'ecobaseCompanies:list?paginate=false', method: 'get' });
+      const response = await api.request({ url: 'silverCompanies:list?paginate=false', method: 'get' });
       const companyRows = unwrapRows(response);
       setCompanies(
         companyRows

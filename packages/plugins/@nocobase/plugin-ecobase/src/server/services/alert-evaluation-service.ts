@@ -1,8 +1,16 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import type { EcobaseDatabase } from '../../features/source-import/server/import-service';
 import { toPlainRecord } from '../../features/source-import/server/import-service';
-import { EcobasePlanningCalculationService } from '../../features/inventory-planning/server/planning-calculation-service';
 import { EcobaseSupplierOrderService } from '../../features/supplier-management/server/supplier-order-service';
 
 const ALERT_RULE_VERSION = 'ecobase_alerts_mvp_v1';
@@ -147,11 +155,15 @@ function diffDays(left: string, right: string) {
 }
 
 function mostRecent(records: PlainRecord[], dateField: string) {
-  return [...records].sort((left, right) => String(right[dateField] ?? '').localeCompare(String(left[dateField] ?? '')))[0];
+  return [...records].sort((left, right) =>
+    String(right[dateField] ?? '').localeCompare(String(left[dateField] ?? '')),
+  )[0];
 }
 
 function maxNumber(records: PlainRecord[], keys: string[]) {
-  const values = records.map((record) => payloadNumber(record, keys)).filter((value): value is number => value !== undefined);
+  const values = records
+    .map((record) => payloadNumber(record, keys))
+    .filter((value): value is number => value !== undefined);
   return values.length > 0 ? Math.max(...values) : undefined;
 }
 
@@ -231,7 +243,15 @@ export class EcobaseAlertEvaluationService {
     };
   }
 
-  async listAlerts(params: { company?: string; status?: AlertStatus; alertType?: string; severity?: AlertSeverity; limit?: number } = {}) {
+  async listAlerts(
+    params: {
+      company?: string;
+      status?: AlertStatus;
+      alertType?: string;
+      severity?: AlertSeverity;
+      limit?: number;
+    } = {},
+  ) {
     const repo = this.db.getRepository(ECOBASE_COLLECTIONS.alerts);
     const filter: PlainRecord = {};
     if (params.company) {
@@ -250,16 +270,31 @@ export class EcobaseAlertEvaluationService {
   }
 
   private async findProducts(params: EvaluateAlertsParams) {
-    const repo = this.db.getRepository(ECOBASE_COLLECTIONS.planningProducts);
+    const rows = (
+      await this.db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).find({
+        filter: params.company ? { company: params.company } : undefined,
+        sort: ['-calculationDate'],
+        limit: 5000,
+      })
+    ).map(toPlainRecord);
     if (params.planningProductId) {
-      const product = await repo.findOne({ filterByTk: params.planningProductId });
+      const product = rows.find((row) =>
+        [row.id, row.planningProductId, row.companyProductId].map(asString).includes(params.planningProductId),
+      );
       if (!product) {
-        throw new Error(`Ecobase alert evaluation failed: planning product "${params.planningProductId}" was not found.`);
+        throw new Error(
+          `Ecobase alert evaluation failed: planning product "${params.planningProductId}" was not found.`,
+        );
       }
-      return [toPlainRecord(product)];
+      return [product];
     }
-    const filter = params.company ? { company: params.company } : undefined;
-    return (await repo.find({ filter, limit: 500 })).map(toPlainRecord);
+    const latestByProduct = new Map<string, PlainRecord>();
+    for (const row of rows) {
+      const key = asString(row.companyProductId) ?? asString(row.planningProductId) ?? asString(row.id);
+      if (!key || latestByProduct.has(key)) continue;
+      latestByProduct.set(key, row);
+    }
+    return [...latestByProduct.values()].slice(0, 500);
   }
 
   private async ensureRuleVersion(company?: string) {
@@ -277,30 +312,32 @@ export class EcobaseAlertEvaluationService {
     if (existing) {
       const record = toPlainRecord(existing);
       await repo.update({ filterByTk: asString(record.id) ?? '', values });
-      return toPlainRecord(await repo.findOne({ filterByTk: asString(record.id) ?? '' }) ?? record);
+      return toPlainRecord((await repo.findOne({ filterByTk: asString(record.id) ?? '' })) ?? record);
     }
     return toPlainRecord(await repo.create({ values: { id: randomUUID(), ...values } }));
   }
 
   private async evaluateProduct(product: PlainRecord, ruleVersion: PlainRecord, params: EvaluateAlertsParams) {
-    const planningProductId = asString(product.id);
+    const planningProductId =
+      asString(product.companyProductId) ?? asString(product.planningProductId) ?? asString(product.id);
     if (!planningProductId) {
       throw new Error('Ecobase alert evaluation failed: planning product is missing id.');
     }
     const calculationDate = isoDate(params.calculationDate ?? new Date());
     const config = toPlainRecord(ruleVersion.config) as typeof DEFAULT_ALERT_CONFIG;
-    const calculation = await new EcobasePlanningCalculationService(this.db).calculatePlanningProduct({
+    const calculation = this.calculationFromGoldRow(product);
+    const coverage = await new EcobaseSupplierOrderService(this.db).getCoverage(
       planningProductId,
-      calculationDate,
-      safetyBufferDays: asNumber(config.safetyBufferDays),
-      persist: true,
-    });
-    const coverage = await new EcobaseSupplierOrderService(this.db).getCoverage(planningProductId, asString(calculation.oosDate));
+      asString(calculation.oosDate),
+    );
     const context = await this.productContext(planningProductId, calculationDate);
     const rootCauses = this.evaluateRootCauses({ product, calculation, coverage, context, config, calculationDate });
     const dataWarnings = [
       ...asArray(calculation.warnings),
-      ...coverage.dataWarnings.map((warning) => ({ code: warning, message: `Supplier-order coverage warning: ${warning}` })),
+      ...coverage.dataWarnings.map((warning) => ({
+        code: warning,
+        message: `Supplier-order coverage warning: ${warning}`,
+      })),
     ];
     const estimatedProfitRisk = this.estimateProfitRisk(calculation, coverage);
     const evaluationRepo = this.db.getRepository(ECOBASE_COLLECTIONS.alertEvaluations);
@@ -310,7 +347,7 @@ export class EcobaseAlertEvaluationService {
           id: randomUUID(),
           planningProductId,
           company: asString(product.company),
-          canonicalAsin: asString(product.canonicalAsin),
+          canonicalAsin: asString(product.canonicalAsin) ?? asString(product.asin),
           evaluatedAt: new Date().toISOString(),
           ruleVersionId: asString(ruleVersion.id),
           tier: asString(calculation.tier) ?? 'unclassified',
@@ -340,7 +377,7 @@ export class EcobaseAlertEvaluationService {
     return {
       planningProductId,
       company: asString(product.company),
-      canonicalAsin: asString(product.canonicalAsin),
+      canonicalAsin: asString(product.canonicalAsin) ?? asString(product.asin),
       alertCount: openAlerts.length,
       rootCauseCodes: rootCauses.map((cause) => cause.code),
       openAlerts,
@@ -348,20 +385,51 @@ export class EcobaseAlertEvaluationService {
     };
   }
 
+  private calculationFromGoldRow(product: PlainRecord) {
+    const actionStatus = asString(product.actionStatus);
+    return {
+      ...product,
+      canonicalAsin: asString(product.asin),
+      oosDate: asString(product.estimatedOosDate),
+      restockDeadlineImproved: asString(product.latestSafeReorderDate),
+      restockDeadlineParity: asString(product.latestSafeReorderDate),
+      daysLeftOrOverdue: asNumber(product.daysUntilSafeReorder),
+      restockNeeded: ['overdue', 'order_today', 'order_soon', 'missing_lead_time', 'stale_lead_time'].includes(
+        actionStatus ?? '',
+      ),
+      calculationStatus: asString(product.calculationStatus) ?? 'calculated',
+      warnings: [],
+    };
+  }
+
   private async productContext(planningProductId: string, calculationDate: string) {
-    const facts = (await this.db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).find({ filter: { planningProductId } })).map(toPlainRecord);
-    const inventoryRows = (await this.db.getRepository(ECOBASE_COLLECTIONS.inventorySnapshots).find({ filter: { planningProductId } })).map(toPlainRecord);
-    const parameterRows = (await this.db.getRepository(ECOBASE_COLLECTIONS.planningParameters).find({ filter: { planningProductId } })).map(toPlainRecord);
-    const leadTimes = (await this.db.getRepository(ECOBASE_COLLECTIONS.supplierLeadTimes).find({})).map(toPlainRecord);
-    const latestFact = mostRecent(facts, 'snapshotDate') ?? {};
-    const latestInventory = mostRecent(inventoryRows, 'snapshotDate') ?? {};
-    const latestLeadTime = mostRecent(leadTimes, 'confirmedAt') ?? {};
-    const buyBoxPercentage = maxNumber(facts, ['buyBoxPercentage', 'Buy Box %']) ?? maxNumber(inventoryRows, ['buyBoxPercentage', 'Buy Box %']);
-    const margin = payloadNumber(latestFact, ['margin', 'Margin', 'Margin %']);
-    const refundRate = payloadNumber(latestFact, ['refundRate', 'Refund Rate', 'Refund %']);
-    const baselineVelocity = maxNumber(parameterRows, ['baselineVelocity', 'Baseline Velocity', 'Expected Sales Velocity']);
-    const sourceVelocity = payloadNumber(latestInventory, ['salesVelocity', 'Sales Velocity']);
-    const sevenDayVelocity = averageVelocity(facts, calculationDate, 7);
+    const [facts, inventoryRows, goldRows] = await Promise.all([
+      this.db
+        .getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts)
+        .find({ filter: { companyProductId: planningProductId } }),
+      this.db
+        .getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots)
+        .find({ filter: { companyProductId: planningProductId } }),
+      this.db
+        .getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows)
+        .find({ filter: { companyProductId: planningProductId } }),
+    ]);
+    const factRows = facts.map(toPlainRecord);
+    const stockRows = inventoryRows.map(toPlainRecord);
+    const planningRows = goldRows.map(toPlainRecord);
+    const latestFact = mostRecent(factRows, 'snapshotDate') ?? {};
+    const latestInventory = mostRecent(stockRows, 'snapshotDate') ?? {};
+    const latestPlanning = mostRecent(planningRows, 'calculationDate') ?? {};
+    const latestLeadTime = {
+      leadTimeDays: asNumber(latestPlanning.leadTimeDays),
+      confirmedAt: asString(latestPlanning.leadTimeConfirmedAt),
+    };
+    const buyBoxPercentage = maxNumber(planningRows, ['buyBoxPercentage', 'Buy Box %']);
+    const margin = asNumber(latestFact.margin) ?? asNumber(latestPlanning.sixMonthMargin);
+    const refundRate = asNumber(latestFact.refunds);
+    const baselineVelocity = asNumber(latestPlanning.baselineVelocity) ?? asNumber(latestPlanning.salesVelocity);
+    const sourceVelocity = asNumber(latestInventory.salesVelocity);
+    const sevenDayVelocity = averageVelocity(factRows, calculationDate, 7);
     return {
       latestFact,
       latestInventory,
@@ -399,60 +467,181 @@ export class EcobaseAlertEvaluationService {
     const coverageState = asString(coverage.coverageState) ?? 'no_open_order';
 
     if (sellableStock <= 0) {
-      causes.push({ code: 'current_oos', priority: 10, severity: 'critical', message: 'Sellable stock is zero or below.', evidence: { sellableStock } });
+      causes.push({
+        code: 'current_oos',
+        priority: 10,
+        severity: 'critical',
+        message: 'Sellable stock is zero or below.',
+        evidence: { sellableStock },
+      });
     }
     if (asBoolean(calculation.restockNeeded) || (typeof daysLeftOrOverdue === 'number' && daysLeftOrOverdue <= 0)) {
-      causes.push({ code: 'reorder_needed', priority: 20, severity: 'critical', message: 'Restock is needed by the deterministic planning rule.', evidence: { daysLeftOrOverdue, restockNeeded: calculation.restockNeeded } });
+      causes.push({
+        code: 'reorder_needed',
+        priority: 20,
+        severity: 'critical',
+        message: 'Restock is needed by the deterministic planning rule.',
+        evidence: { daysLeftOrOverdue, restockNeeded: calculation.restockNeeded },
+      });
     }
-    if (coverageState !== 'arrives_before_stockout' && (sellableStock <= 0 || (typeof daysOfCover === 'number' && daysOfCover <= (asNumber(config.nearOosDaysOfCover) ?? 14)) || asBoolean(calculation.restockNeeded))) {
-      causes.push({ code: 'replenishment_at_risk', priority: 30, severity: coverageState === 'no_open_order' ? 'critical' : 'warning', message: 'Replenishment coverage is not safely arriving before stockout.', evidence: { coverageState } });
+    if (
+      coverageState !== 'arrives_before_stockout' &&
+      (sellableStock <= 0 ||
+        (typeof daysOfCover === 'number' && daysOfCover <= (asNumber(config.nearOosDaysOfCover) ?? 14)) ||
+        asBoolean(calculation.restockNeeded))
+    ) {
+      causes.push({
+        code: 'replenishment_at_risk',
+        priority: 30,
+        severity: coverageState === 'no_open_order' ? 'critical' : 'warning',
+        message: 'Replenishment coverage is not safely arriving before stockout.',
+        evidence: { coverageState },
+      });
     }
     if (coverageState === 'no_open_order' && (sellableStock <= 0 || asBoolean(calculation.restockNeeded))) {
-      causes.push({ code: 'no_supplier_order_placed', priority: 40, severity: 'critical', message: 'No open supplier-order line covers this planning product.', evidence: { coverageState } });
+      causes.push({
+        code: 'no_supplier_order_placed',
+        priority: 40,
+        severity: 'critical',
+        message: 'No open supplier-order line covers this planning product.',
+        evidence: { coverageState },
+      });
     }
     if (sellableStock <= 0 && pipelineStock > 0 && coverageState === 'no_open_order') {
-      causes.push({ code: 'pipeline_only_inventory', priority: 50, severity: 'warning', message: 'Only raw pipeline/reserved/inbound/prep inventory exists; no reconciled supplier-order recovery was counted.', evidence: { pipelineStock, coverageState } });
+      causes.push({
+        code: 'pipeline_only_inventory',
+        priority: 50,
+        severity: 'warning',
+        message:
+          'Only raw pipeline/reserved/inbound/prep inventory exists; no reconciled supplier-order recovery was counted.',
+        evidence: { pipelineStock, coverageState },
+      });
     }
     if (coverageState === 'arrives_late' || coverageState === 'partial_or_mixed_coverage') {
-      causes.push({ code: 'near_oos_delayed_inbound_or_supplier_order', priority: 60, severity: 'critical', message: 'Open recovery is delayed or mixed relative to projected stockout.', evidence: { coverageState } });
+      causes.push({
+        code: 'near_oos_delayed_inbound_or_supplier_order',
+        priority: 60,
+        severity: 'critical',
+        message: 'Open recovery is delayed or mixed relative to projected stockout.',
+        evidence: { coverageState },
+      });
     }
     if (coverageState === 'arrives_late') {
-      causes.push({ code: 'already_ordered_expected_sellable_late', priority: 70, severity: 'critical', message: 'The product is already ordered, but expected sellable date is late.', evidence: { nextLateExpectedSellableDate: coverage.nextLateExpectedSellableDate } });
+      causes.push({
+        code: 'already_ordered_expected_sellable_late',
+        priority: 70,
+        severity: 'critical',
+        message: 'The product is already ordered, but expected sellable date is late.',
+        evidence: { nextLateExpectedSellableDate: coverage.nextLateExpectedSellableDate },
+      });
     }
     if (coverageState === 'blocked_open_order') {
-      causes.push({ code: 'blocked_unreliable_open_order', priority: 75, severity: 'critical', message: 'Open supplier-order coverage is blocked and unreliable.', evidence: { blockedOpenQty: coverage.blockedOpenQty } });
+      causes.push({
+        code: 'blocked_unreliable_open_order',
+        priority: 75,
+        severity: 'critical',
+        message: 'Open supplier-order coverage is blocked and unreliable.',
+        evidence: { blockedOpenQty: coverage.blockedOpenQty },
+      });
     }
-    if (typeof buyBoxPercentage === 'number' && buyBoxPercentage < (asNumber(config.buyBoxRiskThresholdPercent) ?? 80)) {
-      causes.push({ code: 'low_buy_box', priority: 80, severity: buyBoxPercentage < (asNumber(config.buyBoxHighRiskThresholdPercent) ?? 70) ? 'critical' : 'warning', message: 'Buy Box percentage is below the configured risk threshold.', evidence: { buyBoxPercentage } });
+    if (
+      typeof buyBoxPercentage === 'number' &&
+      buyBoxPercentage < (asNumber(config.buyBoxRiskThresholdPercent) ?? 80)
+    ) {
+      causes.push({
+        code: 'low_buy_box',
+        priority: 80,
+        severity: buyBoxPercentage < (asNumber(config.buyBoxHighRiskThresholdPercent) ?? 70) ? 'critical' : 'warning',
+        message: 'Buy Box percentage is below the configured risk threshold.',
+        evidence: { buyBoxPercentage },
+      });
     }
-    if ((typeof margin === 'number' && margin < (asNumber(config.marginGapPercent) ?? 15)) || (typeof profitGap === 'number' && profitGap > 0 && typeof profitPerUnit === 'number' && profitPerUnit <= 0)) {
-      causes.push({ code: 'price_margin_issue', priority: 90, severity: 'warning', message: 'Margin or price/profit gap requires review.', evidence: { margin, profitGap, profitPerUnit } });
+    if (
+      (typeof margin === 'number' && margin < (asNumber(config.marginGapPercent) ?? 15)) ||
+      (typeof profitGap === 'number' && profitGap > 0 && typeof profitPerUnit === 'number' && profitPerUnit <= 0)
+    ) {
+      causes.push({
+        code: 'price_margin_issue',
+        priority: 90,
+        severity: 'warning',
+        message: 'Margin or price/profit gap requires review.',
+        evidence: { margin, profitGap, profitPerUnit },
+      });
     }
     if (typeof refundRate === 'number' && refundRate >= (asNumber(config.highRefundRatePercent) ?? 10)) {
-      causes.push({ code: 'high_refund_rate', priority: 100, severity: 'warning', message: 'Refund rate is above the configured threshold.', evidence: { refundRate } });
+      causes.push({
+        code: 'high_refund_rate',
+        priority: 100,
+        severity: 'warning',
+        message: 'Refund rate is above the configured threshold.',
+        evidence: { refundRate },
+      });
     }
     const observedVelocity = Math.max(sevenDayVelocity ?? 0, asNumber(context.sourceVelocity) ?? 0);
-    if (typeof baselineVelocity === 'number' && baselineVelocity > 0 && observedVelocity < baselineVelocity * ((asNumber(config.velocityBaselineThresholdPercent) ?? 80) / 100)) {
-      causes.push({ code: 'slow_sales', priority: 110, severity: 'warning', message: 'Sales velocity is below the configured baseline threshold.', evidence: { baselineVelocity, observedVelocity, sevenDayVelocity, sourceVelocity: context.sourceVelocity } });
+    if (
+      typeof baselineVelocity === 'number' &&
+      baselineVelocity > 0 &&
+      observedVelocity < baselineVelocity * ((asNumber(config.velocityBaselineThresholdPercent) ?? 80) / 100)
+    ) {
+      causes.push({
+        code: 'slow_sales',
+        priority: 110,
+        severity: 'warning',
+        message: 'Sales velocity is below the configured baseline threshold.',
+        evidence: { baselineVelocity, observedVelocity, sevenDayVelocity, sourceVelocity: context.sourceVelocity },
+      });
     }
     const leadTimeConfirmedAt = asString(toPlainRecord(context.latestLeadTime).confirmedAt);
-    if (leadTimeConfirmedAt && diffDays(`${calculationDate}T00:00:00.000Z`, leadTimeConfirmedAt) > (asNumber(config.leadTimeStaleDays) ?? 30)) {
-      causes.push({ code: 'stale_lead_time', priority: 130, severity: 'warning', message: 'Supplier lead-time evidence is stale.', evidence: { leadTimeConfirmedAt } });
+    if (
+      leadTimeConfirmedAt &&
+      diffDays(`${calculationDate}T00:00:00.000Z`, leadTimeConfirmedAt) > (asNumber(config.leadTimeStaleDays) ?? 30)
+    ) {
+      causes.push({
+        code: 'stale_lead_time',
+        priority: 130,
+        severity: 'warning',
+        message: 'Supplier lead-time evidence is stale.',
+        evidence: { leadTimeConfirmedAt },
+      });
     }
     const contactRecency = toPlainRecord(coverage.contactRecency);
     const contactedAt = asString(contactRecency.occurredAt);
     const contactAge = contactedAt ? diffDays(`${calculationDate}T00:00:00.000Z`, contactedAt) : undefined;
     if (coverageState !== 'no_open_order' && (contactAge === undefined || contactAge > 3)) {
-      causes.push({ code: 'supplier_not_recently_contacted', priority: 140, severity: 'warning', message: 'Supplier contact is missing or stale for the active recovery.', evidence: { contactedAt, contactAge } });
+      causes.push({
+        code: 'supplier_not_recently_contacted',
+        priority: 140,
+        severity: 'warning',
+        message: 'Supplier contact is missing or stale for the active recovery.',
+        evidence: { contactedAt, contactAge },
+      });
     }
     if (coverageState === 'incomplete_or_stale') {
-      causes.push({ code: 'supplier_order_missing_update', priority: 145, severity: 'warning', message: 'Open supplier-order recovery is missing update or expected sellable evidence.', evidence: { dataWarnings: coverage.dataWarnings } });
+      causes.push({
+        code: 'supplier_order_missing_update',
+        priority: 145,
+        severity: 'warning',
+        message: 'Open supplier-order recovery is missing update or expected sellable evidence.',
+        evidence: { dataWarnings: coverage.dataWarnings },
+      });
     }
     if (asArray(calculation.warnings).length > 0 || asArray(coverage.dataWarnings).length > 0) {
-      causes.push({ code: 'data_warning', priority: 170, severity: 'warning', message: 'Data warnings affect this alert evaluation.', evidence: { calculationWarnings: calculation.warnings, coverageWarnings: coverage.dataWarnings } });
+      causes.push({
+        code: 'data_warning',
+        priority: 170,
+        severity: 'warning',
+        message: 'Data warnings affect this alert evaluation.',
+        evidence: { calculationWarnings: calculation.warnings, coverageWarnings: coverage.dataWarnings },
+      });
     }
     if (asString(calculation.calculationStatus) !== 'calculated') {
-      causes.push({ code: 'unknown_manual_review', priority: 180, severity: 'info', message: 'The product requires manual review because deterministic inputs are incomplete.', evidence: { calculationStatus: calculation.calculationStatus } });
+      causes.push({
+        code: 'unknown_manual_review',
+        priority: 180,
+        severity: 'info',
+        message: 'The product requires manual review because deterministic inputs are incomplete.',
+        evidence: { calculationStatus: calculation.calculationStatus },
+      });
     }
     return rootCauseSort(causes);
   }
@@ -465,15 +654,25 @@ export class EcobaseAlertEvaluationService {
     if (!velocity || velocity <= 0 || typeof profitPerUnit !== 'number' || !oosDate || !recoveryDate) {
       return asNumber(calculation.estimatedProfitRisk);
     }
-    return Math.max(0, diffDays(`${recoveryDate}T00:00:00.000Z`, `${oosDate}T00:00:00.000Z`)) * velocity * profitPerUnit;
+    return (
+      Math.max(0, diffDays(`${recoveryDate}T00:00:00.000Z`, `${oosDate}T00:00:00.000Z`)) * velocity * profitPerUnit
+    );
   }
 
-  private toAlertCandidates(params: { rootCauses: RootCause[]; dataWarnings: unknown[]; calculation: PlainRecord; coverage: any; estimatedProfitRisk?: number }) {
+  private toAlertCandidates(params: {
+    rootCauses: RootCause[];
+    dataWarnings: unknown[];
+    calculation: PlainRecord;
+    coverage: any;
+    estimatedProfitRisk?: number;
+  }) {
     const candidates: AlertCandidate[] = [];
     const { rootCauses, dataWarnings, coverage, estimatedProfitRisk } = params;
     const byCode = new Map(rootCauses.map((cause) => [cause.code, cause]));
     const add = (alertType: AlertType, codes: RootCauseCode[], subjectRef: string) => {
-      const causes = rootCauseSort(codes.map((code) => byCode.get(code)).filter((cause): cause is RootCause => !!cause));
+      const causes = rootCauseSort(
+        codes.map((code) => byCode.get(code)).filter((cause): cause is RootCause => !!cause),
+      );
       if (causes.length === 0) {
         return;
       }
@@ -492,9 +691,17 @@ export class EcobaseAlertEvaluationService {
     add('oos', ['current_oos', 'pipeline_only_inventory'], 'planning_product');
     add('reorder_needed', ['reorder_needed', 'no_supplier_order_placed'], 'planning_product');
     add('near_oos', ['near_oos_delayed_inbound_or_supplier_order'], 'planning_product');
-    add('replenishment_at_risk', ['replenishment_at_risk', 'blocked_unreliable_open_order', 'supplier_order_missing_update'], 'planning_product');
+    add(
+      'replenishment_at_risk',
+      ['replenishment_at_risk', 'blocked_unreliable_open_order', 'supplier_order_missing_update'],
+      'planning_product',
+    );
     for (const lineId of asArray(coverage.linkedSupplierOrderLineIds).map(String)) {
-      add('supplier_delay', ['already_ordered_expected_sellable_late', 'supplier_not_recently_contacted', 'supplier_order_missing_update'], lineId);
+      add(
+        'supplier_delay',
+        ['already_ordered_expected_sellable_late', 'supplier_not_recently_contacted', 'supplier_order_missing_update'],
+        lineId,
+      );
     }
     add('off_track', ['low_buy_box', 'price_margin_issue', 'high_refund_rate', 'slow_sales'], 'planning_product');
     add('stale_lead_time', ['stale_lead_time'], 'planning_product');
@@ -504,7 +711,11 @@ export class EcobaseAlertEvaluationService {
 
   private async upsertAlerts(params: { product: PlainRecord; evaluation: PlainRecord; candidates: AlertCandidate[] }) {
     const repo = this.db.getRepository(ECOBASE_COLLECTIONS.alerts);
-    const planningProductId = asString(params.product.id) ?? '';
+    const planningProductId =
+      asString(params.product.companyProductId) ??
+      asString(params.product.planningProductId) ??
+      asString(params.product.id) ??
+      '';
     const now = asString(params.evaluation.evaluatedAt) ?? new Date().toISOString();
     const alerts = [];
     for (const candidate of params.candidates) {
@@ -512,7 +723,7 @@ export class EcobaseAlertEvaluationService {
       const values = {
         planningProductId,
         company: asString(params.product.company),
-        canonicalAsin: asString(params.product.canonicalAsin),
+        canonicalAsin: asString(params.product.canonicalAsin) ?? asString(params.product.asin),
         title: asString(params.product.title),
         alertEvaluationId: asString(params.evaluation.id),
         alertType: candidate.alertType,
@@ -535,7 +746,9 @@ export class EcobaseAlertEvaluationService {
         await repo.update({ filterByTk: asString(existing.id) ?? '', values: { ...values, openedAt: now } });
         alerts.push(toPlainRecord(await repo.findOne({ filterByTk: asString(existing.id) ?? '' })));
       } else {
-        alerts.push(toPlainRecord(await repo.create({ values: { id: randomUUID(), dedupeKey: key, ...values, openedAt: now } })));
+        alerts.push(
+          toPlainRecord(await repo.create({ values: { id: randomUUID(), dedupeKey: key, ...values, openedAt: now } })),
+        );
       }
     }
     return alerts;

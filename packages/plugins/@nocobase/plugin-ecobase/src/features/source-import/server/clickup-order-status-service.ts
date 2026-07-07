@@ -13,6 +13,7 @@ import type { CsvSourceFile } from './adapters/csv-utils';
 import { CsvRowReader, parseCsv } from './adapters/csv-utils';
 import type { EcobaseDatabase } from './import-service';
 import { toPlainRecord } from './import-service';
+import { silverSupplierOrderReadModel } from '../../supplier-management/server/silver-supplier-order-read-model';
 
 const ORDER_REF_PATTERN = /\b(?:SS|MX|EF|RH)\d{4,8}[A-Z]?\b/gi;
 const MAIN_ORDER_PATTERN = /\b(new|restock|po|order)\b/i;
@@ -231,8 +232,9 @@ function valuesForTaskSnapshot(params: { task: ParsedTask; sourceConnectionId: s
     naturalKey: [params.sourceConnectionId, 'clickup_task_snapshot', params.task.taskId, params.snapshotDate].join(':'),
     sourceConnectionId: params.sourceConnectionId,
     snapshotDate: params.snapshotDate,
-    externalTaskId: params.task.taskId,
+    sourceTaskRef: params.task.taskId,
     taskName: params.task.taskName,
+    title: params.task.taskName,
     status: params.task.clickupStatus,
     priority: 'normal',
     operationalArea: 'order_management',
@@ -268,7 +270,7 @@ function statusEvidence(task: ParsedTask) {
 
 async function upsert(repository: ReturnType<EcobaseDatabase['getRepository']>, values: PlainRecord) {
   const existing = await repository.findOne({ filter: { naturalKey: values.naturalKey } });
-  if (!existing) return repository.create({ values });
+  if (!existing) return repository.create({ values: { id: randomUUID(), ...values } });
   const existingId = toPlainRecord(existing).id;
   return repository.update({
     filterByTk: typeof existingId === 'string' || typeof existingId === 'number' ? existingId : undefined,
@@ -301,34 +303,45 @@ function commentActivityValues(params: {
   if (!company || !supplierId) {
     throw new Error('Ecobase ClickUp comment import failed: matched supplier order is missing company or supplierId.');
   }
+  const naturalKey = [
+    params.sourceConnectionId,
+    'clickup_comment',
+    params.task.taskId,
+    params.supplierOrderId,
+    params.comment.occurredAt,
+    commentHash(params.task, params.comment),
+  ].join(':');
   return {
-    naturalKey: [
-      params.sourceConnectionId,
-      'clickup_comment',
-      params.task.taskId,
-      params.supplierOrderId,
-      params.comment.occurredAt,
-      commentHash(params.task, params.comment),
-    ].join(':'),
-    supplierOrderId: params.supplierOrderId,
-    supplierId,
-    company,
-    activityType: 'note',
-    occurredAt: params.comment.occurredAt,
-    actor: params.comment.actor,
+    entityType: 'supplier_order',
+    entityId: params.supplierOrderId,
+    actorType: params.actorUserId ? 'user' : 'operator',
     actorUserId: params.actorUserId,
-    notes: params.comment.text,
-    source: 'clickup',
-    payload: {
+    commentType: 'note',
+    body: params.comment.text,
+    contextSnapshotJson: {
+      naturalKey,
       source: 'clickup_csv',
+      sourceConnectionId: params.sourceConnectionId,
+      company,
+      supplierId,
+      supplierOrderId: params.supplierOrderId,
       orderRef: params.task.ref,
+      occurredAt: params.comment.occurredAt,
+      actor: params.comment.actor,
       taskId: params.task.taskId,
       taskLink: params.task.taskLink,
       taskName: params.task.taskName,
       lineNumber: params.task.lineNumber,
       comment: params.comment.raw,
     },
+    workflowDetectionStatus: 'none',
+    createdAt: params.comment.occurredAt,
+    updatedAt: params.comment.occurredAt,
   };
+}
+
+function commentNaturalKey(comment: PlainRecord) {
+  return asString(asPlainRecord(comment.contextSnapshotJson).naturalKey);
 }
 
 function commentProposal(params: { task: ParsedTask; comment: ParsedClickupComment; supplierOrderId: string }) {
@@ -428,11 +441,11 @@ export class EcobaseClickupOrderStatusService {
     const snapshotDate = params.snapshotDate ?? importedAt.slice(0, 10);
     const sourceConnectionId = params.sourceConnectionId ?? '00000000-0000-4000-8000-000000000000';
     const { rowCount, tasksByRef, selectedTasks } = this.parseCsvFiles(params.files);
-    const supplierOrderRepo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrders);
-    const snapshotRepo = this.db.getRepository(ECOBASE_COLLECTIONS.clickupTaskSnapshots);
-    const taskLinkRepo = this.db.getRepository(ECOBASE_COLLECTIONS.taskLinks);
-    const activityRepo = this.db.getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities);
-    const supplierOrders = await supplierOrderRepo.find({ limit: 100000 });
+    const supplierOrderRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverOrders);
+    const snapshotRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverTasks);
+    const taskLinkRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverTaskLinks);
+    const activityRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments);
+    const supplierOrders = (await silverSupplierOrderReadModel(this.db, { limit: 100000 })).supplierOrders;
     const ordersByRef = new Map<string, PlainRecord[]>();
     for (const order of supplierOrders.map(toPlainRecord)) {
       const ref = asString(order.externalOrderRef);
@@ -493,7 +506,15 @@ export class EcobaseClickupOrderStatusService {
             if (proposedComments.length < COMMENT_PROPOSAL_LIMIT) {
               proposedComments.push(commentProposal({ task, comment, supplierOrderId }));
             }
-            const existingComment = await activityRepo.findOne({ filter: { naturalKey: values.naturalKey } });
+            const naturalKey = commentNaturalKey(values);
+            const existingComment = (
+              await activityRepo.find({
+                filter: { entityType: 'supplier_order', entityId: supplierOrderId },
+                limit: 1000,
+              })
+            )
+              .map(toPlainRecord)
+              .find((comment) => commentNaturalKey(comment) === naturalKey);
             const existingCommentId = toPlainRecord(existingComment).id;
             if (existingCommentId) {
               duplicateCommentCount += 1;
@@ -511,20 +532,26 @@ export class EcobaseClickupOrderStatusService {
         await upsert(taskLinkRepo, {
           naturalKey: [sourceConnectionId, 'task_link', task.taskId, 'supplier_order', supplierOrderId].join(':'),
           sourceConnectionId,
-          externalTaskId: task.taskId,
+          sourceTaskRef: task.taskId,
           targetType: 'supplier_order',
+          entityType: 'supplier_order',
+          entityId: supplierOrderId,
           supplierOrderId,
+          relation: 'related',
           confidence: task.mainOrderTask ? 0.95 : 0.75,
           evidence,
         });
         await supplierOrderRepo.update({
           filterByTk: supplierOrderId,
           values: {
-            status: task.mappedStatus,
+            canonicalStatus: task.mappedStatus,
+            lifecycleStatus: task.mappedStatus,
             statusSource: 'clickup_csv',
-            statusUpdatedAt: importedAt,
-            lastMeaningfulUpdateAt: importedAt,
-            payload: { ...asPlainRecord(toPlainRecord(order).payload), clickupStatusImport: evidence },
+            statusEvidenceJson: {
+              ...asPlainRecord(toPlainRecord(order).statusEvidenceJson),
+              clickupStatusImport: evidence,
+              importedAt,
+            },
           },
         });
         updatedOrderCount += 1;

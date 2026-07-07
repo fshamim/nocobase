@@ -74,6 +74,8 @@ type ImportRunResult = {
   warningCount?: number;
   errorCount?: number;
   errorMessage?: string | null;
+  importedCount?: number;
+  skippedCount?: number;
   matchedOrderCount?: number;
   updatedOrderCount?: number;
   selectedRefCount?: number;
@@ -128,6 +130,7 @@ function shortChecksum(value: string) {
 }
 
 const CLICKUP_ORDER_STATUS_ADAPTER = 'clickup-order-status-csv';
+const SELLERBOARD_COGS_ADAPTER = 'sellerboard-cogs-csv';
 
 function groupKey(group: CsvBundleAnalysisGroup) {
   return `${group.adapterName}:${group.sourceType}:${group.domain}`;
@@ -137,11 +140,16 @@ function isClickupOrderStatusGroup(group: CsvBundleAnalysisGroup) {
   return group.adapterName === CLICKUP_ORDER_STATUS_ADAPTER;
 }
 
+function isSellerboardCogsGroup(group: CsvBundleAnalysisGroup) {
+  return group.adapterName === SELLERBOARD_COGS_ADAPTER;
+}
+
 function csvSourceConnectionName(group: CsvBundleAnalysisGroup) {
   if (group.sourceType === 'google_sheets' && group.domain === 'supplier_management')
     return 'Supplier Management CSV upload';
   if (group.sourceType === 'google_sheets' && group.domain === 'order_management') return 'Order Management CSV upload';
   if (isClickupOrderStatusGroup(group)) return 'ClickUp order status CSV upload';
+  if (isSellerboardCogsGroup(group)) return 'Sellerboard COGS CSV upload';
   if (group.sourceType === 'seller_central_file' && group.domain === 'amazon_operations') {
     return 'Buybox / Amazon Operations CSV upload';
   }
@@ -179,7 +187,7 @@ export default function DataSourcesPage() {
     try {
       const [statusResponse, companyResponse] = await Promise.all([
         api.request({ url: 'ecobaseImport:status', method: 'get' }),
-        api.request({ url: 'ecobaseCompanies:list?paginate=false', method: 'get' }),
+        api.request({ url: 'silverCompanies:list?paginate=false', method: 'get' }),
       ]);
       const nextSourceRows = unwrapRows(statusResponse) as SourceStatusRow[];
       setSourceRows(nextSourceRows);
@@ -283,6 +291,7 @@ export default function DataSourcesPage() {
         .filter((file) => group.files.includes(file.name))
         .map(({ name, content }) => ({ name, content }));
       const clickupOrderStatus = isClickupOrderStatusGroup(group);
+      const sellerboardCogs = isSellerboardCogsGroup(group);
       let result: ImportRunResult;
       if (clickupOrderStatus) {
         const response = await api.request({
@@ -314,6 +323,22 @@ export default function DataSourcesPage() {
           duplicateCommentCount: resultRecord.duplicateCommentCount as number | undefined,
           invalidCommentCount: resultRecord.invalidCommentCount as number | undefined,
         };
+      } else if (sellerboardCogs) {
+        const response = await api.request({
+          url: 'ecobaseImport:importSellerboardCogs',
+          method: 'post',
+          data: { defaultCompany: company, importedAt: sourceVersion, files: groupFiles },
+        });
+        const resultRecord = unwrapRecord(response);
+        result = {
+          status: 'success',
+          rowCount: resultRecord.rowCount as number | undefined,
+          normalizedCount: resultRecord.importedCount as number | undefined,
+          warningCount: resultRecord.skippedCount as number | undefined,
+          errorCount: 0,
+          importedCount: resultRecord.importedCount as number | undefined,
+          skippedCount: resultRecord.skippedCount as number | undefined,
+        };
       } else {
         const response = await api.request({
           url: 'ecobaseImport:runCsvBundle',
@@ -335,6 +360,8 @@ export default function DataSourcesPage() {
         message.info(t('CSV import is running in the background. This page will refresh until it completes.'));
       } else if (clickupOrderStatus) {
         message.success(t('ClickUp order statuses imported'));
+      } else if (sellerboardCogs) {
+        message.success(t('Sellerboard COGS imported'));
       } else {
         message.success(t('CSV import finished'));
       }

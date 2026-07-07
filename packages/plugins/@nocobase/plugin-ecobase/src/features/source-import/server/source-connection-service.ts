@@ -64,21 +64,10 @@ const DEFAULT_CSV_SOURCE_CONNECTIONS = [
 const SOURCE_OWNED_COLLECTIONS = [
   ECOBASE_COLLECTIONS.bronzeSourceRecords,
   ECOBASE_COLLECTIONS.bronzeSourceFiles,
-  ECOBASE_COLLECTIONS.clickupTaskSnapshots,
-  ECOBASE_COLLECTIONS.inventorySnapshots,
-  ECOBASE_COLLECTIONS.listingDailyFacts,
-  ECOBASE_COLLECTIONS.okrMetricSnapshots,
-  ECOBASE_COLLECTIONS.okrs,
-  ECOBASE_COLLECTIONS.planningParameters,
-  ECOBASE_COLLECTIONS.planningProductListings,
-  ECOBASE_COLLECTIONS.rawListings,
   ECOBASE_COLLECTIONS.sourceAccessAudits,
-  ECOBASE_COLLECTIONS.supplierLeadTimes,
-  ECOBASE_COLLECTIONS.supplierOrders,
-  ECOBASE_COLLECTIONS.suppliers,
-  ECOBASE_COLLECTIONS.targetRows,
-  ECOBASE_COLLECTIONS.taskLinks,
-  ECOBASE_COLLECTIONS.trafficSnapshots,
+  ECOBASE_COLLECTIONS.silverTasks,
+  ECOBASE_COLLECTIONS.silverTaskLinks,
+  ECOBASE_COLLECTIONS.silverTargets,
 ] as const;
 
 function getString(record: unknown, key: string): string | undefined {
@@ -254,6 +243,15 @@ function quoteIdentifier(identifier: string) {
   return `"${identifier.replace(/"/g, '""')}"`;
 }
 
+function companyKeyFor(companyName: string) {
+  const key = companyName
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 32);
+  return key.length === 1 ? `${key}_1` : key || 'COMPANY';
+}
+
 function countFrom(value: unknown) {
   const number = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : 0;
   return Number.isFinite(number) ? number : 0;
@@ -270,7 +268,7 @@ export class EcobaseSourceConnectionService {
 
   async listSourceStatuses() {
     const sourceRepo = this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections);
-    const companyRepo = this.db.getRepository(ECOBASE_COLLECTIONS.companies);
+    const companyRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanies);
     const importRunRepo = this.db.getRepository(ECOBASE_COLLECTIONS.importRuns);
     const sources = await sourceRepo.find({ sort: ['name'] });
     return Promise.all(
@@ -306,9 +304,9 @@ export class EcobaseSourceConnectionService {
 
   async listSellerboardSources() {
     const sourceRepo = this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections);
-    const companyRepo = this.db.getRepository(ECOBASE_COLLECTIONS.companies);
+    const companyRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanies);
     const importRunRepo = this.db.getRepository(ECOBASE_COLLECTIONS.importRuns);
-    const rawImportRowRepo = this.db.getRepository(ECOBASE_COLLECTIONS.rawImportRows);
+    const bronzeRecordRepo = this.db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords);
     const sources = await sourceRepo.find({ filter: { sourceType: 'sellerboard' }, sort: ['name'] });
 
     return Promise.all(
@@ -326,24 +324,24 @@ export class EcobaseSourceConnectionService {
         const latestRunLogs = await Promise.all(
           recentRuns.map(async (run) => {
             const importRunId = getString(run, 'id');
-            const rawRows = importRunId
-              ? await rawImportRowRepo.find({ filter: { importRunId }, sort: ['rowNumber'] })
+            const bronzeRows = importRunId
+              ? await bronzeRecordRepo.find({ filter: { importRunId }, sort: ['rowNumber'] })
               : [];
-            const issues = rawRows
-              .filter((rawRow) => {
-                const severity = getString(rawRow, 'issueSeverity');
-                const normalizedStatus = getString(rawRow, 'normalizedStatus');
-                return Boolean(severity) || (Boolean(normalizedStatus) && normalizedStatus !== 'success');
+            const issues = bronzeRows
+              .filter((bronzeRow) => {
+                const severity = getString(bronzeRow, 'issueSeverity');
+                const normalizationStatus = getString(bronzeRow, 'normalizationStatus');
+                return Boolean(severity) || (Boolean(normalizationStatus) && normalizationStatus !== 'normalized');
               })
               .slice(0, 20)
-              .map((rawRow) => ({
-                rowNumber: getNumber(rawRow, 'rowNumber') ?? null,
-                sourceKey: getString(rawRow, 'sourceKey') ?? null,
-                severity: getString(rawRow, 'issueSeverity') ?? null,
-                code: getString(rawRow, 'issueCode') ?? null,
-                status: getString(rawRow, 'normalizedStatus') ?? null,
-                message: getString(rawRow, 'normalizedError') ?? null,
-                payloadPreview: payloadPreview(rawRow),
+              .map((bronzeRow) => ({
+                rowNumber: getNumber(bronzeRow, 'rowNumber') ?? null,
+                sourceKey: getString(bronzeRow, 'sourceKey') ?? getString(bronzeRow, 'sourceRecordKey') ?? null,
+                severity: getString(bronzeRow, 'issueSeverity') ?? null,
+                code: getString(bronzeRow, 'issueCode') ?? null,
+                status: getString(bronzeRow, 'normalizationStatus') ?? null,
+                message: getString(bronzeRow, 'normalizedError') ?? null,
+                payloadPreview: payloadPreview(bronzeRow),
               }));
             return {
               importRunId: importRunId ?? null,
@@ -366,7 +364,7 @@ export class EcobaseSourceConnectionService {
           name: getString(source, 'name') ?? '(unnamed Sellerboard source)',
           companyId: companyId ?? null,
           companyName: getString(company, 'name') ?? null,
-          timezone: getString(company, 'timezone') ?? null,
+          timezone: getString(config, 'timezone') ?? null,
           active: getBoolean(source, 'active', true),
           freshnessSlaMinutes: getNumber(source, 'freshnessSlaMinutes') ?? null,
           reportUrls: readReportUrls(config),
@@ -429,14 +427,14 @@ export class EcobaseSourceConnectionService {
       );
     }
     const sourceRepo = this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections);
-    const companyRepo = this.db.getRepository(ECOBASE_COLLECTIONS.companies);
+    const companyRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanies);
     const companyName = params.companyName?.trim();
     let companyId: string | undefined;
     if (companyName) {
-      let company = await companyRepo.findOne({ filter: { name: companyName } });
+      let company = await companyRepo.findOne({ filter: { companyKey: companyKeyFor(companyName) } });
       if (!company) {
         company = await companyRepo.create({
-          values: { id: randomUUID(), name: companyName, timezone: 'Asia/Karachi', active: true },
+          values: { id: randomUUID(), name: companyName, companyKey: companyKeyFor(companyName) },
         });
       }
       companyId = getString(company, 'id');
@@ -479,12 +477,12 @@ export class EcobaseSourceConnectionService {
     const freshnessSlaMinutes = normalizePositiveInteger(params.freshnessSlaMinutes, 1440, 'freshnessSlaMinutes');
     const timezone = params.timezone?.trim() || 'Asia/Karachi';
 
-    const companyRepo = this.db.getRepository(ECOBASE_COLLECTIONS.companies);
+    const companyRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanies);
     const sourceRepo = this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections);
-    let company = await companyRepo.findOne({ filter: { name: companyName } });
+    let company = await companyRepo.findOne({ filter: { companyKey: companyKeyFor(companyName) } });
     if (!company) {
       company = await companyRepo.create({
-        values: { id: randomUUID(), name: companyName, timezone, active: true },
+        values: { id: randomUUID(), name: companyName, companyKey: companyKeyFor(companyName) },
       });
     }
     const companyId = getString(company, 'id');
@@ -500,6 +498,7 @@ export class EcobaseSourceConnectionService {
       config: {
         reportUrls,
         requireFreshData: true,
+        timezone,
         schedule: {
           enabled: params.scheduleEnabled !== false,
           dailyRefreshTime,
@@ -574,11 +573,6 @@ export class EcobaseSourceConnectionService {
           ECOBASE_COLLECTIONS.importRuns,
         )} WHERE "sourceConnectionId" = :sourceConnectionId
       ),
-      deleted_raw_import_rows AS (
-        DELETE FROM ${quoteIdentifier(
-          ECOBASE_COLLECTIONS.rawImportRows,
-        )} WHERE "importRunId" IN (SELECT id FROM runs) RETURNING 1
-      ),
       deleted_import_runs AS (
         DELETE FROM ${quoteIdentifier(ECOBASE_COLLECTIONS.importRuns)} WHERE id IN (SELECT id FROM runs) RETURNING 1
       ),
@@ -589,7 +583,6 @@ export class EcobaseSourceConnectionService {
       SELECT
         (SELECT count(*) FROM deleted_source) AS "deletedSourceCount",
         (SELECT count(*) FROM deleted_import_runs) AS "deletedImportRunCount",
-        (SELECT count(*) FROM deleted_raw_import_rows) AS "deletedRawImportRowCount",
         ${ownedCount || '0'} AS "deletedSourceOwnedRowCount"`,
       { replacements: { sourceConnectionId }, type: 'SELECT' },
     )) as Record<string, unknown>[];
@@ -598,23 +591,14 @@ export class EcobaseSourceConnectionService {
       sourceConnectionId,
       deleted: countFrom(result.deletedSourceCount) === 1,
       deletedImportRuns: countFrom(result.deletedImportRunCount),
-      deletedRawImportRows: countFrom(result.deletedRawImportRowCount),
       deletedSourceOwnedRows: countFrom(result.deletedSourceOwnedRowCount),
     };
   }
 
   private async deleteSourceConnectionWithRepositories(sourceConnectionId: string) {
     const importRunRepo = this.db.getRepository(ECOBASE_COLLECTIONS.importRuns);
-    const rawImportRowRepo = this.db.getRepository(ECOBASE_COLLECTIONS.rawImportRows);
     const importRuns = await importRunRepo.find({ filter: { sourceConnectionId }, limit: 10000 });
     const importRunIds = importRuns.map((run) => getString(run, 'id')).filter((id): id is string => Boolean(id));
-    const deletedRawImportRows = importRunIds.length
-      ? destroyCount(
-          await repoWithDestroy(rawImportRowRepo, ECOBASE_COLLECTIONS.rawImportRows).destroy?.({
-            filter: { importRunId: { $in: importRunIds } },
-          }),
-        )
-      : 0;
     const deletedImportRuns = importRunIds.length
       ? destroyCount(
           await repoWithDestroy(importRunRepo, ECOBASE_COLLECTIONS.importRuns).destroy?.({
@@ -642,7 +626,6 @@ export class EcobaseSourceConnectionService {
       sourceConnectionId,
       deleted: deletedSourceCount === 1,
       deletedImportRuns,
-      deletedRawImportRows,
       deletedSourceOwnedRows,
     };
   }

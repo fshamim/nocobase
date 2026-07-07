@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import type Database from '@nocobase/database';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 
@@ -26,26 +35,18 @@ const OPERATOR_DASHBOARD_COLLECTIONS = [
   ECOBASE_COLLECTIONS.silverListingDailyFacts,
   ECOBASE_COLLECTIONS.silverTrafficSnapshots,
   ECOBASE_COLLECTIONS.silverNormalizationLinks,
+  ECOBASE_COLLECTIONS.goldTargetEvaluations,
+  ECOBASE_COLLECTIONS.goldInventoryPlanningRows,
+  ECOBASE_COLLECTIONS.goldOrderPlanningRows,
+  ECOBASE_COLLECTIONS.goldSupplierAttentionRows,
+  ECOBASE_COLLECTIONS.goldAlerts,
+  ECOBASE_COLLECTIONS.goldReportRuns,
+  ECOBASE_COLLECTIONS.goldReportItems,
+  ECOBASE_COLLECTIONS.goldManagementKpiDailyFacts,
   ECOBASE_COLLECTIONS.sourceConnections,
   ECOBASE_COLLECTIONS.importRuns,
-  ECOBASE_COLLECTIONS.rawImportRows,
-  ECOBASE_COLLECTIONS.rawListings,
-  ECOBASE_COLLECTIONS.listingDailyFacts,
-  ECOBASE_COLLECTIONS.planningProducts,
-  ECOBASE_COLLECTIONS.inventorySnapshots,
-  ECOBASE_COLLECTIONS.inventoryPlanningRows,
-  ECOBASE_COLLECTIONS.planningCalculationSnapshots,
-  ECOBASE_COLLECTIONS.alerts,
-  ECOBASE_COLLECTIONS.goldManagementKpiDailyFacts,
-  ECOBASE_COLLECTIONS.dailyManagementSnapshots,
   ECOBASE_COLLECTIONS.dailyBriefPromptSettings,
-  ECOBASE_COLLECTIONS.suppliers,
-  ECOBASE_COLLECTIONS.supplierAttentionRows,
-  ECOBASE_COLLECTIONS.supplierProductLinks,
-  ECOBASE_COLLECTIONS.supplierOrders,
-  ECOBASE_COLLECTIONS.supplierOrderLines,
-  ECOBASE_COLLECTIONS.supplierOrderActivities,
-  ECOBASE_COLLECTIONS.supplierLeadTimes,
+  ECOBASE_COLLECTIONS.supplierOrderSettings,
 ];
 
 type Repository = {

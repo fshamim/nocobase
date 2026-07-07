@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { EcobaseComparisonService } from './comparison-service';
@@ -96,7 +105,11 @@ function filterByDashboard(filters: DashboardFilters, record: PlainRecord) {
   if (filters.company && asString(record.company) !== filters.company) {
     return false;
   }
-  if (filters.accountKey && payloadString(record, 'accountKey') !== filters.accountKey && asString(record.accountKey) !== filters.accountKey) {
+  if (
+    filters.accountKey &&
+    payloadString(record, 'accountKey') !== filters.accountKey &&
+    asString(record.accountKey) !== filters.accountKey
+  ) {
     return false;
   }
   return true;
@@ -149,13 +162,30 @@ export class EcobaseDashboardService {
       company: normalizedFilters.company,
     });
 
-    const calculations = (await this.db.getRepository(ECOBASE_COLLECTIONS.planningCalculationSnapshots).find({ sort: ['-calculationDate'], limit: 500 })).map(toPlainRecord);
-    const alerts = (await this.db.getRepository(ECOBASE_COLLECTIONS.alerts).find({ sort: ['-lastSeenAt'], limit: 500 })).map(toPlainRecord);
-    const taskSnapshots = (await this.db.getRepository(ECOBASE_COLLECTIONS.clickupTaskSnapshots).find({ sort: ['-snapshotDate'], limit: 300 })).map(toPlainRecord);
-    const okrSnapshots = (await this.db.getRepository(ECOBASE_COLLECTIONS.okrMetricSnapshots).find({ sort: ['-snapshotDate'], limit: 300 })).map(toPlainRecord);
-    const workspace = await new EcobaseSupplierOrderService(this.db).getWorkspace({ company: normalizedFilters.company, limit: 100 });
+    const calculations = (
+      await this.db
+        .getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows)
+        .find({ sort: ['-calculationDate'], limit: 500 })
+    ).map(toPlainRecord);
+    const alerts = (
+      await this.db.getRepository(ECOBASE_COLLECTIONS.alerts).find({ sort: ['-lastSeenAt'], limit: 500 })
+    ).map(toPlainRecord);
+    const taskSnapshots = (
+      await this.db.getRepository(ECOBASE_COLLECTIONS.silverTasks).find({ sort: ['-snapshotDate'], limit: 300 })
+    ).map(toPlainRecord);
+    const okrSnapshots = (
+      await this.db
+        .getRepository(ECOBASE_COLLECTIONS.silverTargets)
+        .find({ filter: { recordKind: 'okr_metric_snapshot' }, sort: ['-snapshotDate'], limit: 300 })
+    ).map(toPlainRecord);
+    const workspace = await new EcobaseSupplierOrderService(this.db).getWorkspace({
+      company: normalizedFilters.company,
+      limit: 100,
+    });
 
-    const openAlerts = alerts.filter((alert) => sameAlertFilter({ ...normalizedFilters, status: normalizedFilters.status ?? 'open' }, alert));
+    const openAlerts = alerts.filter((alert) =>
+      sameAlertFilter({ ...normalizedFilters, status: normalizedFilters.status ?? 'open' }, alert),
+    );
     const settings = await this.getSettings();
 
     return {
@@ -209,16 +239,25 @@ export class EcobaseDashboardService {
       supplierContactStaleDays: numberSetting(values, 'supplierContactStaleDays', current) as number,
       prepBufferDays: numberSetting(values, 'prepBufferDays', current) as number,
       clickupHighPriorityInactiveHours: numberSetting(values, 'clickupHighPriorityInactiveHours', current) as number,
-      clickupNormalPriorityInactiveHours: numberSetting(values, 'clickupNormalPriorityInactiveHours', current) as number,
+      clickupNormalPriorityInactiveHours: numberSetting(
+        values,
+        'clickupNormalPriorityInactiveHours',
+        current,
+      ) as number,
       clickupLowPriorityInactiveHours: numberSetting(values, 'clickupLowPriorityInactiveHours', current) as number,
       safetyBufferDays: numberSetting(values, 'safetyBufferDays', current) as number,
       dailyReportSchedule: asString(values.dailyReportSchedule) ?? current.dailyReportSchedule,
       timezone: asString(values.timezone) ?? current.timezone,
     };
     const repository = this.db.getRepository(ECOBASE_COLLECTIONS.ruleVersions);
-    const existing = toPlainRecord(await repository.findOne({ filter: { ruleType: 'management_dashboard_settings', active: true } }));
+    const existing = toPlainRecord(
+      await repository.findOne({ filter: { ruleType: 'management_dashboard_settings', active: true } }),
+    );
     if (asString(existing.id)) {
-      await repository.update({ filterByTk: asString(existing.id), values: { config: next, activeFrom: new Date().toISOString() } });
+      await repository.update({
+        filterByTk: asString(existing.id),
+        values: { config: next, activeFrom: new Date().toISOString() },
+      });
     } else {
       await repository.create({
         values: {
@@ -248,7 +287,9 @@ export class EcobaseDashboardService {
   }
 
   private async listSourceStatuses() {
-    const sourceConnections = (await this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).find({ sort: ['name'] })).map(toPlainRecord);
+    const sourceConnections = (
+      await this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).find({ sort: ['name'] })
+    ).map(toPlainRecord);
     const importRunRepo = this.db.getRepository(ECOBASE_COLLECTIONS.importRuns);
     const warningService = new EcobaseDataWarningService(this.db);
     return Promise.all(
@@ -257,7 +298,9 @@ export class EcobaseDashboardService {
         if (!sourceConnectionId) {
           throw new Error('Ecobase dashboard failed: source connection record is missing id.');
         }
-        const latestRun = toPlainRecord(await importRunRepo.findOne({ filter: { sourceConnectionId }, sort: ['-startedAt'] }));
+        const latestRun = toPlainRecord(
+          await importRunRepo.findOne({ filter: { sourceConnectionId }, sort: ['-startedAt'] }),
+        );
         const warningAssessment = await warningService.assessSourceConnection(sourceConnectionId);
         return {
           sourceConnectionId,
@@ -287,18 +330,22 @@ export class EcobaseDashboardService {
     return {
       sourceCount: importStatuses.length,
       warningCount: importStatuses.reduce((total, status) => total + status.warningCount, 0),
-      staleOrBlockedSources: importStatuses.filter((status) => status.warningCount > 0).map((status) => ({
-        sourceConnectionId: status.sourceConnectionId,
-        connectionName: status.connectionName,
-        latestWarning: status.latestWarning,
-      })),
+      staleOrBlockedSources: importStatuses
+        .filter((status) => status.warningCount > 0)
+        .map((status) => ({
+          sourceConnectionId: status.sourceConnectionId,
+          connectionName: status.connectionName,
+          latestWarning: status.latestWarning,
+        })),
     };
   }
 
   private profitStockRollups(calculations: PlainRecord[], filters: DashboardFilters) {
     const latestByProduct = new Map<string, PlainRecord>();
     for (const calculation of calculations.filter((record) => filterByDashboard(filters, record))) {
-      const key = asString(calculation.planningProductId) ?? `${asString(calculation.company) ?? 'unknown'}:${asString(calculation.canonicalAsin) ?? 'unknown'}`;
+      const key =
+        asString(calculation.planningProductId) ??
+        `${asString(calculation.company) ?? 'unknown'}:${asString(calculation.canonicalAsin) ?? 'unknown'}`;
       const existing = latestByProduct.get(key);
       if (!existing || String(calculation.calculationDate ?? '') > String(existing.calculationDate ?? '')) {
         latestByProduct.set(key, calculation);
@@ -312,13 +359,23 @@ export class EcobaseDashboardService {
       const groups = new Map<string, PlainRecord>();
       for (const record of records) {
         const key = keyFn(record) ?? 'unclassified';
-        const existing = groups.get(key) ?? { key, productCount: 0, sellableStock: 0, pipelineStock: 0, achievedProfitMtd: 0, profitGap: 0, estimatedProfitRisk: 0 };
+        const existing = groups.get(key) ?? {
+          key,
+          productCount: 0,
+          sellableStock: 0,
+          pipelineStock: 0,
+          achievedProfitMtd: 0,
+          profitGap: 0,
+          estimatedProfitRisk: 0,
+        };
         existing.productCount = (asNumber(existing.productCount) ?? 0) + 1;
         existing.sellableStock = (asNumber(existing.sellableStock) ?? 0) + (asNumber(record.sellableStock) ?? 0);
         existing.pipelineStock = (asNumber(existing.pipelineStock) ?? 0) + (asNumber(record.pipelineStock) ?? 0);
-        existing.achievedProfitMtd = (asNumber(existing.achievedProfitMtd) ?? 0) + (asNumber(record.achievedProfitMtd) ?? 0);
+        existing.achievedProfitMtd =
+          (asNumber(existing.achievedProfitMtd) ?? 0) + (asNumber(record.achievedProfitMtd) ?? 0);
         existing.profitGap = (asNumber(existing.profitGap) ?? 0) + (asNumber(record.profitGap) ?? 0);
-        existing.estimatedProfitRisk = (asNumber(existing.estimatedProfitRisk) ?? 0) + (asNumber(record.estimatedProfitRisk) ?? 0);
+        existing.estimatedProfitRisk =
+          (asNumber(existing.estimatedProfitRisk) ?? 0) + (asNumber(record.estimatedProfitRisk) ?? 0);
         groups.set(key, existing);
       }
       return [...groups.values()];
@@ -334,10 +391,13 @@ export class EcobaseDashboardService {
     return openAlerts
       .filter((alert) => asString(alert.planningProductId))
       .map((alert) => {
-        const calculation = latestByDate(
-          calculations.filter((candidate) => asString(candidate.planningProductId) === asString(alert.planningProductId)),
-          'calculationDate',
-        ) ?? {};
+        const calculation =
+          latestByDate(
+            calculations.filter(
+              (candidate) => asString(candidate.planningProductId) === asString(alert.planningProductId),
+            ),
+            'calculationDate',
+          ) ?? {};
         return {
           alertId: asString(alert.id),
           planningProductId: asString(alert.planningProductId),
@@ -345,7 +405,10 @@ export class EcobaseDashboardService {
           canonicalAsin: asString(alert.canonicalAsin),
           tier: asString(calculation.tier),
           daysOfCover: asNumber(calculation.daysOfCover),
-          restockDeadline: asString(calculation.restockDeadlineImproved) ?? asString(calculation.restockDeadlineParity),
+          restockDeadline:
+            asString(calculation.latestSafeReorderDate) ??
+            asString(calculation.restockDeadlineImproved) ??
+            asString(calculation.restockDeadlineParity),
           profitGap: asNumber(calculation.profitGap),
           severity: asString(alert.severity),
           primaryRootCauseCode: asString(alert.primaryRootCauseCode),
@@ -362,7 +425,9 @@ export class EcobaseDashboardService {
     const candidates = Array.isArray(workspace.reorderCandidates) ? workspace.reorderCandidates.map(toPlainRecord) : [];
     return lines.map((line) => {
       const order = orders.find((candidate) => asString(candidate.id) === asString(line.supplierOrderId)) ?? {};
-      const product = candidates.find((candidate) => asString(candidate.planningProductId) === asString(line.planningProductId)) ?? {};
+      const product =
+        candidates.find((candidate) => asString(candidate.planningProductId) === asString(line.planningProductId)) ??
+        {};
       const subjectRef = `supplier_order_line:${asString(line.id)}`;
       const alert = alertBySubject.get(subjectRef);
       return {
@@ -383,12 +448,14 @@ export class EcobaseDashboardService {
   }
 
   private accountabilityPanel(taskSnapshots: PlainRecord[], okrSnapshots: PlainRecord[], openAlerts: PlainRecord[]) {
-    const accountabilityAlerts = openAlerts.filter((alert) => ['task_inactive', 'accountability', 'off_track'].includes(asString(alert.alertType) ?? ''));
+    const accountabilityAlerts = openAlerts.filter((alert) =>
+      ['task_inactive', 'accountability', 'off_track'].includes(asString(alert.alertType) ?? ''),
+    );
     return {
-      taskAlerts: accountabilityAlerts.filter((alert) => String(alert.subjectRef ?? '').startsWith('clickup_task:')),
-      okrAlerts: accountabilityAlerts.filter((alert) => String(alert.subjectRef ?? '').startsWith('okr:')),
+      taskAlerts: accountabilityAlerts.filter((alert) => String(alert.subjectRef ?? '').startsWith('task:')),
+      okrAlerts: accountabilityAlerts.filter((alert) => String(alert.subjectRef ?? '').startsWith('target:')),
       latestTasks: taskSnapshots.slice(0, 50).map((task) => ({
-        externalTaskId: asString(task.externalTaskId),
+        sourceTaskRef: asString(task.sourceTaskRef),
         taskName: asString(task.taskName),
         assignee: asString(task.assignee),
         status: asString(task.status),

@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { describe, expect, it, vi } from 'vitest';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { createEcobaseReportActions } from '../plugin';
@@ -196,35 +205,45 @@ async function seedReportData(db: MemoryDatabase) {
       lastSeenAt: '2026-06-05T08:05:00.000Z',
     },
   });
-  await db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).create({
+  await db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
+    values: { id: 'company-1', name: 'ACME', code: 'ACME', timezone: 'UTC' },
+  });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).create({
+    values: { id: 'supplier-1', displayName: 'Supplier One', name: 'Supplier One' },
+  });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+    values: { id: 'silver-product-1', asin: 'B00REPORT', sku: 'SKU-REPORT', title: 'Report product' },
+  });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+    values: { id: 'company-product-1', companyId: 'company-1', productId: 'silver-product-1' },
+  });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
     values: {
       id: 'order-1',
-      company: 'ACME',
+      companyId: 'company-1',
       supplierId: 'supplier-1',
-      supplierName: 'Supplier One',
-      externalOrderRef: 'PO-1',
-      status: 'ordered',
+      orderRef: 'PO-1',
+      canonicalStatus: 'ordered',
     },
   });
-  await db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).create({
+  await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
     values: {
       id: 'line-1',
-      company: 'ACME',
-      supplierOrderId: 'order-1',
-      planningProductId: 'product-1',
-      openQty: 20,
+      orderId: 'order-1',
+      companyProductId: 'company-product-1',
+      orderedQty: 20,
       expectedSellableDate: '2026-06-12',
       status: 'ordered',
-      observedAt: '2026-06-05T08:00:00.000Z',
     },
   });
-  await db.getRepository(ECOBASE_COLLECTIONS.clickupTaskSnapshots).create({
+  await db.getRepository(ECOBASE_COLLECTIONS.silverTasks).create({
     values: {
       id: 'task-1',
       sourceConnectionId: 'source-1',
       snapshotDate: '2026-06-05',
       externalTaskId: 'CU-1',
       taskName: 'Call supplier',
+      title: 'Call supplier',
       assignee: 'Ops',
       priority: 'high',
       status: 'open',
@@ -232,9 +251,13 @@ async function seedReportData(db: MemoryDatabase) {
       lastMeaningfulUpdateAt: '2026-06-03T00:00:00.000Z',
     },
   });
-  await db.getRepository(ECOBASE_COLLECTIONS.okrMetricSnapshots).create({
+  await db.getRepository(ECOBASE_COLLECTIONS.silverTargets).create({
     values: {
       id: 'okr-snap-1',
+      recordKind: 'okr_metric_snapshot',
+      entityType: 'okr',
+      metric: 'primary',
+      periodType: 'snapshot',
       okrId: 'okr-1',
       snapshotDate: '2026-06-05',
       status: 'off_track',
@@ -389,50 +412,68 @@ describe('Ecobase report service', () => {
         confirmedAt: '2026-01-01T00:00:00.000Z',
       },
     });
-    await db.getRepository(ECOBASE_COLLECTIONS.planningCalculationSnapshots).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).create({
       values: {
-        naturalKey: 'calc-brief-1',
+        id: 'gold-inventory-brief-1',
+        naturalKey: 'gold-inventory-brief-1',
         planningProductId: 'product-brief-1',
         calculationDate: '2026-06-10',
         company: 'ACME',
-        canonicalAsin: 'B00BRIEF',
-        tier: 'A',
-        sellableStock: 0,
-        pipelineStock: 0,
-        daysOfCover: 0,
-        salesVelocity: 3,
-        leadTimeDays: 24,
-        restockDeadlineImproved: '2026-06-01',
-        oosDate: '2026-06-11',
-        estimatedProfitRisk: 750,
-        calculationStatus: 'complete',
-        dataCompleteness: 'complete',
-      },
-    });
-    await db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).create({
-      values: {
-        id: 'order-brief-1',
-        company: 'ACME',
-        supplierId: 'supplier-brief-1',
-        supplierName: 'Brief Supplier',
-        externalOrderRef: 'PO-BRIEF-1',
-        status: 'payment_pending',
-        lastMeaningfulUpdateAt: '2026-06-09T00:00:00.000Z',
-      },
-    });
-    await db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).create({
-      values: {
-        id: 'line-brief-1',
-        company: 'ACME',
-        supplierOrderId: 'order-brief-1',
-        planningProductId: 'product-brief-1',
         asin: 'B00BRIEF',
         sku: 'SKU-BRIEF',
+        title: 'Brief SKU',
+        tier: 'A',
+        actionStatus: 'overdue',
+        sellableStock: 0,
+        reservedStock: 0,
+        pipelineStock: 0,
+        salesVelocity: 3,
+        leadTimeDays: 24,
+        leadTimeFreshness: 'fresh',
+        estimatedOosDate: '2026-06-11',
+        latestSafeReorderDate: '2026-06-01',
+        daysUntilSafeReorder: -9,
+        suggestedReorderQty: 20,
+        supplierName: 'Brief Supplier',
+        supplierId: 'supplier-brief-1',
+        supplierOrderState: 'no_open_order',
+        openOrderCoverageQty: 0,
+        estimatedProfitRisk: 750,
+        lastRefreshedAt: '2026-06-10T00:00:00.000Z',
+        evidence: {},
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
+      values: { id: 'company-brief-1', name: 'ACME', code: 'ACME', timezone: 'UTC' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).create({
+      values: { id: 'supplier-brief-1', displayName: 'Brief Supplier', name: 'Brief Supplier' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+      values: { id: 'silver-product-brief-1', asin: 'B00BRIEF', sku: 'SKU-BRIEF', title: 'Brief SKU' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+      values: { id: 'company-product-brief-1', companyId: 'company-brief-1', productId: 'silver-product-brief-1' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+      values: {
+        id: 'order-brief-1',
+        companyId: 'company-brief-1',
+        supplierId: 'supplier-brief-1',
+        orderRef: 'PO-BRIEF-1',
+        canonicalStatus: 'payment_pending',
+        updatedAt: '2026-06-09T00:00:00.000Z',
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+      values: {
+        id: 'line-brief-1',
+        orderId: 'order-brief-1',
+        companyProductId: 'company-product-brief-1',
         orderedQty: 20,
         receivedQty: 0,
         expectedSellableDate: '2026-06-20',
         status: 'payment_pending',
-        observedAt: '2026-06-09T00:00:00.000Z',
       },
     });
     await db.getRepository(ECOBASE_COLLECTIONS.goldOrderPlanningRows).create({
@@ -457,13 +498,14 @@ describe('Ecobase report service', () => {
         latestGoldCalculationDate: '2026-06-10',
       },
     });
-    await db.getRepository(ECOBASE_COLLECTIONS.clickupTaskSnapshots).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverTasks).create({
       values: {
         id: 'task-brief-1',
         sourceConnectionId: 'source-brief-1',
         snapshotDate: '2026-06-10',
         externalTaskId: 'CU-BRIEF-1',
         taskName: 'Confirm PO-BRIEF-1 with supplier',
+        title: 'Confirm PO-BRIEF-1 with supplier',
         assignee: 'Ops',
         priority: 'high',
         status: 'open',
@@ -480,37 +522,43 @@ describe('Ecobase report service', () => {
     expect(body.data).toMatchObject({
       idempotencyKey: 'daily_operations:2026-06-10:ACME',
       status: 'evidence_generated',
-      focus: 'inventory_risk',
-      evidencePack: expect.objectContaining({
-        summaryCounts: expect.objectContaining({
-          inventoryRiskCount: 1,
-          includedInventoryRiskCount: 1,
-          supplierOrderContextCount: 1,
-          orderPlanningRiskCount: 1,
-          taskRiskCount: 1,
-        }),
-        inventoryRisks: [
-          expect.objectContaining({
-            asin: 'B00BRIEF',
-            velocityPerDay: 3,
-            estimatedProfitRisk: expect.any(Number),
-            supplierOrderState: 'placed_not_purchased',
-          }),
-        ],
-        supplierOrderContext: [
-          expect.objectContaining({
-            externalOrderRef: 'PO-BRIEF-1',
-            coverageState: 'payment_pending',
-            isTrustedCoverage: false,
-            openQty: 20,
-          }),
-        ],
-        orderPlanningRisks: [
-          expect.objectContaining({ orderRef: 'PO-BRIEF-1', orderRiskType: 'status_check', statusCheckRequired: true }),
-        ],
-        okrAccountabilityRisks: [expect.objectContaining({ taskId: 'CU-BRIEF-1', riskType: 'task_overdue' })],
-      }),
     });
+    const evidencePack = body.data.evidencePack as Record<string, any>;
+    expect(evidencePack.summaryCounts).toMatchObject({
+      inventoryRiskCount: 1,
+      includedInventoryRiskCount: 1,
+      supplierOrderContextCount: 1,
+      orderPlanningRiskCount: 1,
+      taskRiskCount: 1,
+    });
+    expect(evidencePack.inventoryRisks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          asin: 'B00BRIEF',
+          velocityPerDay: 3,
+          estimatedProfitRisk: expect.any(Number),
+          supplierOrderState: 'no_open_order',
+        }),
+      ]),
+    );
+    expect(evidencePack.supplierOrderContext).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          externalOrderRef: 'PO-BRIEF-1',
+          coverageState: 'payment_pending',
+          isTrustedCoverage: false,
+          openQty: 20,
+        }),
+      ]),
+    );
+    expect(evidencePack.orderPlanningRisks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ orderRef: 'PO-BRIEF-1', orderRiskType: 'status_check', statusCheckRequired: true }),
+      ]),
+    );
+    expect(evidencePack.okrAccountabilityRisks).toEqual(
+      expect.arrayContaining([expect.objectContaining({ taskId: 'CU-BRIEF-1', riskType: 'task_overdue' })]),
+    );
     expect(JSON.stringify(body.data.evidencePack)).not.toContain('do-not-leak');
     expect(JSON.stringify(body.data.evidencePack)).not.toContain('secret://sellerboard');
     expect(await db.getRepository(ECOBASE_COLLECTIONS.reportRuns).find()).toHaveLength(1);

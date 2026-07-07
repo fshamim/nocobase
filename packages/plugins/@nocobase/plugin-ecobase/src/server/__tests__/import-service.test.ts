@@ -1,8 +1,21 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { describe, expect, it } from 'vitest';
 import { createSourceAdapterRegistry, noopTestAdapter } from '../../features/source-import/server/adapters';
 import type { SourceAdapter } from '../../features/source-import/server/adapters';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
-import { EcobaseDatabase, EcobaseImportService, EcobaseRepository } from '../../features/source-import/server/import-service';
+import {
+  EcobaseDatabase,
+  EcobaseImportService,
+  EcobaseRepository,
+} from '../../features/source-import/server/import-service';
 
 interface FindParams {
   filter?: Record<string, unknown>;
@@ -137,7 +150,7 @@ describe('Ecobase no-op import and status seam', () => {
       errorCount: 0,
     });
     expect(run.finishedAt).toBeInstanceOf(Date);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).all()).toEqual([]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toEqual([]);
   });
 
   it('reuses the same run for the same source version and idempotency key', async () => {

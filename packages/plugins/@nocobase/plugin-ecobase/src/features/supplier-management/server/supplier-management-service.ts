@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { createHash, randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import type { EcobaseDatabase } from '../../source-import/server/import-service';
@@ -762,28 +771,19 @@ export class EcobaseSupplierManagementService {
 
   private async buildDigestRows(filters: SupplierAttentionFilters) {
     const calculationDate = asString(filters.calculationDate) ?? todayIso();
-    const [
-      suppliers,
-      rawInventoryRows,
-      rawOrderRows,
-      silverOrders,
-      supplierOrders,
-      rawComments,
-      accounts,
-      supplierProducts,
-    ] = await Promise.all([
-      repoRows(this.db, ECOBASE_COLLECTIONS.silverSuppliers),
-      repoRows(this.db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows),
-      repoRows(this.db, ECOBASE_COLLECTIONS.goldOrderPlanningRows),
-      repoRows(this.db, ECOBASE_COLLECTIONS.silverOrders),
-      repoRows(this.db, ECOBASE_COLLECTIONS.supplierOrders),
-      repoRows(this.db, ECOBASE_COLLECTIONS.silverActivityComments),
-      repoRows(this.db, ECOBASE_COLLECTIONS.silverSupplierAccounts),
-      repoRows(this.db, ECOBASE_COLLECTIONS.silverSupplierProducts),
-    ]);
+    const [suppliers, rawInventoryRows, rawOrderRows, silverOrders, rawComments, accounts, supplierProducts] =
+      await Promise.all([
+        repoRows(this.db, ECOBASE_COLLECTIONS.silverSuppliers),
+        repoRows(this.db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows),
+        repoRows(this.db, ECOBASE_COLLECTIONS.goldOrderPlanningRows),
+        repoRows(this.db, ECOBASE_COLLECTIONS.silverOrders),
+        repoRows(this.db, ECOBASE_COLLECTIONS.silverActivityComments),
+        repoRows(this.db, ECOBASE_COLLECTIONS.silverSupplierAccounts),
+        repoRows(this.db, ECOBASE_COLLECTIONS.silverSupplierProducts),
+      ]);
     const inventoryRows = rawInventoryRows.filter((row) => matchesCompany(row, filters.company));
     const orderRows = rawOrderRows.filter((row) => matchesCompany(row, filters.company));
-    const orderedSupplierKeys = collectOrderedSupplierKeys([...silverOrders, ...supplierOrders, ...orderRows]);
+    const orderedSupplierKeys = collectOrderedSupplierKeys([...silverOrders, ...orderRows]);
     const comments = rawComments.filter((comment) => comment.entityType === 'supplier' && !comment.deletedAt);
     const commentsBySupplierId = indexByField(comments, 'entityId');
     const accountsBySupplierId = indexByField(accounts, 'supplierId');
@@ -949,21 +949,19 @@ export class EcobaseSupplierManagementService {
   }
 
   private async orderedSupplierKeys() {
-    const [silverOrders, supplierOrders, goldOrderRows] = await Promise.all([
+    const [silverOrders, goldOrderRows] = await Promise.all([
       repoRows(this.db, ECOBASE_COLLECTIONS.silverOrders),
-      repoRows(this.db, ECOBASE_COLLECTIONS.supplierOrders),
       repoRows(this.db, ECOBASE_COLLECTIONS.goldOrderPlanningRows),
     ]);
-    return collectOrderedSupplierKeys([...silverOrders, ...supplierOrders, ...goldOrderRows]);
+    return collectOrderedSupplierKeys([...silverOrders, ...goldOrderRows]);
   }
 
   private async orderedSupplierKeysForSupplier(supplierId: string) {
-    const [silverOrders, supplierOrders, goldOrderRows] = await Promise.all([
+    const [silverOrders, goldOrderRows] = await Promise.all([
       repoRowsFiltered(this.db, ECOBASE_COLLECTIONS.silverOrders, { supplierId }),
-      repoRowsFiltered(this.db, ECOBASE_COLLECTIONS.supplierOrders, { supplierId }),
       repoRowsFiltered(this.db, ECOBASE_COLLECTIONS.goldOrderPlanningRows, { supplierId }),
     ]);
-    return collectOrderedSupplierKeys([...silverOrders, ...supplierOrders, ...goldOrderRows]);
+    return collectOrderedSupplierKeys([...silverOrders, ...goldOrderRows]);
   }
 
   private async approveSuppliersWithOrderEvidence() {

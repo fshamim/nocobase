@@ -169,8 +169,11 @@ describe('Sellerboard live URL import', () => {
         netProfit: 15.2,
       }),
     ]);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.trafficSnapshots).all()).toHaveLength(1);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).all()[0].sourceKey).toContain('profit_by_product_daily');
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverTrafficSnapshots).all()).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()[0].sourceKey).toContain(
+      'profit_by_product_daily',
+    );
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toHaveLength(0);
   });
 
   it('sums live Sellerboard Dashboard by Product sales and unit channels', async () => {
@@ -319,9 +322,10 @@ describe('Sellerboard live URL import', () => {
     });
 
     expect(run).toMatchObject({ status: 'failed', errorCount: 1, normalizedCount: 0 });
-    expect(db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).all()).toEqual([
-      expect.objectContaining({ issueCode: 'csv_shape_unknown', normalizedStatus: 'failed' }),
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toEqual([
+      expect.objectContaining({ issueCode: 'csv_shape_unknown', normalizationStatus: 'failed' }),
     ]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toHaveLength(0);
   });
 
   it('ties row-level live Sellerboard CSV warnings to the import run while keeping valid sibling rows', async () => {
@@ -340,10 +344,11 @@ describe('Sellerboard live URL import', () => {
 
     expect(run).toMatchObject({ status: 'success', rowCount: 2, normalizedCount: 2, warningCount: 1 });
     expect(db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).all()).toHaveLength(1);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.rawImportRows).all()).toEqual([
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toEqual([
       expect.objectContaining({ rowNumber: 2, issueCode: 'csv_row_identity_missing', issueSeverity: 'warning' }),
-      expect.objectContaining({ rowNumber: 3, normalizedStatus: 'success' }),
+      expect.objectContaining({ rowNumber: 3, normalizationStatus: 'normalized' }),
     ]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toHaveLength(0);
   });
 
   it('force-refresh overwrites same-day normalized snapshots instead of duplicating them', async () => {

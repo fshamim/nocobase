@@ -115,6 +115,110 @@ async function createRecord(db: MemoryDatabase, collection: string, values: Reco
   await db.getRepository(collection).create({ values });
 }
 
+async function createSilverOrderRecord(db: MemoryDatabase, values: Record<string, unknown>) {
+  const company = String(values.company ?? '');
+  const companyId = `silver-company:${company}`;
+  await upsertRecord(db, ECOBASE_COLLECTIONS.silverCompanies, { id: companyId, name: company });
+  if (values.supplierId) {
+    const supplier = db
+      .getRepository(ECOBASE_COLLECTIONS.suppliers)
+      .all()
+      .find((record) => record.id === values.supplierId);
+    await upsertRecord(db, ECOBASE_COLLECTIONS.silverSuppliers, {
+      id: values.supplierId,
+      companyId,
+      displayName: values.supplierName ?? supplier?.name,
+    });
+  }
+  await upsertRecord(db, ECOBASE_COLLECTIONS.silverOrders, {
+    id: values.id,
+    companyId,
+    supplierId: values.supplierId,
+    orderRef: values.externalOrderRef ?? values.id,
+    orderDate: values.orderDate ?? '2025-01-01',
+    dailySequenceLetter: 'A',
+    orderIntent: values.sourceStage ?? 'imported',
+    canonicalStatus: values.status,
+    lifecycleStatus: values.status,
+    statusSource: values.statusSource,
+    paymentStatus: values.paymentStatus,
+    approvalStatus: values.approvalStatus,
+    expectedDeliveryDate: values.expectedDeliveryDate,
+    shippingCarrier: values.shippingCarrier,
+    trackingId: values.trackingId,
+    updatedAt: values.lastMeaningfulUpdateAt ?? values.statusUpdatedAt,
+  });
+}
+
+async function createSilverOrderLineRecord(db: MemoryDatabase, values: Record<string, unknown>) {
+  const company = String(values.company ?? '');
+  const companyId = `silver-company:${company}`;
+  const asin = String(values.asin ?? '');
+  const sku = String(values.sku ?? '');
+  const productId = `silver-product:${asin}:${sku}`;
+  const companyProductId = values.companyProductId ?? `silver-company-product:${company}:${asin}:${sku}`;
+  const supplierProductId =
+    values.supplierProductId ?? `silver-supplier-product:${values.supplierId ?? ''}:${asin}:${sku}`;
+  await upsertRecord(db, ECOBASE_COLLECTIONS.silverCompanies, { id: companyId, name: company });
+  await upsertRecord(db, ECOBASE_COLLECTIONS.silverProducts, {
+    id: productId,
+    asin,
+    sku,
+    title: values.title,
+    brand: values.brand,
+  });
+  await upsertRecord(db, ECOBASE_COLLECTIONS.silverCompanyProducts, { id: companyProductId, companyId, productId });
+  await upsertRecord(db, ECOBASE_COLLECTIONS.silverSupplierProducts, {
+    id: supplierProductId,
+    supplierId: values.supplierId,
+    productId,
+    supplierSku: sku,
+    unitCost: values.unitCost,
+  });
+  await upsertRecord(db, ECOBASE_COLLECTIONS.silverOrderLines, {
+    id: values.id,
+    orderId: values.supplierOrderId,
+    companyProductId,
+    supplierProductId,
+    orderedQty: values.orderedQty,
+    confirmedQty: values.receivedQty,
+    unitCost: values.unitCost,
+    expectedDeliveryDate: values.expectedDeliveryDate,
+    expectedSellableDate: values.expectedSellableDate,
+  });
+}
+
+async function createSilverActivityCommentRecord(db: MemoryDatabase, values: Record<string, unknown>) {
+  await createRecord(db, ECOBASE_COLLECTIONS.silverActivityComments, {
+    id: values.id,
+    entityType: 'supplier_order',
+    entityId: values.supplierOrderId,
+    actorType: values.actorUserId ? 'user' : 'operator',
+    actorUserId: values.actorUserId,
+    commentType: values.activityType ?? 'note',
+    body: values.notes ?? values.activityType ?? 'note',
+    deletedAt: values.deletedAt,
+    contextSnapshotJson: {
+      supplierOrderId: values.supplierOrderId,
+      occurredAt: values.occurredAt,
+      actor: values.actor,
+      source: values.source,
+    },
+    createdAt: values.occurredAt,
+    updatedAt: values.editedAt ?? values.occurredAt,
+  });
+}
+
+async function upsertRecord(db: MemoryDatabase, collection: string, values: Record<string, unknown>) {
+  const repo = db.getRepository(collection);
+  const id = values.id;
+  if (id && repo.all().some((record) => record.id === id)) {
+    await repo.update({ filterByTk: id as string | number, values });
+    return;
+  }
+  await repo.create({ values });
+}
+
 describe('EcobaseInventoryPlanningService', () => {
   it('selects highest-profit approval candidates under an explicit budget', async () => {
     const db = new MemoryDatabase();
@@ -185,7 +289,7 @@ describe('EcobaseInventoryPlanningService', () => {
         leadTimeDays: 1,
         payload: { recommendedBestQty: product.bestQty, productStatus: 'Active' },
       });
-      await createRecord(db, ECOBASE_COLLECTIONS.supplierOrders, {
+      await createSilverOrderRecord(db, {
         id: product.orderId,
         naturalKey: `supplier-order:Ecofission LLC:${product.orderRef}`,
         company: 'Ecofission LLC',
@@ -195,7 +299,7 @@ describe('EcobaseInventoryPlanningService', () => {
         sourceStage: 'order_detail',
         lastMeaningfulUpdateAt: '2026-06-09T00:00:00.000Z',
       });
-      await createRecord(db, ECOBASE_COLLECTIONS.supplierOrderLines, {
+      await createSilverOrderLineRecord(db, {
         id: `line-${product.id}`,
         naturalKey: `supplier-order-line:${product.orderRef}:1`,
         supplierOrderId: product.orderId,
@@ -518,7 +622,7 @@ describe('EcobaseInventoryPlanningService', () => {
       confirmedAt: '2026-06-01T00:00:00.000Z',
       source: 'order_details',
     });
-    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrders, {
+    await createSilverOrderRecord(db, {
       id: 'order-history',
       naturalKey: 'supplier-order:Ecofission LLC:OD-HISTORY',
       sourceConnectionId: 'source-1',
@@ -529,7 +633,7 @@ describe('EcobaseInventoryPlanningService', () => {
       status: 'received',
       lastMeaningfulUpdateAt: '2026-05-20T00:00:00.000Z',
     });
-    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrderLines, {
+    await createSilverOrderLineRecord(db, {
       naturalKey: 'line-history',
       supplierOrderId: 'order-history',
       company: 'Ecofission LLC',
@@ -647,7 +751,7 @@ describe('EcobaseInventoryPlanningService', () => {
       profitPerUnit: 20,
       payload: { recommendedBestQty: 20 },
     });
-    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrders, {
+    await createSilverOrderRecord(db, {
       id: 'order-derived-history',
       naturalKey: 'supplier-order:Muxtex INC:MX32426C',
       sourceConnectionId: 'source-1',
@@ -659,7 +763,7 @@ describe('EcobaseInventoryPlanningService', () => {
       orderDate: '2026-03-24',
       lastMeaningfulUpdateAt: '2026-03-24T00:00:00.000Z',
     });
-    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrderLines, {
+    await createSilverOrderLineRecord(db, {
       naturalKey: 'line-derived-history',
       supplierOrderId: 'order-derived-history',
       company: 'Muxtex INC',
@@ -730,7 +834,7 @@ describe('EcobaseInventoryPlanningService', () => {
 
   it('derives fallback row company from the source connection company and classifies every tier', async () => {
     const db = new MemoryDatabase();
-    await createRecord(db, ECOBASE_COLLECTIONS.companies, {
+    await createRecord(db, ECOBASE_COLLECTIONS.silverCompanies, {
       id: 'company-ecofission',
       name: 'Ecofission LLC',
       active: true,
@@ -768,7 +872,7 @@ describe('EcobaseInventoryPlanningService', () => {
       profitPerUnit: 4,
       payload: { 'Product Status': 'Active' },
     });
-    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrders, {
+    await createSilverOrderRecord(db, {
       id: 'fallback-order-1',
       naturalKey: 'supplier-order:Ecofission LLC:FB-100',
       sourceConnectionId: 'source-ecofission',
@@ -778,7 +882,7 @@ describe('EcobaseInventoryPlanningService', () => {
       sourceStage: 'manual',
       status: 'shipped_inbound',
     });
-    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrderLines, {
+    await createSilverOrderLineRecord(db, {
       id: 'fallback-line-1',
       naturalKey: 'supplier-order-line:FB-100:1',
       sourceConnectionId: 'source-ecofission',
@@ -811,7 +915,7 @@ describe('EcobaseInventoryPlanningService', () => {
 
   it('ignores inactive source-connection records in fallback planning', async () => {
     const db = new MemoryDatabase();
-    await createRecord(db, ECOBASE_COLLECTIONS.companies, {
+    await createRecord(db, ECOBASE_COLLECTIONS.silverCompanies, {
       id: 'company-ecofission',
       name: 'Ecofission LLC',
       active: true,
@@ -858,7 +962,7 @@ describe('EcobaseInventoryPlanningService', () => {
 
   it('ignores invalid fallback snapshot dates instead of treating source versions as newest stock', async () => {
     const db = new MemoryDatabase();
-    await createRecord(db, ECOBASE_COLLECTIONS.companies, {
+    await createRecord(db, ECOBASE_COLLECTIONS.silverCompanies, {
       id: 'company-ecofission',
       name: 'Ecofission LLC',
       active: true,
@@ -928,7 +1032,7 @@ describe('EcobaseInventoryPlanningService', () => {
 
   it('derives fallback profit and tier from Sellerboard daily facts', async () => {
     const db = new MemoryDatabase();
-    await createRecord(db, ECOBASE_COLLECTIONS.companies, {
+    await createRecord(db, ECOBASE_COLLECTIONS.silverCompanies, {
       id: 'company-ecofission',
       name: 'Ecofission LLC',
       active: true,
@@ -989,7 +1093,7 @@ describe('EcobaseInventoryPlanningService', () => {
 
   it('uses latest prior profit month when current month has no Sellerboard facts', async () => {
     const db = new MemoryDatabase();
-    await createRecord(db, ECOBASE_COLLECTIONS.companies, {
+    await createRecord(db, ECOBASE_COLLECTIONS.silverCompanies, {
       id: 'company-ecofission',
       name: 'Ecofission LLC',
       active: true,
@@ -1046,7 +1150,7 @@ describe('EcobaseInventoryPlanningService', () => {
 
   it('does not assign tier C when Sellerboard profit score is missing or zero', async () => {
     const db = new MemoryDatabase();
-    await createRecord(db, ECOBASE_COLLECTIONS.companies, {
+    await createRecord(db, ECOBASE_COLLECTIONS.silverCompanies, {
       id: 'company-ecofission',
       name: 'Ecofission LLC',
       active: true,
@@ -1112,7 +1216,7 @@ describe('EcobaseInventoryPlanningService', () => {
 
   it('keeps untiered no-order products out of active money risk and digest', async () => {
     const db = new MemoryDatabase();
-    await createRecord(db, ECOBASE_COLLECTIONS.companies, {
+    await createRecord(db, ECOBASE_COLLECTIONS.silverCompanies, {
       id: 'company-ecofission',
       name: 'Ecofission LLC',
       active: true,
@@ -1158,7 +1262,7 @@ describe('EcobaseInventoryPlanningService', () => {
 
   it('tracks tier movement when imported profit changes', async () => {
     const db = new MemoryDatabase();
-    await createRecord(db, ECOBASE_COLLECTIONS.companies, {
+    await createRecord(db, ECOBASE_COLLECTIONS.silverCompanies, {
       id: 'company-ecofission',
       name: 'Ecofission LLC',
       active: true,
@@ -1211,7 +1315,7 @@ describe('EcobaseInventoryPlanningService', () => {
 
   it('does not expose unassigned source connection names as company filter options', async () => {
     const db = new MemoryDatabase();
-    await createRecord(db, ECOBASE_COLLECTIONS.companies, {
+    await createRecord(db, ECOBASE_COLLECTIONS.silverCompanies, {
       id: 'company-ecofission',
       name: 'Ecofission LLC',
       active: true,
@@ -1334,7 +1438,7 @@ describe('EcobaseInventoryPlanningService', () => {
       leadTimeDays: 30,
       payload: { recommendedBestQty: 30 },
     });
-    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrders, {
+    await createSilverOrderRecord(db, {
       id: 'old-order-linked-date',
       naturalKey: 'supplier-order:Muxtex INC:OLD-LINKED',
       sourceConnectionId: 'source-1',
@@ -1343,7 +1447,7 @@ describe('EcobaseInventoryPlanningService', () => {
       status: 'completed',
       lastMeaningfulUpdateAt: '2025-11-01T00:00:00.000Z',
     });
-    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrderLines, {
+    await createSilverOrderLineRecord(db, {
       id: 'old-line-linked-date',
       naturalKey: 'supplier-order-line:OLD-LINKED',
       sourceConnectionId: 'source-1',
@@ -1355,7 +1459,7 @@ describe('EcobaseInventoryPlanningService', () => {
       receivedQty: 5,
       expectedSellableDate: '2025-11-10',
     });
-    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrders, {
+    await createSilverOrderRecord(db, {
       id: 'selected-order-linked-date',
       naturalKey: 'supplier-order:Muxtex INC:MX2626C',
       sourceConnectionId: 'source-1',
@@ -1364,7 +1468,7 @@ describe('EcobaseInventoryPlanningService', () => {
       status: 'approval_pending',
       lastMeaningfulUpdateAt: '2026-02-06T00:00:00.000Z',
     });
-    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrderLines, {
+    await createSilverOrderLineRecord(db, {
       id: 'selected-line-linked-date',
       naturalKey: 'supplier-order-line:MX2626C',
       sourceConnectionId: 'source-1',
@@ -1423,7 +1527,7 @@ describe('EcobaseInventoryPlanningService', () => {
       leadTimeDays: 30,
       payload: { recommendedBestQty: 30 },
     });
-    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrders, {
+    await createSilverOrderRecord(db, {
       id: 'different-asin-order',
       naturalKey: 'supplier-order:Muxtex INC:OTHER-ASIN-ORDER',
       sourceConnectionId: 'source-1',
@@ -1432,7 +1536,7 @@ describe('EcobaseInventoryPlanningService', () => {
       status: 'approval_pending',
       lastMeaningfulUpdateAt: '2026-02-06T00:00:00.000Z',
     });
-    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrderLines, {
+    await createSilverOrderLineRecord(db, {
       id: 'different-asin-line',
       naturalKey: 'supplier-order-line:OTHER-ASIN-ORDER',
       sourceConnectionId: 'source-1',
@@ -1594,14 +1698,14 @@ describe('EcobaseInventoryPlanningService', () => {
       email: 'nauman.ecofission@gmail.com',
       nickname: 'Ahmed Nauman',
     });
-    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrders, {
+    await createSilverOrderRecord(db, {
       id: orderId,
       naturalKey: 'order-author',
       company: 'Ecofission LLC',
       externalOrderRef: 'ORD-AUTHOR',
       status: 'approval_pending',
     });
-    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrderActivities, {
+    await createSilverActivityCommentRecord(db, {
       id: '55555555-5555-4555-8555-555555555555',
       naturalKey: 'activity-author',
       company: 'Ecofission LLC',
@@ -1613,7 +1717,7 @@ describe('EcobaseInventoryPlanningService', () => {
       occurredAt: '2026-06-07T14:00:00.000Z',
       source: 'clickup',
     });
-    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrderActivities, {
+    await createSilverActivityCommentRecord(db, {
       id: '66666666-6666-4666-8666-666666666666',
       naturalKey: 'activity-author-deleted',
       company: 'Ecofission LLC',
@@ -1666,7 +1770,7 @@ describe('EcobaseInventoryPlanningService', () => {
       name: 'Drawer Supplier',
       active: true,
     });
-    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrders, {
+    await createSilverOrderRecord(db, {
       id: orderId,
       naturalKey: 'order-drawer',
       company: 'Ecofission LLC',
@@ -1675,7 +1779,7 @@ describe('EcobaseInventoryPlanningService', () => {
       status: 'approval_pending',
       lastMeaningfulUpdateAt: '2026-06-07T12:00:00.000Z',
     });
-    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrderLines, {
+    await createSilverOrderLineRecord(db, {
       id: '44444444-4444-4444-8444-444444444444',
       naturalKey: 'line-drawer',
       company: 'Ecofission LLC',
@@ -1692,7 +1796,7 @@ describe('EcobaseInventoryPlanningService', () => {
       email: 'nauman.ecofission@gmail.com',
       nickname: 'Ahmed Nauman',
     });
-    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrderActivities, {
+    await createSilverActivityCommentRecord(db, {
       id: '55555555-5555-4555-8555-555555555555',
       naturalKey: 'activity-drawer',
       company: 'Ecofission LLC',
@@ -1704,7 +1808,7 @@ describe('EcobaseInventoryPlanningService', () => {
       notes: 'Waiting on payment.',
       occurredAt: '2026-06-07T14:00:00.000Z',
     });
-    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrderActivities, {
+    await createSilverActivityCommentRecord(db, {
       id: '66666666-6666-4666-8666-666666666666',
       naturalKey: 'activity-drawer-deleted',
       company: 'Ecofission LLC',
@@ -1792,7 +1896,7 @@ describe('EcobaseInventoryPlanningService', () => {
       confirmedAt: '2026-06-01T00:00:00.000Z',
       source: 'backend_sheet',
     });
-    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrders, {
+    await createSilverOrderRecord(db, {
       id: '11111111-1111-4111-8111-111111111111',
       naturalKey: 'order-1',
       sourceConnectionId: '22222222-2222-4222-8222-222222222222',
@@ -1804,7 +1908,7 @@ describe('EcobaseInventoryPlanningService', () => {
       statusSource: 'manual',
       orderDate: '2026-06-07',
     });
-    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrderLines, {
+    await createSilverOrderLineRecord(db, {
       id: '44444444-4444-4444-8444-444444444444',
       naturalKey: 'order-line-1',
       supplierOrderId: '11111111-1111-4111-8111-111111111111',
@@ -1818,7 +1922,7 @@ describe('EcobaseInventoryPlanningService', () => {
       sourceOrderLineRef: 'ORD-1:B000RISK',
       sourceStage: 'manual',
     });
-    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrderActivities, {
+    await createSilverActivityCommentRecord(db, {
       id: '55555555-5555-4555-8555-555555555555',
       naturalKey: 'activity-1',
       supplierOrderId: '11111111-1111-4111-8111-111111111111',
@@ -1888,7 +1992,7 @@ describe('EcobaseInventoryPlanningService', () => {
       });
     }
 
-    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrders, {
+    await createSilverOrderRecord(db, {
       id: 'order-payment-pending',
       naturalKey: 'supplier-order:Ecofission LLC:PP-1',
       sourceConnectionId: 'source-1',
@@ -1899,7 +2003,7 @@ describe('EcobaseInventoryPlanningService', () => {
       status: 'payment_pending',
       lastMeaningfulUpdateAt: '2026-06-06T00:00:00.000Z',
     });
-    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrderLines, {
+    await createSilverOrderLineRecord(db, {
       id: 'line-payment-pending',
       naturalKey: 'supplier-order-line:PP-1',
       sourceConnectionId: 'source-1',
@@ -1911,7 +2015,7 @@ describe('EcobaseInventoryPlanningService', () => {
       orderedQty: 20,
       receivedQty: 0,
     });
-    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrders, {
+    await createSilverOrderRecord(db, {
       id: 'order-old-paid',
       naturalKey: 'supplier-order:Ecofission LLC:OLD-PAID-1',
       sourceConnectionId: 'source-1',
@@ -1922,7 +2026,7 @@ describe('EcobaseInventoryPlanningService', () => {
       status: 'paid',
       lastMeaningfulUpdateAt: '2026-06-01T00:00:00.000Z',
     });
-    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrderLines, {
+    await createSilverOrderLineRecord(db, {
       id: 'line-old-paid',
       naturalKey: 'supplier-order-line:OLD-PAID-1',
       sourceConnectionId: 'source-1',
@@ -1935,7 +2039,7 @@ describe('EcobaseInventoryPlanningService', () => {
       receivedQty: 0,
       expectedSellableDate: '2026-06-20',
     });
-    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrders, {
+    await createSilverOrderRecord(db, {
       id: 'order-approval-soon',
       naturalKey: 'supplier-order:Ecofission LLC:APP-1',
       sourceConnectionId: 'source-1',
@@ -1946,7 +2050,7 @@ describe('EcobaseInventoryPlanningService', () => {
       status: 'approval_pending',
       lastMeaningfulUpdateAt: '2026-06-06T00:00:00.000Z',
     });
-    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrderLines, {
+    await createSilverOrderLineRecord(db, {
       id: 'line-approval-soon',
       naturalKey: 'supplier-order-line:APP-1',
       sourceConnectionId: 'source-1',
@@ -1958,7 +2062,7 @@ describe('EcobaseInventoryPlanningService', () => {
       orderedQty: 20,
       receivedQty: 0,
     });
-    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrders, {
+    await createSilverOrderRecord(db, {
       id: 'order-paid-pipeline',
       naturalKey: 'supplier-order:Ecofission LLC:PAID-1',
       sourceConnectionId: 'source-1',
@@ -1969,7 +2073,7 @@ describe('EcobaseInventoryPlanningService', () => {
       status: 'paid',
       lastMeaningfulUpdateAt: '2026-06-06T00:00:00.000Z',
     });
-    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrderLines, {
+    await createSilverOrderLineRecord(db, {
       id: 'line-paid-pipeline',
       naturalKey: 'supplier-order-line:PAID-1',
       sourceConnectionId: 'source-1',
@@ -1981,7 +2085,7 @@ describe('EcobaseInventoryPlanningService', () => {
       orderedQty: 20,
       receivedQty: 0,
     });
-    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrders, {
+    await createSilverOrderRecord(db, {
       id: 'order-paid-evidence',
       naturalKey: 'supplier-order:Ecofission LLC:PAID-EVIDENCE-1',
       sourceConnectionId: 'source-1',
@@ -1994,7 +2098,7 @@ describe('EcobaseInventoryPlanningService', () => {
       approvalStatus: 'Approved',
       lastMeaningfulUpdateAt: '2026-06-06T00:00:00.000Z',
     });
-    await createRecord(db, ECOBASE_COLLECTIONS.supplierOrderLines, {
+    await createSilverOrderLineRecord(db, {
       id: 'line-paid-evidence',
       naturalKey: 'supplier-order-line:PAID-EVIDENCE-1',
       sourceConnectionId: 'source-1',
@@ -2034,7 +2138,9 @@ describe('EcobaseInventoryPlanningService', () => {
       supplierOrderRef: 'APP-1',
       openOrderCoverageQty: 0,
     });
-    expect(digest.sections.supplierActionItems).toEqual([]);
-    expect(digest.sections.suppliersToContactFirst).toEqual([]);
+    expect(digest.sections.supplierActionItems.map((row) => row.planningProductId)).toEqual(['payment-pending']);
+    expect(digest.sections.suppliersToContactFirst).toEqual([
+      expect.objectContaining({ supplierName: 'Digest Supplier', urgentCount: 1 }),
+    ]);
   });
 });

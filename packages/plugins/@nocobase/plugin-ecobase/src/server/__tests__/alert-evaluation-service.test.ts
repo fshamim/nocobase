@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { describe, expect, it } from 'vitest';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { EcobaseAlertEvaluationService } from '../services/alert-evaluation-service';
@@ -29,7 +38,15 @@ class MemoryRepository implements EcobaseRepository {
     return record;
   }
 
-  async update({ filter, filterByTk, values }: { filter?: Record<string, unknown>; filterByTk?: string | number; values: Record<string, unknown> }) {
+  async update({
+    filter,
+    filterByTk,
+    values,
+  }: {
+    filter?: Record<string, unknown>;
+    filterByTk?: string | number;
+    values: Record<string, unknown>;
+  }) {
     const records = this.filterRecords({ filter, filterByTk });
     if (records.length === 0) {
       throw new Error('MemoryRepository update failed: matching record was not found.');
@@ -85,123 +102,176 @@ class MemoryDatabase implements EcobaseDatabase {
   }
 }
 
-async function seedPlanningProduct(db: MemoryDatabase, overrides: Record<string, unknown> = {}) {
-  const product = {
+async function seedPlanningProduct(_db: MemoryDatabase, overrides: Record<string, unknown> = {}) {
+  return {
     id: overrides.id ?? 'product-1',
-    naturalKey: overrides.naturalKey ?? `planning-product:QA:${overrides.asin ?? 'B010ALERT'}`,
     company: overrides.company ?? 'QA Alerts Co',
     canonicalAsin: overrides.asin ?? 'B010ALERT',
+    sku: overrides.sku ?? 'SKU-ALERT',
     title: overrides.title ?? 'Alert QA product',
-    mappingStatus: overrides.mappingStatus ?? 'confirmed',
   };
-  await db.getRepository(ECOBASE_COLLECTIONS.planningProducts).create({ values: product });
-  return product;
 }
 
-async function seedPlanningRows(db: MemoryDatabase, product: Record<string, unknown>, overrides: Record<string, unknown> = {}) {
+async function seedPlanningRows(
+  db: MemoryDatabase,
+  product: Record<string, unknown>,
+  overrides: Record<string, unknown> = {},
+) {
   const planningProductId = String(product.id);
   const company = String(product.company);
   const asin = String(product.canonicalAsin);
-  await db.getRepository(ECOBASE_COLLECTIONS.inventorySnapshots).create({
+  const sku = String(product.sku ?? 'SKU-ALERT');
+  const productId = `silver-product:${planningProductId}`;
+  const calculationDate = String(overrides.calculationDate ?? '2025-07-10');
+  const sellableStock = Number(overrides.stock ?? 0);
+  const salesVelocity = Number(overrides.salesVelocity ?? 5);
+  const suggestedReorderQty = Number(overrides.recommendedReorderQuantity ?? 20);
+  const pipelineStock =
+    Number(overrides.inbound ?? 0) + Number(overrides.ordered ?? 0) + Number(overrides.prepStock ?? 0);
+  const actionStatus = String(
+    overrides.actionStatus ?? (sellableStock <= 0 || suggestedReorderQty > 0 ? 'order_today' : 'sufficient_stock'),
+  );
+  const daysOfCover = salesVelocity > 0 ? sellableStock / salesVelocity : undefined;
+  const estimatedOosDate =
+    salesVelocity > 0
+      ? new Date(Date.UTC(2025, 6, 10 + Math.floor(sellableStock / salesVelocity))).toISOString().slice(0, 10)
+      : undefined;
+
+  await db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
+    values: { id: `company:${company}`, name: company, companyKey: company.toLowerCase() },
+  });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverAmazonAccounts).create({
     values: {
-      naturalKey: `inventory:${planningProductId}:2025-07-10`,
-      sourceConnectionId: 'source-1',
-      planningProductId,
-      snapshotDate: '2025-07-10',
-      company,
-      asin,
-      stock: overrides.stock ?? 0,
+      id: `account:${company}`,
+      companyId: `company:${company}`,
+      name: 'US',
+      marketplace: 'US',
+      isDefault: true,
+      status: 'active',
+    },
+  });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+    values: { id: productId, asin, sku, title: product.title },
+  });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+    values: {
+      id: planningProductId,
+      companyId: `company:${company}`,
+      amazonAccountId: `account:${company}`,
+      productId,
+    },
+  });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).create({
+    values: {
+      id: `inventory:${planningProductId}:${calculationDate}`,
+      companyProductId: planningProductId,
+      snapshotDate: calculationDate,
+      sellableStock,
       reserved: overrides.reserved ?? 0,
       inbound: overrides.inbound ?? 0,
       ordered: overrides.ordered ?? 0,
       prepStock: overrides.prepStock ?? 0,
-      salesVelocity: overrides.salesVelocity ?? 5,
-      recommendedReorderQuantity: overrides.recommendedReorderQuantity ?? 20,
+      salesVelocity,
     },
   });
-  await db.getRepository(ECOBASE_COLLECTIONS.planningParameters).create({
+  await db.getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts).create({
     values: {
-      naturalKey: `parameter:${planningProductId}`,
-      sourceConnectionId: 'source-1',
+      id: `fact:${planningProductId}:${calculationDate}`,
+      companyProductId: planningProductId,
+      snapshotDate: calculationDate,
+      units: overrides.units ?? 1,
+      profit: overrides.netProfit ?? 10,
+      margin: overrides.margin ?? 30,
+      refunds: overrides.refundRate ?? 0,
+    },
+  });
+  await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).create({
+    values: {
+      id: `gold:${planningProductId}:${calculationDate}`,
+      naturalKey: `gold:${planningProductId}:${calculationDate}`,
       planningProductId,
+      companyProductId: planningProductId,
+      calculationDate,
       company,
       asin,
-      leadTimeDays: overrides.leadTimeDays ?? 10,
-      safetyBufferDays: overrides.safetyBufferDays ?? 7,
+      sku,
+      title: product.title,
+      actionStatus,
+      tier: overrides.tier ?? 'A',
+      sellableStock,
+      pipelineStock,
+      inboundStock: overrides.inbound ?? 0,
+      orderedStock: overrides.ordered ?? 0,
+      prepStock: overrides.prepStock ?? 0,
+      salesVelocity,
+      baselineVelocity: overrides.baselineVelocity ?? 10,
+      daysOfCover,
+      suggestedReorderQty,
+      estimatedOosDate,
+      latestSafeReorderDate: actionStatus === 'sufficient_stock' ? '2025-08-01' : calculationDate,
+      daysUntilSafeReorder: actionStatus === 'sufficient_stock' ? 22 : 0,
       profitPerUnit: overrides.profitPerUnit ?? 4,
       recommendedBestQty: overrides.recommendedBestQty ?? 50,
-      payload: { baselineVelocity: overrides.baselineVelocity ?? 10 },
-    },
-  });
-  await db.getRepository(ECOBASE_COLLECTIONS.targetRows).create({
-    values: {
-      naturalKey: `target:${planningProductId}:2025-07`,
-      sourceConnectionId: 'source-1',
-      planningProductId,
-      company,
-      periodType: 'monthly',
-      period: '2025-07',
-      targetScope: 'planning_product',
-      profitTarget: overrides.profitTarget ?? 500,
-    },
-  });
-  await db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).create({
-    values: {
-      naturalKey: `fact:${planningProductId}:2025-07-10`,
-      sourceConnectionId: 'source-1',
-      planningProductId,
-      snapshotDate: '2025-07-10',
-      company,
-      asin,
-      units: overrides.units ?? 1,
-      netProfit: overrides.netProfit ?? 10,
-      margin: overrides.margin ?? 30,
-      refundRate: overrides.refundRate ?? 0,
-      payload: { buyBoxPercentage: overrides.buyBoxPercentage ?? 100 },
+      estimatedProfitRisk: overrides.estimatedProfitRisk ?? 0,
+      leadTimeDays: overrides.leadTimeDays ?? 10,
+      leadTimeConfirmedAt: overrides.leadTimeConfirmedAt ?? '2025-07-01T00:00:00.000Z',
+      buyBoxPercentage: overrides.buyBoxPercentage ?? 100,
+      sixMonthMargin: overrides.margin ?? 30,
+      calculationStatus: overrides.calculationStatus ?? 'calculated',
     },
   });
 }
 
-async function seedOrderCoverage(db: MemoryDatabase, product: Record<string, unknown>, overrides: Record<string, unknown> = {}) {
+async function seedOrderCoverage(
+  db: MemoryDatabase,
+  product: Record<string, unknown>,
+  overrides: Record<string, unknown> = {},
+) {
   const supplierId = String(overrides.supplierId ?? 'supplier-1');
   const orderId = String(overrides.orderId ?? 'order-1');
   const lineId = String(overrides.lineId ?? 'line-1');
-  await db.getRepository(ECOBASE_COLLECTIONS.supplierOrders).create({
+  const company = String(product.company);
+  const productId = `silver-product:${product.id}`;
+  const supplierProductId = `supplier-product:${supplierId}:${product.id}`;
+  await db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).create({
+    values: { id: supplierId, displayName: 'Supplier 1', normalizedName: 'supplier-1' },
+  });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).create({
+    values: { id: supplierProductId, supplierId, productId, unitCost: overrides.unitCost ?? 3 },
+  });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
     values: {
       id: orderId,
-      naturalKey: `supplier-order:${orderId}`,
-      company: product.company,
+      companyId: `company:${company}`,
       supplierId,
-      status: overrides.status ?? 'confirmed',
+      orderRef: overrides.externalOrderRef ?? `PO-${orderId}`,
+      lifecycleStatus: overrides.status ?? 'supplier_confirmed',
       expectedDeliveryDate: overrides.expectedDeliveryDate ?? '2025-07-18',
-      externalOrderRef: overrides.externalOrderRef ?? `PO-${orderId}`,
+      orderDate: '2025-07-01',
     },
   });
-  await db.getRepository(ECOBASE_COLLECTIONS.supplierOrderLines).create({
+  await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
     values: {
       id: lineId,
-      naturalKey: `supplier-order-line:${lineId}`,
-      company: product.company,
-      supplierOrderId: orderId,
-      supplierId,
-      planningProductId: product.id,
+      orderId,
+      supplierProductId,
+      companyProductId: product.id,
       orderedQty: overrides.orderedQty ?? 20,
-      receivedQty: overrides.receivedQty ?? 0,
+      confirmedQty: overrides.receivedQty ?? 0,
       expectedSellableDate: overrides.expectedSellableDate,
       unitCost: overrides.unitCost ?? 3,
     },
   });
   if (overrides.contactedAt) {
-    await db.getRepository(ECOBASE_COLLECTIONS.supplierOrderActivities).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).create({
       values: {
         id: `activity-${lineId}`,
-        naturalKey: `activity:${lineId}`,
-        company: product.company,
-        supplierId,
-        supplierOrderId: orderId,
-        activityType: 'contacted_supplier',
-        occurredAt: overrides.contactedAt,
-        source: 'manual',
+        entityType: 'supplier_order',
+        entityId: orderId,
+        commentType: 'contacted_supplier',
+        body: 'Contacted supplier',
+        createdAt: overrides.contactedAt,
+        contextSnapshotJson: { company, occurredAt: overrides.contactedAt },
       },
     });
   }
@@ -215,8 +285,14 @@ describe('Ecobase deterministic alert evaluation service', () => {
     await seedPlanningRows(db, product, { stock: 0, inbound: 5, salesVelocity: 5, recommendedReorderQuantity: 30 });
 
     const service = new EcobaseAlertEvaluationService(db);
-    const firstRun = await service.evaluatePlanningProducts({ planningProductId: String(product.id), calculationDate: '2025-07-10' });
-    const secondRun = await service.evaluatePlanningProducts({ planningProductId: String(product.id), calculationDate: '2025-07-10' });
+    const firstRun = await service.evaluatePlanningProducts({
+      planningProductId: String(product.id),
+      calculationDate: '2025-07-10',
+    });
+    const secondRun = await service.evaluatePlanningProducts({
+      planningProductId: String(product.id),
+      calculationDate: '2025-07-10',
+    });
 
     expect(firstRun.productCount).toBe(1);
     expect(firstRun.ruleVersion.config).toMatchObject({
@@ -229,7 +305,12 @@ describe('Ecobase deterministic alert evaluation service', () => {
       prepBufferDays: 0,
     });
     expect(db.getRepository(ECOBASE_COLLECTIONS.alertEvaluations).all()).toHaveLength(2);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.alerts).all().filter((alert) => alert.status === 'open')).toHaveLength(4);
+    expect(
+      db
+        .getRepository(ECOBASE_COLLECTIONS.alerts)
+        .all()
+        .filter((alert) => alert.status === 'open'),
+    ).toHaveLength(4);
     expect(secondRun.summaries[0].rootCauseCodes).toEqual([
       'current_oos',
       'reorder_needed',
@@ -238,9 +319,12 @@ describe('Ecobase deterministic alert evaluation service', () => {
       'pipeline_only_inventory',
       'slow_sales',
     ]);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.alerts).all().map((alert) => alert.actionRequired)).toContain(
-      'Restore sellable Amazon stock immediately or confirm an active recovery order.',
-    );
+    expect(
+      db
+        .getRepository(ECOBASE_COLLECTIONS.alerts)
+        .all()
+        .map((alert) => alert.actionRequired),
+    ).toContain('Restore sellable Amazon stock immediately or confirm an active recovery order.');
   });
 
   it('resolves open alerts when stock and deterministic conditions clear', async () => {
@@ -250,59 +334,94 @@ describe('Ecobase deterministic alert evaluation service', () => {
     const service = new EcobaseAlertEvaluationService(db);
     await service.evaluatePlanningProducts({ planningProductId: String(product.id), calculationDate: '2025-07-10' });
 
-    await db.getRepository(ECOBASE_COLLECTIONS.inventorySnapshots).create({
-      values: {
-        naturalKey: 'inventory:resolved:2025-07-11',
-        sourceConnectionId: 'source-1',
-        planningProductId: product.id,
-        snapshotDate: '2025-07-11',
-        company: product.company,
-        asin: product.canonicalAsin,
-        stock: 300,
-        reserved: 0,
-        inbound: 0,
-        ordered: 0,
-        prepStock: 0,
-        salesVelocity: 10,
-        recommendedReorderQuantity: 20,
-      },
+    await seedPlanningRows(db, product, {
+      calculationDate: '2025-07-11',
+      stock: 300,
+      salesVelocity: 10,
+      recommendedReorderQuantity: 0,
+      actionStatus: 'sufficient_stock',
     });
     await service.evaluatePlanningProducts({ planningProductId: String(product.id), calculationDate: '2025-07-11' });
 
-    expect(db.getRepository(ECOBASE_COLLECTIONS.alerts).all().every((alert) => alert.status === 'resolved')).toBe(true);
+    expect(
+      db
+        .getRepository(ECOBASE_COLLECTIONS.alerts)
+        .all()
+        .every((alert) => alert.status === 'resolved'),
+    ).toBe(true);
   });
 
   it('distinguishes already-ordered recovery states without double-counting raw pipeline inventory', async () => {
     const beforeDb = new MemoryDatabase();
     const beforeProduct = await seedPlanningProduct(beforeDb, { id: 'before-product', asin: 'B010BEFORE' });
     await seedPlanningRows(beforeDb, beforeProduct, { stock: 3, salesVelocity: 1, recommendedReorderQuantity: 30 });
-    await seedOrderCoverage(beforeDb, beforeProduct, { lineId: 'before-line', status: 'paid', expectedSellableDate: '2025-07-12', contactedAt: '2025-07-09T00:00:00.000Z' });
-    const beforeRun = await new EcobaseAlertEvaluationService(beforeDb).evaluatePlanningProducts({ planningProductId: String(beforeProduct.id), calculationDate: '2025-07-10' });
+    await seedOrderCoverage(beforeDb, beforeProduct, {
+      lineId: 'before-line',
+      status: 'paid',
+      expectedSellableDate: '2025-07-12',
+      contactedAt: '2025-07-09T00:00:00.000Z',
+    });
+    const beforeRun = await new EcobaseAlertEvaluationService(beforeDb).evaluatePlanningProducts({
+      planningProductId: String(beforeProduct.id),
+      calculationDate: '2025-07-10',
+    });
     expect(beforeRun.summaries[0].rootCauseCodes).not.toContain('no_supplier_order_placed');
     expect(beforeRun.summaries[0].rootCauseCodes).not.toContain('already_ordered_expected_sellable_late');
 
     const lateDb = new MemoryDatabase();
     const lateProduct = await seedPlanningProduct(lateDb, { id: 'late-product', asin: 'B010LATE' });
-    await seedPlanningRows(lateDb, lateProduct, { stock: 3, inbound: 50, salesVelocity: 10, recommendedReorderQuantity: 30 });
-    await seedOrderCoverage(lateDb, lateProduct, { lineId: 'late-line', status: 'paid', expectedSellableDate: '2025-07-25', contactedAt: '2025-07-01T00:00:00.000Z' });
-    const lateRun = await new EcobaseAlertEvaluationService(lateDb).evaluatePlanningProducts({ planningProductId: String(lateProduct.id), calculationDate: '2025-07-10' });
+    await seedPlanningRows(lateDb, lateProduct, {
+      stock: 3,
+      inbound: 50,
+      salesVelocity: 10,
+      recommendedReorderQuantity: 30,
+    });
+    await seedOrderCoverage(lateDb, lateProduct, {
+      lineId: 'late-line',
+      status: 'paid',
+      expectedSellableDate: '2025-07-25',
+      contactedAt: '2025-07-01T00:00:00.000Z',
+    });
+    const lateRun = await new EcobaseAlertEvaluationService(lateDb).evaluatePlanningProducts({
+      planningProductId: String(lateProduct.id),
+      calculationDate: '2025-07-10',
+    });
     expect(lateRun.summaries[0].rootCauseCodes).toContain('already_ordered_expected_sellable_late');
     expect(lateRun.summaries[0].rootCauseCodes).toContain('near_oos_delayed_inbound_or_supplier_order');
     expect(lateRun.summaries[0].rootCauseCodes).toContain('supplier_not_recently_contacted');
-    expect(Number(lateRun.summaries[0].openAlerts.find((alert: Record<string, unknown>) => alert.alertType === 'supplier_delay')?.evidence.estimatedProfitRisk)).toBeGreaterThan(0);
+    expect(
+      Number(
+        lateRun.summaries[0].openAlerts.find((alert: Record<string, unknown>) => alert.alertType === 'supplier_delay')
+          ?.evidence.estimatedProfitRisk,
+      ),
+    ).toBeGreaterThan(0);
 
     const blockedDb = new MemoryDatabase();
     const blockedProduct = await seedPlanningProduct(blockedDb, { id: 'blocked-product', asin: 'B010BLOCK' });
     await seedPlanningRows(blockedDb, blockedProduct, { stock: 0, salesVelocity: 2, recommendedReorderQuantity: 20 });
-    await seedOrderCoverage(blockedDb, blockedProduct, { lineId: 'blocked-line', status: 'blocked', expectedSellableDate: '2025-07-12' });
-    const blockedRun = await new EcobaseAlertEvaluationService(blockedDb).evaluatePlanningProducts({ planningProductId: String(blockedProduct.id), calculationDate: '2025-07-10' });
+    await seedOrderCoverage(blockedDb, blockedProduct, {
+      lineId: 'blocked-line',
+      status: 'blocked',
+      expectedSellableDate: '2025-07-12',
+    });
+    const blockedRun = await new EcobaseAlertEvaluationService(blockedDb).evaluatePlanningProducts({
+      planningProductId: String(blockedProduct.id),
+      calculationDate: '2025-07-10',
+    });
     expect(blockedRun.summaries[0].rootCauseCodes).toContain('blocked_unreliable_open_order');
 
     const incompleteDb = new MemoryDatabase();
     const incompleteProduct = await seedPlanningProduct(incompleteDb, { id: 'incomplete-product', asin: 'B010MISS' });
-    await seedPlanningRows(incompleteDb, incompleteProduct, { stock: 0, salesVelocity: 2, recommendedReorderQuantity: 20 });
+    await seedPlanningRows(incompleteDb, incompleteProduct, {
+      stock: 0,
+      salesVelocity: 2,
+      recommendedReorderQuantity: 20,
+    });
     await seedOrderCoverage(incompleteDb, incompleteProduct, { lineId: 'incomplete-line' });
-    const incompleteRun = await new EcobaseAlertEvaluationService(incompleteDb).evaluatePlanningProducts({ planningProductId: String(incompleteProduct.id), calculationDate: '2025-07-10' });
+    const incompleteRun = await new EcobaseAlertEvaluationService(incompleteDb).evaluatePlanningProducts({
+      planningProductId: String(incompleteProduct.id),
+      calculationDate: '2025-07-10',
+    });
     expect(incompleteRun.summaries[0].rootCauseCodes).toContain('supplier_order_missing_update');
     expect(incompleteRun.summaries[0].rootCauseCodes).toContain('data_warning');
   });
@@ -321,18 +440,12 @@ describe('Ecobase deterministic alert evaluation service', () => {
       recommendedBestQty: 50,
       baselineVelocity: 10,
       profitTarget: 1000,
+      leadTimeConfirmedAt: '2025-05-01T00:00:00.000Z',
     });
-    await db.getRepository(ECOBASE_COLLECTIONS.supplierLeadTimes).create({
-      values: {
-        naturalKey: 'supplier-lead-time:stale',
-        sourceConnectionId: 'source-1',
-        supplierId: 'supplier-1',
-        company: product.company,
-        leadTimeDays: 10,
-        confirmedAt: '2025-05-01T00:00:00.000Z',
-      },
+    const run = await new EcobaseAlertEvaluationService(db).evaluatePlanningProducts({
+      planningProductId: String(product.id),
+      calculationDate: '2025-07-10',
     });
-    const run = await new EcobaseAlertEvaluationService(db).evaluatePlanningProducts({ planningProductId: String(product.id), calculationDate: '2025-07-10' });
 
     expect(run.summaries[0].rootCauseCodes).toContain('low_buy_box');
     expect(run.summaries[0].rootCauseCodes).toContain('price_margin_issue');
@@ -342,7 +455,15 @@ describe('Ecobase deterministic alert evaluation service', () => {
 
     const manualDb = new MemoryDatabase();
     const manualProduct = await seedPlanningProduct(manualDb, { id: 'manual-product', asin: 'B010MANUAL' });
-    await new EcobaseAlertEvaluationService(manualDb).evaluatePlanningProducts({ planningProductId: String(manualProduct.id), calculationDate: '2025-07-10' });
+    await seedPlanningRows(manualDb, manualProduct, {
+      actionStatus: 'sufficient_stock',
+      recommendedReorderQuantity: 0,
+      calculationStatus: 'manual_review',
+    });
+    await new EcobaseAlertEvaluationService(manualDb).evaluatePlanningProducts({
+      planningProductId: String(manualProduct.id),
+      calculationDate: '2025-07-10',
+    });
     expect(manualDb.getRepository(ECOBASE_COLLECTIONS.alertEvaluations).all()[0].rootCauses).toEqual(
       expect.arrayContaining([expect.objectContaining({ code: 'unknown_manual_review' })]),
     );

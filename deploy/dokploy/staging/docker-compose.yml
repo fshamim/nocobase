@@ -43,6 +43,7 @@ services:
       INIT_ROOT_EMAIL: ${INIT_ROOT_EMAIL:?INIT_ROOT_EMAIL is required}
       INIT_ROOT_PASSWORD: ${INIT_ROOT_PASSWORD:?INIT_ROOT_PASSWORD is required}
       LOGGER_LEVEL: ${LOGGER_LEVEL:-info}
+      REQUEST_BODY_LIMIT: ${REQUEST_BODY_LIMIT:-50mb}
     volumes:
       - ecobase-staging-uploads:/app/nocobase/storage/uploads
     labels:
