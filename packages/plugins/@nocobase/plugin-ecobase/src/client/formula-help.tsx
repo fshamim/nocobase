@@ -643,7 +643,7 @@ const INVENTORY_SUPPLY_ACTION_FIELDS: HelpEntry[] = [
   { label: 'ORD', description: 'Ordered units not yet counted as sellable.', source: 'sellerboard' },
   {
     label: 'Coverage',
-    description: 'Projected out-of-stock date, row-level days-left label, and current sales velocity for the product.',
+    description: 'Three lines: days until stockout, stockout date with daily sales, and days short of target cover.',
     source: 'eco_derived',
   },
   {
@@ -696,7 +696,11 @@ const INVENTORY_ACTIVE_ORDER_FIELDS: HelpEntry[] = [
     label: 'Order',
     description: 'Order ID, supplier name, and open units that count as safe cover.',
   },
-  { label: 'DOC / OOS', description: 'Days of cover and when stock may run out.', source: 'eco_derived' },
+  {
+    label: 'Coverage',
+    description: 'Three lines: days until stockout, stockout date with daily sales, and days short of target cover.',
+    source: 'eco_derived',
+  },
   {
     label: 'Expected sellable',
     description: 'The first sellable date on the product order lines. You can edit it in the row drawer.',

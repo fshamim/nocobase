@@ -1043,20 +1043,48 @@ export default function InventoryPlanningPage() {
       })}
     </Space>
   );
-  const renderOosCell = (_value: string, row: PlainRecord) => {
-    const daysLeft = Number(row.daysUntilOos);
-    const color = Number.isFinite(daysLeft) && daysLeft <= 0 ? 'red' : daysLeft <= 7 ? 'orange' : 'blue';
-    const label = relativeDateLabel(row.estimatedOosDate, commandCalculationDate);
+  const coverageColumnTitle = (
+    <Tooltip
+      title={
+        <Space direction="vertical" size={0}>
+          <span>{t('Line 1: days until stockout')}</span>
+          <span>{t('Line 2: stockout date · daily sales')}</span>
+          <span>{t('Line 3: days short of target cover')}</span>
+        </Space>
+      }
+    >
+      <span>{t('Coverage')}</span>
+    </Tooltip>
+  );
+  const renderCoverageCell = (_value: any, row: PlainRecord) => {
+    const daysLeft = finiteNumber(row.daysUntilOos);
+    const daysLeftColor =
+      typeof daysLeft !== 'number' ? 'default' : daysLeft <= 0 ? 'red' : daysLeft <= 7 ? 'orange' : 'blue';
+    const daysLeftLabel =
+      typeof daysLeft === 'number'
+        ? daysLeft < 0
+          ? `${formatNumber(Math.abs(daysLeft))} ${t('days overdue')}`
+          : `${formatNumber(daysLeft)} ${t('days left')}`
+        : t('No velocity');
+    const salesVelocity = finiteNumber(row.salesVelocity);
+    const date = formatDate(row.estimatedOosDate);
+    const daysOfCover = finiteNumber(row.daysOfCover);
+    const targetCover = finiteNumber(commandTargetCoverDays);
+    const shortfall =
+      typeof daysOfCover === 'number' && typeof targetCover === 'number' ? targetCover - daysOfCover : undefined;
+    const shortfallLabel =
+      typeof shortfall === 'number'
+        ? shortfall > 0
+          ? `${formatNumber(Math.ceil(shortfall))} ${t('days short')}`
+          : t('At target')
+        : '—';
     return (
       <Space direction="vertical" size={0}>
-        <Tooltip title={label.detail}>
-          <Typography.Text>{label.detail ? t(label.label) : formatDate(row.estimatedOosDate)}</Typography.Text>
-        </Tooltip>
-        <Tag color={color}>{Number.isFinite(daysLeft) ? `${daysLeft} ${t('days left')}` : t('No velocity')}</Tag>
+        <Tag color={daysLeftColor}>{daysLeftLabel}</Tag>
         <Typography.Text type="secondary">
-          {label.detail ? `${label.detail} · ` : ''}
-          {t('velocity')} {formatNumber(row.salesVelocity)}/{t('day')}
+          {date} · {typeof salesVelocity === 'number' ? formatNumber(salesVelocity) : '—'}/{t('day')}
         </Typography.Text>
+        <Typography.Text type="secondary">{shortfallLabel}</Typography.Text>
       </Space>
     );
   };
@@ -1295,15 +1323,6 @@ export default function InventoryPlanningPage() {
       </Typography.Text>
     </Space>
   );
-  const renderDocOosCell = (_value: any, row: PlainRecord) => (
-    <Space direction="vertical" size={0}>
-      <Typography.Text>
-        {formatNumber(row.daysOfCover)} {t('days')}
-      </Typography.Text>
-      {(row.stuck || (row.stuckBucket && row.stuckBucket !== 'none')) && <Tag color="red">{t('60+ DOC / stuck')}</Tag>}
-      {renderOosCell('', row)}
-    </Space>
-  );
   const commandPaneColumns = (pane: CommandCenterPaneKey) => {
     if (pane === 'activeOrders') {
       return [
@@ -1322,7 +1341,7 @@ export default function InventoryPlanningPage() {
             </Space>
           ),
         },
-        { title: String(t('DOC / OOS')), key: 'docOos', render: renderDocOosCell },
+        { title: coverageColumnTitle, key: 'coverage', render: renderCoverageCell },
         { title: String(t('Expected sellable')), dataIndex: 'expectedSellableDate', render: renderRelativeDateCell },
         { title: String(t('Gap')), key: 'gap', render: renderPipelineGapCell },
         {
@@ -1373,7 +1392,7 @@ export default function InventoryPlanningPage() {
         render: (value: string) => <Tag color={tierColor(value)}>{value}</Tag>,
       },
       { title: String(t('Current stock')), key: 'currentStock', render: renderCurrentStockCell },
-      { title: String(t('Coverage')), dataIndex: 'estimatedOosDate', render: renderOosCell },
+      { title: coverageColumnTitle, key: 'coverage', render: renderCoverageCell },
       { title: String(t('Order by')), key: 'orderBy', render: renderOrderByCell },
       {
         title: `${t('Suggested qty / COGS / margin')} (${formatNumber(commandTargetCoverDays)}d)`,
