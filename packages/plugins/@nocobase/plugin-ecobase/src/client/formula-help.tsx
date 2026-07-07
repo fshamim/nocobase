@@ -688,59 +688,59 @@ const INVENTORY_SUPPLY_ACTION_TAGS: HelpEntry[] = [
 const INVENTORY_ACTIVE_ORDER_FIELDS: HelpEntry[] = [
   {
     label: 'Risk',
-    description: 'Pipeline risk: off-track, late with grace, follow-up due today, or monitoring.',
+    description: 'Why this active order needs eyes: late, in grace, not bought, needs a note, or just watch it.',
     source: 'eco_calc',
   },
-  { label: 'Product', description: 'ASIN, SKU, and company for the product attached to the active order.' },
+  { label: 'Product', description: 'ASIN, SKU, and company for the product on the order.' },
   {
     label: 'Order',
-    description:
-      'Supplier order reference, supplier name, and reliable open-order coverage units that reduce Suggested qty.',
+    description: 'Order ID, supplier name, and open units that count as safe cover.',
   },
-  { label: 'DOC / OOS', description: 'Current days of cover plus projected stockout date.', source: 'eco_derived' },
+  { label: 'DOC / OOS', description: 'Days of cover and when stock may run out.', source: 'eco_derived' },
   {
     label: 'Expected sellable',
-    description: 'Date the active order is expected to become sellable inventory.',
+    description: 'The first sellable date on the product order lines. You can edit it in the row drawer.',
     source: 'eco_calc',
   },
   {
     label: 'Gap',
-    description: 'Days between expected sellable date and OOS. Positive means late; buffer means currently safe.',
+    description:
+      'Expected sellable minus OOS. Late means stock may run out first. Buffer means the order should land first.',
     source: 'eco_derived',
   },
   {
     label: 'Held up at',
-    description: 'Days since the latest supplier-order activity, with the current order status shown as context.',
+    description: 'How long since the last comment or status change, plus the current order status.',
     source: 'eco_calc',
   },
   {
     label: 'Money at risk',
-    description: 'Estimated missed profit if the active order does not land before stockout.',
+    description: 'Profit we may miss if the order is not sellable before stock runs out.',
     source: 'eco_derived',
   },
 ];
 
 const INVENTORY_ACTIVE_ORDER_TAGS: HelpEntry[] = [
-  { label: 'Off-Track', tagColor: 'red', description: 'Expected sellable date is after OOS; escalate or expedite.' },
+  { label: 'Off-Track', tagColor: 'red', description: 'Expected sellable is after OOS. Stock may run out first.' },
   {
     label: 'Late With Grace',
     tagColor: 'orange',
-    description: 'Expected sellable date is close enough to count temporarily but needs monitoring.',
+    description: 'Expected sellable is already past, but it is still inside the grace days setting.',
   },
   {
     label: 'Placed Not Purchased',
     tagColor: 'orange',
-    description: 'An order exists but does not count as reliable purchased coverage yet.',
+    description: 'An order was started, but it is not paid or bought yet. It does not count as safe cover.',
   },
   {
     label: 'Follow-Up Due Today',
     tagColor: 'red',
-    description: 'Supplier/order status needs an operator update today.',
+    description: 'The row has a bought order. Add a status note today. Held up at shows the last activity age.',
   },
   {
     label: 'Pipeline Monitoring',
     tagColor: 'blue',
-    description: 'An active order exists; monitor status instead of creating a duplicate PO.',
+    description: 'A bought order is open and not late. Watch it so the team does not make a duplicate order.',
   },
 ];
 
@@ -1111,8 +1111,9 @@ const GROUPS: Record<FormulaHelpGroupKey, HelpGroup> = {
     fields: INVENTORY_ACTIVE_ORDER_FIELDS,
     tags: INVENTORY_ACTIVE_ORDER_TAGS,
     notes: [
-      'This pane answers: which products already have an order, and is that order on-track or late versus OOS?',
-      'Open order coverage only counts purchased-pipeline quantities; placed-not-purchased rows stay in monitoring and do not reduce Suggested qty.',
+      'This pane answers: which products already have an order, and will that order be sellable before stock runs out?',
+      'Open order cover only counts bought pipeline units. Placed-not-purchased rows do not reduce Suggested qty.',
+      'Follow-up due today is not based on a fixed no-activity-days rule. It means the row has a bought order and needs a fresh status note today.',
     ],
   },
   inventoryStuckInventory: {

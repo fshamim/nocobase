@@ -363,6 +363,7 @@ function relativeDateLabel(value: any, baseDate: string) {
   if (typeof value !== 'string' || value.length === 0) return { label: '—', detail: undefined };
   const target = dayjs(value.slice(0, 10));
   const base = dayjs(baseDate);
+  if (!target.isValid() || !base.isValid()) return { label: '—', detail: undefined };
   const diff = target.diff(base, 'day');
   if (diff < 0) return { label: `${Math.abs(diff)} days overdue`, detail: value.slice(0, 10), color: 'red' };
   if (diff === 0) return { label: 'Today', detail: value.slice(0, 10), color: 'volcano' };
@@ -990,7 +991,7 @@ export default function InventoryPlanningPage() {
       'Category A: stockout risk with no active purchased pipeline. Create or add a PO from the row drawer.',
     ),
     activeOrders: t(
-      'Category B: stockout risk with an order already in motion. Use this pane to find late, blocked, or follow-up-due orders.',
+      'Category B: these products already have an order. Check if the order will be sellable before stock runs out.',
     ),
     stuckInventory: t(
       'Slow-moving live stock that ties up capital. Rows must have sell-through evidence, so active stockouts are filtered out.',
@@ -1042,22 +1043,35 @@ export default function InventoryPlanningPage() {
     ],
     activeOrders: [
       {
-        risk: 'off-track / late',
+        risk: 'expected sellable',
+        detail: 'The first sellable date on the product order lines. You can edit it in the row drawer.',
+      },
+      {
+        risk: 'gap',
         detail:
-          'Expected sellable date is after estimated OOS, so the team should expedite or escalate with the supplier.',
+          'Gap compares Expected sellable with OOS. Late means stock may run out first. Buffer means the order should land first.',
+      },
+      {
+        risk: 'off-track',
+        detail: 'Expected sellable is after OOS. Stock may run out before the order is ready to sell.',
       },
       {
         risk: 'late with grace',
         detail:
-          'The order is close enough to still count temporarily, but it needs monitoring before the grace window expires.',
+          'Expected sellable is already past, but it is still inside the grace days setting. Check it before grace ends.',
       },
       {
         risk: 'placed not purchased',
-        detail: 'An order exists but is not yet reliable purchased coverage, so it can still leak into stockout risk.',
+        detail: 'An order was started, but it is not paid or bought yet. It does not count as safe cover.',
       },
       {
         risk: 'follow-up due today',
-        detail: 'The order needs a status/comment update so Daily Operations can see where it is held up.',
+        detail:
+          'The row has a bought order. EcoBase asks for a status note today. Held up at shows the last activity age.',
+      },
+      {
+        risk: 'pipeline monitoring',
+        detail: 'A bought order is open and not late. Watch it so the team does not make a duplicate order.',
       },
     ],
     stuckInventory: [
@@ -1106,11 +1120,15 @@ export default function InventoryPlanningPage() {
   const renderOosCell = (_value: string, row: PlainRecord) => {
     const daysLeft = Number(row.daysUntilOos);
     const color = Number.isFinite(daysLeft) && daysLeft <= 0 ? 'red' : daysLeft <= 7 ? 'orange' : 'blue';
+    const label = relativeDateLabel(row.estimatedOosDate, commandCalculationDate);
     return (
       <Space direction="vertical" size={0}>
-        <span>{formatDate(row.estimatedOosDate)}</span>
+        <Tooltip title={label.detail}>
+          <Typography.Text>{label.detail ? t(label.label) : formatDate(row.estimatedOosDate)}</Typography.Text>
+        </Tooltip>
         <Tag color={color}>{Number.isFinite(daysLeft) ? `${daysLeft} ${t('days left')}` : t('No velocity')}</Tag>
         <Typography.Text type="secondary">
+          {label.detail ? `${label.detail} · ` : ''}
           {t('velocity')} {formatNumber(row.salesVelocity)}/{t('day')}
         </Typography.Text>
       </Space>
@@ -1220,7 +1238,7 @@ export default function InventoryPlanningPage() {
             <Typography.Text style={{ color: 'inherit' }}>{latestNote}</Typography.Text>
             {latestAt ? (
               <Typography.Text style={{ color: 'inherit' }}>
-                {t('Last activity')} {formatDate(latestAt)}
+                {t('Last activity')} {formatRelativeTime(latestAt)} ({formatDateTime(latestAt)})
               </Typography.Text>
             ) : null}
           </Space>
@@ -1248,26 +1266,56 @@ export default function InventoryPlanningPage() {
       {formatCurrency(value)}
     </Typography.Text>
   );
-  const renderPipelineGapCell = (_value: any, row: PlainRecord) => {
-    const gap = Number(row.stockoutGapDays ?? 0);
+  const renderRelativeDateCell = (value: any) => {
+    const label = relativeDateLabel(value, commandCalculationDate);
+    if (!label.detail) return <Typography.Text>—</Typography.Text>;
     return (
-      <Tag color={gap > 0 ? 'red' : 'green'}>
-        {gap > 0 ? `${formatNumber(gap)} ${t('days late')}` : `${formatNumber(Math.abs(gap))} ${t('day buffer')}`}
-      </Tag>
+      <Tooltip title={label.detail}>
+        <Space direction="vertical" size={0}>
+          <Tag color={label.color}>{t(label.label)}</Tag>
+          <Typography.Text type="secondary">{label.detail}</Typography.Text>
+        </Space>
+      </Tooltip>
+    );
+  };
+  const renderPipelineGapCell = (_value: any, row: PlainRecord) => {
+    const gap = Number(row.stockoutGapDays);
+    if (!Number.isFinite(gap)) return <Typography.Text>—</Typography.Text>;
+    const late = gap > 0;
+    return (
+      <Tooltip
+        title={
+          late
+            ? t('Expected sellable is after OOS. Stock may run out first.')
+            : t('Expected sellable is on or before OOS. The order should land first.')
+        }
+      >
+        <Space direction="vertical" size={0}>
+          <Tag color={late ? 'red' : 'green'}>
+            {late ? `${formatNumber(gap)} ${t('days late')}` : `${formatNumber(Math.abs(gap))} ${t('day buffer')}`}
+          </Tag>
+          <Typography.Text type="secondary">
+            {late ? t('Stock may run out first') : t('Order should land first')}
+          </Typography.Text>
+        </Space>
+      </Tooltip>
     );
   };
   const renderHeldUpAtCell = (_value: any, row: PlainRecord) => {
     const heldDays = daysSinceDate(row.latestSupplierOrderActivityAt, commandCalculationDate);
     const status = formatStatusLabel(row.supplierOrderStatus ?? row.supplierOrderState ?? 'unknown');
+    const latestAt = String(row.latestSupplierOrderActivityAt ?? '').trim();
     return (
       <Space direction="vertical" size={0}>
-        <Typography.Text strong>
-          {typeof heldDays === 'number' ? `${formatNumber(heldDays)} ${t('days')}` : t('No activity logged')}
-        </Typography.Text>
+        <Tooltip title={latestAt ? formatDateTime(latestAt) : undefined}>
+          <Typography.Text strong>
+            {latestAt ? `${t('Last activity')} ${formatRelativeTime(latestAt)}` : t('No activity logged')}
+          </Typography.Text>
+        </Tooltip>
         <Typography.Text type="secondary">{t(status)}</Typography.Text>
-        {row.latestSupplierOrderActivityAt ? (
+        {typeof heldDays === 'number' ? (
           <Typography.Text type="secondary">
-            {t('Last activity')} {formatDate(row.latestSupplierOrderActivityAt)}
+            {formatNumber(heldDays)} {t('days without new activity')}
           </Typography.Text>
         ) : null}
       </Space>
@@ -1276,13 +1324,26 @@ export default function InventoryPlanningPage() {
   const renderActiveRiskCell = (_value: any, row: PlainRecord) => {
     const pipeline = String(row.pipelineHealthBucket ?? 'pipeline');
     const followUpDue = row.recommendedAction === 'follow_up_order';
-    const label = followUpDue ? 'follow-up due today' : pipeline === 'late' ? 'off-track' : pipeline;
+    const label =
+      pipeline === 'late'
+        ? 'off-track'
+        : pipeline === 'late_with_grace'
+          ? 'late with grace'
+          : pipeline === 'placed_not_purchased'
+            ? 'placed not purchased'
+            : followUpDue
+              ? 'follow-up due today'
+              : 'pipeline monitoring';
     const detail = formatStatusLabel(row.supplierOrderStatus ?? row.supplierOrderState ?? 'active order');
+    const color =
+      label === 'off-track' || label === 'follow-up due today'
+        ? 'red'
+        : label === 'late with grace' || label === 'placed not purchased'
+          ? 'orange'
+          : 'blue';
     return (
       <Space direction="vertical" size={0}>
-        <Tag color={followUpDue || pipeline === 'late' ? 'red' : pipeline === 'late_with_grace' ? 'orange' : 'blue'}>
-          {t(formatStatusLabel(label))}
-        </Tag>
+        <Tag color={color}>{t(formatStatusLabel(label))}</Tag>
         <Typography.Text type="secondary">
           {t(detail === formatStatusLabel(label) ? 'Pipeline monitoring' : detail)}
         </Typography.Text>
@@ -1338,7 +1399,7 @@ export default function InventoryPlanningPage() {
           ),
         },
         { title: String(t('DOC / OOS')), key: 'docOos', render: renderDocOosCell },
-        { title: String(t('Expected sellable')), dataIndex: 'expectedSellableDate', render: formatDate },
+        { title: String(t('Expected sellable')), dataIndex: 'expectedSellableDate', render: renderRelativeDateCell },
         { title: String(t('Gap')), key: 'gap', render: renderPipelineGapCell },
         {
           title: String(t('Held up at')),
@@ -1818,6 +1879,7 @@ export default function InventoryPlanningPage() {
   const renderDrawerModeSummary = () => {
     if (!selectedRow || !selectedCommandPane) return null;
     if (selectedCommandPane === 'activeOrders') {
+      const expectedSellableLabel = relativeDateLabel(selectedRow.expectedSellableDate, commandCalculationDate);
       return (
         <Card size="small" title={t('Active order follow-up')}>
           <Space direction="vertical" style={{ width: '100%' }}>
@@ -1829,8 +1891,9 @@ export default function InventoryPlanningPage() {
                 {t(selectedRow.pipelineHealthBucket ?? 'pipeline')}
               </Tag>
               <Typography.Text>
-                {t('Expected sellable')} {formatDate(selectedRow.expectedSellableDate)} · {t('Gap')}{' '}
-                {formatNumber(selectedRow.stockoutGapDays)} {t('days')}
+                {t('Expected sellable')} {t(expectedSellableLabel.label)} (
+                {formatDate(selectedRow.expectedSellableDate)}) · {t('Gap')} {formatNumber(selectedRow.stockoutGapDays)}{' '}
+                {t('days')}
               </Typography.Text>
             </Space>
             <Space size="small" wrap>
