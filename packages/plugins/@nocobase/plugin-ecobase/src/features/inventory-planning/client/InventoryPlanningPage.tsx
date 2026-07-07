@@ -1202,7 +1202,7 @@ export default function InventoryPlanningPage() {
               borderRadius: 4,
               color: '#ad6800',
               display: '-webkit-box',
-              maxWidth: 320,
+              maxWidth: 240,
               overflow: 'hidden',
               padding: '2px 6px',
               whiteSpace: 'normal',
@@ -1217,7 +1217,7 @@ export default function InventoryPlanningPage() {
     );
   };
   const renderMoneyCell = (value: number) => (
-    <Typography.Text strong style={{ color: MONEY_AT_RISK_COLOR }}>
+    <Typography.Text strong style={{ color: MONEY_AT_RISK_COLOR, whiteSpace: 'nowrap' }}>
       {formatCurrency(value)}
     </Typography.Text>
   );
@@ -1258,7 +1258,7 @@ export default function InventoryPlanningPage() {
     const status = formatStatusLabel(row.supplierOrderStatus ?? row.supplierOrderState ?? 'unknown');
     const latestAt = String(row.latestSupplierOrderActivityAt ?? '').trim();
     return (
-      <Space direction="vertical" size={0} style={{ minWidth: 260, maxWidth: 340 }}>
+      <Space direction="vertical" size={0} style={{ maxWidth: 260 }}>
         <Tooltip title={latestAt ? formatDateTime(latestAt) : undefined}>
           <Typography.Text strong>{latestAt ? formatRelativeTime(latestAt) : t('No activity logged')}</Typography.Text>
         </Tooltip>
@@ -1343,7 +1343,7 @@ export default function InventoryPlanningPage() {
         {
           title: String(t('Last Activity')),
           key: 'heldUpAt',
-          width: 320,
+          width: 240,
           render: renderHeldUpAtCell,
         },
         { title: String(t('Money at risk')), dataIndex: 'estimatedProfitRisk', render: renderMoneyCell },
