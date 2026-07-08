@@ -36,10 +36,12 @@ export default defineCollection({
   ],
   indexes: [
     {
+      name: 'silver_supplier_external_refs_source_code_uidx',
       unique: true,
       fields: ['sourceSystem', 'normalizedExternalSupplierCode'],
     },
     {
+      name: 'silver_supplier_external_refs_supplier_idx',
       fields: ['supplierId'],
     },
   ],
