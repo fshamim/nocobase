@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { describe, expect, it } from 'vitest';
 import bronzeSourceFiles from '../collections/bronze-source-files';
 import bronzeSourceRecords from '../collections/bronze-source-records';
@@ -6,6 +15,7 @@ import silverAmazonAccounts from '../collections/silver-amazon-accounts';
 import silverProducts from '../collections/silver-products';
 import silverCompanyProducts from '../collections/silver-company-products';
 import silverSuppliers from '../collections/silver-suppliers';
+import silverSupplierExternalRefs from '../collections/silver-supplier-external-refs';
 import silverSupplierAccounts from '../collections/silver-supplier-accounts';
 import silverSupplierProducts from '../collections/silver-supplier-products';
 import silverCompanyProductSuppliers from '../collections/silver-company-product-suppliers';
@@ -75,6 +85,7 @@ describe('Ecobase medallion schema foundation', () => {
     silverProducts,
     silverCompanyProducts,
     silverSuppliers,
+    silverSupplierExternalRefs,
     silverSupplierAccounts,
     silverSupplierProducts,
     silverCompanyProductSuppliers,
@@ -115,7 +126,8 @@ describe('Ecobase medallion schema foundation', () => {
     expect(field(silverCompanies, 'companyKey')).toMatchObject({ type: 'string', unique: true });
     uniqueIndex(silverProducts, ['asin', 'sku']);
     uniqueIndex(silverCompanyProducts, ['amazonAccountId', 'productId']);
-    expect(field(silverSuppliers, 'normalizedName')).toMatchObject({ type: 'string', unique: true });
+    expect(field(silverSuppliers, 'normalizedName')).toMatchObject({ type: 'string' });
+    uniqueIndex(silverSupplierExternalRefs, ['sourceSystem', 'normalizedExternalSupplierCode']);
     uniqueIndex(silverSupplierProducts, ['supplierId', 'productId']);
     uniqueIndex(silverOrders, ['companyId', 'orderRef']);
     expect(field(silverOrderLines, 'expectedDeliveryDate')).toMatchObject({ type: 'string' });
@@ -133,6 +145,11 @@ describe('Ecobase medallion schema foundation', () => {
       type: 'belongsTo',
       target: ECOBASE_COLLECTIONS.silverProducts,
       foreignKey: 'productId',
+    });
+    expect(field(silverSupplierExternalRefs, 'supplier')).toMatchObject({
+      type: 'belongsTo',
+      target: ECOBASE_COLLECTIONS.silverSuppliers,
+      foreignKey: 'supplierId',
     });
     expect(field(silverSupplierProducts, 'supplier')).toMatchObject({
       type: 'belongsTo',

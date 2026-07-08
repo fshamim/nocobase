@@ -124,6 +124,7 @@ describe('EcobaseMedallionNormalizationService', () => {
         'Order ID': 'EF-ORDER-1',
         Timestamp: '10/07/2023 08:00:00',
         Company: 'Ecofission LLC',
+        'SR ID': 'SRO-200',
         Supplier: 'Beta Supply',
         ASIN: 'B00PUSNY5A',
         SKU: 'W101',
@@ -156,6 +157,7 @@ describe('EcobaseMedallionNormalizationService', () => {
         'Order ID': 'OD-NEW',
         Timestamp: '10/07/2023 08:00:00',
         Company: 'Ecofission LLC',
+        'SR ID': 'SRO-201',
         Supplier: 'Beta Supply',
         ASIN: 'B0057XUD02',
         SKU: 'V-651-A',
@@ -191,6 +193,7 @@ describe('EcobaseMedallionNormalizationService', () => {
         'Order ID': 'MX2626C',
         Timestamp: '06/02/2026',
         Company: 'Muxtex INC',
+        'SR ID': 'SRO-202',
         Supplier: 'Discount Pond Supply',
         ASIN: 'B0002DHFIU',
         SKU: 'SUP02745',
@@ -206,6 +209,7 @@ describe('EcobaseMedallionNormalizationService', () => {
         'Order ID': 'MX2626C',
         Timestamp: '06/02/2026',
         Company: 'Muxtex INC',
+        'SR ID': 'SRO-202',
         Supplier: 'Discount Pond Supply',
         ASIN: 'B0002DHFIU',
         SKU: 'SUP02745',
@@ -221,6 +225,7 @@ describe('EcobaseMedallionNormalizationService', () => {
         'Order ID': 'MX2626C',
         Timestamp: '06/02/2026',
         Company: 'Muxtex INC',
+        'SR ID': 'SRO-202',
         Supplier: 'Discount Pond Supply',
         ASIN: 'B0009YYURQ',
         SKU: 'SUP02745',
@@ -246,6 +251,7 @@ describe('EcobaseMedallionNormalizationService', () => {
       Company: 'Ecofission LLC',
       ASIN: 'B00PUSNY5A',
       SKU: 'W101',
+      'SR ID': 'SRO-203',
       Supplier: 'Alpha Supply',
       'FBA/FBM Stock': '10',
     });
@@ -263,6 +269,250 @@ describe('EcobaseMedallionNormalizationService', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).rows).toHaveLength(1);
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverSupplierAccounts).rows).toHaveLength(1);
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverNormalizationLinks).rows).toHaveLength(firstLinkCount);
+  });
+
+  it('uses SR ID as supplier identity across supplier name drift', async () => {
+    const db = new FakeDatabase();
+    await seedBronze(db, {
+      Company: 'Muxtex INC',
+      'SR ID': 'SRO-9095',
+      Supplier: 'Premierwd',
+      ASIN: 'B07B43WF8G',
+      SKU: '381',
+      Qty: '1',
+    });
+    await seedBronze(db, {
+      Company: 'Muxtex INC',
+      'SR ID': 'sro-9095',
+      Supplier: 'Premier WD',
+      ASIN: 'B07B43NW4G',
+      SKU: '380',
+      Qty: '1',
+    });
+
+    const result = await new EcobaseMedallionNormalizationService(db).normalizePending();
+
+    expect(result.failed).toBe(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).rows).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSupplierExternalRefs).rows).toEqual([
+      expect.objectContaining({ normalizedExternalSupplierCode: 'SRO-9095' }),
+    ]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).rows).toHaveLength(2);
+  });
+
+  it('imports supplier lead-time ranges and warns on invalid lead-time text', async () => {
+    const db = new FakeDatabase();
+    await seedBronze(db, {
+      Company: 'Ecofission LLC',
+      'SR ID': 'SRO-250',
+      Supplier: 'Lead Supply',
+      ASIN: 'B00LEAD001',
+      SKU: 'LEAD-1',
+      'Lead time(day)': '1-2 weeks',
+    });
+    await seedBronze(db, {
+      Company: 'Ecofission LLC',
+      'SR ID': 'SRO-251',
+      Supplier: 'Invalid Lead Supply',
+      ASIN: 'B00LEAD002',
+      SKU: 'LEAD-2',
+      'Lead time(day)': 'OOS',
+    });
+
+    const result = await new EcobaseMedallionNormalizationService(db).normalizePending();
+
+    expect(result.failed).toBe(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).rows).toEqual(
+      expect.arrayContaining([expect.objectContaining({ leadTimeDays: 14 })]),
+    );
+    expect(
+      db
+        .getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts)
+        .rows.find((supplierProduct) => supplierProduct.productId !== undefined && supplierProduct.leadTimeDays !== 14),
+    ).not.toHaveProperty('leadTimeDays');
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).rows[1]).toMatchObject({
+      issueSeverity: 'warning',
+      issueCode: 'lead_time_unparsed',
+    });
+  });
+
+  it('does not create name-only suppliers when SR ID is missing or invalid', async () => {
+    const db = new FakeDatabase();
+    await seedBronze(db, {
+      Company: 'Ecofission LLC',
+      Supplier: 'Name Only Supply',
+      ASIN: 'B00PUSNY5A',
+      SKU: 'W101',
+      Qty: '1',
+    });
+    await seedBronze(db, {
+      Company: 'Ecofission LLC',
+      'SR ID': 'duplicate',
+      Supplier: 'Duplicate Supply',
+      ASIN: 'B00PUSNY5B',
+      SKU: 'W102',
+      Qty: '1',
+    });
+
+    const result = await new EcobaseMedallionNormalizationService(db).normalizePending();
+
+    expect(result.failed).toBe(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).rows).toHaveLength(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).rows).toHaveLength(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductSuppliers).rows).toHaveLength(0);
+  });
+
+  it('links ASIN-only supplier tracker rows to existing company products without SKU-equals-ASIN duplicates', async () => {
+    const db = new FakeDatabase();
+    await seedBronze(db, {
+      Company: 'Stop Shop LLC',
+      ASIN: 'B0764NLBH1',
+      SKU: '2-Pack',
+      Marketplace: 'Amazon.com',
+      'FBA/FBM Stock': '10',
+    });
+    await seedBronze(
+      db,
+      {
+        'SR ID': 'SRO-300',
+        'Supplier Name': 'Lake Industries',
+        ASIN: 'B0764NLBH1',
+        'Reached Via': 'Stop Shop LLC',
+      },
+      { sourceDataset: 'Supplier Analysis Tracker.csv' },
+    );
+
+    const result = await new EcobaseMedallionNormalizationService(db).normalizePending();
+
+    expect(result.failed).toBe(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).rows).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).rows[0]).toMatchObject({ sku: '2-Pack' });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).rows).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductSuppliers).rows).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).rows[0]).not.toHaveProperty('supplierSku');
+  });
+
+  it('does not link supplier tracker rows to old ASIN-as-SKU duplicate products', async () => {
+    const db = new FakeDatabase();
+    await seedBronze(db, {
+      Company: 'Stop Shop LLC',
+      ASIN: 'B00DUPLICATE',
+      SKU: 'B00DUPLICATE',
+      Marketplace: 'Amazon.com',
+      'FBA/FBM Stock': '10',
+    });
+    await seedBronze(
+      db,
+      {
+        'SR ID': 'SRO-302',
+        'Supplier Name': 'Lake Industries',
+        ASIN: 'B00DUPLICATE',
+        'Reached Via': 'Stop Shop LLC',
+      },
+      { sourceDataset: 'Supplier Analysis Tracker.csv' },
+    );
+
+    const result = await new EcobaseMedallionNormalizationService(db).normalizePending();
+
+    expect(result.failed).toBe(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).rows).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).rows).toHaveLength(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).rows[1]).toMatchObject({
+      issueSeverity: 'warning',
+      issueCode: 'supplier_product_unresolved',
+    });
+  });
+
+  it('keeps order header supplier while using detail supplier for mismatched order lines', async () => {
+    const db = new FakeDatabase();
+    await seedBronze(
+      db,
+      {
+        'Order ID': 'PO-1',
+        Company: 'Ecofission LLC',
+        'SR ID': 'SRO-H',
+        Supplier: 'Header Supply',
+        'Order status': 'ORDERED',
+      },
+      { sourceDataset: 'Purchase Orders.csv' },
+    );
+    await seedBronze(
+      db,
+      {
+        'Order ID': 'PO-1',
+        Company: 'Ecofission LLC',
+        'SR ID': 'SRO-L',
+        Supplier: 'Line Supply',
+        ASIN: 'B00LINE001',
+        SKU: 'LINE-SKU',
+        Qty: '2',
+        PPU: '4.50',
+      },
+      { sourceDataset: 'OrderDetails.csv' },
+    );
+
+    const result = await new EcobaseMedallionNormalizationService(db).normalizePending();
+
+    expect(result.failed).toBe(0);
+    const headerSupplier = db
+      .getRepository(ECOBASE_COLLECTIONS.silverSuppliers)
+      .rows.find((supplier) => supplier.displayName === 'Header Supply');
+    const lineSupplierRef = db
+      .getRepository(ECOBASE_COLLECTIONS.silverSupplierExternalRefs)
+      .rows.find((ref) => ref.normalizedExternalSupplierCode === 'SRO-L');
+    const line = db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[0];
+    const lineSupplierProduct = db
+      .getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts)
+      .rows.find((supplierProduct) => supplierProduct.id === line.supplierProductId);
+
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[0]).toMatchObject({
+      orderRef: 'PO-1',
+      supplierId: headerSupplier?.id,
+    });
+    expect(lineSupplierProduct).toMatchObject({ supplierId: lineSupplierRef?.supplierId });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).rows[1]).toMatchObject({
+      issueSeverity: 'warning',
+      issueCode: 'order_supplier_mismatch',
+    });
+  });
+
+  it('does not guess ASIN-only supplier tracker links when company products are ambiguous', async () => {
+    const db = new FakeDatabase();
+    await seedBronze(db, {
+      Company: 'Stop Shop LLC',
+      ASIN: 'B01DAYLVYG',
+      SKU: '38670',
+      Marketplace: 'Amazon.com',
+      'FBA/FBM Stock': '10',
+    });
+    await seedBronze(db, {
+      Company: 'Stop Shop LLC',
+      ASIN: 'B01DAYLVYG',
+      SKU: 'Pitcher Cartridge',
+      Marketplace: 'Amazon.com',
+      'FBA/FBM Stock': '5',
+    });
+    await seedBronze(
+      db,
+      {
+        'SR ID': 'SRO-301',
+        'Supplier Name': 'Lake Industries',
+        ASIN: 'B01DAYLVYG',
+        'Reached Via': 'Stop Shop LLC',
+      },
+      { sourceDataset: 'Supplier Analysis Tracker.csv' },
+    );
+
+    const result = await new EcobaseMedallionNormalizationService(db).normalizePending();
+
+    expect(result.failed).toBe(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).rows).toHaveLength(2);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).rows).toHaveLength(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductSuppliers).rows).toHaveLength(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).rows[2]).toMatchObject({
+      issueSeverity: 'warning',
+      issueCode: 'supplier_product_unresolved',
+    });
   });
 
   it('marks mapper failures clearly without stopping the batch', async () => {

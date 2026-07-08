@@ -34,6 +34,7 @@ import {
 import { summarizeHistoricalProductFacts, type HistoricalProductMetrics } from './historical-product-metrics';
 
 const FALLBACK_RECORD_LIMIT = 100000;
+const DEFAULT_LEAD_TIME_DAYS = 30;
 type SellerboardCostResolver = Awaited<ReturnType<EcobaseSellerboardCogsService['createResolver']>>;
 
 export type InventoryPlanningActionStatus =
@@ -2153,7 +2154,9 @@ export class EcobaseInventoryPlanningService {
       orderHistoryLines,
       await this.supplierOrdersByLine(orderHistoryLines),
     );
-    const leadTimeDays = importedLeadTimeDays ?? orderHistoryDerivedLeadTime.leadTimeDays;
+    const resolvedLeadTimeDays = importedLeadTimeDays ?? orderHistoryDerivedLeadTime.leadTimeDays;
+    const leadTimeWasDefaulted = typeof resolvedLeadTimeDays !== 'number';
+    const leadTimeDays = resolvedLeadTimeDays ?? DEFAULT_LEAD_TIME_DAYS;
     const hasCompleteHistoricalWindow = Object.keys(historicalProfitMetrics?.monthlyUnits ?? {}).length >= 6;
     const importedRecommendedBestQty =
       payloadNumber(params.parameter, ['recommendedBestQty', 'Rec.Best Qty', 'Rec. Best Qty']) ??
@@ -2209,12 +2212,11 @@ export class EcobaseInventoryPlanningService {
       asString(params.parameter.confirmedAt) ??
       payloadString(params.parameter, ['confirmedAt', 'Lead Time Confirmed At']);
     const leadTimeAgeDays = daysSince(leadTimeConfirmedAt, params.calculationDate);
-    const leadTimeFreshness =
-      typeof leadTimeDays !== 'number'
-        ? 'missing'
-        : typeof leadTimeAgeDays === 'number' && leadTimeAgeDays > params.leadTimeFreshnessDays
-          ? 'stale'
-          : 'fresh';
+    const leadTimeFreshness = leadTimeWasDefaulted
+      ? 'default'
+      : typeof leadTimeAgeDays === 'number' && leadTimeAgeDays > params.leadTimeFreshnessDays
+        ? 'stale'
+        : 'fresh';
     const supplierOrderState = await this.supplierOrderStateForProduct({
       company,
       asin,
@@ -2323,7 +2325,11 @@ export class EcobaseInventoryPlanningService {
       leadTimeDays,
       leadTimeConfirmedAt,
       leadTimeFreshness,
-      leadTimeSource: supplierName ? 'supplier_or_planning_parameter' : 'planning_parameter_without_supplier_mapping',
+      leadTimeSource: leadTimeWasDefaulted
+        ? 'default_30_days'
+        : supplierName
+          ? 'supplier_or_planning_parameter'
+          : 'planning_parameter_without_supplier_mapping',
       openOrderCoverageQty,
       ...supplierOrderState,
       expectedSellableDate,

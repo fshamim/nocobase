@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import type { EcobaseDatabase, EcobaseRepository } from '../../source-import/server/import-service';
@@ -45,6 +54,16 @@ export interface UpsertSupplierParams {
   approvalStatus?: string;
 }
 
+export interface UpsertSupplierExternalRefParams {
+  sourceSystem: string;
+  externalSupplierCode: string;
+  displayName?: string;
+  sourceConnectionId?: string;
+  observedAt?: string;
+  payload?: Record<string, unknown>;
+  approvalStatus?: string;
+}
+
 export interface UpsertSupplierProductParams {
   supplierId: string;
   productId: string;
@@ -89,6 +108,14 @@ export function normalizeSupplierName(value: string) {
   if (!normalized) {
     throw new Error('Ecobase medallion identity failed: supplier displayName must include letters or numbers.');
   }
+  return normalized;
+}
+
+export function normalizeExternalSupplierCode(value: string | undefined) {
+  const text = value?.trim();
+  if (!text) return undefined;
+  const normalized = text.replace(/\s+/g, ' ').toUpperCase();
+  if (['DUPLICATE', 'DUP', 'N/A', 'NA', 'NONE', '-'].includes(normalized)) return undefined;
   return normalized;
 }
 
@@ -201,6 +228,60 @@ export class EcobaseMedallionIdentityService {
       filter: { normalizedName },
       values: { normalizedName, displayName, approvalStatus: params.approvalStatus ?? 'analyzing' },
     });
+  }
+
+  async upsertSupplierExternalRef(params: UpsertSupplierExternalRefParams) {
+    const sourceSystem = requiredText(params.sourceSystem, 'supplier sourceSystem');
+    const normalizedExternalSupplierCode = normalizeExternalSupplierCode(params.externalSupplierCode);
+    if (!normalizedExternalSupplierCode) {
+      throw new Error('Ecobase medallion identity failed: externalSupplierCode is required.');
+    }
+
+    const refRepo = this.repo(ECOBASE_COLLECTIONS.silverSupplierExternalRefs);
+    const existingRef = await refRepo.findOne({ filter: { sourceSystem, normalizedExternalSupplierCode } });
+    const displayName = params.displayName?.trim() || normalizedExternalSupplierCode;
+    const normalizedName = normalizeSupplierName(displayName);
+    const refValues = valuesForUpdate({
+      sourceSystem,
+      externalSupplierCode: params.externalSupplierCode.trim(),
+      normalizedExternalSupplierCode,
+      displayName,
+      normalizedName,
+      sourceConnectionId: params.sourceConnectionId,
+      lastSeenAt: params.observedAt,
+      payload: params.payload,
+    });
+
+    if (existingRef) {
+      const supplierId = toPlainRecord(existingRef).supplierId;
+      if (typeof supplierId !== 'string') {
+        throw new Error('Ecobase medallion identity failed: supplier external ref is missing supplierId.');
+      }
+      const supplier = await this.findRequired(this.repo(ECOBASE_COLLECTIONS.silverSuppliers), supplierId, 'supplier');
+      await this.repo(ECOBASE_COLLECTIONS.silverSuppliers).update({
+        filterByTk: supplierId,
+        values: valuesForUpdate({ displayName, normalizedName, approvalStatus: params.approvalStatus }),
+      });
+      await refRepo.update({ filterByTk: idOf(existingRef), values: refValues });
+      return this.findRequired(this.repo(ECOBASE_COLLECTIONS.silverSuppliers), idOf(supplier), 'supplier');
+    }
+
+    const supplier = await this.repo(ECOBASE_COLLECTIONS.silverSuppliers).create({
+      values: {
+        id: randomUUID(),
+        normalizedName,
+        displayName,
+        approvalStatus: params.approvalStatus ?? 'analyzing',
+      },
+    });
+    await refRepo.create({
+      values: {
+        id: randomUUID(),
+        supplierId: idOf(supplier),
+        ...refValues,
+      },
+    });
+    return supplier;
   }
 
   async upsertSupplierProduct(params: UpsertSupplierProductParams) {

@@ -1,8 +1,18 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { describe, expect, it } from 'vitest';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import {
   EcobaseMedallionIdentityService,
   normalizeCompanyKey,
+  normalizeExternalSupplierCode,
   normalizeSupplierName,
 } from '../../features/semantic-model/server/medallion-identity-service';
 import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
@@ -146,6 +156,40 @@ describe('EcobaseMedallionIdentityService', () => {
     expect(idOf(sameSupplier)).toBe(idOf(supplier));
     expect(idOf(samePreferred)).toBe(idOf(preferred));
     expect(idOf(candidate)).not.toBe(idOf(preferred));
+  });
+
+  it('uses external supplier refs as import identity', async () => {
+    const db = new FakeDatabase();
+    const service = new EcobaseMedallionIdentityService(db);
+
+    expect(normalizeExternalSupplierCode(' sro-9095 ')).toBe('SRO-9095');
+    expect(normalizeExternalSupplierCode('duplicate')).toBeUndefined();
+
+    const supplier = await service.upsertSupplierExternalRef({
+      sourceSystem: 'supplier_ids',
+      externalSupplierCode: 'SRO-9095',
+      displayName: 'Premierwd',
+    });
+    const sameSupplier = await service.upsertSupplierExternalRef({
+      sourceSystem: 'supplier_ids',
+      externalSupplierCode: 'sro-9095',
+      displayName: 'Premier WD',
+    });
+    const differentSupplier = await service.upsertSupplierExternalRef({
+      sourceSystem: 'supplier_ids',
+      externalSupplierCode: 'SRO-9096',
+      displayName: 'Premier WD',
+    });
+
+    expect(idOf(sameSupplier)).toBe(idOf(supplier));
+    expect(idOf(differentSupplier)).not.toBe(idOf(supplier));
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).rows).toHaveLength(2);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSupplierExternalRefs).rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ supplierId: idOf(supplier), normalizedExternalSupplierCode: 'SRO-9095' }),
+        expect.objectContaining({ supplierId: idOf(differentSupplier), normalizedExternalSupplierCode: 'SRO-9096' }),
+      ]),
+    );
   });
 
   it('fails clearly when link references are missing', async () => {

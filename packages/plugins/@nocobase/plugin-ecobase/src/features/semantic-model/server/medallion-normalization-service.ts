@@ -12,7 +12,7 @@ import { CsvRowReader } from '../../source-import/server/adapters/csv-utils';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import type { EcobaseDatabase, EcobaseRepository } from '../../source-import/server/import-service';
 import { toPlainRecord } from '../../source-import/server/import-service';
-import { EcobaseMedallionIdentityService } from './medallion-identity-service';
+import { EcobaseMedallionIdentityService, normalizeExternalSupplierCode } from './medallion-identity-service';
 import { resolveOrderLifecycle } from '../../order-planning/server/order-lifecycle';
 
 export interface NormalizePendingParams {
@@ -30,6 +30,7 @@ export interface NormalizePendingResult {
 
 type NormalizationRelation = 'created_from' | 'updated_from' | 'confirmed_by';
 type SilverEntity = { type: string; id: string; relation: NormalizationRelation };
+type CompanyProductIdentity = { account: unknown | null; companyProduct: unknown; product?: unknown | null };
 
 export class EcobaseMedallionNormalizationService {
   private identity: EcobaseMedallionIdentityService;
@@ -96,12 +97,19 @@ export class EcobaseMedallionNormalizationService {
   private async mapBronzeRecord(bronze: Record<string, unknown>) {
     const row = new CsvRowReader(stringRecord(toPlainRecord(bronze.payload)));
     const entities: SilverEntity[] = [];
-    const companyName = row.string('Company') ?? (await this.sourceCompanyName(textValue(bronze.sourceConnectionId)));
+    const companyName =
+      row.string('Company') ??
+      row.string('Reached Via') ??
+      (await this.sourceCompanyName(textValue(bronze.sourceConnectionId)));
     const supplierName = row.string('Supplier', 'Supplier ', 'Supplier Name');
+    const supplierExternalCode = normalizeExternalSupplierCode(row.string('SR ID', 'SR ID ', 'externalSupplierCode'));
     const asin = row.string('ASIN', 'ASIN ')?.toUpperCase();
-    const sku = row.string('SKU') ?? asin;
+    const sku = row.string('SKU');
     const orderRef = row.string('Order ID');
     const snapshotDate = dateOnly(row.string('Date', 'Timestamp', 'Order Date') ?? textValue(bronze.observedAt));
+    const marketplace = row.string('Marketplace', 'Market ', 'Amazon Account');
+    const leadTimeText = row.string('Lead time(day)', 'Manuf. time days', 'Lead Time');
+    const importedLeadTimeDays = parseLeadTimeDays(leadTimeText);
 
     const company = companyName
       ? await this.identity.upsertCompany({ companyKey: companyKeyFor(companyName), name: companyName })
@@ -119,29 +127,56 @@ export class EcobaseMedallionNormalizationService {
         : null;
     if (product) entities.push(entity('silverProduct', product, 'product'));
 
-    const companyProductIdentity =
-      company && product
+    const companyProductIdentity = company
+      ? product
         ? await this.resolveCompanyProductIdentity({
             companyId: idOf(company),
             productId: idOf(product),
-            marketplace: row.string('Marketplace', 'Market ', 'Amazon Account'),
+            marketplace,
           })
-        : null;
+        : asin
+          ? await this.resolveExistingCompanyProductByAsin(idOf(company), asin)
+          : null
+      : null;
     const account = companyProductIdentity?.account ?? null;
     const companyProduct = companyProductIdentity?.companyProduct ?? null;
+    const supplierProductProduct = product ?? companyProductIdentity?.product ?? null;
+    if (supplierExternalCode && leadTimeText && importedLeadTimeDays === undefined) {
+      await this.markBronzeWarning(
+        bronze,
+        'lead_time_unparsed',
+        `Lead time "${leadTimeText}" was not imported for supplier ${supplierExternalCode}; planning will use the 30-day default unless another lead time exists.`,
+      );
+    }
+    if (supplierExternalCode && asin && !sku && !companyProductIdentity) {
+      await this.markBronzeWarning(
+        bronze,
+        'supplier_product_unresolved',
+        `Supplier row for ${supplierExternalCode}/${asin} was not linked because no unique existing company product was found.`,
+      );
+    }
     if (account) entities.push(entity('silverAmazonAccount', account, 'amazon_account'));
     if (companyProduct) entities.push(entity('silverCompanyProduct', companyProduct, 'company_product'));
 
-    const supplier = supplierName ? await this.identity.upsertSupplier({ displayName: supplierName }) : null;
+    const supplier = supplierExternalCode
+      ? await this.identity.upsertSupplierExternalRef({
+          sourceSystem: 'supplier_ids',
+          externalSupplierCode: supplierExternalCode,
+          displayName: supplierName,
+          sourceConnectionId: textValue(bronze.sourceConnectionId),
+          observedAt: textValue(bronze.observedAt),
+          payload: toPlainRecord(bronze.payload),
+        })
+      : null;
     const supplierAccount =
       supplier && company
         ? await this.upsertByFilter(
             ECOBASE_COLLECTIONS.silverSupplierAccounts,
-            { supplierId: idOf(supplier), companyId: idOf(company), accountName: supplierName },
+            { supplierId: idOf(supplier), companyId: idOf(company), accountName: supplierName ?? supplierExternalCode },
             {
               supplierId: idOf(supplier),
               companyId: idOf(company),
-              accountName: supplierName,
+              accountName: supplierName ?? supplierExternalCode,
               orderingMethod: row.string('Ordering Method', 'Order Method'),
               portalUrl: row.string('Portal URL', 'Website'),
               username: row.string('Username', 'Login'),
@@ -150,13 +185,13 @@ export class EcobaseMedallionNormalizationService {
           )
         : null;
     const supplierProduct =
-      supplier && product
+      supplier && supplierProductProduct
         ? await this.identity.upsertSupplierProduct({
             supplierId: idOf(supplier),
-            productId: idOf(product),
-            supplierSku: row.string('Supplier SKU', 'SR ID', 'SR ID '),
+            productId: idOf(supplierProductProduct),
+            supplierSku: row.string('Supplier SKU'),
             unitCost: row.number('COGS', 'PPU', 'Exp. Cost '),
-            leadTimeDays: row.number('Lead time(day)', 'Manuf. time days', 'Lead Time'),
+            leadTimeDays: importedLeadTimeDays,
             analysisStatus: 'imported',
           })
         : null;
@@ -277,6 +312,22 @@ export class EcobaseMedallionNormalizationService {
       const hasOperatorOverride =
         textValue(existingOrder.statusSource) === 'operator' ||
         Boolean(textValue(existingOrder.operatorStatusOverrideAt));
+      const existingOrderSupplierId = textValue(existingOrder.supplierId);
+      const lineHasSupplierProduct = Boolean(
+        companyProduct && supplierProduct && row.number('Qty', 'Ordered') !== undefined,
+      );
+      const rowSupplierId = idOf(supplier);
+      const orderSupplierId =
+        existingOrderSupplierId && lineHasSupplierProduct ? existingOrderSupplierId : rowSupplierId;
+      if (existingOrderSupplierId && existingOrderSupplierId !== rowSupplierId) {
+        await this.markBronzeWarning(
+          bronze,
+          'order_supplier_mismatch',
+          lineHasSupplierProduct
+            ? `Order ${orderRef} kept existing header supplier while line used supplier ${supplierExternalCode}.`
+            : `Order ${orderRef} header supplier changed from previous imported supplier to ${supplierExternalCode}.`,
+        );
+      }
       const importedLifecycle = resolveOrderLifecycle({
         canonicalStatus: textValue(existingOrder.canonicalStatus),
         existingStatusCheckRequired: existingOrder.statusCheckRequired === true,
@@ -295,7 +346,7 @@ export class EcobaseMedallionNormalizationService {
       });
       const order = await this.upsertByFilter(ECOBASE_COLLECTIONS.silverOrders, orderFilter, {
         companyId: idOf(company),
-        supplierId: idOf(supplier),
+        supplierId: orderSupplierId,
         orderRef,
         orderDate: snapshotDate,
         dailySequenceLetter: orderRef,
@@ -374,7 +425,11 @@ export class EcobaseMedallionNormalizationService {
     return entities;
   }
 
-  private async resolveCompanyProductIdentity(params: { companyId: string; productId: string; marketplace?: string }) {
+  private async resolveCompanyProductIdentity(params: {
+    companyId: string;
+    productId: string;
+    marketplace?: string;
+  }): Promise<CompanyProductIdentity> {
     const marketplace = params.marketplace?.trim();
     if (!marketplace) {
       const existing = await this.preferredExistingCompanyProduct(params.companyId, params.productId);
@@ -399,6 +454,56 @@ export class EcobaseMedallionNormalizationService {
       listingStatus: 'listed',
     });
     return { account, companyProduct };
+  }
+
+  private async resolveExistingCompanyProductByAsin(
+    companyId: string,
+    asin: string,
+  ): Promise<CompanyProductIdentity | null> {
+    const products = (await this.repo(ECOBASE_COLLECTIONS.silverProducts).find({ filter: { asin }, limit: 500 }))
+      .map(toPlainRecord)
+      .filter((product) => textValue(product.sku) !== asin);
+    const productById = new Map(products.map((product) => [textValue(product.id), product]));
+    const candidates = (
+      await this.repo(ECOBASE_COLLECTIONS.silverCompanyProducts).find({ filter: { companyId }, limit: 10000 })
+    )
+      .map(toPlainRecord)
+      .filter((companyProduct) => productById.has(textValue(companyProduct.productId)));
+    if (candidates.length === 0) return null;
+    if (candidates.length === 1) return this.companyProductIdentityFromCandidate(candidates[0], productById);
+
+    let best: Record<string, unknown> | undefined;
+    let bestScore = 0;
+    let tied = false;
+    for (const candidate of candidates) {
+      const candidateId = textValue(candidate.id);
+      if (!candidateId) continue;
+      const score = await this.companyProductEvidenceScore(candidateId, textValue(candidate.amazonAccountId));
+      if (score > bestScore) {
+        best = candidate;
+        bestScore = score;
+        tied = false;
+      } else if (score === bestScore) {
+        tied = true;
+      }
+    }
+    if (!best || bestScore === 0 || tied) return null;
+    return this.companyProductIdentityFromCandidate(best, productById);
+  }
+
+  private async companyProductIdentityFromCandidate(
+    companyProduct: Record<string, unknown>,
+    productById: Map<string | undefined, Record<string, unknown>>,
+  ): Promise<CompanyProductIdentity> {
+    const accountId = textValue(companyProduct.amazonAccountId);
+    const account = accountId
+      ? await this.repo(ECOBASE_COLLECTIONS.silverAmazonAccounts).findOne({ filterByTk: accountId })
+      : null;
+    return {
+      account,
+      companyProduct,
+      product: productById.get(textValue(companyProduct.productId)) ?? null,
+    };
   }
 
   private async preferredExistingCompanyProduct(companyId: string, productId: string) {
@@ -497,6 +602,15 @@ export class EcobaseMedallionNormalizationService {
     });
   }
 
+  private async markBronzeWarning(bronze: Record<string, unknown>, issueCode: string, message: string) {
+    const id = textValue(bronze.id);
+    if (!id) return;
+    await this.repo(ECOBASE_COLLECTIONS.bronzeSourceRecords).update({
+      filterByTk: id,
+      values: { issueSeverity: 'warning', issueCode, normalizedError: message },
+    });
+  }
+
   private repo(name: string): EcobaseRepository {
     return this.db.getRepository(name);
   }
@@ -524,6 +638,31 @@ function stringRecord(record: Record<string, unknown>) {
 
 function textValue(value: unknown) {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function parseLeadTimeDays(value: string | undefined) {
+  const text = value?.trim().toLowerCase();
+  if (!text) return undefined;
+  const numeric = Number(text);
+  if (Number.isFinite(numeric)) return validLeadTimeDays(numeric);
+
+  const dayRange = text.match(/^(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\s*(?:business\s*)?days?,?$/);
+  if (dayRange) return validLeadTimeDays(Number(dayRange[2]));
+
+  const weekRange = text.match(/^(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\s*weeks?,?$/);
+  if (weekRange) return validLeadTimeDays(Number(weekRange[2]) * 7);
+
+  const days = text.match(/^(\d+(?:\.\d+)?)\s*(?:business\s*)?days?,?$/);
+  if (days) return validLeadTimeDays(Number(days[1]));
+
+  const weeks = text.match(/^(\d+(?:\.\d+)?)\s*weeks?,?$/);
+  if (weeks) return validLeadTimeDays(Number(weeks[1]) * 7);
+
+  return undefined;
+}
+
+function validLeadTimeDays(value: number) {
+  return value > 0 && value <= 3650 ? value : undefined;
 }
 
 function companyKeyFor(companyName: string) {
