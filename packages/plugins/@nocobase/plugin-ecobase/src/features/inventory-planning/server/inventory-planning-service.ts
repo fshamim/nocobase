@@ -34,6 +34,7 @@ import {
 import { summarizeHistoricalProductFacts, type HistoricalProductMetrics } from './historical-product-metrics';
 
 const FALLBACK_RECORD_LIMIT = 100000;
+type SellerboardCostResolver = Awaited<ReturnType<EcobaseSellerboardCogsService['createResolver']>>;
 
 export type InventoryPlanningActionStatus =
   | 'excluded'
@@ -739,14 +740,13 @@ export class EcobaseInventoryPlanningService {
       );
     }
 
-    const rows = await this.withSellerboardCosts(await this.listRows({ ...query, limit: undefined }));
-    const activeOrderRowsWithActivity = await this.withLatestSupplierOrderActivity(
-      this.commandCenterRowsForPane('activeOrders', rows),
-    );
+    const rows = await this.listRows({ ...query, limit: undefined });
+    const costResolver = rows.length > 0 ? await this.sellerboardCostResolver(rows) : undefined;
     const settings = await new EcobasePlanningSettingsService(this.db).getResolvedSettings(query);
     const calculationDate = asString(rows[0]?.calculationDate) ?? isoDate(query.calculationDate ?? new Date());
     const targetCoverDays = asNumber(rows[0]?.targetCoverDays) ?? settings.targetCoverDays;
     const selectedRow = this.findCommandCenterSelectedRow(rows, query);
+    const selectedRowWithCosts = selectedRow ? this.withSellerboardCosts([selectedRow], costResolver)[0] : undefined;
     return {
       generatedAt: new Date().toISOString(),
       metadata: {
@@ -762,29 +762,31 @@ export class EcobaseInventoryPlanningService {
       summaryCards: this.commandCenterSummaryCards(rows),
       macroRisk: this.commandCenterMacroRisk(rows, calculationDate),
       riskBars: this.commandCenterRiskBars(rows, calculationDate),
-      dailyAlertPreview: this.commandCenterRowsForPane('supplyAction', rows)
-        .slice(0, 5)
-        .map((row) => this.compactCommandCenterRow(row, calculationDate)),
+      dailyAlertPreview: this.withSellerboardCosts(
+        this.commandCenterRowsForPane('supplyAction', rows).slice(0, 5),
+        costResolver,
+      ).map((row) => this.compactCommandCenterRow(row, calculationDate)),
       panes: {
-        supplyAction: this.commandCenterPanePayload('supplyAction', rows, calculationDate, query),
-        activeOrders: this.commandCenterPanePayload(
-          'activeOrders',
-          activeOrderRowsWithActivity,
+        supplyAction: await this.commandCenterPanePayload('supplyAction', rows, calculationDate, query, costResolver),
+        activeOrders: await this.commandCenterPanePayload('activeOrders', rows, calculationDate, query, costResolver),
+        stuckInventory: await this.commandCenterPanePayload(
+          'stuckInventory',
+          rows,
           calculationDate,
           query,
+          costResolver,
         ),
-        stuckInventory: this.commandCenterPanePayload('stuckInventory', rows, calculationDate, query),
       },
-      selectedRow: selectedRow
+      selectedRow: selectedRowWithCosts
         ? {
-            row: this.commandCenterDrawerRow(selectedRow, calculationDate),
+            row: this.commandCenterDrawerRow(selectedRowWithCosts, calculationDate),
             workspace: await this.rowWorkspace({
-              company: asString(selectedRow.company),
-              planningProductId: asString(selectedRow.planningProductId),
-              companyProductId: asString(selectedRow.companyProductId),
-              asin: asString(selectedRow.asin),
-              sku: asString(selectedRow.sku),
-              supplierId: asString(selectedRow.supplierId),
+              company: asString(selectedRowWithCosts.company),
+              planningProductId: asString(selectedRowWithCosts.planningProductId),
+              companyProductId: asString(selectedRowWithCosts.companyProductId),
+              asin: asString(selectedRowWithCosts.asin),
+              sku: asString(selectedRowWithCosts.sku),
+              supplierId: asString(selectedRowWithCosts.supplierId),
               limit: 50,
             }),
           }
@@ -792,13 +794,16 @@ export class EcobaseInventoryPlanningService {
     };
   }
 
-  private async withSellerboardCosts(rows: PlainRecord[]): Promise<PlainRecord[]> {
-    if (rows.length === 0) return rows;
+  private async sellerboardCostResolver(rows: PlainRecord[]): Promise<SellerboardCostResolver> {
     const companies = [
       ...new Set(rows.map((row) => asString(row.company)).filter((company): company is string => Boolean(company))),
     ];
-    const resolver = await new EcobaseSellerboardCogsService(this.db).createResolver(companies);
-    return rows.map((row) => ({ ...row, ...resolver.resolve(row) }));
+    return new EcobaseSellerboardCogsService(this.db).createResolver(companies);
+  }
+
+  private withSellerboardCosts(rows: PlainRecord[], resolver: SellerboardCostResolver | undefined): PlainRecord[] {
+    if (!resolver || rows.length === 0) return rows;
+    return rows.map((row) => ({ ...row, ...resolver.resolve(row) }) as PlainRecord);
   }
 
   async rowWorkspace(query: InventoryPlanningRowWorkspaceQuery) {
@@ -1282,11 +1287,12 @@ export class EcobaseInventoryPlanningService {
     };
   }
 
-  private commandCenterPanePayload(
+  private async commandCenterPanePayload(
     pane: InventoryCommandCenterPane,
     rows: PlainRecord[],
     calculationDate: string,
     query: InventoryPlanningCommandCenterQuery,
+    costResolver: SellerboardCostResolver | undefined,
   ) {
     const page = asPositiveInteger(query.pane === pane ? query.page : undefined, 1, 10000);
     const pageSize = asPositiveInteger(query.pane === pane ? query.pageSize : undefined, 25, 100);
@@ -1301,6 +1307,8 @@ export class EcobaseInventoryPlanningService {
       calculationDate,
     );
     const start = (page - 1) * pageSize;
+    const pageRows = this.withSellerboardCosts(filteredRows.slice(start, start + pageSize), costResolver);
+    const visibleRows = pane === 'activeOrders' ? await this.withLatestSupplierOrderActivity(pageRows) : pageRows;
     return {
       pane,
       page,
@@ -1308,9 +1316,7 @@ export class EcobaseInventoryPlanningService {
       total: filteredRows.length,
       sortBy: sortBy ?? this.defaultCommandCenterSort(pane),
       sortDirection,
-      rows: filteredRows
-        .slice(start, start + pageSize)
-        .map((row) => this.compactCommandCenterRow(row, calculationDate)),
+      rows: visibleRows.map((row) => this.compactCommandCenterRow(row, calculationDate)),
     };
   }
 
@@ -2764,6 +2770,8 @@ export class EcobaseInventoryPlanningService {
   }
 
   private async withLatestSupplierOrderActivity(rows: PlainRecord[]) {
+    if (rows.length === 0) return rows;
+
     const activityRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments);
     const silverOrders = await silverSupplierOrderReadModel(this.db, { limit: 10000 });
     const orderCache = new Map(
@@ -2774,49 +2782,54 @@ export class EcobaseInventoryPlanningService {
         ])
         .filter(([key]) => !key.endsWith(':')),
     );
-    const result: PlainRecord[] = [];
+    const orderByRow = new Map<PlainRecord, PlainRecord>();
+    const supplierOrderIds = new Set<string>();
     for (const row of rows) {
       const company = asString(row.company);
       const ref = asString(row.supplierOrderRef);
-      if (!company || !ref) {
-        result.push(row);
-        continue;
-      }
-      const cacheKey = `${company}:${ref}`;
-      const order = orderCache.get(cacheKey) ?? {};
+      if (!company || !ref) continue;
+      const order = orderCache.get(`${company}:${ref}`) ?? {};
+      orderByRow.set(row, order);
       const supplierOrderId = asString(order.id);
-      const latestActivity = supplierOrderId
-        ? (
-            await this.withActivityAuthors([
-              (await activityRepo.find({ limit: 1000 }))
-                .map(toPlainRecord)
-                .filter(
-                  (activity) =>
-                    !asString(activity.deletedAt) &&
-                    ((asString(activity.entityType) === 'supplier_order' &&
-                      asString(activity.entityId) === supplierOrderId) ||
-                      asString(activity.supplierOrderId) === supplierOrderId),
-                )
-                .sort((left, right) =>
-                  String(
-                    toPlainRecord(right.contextSnapshotJson).occurredAt ??
-                      right.occurredAt ??
-                      right.createdAt ??
-                      right.updatedAt ??
-                      '',
-                  ).localeCompare(
-                    String(
-                      toPlainRecord(left.contextSnapshotJson).occurredAt ??
-                        left.occurredAt ??
-                        left.createdAt ??
-                        left.updatedAt ??
-                        '',
-                    ),
-                  ),
-                )[0] ?? {},
-            ])
-          )[0] ?? {}
-        : {};
+      if (supplierOrderId) supplierOrderIds.add(supplierOrderId);
+    }
+
+    const activitySupplierOrderId = (activity: PlainRecord) =>
+      asString(activity.supplierOrderId) ??
+      (asString(activity.entityType) === 'supplier_order' ? asString(activity.entityId) : undefined);
+    const activityDate = (activity: PlainRecord) =>
+      String(
+        toPlainRecord(activity.contextSnapshotJson).occurredAt ??
+          activity.occurredAt ??
+          activity.createdAt ??
+          activity.updatedAt ??
+          '',
+      );
+    const latestByOrderId = new Map<string, PlainRecord>();
+    const activities = (await activityRepo.find({ limit: 10000 })).map(toPlainRecord);
+    for (const activity of activities) {
+      if (asString(activity.deletedAt)) continue;
+      const supplierOrderId = activitySupplierOrderId(activity);
+      if (!supplierOrderId || !supplierOrderIds.has(supplierOrderId)) continue;
+      const current = latestByOrderId.get(supplierOrderId);
+      if (!current || activityDate(activity).localeCompare(activityDate(current)) > 0) {
+        latestByOrderId.set(supplierOrderId, activity);
+      }
+    }
+    const latestActivities = await this.withActivityAuthors([...latestByOrderId.values()]);
+    const latestWithAuthorsByOrderId = new Map(
+      latestActivities
+        .map((activity): [string, PlainRecord] | undefined => {
+          const supplierOrderId = activitySupplierOrderId(activity);
+          return supplierOrderId ? [supplierOrderId, activity] : undefined;
+        })
+        .filter((entry): entry is [string, PlainRecord] => Boolean(entry)),
+    );
+
+    return rows.map((row) => {
+      const order = orderByRow.get(row) ?? {};
+      const supplierOrderId = asString(order.id);
+      const latestActivity = (supplierOrderId ? latestWithAuthorsByOrderId.get(supplierOrderId) : undefined) ?? {};
       const activityContext = toPlainRecord(latestActivity.contextSnapshotJson);
       const fallbackActivityAt =
         activityContext.occurredAt ??
@@ -2828,7 +2841,7 @@ export class EcobaseInventoryPlanningService {
         order.orderDate ??
         order.updatedAt;
       const fallbackActivityNote = asString(order.status) ? `Order status ${asString(order.status)}` : undefined;
-      result.push({
+      return {
         ...row,
         supplierOrderId,
         latestSupplierOrderActivityType:
@@ -2840,9 +2853,8 @@ export class EcobaseInventoryPlanningService {
         latestSupplierOrderActivityActorDisplayName: asString(latestActivity.actorDisplayName),
         latestSupplierOrderActivityActorEmail: asString(latestActivity.actorEmail),
         latestSupplierOrderActivitySource: asString(activityContext.source),
-      });
-    }
-    return result;
+      };
+    });
   }
 
   private leadTimeFromOrderHistory(

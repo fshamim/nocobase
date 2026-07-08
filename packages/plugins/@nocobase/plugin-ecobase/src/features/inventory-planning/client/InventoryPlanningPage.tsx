@@ -732,6 +732,7 @@ export default function InventoryPlanningPage() {
   const [budgetResult, setBudgetResult] = useState<PlainRecord | null>(null);
   const [budgetLoading, setBudgetLoading] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [rebuildingGold, setRebuildingGold] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const sortedOrderActivities = useMemo(
     () =>
@@ -828,6 +829,7 @@ export default function InventoryPlanningPage() {
 
   const syncEditableRows = useCallback(async () => {
     setLoading(true);
+    setRebuildingGold(true);
     setError(null);
     try {
       await api.request({
@@ -848,6 +850,8 @@ export default function InventoryPlanningPage() {
     } catch (err) {
       setError(err as Error);
       setLoading(false);
+    } finally {
+      setRebuildingGold(false);
     }
   }, [
     api,
@@ -1153,7 +1157,11 @@ export default function InventoryPlanningPage() {
     );
   };
   const renderSuggestedQtyCell = (_value: any, row: PlainRecord) => {
-    const estimatedOrderCost = finiteNumber(row.estimatedOrderCost);
+    const suggestedQty = finiteNumber(row.suggestedReorderQty);
+    const unitCost = finiteNumber(row.unitCost);
+    const estimatedOrderCost =
+      finiteNumber(row.estimatedOrderCost) ??
+      (typeof suggestedQty === 'number' && typeof unitCost === 'number' ? suggestedQty * unitCost : undefined);
     const unitCostStatus = String(row.unitCostStatus ?? 'missing');
     const costText =
       typeof estimatedOrderCost === 'number'
@@ -2123,10 +2131,15 @@ export default function InventoryPlanningPage() {
                   {t('Rules & thresholds')} · {t('Target cover')} {formatNumber(commandMetadata.targetCoverDays)}{' '}
                   {t('days')}
                 </Button>
-                <Button type="primary" loading={loading} onClick={loadPlanning}>
+                <Button
+                  type="primary"
+                  loading={loading && !rebuildingGold}
+                  disabled={rebuildingGold}
+                  onClick={loadPlanning}
+                >
                   {t('Refresh planning')}
                 </Button>
-                <Button loading={loading} onClick={syncEditableRows}>
+                <Button loading={rebuildingGold} disabled={loading && !rebuildingGold} onClick={syncEditableRows}>
                   {t('Rebuild gold inventory')}
                 </Button>
               </Space>
