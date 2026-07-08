@@ -22,4 +22,11 @@ packages/*/*/*/node_modules
 /.idea
 
 *.sqlite
+*.sql
 /uploads
+
+# Local live-gate backups and generated plugin scratch data are not build inputs.
+packages/plugins/@nocobase/plugin-ecobase/tmp
+packages/plugins/@nocobase/plugin-ecobase/tmp/**
+**/live-gate-backups
+**/live-gate-backups/**

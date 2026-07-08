@@ -17,3 +17,14 @@ packages/*/*/node_modules
 
 *.sqlite
 /uploads
+
+.git
+node_modules
+**/node_modules
+storage/tar
+storage/tar/**
+packages/plugins/@nocobase/plugin-ecobase/tmp
+packages/plugins/@nocobase/plugin-ecobase/tmp/**
+**/live-gate-backups
+**/live-gate-backups/**
+*.sql
