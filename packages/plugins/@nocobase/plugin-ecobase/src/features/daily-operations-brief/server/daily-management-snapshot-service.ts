@@ -749,7 +749,7 @@ export class EcobaseDailyManagementSnapshotService {
     return { buyBoxPct7d, conversionRate7d };
   }
 
-  private async silverTrafficRows() {
+  private async silverTrafficRows(): Promise<PlainRecord[]> {
     const [trafficRows, companyProducts, products] = await Promise.all([
       this.db.getRepository(ECOBASE_COLLECTIONS.silverTrafficSnapshots).find({ sort: ['-snapshotDate'], limit: 20000 }),
       this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).find({ limit: 50000 }),
@@ -781,7 +781,7 @@ export class EcobaseDailyManagementSnapshotService {
     );
   }
 
-  private async silverListingRows(company?: string) {
+  private async silverListingRows(company?: string): Promise<PlainRecord[]> {
     const [facts, companyProducts, companies] = await Promise.all([
       this.db
         .getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts)

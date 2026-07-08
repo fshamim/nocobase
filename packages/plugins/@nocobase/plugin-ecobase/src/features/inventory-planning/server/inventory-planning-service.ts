@@ -643,6 +643,7 @@ function recommendedActionForStatus(status: unknown) {
 
 const INVENTORY_PLANNING_ROW_FIELDS = [
   'planningProductId',
+  'companyProductId',
   'calculationDate',
   'company',
   'asin',
@@ -2204,7 +2205,6 @@ export class EcobaseInventoryPlanningService {
     );
     const planningExcluded = isPlanningExcluded(productStatus);
     const leadTimeConfirmedAt =
-      asString(orderHistoryLeadTime.confirmedAt) ??
       orderHistoryDerivedLeadTime.confirmedAt ??
       asString(params.parameter.confirmedAt) ??
       payloadString(params.parameter, ['confirmedAt', 'Lead Time Confirmed At']);
@@ -2431,6 +2431,7 @@ export class EcobaseInventoryPlanningService {
         ? await this.findOrderHistorySupplier({ company, asin, sku })
         : {};
     const leadTime = latestParameter;
+    const supplierLink = latestParameter;
     const orderHistoryLeadTime = this.leadTimeFromOrderHistory(orderLines, supplierOrderById);
     const leadTimeDays =
       asNumber(leadTime.leadTimeDays) ??

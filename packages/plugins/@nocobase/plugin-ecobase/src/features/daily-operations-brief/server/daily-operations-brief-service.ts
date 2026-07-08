@@ -1284,7 +1284,7 @@ export class EcobaseDailyOperationsBriefService {
     );
   }
 
-  private async silverListingFacts(company?: string, limit = 5000) {
+  private async silverListingFacts(company?: string, limit = 5000): Promise<PlainRecord[]> {
     const [facts, companyProducts, products, companies] = await Promise.all([
       this.db.getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts).find({ sort: ['-snapshotDate'], limit }),
       this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).find({ limit: 50000 }),
@@ -1327,7 +1327,7 @@ export class EcobaseDailyOperationsBriefService {
       .filter((row) => !company || asString(row.company) === company);
   }
 
-  private async silverTrafficRows(company?: string, limit = 5000) {
+  private async silverTrafficRows(company?: string, limit = 5000): Promise<PlainRecord[]> {
     const [trafficRows, companyProducts, products, companies] = await Promise.all([
       this.db.getRepository(ECOBASE_COLLECTIONS.silverTrafficSnapshots).find({ sort: ['-snapshotDate'], limit }),
       this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).find({ limit: 50000 }),

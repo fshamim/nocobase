@@ -332,20 +332,6 @@ export class EcobasePlanningProductService {
     if (previousPlanningProductId && previousPlanningProductId !== targetPlanningProductId) {
       await this.refreshProductStatus(previousPlanningProductId);
     }
-    await this.linkFactsToPlanningProduct(
-      {
-        sourceConnectionId: asString(listingPlain.sourceConnectionId) ?? '',
-        company: asString(listingPlain.company) ?? '',
-        canonicalAsin: asString(listingPlain.canonicalAsin) ?? '',
-        asin: asString(listingPlain.asin) ?? asString(listingPlain.canonicalAsin) ?? '',
-        sku: asString(listingPlain.sku),
-        title: asString(listingPlain.title),
-        rawListingNaturalKey,
-        lastImportRunId: asString(listingPlain.lastImportRunId),
-      },
-      targetPlanningProductId,
-    );
-
     return toPlainRecord(
       (await this.db.getRepository(ECOBASE_COLLECTIONS.planningProductListings).findOne({ filterByTk: listingId })) ??
         listing,

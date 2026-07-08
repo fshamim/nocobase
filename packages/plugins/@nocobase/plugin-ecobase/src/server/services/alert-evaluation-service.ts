@@ -385,7 +385,7 @@ export class EcobaseAlertEvaluationService {
     };
   }
 
-  private calculationFromGoldRow(product: PlainRecord) {
+  private calculationFromGoldRow(product: PlainRecord): PlainRecord {
     const actionStatus = asString(product.actionStatus);
     return {
       ...product,
