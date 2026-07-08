@@ -1,0 +1,81 @@
+name: Deploy Ecobase staging
+
+on:
+  push:
+    branches:
+      - ecobase/staging
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ecobase-staging-dokploy
+  cancel-in-progress: false
+
+env:
+  DOKPLOY_STAGING_COMPOSE_ID: aRy6QtSxet6ceV8hoKbhq
+
+jobs:
+  deploy-staging:
+    name: Trigger Dokploy staging deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Confirm staging target
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_NAME}" != "ecobase/staging" ]; then
+            echo "Refusing to deploy non-staging ref: ${GITHUB_REF_NAME}" >&2
+            exit 1
+          fi
+          echo "Deploying Ecobase staging"
+          echo "Branch: ${GITHUB_REF_NAME}"
+          echo "Commit: ${GITHUB_SHA}"
+          echo "Compose: ${DOKPLOY_STAGING_COMPOSE_ID}"
+
+      - name: Trigger Dokploy compose deploy
+        env:
+          DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
+          DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
+        run: |
+          set -euo pipefail
+          : "${DOKPLOY_URL:?GitHub secret DOKPLOY_URL is required}"
+          : "${DOKPLOY_API_KEY:?GitHub secret DOKPLOY_API_KEY is required}"
+
+          base_url="${DOKPLOY_URL%/}"
+          payload="$(jq -nc \
+            --arg composeId "${DOKPLOY_STAGING_COMPOSE_ID}" \
+            --arg title "Deploy staging ${GITHUB_SHA:0:12}" \
+            --arg description "GitHub Actions run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            '{composeId: $composeId, title: $title, description: $description}')"
+          response_file="${RUNNER_TEMP}/dokploy-response.json"
+
+          status_code="$(curl --silent --show-error \
+            --output "${response_file}" \
+            --write-out '%{http_code}' \
+            --request POST "${base_url}/api/compose.deploy" \
+            --header 'Content-Type: application/json' \
+            --header "x-api-key: ${DOKPLOY_API_KEY}" \
+            --data "${payload}")"
+
+          echo "Dokploy HTTP status: ${status_code}"
+          python3 - <<'PY' "${response_file}"
+          import json
+          import sys
+          from pathlib import Path
+
+          path = Path(sys.argv[1])
+          raw = path.read_text().strip()
+          if not raw:
+              print("Dokploy response: <empty>")
+              raise SystemExit(0)
+          try:
+              print("Dokploy response:", json.dumps(json.loads(raw), sort_keys=True))
+          except json.JSONDecodeError:
+              print("Dokploy response:", raw[:1000])
+          PY
+
+          case "${status_code}" in
+            2*) ;;
+            *) echo "Dokploy staging deploy trigger failed" >&2; exit 1 ;;
+          esac
