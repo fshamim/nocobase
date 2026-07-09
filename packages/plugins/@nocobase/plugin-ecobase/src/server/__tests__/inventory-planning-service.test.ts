@@ -120,14 +120,10 @@ async function createSilverOrderRecord(db: MemoryDatabase, values: Record<string
   const companyId = `silver-company:${company}`;
   await upsertRecord(db, ECOBASE_COLLECTIONS.silverCompanies, { id: companyId, name: company });
   if (values.supplierId) {
-    const supplier = db
-      .getRepository(ECOBASE_COLLECTIONS.suppliers)
-      .all()
-      .find((record) => record.id === values.supplierId);
     await upsertRecord(db, ECOBASE_COLLECTIONS.silverSuppliers, {
       id: values.supplierId,
       companyId,
-      displayName: values.supplierName ?? supplier?.name,
+      displayName: values.supplierName,
     });
   }
   await upsertRecord(db, ECOBASE_COLLECTIONS.silverOrders, {
@@ -174,6 +170,7 @@ async function createSilverOrderLineRecord(db: MemoryDatabase, values: Record<st
     productId,
     supplierSku: sku,
     unitCost: values.unitCost,
+    leadTimeDays: values.leadTimeDays ?? 30,
   });
   await upsertRecord(db, ECOBASE_COLLECTIONS.silverOrderLines, {
     id: values.id,
@@ -1688,6 +1685,139 @@ describe('EcobaseInventoryPlanningService', () => {
     expect(row('B000EXACT')).toMatchObject({ unitCost: 4.5, unitCostStatus: 'exact', estimatedOrderCost: 45 });
     expect(row('B000SAFE')).toMatchObject({ unitCost: 7, unitCostStatus: 'asin_same_cost', estimatedOrderCost: 28 });
     expect(row('B000AMBIG')).toMatchObject({ unitCostStatus: 'ambiguous', estimatedOrderCost: undefined });
+  });
+
+  it('routes raw imported order statuses into the active-orders command pane', async () => {
+    const db = new MemoryDatabase();
+    const orderId = '11111111-1111-4111-8111-111111111111';
+    const company = 'Ecofission LLC';
+    const asin = 'B000ACTIVE';
+    const sku = 'ACTIVE-SKU';
+    const companyProductId = `silver-company-product:${company}:${asin}:${sku}`;
+    await createSilverOrderRecord(db, {
+      id: orderId,
+      naturalKey: 'order-active-status',
+      company,
+      supplierId: 'supplier-active',
+      supplierName: 'Active Supplier',
+      externalOrderRef: 'PO-ACTIVE',
+      status: 'ORDERED',
+      expectedDeliveryDate: '2026-07-15',
+    });
+    await createSilverOrderLineRecord(db, {
+      id: '22222222-2222-4222-8222-222222222222',
+      naturalKey: 'line-active-status',
+      company,
+      supplierOrderId: orderId,
+      supplierId: 'supplier-active',
+      asin,
+      sku,
+      orderedQty: 100,
+      receivedQty: 0,
+      unitCost: 4,
+      expectedSellableDate: '2026-07-20',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.silverInventorySnapshots, {
+      id: 'inventory-active-status',
+      companyProductId,
+      snapshotDate: '2026-06-07',
+      sellableStock: 0,
+      reserved: 0,
+      inbound: 0,
+      ordered: 0,
+      prepStock: 0,
+      salesVelocity: 5,
+    });
+    for (const month of ['2025-12', '2026-01', '2026-02', '2026-03', '2026-04', '2026-05']) {
+      await createRecord(db, ECOBASE_COLLECTIONS.silverListingDailyFacts, {
+        id: `fact-active-status-${month}`,
+        companyProductId,
+        snapshotDate: `${month}-15`,
+        units: 300,
+        sales: 3000,
+        netProfit: 900,
+      });
+    }
+
+    const commandCenter = await new EcobaseInventoryPlanningService(db).commandCenter({
+      calculationDate: '2026-06-07',
+      pane: 'activeOrders',
+      pageSize: 10,
+    });
+
+    expect(commandCenter.panes.activeOrders.total).toBe(1);
+    expect(commandCenter.panes.activeOrders.rows[0]).toMatchObject({
+      asin,
+      supplierOrderRef: 'PO-ACTIVE',
+      supplierOrderStatus: 'paid',
+      supplierOrderState: 'purchased_pipeline',
+      openOrderCoverageQty: 100,
+    });
+  });
+
+  it('does not count completed order history as open coverage', async () => {
+    const db = new MemoryDatabase();
+    const orderId = '33333333-3333-4333-8333-333333333333';
+    const company = 'Ecofission LLC';
+    const asin = 'B000CLOSED';
+    const sku = 'CLOSED-SKU';
+    const companyProductId = `silver-company-product:${company}:${asin}:${sku}`;
+    await createSilverOrderRecord(db, {
+      id: orderId,
+      naturalKey: 'order-closed-status',
+      company,
+      supplierId: 'supplier-closed',
+      supplierName: 'Closed Supplier',
+      externalOrderRef: 'PO-CLOSED',
+      status: 'COMPLETE',
+    });
+    await createSilverOrderLineRecord(db, {
+      id: '44444444-4444-4444-8444-444444444444',
+      naturalKey: 'line-closed-status',
+      company,
+      supplierOrderId: orderId,
+      supplierId: 'supplier-closed',
+      asin,
+      sku,
+      orderedQty: 100,
+      receivedQty: 0,
+      unitCost: 4,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.silverInventorySnapshots, {
+      id: 'inventory-closed-status',
+      companyProductId,
+      snapshotDate: '2026-06-07',
+      sellableStock: 0,
+      reserved: 0,
+      inbound: 0,
+      ordered: 0,
+      prepStock: 0,
+      salesVelocity: 5,
+    });
+    for (const month of ['2025-12', '2026-01', '2026-02', '2026-03', '2026-04', '2026-05']) {
+      await createRecord(db, ECOBASE_COLLECTIONS.silverListingDailyFacts, {
+        id: `fact-closed-status-${month}`,
+        companyProductId,
+        snapshotDate: `${month}-15`,
+        units: 300,
+        sales: 3000,
+        netProfit: 900,
+      });
+    }
+
+    await new EcobaseInventoryPlanningService(db).refreshReadModel({ calculationDate: '2026-06-07' });
+    const row = db
+      .getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows)
+      .all()
+      .find((item) => item.asin === asin);
+
+    expect(row).toMatchObject({
+      supplierOrderRef: 'PO-CLOSED',
+      supplierOrderStatus: 'completed',
+      supplierOrderState: 'closed_history',
+      supplierOrderOpenQty: 0,
+      openOrderCoverageQty: 0,
+    });
   });
 
   it('resolves latest active-order comment authors for command-center rows', async () => {

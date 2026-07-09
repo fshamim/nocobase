@@ -32,6 +32,8 @@ type NormalizationRelation = 'created_from' | 'updated_from' | 'confirmed_by';
 type SilverEntity = { type: string; id: string; relation: NormalizationRelation };
 type CompanyProductIdentity = { account: unknown | null; companyProduct: unknown; product?: unknown | null };
 
+const DEFAULT_SUPPLIER_LEAD_TIME_DAYS = 30;
+
 export class EcobaseMedallionNormalizationService {
   private identity: EcobaseMedallionIdentityService;
 
@@ -89,7 +91,7 @@ export class EcobaseMedallionNormalizationService {
         error instanceof Error
           ? error.message
           : 'Ecobase medallion normalization failed: mapper threw a non-Error value.';
-      await this.markBronzeRecord(bronzeId, 'failed');
+      await this.markBronzeFailure(bronzeId, message);
       return { status: 'failed', links: 0, error: message };
     }
   }
@@ -106,10 +108,9 @@ export class EcobaseMedallionNormalizationService {
     const asin = row.string('ASIN', 'ASIN ')?.toUpperCase();
     const sku = row.string('SKU');
     const orderRef = row.string('Order ID');
-    const snapshotDate = dateOnly(row.string('Date', 'Timestamp', 'Order Date') ?? textValue(bronze.observedAt));
+    const snapshotDate = dateOnly(row.string('Timestamp', 'Date', 'Order Date') ?? textValue(bronze.observedAt));
     const marketplace = row.string('Marketplace', 'Market ', 'Amazon Account');
     const leadTimeText = row.string('Lead time(day)', 'Manuf. time days', 'Lead Time');
-    const importedLeadTimeDays = parseLeadTimeDays(leadTimeText);
 
     const company = companyName
       ? await this.identity.upsertCompany({ companyKey: companyKeyFor(companyName), name: companyName })
@@ -141,13 +142,6 @@ export class EcobaseMedallionNormalizationService {
     const account = companyProductIdentity?.account ?? null;
     const companyProduct = companyProductIdentity?.companyProduct ?? null;
     const supplierProductProduct = product ?? companyProductIdentity?.product ?? null;
-    if (supplierExternalCode && leadTimeText && importedLeadTimeDays === undefined) {
-      await this.markBronzeWarning(
-        bronze,
-        'lead_time_unparsed',
-        `Lead time "${leadTimeText}" was not imported for supplier ${supplierExternalCode}; planning will use the 30-day default unless another lead time exists.`,
-      );
-    }
     if (supplierExternalCode && asin && !sku && !companyProductIdentity) {
       await this.markBronzeWarning(
         bronze,
@@ -184,6 +178,8 @@ export class EcobaseMedallionNormalizationService {
             },
           )
         : null;
+    const supplierProductLeadTime =
+      supplier && supplierProductProduct ? leadTimeDaysForSilver(leadTimeText, supplierExternalCode) : undefined;
     const supplierProduct =
       supplier && supplierProductProduct
         ? await this.identity.upsertSupplierProduct({
@@ -191,7 +187,8 @@ export class EcobaseMedallionNormalizationService {
             productId: idOf(supplierProductProduct),
             supplierSku: row.string('Supplier SKU'),
             unitCost: row.number('COGS', 'PPU', 'Exp. Cost '),
-            leadTimeDays: importedLeadTimeDays,
+            leadTimeDays: supplierProductLeadTime?.days,
+            leadTimeIsDefault: supplierProductLeadTime?.isDefault,
             analysisStatus: 'imported',
           })
         : null;
@@ -368,7 +365,12 @@ export class EcobaseMedallionNormalizationService {
       entities.push(entity('silverOrder', order, 'order'));
 
       if (companyProduct && supplierProduct && row.number('Qty', 'Ordered') !== undefined) {
-        const expectedSellableDate = expectedSellableDateFor(row);
+        const expectedSellableDate = await this.optionalDateOnlyWarning(
+          bronze,
+          expectedSellableDateTextFor(row),
+          'expected_sellable_date_unparsed',
+          'expected sellable date',
+        );
         entities.push(
           entity(
             'silverOrderLine',
@@ -399,6 +401,12 @@ export class EcobaseMedallionNormalizationService {
       const invoiceNumber = row.string('Invoice Number', 'Invoice No');
       const invoiceStatus = row.string('Invoice Status') ?? row.string('Payment Status', 'Payment Status ');
       if (invoiceNumber || invoiceStatus) {
+        const paidAt = await this.optionalDateOnlyWarning(
+          bronze,
+          row.string('Date of Payment'),
+          'invoice_paid_date_unparsed',
+          'invoice paid date',
+        );
         entities.push(
           entity(
             'silverInvoice',
@@ -413,7 +421,7 @@ export class EcobaseMedallionNormalizationService {
                 invoiceNumber: invoiceNumber ?? `${orderRef}:imported`,
                 invoiceType: 'normal',
                 status: invoiceStatus ?? 'imported',
-                paidAt: row.string('Date of Payment') ? dateOnly(row.string('Date of Payment')) : undefined,
+                paidAt,
               },
             ),
             'invoice',
@@ -602,6 +610,35 @@ export class EcobaseMedallionNormalizationService {
     });
   }
 
+  private async optionalDateOnlyWarning(
+    bronze: Record<string, unknown>,
+    value: string | undefined,
+    issueCode: string,
+    label: string,
+  ) {
+    if (!value) return undefined;
+    try {
+      return dateOnly(value);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'date parser threw a non-Error value';
+      await this.markBronzeWarning(bronze, issueCode, `Optional ${label} "${value}" was not imported: ${message}`);
+      return undefined;
+    }
+  }
+
+  private async markBronzeFailure(id: string, message: string) {
+    await this.repo(ECOBASE_COLLECTIONS.bronzeSourceRecords).update({
+      filterByTk: id,
+      values: {
+        normalizationStatus: 'failed',
+        issueSeverity: 'error',
+        issueCode: 'normalization_failed',
+        normalizedError: message,
+        normalizedAt: new Date().toISOString(),
+      },
+    });
+  }
+
   private async markBronzeWarning(bronze: Record<string, unknown>, issueCode: string, message: string) {
     const id = textValue(bronze.id);
     if (!id) return;
@@ -637,7 +674,21 @@ function stringRecord(record: Record<string, unknown>) {
 }
 
 function textValue(value: unknown) {
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+  if (typeof value === 'string' && value.trim()) return value.trim();
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString();
+  return undefined;
+}
+
+function leadTimeDaysForSilver(value: string | undefined, supplierExternalCode: string | undefined) {
+  const text = value?.trim();
+  const parsed = parseLeadTimeDays(text);
+  if (typeof parsed === 'number') return { days: parsed, isDefault: false };
+  if (!text || isUnavailableLeadTimeText(text)) return { days: DEFAULT_SUPPLIER_LEAD_TIME_DAYS, isDefault: true };
+  throw new Error(
+    `Ecobase medallion normalization failed: lead time "${text}" for supplier ${
+      supplierExternalCode ?? 'unknown'
+    } is not a supported lead-time value.`,
+  );
 }
 
 function parseLeadTimeDays(value: string | undefined) {
@@ -646,19 +697,32 @@ function parseLeadTimeDays(value: string | undefined) {
   const numeric = Number(text);
   if (Number.isFinite(numeric)) return validLeadTimeDays(numeric);
 
-  const dayRange = text.match(/^(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\s*(?:business\s*)?days?,?$/);
+  const dayRange = text.match(/^(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\s*(?:business|busines)?\s*days?\b/);
   if (dayRange) return validLeadTimeDays(Number(dayRange[2]));
 
-  const weekRange = text.match(/^(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\s*weeks?,?$/);
+  const weekRange = text.match(/^(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\s*weeks?\b/);
   if (weekRange) return validLeadTimeDays(Number(weekRange[2]) * 7);
 
-  const days = text.match(/^(\d+(?:\.\d+)?)\s*(?:business\s*)?days?,?$/);
+  const days = text.match(/^(\d+(?:\.\d+)?)\s*(?:business|busines)?\s*days?\b/);
   if (days) return validLeadTimeDays(Number(days[1]));
 
-  const weeks = text.match(/^(\d+(?:\.\d+)?)\s*weeks?,?$/);
+  const weeks = text.match(/^(\d+(?:\.\d+)?)\s*weeks?\b/);
   if (weeks) return validLeadTimeDays(Number(weeks[1]) * 7);
 
   return undefined;
+}
+
+function isUnavailableLeadTimeText(value: string) {
+  const text = value.trim().toLowerCase();
+  return (
+    !/\d/.test(text) ||
+    text.startsWith('oos') ||
+    text.includes('waiting for supplier') ||
+    text.includes('restricted') ||
+    text.includes('no long allowed') ||
+    text.includes('not allowed') ||
+    text.includes('amazon allow')
+  );
 }
 
 function validLeadTimeDays(value: number) {
@@ -682,27 +746,32 @@ function hasAnyNumber(row: CsvRowReader, ...headers: string[]) {
   return headers.some((header) => row.number(header) !== undefined);
 }
 
-function expectedSellableDateFor(row: CsvRowReader) {
-  return optionalDateOnly(
-    row.string('Expected Sellable Date') ?? row.string('ETA on Amazon') ?? row.string('Arrival to Amazon'),
-  );
-}
-
-function optionalDateOnly(value: string | undefined) {
-  return value ? dateOnly(value) : undefined;
+function expectedSellableDateTextFor(row: CsvRowReader) {
+  return row.string('Expected Sellable Date') ?? row.string('ETA on Amazon') ?? row.string('Arrival to Amazon');
 }
 
 function dateOnly(value: string | undefined) {
-  if (!value) return new Date().toISOString().slice(0, 10);
-  const trimmed = value.trim();
+  const trimmed = value?.trim();
+  if (!trimmed) throw new Error('Ecobase medallion normalization failed: date value is missing.');
   const slashDate = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(trimmed);
   if (slashDate) {
     const first = Number(slashDate[1]);
     const second = Number(slashDate[2]);
     const day = second > 12 ? slashDate[2] : slashDate[1];
     const month = first > 12 ? slashDate[2] : second > 12 ? slashDate[1] : slashDate[2];
-    return `${slashDate[3]}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+    return validDateOnly(`${slashDate[3]}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`, trimmed);
   }
   const parsed = new Date(trimmed);
-  return Number.isNaN(parsed.getTime()) ? new Date().toISOString().slice(0, 10) : parsed.toISOString().slice(0, 10);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error(`Ecobase medallion normalization failed: date "${trimmed}" is not supported.`);
+  }
+  return validDateOnly(parsed.toISOString().slice(0, 10), trimmed);
+}
+
+function validDateOnly(value: string, source: string) {
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) {
+    throw new Error(`Ecobase medallion normalization failed: date "${source}" is not a valid calendar date.`);
+  }
+  return value;
 }

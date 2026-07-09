@@ -14,7 +14,10 @@ import {
   EcobaseSupplierOrderService,
   normalizeSupplierOrderStatus,
 } from '../../supplier-management/server/supplier-order-service';
-import { silverSupplierOrderReadModel } from '../../supplier-management/server/silver-supplier-order-read-model';
+import {
+  silverOrderStatus,
+  silverSupplierOrderReadModel,
+} from '../../supplier-management/server/silver-supplier-order-read-model';
 import { toPlainRecord } from '../../source-import/server/import-service';
 import { EcobaseSellerboardCogsService } from '../../source-import/server/sellerboard-cogs-service';
 import { EcobaseSilverDataService } from '../../semantic-model/server/silver-data-service';
@@ -488,15 +491,13 @@ function summarizeSupplierOrderState(
         : historySelected
           ? { line: historySelected.line, order: historySelected.order }
           : undefined;
+  const currentOpenQty = purchasedOpenQty > 0 ? purchasedOpenQty : placedNotPurchasedOpenQty;
   return {
     supplierOrderState: state,
     supplierOrderStatus: reference?.order ? supplierCoverageStatus(reference.order, rules) : undefined,
     supplierOrderRef: asString(reference?.order.externalOrderRef) ?? asString(reference?.order.id),
     expectedSellableDate: asString(reference?.line.expectedSellableDate),
-    supplierOrderOpenQty:
-      asNumber(reference?.line.orderedQty) !== undefined
-        ? Math.max((asNumber(reference?.line.orderedQty) ?? 0) - (asNumber(reference?.line.receivedQty) ?? 0), 0)
-        : undefined,
+    supplierOrderOpenQty: currentOpenQty,
     supplierOrderPurchasedOpenQty: purchasedOpenQty,
     supplierOrderPlacedNotPurchasedOpenQty: placedNotPurchasedOpenQty,
   };
@@ -955,7 +956,7 @@ export class EcobaseInventoryPlanningService {
         asString(order.id),
         {
           ...order,
-          status: asString(order.canonicalStatus) ?? asString(order.lifecycleStatus),
+          status: silverOrderStatus(order),
           externalOrderRef: asString(order.orderRef),
         },
       ]),
@@ -1001,6 +1002,13 @@ export class EcobaseInventoryPlanningService {
       const supplierProduct = toPlainRecord(supplierContext?.supplierProduct);
       const supplier = toPlainRecord(supplierContext?.supplier);
       const leadTimeDays = asNumber(supplierProduct.leadTimeDays);
+      if (supplierContext && typeof leadTimeDays !== 'number') {
+        throw new Error(
+          `Ecobase inventory planning failed: silver supplier product ${
+            asString(supplierProduct.id) ?? 'unknown'
+          } is missing leadTimeDays.`,
+        );
+      }
       const leadTimeFreshness = typeof leadTimeDays === 'number' ? 'fresh' : 'missing';
       const openOrder = summarizeSupplierOrderState(
         linesByCompanyProduct.get(companyProductId) ?? [],

@@ -72,6 +72,7 @@ export interface UpsertSupplierProductParams {
   moq?: number;
   supplierPackSize?: number;
   leadTimeDays?: number;
+  leadTimeIsDefault?: boolean;
   prepCapability?: string;
   analysisStatus?: string;
 }
@@ -287,10 +288,19 @@ export class EcobaseMedallionIdentityService {
   async upsertSupplierProduct(params: UpsertSupplierProductParams) {
     await this.requireRecord(ECOBASE_COLLECTIONS.silverSuppliers, params.supplierId, 'supplier');
     await this.requireRecord(ECOBASE_COLLECTIONS.silverProducts, params.productId, 'product');
-    return this.upsertByFilter(ECOBASE_COLLECTIONS.silverSupplierProducts, {
-      filter: { supplierId: params.supplierId, productId: params.productId },
-      values: { ...params },
-    });
+    const { leadTimeIsDefault, ...values } = params;
+    const repo = this.repo(ECOBASE_COLLECTIONS.silverSupplierProducts);
+    const filter = { supplierId: params.supplierId, productId: params.productId };
+    const existing = await repo.findOne({ filter });
+    const existingLeadTimeDays = toPlainRecord(existing).leadTimeDays;
+    if (existing && leadTimeIsDefault && typeof existingLeadTimeDays === 'number') {
+      delete values.leadTimeDays;
+    }
+    if (existing) {
+      await repo.update({ filterByTk: idOf(existing), values: valuesForUpdate(values) });
+      return this.findRequired(repo, idOf(existing), ECOBASE_COLLECTIONS.silverSupplierProducts);
+    }
+    return repo.create({ values: { id: randomUUID(), ...valuesForUpdate(values) } });
   }
 
   async upsertCompanyProductSupplier(params: UpsertCompanyProductSupplierParams) {

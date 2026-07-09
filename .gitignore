@@ -79,3 +79,4 @@ openspec/
 /skills
 /skills-lock.json
 tmp/
+.local/
