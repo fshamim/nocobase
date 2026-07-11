@@ -25,6 +25,14 @@ export default defineCollection({
       onDelete: 'CASCADE',
     },
     {
+      name: 'companyProductFamily',
+      type: 'belongsTo',
+      target: ECOBASE_COLLECTIONS.silverCompanyProductFamilies,
+      foreignKey: 'companyProductFamilyId',
+      targetKey: 'id',
+      onDelete: 'SET NULL',
+    },
+    {
       name: 'product',
       type: 'belongsTo',
       target: ECOBASE_COLLECTIONS.silverProducts,
@@ -38,7 +46,7 @@ export default defineCollection({
   indexes: [
     {
       unique: true,
-      fields: ['amazonAccountId', 'productId'],
+      fields: ['companyId', 'amazonAccountId', 'productId'],
     },
   ],
 });

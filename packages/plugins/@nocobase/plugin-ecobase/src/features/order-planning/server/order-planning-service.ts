@@ -10,6 +10,11 @@ import {
   type OrderLifecycleStatus,
 } from './order-lifecycle';
 import { isProfitTier, profitTierRank } from '../../inventory-planning/server/profit-tier';
+import {
+  clickupOrderOperationalStatus,
+  lifecycleStatusForOperationalStatus,
+  normalizeOrderOperationalStatus,
+} from '../order-operational-status';
 
 type PlainRecord = Record<string, unknown>;
 
@@ -38,8 +43,11 @@ export interface OrderPlanningRow {
   lifecycleStatus?: string;
   canonicalStatus?: OrderLifecycleStatus;
   currentStatus?: string;
+  operationalStatus?: string;
+  clickupStatus?: string;
   statusSource?: string;
   statusCheckRequired?: boolean;
+  statusDiscrepancy?: boolean;
   statusEvidence?: PlainRecord;
   tier?: string;
   tierRank?: number;
@@ -304,6 +312,24 @@ function statusEvidence(order: PlainRecord): PlainRecord {
   return recordValue(order.statusEvidenceJson);
 }
 
+function clickupOperationalStatus(order: PlainRecord) {
+  return text(recordValue(statusEvidence(order).clickupStatusImport).clickupStatus);
+}
+
+function operatorOperationalStatus(order: PlainRecord) {
+  return text(recordValue(statusEvidence(order).operatorOperationalStatus).status);
+}
+
+function displayOperationalStatus(order: PlainRecord, fallback?: string) {
+  const operatorOverride = text(order.statusSource) === 'operator' || Boolean(text(order.operatorStatusOverrideAt));
+  return (
+    (operatorOverride ? operatorOperationalStatus(order) : undefined) ??
+    clickupOperationalStatus(order) ??
+    text(order.lifecycleStatus) ??
+    fallback
+  );
+}
+
 function joinedText(values: unknown[]) {
   const joined = values
     .map((value) => text(value))
@@ -401,8 +427,11 @@ function goldOrderPlanningRowFromRecord(record: PlainRecord): OrderPlanningRow {
     lifecycleStatus: canonicalStatus ?? text(record.lifecycleStatus),
     canonicalStatus,
     currentStatus: canonicalStatus ?? text(record.currentStatus),
+    operationalStatus: text(record.operationalStatus) ?? canonicalStatus ?? text(record.currentStatus),
+    clickupStatus: text(record.clickupStatus),
     statusSource: text(record.statusSource),
     statusCheckRequired: record.statusCheckRequired === true,
+    statusDiscrepancy: record.statusDiscrepancy === true,
     statusEvidence: recordValue(record.statusEvidenceJson),
     tier,
     tierRank: tiered ? tierRank(tier) : numberValue(record.tierRank),
@@ -457,8 +486,11 @@ function goldOrderPlanningRowValues(
     lifecycleStatus: row.lifecycleStatus,
     canonicalStatus: row.canonicalStatus,
     currentStatus: row.currentStatus,
+    operationalStatus: row.operationalStatus,
+    clickupStatus: row.clickupStatus,
     statusSource: row.statusSource,
     statusCheckRequired: row.statusCheckRequired,
+    statusDiscrepancy: row.statusDiscrepancy,
     statusEvidenceJson: row.statusEvidence ?? {},
     tier: row.tier,
     tierRank: row.tierRank,
@@ -498,11 +530,13 @@ function cleanEditableValues(values: PlainRecord, allowed: Set<string>) {
   for (const [key, value] of Object.entries(values)) {
     if (value === undefined) continue;
     if (key === 'lifecycleStatus' || key === 'canonicalStatus') {
+      const operationalStatus = clickupOrderOperationalStatus(value);
       const status =
         value === null || value === ''
           ? null
-          : requireOrderLifecycleStatus(value, 'Ecobase Order Planning update failed');
-      cleaned.lifecycleStatus = status;
+          : lifecycleStatusForOperationalStatus(operationalStatus) ??
+            requireOrderLifecycleStatus(value, 'Ecobase Order Planning update failed');
+      cleaned.lifecycleStatus = operationalStatus ?? status;
       cleaned.canonicalStatus = status;
       continue;
     }
@@ -785,14 +819,33 @@ export class EcobaseOrderPlanningService {
 
   async updateOrder(params: UpdateOrderPlanningOrderParams): Promise<OrderPlanningDetail> {
     const order = await this.requireRecord(ECOBASE_COLLECTIONS.silverOrders, params.orderId, 'order');
+    const requestedStatus = params.values?.lifecycleStatus ?? params.values?.canonicalStatus;
     const values = cleanEditableValues(params.values ?? {}, ORDER_EDITABLE_FIELDS);
-    const previousStatus = currentStatus(order);
-    const nextStatus = text(values.canonicalStatus) ?? text(values.lifecycleStatus);
-    const statusChanged = Boolean(nextStatus && nextStatus !== previousStatus);
-    if (statusChanged) {
+    const previousStatus = displayOperationalStatus(order, currentStatus(order)) ?? 'unknown';
+    const nextStatus =
+      requestedStatus === undefined ? undefined : text(values.lifecycleStatus) ?? text(values.canonicalStatus);
+    const nextCanonicalStatus = text(values.canonicalStatus);
+    const statusChanged = Boolean(
+      nextStatus &&
+        (normalizeOrderOperationalStatus(nextStatus) !== normalizeOrderOperationalStatus(previousStatus) ||
+          nextCanonicalStatus !== currentStatus(order)),
+    );
+    if (statusChanged && nextStatus) {
+      const now = new Date().toISOString();
+      const clickupStatus = clickupOperationalStatus(order);
+      const statusDiscrepancy = Boolean(
+        clickupStatus && normalizeOrderOperationalStatus(clickupStatus) !== normalizeOrderOperationalStatus(nextStatus),
+      );
       values.statusSource = 'operator';
-      values.statusCheckRequired = false;
-      values.operatorStatusOverrideAt = new Date().toISOString();
+      values.statusCheckRequired = statusDiscrepancy;
+      values.operatorStatusOverrideAt = now;
+      values.statusEvidenceJson = {
+        ...statusEvidence(order),
+        operatorOperationalStatus: { status: nextStatus, selectedAt: now, actorUserId: params.actorUserId },
+        clickupStatusDiscrepancy: statusDiscrepancy
+          ? { operatorStatus: nextStatus, clickupStatus, detectedAt: now }
+          : null,
+      };
       if (params.actorUserId) values.operatorStatusOverrideByUserId = params.actorUserId;
     }
     if (Object.keys(values).length) {
@@ -806,7 +859,12 @@ export class EcobaseOrderPlanningService {
         entityId: params.orderId,
         body: commentBody,
         actorUserId: params.actorUserId,
-        snapshot: { previousOrderRef: text(order.orderRef), previousStatus, nextStatus },
+        snapshot: {
+          previousOrderRef: text(order.orderRef),
+          previousStatus,
+          nextStatus,
+          nextCanonicalStatus,
+        },
       });
     }
     if (!Object.keys(values).length && !commentBody) {
@@ -920,13 +978,23 @@ export class EcobaseOrderPlanningService {
     const silverRisk = params.lines.reduce((sum, line) => sum + positiveNumber(line.expectedProfit), 0);
     const earliestOosDate = minDate(params.goldRows.map((row) => dateOnly(row.estimatedOosDate)));
     const lastActivityAt = maxDate([
-      ...params.comments.map((comment) => dateOnly(comment.createdAt) ?? dateOnly(comment.updatedAt)),
+      ...params.comments.map(
+        (comment) => dateOnly(comment.occurredAt) ?? dateOnly(comment.createdAt) ?? dateOnly(comment.updatedAt),
+      ),
       dateOnly(params.order.updatedAt),
       dateOnly(params.order.createdAt),
       orderDate,
     ]);
     const latestComment = this.latestComment(params.comments) ?? text(params.order.remarks);
     const evidence = statusEvidence(params.order);
+    const importedClickupStatus = clickupOperationalStatus(params.order);
+    const operationalStatus = displayOperationalStatus(params.order);
+    const operatorStatus = operatorOperationalStatus(params.order);
+    const statusDiscrepancy = Boolean(
+      operatorStatus &&
+        importedClickupStatus &&
+        normalizeOrderOperationalStatus(operatorStatus) !== normalizeOrderOperationalStatus(importedClickupStatus),
+    );
     const invoiceStatus = joinedText([evidence.invoiceStatus, ...params.invoices.map((invoice) => invoice.status)]);
     const lifecycle = resolveOrderLifecycle({
       canonicalStatus: text(params.order.canonicalStatus),
@@ -968,6 +1036,8 @@ export class EcobaseOrderPlanningService {
       text(params.supplier?.displayName) ?? text(params.supplier?.normalizedName),
       orderRef,
       lifecycle.canonicalStatus,
+      operationalStatus,
+      importedClickupStatus,
       latestComment,
       text(params.order.remarks),
       ...params.detailLines.flatMap((line) => [line.asin, line.sku, line.title, line.brand]),
@@ -985,9 +1055,13 @@ export class EcobaseOrderPlanningService {
       lifecycleStatus: lifecycle.canonicalStatus,
       canonicalStatus: lifecycle.canonicalStatus,
       currentStatus: lifecycle.canonicalStatus,
+      operationalStatus: operationalStatus ?? lifecycle.canonicalStatus,
+      clickupStatus: importedClickupStatus,
       statusSource: lifecycle.statusSource,
-      statusCheckRequired: lifecycle.statusCheckRequired,
-      statusEvidence: lifecycle.statusEvidence,
+      statusCheckRequired:
+        lifecycle.statusCheckRequired || statusDiscrepancy || params.order.statusCheckRequired === true,
+      statusDiscrepancy,
+      statusEvidence: { ...evidence, ...lifecycle.statusEvidence },
       tier,
       tierRank: tierRank(tier),
       nextAction: text(params.order.nextAction),
@@ -1110,24 +1184,47 @@ export class EcobaseOrderPlanningService {
     );
   }
 
-  private async loadByIds(collection: string, ids: Array<string | undefined>): Promise<Map<string, PlainRecord>> {
-    const uniqueIds = [...new Set(ids.filter((id): id is string => Boolean(id)))];
+  private async loadByIds(
+    collection: string,
+    ids: Array<string | number | undefined>,
+  ): Promise<Map<string, PlainRecord>> {
+    const uniqueIds = [...new Set(ids.filter((id): id is string | number => id !== undefined && id !== ''))];
     if (!uniqueIds.length) return new Map<string, PlainRecord>();
     const rows = (
       await this.repo(collection).find({ filter: { id: { $in: uniqueIds } }, limit: Math.max(uniqueIds.length, 500) })
     ).map(toPlainRecord);
-    const entries = rows
-      .map((row): [string, PlainRecord] => [text(row.id) ?? '', row])
-      .filter(([id]) => Boolean(id));
+    const entries = rows.map((row): [string, PlainRecord] => [String(row.id ?? ''), row]).filter(([id]) => Boolean(id));
     return new Map<string, PlainRecord>(entries);
   }
 
   private async loadComments(orderIds: string[], lineIds: string[]) {
-    const wanted = new Set([...orderIds, ...lineIds]);
-    if (!wanted.size) return [];
-    return (await this.repo(ECOBASE_COLLECTIONS.silverActivityComments).find({ limit: 5000 }))
+    const wanted = [...new Set([...orderIds, ...lineIds])];
+    if (!wanted.length) return [];
+    const comments = (
+      await this.repo(ECOBASE_COLLECTIONS.silverActivityComments).find({
+        filter: { entityId: { $in: wanted } },
+        limit: 20000,
+      })
+    )
       .map(toPlainRecord)
-      .filter((comment) => !comment.deletedAt && wanted.has(text(comment.entityId) ?? ''));
+      .filter((comment) => !comment.deletedAt);
+    const users = await this.loadByIds(
+      'users',
+      comments.map((comment) =>
+        typeof comment.actorUserId === 'string' || typeof comment.actorUserId === 'number'
+          ? comment.actorUserId
+          : undefined,
+      ),
+    );
+    return comments.map((comment): PlainRecord => {
+      const user = users.get(String(comment.actorUserId ?? ''));
+      return {
+        ...comment,
+        actorDisplayName:
+          text(comment.actorDisplayName) ?? text(user?.nickname) ?? text(user?.username) ?? text(user?.email),
+        actorEmail: text(comment.actorEmail) ?? text(user?.email),
+      };
+    });
   }
 
   private commentBelongsToOrder(comment: PlainRecord, orderId: string, lines: PlainRecord[]) {
@@ -1211,7 +1308,11 @@ export class EcobaseOrderPlanningService {
   private latestComment(comments: PlainRecord[]) {
     const latest = [...comments]
       .filter((comment) => text(comment.body))
-      .sort((left, right) => (dateTime(right.createdAt) ?? '').localeCompare(dateTime(left.createdAt) ?? ''))[0];
+      .sort((left, right) =>
+        (dateTime(right.occurredAt ?? right.createdAt) ?? '').localeCompare(
+          dateTime(left.occurredAt ?? left.createdAt) ?? '',
+        ),
+      )[0];
     return text(latest?.body);
   }
 

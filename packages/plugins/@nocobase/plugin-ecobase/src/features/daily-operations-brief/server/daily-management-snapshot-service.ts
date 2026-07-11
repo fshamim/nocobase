@@ -63,7 +63,6 @@ type KpiDefinition = {
   explanation: string;
 };
 
-const ACTIVE_INVENTORY_ACTIONS = new Set(['overdue', 'order_today', 'order_soon', 'missing_lead_time']);
 const PURCHASED_SUPPLIER_STATES = new Set(['purchased_pipeline']);
 const PERIOD_DAYS: Record<KpiPeriod, number> = { yesterday: 1, '7d': 7, '30d': 30 };
 
@@ -584,9 +583,8 @@ export class EcobaseDailyManagementSnapshotService {
     const trafficMetrics = await this.trafficMetrics(params.snapshotDate, params.company);
     const dataWarnings = evidenceWarnings(params.evidencePack);
     const sourceStatus = evidenceSourceStatus(params.evidencePack);
-    const activeRiskRows = inventoryRows.filter((row) =>
-      ACTIVE_INVENTORY_ACTIONS.has(asString(row.actionStatus) ?? ''),
-    );
+    const supplyActionRows = inventoryRows.filter((row) => asString(row.commandCenterPane) === 'supplyAction');
+    const planningRows = inventoryRows.filter((row) => asString(row.commandCenterPane) !== 'duplicateProducts');
     const sevenDaysOut = dateAdd(params.snapshotDate, 7);
     const staleOrders = orderRows.filter(
       (row) =>
@@ -605,7 +603,7 @@ export class EcobaseDailyManagementSnapshotService {
     const snapshotPayload = {
       metricSources: {
         inventoryRows: inventoryRows.length,
-        activeRiskRows: activeRiskRows.length,
+        supplyActionRows: supplyActionRows.length,
         orderRows: orderRows.length,
         supplierAttentionRows: supplierAttentionRows.length,
         dataWarnings: dataWarnings.length,
@@ -621,24 +619,24 @@ export class EcobaseDailyManagementSnapshotService {
       companyScope: params.companyScope,
       reportRunId: params.reportRunId,
       generatedAt: new Date().toISOString(),
-      inventoryMoneyAtRisk: sum(activeRiskRows, 'estimatedProfitRisk'),
-      urgentInventorySkuCount: activeRiskRows.length,
-      overdueInventorySkuCount: count(activeRiskRows, (row) => asString(row.actionStatus) === 'overdue'),
-      aTierInventoryRiskCount: count(activeRiskRows, (row) => asString(row.tier) === 'A'),
-      next7DayOosSkuCount: count(activeRiskRows, (row) =>
+      inventoryMoneyAtRisk: sum(planningRows, 'estimatedProfitRisk'),
+      urgentInventorySkuCount: supplyActionRows.length,
+      overdueInventorySkuCount: count(supplyActionRows, (row) => asString(row.actionStatus) === 'overdue'),
+      aTierInventoryRiskCount: count(supplyActionRows, (row) => asString(row.tier) === 'A'),
+      next7DayOosSkuCount: count(supplyActionRows, (row) =>
         Boolean(dateOnly(row.estimatedOosDate) && dateOnly(row.estimatedOosDate)! <= sevenDaysOut),
       ),
-      earliestOosDate: minDate(activeRiskRows, ['estimatedOosDate']),
-      weightedDaysOfCover: weightedAverage(activeRiskRows, 'daysOfCover', 'estimatedProfitRisk'),
+      earliestOosDate: minDate(supplyActionRows, ['estimatedOosDate']),
+      weightedDaysOfCover: weightedAverage(supplyActionRows, 'daysOfCover', 'estimatedProfitRisk'),
       untrustedCoverageSkuCount: count(
-        activeRiskRows,
+        supplyActionRows,
         (row) => !PURCHASED_SUPPLIER_STATES.has(asString(row.supplierOrderState) ?? ''),
       ),
       missingLeadTimeCount: count(
-        activeRiskRows,
+        supplyActionRows,
         (row) => asString(row.leadTimeFreshness) === 'missing' || asString(row.actionStatus) === 'missing_lead_time',
       ),
-      staleLeadTimeCount: count(activeRiskRows, (row) => asString(row.leadTimeFreshness) === 'stale'),
+      staleLeadTimeCount: count(supplyActionRows, (row) => asString(row.leadTimeFreshness) === 'stale'),
       orderMoneyAtRisk: sum(orderRows, 'moneyAtRisk'),
       ordersNeedingCheck: count(orderRows, (row) => asBoolean(row.statusCheckRequired)),
       staleOrderCount: staleOrders.length,
@@ -649,10 +647,10 @@ export class EcobaseDailyManagementSnapshotService {
       staleSourceCount: sourceStatus.filter(sourceIsStale).length,
       fallbackMappingCount:
         dataWarnings.filter(fallbackWarning).length +
-        count(activeRiskRows, (row) =>
+        count(supplyActionRows, (row) =>
           ['fallback_or_inferred', 'missing'].includes(asString(row.supplierEvidenceState) ?? ''),
         ),
-      todayActionCount: activeRiskRows.length + orderRows.length + taskRiskCount,
+      todayActionCount: supplyActionRows.length + orderRows.length + taskRiskCount,
       buyBoxRiskCount: Array.isArray(params.evidencePack?.buyBoxRisks) ? params.evidencePack.buyBoxRisks.length : 0,
       performanceTrendCount: Array.isArray(params.evidencePack?.performanceTrends)
         ? params.evidencePack.performanceTrends.length

@@ -19,6 +19,13 @@ export interface HistoricalProductMetrics {
   sixMonthBestQty?: number;
   profitPerUnit?: number;
   margin?: number;
+  windowStartDate: string;
+  windowEndDate: string;
+  asOfDate?: string;
+  availableMonthCount: number;
+  recentUnits30?: number;
+  recentWindowStartDate?: string;
+  recentWindowEndDate?: string;
 }
 
 type PlainRecord = Record<string, unknown>;
@@ -61,6 +68,7 @@ export function sixCompleteMonths(calculationDate: string) {
 export function summarizeHistoricalProductFacts(
   facts: PlainRecord[],
   calculationDate: string,
+  recentAsOfDate?: string,
 ): HistoricalProductMetrics {
   const window = sixCompleteMonths(calculationDate);
   const monthlyUnits: Record<string, number> = {};
@@ -68,6 +76,7 @@ export function summarizeHistoricalProductFacts(
   let units = 0;
   let profit = 0;
   let refunds = 0;
+  let asOfDate: string | undefined;
 
   for (const fact of facts) {
     const snapshotDate = asString(fact.snapshotDate);
@@ -79,6 +88,7 @@ export function summarizeHistoricalProductFacts(
     units += factUnits;
     profit += asNumber(fact.netProfit) ?? asNumber(fact.profit) ?? 0;
     refunds += asNumber(fact.refunds) ?? 0;
+    if (!asOfDate || snapshotDate > asOfDate) asOfDate = snapshotDate;
   }
 
   const availableMonthlyUnits = window.months
@@ -88,6 +98,18 @@ export function summarizeHistoricalProductFacts(
     availableMonthlyUnits.length > 0
       ? availableMonthlyUnits.reduce((total, value) => total + value, 0) / availableMonthlyUnits.length
       : undefined;
+  const recentWindowEndDate = recentAsOfDate && recentAsOfDate <= calculationDate ? recentAsOfDate : undefined;
+  const recentWindowStartDate = recentWindowEndDate ? new Date(`${recentWindowEndDate}T00:00:00.000Z`) : undefined;
+  if (recentWindowStartDate) recentWindowStartDate.setUTCDate(recentWindowStartDate.getUTCDate() - 29);
+  const recentWindowStart = recentWindowStartDate?.toISOString().slice(0, 10);
+  const recentUnits30 = recentWindowStart
+    ? facts.reduce((total, fact) => {
+        const snapshotDate = asString(fact.snapshotDate);
+        return snapshotDate && snapshotDate >= recentWindowStart && snapshotDate <= recentWindowEndDate
+          ? total + (asNumber(fact.units) ?? 0)
+          : total;
+      }, 0)
+    : undefined;
 
   return {
     sales,
@@ -101,5 +123,12 @@ export function summarizeHistoricalProductFacts(
     sixMonthBestQty: availableMonthlyUnits.length > 0 ? Math.max(...availableMonthlyUnits) : undefined,
     profitPerUnit: units > 0 ? profit / units : undefined,
     margin: sales > 0 ? (profit / sales) * 100 : undefined,
+    windowStartDate: window.startDate,
+    windowEndDate: window.endDate,
+    asOfDate,
+    availableMonthCount: availableMonthlyUnits.length,
+    recentUnits30,
+    recentWindowStartDate: recentWindowStart,
+    recentWindowEndDate,
   };
 }

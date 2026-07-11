@@ -315,6 +315,26 @@ describe('EcobaseOrderPlanningService', () => {
     ]);
   });
 
+  it('shows the linked NocoBase user and source occurrence date on imported comments', async () => {
+    const db = new FakeDatabase();
+    await seed(db);
+    await db.getRepository('users').create({
+      values: { id: 201, email: 'nauman.ecofission@gmail.com', nickname: 'Ahmed Nauman' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).update({
+      filterByTk: 'comment-1',
+      values: { actorUserId: 201, occurredAt: '2026-06-22T11:00:00.000Z' },
+    });
+
+    const detail = await new EcobaseOrderPlanningService(db).getOrderDetail('order-1');
+
+    expect(detail.comments[0]).toMatchObject({
+      actorDisplayName: 'Ahmed Nauman',
+      actorEmail: 'nauman.ecofission@gmail.com',
+      occurredAt: '2026-06-22T11:00:00.000Z',
+    });
+  });
+
   it('covers MX6426A by resolving Google Sheets completed latest order to ORDERED with status check', async () => {
     const db = new FakeDatabase();
     await seed(db);
@@ -470,6 +490,75 @@ describe('EcobaseOrderPlanningService', () => {
       body: 'Status changed from In Progress to INBOUND MONITORING.',
     });
     expect(detail.order.currentStatus).toBe('INBOUND MONITORING');
+  });
+
+  it('keeps the exact operator status while using a stable lifecycle status for rules', async () => {
+    const db = new FakeDatabase();
+    await seed(db);
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).update({
+      filterByTk: 'order-1',
+      values: {
+        statusEvidenceJson: {
+          clickupStatusImport: { clickupStatus: 'inbound-monitoring', mappedStatus: 'shipped_inbound' },
+        },
+      },
+    });
+
+    const detail = await new EcobaseOrderPlanningService(db).updateOrder({
+      orderId: 'order-1',
+      values: { lifecycleStatus: 'hold' },
+      actorUserId: 'user-1',
+    });
+
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows.find((row) => row.id === 'order-1')).toMatchObject({
+      lifecycleStatus: 'hold',
+      canonicalStatus: 'IN-PROGRESS',
+      statusSource: 'operator',
+      statusCheckRequired: true,
+      statusEvidenceJson: {
+        operatorOperationalStatus: { status: 'hold', actorUserId: 'user-1' },
+        clickupStatusDiscrepancy: { operatorStatus: 'hold', clickupStatus: 'inbound-monitoring' },
+      },
+    });
+    expect(detail.order).toMatchObject({
+      operationalStatus: 'hold',
+      currentStatus: 'IN-PROGRESS',
+      clickupStatus: 'inbound-monitoring',
+      statusDiscrepancy: true,
+      statusCheckRequired: true,
+    });
+  });
+
+  it('keeps exact ClickUp status in the Gold read model', async () => {
+    const db = new FakeDatabase();
+    await seed(db);
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).update({
+      filterByTk: 'order-1',
+      values: {
+        canonicalStatus: 'shipped_inbound',
+        lifecycleStatus: 'inbound-monitoring',
+        statusSource: 'clickup_csv',
+        statusEvidenceJson: {
+          clickupStatusImport: { clickupStatus: 'inbound-monitoring', mappedStatus: 'shipped_inbound' },
+        },
+      },
+    });
+
+    const result = await new EcobaseOrderPlanningService(db).refreshReadModel({ companyId: 'company-1' });
+
+    expect(result.rows.find((row) => row.id === 'order-1')).toMatchObject({
+      operationalStatus: 'inbound-monitoring',
+      currentStatus: 'INBOUND MONITORING',
+      clickupStatus: 'inbound-monitoring',
+      statusDiscrepancy: false,
+    });
+    expect(
+      db.getRepository(ECOBASE_COLLECTIONS.goldOrderPlanningRows).rows.find((row) => row.id === 'order-1'),
+    ).toMatchObject({
+      operationalStatus: 'inbound-monitoring',
+      currentStatus: 'INBOUND MONITORING',
+      clickupStatus: 'inbound-monitoring',
+    });
   });
 
   it('updates invoice status and appends an order audit comment', async () => {

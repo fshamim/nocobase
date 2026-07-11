@@ -77,6 +77,29 @@ async function seedBronze(db: FakeDatabase, payload: Record<string, unknown>, ov
   });
 }
 
+async function seedOrderPrerequisites(db: FakeDatabase, detail: Record<string, unknown>) {
+  const company = String(detail.Company);
+  const supplierCode = String(detail['SR ID']);
+  const supplierName = String(detail.Supplier);
+  const orderRef = String(detail['Order ID']);
+  const timestamp = detail.Timestamp ?? '01/06/2026';
+  await seedBronze(
+    db,
+    { 'SR ID': supplierCode, 'Supplier Name': supplierName, 'Reached Via': company },
+    { sourceDataset: 'Supplier Analysis Tracker.csv' },
+  );
+  await seedBronze(
+    db,
+    { 'Order ID': orderRef, Timestamp: timestamp, Company: company, 'SR ID': supplierCode, Supplier: supplierName },
+    { sourceDataset: 'Purchase Orders.csv' },
+  );
+}
+
+async function seedOrderBundle(db: FakeDatabase, detail: Record<string, unknown>) {
+  await seedOrderPrerequisites(db, detail);
+  return seedBronze(db, detail, { sourceDataset: 'OrderDetails.csv' });
+}
+
 describe('EcobaseMedallionNormalizationService', () => {
   it('normalizes product inventory rows into silver identity and fact tables', async () => {
     const db = new FakeDatabase();
@@ -108,6 +131,34 @@ describe('EcobaseMedallionNormalizationService', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverNormalizationLinks).rows[0].relation).toBe('created_from');
   });
 
+  it('normalizes Sellerboard history units and sales as channel totals', async () => {
+    const db = new FakeDatabase();
+    await seedBronze(db, {
+      Company: 'Ecofission LLC',
+      ASIN: 'B00TOTALS',
+      SKU: 'TOTAL-SKU',
+      Marketplace: 'Amazon.com',
+      SalesOrganic: '100',
+      SalesPPC: '20',
+      SalesSponsoredProducts: '30',
+      SalesSponsoredDisplay: '5',
+      UnitsOrganic: '8',
+      UnitsPPC: '2',
+      UnitsSponsoredProducts: '3',
+      UnitsSponsoredDisplay: '1',
+      NetProfit: '70',
+    });
+
+    const result = await new EcobaseMedallionNormalizationService(db).normalizePending();
+
+    expect(result).toMatchObject({ normalized: 1, failed: 0 });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts).rows[0]).toMatchObject({
+      sales: 155,
+      units: 14,
+      profit: 70,
+    });
+  });
+
   it('links missing-marketplace order details to the existing Sellerboard company product', async () => {
     const db = new FakeDatabase();
     await seedBronze(db, {
@@ -119,21 +170,17 @@ describe('EcobaseMedallionNormalizationService', () => {
       SalesOrganic: '100',
       UnitsOrganic: '8',
     });
-    await seedBronze(
-      db,
-      {
-        'Order ID': 'EF-ORDER-1',
-        Timestamp: '10/07/2023 08:00:00',
-        Company: 'Ecofission LLC',
-        'SR ID': 'SRO-200',
-        Supplier: 'Beta Supply',
-        ASIN: 'B00PUSNY5A',
-        SKU: 'W101',
-        Qty: '60',
-        PPU: '1.25',
-      },
-      { sourceDataset: 'OrderDetails.csv' },
-    );
+    await seedOrderBundle(db, {
+      'Order ID': 'EF-ORDER-1',
+      Timestamp: '10/07/2023 08:00:00',
+      Company: 'Ecofission LLC',
+      'SR ID': 'SRO-200',
+      Supplier: 'Beta Supply',
+      ASIN: 'B00PUSNY5A',
+      SKU: 'W101',
+      Qty: '60',
+      PPU: '1.25',
+    });
 
     const result = await new EcobaseMedallionNormalizationService(db).normalizePending();
 
@@ -150,32 +197,88 @@ describe('EcobaseMedallionNormalizationService', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[0].companyProductId).toBe(companyProducts[0].id);
   });
 
-  it('normalizes order detail rows into silver orders and lines', async () => {
+  it('normalizes Purchase Orders headers before OrderDetails regardless of bronze row order', async () => {
+    const db = new FakeDatabase();
+    const detail = {
+      'Order ID': 'EF1000A',
+      Timestamp: '10/07/2023 08:00:00',
+      Company: 'Ecofission LLC',
+      'SR ID': 'SRO-200',
+      Supplier: 'Ordered Supply',
+      ASIN: 'B0057XUD02',
+      SKU: 'V-651-A',
+      Qty: '2',
+    };
+    await seedBronze(
+      db,
+      { 'SR ID': 'SRO-200', 'Supplier Name': 'Ordered Supply', 'Reached Via': 'Ecofission LLC' },
+      { sourceDataset: 'Supplier Analysis Tracker.csv' },
+    );
+    await seedBronze(db, detail, { sourceDataset: 'OrderDetails.csv' });
+    await seedBronze(
+      db,
+      {
+        'Order ID': detail['Order ID'],
+        Timestamp: detail.Timestamp,
+        Company: detail.Company,
+        'SR ID': detail['SR ID'],
+        Supplier: detail.Supplier,
+      },
+      { sourceDataset: 'Purchase Orders.csv' },
+    );
+
+    const result = await new EcobaseMedallionNormalizationService(db).normalizePending();
+
+    expect(result).toMatchObject({ normalized: 3, failed: 0 });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows).toHaveLength(1);
+  });
+
+  it('ignores order rows whose SR ID was not established by Supplier Management', async () => {
     const db = new FakeDatabase();
     await seedBronze(
       db,
       {
-        'Order ID': 'OD-NEW',
-        Timestamp: '10/07/2023 08:00:00',
+        'Order ID': 'EF1000B',
         Company: 'Ecofission LLC',
-        'SR ID': 'SRO-201',
-        Supplier: 'Beta Supply',
-        ASIN: 'B0057XUD02',
-        SKU: 'V-651-A',
-        Qty: '60',
-        PPU: '1.25',
-        'Order type': 'New',
-        'Lead time(day)': '12',
-        'T.Profit': '240',
+        'SR ID': 'SRO-MISSING',
+        Supplier: 'Missing Supplier',
       },
-      { sourceDataset: 'OrderDetails.csv' },
+      { sourceDataset: 'Purchase Orders.csv' },
     );
+
+    const result = await new EcobaseMedallionNormalizationService(db).normalizePending();
+
+    expect(result).toMatchObject({ ignored: 1, failed: 0 });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows).toHaveLength(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).rows[0]).toMatchObject({
+      normalizationStatus: 'ignored',
+      issueCode: 'order_supplier_not_established',
+    });
+  });
+
+  it('normalizes order detail rows into silver orders and lines', async () => {
+    const db = new FakeDatabase();
+    await seedOrderBundle(db, {
+      'Order ID': 'EF1001A',
+      Timestamp: '10/07/2023 08:00:00',
+      Company: 'Ecofission LLC',
+      'SR ID': 'SRO-201',
+      Supplier: 'Beta Supply',
+      ASIN: 'B0057XUD02',
+      SKU: 'V-651-A',
+      Qty: '60',
+      PPU: '1.25',
+      'Order type': 'New',
+      'Lead time(day)': '12',
+      'T.Profit': '240',
+    });
 
     const result = await new EcobaseMedallionNormalizationService(db).normalizePending();
 
     expect(result.failed).toBe(0);
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[0]).toMatchObject({
-      orderRef: 'OD-NEW',
+      orderRef: 'EF1001A',
       orderDate: '2023-07-10',
       lifecyclePhase: 'imported',
     });
@@ -186,8 +289,43 @@ describe('EcobaseMedallionNormalizationService', () => {
     });
   });
 
+  it('uses UPC as the order-detail SKU when SKU is blank', async () => {
+    const db = new FakeDatabase();
+    await seedOrderBundle(db, {
+      'Order ID': 'SS21424D',
+      Timestamp: '14/02/2024 20:00:13',
+      Company: 'Stop Shop LLC',
+      'SR ID': 'SRO-6770',
+      Supplier: 'Lake Industries',
+      ASIN: 'B01DAYLVYG',
+      UPC: '13189438670',
+      SKU: '',
+      Qty: '75',
+      PPU: '23.8',
+    });
+
+    const result = await new EcobaseMedallionNormalizationService(db).normalizePending();
+
+    expect(result.failed).toBe(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).rows[0]).toMatchObject({
+      asin: 'B01DAYLVYG',
+      sku: '13189438670',
+    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[0]).toMatchObject({
+      orderedQty: 75,
+      unitCost: 23.8,
+    });
+  });
+
   it('keeps expected sellable dates in silver without falling back to legacy supplier order lines', async () => {
     const db = new FakeDatabase();
+    await seedOrderPrerequisites(db, {
+      'Order ID': 'MX2626C',
+      Timestamp: '06/02/2026',
+      Company: 'Muxtex INC',
+      'SR ID': 'SRO-202',
+      Supplier: 'Discount Pond Supply',
+    });
     await seedBronze(
       db,
       {
@@ -241,7 +379,16 @@ describe('EcobaseMedallionNormalizationService', () => {
     expect(result.failed).toBe(0);
     const lines = db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows;
     expect(lines).toEqual(
-      expect.arrayContaining([expect.objectContaining({ orderedQty: 3, expectedSellableDate: '2026-03-02' })]),
+      expect.arrayContaining([
+        expect.objectContaining({
+          orderedQty: 3,
+          expectedSellableDate: '2026-03-02',
+          expectedArrivalDate: '2026-03-02',
+          expectedArrivalStatus: 'imported',
+          expectedArrivalSource: 'Pre-Order Sheet.csv:expected_sellable_date',
+          expectedArrivalConfidence: 'authoritative',
+        }),
+      ]),
     );
     expect(lines.find((line) => line.orderedQty === 1)).not.toHaveProperty('expectedSellableDate');
   });
@@ -299,6 +446,61 @@ describe('EcobaseMedallionNormalizationService', () => {
       expect.objectContaining({ normalizedExternalSupplierCode: 'SRO-9095' }),
     ]);
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).rows).toHaveLength(2);
+  });
+
+  it('ignores incomplete and unsupported order rows at the normalization boundary', async () => {
+    const db = new FakeDatabase();
+    await seedBronze(
+      db,
+      {
+        'Order ID': 'USA-OTHER-1',
+        Company: 'Ecofission LLC',
+        'SR ID': 'SRO-1',
+        Supplier: 'Supplier',
+        ASIN: 'B000000001',
+        SKU: 'SKU-1',
+        Qty: '2',
+      },
+      { sourceDataset: 'OrderDetails.csv' },
+    );
+    await seedBronze(
+      db,
+      {
+        'Order ID': 'EF1001A',
+        Company: 'Ecofission LLC',
+        Supplier: 'Supplier',
+        ASIN: 'B000000001',
+        SKU: 'SKU-1',
+        Qty: '2',
+      },
+      { sourceDataset: 'OrderDetails.csv' },
+    );
+
+    const result = await new EcobaseMedallionNormalizationService(db).normalizePending();
+
+    expect(result).toMatchObject({ ignored: 2, failed: 0 });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows).toHaveLength(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows).toHaveLength(0);
+  });
+
+  it('registers an authoritative supplier SR ID without inventing company linkage', async () => {
+    const db = new FakeDatabase();
+    await seedBronze(
+      db,
+      { 'SR ID': 'SRO-UNASSIGNED', 'Supplier Name': 'Unassigned Supplier' },
+      { sourceDataset: 'Supplier Analysis Tracker.csv' },
+    );
+
+    const result = await new EcobaseMedallionNormalizationService(db).normalizePending();
+
+    expect(result).toMatchObject({ normalized: 1, failed: 0 });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).rows).toEqual([
+      expect.objectContaining({ displayName: 'Unassigned Supplier' }),
+    ]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSupplierExternalRefs).rows).toEqual([
+      expect.objectContaining({ normalizedExternalSupplierCode: 'SRO-UNASSIGNED' }),
+    ]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSupplierAccounts).rows).toHaveLength(0);
   });
 
   it('imports supplier lead-time ranges and defaults unavailable lead-time text', async () => {
@@ -437,8 +639,68 @@ describe('EcobaseMedallionNormalizationService', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).rows).toHaveLength(1);
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).rows[0]).toMatchObject({ sku: '2-Pack' });
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).rows).toHaveLength(1);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductSuppliers).rows).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductSuppliers).rows).toEqual([
+      expect.objectContaining({ role: 'candidate' }),
+    ]);
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).rows[0]).not.toHaveProperty('supplierSku');
+  });
+
+  it('keeps Supplier Management identity authoritative when order rows reuse the supplier code', async () => {
+    const db = new FakeDatabase();
+    await seedBronze(db, {
+      Company: 'Muxtex INC',
+      ASIN: 'B007DOLLAR',
+      SKU: 'DOLLAR-SKU',
+      'FBA/FBM Stock': '10',
+    });
+    await seedBronze(
+      db,
+      {
+        'SR ID': 'SRO-67',
+        'Supplier Name': '7Dollar',
+        ASIN: 'B007DOLLAR',
+        'Reached Via': 'Muxtex INC',
+      },
+      { sourceDataset: 'Supplier Analysis Tracker.csv' },
+    );
+    await seedBronze(
+      db,
+      {
+        'Order ID': 'MX-1',
+        Timestamp: '02/01/2026',
+        Company: 'Muxtex INC',
+        'SR ID': 'SRO-67',
+        Supplier: '7dollar order alias',
+      },
+      { sourceDataset: 'Purchase Orders.csv' },
+    );
+    await seedBronze(
+      db,
+      {
+        'Order ID': 'MX-1',
+        Timestamp: '02/01/2026',
+        Company: 'Muxtex INC',
+        'SR ID': 'SRO-67',
+        Supplier: '7dollar order alias',
+        ASIN: 'B007DOLLAR',
+        SKU: 'DOLLAR-SKU',
+        Qty: '2',
+      },
+      { sourceDataset: 'OrderDetails.csv' },
+    );
+
+    const result = await new EcobaseMedallionNormalizationService(db).normalizePending();
+
+    expect(result.failed).toBe(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).rows).toEqual([
+      expect.objectContaining({ displayName: '7Dollar', normalizedName: '7dollar' }),
+    ]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductSuppliers).rows).toEqual([
+      expect.objectContaining({
+        role: 'candidate',
+        lastUsedAt: '2026-01-02T00:00:00.000Z',
+      }),
+    ]);
   });
 
   it('does not link supplier tracker rows to old ASIN-as-SKU duplicate products', async () => {
@@ -472,12 +734,66 @@ describe('EcobaseMedallionNormalizationService', () => {
     });
   });
 
-  it('keeps order header supplier while using detail supplier for mismatched order lines', async () => {
+  it('keeps ClickUp status above later Purchase Orders status inference', async () => {
     const db = new FakeDatabase();
     await seedBronze(
       db,
+      { 'SR ID': 'SRO-CLICKUP', 'Supplier Name': 'ClickUp Supplier', 'Reached Via': 'Ecofission LLC' },
+      { sourceDataset: 'Supplier Analysis Tracker.csv' },
+    );
+    await seedBronze(
+      db,
       {
-        'Order ID': 'PO-1',
+        'Order ID': 'EF-CLICKUP-1',
+        Company: 'Ecofission LLC',
+        'SR ID': 'SRO-CLICKUP',
+        Supplier: 'ClickUp Supplier',
+        'Order status': 'ORDERED',
+      },
+      { sourceDataset: 'Purchase Orders.csv' },
+    );
+    const service = new EcobaseMedallionNormalizationService(db);
+    await service.normalizePending();
+    const order = db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[0];
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).update({
+      filterByTk: order.id as string,
+      values: {
+        canonicalStatus: 'shipped_inbound',
+        lifecycleStatus: 'shipped_inbound',
+        statusSource: 'clickup_csv',
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).update({
+      filterByTk: 'bronze-2',
+      values: { normalizationStatus: 'pending' },
+    });
+
+    const result = await service.normalizePending();
+
+    expect(result.failed).toBe(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[0]).toMatchObject({
+      canonicalStatus: 'shipped_inbound',
+      lifecycleStatus: 'shipped_inbound',
+      statusSource: 'clickup_csv',
+    });
+  });
+
+  it('rejects OrderDetails suppliers that disagree with the Purchase Orders header', async () => {
+    const db = new FakeDatabase();
+    await seedBronze(
+      db,
+      { 'SR ID': 'SRO-H', 'Supplier Name': 'Header Supply', 'Reached Via': 'Ecofission LLC' },
+      { sourceDataset: 'Supplier Analysis Tracker.csv' },
+    );
+    await seedBronze(
+      db,
+      { 'SR ID': 'SRO-L', 'Supplier Name': 'Line Supply', 'Reached Via': 'Ecofission LLC' },
+      { sourceDataset: 'Supplier Analysis Tracker.csv' },
+    );
+    await seedBronze(
+      db,
+      {
+        'Order ID': 'EF2001A',
         Company: 'Ecofission LLC',
         'SR ID': 'SRO-H',
         Supplier: 'Header Supply',
@@ -488,7 +804,7 @@ describe('EcobaseMedallionNormalizationService', () => {
     await seedBronze(
       db,
       {
-        'Order ID': 'PO-1',
+        'Order ID': 'EF2001A',
         Company: 'Ecofission LLC',
         'SR ID': 'SRO-L',
         Supplier: 'Line Supply',
@@ -502,27 +818,179 @@ describe('EcobaseMedallionNormalizationService', () => {
 
     const result = await new EcobaseMedallionNormalizationService(db).normalizePending();
 
-    expect(result.failed).toBe(0);
-    const headerSupplier = db
-      .getRepository(ECOBASE_COLLECTIONS.silverSuppliers)
-      .rows.find((supplier) => supplier.displayName === 'Header Supply');
-    const lineSupplierRef = db
-      .getRepository(ECOBASE_COLLECTIONS.silverSupplierExternalRefs)
-      .rows.find((ref) => ref.normalizedExternalSupplierCode === 'SRO-L');
-    const line = db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[0];
-    const lineSupplierProduct = db
-      .getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts)
-      .rows.find((supplierProduct) => supplierProduct.id === line.supplierProductId);
+    expect(result).toMatchObject({ normalized: 3, failed: 1 });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows).toHaveLength(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).rows[3]).toMatchObject({
+      normalizationStatus: 'failed',
+      normalizedError: expect.stringMatching(/supplier conflicts/),
+    });
+  });
 
-    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[0]).toMatchObject({
-      orderRef: 'PO-1',
-      supplierId: headerSupplier?.id,
+  it('ignores OrderDetails rows whose company disagrees with the supported order prefix', async () => {
+    const db = new FakeDatabase();
+    await seedOrderPrerequisites(db, {
+      'Order ID': 'EF-COMPANY-1',
+      Company: 'Ecofission LLC',
+      'SR ID': 'SRO-COMPANY',
+      Supplier: 'Company Supplier',
     });
-    expect(lineSupplierProduct).toMatchObject({ supplierId: lineSupplierRef?.supplierId });
-    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).rows[1]).toMatchObject({
-      issueSeverity: 'warning',
-      issueCode: 'order_supplier_mismatch',
+    await seedBronze(
+      db,
+      {
+        'Order ID': 'EF-COMPANY-1',
+        Company: 'Muxtex INC',
+        'SR ID': 'SRO-COMPANY',
+        Supplier: 'Company Supplier',
+        ASIN: 'B00COMPANY',
+        SKU: 'COMPANY-SKU',
+        Qty: '2',
+      },
+      { sourceDataset: 'OrderDetails.csv' },
+    );
+
+    const result = await new EcobaseMedallionNormalizationService(db).normalizePending();
+
+    expect(result).toMatchObject({ normalized: 2, ignored: 1, failed: 0 });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).rows).toHaveLength(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows).toHaveLength(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).rows[2]).toMatchObject({
+      normalizationStatus: 'ignored',
     });
+  });
+
+  it('resolves ASIN-only OrderDetails only when one company product is supported', async () => {
+    const db = new FakeDatabase();
+    await seedBronze(db, {
+      Company: 'Stop Shop LLC',
+      ASIN: 'B00UNIQUE',
+      SKU: 'UNIQUE-SKU',
+      Marketplace: 'Amazon.com',
+      'FBA/FBM Stock': '5',
+    });
+    await seedOrderBundle(db, {
+      'Order ID': 'SS-UNIQUE-1',
+      Company: 'Stop Shop LLC',
+      'SR ID': 'SRO-UNIQUE',
+      Supplier: 'Unique Supplier',
+      ASIN: 'B00UNIQUE',
+      Qty: '3',
+    });
+
+    const result = await new EcobaseMedallionNormalizationService(db).normalizePending();
+
+    expect(result.failed).toBe(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).rows).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows).toEqual([
+      expect.objectContaining({
+        companyProductId: db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).rows[0].id,
+        orderedQty: 3,
+      }),
+    ]);
+  });
+
+  it('rejects tied ASIN-only OrderDetails without creating a line', async () => {
+    const db = new FakeDatabase();
+    await seedBronze(db, {
+      Company: 'Stop Shop LLC',
+      ASIN: 'B00TIED',
+      SKU: 'TIED-A',
+      Marketplace: 'Amazon.com',
+      'FBA/FBM Stock': '5',
+    });
+    await seedBronze(db, {
+      Company: 'Stop Shop LLC',
+      ASIN: 'B00TIED',
+      SKU: 'TIED-B',
+      Marketplace: 'Amazon.com',
+      'FBA/FBM Stock': '4',
+    });
+    await seedOrderBundle(db, {
+      'Order ID': 'SS-TIED-1',
+      Company: 'Stop Shop LLC',
+      'SR ID': 'SRO-TIED',
+      Supplier: 'Tied Supplier',
+      ASIN: 'B00TIED',
+      Qty: '3',
+    });
+
+    const result = await new EcobaseMedallionNormalizationService(db).normalizePending();
+
+    expect(result).toMatchObject({ normalized: 4, failed: 1 });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).rows).toHaveLength(2);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows).toHaveLength(0);
+    expect(result.errors[0]).toMatch(/no unique company product for ASIN-only resolution/);
+  });
+
+  it('deduplicates equivalent source lines and preserves non-equivalent repeated product lines', async () => {
+    const db = new FakeDatabase();
+    const detail = {
+      'Order ID': 'EF-DUP-1',
+      Company: 'Ecofission LLC',
+      'SR ID': 'SRO-DUP',
+      Supplier: 'Duplicate Supplier',
+      ASIN: 'B00DUPLINE',
+      SKU: 'DUP-SKU',
+      Qty: '2',
+    };
+    await seedOrderPrerequisites(db, detail);
+    const sourceRecordKey = 'OrderDetails.csv:EF-DUP-1:B00DUPLINE:DUP-SKU';
+    await seedBronze(db, detail, { sourceDataset: 'OrderDetails.csv', sourceRecordKey, rowHash: 'hash-a' });
+    await seedBronze(
+      db,
+      { ...detail, Qty: '3' },
+      { sourceDataset: 'OrderDetails.csv', sourceRecordKey, rowHash: 'hash-b' },
+    );
+    await seedBronze(db, detail, { sourceDataset: 'OrderDetails.csv', sourceRecordKey, rowHash: 'hash-a' });
+
+    const result = await new EcobaseMedallionNormalizationService(db).normalizePending();
+
+    expect(result.failed).toBe(0);
+    const lines = db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows;
+    expect(lines).toHaveLength(2);
+    expect(lines.map((line) => line.orderedQty).sort()).toEqual([2, 3]);
+    expect(new Set(lines.map((line) => line.sourceLineKey))).toHaveProperty('size', 2);
+    expect(
+      db
+        .getRepository(ECOBASE_COLLECTIONS.silverNormalizationLinks)
+        .rows.filter((link) => link.silverEntityType === 'silverOrderLine'),
+    ).toHaveLength(3);
+  });
+
+  it('preserves same-ASIN SKU aliases as distinct order lines', async () => {
+    const db = new FakeDatabase();
+    const firstLine = {
+      'Order ID': 'EF-ALIAS-1',
+      Company: 'Ecofission LLC',
+      'SR ID': 'SRO-ALIAS',
+      Supplier: 'Alias Supplier',
+      ASIN: 'B00ALIAS',
+      SKU: 'ALIAS-A',
+      Qty: '2',
+    };
+    await seedOrderPrerequisites(db, firstLine);
+    await seedBronze(db, firstLine, {
+      sourceDataset: 'OrderDetails.csv',
+      sourceRecordKey: 'OrderDetails.csv:EF-ALIAS-1:B00ALIAS:ALIAS-A',
+      rowHash: 'alias-a',
+    });
+    await seedBronze(
+      db,
+      { ...firstLine, SKU: 'ALIAS-B', Qty: '4' },
+      {
+        sourceDataset: 'OrderDetails.csv',
+        sourceRecordKey: 'OrderDetails.csv:EF-ALIAS-1:B00ALIAS:ALIAS-B',
+        rowHash: 'alias-b',
+      },
+    );
+
+    const result = await new EcobaseMedallionNormalizationService(db).normalizePending();
+
+    expect(result.failed).toBe(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).rows).toHaveLength(2);
+    const lines = db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows;
+    expect(lines).toHaveLength(2);
+    expect(new Set(lines.map((line) => line.companyProductId)).size).toBe(2);
   });
 
   it('does not guess ASIN-only supplier tracker links when company products are ambiguous', async () => {
@@ -566,7 +1034,7 @@ describe('EcobaseMedallionNormalizationService', () => {
 
   it('prefers row timestamp over bad generic date cells and warns on optional invoice paid dates', async () => {
     const db = new FakeDatabase();
-    await seedBronze(db, {
+    await seedOrderBundle(db, {
       Company: 'Ecofission LLC',
       ASIN: 'B00DATETS',
       SKU: 'DATE-TS',
@@ -575,7 +1043,7 @@ describe('EcobaseMedallionNormalizationService', () => {
       'FBA/FBM Stock': '4',
       'SR ID': 'SRO-DATE',
       Supplier: 'Date Supplier',
-      'Order ID': 'OD-BAD-DATE',
+      'Order ID': 'EF3001A',
       Qty: '2',
       'Invoice No': 'INV-BAD-DATE',
       'Date of Payment': '#REF!',
@@ -588,7 +1056,7 @@ describe('EcobaseMedallionNormalizationService', () => {
       snapshotDate: '2023-06-17',
     });
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverInvoices).rows[0]).not.toHaveProperty('paidAt');
-    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).rows[0]).toMatchObject({
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).rows[2]).toMatchObject({
       issueSeverity: 'warning',
       issueCode: 'invoice_paid_date_unparsed',
     });
@@ -596,14 +1064,14 @@ describe('EcobaseMedallionNormalizationService', () => {
 
   it('warns and omits invalid optional expected sellable dates', async () => {
     const db = new FakeDatabase();
-    await seedBronze(db, {
+    await seedOrderBundle(db, {
       Company: 'Ecofission LLC',
       ASIN: 'B00ETAERR',
       SKU: 'ETA-ERR',
       Timestamp: '23/10/2025',
       'SR ID': 'SRO-ETA',
       Supplier: 'ETA Supplier',
-      'Order ID': 'OD-ETA-ERR',
+      'Order ID': 'EF4001A',
       Qty: '2',
       'ETA on Amazon': 'OOS',
     });
@@ -611,10 +1079,42 @@ describe('EcobaseMedallionNormalizationService', () => {
     const result = await new EcobaseMedallionNormalizationService(db).normalizePending();
 
     expect(result.failed).toBe(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[0]).toMatchObject({
+      expectedArrivalStatus: 'unknown',
+      expectedArrivalSource: 'insufficient_silver_evidence',
+      expectedArrivalConfidence: 'none',
+    });
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[0]).not.toHaveProperty('expectedSellableDate');
-    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).rows[0]).toMatchObject({
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).rows[2]).toMatchObject({
       issueSeverity: 'warning',
       issueCode: 'expected_sellable_date_unparsed',
+    });
+  });
+
+  it('uses adapter-normalized observedAt for Sellerboard dates', async () => {
+    const db = new FakeDatabase();
+    await seedBronze(
+      db,
+      {
+        Company: 'Retail Heaven Inc',
+        ASIN: 'B00RETAILDATE',
+        SKU: 'RETAIL-DATE',
+        Date: '1/8/2026',
+        SalesOrganic: '10',
+        UnitsOrganic: '2',
+      },
+      {
+        sourceType: 'sellerboard',
+        sourceDataset: 'profit_by_product_daily-Profit by Product Dashboard Daily Data.csv',
+        observedAt: new Date('2026-01-08T00:00:00.000Z'),
+      },
+    );
+
+    const result = await new EcobaseMedallionNormalizationService(db).normalizePending();
+
+    expect(result.failed).toBe(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts).rows[0]).toMatchObject({
+      snapshotDate: '2026-01-08',
     });
   });
 
@@ -663,12 +1163,12 @@ describe('EcobaseMedallionNormalizationService', () => {
 
     expect(result.failed).toBe(1);
     expect(result.normalized).toBe(1);
-    expect(result.errors[0]).toMatch(/companyKey/);
+    expect(result.errors[0]).toMatch(/unrecognized company/);
     expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).rows[0]).toMatchObject({
       normalizationStatus: 'failed',
       issueSeverity: 'error',
       issueCode: 'normalization_failed',
-      normalizedError: expect.stringMatching(/companyKey/),
+      normalizedError: expect.stringMatching(/unrecognized company/),
     });
   });
 });

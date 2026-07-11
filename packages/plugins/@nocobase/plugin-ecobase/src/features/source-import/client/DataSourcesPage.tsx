@@ -8,7 +8,21 @@
  */
 
 import { useAPIClient } from '@nocobase/client';
-import { Alert, App, Button, Card, Descriptions, Input, Select, Space, Table, Tag, Typography, Upload } from 'antd';
+import {
+  Alert,
+  App,
+  Button,
+  Card,
+  Checkbox,
+  Descriptions,
+  Input,
+  Select,
+  Space,
+  Table,
+  Tag,
+  Typography,
+  Upload,
+} from 'antd';
 import type { UploadFile, UploadProps } from 'antd';
 import dayjs from 'dayjs';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -85,6 +99,7 @@ type ImportRunResult = {
   selectedCommentCount?: number;
   proposedCommentCount?: number;
   importedCommentCount?: number;
+  updatedCommentCount?: number;
   duplicateCommentCount?: number;
   invalidCommentCount?: number;
 };
@@ -168,6 +183,7 @@ export default function DataSourcesPage() {
   const [companies, setCompanies] = useState<CompanyOption[]>([]);
   const [company, setCompany] = useState<string | undefined>();
   const [sourceVersion, setSourceVersion] = useState(todayIsoDate());
+  const [overrideClickupOperatorStatuses, setOverrideClickupOperatorStatuses] = useState(false);
   const [files, setFiles] = useState<UploadedCsvFile[]>([]);
   const [analysis, setAnalysis] = useState<CsvBundleAnalysis | null>(null);
   const [selectedConnections, setSelectedConnections] = useState<Record<string, string>>({});
@@ -297,31 +313,39 @@ export default function DataSourcesPage() {
         const response = await api.request({
           url: 'ecobaseImport:importClickupOrderStatuses',
           method: 'post',
-          data: { sourceConnectionId, dryRun: false, snapshotDate: sourceVersion, files: groupFiles },
+          data: {
+            sourceConnectionId,
+            dryRun: false,
+            snapshotDate: sourceVersion,
+            files: groupFiles,
+            overrideOperatorStatus: overrideClickupOperatorStatuses,
+          },
         });
         const resultRecord = unwrapRecord(response);
+        const summary =
+          resultRecord.summary && typeof resultRecord.summary === 'object' ? (resultRecord.summary as PlainRecord) : {};
+        const clickupResult =
+          summary.clickup && typeof summary.clickup === 'object' ? (summary.clickup as PlainRecord) : {};
         result = {
-          status: 'success',
+          id: resultRecord.id as string | undefined,
+          status: resultRecord.status as string | undefined,
           rowCount: resultRecord.rowCount as number | undefined,
-          normalizedCount: resultRecord.updatedOrderCount as number | undefined,
-          warningCount:
-            ((resultRecord.unmatchedRefCount as number | undefined) ?? 0) +
-            ((resultRecord.duplicateRefCount as number | undefined) ?? 0) +
-            ((resultRecord.unmappedStatusCount as number | undefined) ?? 0) +
-            ((resultRecord.duplicateCommentCount as number | undefined) ?? 0) +
-            ((resultRecord.invalidCommentCount as number | undefined) ?? 0),
-          errorCount: 0,
-          matchedOrderCount: resultRecord.matchedOrderCount as number | undefined,
-          updatedOrderCount: resultRecord.updatedOrderCount as number | undefined,
-          selectedRefCount: resultRecord.selectedRefCount as number | undefined,
-          unmatchedRefCount: resultRecord.unmatchedRefCount as number | undefined,
-          duplicateRefCount: resultRecord.duplicateRefCount as number | undefined,
-          unmappedStatusCount: resultRecord.unmappedStatusCount as number | undefined,
-          selectedCommentCount: resultRecord.selectedCommentCount as number | undefined,
-          proposedCommentCount: resultRecord.proposedCommentCount as number | undefined,
-          importedCommentCount: resultRecord.importedCommentCount as number | undefined,
-          duplicateCommentCount: resultRecord.duplicateCommentCount as number | undefined,
-          invalidCommentCount: resultRecord.invalidCommentCount as number | undefined,
+          normalizedCount: resultRecord.normalizedCount as number | undefined,
+          warningCount: resultRecord.warningCount as number | undefined,
+          errorCount: resultRecord.errorCount as number | undefined,
+          errorMessage: resultRecord.errorMessage as string | null | undefined,
+          matchedOrderCount: clickupResult.matchedOrderCount as number | undefined,
+          updatedOrderCount: clickupResult.updatedOrderCount as number | undefined,
+          selectedRefCount: clickupResult.selectedRefCount as number | undefined,
+          unmatchedRefCount: clickupResult.unmatchedRefCount as number | undefined,
+          duplicateRefCount: clickupResult.duplicateRefCount as number | undefined,
+          unmappedStatusCount: clickupResult.unmappedStatusCount as number | undefined,
+          selectedCommentCount: clickupResult.selectedCommentCount as number | undefined,
+          proposedCommentCount: clickupResult.proposedCommentCount as number | undefined,
+          importedCommentCount: clickupResult.importedCommentCount as number | undefined,
+          updatedCommentCount: clickupResult.updatedCommentCount as number | undefined,
+          duplicateCommentCount: clickupResult.duplicateCommentCount as number | undefined,
+          invalidCommentCount: clickupResult.invalidCommentCount as number | undefined,
         };
       } else if (sellerboardCogs) {
         const response = await api.request({
@@ -623,6 +647,14 @@ export default function DataSourcesPage() {
                         />
                       </Descriptions.Item>
                     </Descriptions>
+                    {isClickupOrderStatusGroup(group) ? (
+                      <Checkbox
+                        checked={overrideClickupOperatorStatuses}
+                        onChange={(event) => setOverrideClickupOperatorStatuses(event.target.checked)}
+                      >
+                        {t('Override statuses explicitly changed by operators')}
+                      </Checkbox>
+                    ) : null}
                     <Space>
                       <Button
                         type="primary"
@@ -654,9 +686,11 @@ export default function DataSourcesPage() {
                                 'ClickUp comments',
                               )}: ${result.importedCommentCount ?? 0}/${result.proposedCommentCount ?? 0} ${t(
                                 'imported',
-                              )}; ${t('Duplicate comments')}: ${result.duplicateCommentCount ?? 0}; ${t(
-                                'Invalid comments',
-                              )}: ${result.invalidCommentCount ?? 0}`
+                              )}; ${t('Updated comments')}: ${result.updatedCommentCount ?? 0}; ${t(
+                                'Duplicate comments',
+                              )}: ${result.duplicateCommentCount ?? 0}; ${t('Invalid comments')}: ${
+                                result.invalidCommentCount ?? 0
+                              }`
                             : `${t('Rows')}: ${result.rowCount ?? 0}; ${t('Normalized')}: ${
                                 result.normalizedCount ?? 0
                               }; ${t('Warnings')}: ${result.warningCount ?? 0}; ${t('Errors')}: ${

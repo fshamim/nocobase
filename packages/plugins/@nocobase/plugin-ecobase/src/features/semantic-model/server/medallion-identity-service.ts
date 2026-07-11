@@ -62,6 +62,7 @@ export interface UpsertSupplierExternalRefParams {
   observedAt?: string;
   payload?: Record<string, unknown>;
   approvalStatus?: string;
+  identityAuthority?: 'authoritative' | 'reference';
 }
 
 export interface UpsertSupplierProductParams {
@@ -81,6 +82,7 @@ export interface UpsertCompanyProductSupplierParams {
   companyProductId: string;
   supplierProductId: string;
   role: SupplierProductRole;
+  lastUsedAt?: string;
 }
 
 function requiredText(value: string | undefined, fieldName: string) {
@@ -127,6 +129,20 @@ function idOf(record: unknown) {
 
 function valuesForUpdate(values: Record<string, unknown>) {
   return Object.fromEntries(Object.entries(values).filter(([, value]) => value !== undefined));
+}
+
+function latestTimestamp(existing: string | undefined, incoming: string | undefined) {
+  if (!incoming) return existing;
+  const incomingTime = new Date(incoming).getTime();
+  if (!Number.isFinite(incomingTime)) {
+    throw new Error(`Ecobase medallion identity failed: lastUsedAt "${incoming}" is invalid.`);
+  }
+  if (!existing) return incoming;
+  const existingTime = new Date(existing).getTime();
+  if (!Number.isFinite(existingTime)) {
+    throw new Error(`Ecobase medallion identity failed: existing lastUsedAt "${existing}" is invalid.`);
+  }
+  return incomingTime > existingTime ? incoming : existing;
 }
 
 export class EcobaseMedallionIdentityService {
@@ -211,7 +227,7 @@ export class EcobaseMedallionIdentityService {
     await this.requireRecord(ECOBASE_COLLECTIONS.silverAmazonAccounts, params.amazonAccountId, 'amazon account');
     await this.requireRecord(ECOBASE_COLLECTIONS.silverProducts, params.productId, 'product');
     return this.upsertByFilter(ECOBASE_COLLECTIONS.silverCompanyProducts, {
-      filter: { amazonAccountId: params.amazonAccountId, productId: params.productId },
+      filter: { companyId: params.companyId, productId: params.productId },
       values: {
         companyId: params.companyId,
         amazonAccountId: params.amazonAccountId,
@@ -240,14 +256,20 @@ export class EcobaseMedallionIdentityService {
 
     const refRepo = this.repo(ECOBASE_COLLECTIONS.silverSupplierExternalRefs);
     const existingRef = await refRepo.findOne({ filter: { sourceSystem, normalizedExternalSupplierCode } });
+    const authoritative = params.identityAuthority !== 'reference';
+    if (!existingRef && !authoritative) {
+      throw new Error(
+        `Ecobase medallion identity failed: supplier ${normalizedExternalSupplierCode} was not established by Supplier Management.`,
+      );
+    }
     const displayName = params.displayName?.trim() || normalizedExternalSupplierCode;
     const normalizedName = normalizeSupplierName(displayName);
     const refValues = valuesForUpdate({
       sourceSystem,
       externalSupplierCode: params.externalSupplierCode.trim(),
       normalizedExternalSupplierCode,
-      displayName,
-      normalizedName,
+      displayName: !existingRef || authoritative ? displayName : undefined,
+      normalizedName: !existingRef || authoritative ? normalizedName : undefined,
       sourceConnectionId: params.sourceConnectionId,
       lastSeenAt: params.observedAt,
       payload: params.payload,
@@ -261,7 +283,11 @@ export class EcobaseMedallionIdentityService {
       const supplier = await this.findRequired(this.repo(ECOBASE_COLLECTIONS.silverSuppliers), supplierId, 'supplier');
       await this.repo(ECOBASE_COLLECTIONS.silverSuppliers).update({
         filterByTk: supplierId,
-        values: valuesForUpdate({ displayName, normalizedName, approvalStatus: params.approvalStatus }),
+        values: valuesForUpdate({
+          displayName: authoritative ? displayName : undefined,
+          normalizedName: authoritative ? normalizedName : undefined,
+          approvalStatus: authoritative ? params.approvalStatus : undefined,
+        }),
       });
       await refRepo.update({ filterByTk: idOf(existingRef), values: refValues });
       return this.findRequired(this.repo(ECOBASE_COLLECTIONS.silverSuppliers), idOf(supplier), 'supplier');
@@ -306,14 +332,23 @@ export class EcobaseMedallionIdentityService {
   async upsertCompanyProductSupplier(params: UpsertCompanyProductSupplierParams) {
     await this.requireRecord(ECOBASE_COLLECTIONS.silverCompanyProducts, params.companyProductId, 'company product');
     await this.requireRecord(ECOBASE_COLLECTIONS.silverSupplierProducts, params.supplierProductId, 'supplier product');
-    return this.upsertByFilter(ECOBASE_COLLECTIONS.silverCompanyProductSuppliers, {
-      filter: {
-        companyProductId: params.companyProductId,
-        supplierProductId: params.supplierProductId,
-        role: params.role,
-      },
-      values: { ...params },
-    });
+    const repo = this.repo(ECOBASE_COLLECTIONS.silverCompanyProductSuppliers);
+    const filter = {
+      companyProductId: params.companyProductId,
+      supplierProductId: params.supplierProductId,
+      role: params.role,
+    };
+    const existing = await repo.findOne({ filter });
+    const existingLastUsedAt = toPlainRecord(existing).lastUsedAt;
+    const lastUsedAt = latestTimestamp(
+      typeof existingLastUsedAt === 'string' ? existingLastUsedAt : undefined,
+      params.lastUsedAt,
+    );
+    if (existing) {
+      await repo.update({ filterByTk: idOf(existing), values: valuesForUpdate({ ...params, lastUsedAt }) });
+      return this.findRequired(repo, idOf(existing), ECOBASE_COLLECTIONS.silverCompanyProductSuppliers);
+    }
+    return repo.create({ values: { id: randomUUID(), ...valuesForUpdate({ ...params, lastUsedAt }) } });
   }
 
   private async upsertByFilter(

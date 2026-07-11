@@ -25,6 +25,9 @@ import {
 } from './csv-utils';
 import { sellerboardMetricValues } from './sellerboard-metrics';
 import { analyzeSellerboardHistoryCsvFile } from './sellerboard-history-csv-adapter';
+import { requireCanonicalCompany } from '../../../../server/company-identity';
+import { orderDetailSourceIdentity } from '../order-detail-source-identity';
+import { orderDetailLineIdentityKey, orderIdentityKey, orderRowExclusionReason } from '../order-import-policy';
 
 interface FileConfig {
   files?: CsvSourceFile[];
@@ -239,16 +242,31 @@ export function analyzeCsvFiles(files: CsvSourceFile[]): CsvBundleAnalysis {
 
 function getSnapshotDate(file: CsvSourceFile, input: SourceAdapterImportInput, row: CsvRowReader) {
   const value = file.snapshotDate ?? row.string('Date', 'Month', 'Timestamp') ?? input.sourceVersion;
-  return isoDate(value) ?? value;
+  return (file.dateFormat === 'month-first' ? sellerboardIsoDate(value) : isoDate(value)) ?? value;
+}
+
+function canonicalCompanyName(value: string | undefined) {
+  return value ? requireCanonicalCompany(value).name : undefined;
 }
 
 function defaultCompany(input: SourceAdapterImportInput) {
   const value = input.config.defaultCompany;
-  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+  return typeof value === 'string' ? canonicalCompanyName(value) : undefined;
 }
 
 function companyOf(input: SourceAdapterImportInput, row: CsvRowReader) {
-  return row.string('Company') ?? defaultCompany(input);
+  return canonicalCompanyName(row.string('Company')) ?? defaultCompany(input);
+}
+
+export function sellerboardIsoDate(value: string | undefined) {
+  if (!value) return undefined;
+  const slashDate = value.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!slashDate) return isoDate(value);
+  const month = Number(slashDate[1]);
+  const day = Number(slashDate[2]);
+  const date = new Date(Date.UTC(Number(slashDate[3]), month - 1, day));
+  if (date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return undefined;
+  return `${slashDate[3]}-${slashDate[1].padStart(2, '0')}-${slashDate[2].padStart(2, '0')}`;
 }
 
 function isoDate(value: string) {
@@ -334,6 +352,52 @@ function firstDateTime(row: CsvRowReader, ...headers: string[]) {
     }
   }
   return undefined;
+}
+
+export function latestOrderDetailRowIndexes(rows: Array<Record<string, string>>) {
+  const latestByIdentity = new Map<string, { index: number; observedAt: string }>();
+  rows.forEach((rawRow, index) => {
+    const row = new CsvRowReader(rawRow);
+    const identity = orderDetailLineIdentityKey(row);
+    if (!identity) return;
+    const observedAt = firstDateTime(row, 'Timestamp', 'Date', 'Order Date') ?? '';
+    const current = latestByIdentity.get(identity);
+    if (!current || observedAt > current.observedAt || (observedAt === current.observedAt && index > current.index)) {
+      latestByIdentity.set(identity, { index, observedAt });
+    }
+  });
+  return new Set([...latestByIdentity.values()].map(({ index }) => index));
+}
+
+export function orderBundleAuthority(files: CsvSourceFile[]) {
+  const latestByOrder = new Map<
+    string,
+    { fileName: string; index: number; observedAt: string; supplierCode: string }
+  >();
+  for (const file of files) {
+    const parsed = parseCsv(file.content);
+    if (detectCsvShape(parsed.headers) !== 'purchase-orders') continue;
+    parsed.rows.forEach((rawRow, index) => {
+      const row = new CsvRowReader(rawRow);
+      if (orderRowExclusionReason('purchase-orders', row)) return;
+      const key = orderIdentityKey(row);
+      const supplierCode = orderDetailSourceIdentity(row).supplierCode;
+      if (!key || !supplierCode) return;
+      const observedAt = firstDateTime(row, 'Timestamp', 'Order Date', 'Updated At') ?? '';
+      const current = latestByOrder.get(key);
+      if (
+        !current ||
+        observedAt > current.observedAt ||
+        (observedAt === current.observedAt && `${file.name}:${index}` > `${current.fileName}:${current.index}`)
+      ) {
+        latestByOrder.set(key, { fileName: file.name, index, observedAt, supplierCode });
+      }
+    });
+  }
+  return {
+    supplierByOrder: new Map([...latestByOrder].map(([key, value]) => [key, value.supplierCode])),
+    selectedPurchaseRows: new Set([...latestByOrder.values()].map(({ fileName, index }) => `${fileName}:${index}`)),
+  };
 }
 
 const MONTH_INDEX: Record<string, string> = {
@@ -565,7 +629,7 @@ function yesNoBoolean(value: string | undefined) {
 }
 
 function supplierManagementCompany(input: SourceAdapterImportInput, row: CsvRowReader) {
-  return companyOf(input, row) ?? row.string('Reached Via');
+  return companyOf(input, row) ?? canonicalCompanyName(row.string('Reached Via'));
 }
 
 function supplierApprovalStatus(row: CsvRowReader) {
@@ -611,7 +675,7 @@ function supplierManagementRecord(
   const supplierName = row.string('Supplier Name');
   const supplierId = supplierExternalCode(row);
   const displayName = supplierName ?? supplierId;
-  if (!company || !displayName) {
+  if (!supplierId || !displayName) {
     return [];
   }
   const statusActive = yesNoBoolean(row.string('Active Status'));
@@ -622,7 +686,7 @@ function supplierManagementRecord(
     {
       kind: 'supplier',
       data: {
-        naturalKey: naturalKey(input, 'supplier', [company, supplierId ?? displayName ?? sourceKey]),
+        naturalKey: naturalKey(input, 'supplier', [supplierId]),
         sourceConnectionId: input.sourceConnectionId,
         supplierId,
         name: displayName,
@@ -1196,6 +1260,7 @@ export async function* importCsvFiles(input: SourceAdapterImportInput): AsyncIte
     return;
   }
 
+  const bundleAuthority = orderBundleAuthority(files);
   for (const file of files) {
     const parsed = parseCsv(file.content);
     const expectedRowCount = file.expectedRowCount ?? asFileConfig(input.config).expectedRowCounts?.[file.name];
@@ -1214,6 +1279,7 @@ export async function* importCsvFiles(input: SourceAdapterImportInput): AsyncIte
     }
 
     const shape = detectCsvShape(parsed.headers);
+    const latestOrderDetailRows = shape === 'order-details' ? latestOrderDetailRowIndexes(parsed.rows) : undefined;
     if (shape === 'unknown') {
       yield {
         type: 'rowIssue',
@@ -1233,6 +1299,101 @@ export async function* importCsvFiles(input: SourceAdapterImportInput): AsyncIte
       const reader = new CsvRowReader(row);
       const rowNumber = index + 2;
       const sourceKey = compactReference(`${file.name}:${sourceKeyFor(reader, String(rowNumber))}`);
+      if (shape === 'order-details' || shape === 'purchase-orders') {
+        const exclusionReason = orderRowExclusionReason(shape, reader);
+        if (exclusionReason) {
+          yield {
+            type: 'rowIssue',
+            issue: {
+              rowNumber,
+              severity: 'warning',
+              code: 'order_row_excluded',
+              message: `Ecobase CSV import excluded ${shape} row ${rowNumber} in ${file.name}: ${exclusionReason}.`,
+              sourceKey,
+              payload: row,
+            },
+          };
+          continue;
+        }
+        const orderKey = orderIdentityKey(reader);
+        if (shape === 'purchase-orders' && !bundleAuthority.selectedPurchaseRows.has(`${file.name}:${index}`)) {
+          yield {
+            type: 'rowIssue',
+            issue: {
+              rowNumber,
+              severity: 'warning',
+              code: 'purchase_order_superseded',
+              message: `Ecobase CSV import excluded ${file.name} row ${rowNumber} because a newer Purchase Orders header has the same company and order identity.`,
+              sourceKey,
+              payload: row,
+            },
+          };
+          continue;
+        }
+        if (shape === 'order-details') {
+          const expectedSupplierCode = orderKey ? bundleAuthority.supplierByOrder.get(orderKey) : undefined;
+          const actualSupplierCode = orderDetailSourceIdentity(reader).supplierCode;
+          if (!expectedSupplierCode) {
+            yield {
+              type: 'rowIssue',
+              issue: {
+                rowNumber,
+                severity: 'warning',
+                code: 'order_detail_header_missing',
+                message: `Ecobase CSV import excluded ${file.name} row ${rowNumber} because no accepted Purchase Orders header exists.`,
+                sourceKey,
+                payload: row,
+              },
+            };
+            continue;
+          }
+          if (actualSupplierCode !== expectedSupplierCode) {
+            yield {
+              type: 'rowIssue',
+              issue: {
+                rowNumber,
+                severity: 'warning',
+                code: 'order_detail_supplier_mismatch',
+                message: `Ecobase CSV import excluded ${file.name} row ${rowNumber} because supplier ${actualSupplierCode} conflicts with Purchase Orders supplier ${expectedSupplierCode}.`,
+                sourceKey,
+                payload: row,
+              },
+            };
+            continue;
+          }
+        }
+        if (shape === 'order-details' && !latestOrderDetailRows?.has(index)) {
+          yield {
+            type: 'rowIssue',
+            issue: {
+              rowNumber,
+              severity: 'warning',
+              code: 'order_detail_superseded',
+              message: `Ecobase CSV import excluded ${file.name} row ${rowNumber} because a newer row has the same company, order, supplier, ASIN, and SKU identity.`,
+              sourceKey,
+              payload: row,
+            },
+          };
+          continue;
+        }
+      }
+      if (
+        (shape === 'supplier-analysis-tracker' || shape === 'supplier-analysis-2026' || shape === 'supplier-ids') &&
+        reader.string('Reached Via')?.trim().toLowerCase() === 'call & email'
+      ) {
+        yield {
+          type: 'rowIssue',
+          issue: {
+            rowNumber,
+            severity: 'warning',
+            code: 'supplier_row_excluded_invalid_company',
+            message: `Ecobase CSV import excluded ${file.name} row ${rowNumber} because Reached Via contains a contact method instead of a company.`,
+            sourceKey,
+            payload: row,
+          },
+        };
+        continue;
+      }
       if (
         !reader.string('ASIN', 'ASIN ', 'SKU', 'Order ID', 'SR ID', 'SR ID ') &&
         shape !== 'sellerboard-dashboard-totals'

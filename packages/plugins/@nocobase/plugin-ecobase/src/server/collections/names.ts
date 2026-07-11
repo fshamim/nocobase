@@ -35,6 +35,7 @@ export const ECOBASE_COLLECTIONS = {
   silverAmazonAccounts: 'silverAmazonAccounts',
   silverProducts: 'silverProducts',
   silverCompanyProducts: 'silverCompanyProducts',
+  silverCompanyProductFamilies: 'silverCompanyProductFamilies',
   silverSuppliers: 'silverSuppliers',
   silverSupplierExternalRefs: 'silverSupplierExternalRefs',
   silverSupplierAccounts: 'silverSupplierAccounts',

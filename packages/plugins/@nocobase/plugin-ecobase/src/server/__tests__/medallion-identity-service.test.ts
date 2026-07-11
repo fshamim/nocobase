@@ -80,9 +80,12 @@ describe('EcobaseMedallionIdentityService', () => {
     const service = new EcobaseMedallionIdentityService(new FakeDatabase());
     const product = await service.upsertProduct({ asin: 'B001', sku: 'SKU-1', title: 'First' });
     const sameProduct = await service.upsertProduct({ asin: 'B001', sku: 'SKU-1', title: 'Updated' });
+    const sameAsinDifferentSku = await service.upsertProduct({ asin: 'B001', sku: 'SOURCE-SKU', title: 'Alias' });
 
     expect(idOf(sameProduct)).toBe(idOf(product));
-    expect(toPlainRecord(sameProduct).title).toBe('Updated');
+    expect(idOf(sameAsinDifferentSku)).not.toBe(idOf(product));
+    expect(toPlainRecord(sameAsinDifferentSku).title).toBe('Alias');
+    expect(toPlainRecord(sameAsinDifferentSku).sku).toBe('SOURCE-SKU');
 
     await service.upsertProduct({ asin: 'B002', sku: 'SKU-2' });
     await expect(
@@ -112,9 +115,34 @@ describe('EcobaseMedallionIdentityService', () => {
       productId: idOf(product),
       lifecycleStatus: 'active_selling',
     });
+    const caAccount = await service.ensureDefaultAmazonAccount({ companyId: idOf(company), marketplace: 'CA' });
+    const sameProductOtherAccount = await service.upsertCompanyProduct({
+      companyId: idOf(company),
+      amazonAccountId: idOf(caAccount),
+      productId: idOf(product),
+    });
+    const sourceSkuProduct = await service.upsertProduct({ asin: 'B001', sku: 'SOURCE-SKU' });
+    const sourceSkuCompanyProduct = await service.upsertCompanyProduct({
+      companyId: idOf(company),
+      amazonAccountId: idOf(account),
+      productId: idOf(sourceSkuProduct),
+    });
+    const otherCompany = await service.upsertCompany({ companyKey: 'SAM2', name: 'SampleAM 2' });
+    const otherCompanyAccount = await service.ensureDefaultAmazonAccount({
+      companyId: idOf(otherCompany),
+      marketplace: 'US',
+    });
+    const otherCompanyProduct = await service.upsertCompanyProduct({
+      companyId: idOf(otherCompany),
+      amazonAccountId: idOf(otherCompanyAccount),
+      productId: idOf(product),
+    });
 
     expect(idOf(sameAccount)).toBe(idOf(account));
     expect(idOf(sameCompanyProduct)).toBe(idOf(companyProduct));
+    expect(idOf(sameProductOtherAccount)).toBe(idOf(companyProduct));
+    expect(idOf(sourceSkuCompanyProduct)).not.toBe(idOf(companyProduct));
+    expect(idOf(otherCompanyProduct)).not.toBe(idOf(companyProduct));
     expect(toPlainRecord(sameCompanyProduct).lifecycleStatus).toBe('active_selling');
   });
 
@@ -136,6 +164,13 @@ describe('EcobaseMedallionIdentityService', () => {
     const supplierProduct = await service.upsertSupplierProduct({
       supplierId: idOf(supplier),
       productId: idOf(product),
+      leadTimeDays: 45,
+    });
+    const supplierProductWithDefaultLeadTime = await service.upsertSupplierProduct({
+      supplierId: idOf(supplier),
+      productId: idOf(product),
+      leadTimeDays: 30,
+      leadTimeIsDefault: true,
     });
     const preferred = await service.upsertCompanyProductSupplier({
       companyProductId: idOf(companyProduct),
@@ -151,11 +186,27 @@ describe('EcobaseMedallionIdentityService', () => {
       companyProductId: idOf(companyProduct),
       supplierProductId: idOf(supplierProduct),
       role: 'candidate',
+      lastUsedAt: '2026-01-15T00:00:00.000Z',
+    });
+    await service.upsertCompanyProductSupplier({
+      companyProductId: idOf(companyProduct),
+      supplierProductId: idOf(supplierProduct),
+      role: 'candidate',
+      lastUsedAt: '2025-12-01T00:00:00.000Z',
+    });
+    const latestCandidate = await service.upsertCompanyProductSupplier({
+      companyProductId: idOf(companyProduct),
+      supplierProductId: idOf(supplierProduct),
+      role: 'candidate',
+      lastUsedAt: '2026-02-01T00:00:00.000Z',
     });
 
     expect(idOf(sameSupplier)).toBe(idOf(supplier));
+    expect(toPlainRecord(supplierProductWithDefaultLeadTime).leadTimeDays).toBe(45);
     expect(idOf(samePreferred)).toBe(idOf(preferred));
     expect(idOf(candidate)).not.toBe(idOf(preferred));
+    expect(idOf(latestCandidate)).toBe(idOf(candidate));
+    expect(toPlainRecord(latestCandidate).lastUsedAt).toBe('2026-02-01T00:00:00.000Z');
   });
 
   it('uses external supplier refs as import identity', async () => {
@@ -164,16 +215,26 @@ describe('EcobaseMedallionIdentityService', () => {
 
     expect(normalizeExternalSupplierCode(' sro-9095 ')).toBe('SRO-9095');
     expect(normalizeExternalSupplierCode('duplicate')).toBeUndefined();
+    await expect(
+      service.upsertSupplierExternalRef({
+        sourceSystem: 'supplier_ids',
+        externalSupplierCode: 'SRO-MISSING',
+        displayName: 'Order-only supplier',
+        identityAuthority: 'reference',
+      }),
+    ).rejects.toThrow(/not established by Supplier Management/);
 
     const supplier = await service.upsertSupplierExternalRef({
       sourceSystem: 'supplier_ids',
       externalSupplierCode: 'SRO-9095',
       displayName: 'Premierwd',
+      identityAuthority: 'authoritative',
     });
     const sameSupplier = await service.upsertSupplierExternalRef({
       sourceSystem: 'supplier_ids',
       externalSupplierCode: 'sro-9095',
-      displayName: 'Premier WD',
+      displayName: 'Order-row alias',
+      identityAuthority: 'reference',
     });
     const differentSupplier = await service.upsertSupplierExternalRef({
       sourceSystem: 'supplier_ids',
@@ -182,6 +243,7 @@ describe('EcobaseMedallionIdentityService', () => {
     });
 
     expect(idOf(sameSupplier)).toBe(idOf(supplier));
+    expect(toPlainRecord(sameSupplier).displayName).toBe('Premierwd');
     expect(idOf(differentSupplier)).not.toBe(idOf(supplier));
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).rows).toHaveLength(2);
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverSupplierExternalRefs).rows).toEqual(

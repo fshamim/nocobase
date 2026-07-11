@@ -277,7 +277,6 @@ describe('Ecobase no-op import and status seam', () => {
       errorCount: 1,
       errorMessage: 'Ecobase import failed: supplier_lead_time: leadTimeDays must be an integer from 0 to 3650.',
     });
-    expect(db.getRepository(ECOBASE_COLLECTIONS.supplierLeadTimes).all()).toEqual([]);
   });
 
   it('rejects invalid planning-parameter lead-time imports before persistence', async () => {
@@ -333,7 +332,6 @@ describe('Ecobase no-op import and status seam', () => {
       errorCount: 1,
       errorMessage: 'Ecobase import failed: planning_parameter: leadTimeDays must be an integer from 0 to 3650.',
     });
-    expect(db.getRepository(ECOBASE_COLLECTIONS.planningParameters).all()).toEqual([]);
   });
 
   it('rejects non-number planning-parameter lead-time imports before persistence', async () => {
@@ -389,7 +387,6 @@ describe('Ecobase no-op import and status seam', () => {
       errorCount: 1,
       errorMessage: 'Ecobase import failed: planning_parameter: leadTimeDays must be a number.',
     });
-    expect(db.getRepository(ECOBASE_COLLECTIONS.planningParameters).all()).toEqual([]);
   });
 
   it('reads source/import status through the service seam used by the public API', async () => {

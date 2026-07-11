@@ -13,6 +13,8 @@ const ARTIFACT_DIR = process.env.ECOBASE_LIVE_GATE_BOOTSTRAP_DIR
   : path.join(NOCOBASE_ROOT, '.local', 'live-gate-bootstrap');
 const PRIVATE_EXPORT_PATH = path.join(ARTIFACT_DIR, 'live-gate-sources.private.json');
 const REDACTED_EXPORT_PATH = path.join(ARTIFACT_DIR, 'live-gate-sources.redacted.json');
+const IMPORT_STAGE_LOG_PATH = path.join(ARTIFACT_DIR, 'import-stages.json');
+const importStageLog = [];
 const BASE_URL = (
   process.env.ECOBASE_LIVE_GATE_API_BASE ?? `http://127.0.0.1:${process.env.ECOBASE_LIVE_GATE_PORT ?? '13080'}/api`
 ).replace(/\/$/, '');
@@ -73,6 +75,9 @@ async function main() {
     case 'export-sources':
       await exportSources();
       return;
+    case 'preflight-data':
+      preflightData();
+      return;
     case 'reset-db':
       await resetDb();
       return;
@@ -93,14 +98,26 @@ async function main() {
       console.log('restored exported source schedules/configs');
       return;
     case 'all-after-export':
+      preflightData();
       await resetDb();
       await restoreSources();
       await importData();
-      await verifyLinks();
       return;
     default:
       printUsage();
       process.exit(command ? 1 : 0);
+  }
+}
+
+function preflightData() {
+  const script = path.join(PLUGIN_ROOT, 'scripts', 'preflight-import-data.ts');
+  const result = spawnSync('yarn', ['-s', 'tsx', script], {
+    cwd: NOCOBASE_ROOT,
+    env: process.env,
+    stdio: 'inherit',
+  });
+  if (result.status !== 0) {
+    throw new Error(`Ecobase import preflight failed with exit code ${result.status ?? 'unknown'}.`);
   }
 }
 
@@ -109,13 +126,14 @@ function printUsage() {
 
 Commands:
   export-sources     Save current live-gate source configs to ${PRIVATE_EXPORT_PATH}
+  preflight-data     Validate configured import files without writing to the database
   reset-db           Destroy/recreate only the local live-gate DB volume, using the existing start-live-gate.sh guard
   restore-sources    Restore exported source rows and company IDs into a clean live-gate DB
-  import-data        Trigger Sellerboard API, history, COGS, order, and supplier CSV imports in order
+  import-data        Run preflight, staged imports, final gold refresh, and strict verification
   import-supplier-csvs  Import/retry only the supplier-management CSV files
   verify-links       Print/fail post-import medallion link checks
   enable-schedules   Restore exported source configs/schedules after verification passes
-  all-after-export   reset-db -> restore-sources -> import-data -> verify-links
+  all-after-export   preflight-data -> reset-db -> restore-sources -> import-data -> verify-links
 
 Environment:
   ECOBASE_LIVE_GATE_PORT=13080
@@ -250,6 +268,7 @@ async function restoreSources() {
 }
 
 async function importData() {
+  await runStage(1, 'read-only source preflight', () => preflightData());
   waitForCurrentSchema();
   assertBusinessClean('import data');
   const token = await signIn();
@@ -258,68 +277,144 @@ async function importData() {
   const sellerboardByCompany = new Map(
     sources.filter(isSellerboardSource).map((source) => [source.companyName, source]),
   );
-  const orderSource = requiredSource(sources, 'google_sheets', 'order_management');
   const supplierSource = requiredSource(sources, 'google_sheets', 'supplier_management');
+  const orderSource = requiredSource(sources, 'google_sheets', 'order_management');
+  const clickupSource = requiredSource(sources, 'clickup', 'order_management');
 
-  for (const company of REQUIRED_SELLERBOARD_COMPANIES) {
-    const source = sellerboardByCompany.get(company);
-    if (!source) throw new Error(`missing Sellerboard source for ${company}`);
-    await runImport(token, `Sellerboard API ${company}`, 'ecobaseImport:run', {
-      sourceConnectionId: source.id,
-      adapterName: 'sellerboard-api',
-      sourceIdentifier: `sellerboard-api-bootstrap-${companyKey(company)}`,
-      sourceVersion: BOOTSTRAP_SOURCE_VERSION,
-      idempotencyKey: `${source.id}:sellerboard-api-bootstrap:${BOOTSTRAP_SOURCE_VERSION}`,
-    });
-  }
-
-  for (const filePath of listHistoryDashboardFiles()) {
-    const company = companyFromHistoryFile(path.basename(filePath), 'Dashboard_by_product');
-    const source = sellerboardByCompany.get(company);
-    if (!source) throw new Error(`history file ${path.basename(filePath)} maps to ${company}, but no source exists`);
-    await runImport(token, `Sellerboard history ${company} ${path.basename(filePath)}`, 'ecobaseImport:runCsvBundle', {
-      sourceConnectionId: source.id,
-      adapterName: 'sellerboard-history-csv',
-      sourceIdentifier: 'sellerboard-history-backfill',
-      sourceVersion: BOOTSTRAP_SOURCE_VERSION,
-      defaultCompany: company,
-      files: [csvFile(filePath)],
-    });
-  }
-
-  for (const filePath of listCogsFiles()) {
-    const company = companyFromHistoryFile(path.basename(filePath), 'Cost_of_Goods_Sold');
-    await runImport(
-      token,
-      `Sellerboard COGS ${company} ${path.basename(filePath)}`,
-      'ecobaseImport:importSellerboardCogs',
-      {
-        defaultCompany: company,
-        importedAt: `${BOOTSTRAP_SOURCE_VERSION}T00:00:00.000Z`,
-        files: [csvFile(filePath)],
-      },
-    );
-  }
-
-  for (const filePath of orderFiles()) {
-    await runImport(token, `Order management ${path.basename(filePath)}`, 'ecobaseImport:runCsvBundle', {
+  await runStage(2, 'Order Management Purchase Orders then OrderDetails', async () => {
+    await runImport(token, 'Order management ordered bundle', 'ecobaseImport:runCsvBundle', {
       sourceConnectionId: orderSource.id,
       adapterName: 'google-sheets-migration-csv',
-      sourceIdentifier: `order-management-${path.basename(filePath)}`,
+      sourceIdentifier: 'order-management-bundle',
       sourceVersion: BOOTSTRAP_SOURCE_VERSION,
-      files: [csvFile(filePath)],
+      files: orderFiles().map(csvFile),
     });
-  }
+  });
 
-  for (const filePath of supplierFiles()) {
-    await runImport(token, `Supplier management ${path.basename(filePath)}`, 'ecobaseImport:runCsvBundle', {
+  await runStage(3, 'Provision confirmed users and reconcile ClickUp status/comments', async () => {
+    const run = await runImport(token, 'ClickUp order status', 'ecobaseImport:importClickupOrderStatuses', {
+      sourceConnectionId: clickupSource.id,
+      sourceIdentifier: 'clickup-order-status-bootstrap',
+      importedAt: `${BOOTSTRAP_SOURCE_VERSION}T00:00:00.000Z`,
+      snapshotDate: BOOTSTRAP_SOURCE_VERSION,
+      dryRun: false,
+      skipGoldRefresh: true,
+      files: clickupFiles().map(csvFile),
+    });
+    const clickup = run?.summary?.clickup ?? {};
+    if ((clickup.unresolvedActorEmails ?? []).length > 0) {
+      throw new Error(`ClickUp user provisioning left unresolved actors: ${clickup.unresolvedActorEmails.join(', ')}`);
+    }
+    if (
+      Number(clickup.matchedOrderCount ?? 0) === 0 ||
+      Number(clickup.importedCommentCount ?? 0) + Number(clickup.duplicateCommentCount ?? 0) === 0
+    ) {
+      throw new Error('ClickUp reconciliation matched no orders or retained no comments after the ordered order bundle');
+    }
+    const unlinkedCommentCount = Number(
+      psqlScalar(
+        `select count(*) from "silverActivityComments" where "contextSnapshotJson"->>'source' = 'clickup_csv' and "actorUserId" is null`,
+      ),
+    );
+    if (unlinkedCommentCount > 0) {
+      throw new Error(`ClickUp reconciliation left ${unlinkedCommentCount} comments without NocoBase users`);
+    }
+    const clickupTaskCount = Number(
+      psqlScalar(`select count(*) from "silverTasks" where "workspaceName" = 'ClickUp export'`),
+    );
+    if (clickupTaskCount > 0) {
+      throw new Error(`ClickUp reconciliation created ${clickupTaskCount} forbidden task records`);
+    }
+  });
+
+  await runStage(4, 'Sellerboard API snapshots', async () => {
+    for (const company of REQUIRED_SELLERBOARD_COMPANIES) {
+      const source = sellerboardByCompany.get(company);
+      if (!source) throw new Error(`missing Sellerboard source for ${company}`);
+      await runImport(token, `Sellerboard API ${company}`, 'ecobaseImport:run', {
+        sourceConnectionId: source.id,
+        adapterName: 'sellerboard-api',
+        sourceIdentifier: `sellerboard-api-bootstrap-${companyKey(company)}`,
+        sourceVersion: BOOTSTRAP_SOURCE_VERSION,
+        idempotencyKey: `${source.id}:sellerboard-api-bootstrap:${BOOTSTRAP_SOURCE_VERSION}`,
+      });
+    }
+  });
+
+  await runStage(5, 'Sellerboard history CSVs', async () => {
+    for (const filePath of listHistoryDashboardFiles()) {
+      const company = companyFromHistoryFile(path.basename(filePath), 'Dashboard_by_product');
+      const source = sellerboardByCompany.get(company);
+      if (!source) throw new Error(`history file ${path.basename(filePath)} maps to ${company}, but no source exists`);
+      await runImport(
+        token,
+        `Sellerboard history ${company} ${path.basename(filePath)}`,
+        'ecobaseImport:runCsvBundle',
+        {
+          sourceConnectionId: source.id,
+          adapterName: 'sellerboard-history-csv',
+          sourceIdentifier: 'sellerboard-history-backfill',
+          sourceVersion: BOOTSTRAP_SOURCE_VERSION,
+          defaultCompany: company,
+          files: [csvFile(filePath)],
+        },
+      );
+    }
+  });
+
+  await runStage(6, 'Sellerboard COGS CSVs', async () => {
+    for (const filePath of listCogsFiles()) {
+      const company = companyFromHistoryFile(path.basename(filePath), 'Cost_of_Goods_Sold');
+      await runImport(
+        token,
+        `Sellerboard COGS ${company} ${path.basename(filePath)}`,
+        'ecobaseImport:importSellerboardCogs',
+        {
+          defaultCompany: company,
+          importedAt: `${BOOTSTRAP_SOURCE_VERSION}T00:00:00.000Z`,
+          files: [csvFile(filePath)],
+        },
+      );
+    }
+  });
+
+  const [historicalSupplierFile, currentSupplierFile] = supplierFiles();
+  await runStage(7, 'Supplier Management historical tracker', () =>
+    runImport(token, `Supplier management ${path.basename(historicalSupplierFile)}`, 'ecobaseImport:runCsvBundle', {
       sourceConnectionId: supplierSource.id,
       adapterName: 'google-sheets-migration-csv',
-      sourceIdentifier: `supplier-management-${path.basename(filePath)}`,
+      sourceIdentifier: `supplier-management-${path.basename(historicalSupplierFile)}`,
       sourceVersion: BOOTSTRAP_SOURCE_VERSION,
-      files: [csvFile(filePath)],
+      files: [csvFile(historicalSupplierFile)],
+    }),
+  );
+  await runStage(8, 'Supplier Management current 2026 tracker', () =>
+    runImport(token, `Supplier management ${path.basename(currentSupplierFile)}`, 'ecobaseImport:runCsvBundle', {
+      sourceConnectionId: supplierSource.id,
+      adapterName: 'google-sheets-migration-csv',
+      sourceIdentifier: `supplier-management-${path.basename(currentSupplierFile)}`,
+      sourceVersion: BOOTSTRAP_SOURCE_VERSION,
+      files: [csvFile(currentSupplierFile)],
+    }),
+  );
+
+  await runStage(9, 'Reconcile order lines against imported product data', async () => {
+    await runImport(token, 'Order management product reconciliation', 'ecobaseImport:runCsvBundle', {
+      sourceConnectionId: orderSource.id,
+      adapterName: 'google-sheets-migration-csv',
+      sourceIdentifier: 'order-management-product-reconciliation-v3',
+      sourceVersion: BOOTSTRAP_SOURCE_VERSION,
+      files: orderFiles().map(csvFile),
     });
-  }
+    await verifyOrderDetailsRelationships(token, 'after-product-reconciliation', { strict: false });
+  });
+
+  await runStage(10, 'final gold read-model refresh', () =>
+    runImport(token, 'Gold read models', 'ecobaseImport:refreshGoldReadModels', {
+      calculationDate: BOOTSTRAP_SOURCE_VERSION,
+    }),
+  );
+  await runStage(11, 'strict semantic verification', () => verifyLinks());
 
   console.log('import bootstrap completed; Sellerboard schedules remain disabled until enable-schedules is run');
 }
@@ -342,6 +437,9 @@ async function importSupplierCsvs() {
 
 async function verifyLinks() {
   waitForCurrentSchema();
+  const token = await signIn();
+  const orderDetailsVerification = await verifyOrderDetailsRelationships(token, 'final', { strict: false });
+  const semanticVerification = await verifySemanticLinks(token);
   const counts = businessCounts();
   const checks = [
     check('source_connection_count', `select count(*) from "ecobaseSourceConnections"`, 8),
@@ -442,12 +540,12 @@ async function verifyLinks() {
     ),
     check(
       'orphan_order_line_company_product',
-      `select count(*) from "silverOrderLines" l left join "silverCompanyProducts" cp on cp.id = l."companyProductId" where cp.id is null`,
+      `select count(*) from "silverOrderLines" l left join "silverCompanyProducts" cp on cp.id = l."companyProductId" where l."companyProductId" is not null and cp.id is null`,
       0,
     ),
     check(
       'orphan_order_line_supplier_product',
-      `select count(*) from "silverOrderLines" l left join "silverSupplierProducts" sp on sp.id = l."supplierProductId" where sp.id is null`,
+      `select count(*) from "silverOrderLines" l left join "silverSupplierProducts" sp on sp.id = l."supplierProductId" where l."supplierProductId" is not null and sp.id is null`,
       0,
     ),
     check(
@@ -475,6 +573,7 @@ async function verifyLinks() {
       'missing_lead_time_supplier_products',
       `select count(*) from "silverSupplierProducts" where "leadTimeDays" is null`,
       0,
+      false,
     ),
     check(
       'lead_time_unparsed_warnings',
@@ -518,6 +617,14 @@ async function verifyLinks() {
     actionStatus,
     importRuns,
     bronzeIssues,
+    orderDetailsVerification: {
+      ok: orderDetailsVerification.ok,
+      totals: orderDetailsVerification.totals,
+      invalidReasons: orderDetailsVerification.invalidReasons,
+      jsonArtifact: 'order-details-relationship-verification-final.json',
+      csvArtifact: 'order-details-relationship-discrepancies-final.csv',
+    },
+    semanticVerification,
   };
   ensureArtifactDir();
   const reportPath = path.join(ARTIFACT_DIR, 'live-gate-link-verification.json');
@@ -532,6 +639,91 @@ async function verifyLinks() {
 
 function check(name, sql, expected, critical = true) {
   return { name, expected, actual: Number(psqlScalar(sql)), critical };
+}
+
+async function verifySemanticLinks(token) {
+  const result = unwrapActionData(await apiPost(token, 'ecobaseImport:verifySemanticLinks', {}));
+  ensureArtifactDir();
+  writeJson(path.join(ARTIFACT_DIR, 'semantic-link-verification.json'), result);
+  console.log(`semantic link verification: errors=${result.errorCount} warnings=${result.warningCount}`);
+  if (!result.ok) {
+    throw new Error(
+      `semantic link verification failed: ${result.issues
+        .filter((issue) => issue.severity === 'error')
+        .map((issue) => issue.code)
+        .join(', ')}`,
+    );
+  }
+  return result;
+}
+
+async function verifyOrderDetailsRelationships(token, suffix, { strict = true } = {}) {
+  const orderDetailsPath = orderFiles()[1];
+  const result = unwrapActionData(
+    await apiPost(token, 'ecobaseImport:verifyOrderDetailsRelationships', {
+      files: [csvFile(orderDetailsPath)],
+    }),
+  );
+  ensureArtifactDir();
+  writeJson(path.join(ARTIFACT_DIR, `order-details-relationship-verification-${suffix}.json`), result);
+  const discrepancyRows = result.discrepancies ?? [];
+  const csvRows = [
+    ['sourceRow', 'classification', 'reason', 'expectedIdentity', 'actualIds'].join(','),
+    ...discrepancyRows.map((item) =>
+      [item.sourceRow, item.classification, item.reason, item.expectedIdentity, item.actualIds]
+        .map(csvArtifactCell)
+        .join(','),
+    ),
+  ];
+  writeFileSync(
+    path.join(ARTIFACT_DIR, `order-details-relationship-discrepancies-${suffix}.csv`),
+    `${csvRows.join('\n')}\n`,
+    { mode: 0o600 },
+  );
+  console.log(
+    `OrderDetails verification ${suffix}: accepted=${result.totals.acceptedRows} verified=${result.totals.verifiedRows} relationshipGaps=${result.totals.relationshipGaps} inventoryHistoryGaps=${result.totals.inventoryHistoryGaps}`,
+  );
+  if (!result.ok && strict) {
+    throw new Error(
+      `OrderDetails verification failed: relationshipGaps=${result.totals.relationshipGaps} inventoryHistoryGaps=${result.totals.inventoryHistoryGaps}`,
+    );
+  }
+  return result;
+}
+
+function csvArtifactCell(value) {
+  const text = typeof value === 'string' ? value : JSON.stringify(value ?? '');
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+async function runStage(number, label, operation) {
+  const startedAt = new Date();
+  console.log(`stage ${number} start: ${label}`);
+  try {
+    const result = await operation();
+    recordImportStage(number, label, startedAt, 'success');
+    console.log(`stage ${number} end: ${label} durationMs=${Date.now() - startedAt.getTime()}`);
+    return result;
+  } catch (error) {
+    recordImportStage(number, label, startedAt, 'failed', error);
+    console.error(`stage ${number} failed: ${label} durationMs=${Date.now() - startedAt.getTime()}`);
+    throw error;
+  }
+}
+
+function recordImportStage(number, label, startedAt, status, error) {
+  const finishedAt = new Date();
+  importStageLog.push({
+    number,
+    label,
+    status,
+    startedAt: startedAt.toISOString(),
+    finishedAt: finishedAt.toISOString(),
+    durationMs: finishedAt.getTime() - startedAt.getTime(),
+    ...(error ? { error: error instanceof Error ? error.message : String(error) } : {}),
+  });
+  ensureArtifactDir();
+  writeJson(IMPORT_STAGE_LOG_PATH, { sourceVersion: BOOTSTRAP_SOURCE_VERSION, stages: importStageLog });
 }
 
 async function runImport(token, label, action, body) {
@@ -869,14 +1061,20 @@ function orderFiles() {
 
 function supplierFiles() {
   return [
-    path.join(PROJECT_ROOT, 'data', 'supplier-management-sheets', 'Supplier Analysis Tracker - Supplier 2026.csv'),
     path.join(
       PROJECT_ROOT,
       'data',
       'supplier-management-sheets',
       'Supplier Analysis Tracker - Supplier Analysis Tracker.csv',
     ),
+    path.join(PROJECT_ROOT, 'data', 'supplier-management-sheets', 'Supplier Analysis Tracker - Supplier 2026.csv'),
   ].map(assertFileExists);
+}
+
+function clickupFiles() {
+  return [path.join(PROJECT_ROOT, 'data', 'clickup', 'Order Management Clickup Data 06-07-2026.csv')].map(
+    assertFileExists,
+  );
 }
 
 function listDataFiles(subdir) {

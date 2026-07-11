@@ -4,6 +4,7 @@ import {
   requireOrderLifecycleStatus,
   type OrderLifecycleStatus,
 } from '../order-lifecycle-status';
+import { lifecycleStatusForOperationalStatus } from '../order-operational-status';
 
 export { ORDER_LIFECYCLE_STATUSES, canonicalOrderLifecycleStatus, requireOrderLifecycleStatus };
 export type { OrderLifecycleStatus };
@@ -42,7 +43,10 @@ export interface ResolveOrderLifecycleParams {
 
 export function resolveOrderLifecycle(params: ResolveOrderLifecycleParams): OrderLifecycleResolution {
   const operatorStatus = operatorOverrideStatus(params);
-  const importedCanonical = canonicalOrderLifecycleStatus(params.canonicalStatus);
+  const importedCanonical =
+    lifecycleStatusForOperationalStatus(params.lifecycleStatus) ??
+    canonicalOrderLifecycleStatus(params.canonicalStatus) ??
+    importedLifecycleAlias(params.canonicalStatus);
   const sourceStatus = params.sourceOrderStatus ?? params.lifecycleStatus ?? params.lifecyclePhase;
   const sourceCompleted = hasAny(sourceStatus, ['complete', 'completed']);
   const historical = isOlderThanDays(params.orderDate, 90);
@@ -50,6 +54,10 @@ export function resolveOrderLifecycle(params: ResolveOrderLifecycleParams): Orde
 
   if (operatorStatus) {
     return resolved(operatorStatus, 'operator', false, evidence);
+  }
+
+  if (params.statusSource === 'clickup_csv' && importedCanonical) {
+    return resolved(importedCanonical, 'clickup_csv', false, evidence);
   }
 
   if (
@@ -145,11 +153,34 @@ export function resolveOrderLifecycle(params: ResolveOrderLifecycleParams): Orde
   return resolved('IN-PROGRESS', 'fallback', true, evidence);
 }
 
+function importedLifecycleAlias(value: unknown): OrderLifecycleStatus | undefined {
+  if (typeof value !== 'string') return undefined;
+  const key = value.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+  const aliases: Record<string, OrderLifecycleStatus> = {
+    approval_pending: 'APPROVED TO ORDER',
+    payment_pending: 'APPROVED TO ORDER',
+    paid: 'ORDERED',
+    supplier_contacted: 'IN-PROGRESS',
+    supplier_preparing: 'PREP IN-PROGRESS',
+    shipped_inbound: 'SHIPPED TO FBA',
+    reached_fba: 'INBOUND MONITORING',
+    completed: 'COMPLETE',
+    cancelled: 'COMPLETE',
+    rejected: 'COMPLETE',
+    blocked: 'IN-PROGRESS',
+    draft: 'ORDER ANALYSING',
+  };
+  return aliases[key];
+}
+
 function operatorOverrideStatus(params: ResolveOrderLifecycleParams) {
   if (params.statusSource !== 'operator' && !params.operatorStatusOverrideAt) return undefined;
-  return requireOrderLifecycleStatus(
-    params.canonicalStatus ?? params.lifecycleStatus,
-    'Ecobase order lifecycle operator override failed',
+  return (
+    lifecycleStatusForOperationalStatus(params.lifecycleStatus) ??
+    requireOrderLifecycleStatus(
+      params.canonicalStatus ?? params.lifecycleStatus,
+      'Ecobase order lifecycle operator override failed',
+    )
   );
 }
 
@@ -247,4 +278,3 @@ function isOlderThanDays(value: unknown, days: number) {
   if (!Number.isFinite(time)) return false;
   return Date.now() - time >= days * 86_400_000;
 }
-

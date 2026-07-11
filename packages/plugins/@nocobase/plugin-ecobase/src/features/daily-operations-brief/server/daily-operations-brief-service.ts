@@ -97,8 +97,15 @@ export type InventoryRiskEvidence = {
   supplierOrderState?: string;
   supplierOrderStatus?: string;
   supplierOrderRef?: string;
+  latestSupplierOrderActivityAt?: string;
+  latestSupplierOrderActivityNote?: string;
+  latestSupplierOrderActivityActor?: string;
   latestClosedOrCancelledOrderRef?: string;
   estimatedProfitRisk?: number;
+  estimatedProfitRiskBasis?: string;
+  moneyRiskStatus?: string;
+  moneyRiskInputs: PlainRecord;
+  commandCenterPane?: string;
   caveats: string[];
   sourceWarnings: PlainRecord[];
 };
@@ -263,11 +270,11 @@ export type InventoryCommandCenterEvidence = {
   metadata: PlainRecord;
   summaryCards: PlainRecord[];
   riskBars: PlainRecord;
-  dailyAlertPreview: PlainRecord[];
   panes: Record<InventoryCommandCenterPane, PlainRecord>;
   alerts: {
-    urgentNoOrder: PlainRecord[];
+    supplyActionNeeded: PlainRecord[];
     activeOrdersOffTrack: PlainRecord[];
+    activeOrdersUnknownTiming: PlainRecord[];
     followUpsDueToday: PlainRecord[];
     leadTimeDataGaps: PlainRecord[];
     stuckInventoryReview: PlainRecord[];
@@ -408,7 +415,11 @@ function percentageDrop(current: number | undefined, baseline: number | undefine
 }
 
 function productIdentity(row: PlainRecord) {
-  return [asString(row.company), asString(row.planningProductId), asString(row.asin), asString(row.sku)].join(':');
+  const company = asString(row.company) ?? '';
+  const planningProductId = asString(row.planningProductId);
+  return planningProductId
+    ? `${company}:planning:${planningProductId}`
+    : `${company}:listing:${asString(row.asin) ?? ''}:${asString(row.sku) ?? ''}`;
 }
 
 function orderLineMatchesRisk(line: PlainRecord, risk: PlainRecord) {
@@ -658,27 +669,27 @@ function commandPaneRows(commandCenter: PlainRecord, pane: InventoryCommandCente
   return Array.isArray(panePayload.rows) ? (panePayload.rows as PlainRecord[]).map(toPlainRecord) : [];
 }
 
+function commandPaneTotal(commandCenter: InventoryCommandCenterEvidence, pane: InventoryCommandCenterPane) {
+  return asNumber(commandCenter.panes[pane]?.total) ?? 0;
+}
+
 function commandCenterAlerts(commandCenter: PlainRecord, maxItems: number): InventoryCommandCenterEvidence['alerts'] {
   const supplyAction = commandPaneRows(commandCenter, 'supplyAction');
+  const missingSupplier = commandPaneRows(commandCenter, 'missingSupplier');
   const activeOrders = commandPaneRows(commandCenter, 'activeOrders');
   const stuckInventory = commandPaneRows(commandCenter, 'stuckInventory');
   return {
-    urgentNoOrder: supplyAction
-      .filter(
-        (row) =>
-          ['overdue', 'order_today', 'order_soon', 'missing_lead_time'].includes(asString(row.actionStatus) ?? '') &&
-          (!asString(row.supplierOrderRef) || asString(row.supplierOrderState) === 'no_open_order'),
-      )
-      .slice(0, maxItems),
+    supplyActionNeeded: supplyAction.slice(0, maxItems),
     activeOrdersOffTrack: activeOrders
-      .filter((row) =>
-        ['late', 'late_with_grace', 'placed_not_purchased'].includes(asString(row.pipelineHealthBucket) ?? ''),
-      )
+      .filter((row) => ['late', 'placed_not_purchased'].includes(asString(row.pipelineHealthStatus) ?? ''))
+      .slice(0, maxItems),
+    activeOrdersUnknownTiming: activeOrders
+      .filter((row) => asString(row.pipelineHealthStatus) === 'unknown_timing')
       .slice(0, maxItems),
     followUpsDueToday: activeOrders
-      .filter((row) => asString(row.recommendedAction) === 'follow_up_order')
+      .filter((row) => asString(row.recommendedEscalation) === 'follow_up_order')
       .slice(0, maxItems),
-    leadTimeDataGaps: [...supplyAction, ...activeOrders]
+    leadTimeDataGaps: [...supplyAction, ...missingSupplier, ...activeOrders]
       .filter(
         (row) =>
           ['missing_lead_time', 'stale_lead_time'].includes(asString(row.actionStatus) ?? '') ||
@@ -691,6 +702,13 @@ function commandCenterAlerts(commandCenter: PlainRecord, maxItems: number): Inve
 
 function inventoryCommandCenterEvidence(commandCenter: PlainRecord, maxItems: number): InventoryCommandCenterEvidence {
   const panes = toPlainRecord(commandCenter.panes);
+  const pane = (name: InventoryCommandCenterPane) => {
+    const payload = toPlainRecord(panes[name]);
+    return {
+      ...payload,
+      rows: Array.isArray(payload.rows) ? (payload.rows as PlainRecord[]).map(toPlainRecord).slice(0, maxItems) : [],
+    };
+  };
   return {
     generatedAt: asString(commandCenter.generatedAt),
     metadata: toPlainRecord(commandCenter.metadata),
@@ -698,13 +716,12 @@ function inventoryCommandCenterEvidence(commandCenter: PlainRecord, maxItems: nu
       ? (commandCenter.summaryCards as PlainRecord[]).map(toPlainRecord)
       : [],
     riskBars: toPlainRecord(commandCenter.riskBars),
-    dailyAlertPreview: Array.isArray(commandCenter.dailyAlertPreview)
-      ? (commandCenter.dailyAlertPreview as PlainRecord[]).map(toPlainRecord).slice(0, maxItems)
-      : [],
     panes: {
-      supplyAction: toPlainRecord(panes.supplyAction),
-      activeOrders: toPlainRecord(panes.activeOrders),
-      stuckInventory: toPlainRecord(panes.stuckInventory),
+      supplyAction: pane('supplyAction'),
+      missingSupplier: pane('missingSupplier'),
+      activeOrders: pane('activeOrders'),
+      stuckInventory: pane('stuckInventory'),
+      duplicateProducts: pane('duplicateProducts'),
     },
     alerts: commandCenterAlerts(commandCenter, maxItems),
   };
@@ -792,6 +809,56 @@ export class EcobaseDailyOperationsBriefService {
     };
   }
 
+  private async fullInventoryCommandCenter(
+    inventoryPlanning: EcobaseInventoryPlanningService,
+    params: { company?: string; date: string },
+  ) {
+    const panes: InventoryCommandCenterPane[] = ['supplyAction', 'activeOrders', 'stuckInventory', 'duplicateProducts'];
+    let result: PlainRecord | undefined;
+    const fullPanes: PlainRecord = {};
+
+    for (const pane of panes) {
+      const rows: PlainRecord[] = [];
+      let page = 1;
+      let total = 0;
+      do {
+        const response = toPlainRecord(
+          await inventoryPlanning.commandCenter({
+            company: params.company,
+            calculationDate: params.date,
+            pane,
+            page,
+            pageSize: 100,
+          }),
+        );
+        result ??= response;
+        const payload = toPlainRecord(toPlainRecord(response.panes)[pane]);
+        const pageRows = Array.isArray(payload.rows) ? (payload.rows as PlainRecord[]).map(toPlainRecord) : [];
+        rows.push(...pageRows);
+        total = asNumber(payload.total) ?? 0;
+        page += 1;
+      } while (rows.length < total);
+      fullPanes[pane] = { ...toPlainRecord(toPlainRecord(result?.panes)[pane]), total, rows };
+    }
+
+    return { ...(result ?? {}), panes: fullPanes };
+  }
+
+  private async goldInventoryRows(company: string | undefined, calculationDate: string) {
+    const rows = (
+      await this.db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).find({
+        filter: { ...(company ? { company } : {}), calculationDate },
+        sort: ['digestPriority', 'daysUntilSafeReorder', '-estimatedProfitRisk'],
+      })
+    ).map(toPlainRecord);
+    const latestRefresh = rows
+      .map((row) => asString(row.lastRefreshedAt))
+      .filter((value): value is string => Boolean(value))
+      .sort()
+      .at(-1);
+    return latestRefresh ? rows.filter((row) => asString(row.lastRefreshedAt) === latestRefresh) : rows;
+  }
+
   async buildEvidencePack(params: {
     date: string;
     timezone: string;
@@ -800,19 +867,9 @@ export class EcobaseDailyOperationsBriefService {
   }): Promise<DailyEvidencePack> {
     const sourceStatus = await this.buildSourceStatus(params.company, params.date);
     const inventoryPlanning = new EcobaseInventoryPlanningService(this.db);
-    const commandCenterRaw = toPlainRecord(
-      await inventoryPlanning.commandCenter({
-        company: params.company,
-        calculationDate: params.date,
-        pageSize: params.maxItems,
-      }),
-    );
+    const commandCenterRaw = await this.fullInventoryCommandCenter(inventoryPlanning, params);
     const inventoryCommandCenter = inventoryCommandCenterEvidence(commandCenterRaw, params.maxItems);
-    const rows = await inventoryPlanning.listRows({
-      company: params.company,
-      calculationDate: params.date,
-      limit: Math.max(params.maxItems * 4, 100),
-    });
+    const rows = await this.goldInventoryRows(params.company, params.date);
     const sortedRows = rows.map(toPlainRecord).sort((left, right) => {
       const priority = safeNumber(left.digestPriority) - safeNumber(right.digestPriority);
       if (priority !== 0) return priority;
@@ -820,9 +877,11 @@ export class EcobaseDailyOperationsBriefService {
       if (safeReorder !== 0) return safeReorder;
       return safeNumber(right.estimatedProfitRisk) - safeNumber(left.estimatedProfitRisk);
     });
-    const riskRows = commandPaneRows(commandCenterRaw, 'supplyAction').filter((row) =>
-      ['overdue', 'order_today', 'order_soon', 'missing_lead_time'].includes(asString(row.actionStatus) ?? ''),
-    );
+    const riskRows = [
+      ...commandPaneRows(commandCenterRaw, 'supplyAction'),
+      ...commandPaneRows(commandCenterRaw, 'missingSupplier'),
+    ];
+    const planningRows = rows.filter((row) => asString(row.commandCenterPane) !== 'duplicateProducts');
     const cappedRiskRows = riskRows.slice(0, params.maxItems);
     const omissions = this.buildOmissions({ riskRows, cappedRiskRows, sourceStatus, params });
     const inventoryRisks = this.buildInventoryRisks(cappedRiskRows, params.date);
@@ -898,16 +957,30 @@ export class EcobaseDailyOperationsBriefService {
       focus,
       focusReason,
       summaryCounts: {
-        inventoryRiskCount: riskRows.length,
-        includedInventoryRiskCount: inventoryRisks.length,
-        omittedInventoryRiskCount: Math.max(riskRows.length - inventoryRisks.length, 0),
-        inventoryCommandCenterAlertCount: Object.values(inventoryCommandCenter.alerts).reduce(
+        supplyActionCount: riskRows.length,
+        includedSupplyActionCount: inventoryRisks.length,
+        omittedSupplyActionCount: Math.max(riskRows.length - inventoryRisks.length, 0),
+        activeOrderCount: commandPaneRows(commandCenterRaw, 'activeOrders').length,
+        stuckInventoryCount: commandPaneRows(commandCenterRaw, 'stuckInventory').length,
+        duplicateProductCount: commandPaneRows(commandCenterRaw, 'duplicateProducts').length,
+        includedCommandCenterAlertItemCount: Object.values(inventoryCommandCenter.alerts).reduce(
           (total, items) => total + items.length,
           0,
         ),
-        activeOrderOffTrackCount: inventoryCommandCenter.alerts.activeOrdersOffTrack.length,
-        followUpDueTodayCount: inventoryCommandCenter.alerts.followUpsDueToday.length,
-        stuckInventoryReviewCount: inventoryCommandCenter.alerts.stuckInventoryReview.length,
+        activeOrderOffTrackCount: commandPaneRows(commandCenterRaw, 'activeOrders').filter((row) =>
+          ['late', 'placed_not_purchased'].includes(asString(row.pipelineHealthStatus) ?? ''),
+        ).length,
+        activeOrderUnknownTimingCount: commandPaneRows(commandCenterRaw, 'activeOrders').filter(
+          (row) => asString(row.pipelineHealthStatus) === 'unknown_timing',
+        ).length,
+        followUpDueTodayCount: commandPaneRows(commandCenterRaw, 'activeOrders').filter(
+          (row) => asString(row.recommendedEscalation) === 'follow_up_order',
+        ).length,
+        stuckInventoryReviewCount: commandPaneRows(commandCenterRaw, 'stuckInventory').length,
+        moneyAtRiskKnownTotal:
+          Math.round(planningRows.reduce((total, row) => total + (asNumber(row.estimatedProfitRisk) ?? 0), 0) * 100) /
+          100,
+        moneyAtRiskUnknownCount: planningRows.filter((row) => asNumber(row.estimatedProfitRisk) === undefined).length,
         supplierOrderContextCount: supplierOrderContext.length,
         orderPlanningRiskCount: orderPlanningRisks.length,
         taskRiskCount: okrAccountabilityRisks.filter(
@@ -934,7 +1007,7 @@ export class EcobaseDailyOperationsBriefService {
       assumptions: [
         'This slice prepares deterministic evidence for inventory, order planning, supplier-order, performance, Buy Box, OKR/accountability, task, and source-quality exceptions.',
         'Purchased or inbound supplier orders count as trusted coverage; draft, approval pending, payment pending, blocked, cancelled, and completed orders are evidence but not safe coverage.',
-        'Profit risk comes from the inventory-planning read model and may be negative; urgent stockout risk is still retained with a caveat.',
+        'Money at Risk is projected from non-duplicate Gold planning rows as uncovered stockout days × trusted daily velocity × profit per unit; missing inputs remain unknown.',
         'Source credentials, raw URLs with tokens, OAuth tokens, and secret references are excluded from the evidence pack.',
       ],
     };
@@ -986,19 +1059,16 @@ export class EcobaseDailyOperationsBriefService {
       const estimatedProfitRisk = asNumber(row.estimatedProfitRisk);
       const supplierEvidenceState = !asString(row.supplierName)
         ? 'missing'
-        : ['order_details_history', 'planning_parameter_fallback'].includes(asString(row.supplierSource) ?? '') ||
-            asString(row.supplierConfidence) === 'low'
-          ? 'fallback_or_inferred'
-          : 'known';
+        : asString(row.supplierAvailability)?.startsWith('resolved_')
+          ? 'known'
+          : 'fallback_or_inferred';
       const caveats = [] as string[];
       if (supplierEvidenceState !== 'known')
         caveats.push('Supplier identity is missing or inferred from fallback/order history evidence.');
       if ((asString(row.leadTimeFreshness) ?? 'missing') !== 'fresh')
         caveats.push('Lead time is missing or stale and needs supplier confirmation.');
-      if (typeof estimatedProfitRisk === 'number' && estimatedProfitRisk < 0)
-        caveats.push('Estimated profit risk is negative, but urgent OOS timing keeps this in the action list.');
-      if (asString(row.supplierOrderState) === 'placed_not_purchased')
-        caveats.push('An order exists but is not paid/purchased, so it is not trusted recovery coverage.');
+      if (estimatedProfitRisk === undefined)
+        caveats.push('Money at Risk is unknown because required Gold inputs are missing.');
       return {
         evidenceId: evidenceId('inventory', productIdentity(row)),
         company: asString(row.company),
@@ -1029,9 +1099,16 @@ export class EcobaseDailyOperationsBriefService {
         supplierOrderState: asString(row.supplierOrderState),
         supplierOrderStatus: asString(row.supplierOrderStatus),
         supplierOrderRef: asString(row.supplierOrderRef),
+        latestSupplierOrderActivityAt: asString(row.latestSupplierOrderActivityAt),
+        latestSupplierOrderActivityNote: asString(row.latestSupplierOrderActivityNote),
+        latestSupplierOrderActivityActor: asString(row.latestSupplierOrderActivityActor),
         latestClosedOrCancelledOrderRef:
           asString(row.supplierOrderState) === 'closed_history' ? asString(row.supplierOrderRef) : undefined,
         estimatedProfitRisk,
+        estimatedProfitRiskBasis: asString(row.estimatedProfitRiskBasis),
+        moneyRiskStatus: asString(row.moneyRiskStatus),
+        moneyRiskInputs: toPlainRecord(row.moneyRiskInputs),
+        commandCenterPane: asString(row.commandCenterPane),
         caveats,
         sourceWarnings: Array.isArray(toPlainRecord(row.evidence).dataWarnings)
           ? (toPlainRecord(row.evidence).dataWarnings as PlainRecord[])
@@ -1654,7 +1731,7 @@ export class EcobaseDailyOperationsBriefService {
     const commandAlerts = params.inventoryCommandCenter.alerts;
     if (
       params.inventoryRisks.length > 0 ||
-      commandAlerts.urgentNoOrder.length > 0 ||
+      commandAlerts.supplyActionNeeded.length > 0 ||
       commandAlerts.stuckInventoryReview.length > 0
     )
       return 'inventory_risk';
@@ -1692,13 +1769,26 @@ export class EcobaseDailyOperationsBriefService {
       const overdue = params.inventoryRisks.filter((risk) => risk.actionStatus === 'overdue').length;
       const commandAlerts = params.inventoryCommandCenter.alerts;
       const missingLeadTime = Math.max(params.leadTimeIssues.length, commandAlerts.leadTimeDataGaps.length);
-      return `${overdue} overdue reorder actions, ${commandAlerts.urgentNoOrder.length} urgent no-order risk(s), ${missingLeadTime} lead-time blocker(s), and ${commandAlerts.stuckInventoryReview.length} stuck-inventory review(s) outrank other current signals.`;
+      return `${overdue} included overdue reorder action(s), ${commandPaneTotal(
+        params.inventoryCommandCenter,
+        'supplyAction',
+      )} Gold supply-action row(s), ${missingLeadTime} included lead-time blocker(s), and ${commandPaneTotal(
+        params.inventoryCommandCenter,
+        'stuckInventory',
+      )} stuck-inventory row(s) outrank other current signals.`;
     }
     if (params.focus === 'supplier_orders') {
       const statusChecks = params.orderPlanningRisks.filter((order) => order.statusCheckRequired).length;
       const staleCoverage = params.supplierOrderContext.filter((order) => !order.isTrustedCoverage).length;
       const commandAlerts = params.inventoryCommandCenter.alerts;
-      return `${params.orderPlanningRisks.length} order-planning action(s), ${statusChecks} status check(s), ${staleCoverage} supplier coverage follow-up(s), ${commandAlerts.activeOrdersOffTrack.length} off-track active order(s), and ${commandAlerts.followUpsDueToday.length} follow-up(s) due today need attention.`;
+      return `${
+        params.orderPlanningRisks.length
+      } included order-planning action(s), ${statusChecks} status check(s), ${staleCoverage} supplier coverage follow-up(s), ${commandPaneTotal(
+        params.inventoryCommandCenter,
+        'activeOrders',
+      )} active order row(s), ${commandAlerts.activeOrdersOffTrack.length} included off-track alert(s), and ${
+        commandAlerts.followUpsDueToday.length
+      } included follow-up alert(s) need attention.`;
     }
     if (params.focus === 'buybox') {
       return `${params.buyBoxRisks.length} Buy Box deterioration signal(s) outrank lower-priority velocity, profit, and accountability signals.`;

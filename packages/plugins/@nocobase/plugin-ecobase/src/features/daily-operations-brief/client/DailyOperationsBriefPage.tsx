@@ -290,17 +290,23 @@ export default function DailyOperationsBriefPage() {
   const pack = brief.evidencePack ?? {};
   const inventoryCommandCenter = pack.inventoryCommandCenter ?? {};
   const inventoryCommandAlerts = (inventoryCommandCenter as PlainRecord).alerts ?? {};
-  const urgentNoOrderAlerts = rows((inventoryCommandAlerts as PlainRecord).urgentNoOrder);
+  const supplyActionAlerts = rows((inventoryCommandAlerts as PlainRecord).supplyActionNeeded);
   const activeOrdersOffTrackAlerts = rows((inventoryCommandAlerts as PlainRecord).activeOrdersOffTrack);
+  const activeOrdersUnknownTimingAlerts = rows((inventoryCommandAlerts as PlainRecord).activeOrdersUnknownTiming);
   const followUpsDueTodayAlerts = rows((inventoryCommandAlerts as PlainRecord).followUpsDueToday);
   const leadTimeDataGapAlerts = rows((inventoryCommandAlerts as PlainRecord).leadTimeDataGaps);
   const stuckInventoryReviewAlerts = rows((inventoryCommandAlerts as PlainRecord).stuckInventoryReview);
   const commandCenterAlertRows = [
-    ...urgentNoOrderAlerts.map((row) => ({ ...row, alertType: 'Urgent no order', action: 'Create PO draft' })),
+    ...supplyActionAlerts.map((row) => ({ ...row, alertType: 'Supply action needed', action: 'Create PO draft' })),
     ...activeOrdersOffTrackAlerts.map((row) => ({
       ...row,
       alertType: 'Active order off-track',
       action: 'Expedite or update order',
+    })),
+    ...activeOrdersUnknownTimingAlerts.map((row) => ({
+      ...row,
+      alertType: 'Active order timing unknown',
+      action: 'Confirm expected arrival',
     })),
     ...followUpsDueTodayAlerts.map((row) => ({
       ...row,
@@ -327,23 +333,23 @@ export default function DailyOperationsBriefPage() {
   const okrRisks = accountabilityRisks.filter((item) => item.riskType === 'okr_off_track');
   const futureSignals = [...rows(pack.performanceTrends), ...rows(pack.buyBoxRisks), ...okrRisks];
   const validationErrors = rows(brief.validationErrors);
+  const summaryCounts = (pack.summaryCounts ?? {}) as PlainRecord;
   const todayActionCount = commandCenterAlertRows.length + orderPlanningRisks.length + taskRisks.length;
-  const inventoryMoneyAtRisk = sumField(inventoryRisks, 'estimatedProfitRisk');
-  const orderMoneyAtRisk = sumField(orderPlanningRisks, 'moneyAtRisk');
-  const urgentInventoryCount = countBy(inventoryRisks, (item) =>
-    ['overdue', 'order_today', 'order_soon', 'missing_lead_time'].includes(item.actionStatus ?? ''),
+  const inventoryMoneyAtRisk = numberOr(
+    summaryCounts.moneyAtRiskKnownTotal,
+    sumField(inventoryRisks, 'estimatedProfitRisk'),
   );
+  const inventoryMoneyAtRiskUnknownCount = numberOr(summaryCounts.moneyAtRiskUnknownCount, 0);
+  const orderMoneyAtRisk = sumField(orderPlanningRisks, 'moneyAtRisk');
+  const urgentInventoryCount = numberOr(summaryCounts.supplyActionCount, inventoryRisks.length);
   const statusCheckCount = countBy(orderPlanningRisks, (item) => Boolean(item.statusCheckRequired));
   const staleOrderCount = countBy(orderPlanningRisks, (item) => Number(item.daysSinceLastActivity) >= 3);
   const earliestOos = earliestDate([...inventoryRisks, ...orderPlanningRisks], ['estimatedOosDate', 'earliestOosDate']);
   const snapshot = trend?.currentSnapshot ?? {};
-  const snapshotInventoryMoneyAtRisk = numberOr(snapshot.inventoryMoneyAtRisk, inventoryMoneyAtRisk);
+  const snapshotInventoryMoneyAtRisk = inventoryMoneyAtRisk;
   const snapshotOrderMoneyAtRisk = numberOr(snapshot.orderMoneyAtRisk, orderMoneyAtRisk);
   const snapshotTodayActionCount = numberOr(snapshot.todayActionCount, todayActionCount);
-  const snapshotUrgentInventoryCount = numberOr(
-    snapshot.urgentInventorySkuCount,
-    urgentInventoryCount || inventoryRisks.length,
-  );
+  const snapshotUrgentInventoryCount = urgentInventoryCount;
   const snapshotStatusCheckCount = numberOr(snapshot.ordersNeedingCheck, statusCheckCount);
   const snapshotStaleOrderCount = numberOr(snapshot.staleOrderCount, staleOrderCount + taskRisks.length);
   const snapshotEarliestOos = typeof snapshot.earliestOosDate === 'string' ? snapshot.earliestOosDate : earliestOos;
@@ -361,6 +367,13 @@ export default function DailyOperationsBriefPage() {
   ];
   const trendRows = rows(trend?.kpis)
     .filter((row) => priorityKpis.includes(row.key) && (row.value !== null || row.previousValue !== null))
+    .map((row) =>
+      row.key === 'inventoryMoneyAtRisk'
+        ? { ...row, value: snapshotInventoryMoneyAtRisk }
+        : row.key === 'urgentInventorySkuCount'
+          ? { ...row, value: snapshotUrgentInventoryCount }
+          : row,
+    )
     .sort((left, right) => priorityKpis.indexOf(left.key) - priorityKpis.indexOf(right.key));
   const currentTrendWindow = trendRows.find((row) => row.sourceWindowStart && row.sourceWindowEnd);
   const currentTrendWindowLabel = currentTrendWindow
@@ -382,9 +395,9 @@ export default function DailyOperationsBriefPage() {
           : 'Inventory',
       subject: row.asin ?? row.sku ?? 'Unknown product',
       detail: row.title ?? row.supplierName ?? row.company,
-      signal: row.alertType ?? row.actionStatus ?? row.recommendedAction ?? 'review',
+      signal: row.alertType ?? row.actionStatus ?? row.recommendedEscalation ?? 'review',
       action: row.action ?? (row.actionStatus === 'missing_lead_time' ? 'Confirm lead time' : 'Place or adjust order'),
-      due: row.latestSafeReorderDate ?? row.expectedSellableDate ?? row.estimatedOosDate,
+      due: row.latestSafeReorderDate ?? row.expectedArrivalDate ?? row.estimatedOosDate,
       money: row.estimatedProfitRisk,
       owner: row.supplierName,
     })),
@@ -418,8 +431,9 @@ export default function DailyOperationsBriefPage() {
   const managementActionDescription = (
     <span>
       {t('Earliest OOS')}: <strong>{snapshotEarliestOos ?? '—'}</strong> · {t('Inventory risk')}:{' '}
-      <strong>{formatMoney(snapshotInventoryMoneyAtRisk)}</strong> · {t('Order risk')}:{' '}
-      <strong>{formatMoney(snapshotOrderMoneyAtRisk)}</strong> · {brief.focusReason ?? ''}
+      <strong>{formatMoney(snapshotInventoryMoneyAtRisk)}</strong>
+      {inventoryMoneyAtRiskUnknownCount > 0 ? ` (${inventoryMoneyAtRiskUnknownCount} ${t('unknown')})` : ''} ·{' '}
+      {t('Order risk')}: <strong>{formatMoney(snapshotOrderMoneyAtRisk)}</strong> · {brief.focusReason ?? ''}
     </span>
   );
 
@@ -657,8 +671,10 @@ export default function DailyOperationsBriefPage() {
                       key: 'signal',
                       render: (_, row) => (
                         <Space size={4} wrap>
-                          <Tag>{row.actionStatus ?? row.pipelineHealthBucket ?? row.stuckBucket ?? 'review'}</Tag>
-                          {row.recommendedAction ? <Tag color="blue">{row.recommendedAction}</Tag> : null}
+                          <Tag>
+                            {row.actionStatus ?? row.pipelineHealthStatus ?? row.stuckClassification ?? 'review'}
+                          </Tag>
+                          {row.recommendedEscalation ? <Tag color="blue">{row.recommendedEscalation}</Tag> : null}
                         </Space>
                       ),
                     },

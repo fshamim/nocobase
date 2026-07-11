@@ -37,6 +37,11 @@ import { FormulaHelp, type FormulaHelpGroupKey } from '../../../client/formula-h
 import { useT } from '../../../client/locale';
 
 type PlainRecord = Record<string, any>;
+
+function asPlainRecord(value: unknown): PlainRecord {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as PlainRecord) : {};
+}
+
 const MONEY_AT_RISK_COLOR = '#8b1a1a';
 type OrderNowQuickFilter =
   | 'all'
@@ -46,7 +51,12 @@ type OrderNowQuickFilter =
   | 'no_order'
   | 'placed_not_purchased';
 type OrderNowSortKey = 'urgency' | 'oos_asc' | 'risk_desc' | 'tier' | 'supplier';
-type CommandCenterPaneKey = 'supplyAction' | 'activeOrders' | 'stuckInventory';
+type CommandCenterPaneKey =
+  | 'supplyAction'
+  | 'missingSupplier'
+  | 'activeOrders'
+  | 'stuckInventory'
+  | 'duplicateProducts';
 
 interface DigestPreview {
   summary: PlainRecord;
@@ -262,6 +272,8 @@ function freshnessColor(value?: string) {
   switch (value) {
     case 'fresh':
       return 'green';
+    case 'default':
+      return 'blue';
     case 'stale':
       return 'orange';
     case 'missing':
@@ -423,6 +435,30 @@ function StockStatus({ row, t }: { row: PlainRecord; t: (key: string) => string 
   );
 }
 
+function SkuFamilyReconciliation({ row, t }: { row: PlainRecord; t: (key: string) => string }) {
+  const reconciliation = asPlainRecord(asPlainRecord(row.evidence).duplicateSkuSupplierSource);
+  const sourceSku = String(reconciliation.sourceSku ?? '');
+  if (!sourceSku || sourceSku === String(row.sku ?? '')) return null;
+  const sellerboardRepresentsCoverage = reconciliation.coverageTreatment === 'represented_in_sellerboard';
+  return (
+    <Space direction="vertical" size={4}>
+      <Space size={4} wrap>
+        <Tag color="green">{t('Auto-linked')}</Tag>
+        <Typography.Text>
+          {sourceSku} → {String(row.sku ?? '—')}
+        </Typography.Text>
+        {reconciliation.supplierOrderRef ? <Tag>{String(reconciliation.supplierOrderRef)}</Tag> : null}
+      </Space>
+      <Typography.Text type="secondary">
+        {t('Same company + ASIN')}.{' '}
+        {sellerboardRepresentsCoverage
+          ? t('Sellerboard pipeline already counts this replenishment; supplier-order quantity was not added again.')
+          : t('Sellerboard has no pipeline quantity; reliable supplier-order coverage is used.')}
+      </Typography.Text>
+    </Space>
+  );
+}
+
 function leadTimeSourceText(row: PlainRecord) {
   if (row.leadTimeSource === 'planning_parameter_without_supplier_mapping') {
     return 'Lead time is coming from the planning-parameter import for this ASIN/company; supplier mapping is still missing.';
@@ -462,32 +498,22 @@ function orderCoverageText() {
 }
 
 function tierScoreText() {
-  return 'Tier score = profit per unit × quantity. Current tier uses last complete month quantity; average tier uses the six-month average; best tier uses the six-month best month. Stock recommended reorder quantity is not used for tiering.';
+  return 'Tier score = profit per unit × actual units sold in the latest rolling 30-day window. A product needs at least 4 units and must not be stuck to qualify for A/B/C; otherwise it is Unclassified. Six-month quantities remain historical context only.';
 }
 
 function TierMovementTag({ row, t }: { row: PlainRecord; t: (key: string) => string }) {
   const movement = String(row.tierMovement ?? '');
+  if (!['up', 'down', 'new', 'lost_tier'].includes(movement)) return null;
   const previous = formatTier(row.previousTier);
-  const current = formatTier(row.tier ?? row.currentTier);
-  if (movement === 'down' || movement === 'lost_tier') {
-    return <Tag color="red">{t(`Tier drop ${previous}→${current}`)}</Tag>;
-  }
-  return null;
+  const current = formatTier(row.tier);
+  return (
+    <Tag color={movement === 'down' || movement === 'lost_tier' ? 'red' : 'green'}>{t(`${previous}→${current}`)}</Tag>
+  );
 }
 
 function MarginAlertTag({ row, t }: { row: PlainRecord; t: (key: string) => string }) {
   const margin = finiteNumber(row.sixMonthMargin);
   return typeof margin === 'number' && margin < 8 ? <Tag color="red">{t('Margin < 8%')}</Tag> : null;
-}
-
-function HistoricalTierTags({ row, t }: { row: PlainRecord; t: (key: string) => string }) {
-  return (
-    <Space size={4} wrap>
-      <Tag color={tierColor(row.currentTier)}>{`${t('Current')} ${formatTier(row.currentTier)}`}</Tag>
-      <Tag color={tierColor(row.averageTier)}>{`${t('Avg')} ${formatTier(row.averageTier)}`}</Tag>
-      <Tag color={tierColor(row.bestTier)}>{`${t('Best')} ${formatTier(row.bestTier)}`}</Tag>
-    </Space>
-  );
 }
 
 function HistoricalQuantityTags({ row, t }: { row: PlainRecord; t: (key: string) => string }) {
@@ -711,6 +737,7 @@ export default function InventoryPlanningPage() {
   const [digest, setDigest] = useState<DigestPreview>(() => unwrapDigest({}));
   const [commandCenter, setCommandCenter] = useState<PlainRecord>({});
   const [activeCommandPane, setActiveCommandPane] = useState<CommandCenterPaneKey>('supplyAction');
+  const [openCommandPane, setOpenCommandPane] = useState<CommandCenterPaneKey | null>('supplyAction');
   const [commandCenterSearch, setCommandCenterSearch] = useState('');
   const [commandCenterSortBy, setCommandCenterSortBy] = useState('estimatedProfitRisk');
   const [selectedCommandPane, setSelectedCommandPane] = useState<CommandCenterPaneKey | null>(null);
@@ -733,6 +760,7 @@ export default function InventoryPlanningPage() {
   const [budgetLoading, setBudgetLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [rebuildingGold, setRebuildingGold] = useState(false);
+  const [targetUpdatingFamilyId, setTargetUpdatingFamilyId] = useState<string>();
   const [error, setError] = useState<Error | null>(null);
   const sortedOrderActivities = useMemo(
     () =>
@@ -794,7 +822,9 @@ export default function InventoryPlanningPage() {
       setFilterOptions(unwrapData(unwrapData(filtersResponse).filters ?? filtersResponse));
       setCommandCenter(center);
       setRows(
-        ['supplyAction', 'activeOrders', 'stuckInventory'].flatMap((key) => unwrapRows(unwrapData(panes[key]).rows)),
+        (['supplyAction', 'missingSupplier', 'activeOrders', 'stuckInventory'] as CommandCenterPaneKey[]).flatMap(
+          (key) => unwrapRows(unwrapData(panes[key]).rows),
+        ),
       );
       setDigest(unwrapDigest({}));
     } catch (err) {
@@ -818,6 +848,33 @@ export default function InventoryPlanningPage() {
     targetCoverDays,
     tier,
   ]);
+
+  const updateFamilyTarget = useCallback(
+    async (row: PlainRecord, companyProductId: string) => {
+      const familyId = String(row.companyProductFamilyId ?? '');
+      if (!familyId || !companyProductId || companyProductId === row.replenishmentTargetCompanyProductId) return;
+      setTargetUpdatingFamilyId(familyId);
+      try {
+        await api.request({
+          url: 'ecobaseInventoryPlanning:setFamilyTarget',
+          method: 'post',
+          data: {
+            familyId,
+            companyProductId,
+            company: company.trim() || undefined,
+            calculationDate: calculationDate.trim() || undefined,
+          },
+        });
+        message.success(t('Replenishment target updated.'));
+        await loadPlanning();
+      } catch (err) {
+        message.error(err instanceof Error ? err.message : t('Replenishment target could not be updated.'));
+      } finally {
+        setTargetUpdatingFamilyId(undefined);
+      }
+    },
+    [api, calculationDate, company, loadPlanning, message, t],
+  );
 
   useEffect(() => {
     void loadPlanningSettings().catch((err) => setError(err as Error));
@@ -843,7 +900,6 @@ export default function InventoryPlanningPage() {
           safetyBufferDays,
           targetCoverDays,
           purchasedPipelineGraceDays,
-          limit: Math.max(limit, 500),
         },
       });
       await loadPlanning();
@@ -858,7 +914,6 @@ export default function InventoryPlanningPage() {
     calculationDate,
     company,
     leadTimeFreshnessDays,
-    limit,
     loadPlanning,
     orderSoonWindowDays,
     purchasedPipelineGraceDays,
@@ -982,19 +1037,27 @@ export default function InventoryPlanningPage() {
   const commandCalculationDate = String(commandMetadata.calculationDate ?? relativeBaseDate);
   const commandTargetCoverDays = finiteNumber(commandMetadata.targetCoverDays) ?? targetCoverDays;
   const commandPaneTitles: Record<CommandCenterPaneKey, string> = {
-    supplyAction: t('Products needing supply action — no active order'),
-    activeOrders: t('Products with active orders — pipeline monitoring'),
-    stuckInventory: t('Stuck inventory'),
+    supplyAction: t('Families needing supply action — no active order'),
+    missingSupplier: t('Families missing supplier — stockout risk'),
+    activeOrders: t('Families with active orders — pipeline monitoring'),
+    stuckInventory: t('Stuck & excess inventory'),
+    duplicateProducts: t('Duplicate SKU review'),
   };
   const commandPaneDescriptions: Record<CommandCenterPaneKey, string> = {
     supplyAction: t(
-      'Category A: stockout risk with no active purchased pipeline. Create or add a PO from the row drawer.',
+      'One row per product family. Family stock and velocity drive the reorder; expand a row to inspect each listing.',
+    ),
+    missingSupplier: t(
+      'One row per at-risk family without a verified preferred supplier. Expand the family to inspect listing evidence.',
     ),
     activeOrders: t(
-      'Category B: these products already have an order. Check if the order will be sellable before stock runs out.',
+      'One row per family with an active order. Check family coverage, arrival timing, and the listing-level order evidence.',
     ),
     stuckInventory: t(
-      'Slow-moving live stock that ties up capital. Rows must have sell-through evidence, so active stockouts are filtered out.',
+      'One action row per family. Expand it to see which listings are affected, their stock, sell-through, cost, and active orders.',
+    ),
+    duplicateProducts: t(
+      'Same company + ASIN rows with different SKUs. Review and resolve before using them for planning.',
     ),
   };
   const commandPaneSortOptions: Record<CommandCenterPaneKey, { value: string; label: string }[]> = {
@@ -1004,21 +1067,33 @@ export default function InventoryPlanningPage() {
       { value: 'daysUntilSafeReorder', label: t('Order-by urgency') },
       { value: 'tier', label: t('Tier') },
     ],
+    missingSupplier: [
+      { value: 'estimatedProfitRisk', label: t('Money at risk') },
+      { value: 'daysUntilOos', label: t('OOS days left') },
+      { value: 'tier', label: t('Tier') },
+    ],
     activeOrders: [
       { value: 'stockoutGapDays', label: t('Stockout gap') },
-      { value: 'expectedSellableDate', label: t('Expected sellable') },
+      { value: 'expectedArrivalDate', label: t('Expected arrival') },
       { value: 'estimatedProfitRisk', label: t('Money at risk') },
     ],
     stuckInventory: [
-      { value: 'daysOfCover', label: t('Days cover') },
+      { value: 'familyStuckAffectedValue', label: t('Affected value') },
+      { value: 'familyDaysOfCover', label: t('Family days cover') },
+      { value: 'familyCurrentPlanningStock', label: t('Family stock') },
+    ],
+    duplicateProducts: [
       { value: 'currentPlanningStock', label: t('Planning stock') },
-      { value: 'estimatedProfitRisk', label: t('Money at risk') },
+      { value: 'asin', label: t('ASIN') },
+      { value: 'duplicatePrimarySku', label: t('Primary SKU') },
     ],
   };
   const commandPaneHelpGroups: Record<CommandCenterPaneKey, FormulaHelpGroupKey> = {
     supplyAction: 'inventorySupplyAction',
+    missingSupplier: 'inventorySupplyAction',
     activeOrders: 'inventoryActiveOrders',
     stuckInventory: 'inventoryStuckInventory',
+    duplicateProducts: 'inventoryDrawer',
   };
   const renderRiskBars = (items: PlainRecord[]) => (
     <Space direction="vertical" size={6} style={{ width: '100%' }}>
@@ -1095,6 +1170,17 @@ export default function InventoryPlanningPage() {
       </Typography.Text>
     </Space>
   );
+  const renderCommandTierCell = (value: string, row: PlainRecord) => (
+    <Space direction="vertical" size={0}>
+      <Space size={4} wrap>
+        <Tag color={tierColor(value)}>{formatTier(value)}</Tag>
+        <TierMovementTag row={row} t={t} />
+      </Space>
+      <Typography.Text type="secondary">
+        {t('30d units')} {formatNumber(row.recentUnits30)} · {t(formatStatusLabel(row.tierEligibilityReason))}
+      </Typography.Text>
+    </Space>
+  );
   const renderDocCell = (_value: any, row: PlainRecord) => (
     <Typography.Text>
       {formatNumber(row.daysOfCover)} {t('days')}
@@ -1128,9 +1214,10 @@ export default function InventoryPlanningPage() {
     </Space>
   );
   const leadTimeFreshnessText = (row: PlainRecord) => {
-    const leadTime = finiteNumber(row.leadTimeDays);
-    if (typeof leadTime !== 'number') return t('Lead time missing');
-    const freshness = String(row.leadTimeFreshness ?? '').trim();
+    const sourceLeadTime = finiteNumber(row.leadTimeDays);
+    const leadTime = sourceLeadTime ?? 30;
+    const freshness = String(row.leadTimeFreshness ?? (sourceLeadTime === undefined ? 'default' : '')).trim();
+    if (freshness === 'default') return `${formatNumber(leadTime)} ${t('days')} · ${t('Default')}`;
     return freshness
       ? `${formatNumber(leadTime)} ${t('days')} · ${t(freshness)}`
       : `${formatNumber(leadTime)} ${t('days')}`;
@@ -1138,7 +1225,7 @@ export default function InventoryPlanningPage() {
   const activeOrderCost = (row: PlainRecord) => {
     const units = finiteNumber(row.openOrderCoverageQty);
     const unitCost = finiteNumber(row.unitCost);
-    if (String(row.unitCostStatus ?? '') === 'ambiguous') return undefined;
+    if (!String(row.unitCostAvailability ?? '').startsWith('resolved_')) return undefined;
     return typeof units === 'number' && typeof unitCost === 'number' ? units * unitCost : undefined;
   };
   const renderOrderByCell = (_value: any, row: PlainRecord) => {
@@ -1162,11 +1249,11 @@ export default function InventoryPlanningPage() {
     const estimatedOrderCost =
       finiteNumber(row.estimatedOrderCost) ??
       (typeof suggestedQty === 'number' && typeof unitCost === 'number' ? suggestedQty * unitCost : undefined);
-    const unitCostStatus = String(row.unitCostStatus ?? 'missing');
+    const unitCostAvailability = String(row.unitCostAvailability ?? 'unavailable_no_evidence');
     const costText =
       typeof estimatedOrderCost === 'number'
         ? `${t('Est. COGS')} ${formatCurrency(estimatedOrderCost)}`
-        : unitCostStatus === 'ambiguous'
+        : unitCostAvailability === 'unavailable_ambiguous'
           ? t('COGS ambiguous')
           : t('COGS missing');
     return (
@@ -1265,25 +1352,49 @@ export default function InventoryPlanningPage() {
   const renderHeldUpAtCell = (_value: any, row: PlainRecord) => {
     const status = formatStatusLabel(row.supplierOrderStatus ?? row.supplierOrderState ?? 'unknown');
     const latestAt = String(row.latestSupplierOrderActivityAt ?? '').trim();
+    const authorityEvidence = asPlainRecord(row.supplierOrderAuthorityEvidence);
+    const taskEvidence = asPlainRecord(authorityEvidence.clickupStatusEvidence);
+    const taskAt = latestAt ? '' : String(taskEvidence.taskOccurredAt ?? '').trim();
+    const activityAt = latestAt || taskAt;
+    const activityAuthor = String(
+      row.latestSupplierOrderActivityActorDisplayName ?? row.latestSupplierOrderActivityActor ?? '',
+    ).trim();
+    const hasActivityEvidence = Boolean(
+      String(row.latestSupplierOrderActivityNote ?? '').trim() ||
+        String(row.latestSupplierOrderActivityActor ?? '').trim() ||
+        String(row.latestSupplierOrderActivitySource ?? '').trim() ||
+        String(row.supplierOrderAuthorityTaskRef ?? '').trim(),
+    );
     return (
       <Space direction="vertical" size={0} style={{ maxWidth: 260 }}>
-        <Tooltip title={latestAt ? formatDateTime(latestAt) : undefined}>
-          <Typography.Text strong>{latestAt ? formatRelativeTime(latestAt) : t('No activity logged')}</Typography.Text>
+        <Tooltip
+          title={activityAt ? `${taskAt ? `${t('ClickUp task date')}: ` : ''}${formatDateTime(activityAt)}` : undefined}
+        >
+          <Typography.Text strong>
+            {latestAt
+              ? formatRelativeTime(latestAt)
+              : taskAt
+                ? `${formatRelativeTime(taskAt)} · ${t('ClickUp task date')}`
+                : hasActivityEvidence
+                  ? t('Activity date unavailable')
+                  : t('No activity evidence')}
+          </Typography.Text>
         </Tooltip>
+        {activityAuthor ? <Typography.Text type="secondary">{activityAuthor}</Typography.Text> : null}
         {renderLatestOrderCommentPreview(row) ?? <Typography.Text type="secondary">{t(status)}</Typography.Text>}
       </Space>
     );
   };
   const renderActiveRiskCell = (_value: any, row: PlainRecord) => {
-    const pipeline = String(row.pipelineHealthBucket ?? 'pipeline');
-    const followUpDue = row.recommendedAction === 'follow_up_order';
+    const pipeline = String(row.pipelineHealthStatus ?? 'none');
+    const followUpDue = row.recommendedEscalation === 'follow_up_order';
     const label =
       pipeline === 'late'
         ? 'off-track'
-        : pipeline === 'late_with_grace'
-          ? 'late with buffer'
-          : pipeline === 'placed_not_purchased'
-            ? 'placed not purchased'
+        : pipeline === 'placed_not_purchased'
+          ? 'placed not purchased'
+          : pipeline === 'unknown_timing'
+            ? 'timing unknown'
             : followUpDue
               ? 'follow-up due today'
               : 'pipeline monitoring';
@@ -1291,7 +1402,7 @@ export default function InventoryPlanningPage() {
     const color =
       label === 'off-track' || label === 'follow-up due today'
         ? 'red'
-        : label === 'late with buffer' || label === 'placed not purchased'
+        : label === 'placed not purchased' || label === 'timing unknown'
           ? 'orange'
           : 'blue';
     return (
@@ -1304,12 +1415,14 @@ export default function InventoryPlanningPage() {
     );
   };
   const renderStuckRiskCell = (_value: any, row: PlainRecord) => {
-    const doc = Number(row.daysOfCover ?? 0);
-    const threshold = doc >= 60 ? '60+ DOC' : '30+ DOC';
+    const doc = finiteNumber(row.daysOfCover);
+    const threshold = typeof doc === 'number' ? (doc >= 60 ? '60+ DOC' : '30+ DOC') : 'DOC unavailable';
     return (
       <Space direction="vertical" size={0}>
-        <Tag color={doc >= 60 ? 'red' : 'orange'}>{t(threshold)}</Tag>
-        <Typography.Text type="secondary">{t(formatStatusLabel(row.stuckBucket ?? 'stuck inventory'))}</Typography.Text>
+        <Tag color={typeof doc === 'number' && doc >= 60 ? 'red' : 'orange'}>{t(threshold)}</Tag>
+        <Typography.Text type="secondary">
+          {t(formatStatusLabel(row.stuckClassification ?? 'stuck inventory'))}
+        </Typography.Text>
       </Space>
     );
   };
@@ -1324,11 +1437,239 @@ export default function InventoryPlanningPage() {
       </Typography.Text>
     </Space>
   );
+  const familyMembers = (row: PlainRecord) => unwrapRows(row.familyMembers);
+  const renderFamilyStockCell = (_value: any, row: PlainRecord) =>
+    renderCurrentStockCell(undefined, {
+      currentPlanningStock: row.familyCurrentPlanningStock,
+      sellableStock: row.familySellableStock,
+      reservedStock: row.familyReservedStock,
+      inboundStock: row.familyInboundStock,
+      prepStock: row.familyPrepStock,
+      orderedStock: row.familyOrderedStock,
+    });
+  const renderFamilyIdentityCell = (_value: any, row: PlainRecord) => (
+    <Space direction="vertical" size={0} style={{ maxWidth: 180 }}>
+      <Typography.Text strong>{row.familyCanonicalAsin ?? row.asin ?? '—'}</Typography.Text>
+      <Typography.Text type="secondary">{row.company ?? '—'}</Typography.Text>
+      <Typography.Text type="secondary">
+        {formatNumber(row.familyMemberCount)} {t('listings')} · {row.familyMarketplace ?? '—'}
+      </Typography.Text>
+    </Space>
+  );
+  const renderFamilyTargetCell = (_value: any, row: PlainRecord) => {
+    const members = familyMembers(row);
+    const familyId = String(row.companyProductFamilyId ?? '');
+    return (
+      <Space direction="vertical" size={4} onClick={(event) => event.stopPropagation()}>
+        <Space size={4}>
+          <Tag color="blue">{t('Target')}</Tag>
+          <Typography.Text strong>{row.replenishmentTargetSku ?? row.sku ?? '—'}</Typography.Text>
+        </Space>
+        <Select
+          size="small"
+          aria-label={t('Change replenishment target')}
+          value={row.replenishmentTargetCompanyProductId}
+          loading={targetUpdatingFamilyId === familyId}
+          disabled={!familyId || members.length < 2 || targetUpdatingFamilyId === familyId}
+          onChange={(companyProductId) => void updateFamilyTarget(row, companyProductId)}
+          style={{ minWidth: 170 }}
+          options={members.map((member) => ({
+            value: String(member.companyProductId),
+            label: `${member.sku ?? member.asin ?? '—'}${member.familyRole === 'target' ? ` · ${t('Target')}` : ''}`,
+          }))}
+        />
+      </Space>
+    );
+  };
+  const renderFamilySupplierCell = (_value: any, row: PlainRecord) => (
+    <Space direction="vertical" size={0} style={{ maxWidth: 180 }}>
+      <Typography.Text strong>
+        {row.familyPreferredSupplierName ?? row.supplierName ?? t('Supplier missing')}
+      </Typography.Text>
+      <Typography.Text type="secondary">
+        {formatNumber(row.familyLeadTimeDays ?? row.leadTimeDays)} {t('days lead time')}
+      </Typography.Text>
+      <Typography.Text type="secondary">
+        {t('Unit cost')} {formatCurrency(row.familyUnitCost ?? row.unitCost)}
+      </Typography.Text>
+    </Space>
+  );
+  const renderFamilyVelocityCell = (_value: any, row: PlainRecord) => (
+    <Space direction="vertical" size={0}>
+      <Typography.Text strong>
+        {formatNumber(row.familySalesVelocity)} {t('/day')}
+      </Typography.Text>
+      <Typography.Text type="secondary">
+        {formatNumber(row.familyDaysOfCover)} {t('days cover')}
+      </Typography.Text>
+      <Typography.Text type="secondary">
+        {t('OOS')} {formatDate(row.familyEstimatedOosDate)}
+      </Typography.Text>
+    </Space>
+  );
+  const renderFamilyPriorityCell = (_value: any, row: PlainRecord) => (
+    <Space direction="vertical" size={0}>
+      <Tag color={tierColor(row.familyTier ?? row.tier)}>{formatTier(row.familyTier ?? row.tier)}</Tag>
+      <Typography.Text type="secondary">
+        {t(formatStatusLabel(row.actionStatus ?? row.commandCenterPane))}
+      </Typography.Text>
+    </Space>
+  );
+  const renderFamilyActionCell = (pane: CommandCenterPaneKey, row: PlainRecord) => {
+    if (pane === 'stuckInventory') {
+      return (
+        <Space direction="vertical" size={0}>
+          <Tag color="red">{t(formatStatusLabel(row.familyStuckClassification ?? row.stuckClassification))}</Tag>
+          <Typography.Text>
+            {formatNumber(row.familyStuckAffectedMemberCount)} {t('affected listings')} ·{' '}
+            {formatNumber(row.familyStuckAffectedUnits)} {t('units')}
+          </Typography.Text>
+          <Typography.Text strong style={{ color: MONEY_AT_RISK_COLOR }}>
+            {formatCurrency(row.familyStuckAffectedValue)}
+          </Typography.Text>
+          {finiteNumber(row.familyStuckActiveOrderCount) ? (
+            <Typography.Text type="secondary">
+              {formatNumber(row.familyStuckActiveOrderCount)} {t('active order(s)')}
+            </Typography.Text>
+          ) : null}
+        </Space>
+      );
+    }
+    if (pane === 'activeOrders') {
+      return (
+        <Space direction="vertical" size={0}>
+          {renderActiveRiskCell(undefined, row)}
+          <Typography.Text strong>{row.supplierOrderRef ?? '—'}</Typography.Text>
+          <Typography.Text type="secondary">
+            {t('Expected')} {formatDate(row.expectedArrivalDate)}
+          </Typography.Text>
+          {renderPipelineGapCell(undefined, row)}
+        </Space>
+      );
+    }
+    return (
+      <Space direction="vertical" size={0}>
+        <Tag color={pane === 'missingSupplier' ? 'red' : actionColor(row.actionStatus)}>
+          {t(pane === 'missingSupplier' ? 'Supplier missing' : formatStatusLabel(row.actionStatus))}
+        </Tag>
+        <Typography.Text strong>
+          {formatNumber(row.familySuggestedReorderQty ?? row.suggestedReorderQty)} {t('units to order')}
+        </Typography.Text>
+        <Typography.Text type="secondary">
+          {t('Est. COGS')} {formatCurrency(row.familyEstimatedOrderCost ?? row.estimatedOrderCost)}
+        </Typography.Text>
+        <Typography.Text strong style={{ color: MONEY_AT_RISK_COLOR }}>
+          {formatCurrency(row.estimatedProfitRisk)}
+        </Typography.Text>
+      </Space>
+    );
+  };
+  const familyParentColumns = (pane: CommandCenterPaneKey) => [
+    { title: String(t('Family / ASIN')), key: 'family', render: renderFamilyIdentityCell },
+    { title: String(t('Target SKU')), key: 'target', render: renderFamilyTargetCell },
+    { title: String(t('Supplier')), key: 'supplier', render: renderFamilySupplierCell },
+    { title: String(t('Family stock')), key: 'stock', render: renderFamilyStockCell },
+    { title: String(t('Velocity / DOC')), key: 'velocity', render: renderFamilyVelocityCell },
+    { title: String(t('Tier / priority')), key: 'priority', render: renderFamilyPriorityCell },
+    {
+      title: String(t('Action summary')),
+      key: 'action',
+      render: (_value: any, row: PlainRecord) => renderFamilyActionCell(pane, row),
+    },
+  ];
+  const familyMemberColumns = [
+    {
+      title: String(t('SKU')),
+      key: 'sku',
+      render: (_value: any, row: PlainRecord) => (
+        <Space size={4}>
+          {row.familyRole === 'target' ? <Tag color="blue">{t('Target')}</Tag> : null}
+          <Typography.Text strong>{row.sku ?? '—'}</Typography.Text>
+        </Space>
+      ),
+    },
+    {
+      title: String(t('Listing status')),
+      dataIndex: 'productStatus',
+      render: (value: string) => <Tag>{t(formatStatusLabel(value))}</Tag>,
+    },
+    { title: String(t('Listing stock')), key: 'stock', render: renderCurrentStockCell },
+    {
+      title: String(t('Listing velocity / DOC')),
+      key: 'velocity',
+      render: (_value: any, row: PlainRecord) => (
+        <Space direction="vertical" size={0}>
+          <Typography.Text>
+            {formatNumber(row.salesVelocity)} {t('/day')}
+          </Typography.Text>
+          <Typography.Text type="secondary">
+            {formatNumber(row.daysOfCover)} {t('days cover')}
+          </Typography.Text>
+        </Space>
+      ),
+    },
+    { title: String(t('Tier movement')), dataIndex: 'tier', render: renderCommandTierCell },
+    {
+      title: String(t('Latest order')),
+      key: 'order',
+      render: (_value: any, row: PlainRecord) => (
+        <Space direction="vertical" size={0}>
+          <Typography.Text>{row.supplierOrderRef ?? '—'}</Typography.Text>
+          <Typography.Text type="secondary">
+            {t(formatStatusLabel(row.supplierOrderStatus ?? row.supplierOrderState))}
+          </Typography.Text>
+        </Space>
+      ),
+    },
+  ];
+  const renderFamilyMembers = (row: PlainRecord) => (
+    <Table<PlainRecord>
+      size="small"
+      rowKey={(member) => String(member.companyProductId ?? member.id ?? member.sku)}
+      dataSource={familyMembers(row)}
+      columns={familyMemberColumns}
+      pagination={false}
+      onRow={(member) => ({ onClick: () => openRow(member, undefined, activeCommandPane) })}
+    />
+  );
   const commandPaneColumns = (pane: CommandCenterPaneKey) => {
+    if (pane !== 'duplicateProducts') return familyParentColumns(pane);
+    if (pane === 'duplicateProducts') {
+      return [
+        {
+          title: String(t('Status')),
+          dataIndex: 'productStatus',
+          render: (value: string) => <Tag color="purple">{t(formatStatusLabel(value ?? 'duplicate'))}</Tag>,
+        },
+        { title: String(t('Duplicate SKU')), key: 'product', render: renderCommandProductCell },
+        {
+          title: String(t('Primary row')),
+          key: 'primary',
+          render: (_value: any, row: PlainRecord) => (
+            <Space direction="vertical" size={0}>
+              <Typography.Text strong>{row.duplicatePrimarySku ?? '—'}</Typography.Text>
+              <Typography.Text type="secondary">{t('Preferred because it has more stock/evidence')}</Typography.Text>
+            </Space>
+          ),
+        },
+        { title: String(t('Current stock')), key: 'currentStock', render: renderCurrentStockCell },
+        {
+          title: String(t('Order evidence')),
+          key: 'orderEvidence',
+          render: (_value: any, row: PlainRecord) => (
+            <Space direction="vertical" size={0}>
+              <Typography.Text>{row.supplierOrderRef ?? '—'}</Typography.Text>
+              <Typography.Text type="secondary">{row.supplierName ?? t('Supplier missing')}</Typography.Text>
+            </Space>
+          ),
+        },
+      ];
+    }
     if (pane === 'activeOrders') {
       return [
         { title: String(t('Risk')), key: 'risk', render: renderActiveRiskCell },
         { title: String(t('Product')), key: 'product', width: 180, render: renderCommandProductCell },
+        { title: String(t('Tier')), dataIndex: 'tier', render: renderCommandTierCell },
         {
           title: String(t('Order')),
           key: 'order',
@@ -1336,7 +1677,8 @@ export default function InventoryPlanningPage() {
             <Space direction="vertical" size={0}>
               <Typography.Text strong>{row.supplierOrderRef ?? '—'}</Typography.Text>
               <Typography.Text type="secondary">
-                {formatNumber(row.openOrderCoverageQty)} {t('units')} · {row.supplierName ?? t('Supplier missing')}
+                {formatNumber(row.supplierOrderReferenceOpenQty ?? row.openOrderCoverageQty)} {t('units')} ·{' '}
+                {row.supplierName ?? t('Supplier missing')}
               </Typography.Text>
               <Tag color={freshnessColor(row.leadTimeFreshness)} style={{ marginInlineEnd: 0 }}>
                 {leadTimeFreshnessText(row)}
@@ -1346,7 +1688,7 @@ export default function InventoryPlanningPage() {
           ),
         },
         { title: coverageColumnTitle, key: 'coverage', render: renderCoverageCell },
-        { title: String(t('Expected sellable')), dataIndex: 'expectedSellableDate', render: renderRelativeDateCell },
+        { title: String(t('Expected arrival')), dataIndex: 'expectedArrivalDate', render: renderRelativeDateCell },
         { title: String(t('Gap')), key: 'gap', render: renderPipelineGapCell },
         {
           title: String(t('Last Activity')),
@@ -1361,6 +1703,7 @@ export default function InventoryPlanningPage() {
       return [
         { title: String(t('Risk')), key: 'risk', render: renderStuckRiskCell },
         { title: String(t('Product')), key: 'product', render: renderCommandProductCell },
+        { title: String(t('Tier')), dataIndex: 'tier', render: renderCommandTierCell },
         { title: String(t('DOC')), key: 'doc', render: renderDocCell },
         { title: String(t('Sell-through evidence')), key: 'sellThrough', render: renderSellThroughEvidenceCell },
         {
@@ -1388,13 +1731,17 @@ export default function InventoryPlanningPage() {
       {
         title: String(t('Risk')),
         dataIndex: 'actionStatus',
-        render: (value: string) => <Tag color={actionColor(value)}>{t(formatStatusLabel(value ?? 'watch'))}</Tag>,
+        render: (value: string) => (
+          <Tag color={pane === 'missingSupplier' ? 'red' : actionColor(value)}>
+            {t(pane === 'missingSupplier' ? 'Supplier missing' : formatStatusLabel(value ?? 'watch'))}
+          </Tag>
+        ),
       },
       { title: String(t('Product')), key: 'product', render: renderCommandProductCell },
       {
         title: String(t('Tier')),
         dataIndex: 'tier',
-        render: (value: string) => <Tag color={tierColor(value)}>{value}</Tag>,
+        render: renderCommandTierCell,
       },
       { title: String(t('Current stock')), key: 'currentStock', render: renderCurrentStockCell },
       { title: coverageColumnTitle, key: 'coverage', render: renderCoverageCell },
@@ -1411,46 +1758,68 @@ export default function InventoryPlanningPage() {
     const paneData = unwrapData(commandPanes[pane]);
     const rowsForPane = unwrapRows(paneData.rows);
     return (
-      <Card
+      <Collapse
         key={pane}
-        title={
-          <Space size="small" wrap>
-            <span>{commandPaneTitles[pane]}</span>
-            <FormulaHelp group={commandPaneHelpGroups[pane]} label="Column/status guide" />
-          </Space>
-        }
-        extra={
-          <Space size="small" wrap>
-            <Typography.Text type="secondary">
-              {formatNumber(paneData.total)} {t('rows')}
-            </Typography.Text>
-            <Select
-              value={
-                activeCommandPane === pane
-                  ? commandCenterSortBy
-                  : String(paneData.sortBy ?? commandPaneSortOptions[pane][0].value)
-              }
-              onChange={(value) => {
-                setActiveCommandPane(pane);
-                setCommandCenterSortBy(value);
-              }}
-              style={{ width: 180 }}
-              options={commandPaneSortOptions[pane]}
-            />
-          </Space>
-        }
-      >
-        <Typography.Paragraph type="secondary">{commandPaneDescriptions[pane]}</Typography.Paragraph>
-        <Table<PlainRecord>
-          size="small"
-          loading={loading}
-          rowKey={(row) => String(row.id ?? row.planningProductId ?? row.asin ?? row.sku)}
-          dataSource={rowsForPane}
-          columns={commandPaneColumns(pane)}
-          pagination={false}
-          onRow={(row) => ({ onClick: () => openRow(row, undefined, pane) })}
-        />
-      </Card>
+        activeKey={openCommandPane === pane ? [pane] : []}
+        onChange={(keys) => {
+          const opening = Array.isArray(keys) ? keys.includes(pane) : keys === pane;
+          setOpenCommandPane(opening ? pane : null);
+          if (opening) {
+            setActiveCommandPane(pane);
+            setCommandCenterSortBy(commandPaneSortOptions[pane][0].value);
+          }
+        }}
+        items={[
+          {
+            key: pane,
+            label: (
+              <Space size="small" wrap>
+                <span>{commandPaneTitles[pane]}</span>
+                <FormulaHelp group={commandPaneHelpGroups[pane]} label="Column/status guide" />
+              </Space>
+            ),
+            extra: (
+              <Space size="small" wrap onClick={(event) => event.stopPropagation()}>
+                <Typography.Text type="secondary">
+                  {formatNumber(paneData.total)} {t('rows')}
+                </Typography.Text>
+                <Select
+                  value={
+                    activeCommandPane === pane
+                      ? commandCenterSortBy
+                      : String(paneData.sortBy ?? commandPaneSortOptions[pane][0].value)
+                  }
+                  onChange={(value) => {
+                    setOpenCommandPane(pane);
+                    setActiveCommandPane(pane);
+                    setCommandCenterSortBy(value);
+                  }}
+                  style={{ width: 180 }}
+                  options={commandPaneSortOptions[pane]}
+                />
+              </Space>
+            ),
+            children: (
+              <>
+                <Typography.Paragraph type="secondary">{commandPaneDescriptions[pane]}</Typography.Paragraph>
+                <Table<PlainRecord>
+                  size="small"
+                  loading={loading}
+                  rowKey={(row) => String(row.companyProductFamilyId ?? row.id ?? row.asin ?? row.sku)}
+                  dataSource={rowsForPane}
+                  columns={commandPaneColumns(pane)}
+                  pagination={false}
+                  expandable={{
+                    expandedRowRender: renderFamilyMembers,
+                    rowExpandable: (row) => familyMembers(row).length > 0,
+                  }}
+                  onRow={(row) => ({ onClick: () => openRow(row, undefined, pane) })}
+                />
+              </>
+            ),
+          },
+        ]}
+      />
     );
   };
 
@@ -1460,12 +1829,12 @@ export default function InventoryPlanningPage() {
       draftQty: defaultOrderQty(row),
       draftSupplierId: supplierId,
       draftExpectedSellableDate:
-        formatDate(row.expectedSellableDate) === '—' ? undefined : formatDate(row.expectedSellableDate),
+        formatDate(row.expectedArrivalDate) === '—' ? undefined : formatDate(row.expectedArrivalDate),
       draftNotes: 'Created from Ecobase inventory planning.',
       addSupplierOrderId: '',
       addQty: defaultOrderQty(row),
       addExpectedSellableDate:
-        formatDate(row.expectedSellableDate) === '—' ? undefined : formatDate(row.expectedSellableDate),
+        formatDate(row.expectedArrivalDate) === '—' ? undefined : formatDate(row.expectedArrivalDate),
       addNotes: 'Added from Ecobase inventory planning.',
       leadSupplierId: supplierId,
       leadTimeDays: Number.isFinite(Number(row.leadTimeDays)) ? Number(row.leadTimeDays) : undefined,
@@ -1495,7 +1864,7 @@ export default function InventoryPlanningPage() {
       expectedDeliveryDate:
         formatDate(line.expectedDeliveryDate) === '—' ? undefined : formatDate(line.expectedDeliveryDate),
       expectedSellableDate:
-        formatDate(line.expectedSellableDate) === '—' ? undefined : formatDate(line.expectedSellableDate),
+        formatDate(line.expectedArrivalDate) === '—' ? undefined : formatDate(line.expectedArrivalDate),
       notes: String(line.payload?.notes ?? ''),
     });
     setManagePanels((current) => Array.from(new Set([...current, 'edit-line'])));
@@ -1551,8 +1920,10 @@ export default function InventoryPlanningPage() {
 
   const drawerPanelKeysByPane: Record<CommandCenterPaneKey, string[]> = {
     supplyAction: ['history', 'draft', 'add', 'lead-time'],
+    missingSupplier: ['history', 'lead-time'],
     activeOrders: ['history', 'order-status', 'edit-line'],
     stuckInventory: ['product-tasks-targets', 'history'],
+    duplicateProducts: ['history'],
   };
 
   const openRow = (row: PlainRecord, initialPanels?: string[], pane?: CommandCenterPaneKey) => {
@@ -1808,8 +2179,22 @@ export default function InventoryPlanningPage() {
 
   const renderDrawerModeSummary = () => {
     if (!selectedRow || !selectedCommandPane) return null;
+    if (selectedCommandPane === 'missingSupplier') {
+      return (
+        <Card size="small" title={t('Supplier link required')}>
+          <Space direction="vertical" style={{ width: '100%' }}>
+            <Typography.Text>
+              {t('This product has stockout risk and positive velocity, but no verified supplier link.')}
+            </Typography.Text>
+            <Button type="primary" onClick={() => setManagePanels(['lead-time'])}>
+              {t('Fix supplier / lead time')}
+            </Button>
+          </Space>
+        </Card>
+      );
+    }
     if (selectedCommandPane === 'activeOrders') {
-      const expectedSellableLabel = relativeDateLabel(selectedRow.expectedSellableDate, commandCalculationDate);
+      const expectedArrivalLabel = relativeDateLabel(selectedRow.expectedArrivalDate, commandCalculationDate);
       return (
         <Card size="small" title={t('Active order follow-up')}>
           <Space direction="vertical" style={{ width: '100%' }}>
@@ -1817,13 +2202,12 @@ export default function InventoryPlanningPage() {
               <Tag color={supplierOrderStatusColor(selectedRow.supplierOrderStatus)}>
                 {t(selectedRow.supplierOrderStatus ?? selectedRow.supplierOrderState ?? 'unknown')}
               </Tag>
-              <Tag color={selectedRow.pipelineHealthBucket === 'late' ? 'red' : 'blue'}>
-                {t(formatPipelineHealthLabel(selectedRow.pipelineHealthBucket ?? 'pipeline'))}
+              <Tag color={selectedRow.pipelineHealthStatus === 'late' ? 'red' : 'blue'}>
+                {t(formatPipelineHealthLabel(selectedRow.pipelineHealthStatus ?? 'none'))}
               </Tag>
               <Typography.Text>
-                {t('Expected sellable')} {t(expectedSellableLabel.label)} (
-                {formatDate(selectedRow.expectedSellableDate)}) · {t('Gap')} {formatNumber(selectedRow.stockoutGapDays)}{' '}
-                {t('days')}
+                {t('Expected arrival')} {t(expectedArrivalLabel.label)} ({formatDate(selectedRow.expectedArrivalDate)})
+                · {t('Gap')} {formatNumber(selectedRow.stockoutGapDays)} {t('days')}
               </Typography.Text>
             </Space>
             <Space size="small" wrap>
@@ -1843,7 +2227,7 @@ export default function InventoryPlanningPage() {
           <Space direction="vertical" style={{ width: '100%' }}>
             <Space direction="vertical" size={4}>
               <Space size={4} wrap>
-                <Tag color="purple">{t(selectedRow.stuckBucket ?? 'stuck')}</Tag>
+                <Tag color="purple">{t(selectedRow.stuckClassification ?? 'stuck')}</Tag>
                 <Typography.Text>
                   {formatNumber(selectedRow.daysOfCover)} {t('days cover')} · {t('Capital/risk')}{' '}
                   <Typography.Text strong style={{ color: MONEY_AT_RISK_COLOR }}>
@@ -1921,15 +2305,6 @@ export default function InventoryPlanningPage() {
           <MarginAlertTag row={row} t={t} />
         </Space>
       ),
-    },
-    {
-      title: columnHelp(
-        t('6M tiers'),
-        t('Current uses last complete month; Avg uses the six-month average; Best uses the best month.'),
-      ),
-      key: 'historicalTiers',
-      width: 210,
-      render: (_value: any, row: PlainRecord) => <HistoricalTierTags row={row} t={t} />,
     },
     {
       title: columnHelp(t('6M qty'), t('Last, average, worst, and best month units from the six complete months.')),
@@ -2201,7 +2576,9 @@ export default function InventoryPlanningPage() {
           </Col>
         </Row>
         <Space direction="vertical" size="large" style={{ width: '100%' }}>
-          {(['supplyAction', 'activeOrders', 'stuckInventory'] as CommandCenterPaneKey[]).map(renderCommandPane)}
+          {(['supplyAction', 'missingSupplier', 'activeOrders', 'stuckInventory'] as CommandCenterPaneKey[]).map(
+            renderCommandPane,
+          )}
         </Space>
       </Space>
       <Drawer
@@ -2261,27 +2638,27 @@ export default function InventoryPlanningPage() {
                 <Tag>{selectedRow.productStatus ?? '—'}</Tag>
               </Descriptions.Item>
               <Descriptions.Item label={columnHelp(t('Tier'), t(tierScoreText()))}>
-                <Space size={4} wrap>
-                  <Tag color={tierColor(selectedRow.tier)}>{formatTier(selectedRow.tier)}</Tag>
-                  <span>
-                    {t('Score')} {formatTierScore(selectedRow.tierScore)}
-                  </span>
-                  <TierMovementTag row={selectedRow} t={t} />
-                  <MarginAlertTag row={selectedRow} t={t} />
+                <Space direction="vertical" size={4}>
+                  <Space size={4} wrap>
+                    <Tag color={tierColor(selectedRow.tier)}>{formatTier(selectedRow.tier)}</Tag>
+                    <span>
+                      {t('Score')} {formatTierScore(selectedRow.tierScore)}
+                    </span>
+                    <TierMovementTag row={selectedRow} t={t} />
+                    <MarginAlertTag row={selectedRow} t={t} />
+                  </Space>
+                  <Typography.Text type="secondary">
+                    {t('30d units')} {formatNumber(selectedRow.recentUnits30)} ·{' '}
+                    {t(formatStatusLabel(selectedRow.tierEligibilityReason))}
+                  </Typography.Text>
                 </Space>
               </Descriptions.Item>
-              <Descriptions.Item label={columnHelp(t('Six-month tiering'), t(tierScoreText()))}>
+              <Descriptions.Item label={t('Six-month history')}>
                 <Space direction="vertical" size={4}>
-                  <HistoricalTierTags row={selectedRow} t={t} />
                   <HistoricalQuantityTags row={selectedRow} t={t} />
-                  <Space size={4} wrap>
-                    <Tag color={(finiteNumber(selectedRow.sixMonthMargin) ?? 99) < 8 ? 'red' : 'blue'}>
-                      {t('6M margin')} {formatPercent(selectedRow.sixMonthMargin)}
-                    </Tag>
-                    <Tag color="orange">
-                      {t('Best tier score')} {formatTierScore(selectedRow.bestTierScore)}
-                    </Tag>
-                  </Space>
+                  <Tag color={(finiteNumber(selectedRow.sixMonthMargin) ?? 99) < 8 ? 'red' : 'blue'}>
+                    {t('6M margin')} {formatPercent(selectedRow.sixMonthMargin)}
+                  </Tag>
                 </Space>
               </Descriptions.Item>
               <Descriptions.Item label={columnHelp(t('Profit inputs'), t(profitInputText()))}>
@@ -2290,7 +2667,7 @@ export default function InventoryPlanningPage() {
                     {t('Profit/unit')} {formatCurrency(selectedRow.profitPerUnit)}
                   </Tag>
                   <Tag color="purple">
-                    {t('Best qty')} {formatNumber(selectedRow.recommendedBestQty)}
+                    {t('30d units')} {formatNumber(selectedRow.recentUnits30)}
                   </Tag>
                   <Tag color="orange">
                     {t('Current score')} {formatTierScore(selectedRow.tierScore)}
@@ -2301,9 +2678,18 @@ export default function InventoryPlanningPage() {
               <Descriptions.Item label={t('ASIN / SKU')}>
                 {selectedRow.asin ?? '—'} / {selectedRow.sku ?? '—'}
               </Descriptions.Item>
+              {selectedRow.supplierSource === 'duplicate_sku_order_history' ? (
+                <Descriptions.Item label={t('SKU reconciliation')}>
+                  <SkuFamilyReconciliation row={selectedRow} t={t} />
+                </Descriptions.Item>
+              ) : null}
+              <Descriptions.Item label={t('Inventory source')}>
+                {formatStatusLabel(selectedRow.sourceFreshnessStatus ?? 'unknown')} ·{' '}
+                {formatDate(selectedRow.inventoryAsOfDate)}
+              </Descriptions.Item>
               <Descriptions.Item label={t('Supplier')}>
-                {selectedRow.supplierName ?? '—'} · {selectedRow.supplierSource ?? '—'} ·{' '}
-                {selectedRow.supplierConfidence ?? '—'}
+                {selectedRow.supplierName ?? '—'} · {formatStatusLabel(selectedRow.supplierAvailability ?? 'unknown')} ·{' '}
+                {selectedRow.supplierSource ?? '—'}
               </Descriptions.Item>
               <Descriptions.Item label={columnHelp(t('Lead time'), t(leadTimeSourceText(selectedRow)))}>
                 <span>
@@ -2390,6 +2776,16 @@ export default function InventoryPlanningPage() {
                                 render: (_value: any, line: PlainRecord) =>
                                   line.order?.externalOrderRef ?? line.supplierOrderId ?? '—',
                               },
+                              {
+                                title: String(t('Line product')),
+                                key: 'lineProduct',
+                                render: (_value: any, line: PlainRecord) => (
+                                  <Space direction="vertical" size={0}>
+                                    <Typography.Text>{line.asin ?? '—'}</Typography.Text>
+                                    <Typography.Text type="secondary">{line.sku ?? '—'}</Typography.Text>
+                                  </Space>
+                                ),
+                              },
                               { title: String(t('Ordered')), dataIndex: 'orderedQty', render: formatNumber },
                               { title: String(t('Received')), dataIndex: 'receivedQty', render: formatNumber },
                               {
@@ -2399,7 +2795,7 @@ export default function InventoryPlanningPage() {
                               },
                               {
                                 title: String(t('Expected sellable')),
-                                dataIndex: 'expectedSellableDate',
+                                dataIndex: 'expectedArrivalDate',
                                 render: formatDate,
                               },
                               { title: String(t('Observed')), dataIndex: 'observedAt', render: formatDate },

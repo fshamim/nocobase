@@ -149,6 +149,7 @@ describe('EcobaseManagementKpiFactsService', () => {
         calculationDate: '2026-06-14',
         company: 'Ecofission LLC',
         actionStatus: 'overdue',
+        commandCenterPane: 'supplyAction',
         tier: 'A',
         estimatedProfitRisk: 500,
         estimatedOosDate: '2026-06-16',
@@ -159,8 +160,27 @@ describe('EcobaseManagementKpiFactsService', () => {
         calculationDate: '2026-06-14',
         company: 'Ecofission LLC',
         actionStatus: 'sufficient_stock',
+        commandCenterPane: 'watch',
+        tier: 'B',
+        estimatedProfitRisk: 0,
+      },
+      {
+        id: 'inventory-active',
+        calculationDate: '2026-06-14',
+        company: 'Ecofission LLC',
+        actionStatus: 'already_ordered',
+        commandCenterPane: 'activeOrders',
         tier: 'B',
         estimatedProfitRisk: 100,
+      },
+      {
+        id: 'inventory-duplicate',
+        calculationDate: '2026-06-14',
+        company: 'Ecofission LLC',
+        actionStatus: 'overdue',
+        commandCenterPane: 'duplicateProducts',
+        tier: 'A',
+        estimatedProfitRisk: 900,
       },
     );
     db.getRepository(ECOBASE_COLLECTIONS.goldOrderPlanningRows).records.push({
@@ -188,15 +208,18 @@ describe('EcobaseManagementKpiFactsService', () => {
 
     const facts = db.getRepository(ECOBASE_COLLECTIONS.goldManagementKpiDailyFacts).records;
     expect(facts.find((row) => row.metricKey === 'inventoryMoneyAtRisk' && row.companyScope === 'all')).toMatchObject({
-      value: 500,
+      value: 600,
     });
+    expect(
+      facts.find((row) => row.metricKey === 'urgentInventorySkuCount' && row.companyScope === 'all'),
+    ).toMatchObject({ value: 1 });
     expect(
       facts.find((row) => row.metricKey === 'supplierAttentionCount' && row.companyScope === 'Ecofission LLC'),
     ).toMatchObject({ value: 1 });
 
     const trend = await service.getTrend({ date: '2026-06-14', company: 'Ecofission LLC', period: '7d' });
     expect(trend.kpis.find((row) => row.key === 'inventoryMoneyAtRisk')).toMatchObject({
-      value: 500,
+      value: 600,
       previousValue: null,
       direction: 'insufficient_history',
       confidence: 'insufficient',

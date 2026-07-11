@@ -84,16 +84,6 @@ async function seedProduct(db: MemoryDatabase, values: Record<string, unknown> =
   const asin = String(values.canonicalAsin ?? 'B00FOCUS');
   const sku = typeof values.sku === 'string' ? values.sku : undefined;
   const title = String(values.title ?? 'Focus product');
-  await db.getRepository(ECOBASE_COLLECTIONS.planningProducts).create({
-    values: {
-      id,
-      naturalKey: values.naturalKey ?? `${company}:${asin}`,
-      company,
-      canonicalAsin: asin,
-      sku,
-      title,
-    },
-  });
   await db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
     values: { id: `company:${company}`, name: company, companyKey: company.toLowerCase() },
   });
@@ -133,11 +123,24 @@ async function seedGoldInventoryRow(db: MemoryDatabase, values: Record<string, u
       calculationDate: values.calculationDate ?? '2026-06-10',
       lastRefreshedAt: values.lastRefreshedAt ?? '2026-06-10T08:00:00.000Z',
       actionStatus: values.actionStatus ?? 'watch',
+      productStatus: values.productStatus ?? 'active',
+      commandCenterPane: values.commandCenterPane ?? 'watch',
+      commandCenterPaneReason: values.commandCenterPaneReason ?? 'not_in_action_population',
+      planningEligibilityStatus: values.planningEligibilityStatus ?? 'watch',
+      planningEligibilityReason: values.planningEligibilityReason ?? 'not_in_action_population',
+      dataQualityStatus: values.dataQualityStatus ?? 'ready',
+      dataQualityIssues: values.dataQualityIssues ?? [],
       supplierName: values.supplierName,
+      supplierAvailability: values.supplierAvailability,
       supplierOrderState: values.supplierOrderState ?? 'no_open_order',
       supplierOrderStatus: values.supplierOrderStatus,
       supplierOrderRef: values.supplierOrderRef,
-      estimatedProfitRisk: values.estimatedProfitRisk ?? 0,
+      estimatedProfitRisk: Object.prototype.hasOwnProperty.call(values, 'estimatedProfitRisk')
+        ? values.estimatedProfitRisk
+        : 0,
+      estimatedProfitRiskBasis: values.estimatedProfitRiskBasis ?? 'test_fixture',
+      moneyRiskStatus: values.moneyRiskStatus ?? 'resolved_zero',
+      moneyRiskInputs: values.moneyRiskInputs ?? {},
       salesVelocity: values.salesVelocity ?? 1,
       leadTimeFreshness: values.leadTimeFreshness ?? 'fresh',
       leadTimeDays: values.leadTimeDays ?? 14,
@@ -151,8 +154,13 @@ async function seedGoldInventoryRow(db: MemoryDatabase, values: Record<string, u
       daysUntilSafeReorder: values.daysUntilSafeReorder,
       latestSafeReorderDate: values.latestSafeReorderDate,
       estimatedOosDate: values.estimatedOosDate,
-      expectedSellableDate: values.expectedSellableDate,
+      daysUntilOos: values.daysUntilOos,
+      expectedArrivalDate: values.expectedArrivalDate,
+      expectedArrivalStatus: values.expectedArrivalStatus,
+      pipelineHealthStatus: values.pipelineHealthStatus ?? 'none',
       stuck: values.stuck ?? false,
+      stuckClassification: values.stuckClassification ?? 'none',
+      recommendedEscalation: values.recommendedEscalation,
       openOrderCoverageQty: values.openOrderCoverageQty ?? 0,
       digestPriority: values.digestPriority ?? 1,
       evidence: {},
@@ -169,11 +177,15 @@ describe('EcobaseDailyOperationsBriefService broader evidence focus', () => {
       actionStatus: 'overdue',
       supplierOrderState: 'no_open_order',
       supplierName: 'Urgent Supplier',
+      supplierAvailability: 'resolved_silver_link',
       leadTimeFreshness: 'missing',
       daysUntilSafeReorder: -2,
       latestSafeReorderDate: '2026-06-08',
       estimatedOosDate: '2026-06-11',
       estimatedProfitRisk: 900,
+      commandCenterPane: 'supplyAction',
+      commandCenterPaneReason: 'eligible_stockout_no_active_order',
+      planningEligibilityStatus: 'eligible',
     });
     await seedGoldInventoryRow(db, {
       id: 'gold-active-late',
@@ -183,9 +195,15 @@ describe('EcobaseDailyOperationsBriefService broader evidence focus', () => {
       supplierOrderStatus: 'purchased',
       supplierOrderRef: 'PO-123',
       supplierName: 'Late Supplier',
-      expectedSellableDate: '2026-06-15',
+      expectedArrivalDate: '2026-06-15',
+      expectedArrivalStatus: 'imported',
       estimatedOosDate: '2026-06-12',
       estimatedProfitRisk: 600,
+      commandCenterPane: 'activeOrders',
+      commandCenterPaneReason: 'active_supplier_order',
+      planningEligibilityStatus: 'eligible',
+      pipelineHealthStatus: 'late',
+      recommendedEscalation: 'follow_up_order',
     });
     await seedGoldInventoryRow(db, {
       id: 'gold-stuck',
@@ -196,6 +214,10 @@ describe('EcobaseDailyOperationsBriefService broader evidence focus', () => {
       daysOfCover: 120,
       salesVelocity: 1,
       stuck: true,
+      stuckClassification: 'over_60_doc',
+      commandCenterPane: 'stuckInventory',
+      commandCenterPaneReason: 'positive_stock_high_cover',
+      planningEligibilityStatus: 'eligible',
       estimatedProfitRisk: 300,
     });
 
@@ -207,27 +229,99 @@ describe('EcobaseDailyOperationsBriefService broader evidence focus', () => {
     });
 
     expect(evidence.focus).toBe('inventory_risk');
-    expect(evidence.inventoryCommandCenter.alerts.urgentNoOrder).toEqual([
+    expect(evidence.inventoryCommandCenter.alerts.supplyActionNeeded).toEqual([
       expect.objectContaining({ asin: 'B00NOORDER', actionStatus: 'overdue' }),
     ]);
     expect(evidence.inventoryCommandCenter.alerts.activeOrdersOffTrack).toEqual([
-      expect.objectContaining({ asin: 'B00LATEPO', pipelineHealthBucket: 'late' }),
+      expect.objectContaining({ asin: 'B00LATEPO', pipelineHealthStatus: 'late' }),
     ]);
     expect(evidence.inventoryCommandCenter.alerts.followUpsDueToday).toEqual([
-      expect.objectContaining({ asin: 'B00LATEPO', recommendedAction: 'follow_up_order' }),
+      expect.objectContaining({ asin: 'B00LATEPO', recommendedEscalation: 'follow_up_order' }),
     ]);
     expect(evidence.inventoryCommandCenter.alerts.leadTimeDataGaps).toEqual([
       expect.objectContaining({ asin: 'B00NOORDER' }),
     ]);
     expect(evidence.inventoryCommandCenter.alerts.stuckInventoryReview).toEqual([
-      expect.objectContaining({ asin: 'B00STUCK', stuckBucket: 'high_cover_slow_sales' }),
+      expect.objectContaining({ asin: 'B00STUCK', stuckClassification: 'over_60_doc' }),
     ]);
     expect(evidence.summaryCounts).toMatchObject({
-      inventoryCommandCenterAlertCount: 5,
+      supplyActionCount: 1,
+      activeOrderCount: 1,
+      stuckInventoryCount: 1,
+      includedCommandCenterAlertItemCount: 5,
       activeOrderOffTrackCount: 1,
       followUpDueTodayCount: 1,
       stuckInventoryReviewCount: 1,
     });
+  });
+
+  it('keeps exact paginated Gold totals and separates unknown active-order timing', async () => {
+    const { db, brief } = service();
+    for (let index = 0; index < 105; index += 1) {
+      await seedGoldInventoryRow(db, {
+        id: `gold-active-${index}`,
+        asin: `B00ACTIVE${index}`,
+        actionStatus: 'already_ordered',
+        supplierOrderState: 'purchased_pipeline',
+        supplierOrderStatus: 'paid',
+        supplierOrderRef: `PO-${index}`,
+        commandCenterPane: 'activeOrders',
+        commandCenterPaneReason: 'active_supplier_order',
+        planningEligibilityStatus: 'eligible',
+        pipelineHealthStatus: index === 0 ? 'unknown_timing' : 'on_track',
+        expectedArrivalStatus: index === 0 ? 'unknown' : 'imported',
+        expectedArrivalDate: index === 0 ? undefined : '2026-06-20',
+        estimatedProfitRisk: index === 0 ? null : 10,
+        moneyRiskStatus: index === 0 ? 'unknown_arrival' : 'resolved_positive',
+      });
+    }
+    for (let index = 0; index < 12; index += 1) {
+      await seedGoldInventoryRow(db, {
+        id: `gold-supply-${index}`,
+        asin: `B00SUPPLY${index}`,
+        actionStatus: 'overdue',
+        supplierOrderState: 'no_open_order',
+        supplierAvailability: 'resolved_silver_link',
+        commandCenterPane: 'supplyAction',
+        commandCenterPaneReason: 'eligible_stockout_no_active_order',
+        planningEligibilityStatus: 'eligible',
+        estimatedProfitRisk: 20,
+        moneyRiskStatus: 'resolved_positive',
+      });
+    }
+    await seedGoldInventoryRow(db, {
+      id: 'gold-duplicate-risk',
+      asin: 'B00DUPLICATE',
+      actionStatus: 'overdue',
+      commandCenterPane: 'duplicateProducts',
+      commandCenterPaneReason: 'duplicate_company_asin_sku',
+      planningEligibilityStatus: 'ineligible_duplicate',
+      estimatedProfitRisk: 999,
+      moneyRiskStatus: 'resolved_positive',
+    });
+
+    const evidence = await brief.buildEvidencePack({
+      company: 'ACME',
+      date: '2026-06-10',
+      timezone: 'Asia/Karachi',
+      maxItems: 5,
+    });
+
+    expect(evidence.summaryCounts).toMatchObject({
+      supplyActionCount: 12,
+      includedSupplyActionCount: 5,
+      omittedSupplyActionCount: 7,
+      activeOrderCount: 105,
+      activeOrderOffTrackCount: 0,
+      activeOrderUnknownTimingCount: 1,
+      moneyAtRiskKnownTotal: 1280,
+      moneyAtRiskUnknownCount: 1,
+    });
+    expect(evidence.inventoryCommandCenter.panes.activeOrders).toMatchObject({ total: 105 });
+    expect(evidence.inventoryCommandCenter.alerts.activeOrdersOffTrack).toEqual([]);
+    expect(evidence.inventoryCommandCenter.alerts.activeOrdersUnknownTiming).toEqual([
+      expect.objectContaining({ asin: 'B00ACTIVE0', expectedArrivalStatus: 'unknown' }),
+    ]);
   });
 
   it('chooses Buy Box focus from a deterministic win-rate drop', async () => {
@@ -277,30 +371,30 @@ describe('EcobaseDailyOperationsBriefService broader evidence focus', () => {
   it('chooses velocity focus when units drop and inventory is not urgent', async () => {
     const { db, brief } = service();
     await seedProduct(db, { id: 'product-velocity', canonicalAsin: 'B00VELO' });
-    await db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts).create({
       values: {
         naturalKey: 'fact-prior',
         sourceConnectionId: 'source-1',
-        planningProductId: 'product-velocity',
+        companyProductId: 'product-velocity',
         snapshotDate: '2026-06-09',
         company: 'ACME',
         asin: 'B00VELO',
         units: 20,
         sales: 400,
-        netProfit: 120,
+        profit: 120,
       },
     });
-    await db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts).create({
       values: {
         naturalKey: 'fact-current',
         sourceConnectionId: 'source-1',
-        planningProductId: 'product-velocity',
+        companyProductId: 'product-velocity',
         snapshotDate: '2026-06-10',
         company: 'ACME',
         asin: 'B00VELO',
         units: 5,
         sales: 100,
-        netProfit: 30,
+        profit: 30,
       },
     });
 
@@ -320,42 +414,43 @@ describe('EcobaseDailyOperationsBriefService broader evidence focus', () => {
   it('chooses profit-gap focus when target profit is missed without a velocity drop', async () => {
     const { db, brief } = service();
     await seedProduct(db, { id: 'product-profit', canonicalAsin: 'B00PROFIT' });
-    await db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts).create({
       values: {
         naturalKey: 'profit-prior',
         sourceConnectionId: 'source-1',
-        planningProductId: 'product-profit',
+        companyProductId: 'product-profit',
         snapshotDate: '2026-06-09',
         company: 'ACME',
         asin: 'B00PROFIT',
         units: 10,
         sales: 200,
-        netProfit: 40,
+        profit: 40,
       },
     });
-    await db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts).create({
       values: {
         naturalKey: 'profit-current',
         sourceConnectionId: 'source-1',
-        planningProductId: 'product-profit',
+        companyProductId: 'product-profit',
         snapshotDate: '2026-06-10',
         company: 'ACME',
         asin: 'B00PROFIT',
         units: 10,
         sales: 200,
-        netProfit: 40,
+        profit: 40,
       },
     });
-    await db.getRepository(ECOBASE_COLLECTIONS.targetRows).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverTargets).create({
       values: {
         naturalKey: 'profit-target',
         sourceConnectionId: 'source-1',
-        planningProductId: 'product-profit',
+        recordKind: 'target',
+        entityType: 'company_product',
+        entityId: 'product-profit',
         company: 'ACME',
         period: '2026-06',
         periodType: 'monthly',
-        asin: 'B00PROFIT',
-        profitTarget: 100,
+        targetValue: 100,
       },
     });
 
@@ -378,8 +473,9 @@ describe('EcobaseDailyOperationsBriefService broader evidence focus', () => {
       values: {
         id: 'okr-1',
         naturalKey: 'okr-1',
-        recordKind: 'okr',
-        entityType: 'okr',
+        recordKind: 'target',
+        entityType: 'objective',
+        sourceTargetRef: 'OKR-1',
         metric: 'okr',
         periodType: '2026-Q2',
         company: 'ACME',
@@ -394,11 +490,12 @@ describe('EcobaseDailyOperationsBriefService broader evidence focus', () => {
       values: {
         id: 'okr-snapshot-1',
         naturalKey: 'okr-snapshot-1',
-        recordKind: 'okr_metric_snapshot',
-        entityType: 'okr',
+        recordKind: 'metric_snapshot',
+        entityType: 'objective',
         metric: 'Buy Box recovery',
         periodType: 'snapshot',
-        okrId: 'okr-1',
+        parentTargetId: 'okr-1',
+        sourceTargetRef: 'OKR-1',
         snapshotDate: '2026-06-10',
         metricName: 'Buy Box recovery',
         progressPercent: 40,
@@ -413,7 +510,7 @@ describe('EcobaseDailyOperationsBriefService broader evidence focus', () => {
         naturalKey: 'task-snapshot-1',
         sourceConnectionId: 'source-1',
         snapshotDate: '2026-06-10',
-        externalTaskId: 'CU-1',
+        sourceTaskRef: 'CU-1',
         taskName: 'Contact marketplace owner',
         title: 'Contact marketplace owner',
         status: 'open',
@@ -434,7 +531,7 @@ describe('EcobaseDailyOperationsBriefService broader evidence focus', () => {
     expect(evidence.focus).toBe('okr');
     expect(evidence.okrAccountabilityRisks).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ riskType: 'okr_off_track', okrTitle: 'Recover Buy Box', progressPercent: 40 }),
+        expect.objectContaining({ riskType: 'okr_off_track', targetTitle: 'Recover Buy Box', progressPercent: 40 }),
         expect.objectContaining({ riskType: 'task_overdue', taskId: 'CU-1' }),
       ]),
     );
@@ -503,17 +600,17 @@ describe('EcobaseDailyOperationsBriefService broader evidence focus', () => {
   it('marks new products without baseline as watch-list evidence instead of off-track focus', async () => {
     const { db, brief } = service();
     await seedProduct(db, { id: 'product-new', canonicalAsin: 'B00NEW' });
-    await db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts).create({
       values: {
         naturalKey: 'new-current',
         sourceConnectionId: 'source-1',
-        planningProductId: 'product-new',
+        companyProductId: 'product-new',
         snapshotDate: '2026-06-10',
         company: 'ACME',
         asin: 'B00NEW',
         units: 4,
         sales: 80,
-        netProfit: 20,
+        profit: 20,
       },
     });
 
@@ -555,38 +652,39 @@ describe('EcobaseDailyOperationsBriefService broader evidence focus', () => {
         buyBoxPercentage: 55,
       },
     });
-    await db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts).create({
       values: {
         naturalKey: 'mixed-fact-prior',
         sourceConnectionId: 'source-1',
-        planningProductId: 'product-mixed',
+        companyProductId: 'product-mixed',
         snapshotDate: '2026-06-09',
         company: 'ACME',
         asin: 'B00MIXED',
         units: 20,
         sales: 400,
-        netProfit: 120,
+        profit: 120,
       },
     });
-    await db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts).create({
       values: {
         naturalKey: 'mixed-fact-current',
         sourceConnectionId: 'source-1',
-        planningProductId: 'product-mixed',
+        companyProductId: 'product-mixed',
         snapshotDate: '2026-06-10',
         company: 'ACME',
         asin: 'B00MIXED',
         units: 5,
         sales: 100,
-        netProfit: 30,
+        profit: 30,
       },
     });
     await db.getRepository(ECOBASE_COLLECTIONS.silverTargets).create({
       values: {
         id: 'okr-mixed',
         naturalKey: 'okr-mixed',
-        recordKind: 'okr',
-        entityType: 'okr',
+        recordKind: 'target',
+        entityType: 'objective',
+        sourceTargetRef: 'OKR-MIXED',
         metric: 'okr',
         periodType: 'unknown',
         company: 'ACME',
@@ -599,11 +697,12 @@ describe('EcobaseDailyOperationsBriefService broader evidence focus', () => {
       values: {
         id: 'mixed-okr',
         naturalKey: 'mixed-okr',
-        recordKind: 'okr_metric_snapshot',
-        entityType: 'okr',
+        recordKind: 'metric_snapshot',
+        entityType: 'objective',
         metric: 'Ops hygiene',
         periodType: 'snapshot',
-        okrId: 'okr-mixed',
+        parentTargetId: 'okr-mixed',
+        sourceTargetRef: 'OKR-MIXED',
         snapshotDate: '2026-06-10',
         metricName: 'Ops hygiene',
         progressPercent: 30,

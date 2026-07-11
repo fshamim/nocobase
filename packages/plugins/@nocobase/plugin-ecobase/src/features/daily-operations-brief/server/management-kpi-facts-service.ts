@@ -84,7 +84,6 @@ export type ManagementKpiTrendResult = {
 
 const METRIC_VERSION = 'v1';
 const PERIOD_DAYS: Record<ManagementKpiPeriod, number> = { yesterday: 1, '7d': 7, '30d': 30 };
-const ACTIVE_INVENTORY_ACTIONS = new Set(['overdue', 'order_today', 'order_soon', 'missing_lead_time']);
 const CLOSED_ORDER_STATUS_PARTS = ['complete', 'completed', 'closed', 'cancelled', 'canceled', 'rejected'];
 
 export const MANAGEMENT_KPI_FACT_DEFINITIONS: MetricDefinition[] = [
@@ -923,7 +922,8 @@ export class EcobaseManagementKpiFactsService {
     );
     const facts = [] as PlainRecord[];
     for (const [scope, groupRows] of this.scopedGroups(rows, company)) {
-      const activeRows = groupRows.filter((row) => ACTIVE_INVENTORY_ACTIONS.has(asString(row.actionStatus) ?? ''));
+      const supplyActionRows = groupRows.filter((row) => asString(row.commandCenterPane) === 'supplyAction');
+      const planningRows = groupRows.filter((row) => asString(row.commandCenterPane) !== 'duplicateProducts');
       const companyName = scope === 'all' ? undefined : scope;
       const common = {
         metricDate: date,
@@ -935,28 +935,28 @@ export class EcobaseManagementKpiFactsService {
         sourceRowCount: groupRows.length,
       };
       facts.push(
-        makeFact({ ...common, metricKey: 'inventoryMoneyAtRisk', value: sum(activeRows, 'estimatedProfitRisk') }),
-        makeFact({ ...common, metricKey: 'urgentInventorySkuCount', value: activeRows.length }),
+        makeFact({ ...common, metricKey: 'inventoryMoneyAtRisk', value: sum(planningRows, 'estimatedProfitRisk') }),
+        makeFact({ ...common, metricKey: 'urgentInventorySkuCount', value: supplyActionRows.length }),
         makeFact({
           ...common,
           metricKey: 'overdueInventorySkuCount',
-          value: count(activeRows, (row) => asString(row.actionStatus) === 'overdue'),
+          value: count(supplyActionRows, (row) => asString(row.actionStatus) === 'overdue'),
         }),
         makeFact({
           ...common,
           metricKey: 'aTierInventoryRiskCount',
-          value: count(activeRows, (row) => asString(row.tier) === 'A'),
+          value: count(supplyActionRows, (row) => asString(row.tier) === 'A'),
         }),
         makeFact({
           ...common,
           metricKey: 'next7DayOosSkuCount',
-          value: count(activeRows, (row) => onOrBefore(row.estimatedOosDate, dateAdd(date, 7))),
+          value: count(supplyActionRows, (row) => onOrBefore(row.estimatedOosDate, dateAdd(date, 7))),
         }),
         makeFact({
           ...common,
           metricKey: 'missingLeadTimeCount',
           value: count(
-            activeRows,
+            supplyActionRows,
             (row) =>
               asString(row.leadTimeFreshness) === 'missing' || asString(row.actionStatus) === 'missing_lead_time',
           ),
@@ -964,7 +964,7 @@ export class EcobaseManagementKpiFactsService {
         makeFact({
           ...common,
           metricKey: 'staleLeadTimeCount',
-          value: count(activeRows, (row) => asString(row.leadTimeFreshness) === 'stale'),
+          value: count(supplyActionRows, (row) => asString(row.leadTimeFreshness) === 'stale'),
         }),
       );
     }

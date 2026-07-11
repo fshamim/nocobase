@@ -7,13 +7,16 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { CsvRowReader } from '../../source-import/server/adapters/csv-utils';
+import { orderDetailSourceIdentity } from '../../source-import/server/order-detail-source-identity';
+import { orderRowExclusionReason } from '../../source-import/server/order-import-policy';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import type { EcobaseDatabase, EcobaseRepository } from '../../source-import/server/import-service';
 import { toPlainRecord } from '../../source-import/server/import-service';
 import { EcobaseMedallionIdentityService, normalizeExternalSupplierCode } from './medallion-identity-service';
 import { resolveOrderLifecycle } from '../../order-planning/server/order-lifecycle';
+import { requireCanonicalCompany } from '../../../server/company-identity';
 
 export interface NormalizePendingParams {
   sourceConnectionId?: string;
@@ -42,13 +45,16 @@ export class EcobaseMedallionNormalizationService {
   }
 
   async normalizePending(params: NormalizePendingParams = {}): Promise<NormalizePendingResult> {
-    const records = await this.repo(ECOBASE_COLLECTIONS.bronzeSourceRecords).find({
+    const pendingRecords = await this.repo(ECOBASE_COLLECTIONS.bronzeSourceRecords).find({
       filter: {
         normalizationStatus: 'pending',
         ...(params.sourceConnectionId ? { sourceConnectionId: params.sourceConnectionId } : {}),
       },
       limit: params.limit,
     });
+    const records = [...pendingRecords].sort(
+      (left, right) => normalizationPriority(left) - normalizationPriority(right),
+    );
     const result: NormalizePendingResult = { normalized: 0, ignored: 0, failed: 0, links: 0, errors: [] };
 
     for (const record of records) {
@@ -99,23 +105,88 @@ export class EcobaseMedallionNormalizationService {
   private async mapBronzeRecord(bronze: Record<string, unknown>) {
     const row = new CsvRowReader(stringRecord(toPlainRecord(bronze.payload)));
     const entities: SilverEntity[] = [];
+    const sourceDataset = textValue(bronze.sourceDataset)?.toLowerCase() ?? '';
+    const orderShape = sourceDataset.includes('orderdetails')
+      ? 'order-details'
+      : sourceDataset.includes('purchase orders')
+        ? 'purchase-orders'
+        : undefined;
+    if (orderShape && orderRowExclusionReason(orderShape, row)) return entities;
+    if (sourceDataset.includes('supplier analysis') && row.string('Reached Via')?.toLowerCase() === 'call & email') {
+      return entities;
+    }
+    const orderDetailIdentity = sourceDataset.includes('orderdetails') ? orderDetailSourceIdentity(row) : undefined;
     const companyName =
+      orderDetailIdentity?.company?.name ??
       row.string('Company') ??
       row.string('Reached Via') ??
       (await this.sourceCompanyName(textValue(bronze.sourceConnectionId)));
     const supplierName = row.string('Supplier', 'Supplier ', 'Supplier Name');
-    const supplierExternalCode = normalizeExternalSupplierCode(row.string('SR ID', 'SR ID ', 'externalSupplierCode'));
-    const asin = row.string('ASIN', 'ASIN ')?.toUpperCase();
-    const sku = row.string('SKU');
-    const orderRef = row.string('Order ID');
-    const snapshotDate = dateOnly(row.string('Timestamp', 'Date', 'Order Date') ?? textValue(bronze.observedAt));
+    const supplierExternalCode =
+      orderDetailIdentity?.supplierCode ??
+      normalizeExternalSupplierCode(row.string('SR ID', 'SR ID ', 'externalSupplierCode'));
+    const asin = orderDetailIdentity?.asin ?? row.string('ASIN', 'ASIN ')?.toUpperCase();
+    const orderRef = orderDetailIdentity?.orderRef ?? row.string('Order ID');
+    const sku = orderDetailIdentity?.sku ?? row.string('SKU') ?? (orderRef ? row.string('UPC') : undefined);
+    const snapshotDate = dateOnly(
+      textValue(bronze.sourceType) === 'sellerboard'
+        ? textValue(bronze.observedAt)
+        : row.string('Timestamp', 'Date', 'Order Date') ?? textValue(bronze.observedAt),
+    );
     const marketplace = row.string('Marketplace', 'Market ', 'Amazon Account');
     const leadTimeText = row.string('Lead time(day)', 'Manuf. time days', 'Lead Time');
+    const orderedQty = orderDetailIdentity?.orderedQty ?? row.number('Qty', 'Ordered');
+    let expectedOrderSupplierId: string | undefined;
+    if (orderRef) {
+      if (!supplierExternalCode) {
+        await this.markBronzeWarning(bronze, 'order_supplier_missing', `Order ${orderRef} has no SR ID.`);
+        return entities;
+      }
+      const supplierRef = toPlainRecord(
+        await this.repo(ECOBASE_COLLECTIONS.silverSupplierExternalRefs).findOne({
+          filter: { sourceSystem: 'supplier_ids', normalizedExternalSupplierCode: supplierExternalCode },
+        }),
+      );
+      expectedOrderSupplierId = textValue(supplierRef.supplierId);
+      if (!expectedOrderSupplierId) {
+        await this.markBronzeWarning(
+          bronze,
+          'order_supplier_not_established',
+          `Order ${orderRef} supplier ${supplierExternalCode} was not established by Supplier Management.`,
+        );
+        return entities;
+      }
+    }
 
-    const company = companyName
-      ? await this.identity.upsertCompany({ companyKey: companyKeyFor(companyName), name: companyName })
+    const canonicalCompany = companyName ? requireCanonicalCompany(companyName) : null;
+    const company = canonicalCompany
+      ? await this.identity.upsertCompany({
+          companyKey: canonicalCompany.companyKey,
+          name: canonicalCompany.name,
+        })
       : null;
     if (company) entities.push(entity('silverCompany', company, 'company'));
+
+    const isOrderDetailInput = Boolean(orderRef && asin && orderedQty !== undefined);
+    let validatedOrderRecord: unknown | null = null;
+    if (company && orderRef) {
+      if (isOrderDetailInput) {
+        validatedOrderRecord = await this.repo(ECOBASE_COLLECTIONS.silverOrders).findOne({
+          filter: { companyId: idOf(company), orderRef },
+        });
+        const validatedOrder = toPlainRecord(validatedOrderRecord);
+        if (!textValue(toPlainRecord(validatedOrderRecord).id)) {
+          throw new Error(
+            `Ecobase medallion normalization failed: OrderDetails ${orderRef} has no Purchase Orders header for ${canonicalCompany?.name}.`,
+          );
+        }
+        if (textValue(validatedOrder.supplierId) !== expectedOrderSupplierId) {
+          throw new Error(
+            `Ecobase medallion normalization failed: order ${orderRef} supplier conflicts with OrderDetails supplier ${supplierExternalCode}.`,
+          );
+        }
+      }
+    }
 
     const product =
       asin && sku
@@ -143,6 +214,11 @@ export class EcobaseMedallionNormalizationService {
     const companyProduct = companyProductIdentity?.companyProduct ?? null;
     const supplierProductProduct = product ?? companyProductIdentity?.product ?? null;
     if (supplierExternalCode && asin && !sku && !companyProductIdentity) {
+      if (orderRef && orderedQty !== undefined) {
+        throw new Error(
+          `Ecobase medallion normalization failed: OrderDetails ${orderRef}/${asin} has no unique company product for ASIN-only resolution.`,
+        );
+      }
       await this.markBronzeWarning(
         bronze,
         'supplier_product_unresolved',
@@ -160,6 +236,7 @@ export class EcobaseMedallionNormalizationService {
           sourceConnectionId: textValue(bronze.sourceConnectionId),
           observedAt: textValue(bronze.observedAt),
           payload: toPlainRecord(bronze.payload),
+          identityAuthority: orderRef ? 'reference' : 'authoritative',
         })
       : null;
     const supplierAccount =
@@ -202,7 +279,8 @@ export class EcobaseMedallionNormalizationService {
           await this.identity.upsertCompanyProductSupplier({
             companyProductId: idOf(companyProduct),
             supplierProductId: idOf(supplierProduct),
-            role: 'latest_used',
+            role: 'candidate',
+            lastUsedAt: orderRef && snapshotDate ? `${snapshotDate}T00:00:00.000Z` : undefined,
           }),
           'company_product_supplier',
         ),
@@ -249,7 +327,20 @@ export class EcobaseMedallionNormalizationService {
 
     if (
       companyProduct &&
-      hasAnyNumber(row, 'SalesOrganic', 'UnitsOrganic', 'GrossProfit', 'NetProfit', 'Profit Achieved')
+      hasAnyNumber(
+        row,
+        'SalesOrganic',
+        'SalesPPC',
+        'SalesSponsoredProducts',
+        'SalesSponsoredDisplay',
+        'UnitsOrganic',
+        'UnitsPPC',
+        'UnitsSponsoredProducts',
+        'UnitsSponsoredDisplay',
+        'GrossProfit',
+        'NetProfit',
+        'Profit Achieved',
+      )
     ) {
       entities.push(
         entity(
@@ -263,8 +354,12 @@ export class EcobaseMedallionNormalizationService {
             {
               companyProductId: idOf(companyProduct),
               snapshotDate,
-              sales: row.number('SalesOrganic', 'Ordered Product Sales', 'Total Sales'),
-              units: row.number('UnitsOrganic', 'Units Achieved', 'Units Ordered'),
+              sales:
+                sumNumbers(row, 'SalesOrganic', 'SalesPPC', 'SalesSponsoredProducts', 'SalesSponsoredDisplay') ??
+                row.number('Ordered Product Sales', 'Total Sales'),
+              units:
+                sumNumbers(row, 'UnitsOrganic', 'UnitsPPC', 'UnitsSponsoredProducts', 'UnitsSponsoredDisplay') ??
+                row.number('Units Achieved', 'Units Ordered'),
               profit: row.number('NetProfit', 'GrossProfit', 'Profit Achieved'),
               margin: row.number('Margin', 'Margin '),
               refunds: row.number('Refunds', 'Refund Units'),
@@ -303,28 +398,25 @@ export class EcobaseMedallionNormalizationService {
 
     if (company && supplier && orderRef) {
       const orderFilter = { companyId: idOf(company), orderRef };
-      const existingOrder = toPlainRecord(
-        await this.repo(ECOBASE_COLLECTIONS.silverOrders).findOne({ filter: orderFilter }),
-      );
-      const hasOperatorOverride =
-        textValue(existingOrder.statusSource) === 'operator' ||
-        Boolean(textValue(existingOrder.operatorStatusOverrideAt));
-      const existingOrderSupplierId = textValue(existingOrder.supplierId);
-      const lineHasSupplierProduct = Boolean(
-        companyProduct && supplierProduct && row.number('Qty', 'Ordered') !== undefined,
-      );
-      const rowSupplierId = idOf(supplier);
-      const orderSupplierId =
-        existingOrderSupplierId && lineHasSupplierProduct ? existingOrderSupplierId : rowSupplierId;
-      if (existingOrderSupplierId && existingOrderSupplierId !== rowSupplierId) {
-        await this.markBronzeWarning(
-          bronze,
-          'order_supplier_mismatch',
-          lineHasSupplierProduct
-            ? `Order ${orderRef} kept existing header supplier while line used supplier ${supplierExternalCode}.`
-            : `Order ${orderRef} header supplier changed from previous imported supplier to ${supplierExternalCode}.`,
+      const existingOrderRecord =
+        validatedOrderRecord ?? (await this.repo(ECOBASE_COLLECTIONS.silverOrders).findOne({ filter: orderFilter }));
+      const existingOrder = toPlainRecord(existingOrderRecord);
+      const isOrderLine = Boolean(companyProduct && orderedQty !== undefined);
+      if (isOrderLine && !textValue(toPlainRecord(existingOrderRecord).id)) {
+        throw new Error(
+          `Ecobase medallion normalization failed: OrderDetails ${orderRef} has no Purchase Orders header for ${canonicalCompany?.name}.`,
         );
       }
+      const rowSupplierId = idOf(supplier);
+      const existingOrderSupplierId = textValue(existingOrder.supplierId);
+      if (existingOrderSupplierId && existingOrderSupplierId !== rowSupplierId) {
+        throw new Error(
+          `Ecobase medallion normalization failed: order ${orderRef} supplier conflicts with OrderDetails supplier ${supplierExternalCode}.`,
+        );
+      }
+      const hasProtectedStatus =
+        ['operator', 'clickup_csv'].includes(textValue(existingOrder.statusSource) ?? '') ||
+        Boolean(textValue(existingOrder.operatorStatusOverrideAt));
       const importedLifecycle = resolveOrderLifecycle({
         canonicalStatus: textValue(existingOrder.canonicalStatus),
         existingStatusCheckRequired: existingOrder.statusCheckRequired === true,
@@ -341,55 +433,98 @@ export class EcobaseMedallionNormalizationService {
         trackingId: row.string('Tracking ID', 'Tracking #'),
         shippingCarrier: row.string('Shipping Carrier', 'Carrier'),
       });
-      const order = await this.upsertByFilter(ECOBASE_COLLECTIONS.silverOrders, orderFilter, {
-        companyId: idOf(company),
-        supplierId: orderSupplierId,
-        orderRef,
-        orderDate: snapshotDate,
-        dailySequenceLetter: orderRef,
-        orderIntent: row.string('Order type') ?? 'imported',
-        lifecyclePhase: 'imported',
-        ...(hasOperatorOverride
-          ? {}
-          : {
-              lifecycleStatus: importedLifecycle.canonicalStatus,
-              canonicalStatus: importedLifecycle.canonicalStatus,
-              statusSource: importedLifecycle.statusSource,
-              statusCheckRequired: importedLifecycle.statusCheckRequired,
-              statusEvidenceJson: importedLifecycle.statusEvidence,
-            }),
-        fulfillmentRoute: 'unknown',
-        expectedDeliveryDate: row.string('Expected Delivery', 'Expected Delivery Date', 'ETA', 'Arrival to Amazon'),
-        expectedCost: row.number('Exp. Cost ', 'Expected Cost'),
-      });
+      const expectedDeliveryDate = await this.optionalDateOnlyWarning(
+        bronze,
+        row.string('Expected Delivery', 'Expected Delivery Date', 'ETA', 'Arrival to Amazon'),
+        'expected_delivery_date_unparsed',
+        'expected delivery date',
+      );
+      const arrivalSourceDataset = textValue(bronze.sourceDataset) ?? 'bronze_source_record';
+      const order = isOrderLine
+        ? existingOrderRecord
+        : await this.upsertByFilter(ECOBASE_COLLECTIONS.silverOrders, orderFilter, {
+            companyId: idOf(company),
+            supplierId: rowSupplierId,
+            orderRef,
+            orderDate: snapshotDate,
+            dailySequenceLetter: orderRef,
+            orderIntent: row.string('Order type') ?? 'imported',
+            lifecyclePhase: 'imported',
+            ...(hasProtectedStatus
+              ? {}
+              : {
+                  lifecycleStatus: importedLifecycle.canonicalStatus,
+                  canonicalStatus: importedLifecycle.canonicalStatus,
+                  statusSource: importedLifecycle.statusSource,
+                  statusCheckRequired: importedLifecycle.statusCheckRequired,
+                  statusEvidenceJson: importedLifecycle.statusEvidence,
+                }),
+            fulfillmentRoute: 'unknown',
+            expectedDeliveryDate,
+            expectedArrivalDate: expectedDeliveryDate,
+            expectedArrivalStatus: expectedDeliveryDate ? 'imported' : 'unknown',
+            expectedArrivalSource: expectedDeliveryDate
+              ? `${arrivalSourceDataset}:expected_delivery_date`
+              : 'insufficient_silver_evidence',
+            expectedArrivalAsOf: snapshotDate,
+            expectedArrivalConfidence: expectedDeliveryDate ? 'authoritative' : 'none',
+            expectedCost: row.number('Exp. Cost ', 'Expected Cost'),
+          });
       entities.push(entity('silverOrder', order, 'order'));
 
-      if (companyProduct && supplierProduct && row.number('Qty', 'Ordered') !== undefined) {
+      if (isOrderLine) {
+        if (!supplierProduct) {
+          throw new Error(
+            `Ecobase medallion normalization failed: OrderDetails ${orderRef} has no supplier-product relationship.`,
+          );
+        }
+        const orderRecord = toPlainRecord(order);
+        const companyProductRecord = toPlainRecord(companyProduct);
+        const supplierProductRecord = toPlainRecord(supplierProduct);
+        if (textValue(orderRecord.companyId) !== idOf(company)) {
+          throw new Error(`Ecobase medallion normalization failed: order ${orderRef} company relationship is invalid.`);
+        }
+        if (textValue(orderRecord.supplierId) !== textValue(supplierProductRecord.supplierId)) {
+          throw new Error(
+            `Ecobase medallion normalization failed: order ${orderRef} supplier relationship is invalid.`,
+          );
+        }
+        if (textValue(companyProductRecord.productId) !== textValue(supplierProductRecord.productId)) {
+          throw new Error(`Ecobase medallion normalization failed: order ${orderRef} product relationship is invalid.`);
+        }
+        const sourceLineKey = orderLineSourceKeyForBronze(bronze);
         const expectedSellableDate = await this.optionalDateOnlyWarning(
           bronze,
           expectedSellableDateTextFor(row),
           'expected_sellable_date_unparsed',
           'expected sellable date',
         );
+        const expectedArrivalDate = expectedSellableDate ?? expectedDeliveryDate;
         entities.push(
           entity(
             'silverOrderLine',
             await this.upsertByFilter(
               ECOBASE_COLLECTIONS.silverOrderLines,
+              { orderId: idOf(order), sourceLineKey },
               {
                 orderId: idOf(order),
                 companyProductId: idOf(companyProduct),
                 supplierProductId: idOf(supplierProduct),
-              },
-              {
-                orderId: idOf(order),
-                companyProductId: idOf(companyProduct),
-                supplierProductId: idOf(supplierProduct),
-                orderedQty: row.number('Qty', 'Ordered'),
+                sourceLineKey,
+                orderedQty,
                 unitCost: row.number('PPU', 'COGS', 'Exp. Cost '),
                 expectedProfit: row.number('T.Profit', 'Rec.Best Profit'),
-                expectedDeliveryDate: row.string('Expected Delivery', 'Expected Delivery Date', 'ETA'),
+                expectedDeliveryDate,
                 expectedSellableDate,
+                expectedArrivalDate,
+                expectedArrivalStatus: expectedArrivalDate ? 'imported' : 'unknown',
+                expectedArrivalSource: expectedSellableDate
+                  ? `${arrivalSourceDataset}:expected_sellable_date`
+                  : expectedDeliveryDate
+                    ? `${arrivalSourceDataset}:expected_delivery_date`
+                    : 'insufficient_silver_evidence',
+                expectedArrivalAsOf: snapshotDate,
+                expectedArrivalConfidence: expectedArrivalDate ? 'authoritative' : 'none',
                 productAnalysisStatus: 'imported',
               },
             ),
@@ -653,6 +788,13 @@ export class EcobaseMedallionNormalizationService {
   }
 }
 
+function normalizationPriority(record: unknown) {
+  const dataset = textValue(toPlainRecord(record).sourceDataset)?.toLowerCase() ?? '';
+  if (dataset.includes('purchase orders')) return 1;
+  if (dataset.includes('orderdetails')) return 2;
+  return 1;
+}
+
 function entity(type: string, record: unknown, relation: string): SilverEntity {
   return {
     type,
@@ -729,21 +871,28 @@ function validLeadTimeDays(value: number) {
   return value > 0 && value <= 3650 ? value : undefined;
 }
 
-function companyKeyFor(companyName: string) {
-  const key = companyName
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '')
-    .slice(0, 32);
-  return key.length === 1 ? `${key}_1` : key;
-}
-
 function cleanValues(values: Record<string, unknown>) {
   return Object.fromEntries(Object.entries(values).filter(([, value]) => value !== undefined));
 }
 
 function hasAnyNumber(row: CsvRowReader, ...headers: string[]) {
   return headers.some((header) => row.number(header) !== undefined);
+}
+
+function sumNumbers(row: CsvRowReader, ...headers: string[]) {
+  const values = headers.map((header) => row.number(header)).filter((value): value is number => value !== undefined);
+  return values.length > 0 ? values.reduce((total, value) => total + value, 0) : undefined;
+}
+
+export function orderLineSourceKeyForBronze(bronze: Record<string, unknown>) {
+  const sourceRecordKey = textValue(bronze.sourceRecordKey);
+  const rowHash = textValue(bronze.rowHash);
+  if (!sourceRecordKey || !rowHash) {
+    throw new Error(
+      'Ecobase medallion normalization failed: OrderDetails line requires sourceRecordKey and rowHash evidence.',
+    );
+  }
+  return createHash('sha256').update(`${sourceRecordKey}:${rowHash}`).digest('hex');
 }
 
 function expectedSellableDateTextFor(row: CsvRowReader) {

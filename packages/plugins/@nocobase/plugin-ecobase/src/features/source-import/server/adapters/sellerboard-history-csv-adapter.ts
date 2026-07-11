@@ -70,6 +70,10 @@ function sellerboardDate(value: string | undefined, format: DateFormat) {
   return `${String(parts.year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
+function sourceDateUpperBound(sourceVersion: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(sourceVersion) ? sourceVersion : undefined;
+}
+
 function defaultCompany(input: SourceAdapterImportInput) {
   const value = input.config.defaultCompany;
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
@@ -172,6 +176,7 @@ export async function* importSellerboardHistoryCsvFiles(
     // ponytail: one-time Sellerboard history backfill parser; ongoing Sellerboard API imports must keep using sellerboard-api/sellerboard-csv.
     const parsed = parseDelimitedCsv(file.content ?? '', ';');
     const dateFormat = detectDateFormat(parsed.rows);
+    const latestAllowedDate = sourceDateUpperBound(input.sourceVersion);
     const expectedRowCount = file.expectedRowCount ?? asFileConfig(input.config).expectedRowCounts?.[file.name];
     if (typeof expectedRowCount === 'number' && expectedRowCount !== parsed.rows.length) {
       yield {
@@ -217,6 +222,20 @@ export async function* importSellerboardHistoryCsvFiles(
             message: `Sellerboard history import requires slash dates in D/M/YYYY or M/D/YYYY format; row ${rowNumber} in ${
               file.name
             } has "${reader.string('Date') ?? ''}".`,
+            sourceKey,
+            payload: row,
+          },
+        };
+        continue;
+      }
+      if (latestAllowedDate && snapshotDate > latestAllowedDate) {
+        yield {
+          type: 'rowIssue',
+          issue: {
+            rowNumber,
+            severity: 'error',
+            code: 'sellerboard_history_date_future',
+            message: `Sellerboard history import rejected row ${rowNumber} in ${file.name} because ${snapshotDate} is after source version ${latestAllowedDate}.`,
             sourceKey,
             payload: row,
           },

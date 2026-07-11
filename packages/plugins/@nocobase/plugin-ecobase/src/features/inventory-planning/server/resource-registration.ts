@@ -26,6 +26,8 @@ export function createInventoryPlanningResourceRegistration(): EcobaseFeatureRes
         actions: [
           'filters',
           'refreshReadModel',
+          'reconcileFamilies',
+          'setFamilyTarget',
           'workspace',
           'commandCenter',
           'rows',

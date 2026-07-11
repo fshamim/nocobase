@@ -16,10 +16,11 @@ import type {
   SourceAdapterImportInput,
   SourceAdapterRegistry,
 } from './adapters';
-import type { CsvSourceFile } from './adapters/csv-utils';
+import { parseCsv, type CsvSourceFile } from './adapters/csv-utils';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import { EcobaseAccountabilityService } from '../../../server/services/accountability-service';
-import { EcobaseBronzeImportService } from './bronze-import-service';
+import { bronzePayloadHash, EcobaseBronzeImportService } from './bronze-import-service';
+import { EcobaseClickupOrderStatusService, type ClickupOrderStatusImportResult } from './clickup-order-status-service';
 import { EcobaseDataWarningService } from '../../../server/services/data-warning-service';
 import type { EcobaseDataWarning } from '../../../server/services/data-warning-service';
 import { EcobaseInventoryPlanningService } from '../../inventory-planning/server/inventory-planning-service';
@@ -29,7 +30,10 @@ import type { NormalizePendingResult } from '../../semantic-model/server/medalli
 import { EcobaseOrderPlanningService } from '../../order-planning/server/order-planning-service';
 import { EcobasePlanningProductService } from '../../inventory-planning/server/planning-product-service';
 import { EcobaseSupplierManagementService } from '../../supplier-management/server/supplier-management-service';
-import { EcobaseSupplierOrderService } from '../../supplier-management/server/supplier-order-service';
+import {
+  EcobaseSupplierOrderService,
+  validateSupplierLeadTimeDays,
+} from '../../supplier-management/server/supplier-order-service';
 
 type Filter = Record<string, unknown>;
 
@@ -90,6 +94,16 @@ type NormalizedRecordTarget = {
   values: Record<string, unknown>;
   createValues?: Record<string, unknown>;
 };
+
+function validateNormalizedRecord(record: NormalizedRecord) {
+  if (!['supplier_lead_time', 'planning_parameter'].includes(record.kind)) return;
+  const value = record.data.leadTimeDays;
+  const context = `Ecobase import failed: ${record.kind}`;
+  if (value !== undefined && typeof value !== 'number') {
+    throw new Error(`${context}: leadTimeDays must be a number.`);
+  }
+  validateSupplierLeadTimeDays(value as number | undefined, context);
+}
 
 function normalizedRecordTarget(record: NormalizedRecord, importRunId: string): NormalizedRecordTarget {
   const data = toPlainRecord(record.data);
@@ -177,7 +191,6 @@ const BRONZE_ONLY_RECORD_KINDS = new Set([
   'supplier',
   'supplier_identity',
   'supplier_lead_time',
-  'supplier_order',
   'target_row',
 ]);
 const ACCOUNTABILITY_RECORD_KINDS = new Set(['clickup_task_snapshot', 'task_link', 'okr', 'okr_metric_snapshot']);
@@ -231,6 +244,18 @@ export interface RunCsvBundleImportParams {
   sourceVersion?: string;
   defaultCompany?: string;
   files: CsvSourceFile[];
+}
+
+export interface ImportClickupOrderStatusesParams {
+  sourceConnectionId?: string;
+  sourceIdentifier?: string;
+  files: CsvSourceFile[];
+  dryRun?: boolean;
+  importedAt?: string;
+  snapshotDate?: string;
+  skipGoldRefresh?: boolean;
+  forceReconcile?: boolean;
+  overrideOperatorStatus?: boolean;
 }
 
 export interface RunScheduledSellerboardImportsParams {
@@ -460,18 +485,65 @@ function todayIsoDate() {
   return new Date().toISOString().slice(0, 10);
 }
 
+async function retainClickupSourceRows(params: {
+  db: EcobaseDatabase;
+  files: CsvSourceFile[];
+  importRunId: string;
+  sourceConnectionId: string;
+  sourceVersion: string;
+}) {
+  const repo = params.db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords);
+  for (const file of params.files) {
+    const parsed = parseCsv(file.content);
+    for (const [index, payload] of parsed.rows.entries()) {
+      const rowNumber = index + 2;
+      const taskId = getString(payload, 'Task ID') ?? `row-${rowNumber}`;
+      const sourceRecordKey = `${file.name}:${taskId}`;
+      const rowHash = bronzePayloadHash(payload);
+      const existing = await repo.findOne({
+        filter: {
+          sourceConnectionId: params.sourceConnectionId,
+          sourceDataset: file.name,
+          sourceRecordKey,
+          rowHash,
+        },
+      });
+      if (existing) continue;
+      await repo.create({
+        values: {
+          id: randomUUID(),
+          sourceConnectionId: params.sourceConnectionId,
+          importRunId: params.importRunId,
+          sourceType: 'clickup',
+          sourceDataset: file.name,
+          sourceRecordKey,
+          sourceKey: taskId,
+          rowNumber,
+          observedAt: params.sourceVersion,
+          payload,
+          rowHash,
+          normalizationStatus: 'normalized',
+          normalizedAt: new Date(),
+        },
+      });
+    }
+  }
+}
+
 export class EcobaseImportService {
   constructor(
     private db: EcobaseDatabase,
     private registry: SourceAdapterRegistry,
   ) {}
 
-  private async refreshGoldReadModels(calculationDate = todayIsoDate()): Promise<AutomaticGoldRefreshResult> {
-    const inventory = await new EcobaseInventoryPlanningService(this.db).refreshReadModel({
-      calculationDate,
+  async refreshGoldReadModels(calculationDate = todayIsoDate()): Promise<AutomaticGoldRefreshResult> {
+    const inventoryService = new EcobaseInventoryPlanningService(this.db);
+    await inventoryService.refreshReadModel({ calculationDate, limit: AUTOMATIC_GOLD_REFRESH_LIMIT });
+    const orderWorkspace = await new EcobaseOrderPlanningService(this.db).refreshReadModel({
       limit: AUTOMATIC_GOLD_REFRESH_LIMIT,
     });
-    const orderWorkspace = await new EcobaseOrderPlanningService(this.db).refreshReadModel({
+    const inventory = await inventoryService.refreshReadModel({
+      calculationDate,
       limit: AUTOMATIC_GOLD_REFRESH_LIMIT,
     });
     const supplierDigest = await new EcobaseSupplierManagementService(this.db).refreshSupplierAttentionRows({
@@ -498,6 +570,142 @@ export class EcobaseImportService {
         skippedMetrics: managementKpiFacts.skippedMetrics,
       },
     };
+  }
+
+  async importClickupOrderStatuses(
+    params: ImportClickupOrderStatusesParams,
+  ): Promise<ClickupOrderStatusImportResult | Record<string, unknown>> {
+    this.validateCsvBundleFiles(params.files);
+    const dryRun = params.dryRun !== false;
+    const clickupService = new EcobaseClickupOrderStatusService(this.db);
+    if (dryRun) return clickupService.importCsvFiles({ ...params, dryRun: true });
+    if (!params.sourceConnectionId) {
+      throw new Error('Ecobase ClickUp order-status import requires sourceConnectionId.');
+    }
+
+    const sourceConnectionRepo = this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections);
+    const importRunRepo = this.db.getRepository(ECOBASE_COLLECTIONS.importRuns);
+    const sourceConnection = await sourceConnectionRepo.findOne({ filterByTk: params.sourceConnectionId });
+    if (!sourceConnection) {
+      throw new Error(
+        `Ecobase ClickUp order-status import failed: source connection "${params.sourceConnectionId}" was not found.`,
+      );
+    }
+    if (
+      getString(sourceConnection, 'sourceType') !== 'clickup' ||
+      getString(sourceConnection, 'domain') !== 'order_management'
+    ) {
+      throw new Error(
+        `Ecobase ClickUp order-status import failed: source connection "${params.sourceConnectionId}" must be clickup/order_management.`,
+      );
+    }
+    if (toPlainRecord(sourceConnection).active === false) {
+      throw new Error(
+        `Ecobase ClickUp order-status import failed: source connection "${params.sourceConnectionId}" is inactive.`,
+      );
+    }
+
+    const startedAt = new Date();
+    const sourceIdentifier = params.sourceIdentifier ?? 'clickup-order-status-csv';
+    const sourceVersion =
+      params.snapshotDate ?? params.importedAt?.slice(0, 10) ?? startedAt.toISOString().slice(0, 10);
+    const contentHash = createHash('sha256');
+    for (const file of [...params.files].sort((left, right) => left.name.localeCompare(right.name))) {
+      contentHash.update(file.name).update('\0').update(file.content).update('\0');
+    }
+    const baseIdempotencyKey = `${params.sourceConnectionId}:${sourceIdentifier}:${contentHash.digest('hex')}`;
+    const existingRun = (
+      await importRunRepo.find({
+        filter: { sourceConnectionId: params.sourceConnectionId, sourceIdentifier },
+        limit: 10000,
+      })
+    )
+      .map(toPlainRecord)
+      .filter((run) => getString(run, 'idempotencyKey')?.startsWith(baseIdempotencyKey))
+      .sort(
+        (left, right) =>
+          new Date(String(left.finishedAt ?? 0)).getTime() - new Date(String(right.finishedAt ?? 0)).getTime(),
+      )
+      .at(-1);
+    if (
+      existingRun &&
+      getString(existingRun, 'status') === 'success' &&
+      !params.forceReconcile &&
+      !params.overrideOperatorStatus
+    ) {
+      return this.createSkippedImportRun(importRunRepo, {
+        sourceConnectionId: params.sourceConnectionId,
+        adapterName: 'clickup-order-status-csv',
+        sourceIdentifier,
+        sourceVersion,
+        idempotencyKey: `${baseIdempotencyKey}:skipped:${randomUUID()}`,
+        startedAt,
+        errorMessage: 'Ecobase ClickUp order-status import skipped: CSV content is unchanged.',
+        summary: {
+          originalImportRunId: getString(existingRun, 'id'),
+          contentHash: baseIdempotencyKey.split(':').at(-1),
+        },
+      });
+    }
+
+    const importRunId = randomUUID();
+    const idempotencyKey = existingRun ? `${baseIdempotencyKey}:retry:${randomUUID()}` : baseIdempotencyKey;
+    await importRunRepo.create({
+      values: {
+        id: importRunId,
+        sourceConnectionId: params.sourceConnectionId,
+        adapterName: 'clickup-order-status-csv',
+        sourceIdentifier,
+        sourceVersion,
+        idempotencyKey,
+        startedAt,
+        status: 'pending',
+        rowCount: 0,
+        normalizedCount: 0,
+        warningCount: 0,
+        errorCount: 0,
+      },
+    });
+
+    try {
+      const result = await clickupService.importCsvFiles({ ...params, dryRun: false });
+      await retainClickupSourceRows({
+        db: this.db,
+        files: params.files,
+        importRunId,
+        sourceConnectionId: params.sourceConnectionId,
+        sourceVersion,
+      });
+      const warningCount =
+        result.unmatchedRefCount + result.missingMainTaskCount + result.duplicateRefCount + result.invalidCommentCount;
+      const errorCount = result.blockingIssueCount;
+      const goldRefresh =
+        !params.skipGoldRefresh && errorCount === 0 ? await this.refreshGoldReadModels(sourceVersion) : null;
+      await importRunRepo.update({
+        filterByTk: importRunId,
+        values: {
+          finishedAt: new Date(),
+          status: errorCount > 0 ? 'partial' : 'success',
+          rowCount: result.rowCount,
+          normalizedCount: result.updatedOrderCount + result.importedCommentCount,
+          warningCount,
+          errorCount,
+          errorMessage:
+            errorCount > 0
+              ? `ClickUp import quarantined ${errorCount} conflicting or ambiguous order reference group(s).`
+              : null,
+          summary: { clickup: result, goldRefresh },
+        },
+      });
+      return toPlainRecord(await importRunRepo.findOne({ filterByTk: importRunId }));
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'ClickUp import threw a non-Error value.';
+      await importRunRepo.update({
+        filterByTk: importRunId,
+        values: { finishedAt: new Date(), status: 'failed', errorCount: 1, errorMessage },
+      });
+      throw error;
+    }
   }
 
   async runNoopImport(params: RunNoopImportParams) {
@@ -1312,6 +1520,7 @@ export class EcobaseImportService {
     let accountabilityTouched = false;
 
     for (const record of records) {
+      validateNormalizedRecord(record);
       if (BRONZE_ONLY_RECORD_KINDS.has(record.kind)) {
         normalizedCount += 1;
         sample = sample ?? summarizeRecord(record);

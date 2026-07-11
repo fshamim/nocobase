@@ -173,6 +173,7 @@ describe('EcobaseMedallionOrderService', () => {
     });
     expect(toPlainRecord(line)).toMatchObject({
       orderId: idOf(order),
+      sourceLineKey: expect.stringMatching(/^manual:/),
       orderedQty: 12,
       unitCost: 3.5,
       supplierPackSize: 6,
@@ -223,6 +224,20 @@ describe('EcobaseMedallionOrderService', () => {
         orderedQty: 1,
       }),
     ).rejects.toThrow(/company product missing-company-product does not exist/);
+    await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+      values: { id: 'product-2', asin: 'B002', sku: 'SKU-2' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).create({
+      values: { id: 'supplier-product-2', supplierId: 'supplier-1', productId: 'product-2' },
+    });
+    await expect(
+      service.createOrderLine({
+        orderId: idOf(order),
+        companyProductId: 'company-product-1',
+        supplierProductId: 'supplier-product-2',
+        orderedQty: 1,
+      }),
+    ).rejects.toThrow(/different product/);
   });
 
   it('audits manual order reference edits', async () => {

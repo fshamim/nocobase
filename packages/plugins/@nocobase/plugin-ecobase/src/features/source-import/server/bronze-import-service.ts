@@ -27,7 +27,7 @@ export class EcobaseBronzeImportService {
   async createSourceFiles(context: BronzeImportContext, files: CsvSourceFile[]) {
     const repo = this.db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceFiles);
     for (const file of files) {
-      const contentHash = hashValue(file.content);
+      const contentHash = bronzePayloadHash(file.content);
       const existing = await repo.findOne({
         filter: {
           sourceConnectionId: context.sourceConnectionId,
@@ -53,7 +53,7 @@ export class EcobaseBronzeImportService {
     const sourceKey = sourceKeyFor(context, item);
     const sourceDataset = datasetFor(sourceKey, context.sourceIdentifier);
     const payload = payloadFor(item);
-    const rowHash = hashValue(payload);
+    const rowHash = bronzePayloadHash(payload);
     const repo = this.db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords);
     const existing = await repo.findOne({
       filter: {
@@ -74,7 +74,7 @@ export class EcobaseBronzeImportService {
         sourceRecordKey: sourceKey,
         sourceKey: sourceKeyForAudit(item),
         rowNumber: rowNumberFor(item),
-        observedAt: context.sourceVersion,
+        observedAt: observedAtFor(context, item),
         payload,
         rowHash,
         normalizationStatus: normalizationStatusFor(item),
@@ -106,6 +106,15 @@ function payloadFor(item: AdapterStreamItem) {
   return item.payload ?? { message: item.message, status: item.status };
 }
 
+function observedAtFor(context: BronzeImportContext, item: AdapterStreamItem) {
+  if (item.type === 'record') {
+    const records = Array.isArray(item.record) ? item.record : [item.record];
+    const snapshotDate = records.map((record) => record.data.snapshotDate).find((value) => typeof value === 'string');
+    if (typeof snapshotDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(snapshotDate)) return snapshotDate;
+  }
+  return context.sourceVersion;
+}
+
 function sourceKeyForAudit(item: AdapterStreamItem) {
   if (item.type === 'record') return item.sourceKey;
   if (item.type === 'rowIssue') return item.issue.sourceKey;
@@ -120,7 +129,7 @@ function rowNumberFor(item: AdapterStreamItem) {
 
 function normalizationStatusFor(item: AdapterStreamItem) {
   if (item.type === 'record') return 'pending';
-  if (item.type === 'rowIssue') return item.issue.severity === 'error' ? 'failed' : 'pending';
+  if (item.type === 'rowIssue') return item.issue.severity === 'error' ? 'failed' : 'ignored';
   return item.status;
 }
 
@@ -149,7 +158,7 @@ function retentionDate(sourceVersion: string) {
   return base.toISOString();
 }
 
-function hashValue(value: unknown) {
+export function bronzePayloadHash(value: unknown) {
   return createHash('sha256').update(stableStringify(value)).digest('hex');
 }
 

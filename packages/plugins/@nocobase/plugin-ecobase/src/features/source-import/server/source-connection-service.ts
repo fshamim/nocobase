@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import type { EcobaseDatabase, EcobaseRepository } from './import-service';
 import { toPlainRecord } from './import-service';
+import { requireCanonicalCompany } from '../../../server/company-identity';
 
 type DestroyableRepository = EcobaseRepository & {
   destroy?: (params: { filterByTk?: string | number; filter?: Record<string, unknown> }) => Promise<unknown>;
@@ -243,15 +244,6 @@ function quoteIdentifier(identifier: string) {
   return `"${identifier.replace(/"/g, '""')}"`;
 }
 
-function companyKeyFor(companyName: string) {
-  const key = companyName
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '')
-    .slice(0, 32);
-  return key.length === 1 ? `${key}_1` : key || 'COMPANY';
-}
-
 function countFrom(value: unknown) {
   const number = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : 0;
   return Number.isFinite(number) ? number : 0;
@@ -431,10 +423,11 @@ export class EcobaseSourceConnectionService {
     const companyName = params.companyName?.trim();
     let companyId: string | undefined;
     if (companyName) {
-      let company = await companyRepo.findOne({ filter: { companyKey: companyKeyFor(companyName) } });
+      const canonicalCompany = requireCanonicalCompany(companyName);
+      let company = await companyRepo.findOne({ filter: { companyKey: canonicalCompany.companyKey } });
       if (!company) {
         company = await companyRepo.create({
-          values: { id: randomUUID(), name: companyName, companyKey: companyKeyFor(companyName) },
+          values: { id: randomUUID(), name: canonicalCompany.name, companyKey: canonicalCompany.companyKey },
         });
       }
       companyId = getString(company, 'id');
@@ -479,10 +472,11 @@ export class EcobaseSourceConnectionService {
 
     const companyRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanies);
     const sourceRepo = this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections);
-    let company = await companyRepo.findOne({ filter: { companyKey: companyKeyFor(companyName) } });
+    const canonicalCompany = requireCanonicalCompany(companyName);
+    let company = await companyRepo.findOne({ filter: { companyKey: canonicalCompany.companyKey } });
     if (!company) {
       company = await companyRepo.create({
-        values: { id: randomUUID(), name: companyName, companyKey: companyKeyFor(companyName) },
+        values: { id: randomUUID(), name: canonicalCompany.name, companyKey: canonicalCompany.companyKey },
       });
     }
     const companyId = getString(company, 'id');

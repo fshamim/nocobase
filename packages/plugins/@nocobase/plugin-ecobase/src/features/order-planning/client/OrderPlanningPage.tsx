@@ -1,4 +1,5 @@
 import { useAPIClient } from '@nocobase/client';
+import dayjs from 'dayjs';
 import {
   Alert,
   App,
@@ -19,18 +20,19 @@ import {
   Table,
   Tabs,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FormulaHelp } from '../../../client/formula-help';
 import { useT } from '../../../client/locale';
 import {
-  ORDER_LIFECYCLE_STATUS_OPTIONS,
   isAfterOrderedLifecycleStatus,
   isBeforeOrderedLifecycleStatus,
   isCompleteLifecycleStatus,
   orderLifecycleStatusColor,
 } from '../order-lifecycle-status';
+import { CLICKUP_ORDER_OPERATIONAL_STATUS_OPTIONS } from '../order-operational-status';
 
 type PlainRecord = Record<string, any>;
 
@@ -67,6 +69,26 @@ function formatNumber(value: unknown) {
 
 function formatDate(value?: string) {
   return value || '—';
+}
+
+function formatDateTime(value: unknown) {
+  const date = typeof value === 'string' && value ? dayjs(value) : undefined;
+  return date?.isValid() ? date.format('YYYY-MM-DD HH:mm') : '—';
+}
+
+function formatRelativeTime(value: unknown) {
+  const date = typeof value === 'string' && value ? dayjs(value) : undefined;
+  if (!date?.isValid()) return '—';
+  const seconds = Math.max(0, dayjs().diff(date, 'second'));
+  if (seconds < 60) return 'now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  if (days < 365) return `${Math.floor(days / 7)}wk ago`;
+  return `${Math.floor(days / 365)}yr ago`;
 }
 
 function dateRank(value?: string) {
@@ -196,10 +218,11 @@ function moneyText(value: unknown) {
   );
 }
 
-function statusTag(value?: string, needsCheck?: boolean) {
+function statusTag(value?: string, canonicalStatus?: string, needsCheck?: boolean, discrepancy?: boolean) {
   return (
     <Space size={4} wrap>
-      <Tag color={orderLifecycleStatusColor(value)}>{value ?? 'unknown'}</Tag>
+      <Tag color={orderLifecycleStatusColor(canonicalStatus)}>{value ?? canonicalStatus ?? 'unknown'}</Tag>
+      {discrepancy ? <Tag color="red">ClickUp differs</Tag> : null}
       {needsCheck ? <Tag color="orange">needs status check</Tag> : null}
     </Space>
   );
@@ -293,7 +316,11 @@ export default function OrderPlanningPage() {
   useEffect(() => {
     if (!detail?.order) return;
     orderForm.setFieldsValue({
-      lifecycleStatus: detail.order.currentStatus ?? detail.order.canonicalStatus ?? detail.order.lifecycleStatus,
+      lifecycleStatus:
+        detail.order.operationalStatus ??
+        detail.order.currentStatus ??
+        detail.order.canonicalStatus ??
+        detail.order.lifecycleStatus,
       nextAction: detail.order.nextAction,
       nextActionDueAt: detail.order.nextActionDueAt,
       expectedDeliveryDate: detail.order.expectedDeliveryDate,
@@ -427,10 +454,11 @@ export default function OrderPlanningPage() {
       render: (value: string) => value || '—',
     },
     {
-      title: String(t('Current status')),
-      dataIndex: 'currentStatus',
-      width: 220,
-      render: (value: string, row: PlainRecord) => statusTag(value, row.statusCheckRequired),
+      title: String(t('Operational status')),
+      dataIndex: 'operationalStatus',
+      width: 240,
+      render: (value: string, row: PlainRecord) =>
+        statusTag(value, row.currentStatus, row.statusCheckRequired, row.statusDiscrepancy),
     },
     { title: String(t('Tier')), dataIndex: 'tier', width: 80, render: (value: string) => value || '—' },
     { title: String(t('ASINs')), dataIndex: 'asinCount', width: 90, render: formatNumber },
@@ -601,7 +629,13 @@ export default function OrderPlanningPage() {
       width: 100,
       render: (value: string) => (value ? <a href={value}>{t('Open')}</a> : '—'),
     },
-    { title: String(t('Remarks')), dataIndex: 'remarks', width: 220, ellipsis: true, render: (value: string) => value || '—' },
+    {
+      title: String(t('Remarks')),
+      dataIndex: 'remarks',
+      width: 220,
+      ellipsis: true,
+      render: (value: string) => value || '—',
+    },
   ];
 
   const renderGroupedTable = (dataSource: PlainRecord[], pageSize: false | number) => (
@@ -722,8 +756,14 @@ export default function OrderPlanningPage() {
               <Descriptions.Item label={t('Company')}>{selectedOrder.companyName}</Descriptions.Item>
               <Descriptions.Item label={t('Supplier')}>{selectedOrder.supplierName}</Descriptions.Item>
               <Descriptions.Item label={t('Status')}>
-                {statusTag(selectedOrder.currentStatus, selectedOrder.statusCheckRequired)}
+                {statusTag(
+                  selectedOrder.operationalStatus,
+                  selectedOrder.currentStatus,
+                  selectedOrder.statusCheckRequired,
+                  selectedOrder.statusDiscrepancy,
+                )}
               </Descriptions.Item>
+              <Descriptions.Item label={t('EcoBase status')}>{selectedOrder.currentStatus || '—'}</Descriptions.Item>
               <Descriptions.Item label={t('Status source')}>{selectedOrder.statusSource || '—'}</Descriptions.Item>
               <Descriptions.Item label={t('Tier')}>{selectedOrder.tier || '—'}</Descriptions.Item>
               <Descriptions.Item label={t('Money at risk')}>{formatMoney(selectedOrder.moneyAtRisk)}</Descriptions.Item>
@@ -835,9 +875,7 @@ export default function OrderPlanningPage() {
                   <Row gutter={12}>
                     <Col xs={24} md={8}>
                       <Form.Item name="lifecycleStatus" label={t('Order status')}>
-                        <Select
-                          options={ORDER_LIFECYCLE_STATUS_OPTIONS}
-                        />
+                        <Select options={CLICKUP_ORDER_OPERATIONAL_STATUS_OPTIONS} />
                       </Form.Item>
                     </Col>
                     <Col xs={24} md={8}>
@@ -895,7 +933,25 @@ export default function OrderPlanningPage() {
                   dataSource={Array.isArray(detail.comments) ? detail.comments : []}
                   pagination={{ pageSize: 5 }}
                   columns={[
-                    { title: String(t('Created')), dataIndex: 'createdAt', width: 180, render: formatDate },
+                    {
+                      title: String(t('Created')),
+                      key: 'created',
+                      width: 180,
+                      render: (_: unknown, row: PlainRecord) => {
+                        const occurredAt = row.occurredAt ?? row.createdAt;
+                        return (
+                          <Tooltip title={formatDateTime(occurredAt)}>
+                            <Typography.Text type="secondary">{formatRelativeTime(occurredAt)}</Typography.Text>
+                          </Tooltip>
+                        );
+                      },
+                    },
+                    {
+                      title: String(t('Author')),
+                      key: 'author',
+                      width: 180,
+                      render: (_: unknown, row: PlainRecord) => row.actorDisplayName ?? row.actorEmail ?? '—',
+                    },
                     { title: String(t('Type')), dataIndex: 'commentType', width: 120 },
                     { title: String(t('Comment')), dataIndex: 'body' },
                     {

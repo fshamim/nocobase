@@ -82,6 +82,7 @@ describe('EcobaseDailyManagementSnapshotService', () => {
         company: 'ACME',
         asin: 'B00BASE',
         actionStatus: 'overdue',
+        commandCenterPane: 'supplyAction',
         tier: 'A',
         estimatedOosDate: '2026-06-04',
         estimatedProfitRisk: 500,
@@ -96,6 +97,7 @@ describe('EcobaseDailyManagementSnapshotService', () => {
         company: 'ACME',
         asin: 'B00CURR',
         actionStatus: 'order_today',
+        commandCenterPane: 'supplyAction',
         tier: 'B',
         estimatedOosDate: '2026-06-12',
         estimatedProfitRisk: 300,
@@ -103,23 +105,29 @@ describe('EcobaseDailyManagementSnapshotService', () => {
         supplierOrderState: 'purchased_pipeline',
       },
     });
-    await db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
+      values: { id: 'company-acme', name: 'ACME' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+      values: { id: 'company-product-acme', companyId: 'company-acme' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts).create({
       values: {
         naturalKey: 'baseline-sales',
+        companyProductId: 'company-product-acme',
         snapshotDate: '2026-06-03',
-        company: 'ACME',
         sales: 600,
-        netProfit: 120,
+        profit: 120,
         units: 12,
       },
     });
-    await db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts).create({
       values: {
         naturalKey: 'current-sales',
+        companyProductId: 'company-product-acme',
         snapshotDate: '2026-06-10',
-        company: 'ACME',
         sales: 1000,
-        netProfit: 240,
+        profit: 240,
         units: 20,
       },
     });

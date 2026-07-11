@@ -134,6 +134,25 @@ describe('resolveOrderLifecycle', () => {
     ).toMatchObject({ canonicalStatus: 'INBOUND MONITORING', statusSource: 'operator' });
   });
 
+  it('keeps ClickUp status authoritative over historical source evidence', () => {
+    expect(
+      resolveOrderLifecycle({
+        canonicalStatus: 'completed',
+        statusSource: 'clickup_csv',
+        sourceOrderStatus: 'Completed',
+        orderDate: '2024-01-01',
+      }),
+    ).toMatchObject({ canonicalStatus: 'COMPLETE', statusSource: 'clickup_csv', statusCheckRequired: false });
+    expect(
+      resolveOrderLifecycle({
+        canonicalStatus: 'shipped_inbound',
+        statusSource: 'clickup_csv',
+        sourceOrderStatus: 'Completed',
+        sellableStock: 1,
+      }),
+    ).toMatchObject({ canonicalStatus: 'SHIPPED TO FBA', statusSource: 'clickup_csv', statusCheckRequired: false });
+  });
+
   it('maps inbound stock evidence to INBOUND MONITORING', () => {
     expect(resolveOrderLifecycle({ sourceOrderStatus: 'Completed', inboundStock: 24 })).toMatchObject({
       canonicalStatus: 'INBOUND MONITORING',

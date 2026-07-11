@@ -39,7 +39,7 @@ import {
   NocoBaseEcoNarrativeProvider,
 } from '../features/daily-operations-brief/server/daily-operations-brief-narrative-service';
 import { EcobaseImportService } from '../features/source-import/server/import-service';
-import { EcobaseClickupOrderStatusService } from '../features/source-import/server/clickup-order-status-service';
+import { EcobaseOrderDetailsRelationshipVerifier } from '../features/source-import/server/order-details-relationship-verifier';
 import { EcobaseSellerboardCogsService } from '../features/source-import/server/sellerboard-cogs-service';
 import {
   EcobaseInventoryPlanningService,
@@ -49,11 +49,13 @@ import {
 import { EcobaseOrderPlanningService } from '../features/order-planning/server/order-planning-service';
 import { EcobaseMedallionNormalizationService } from '../features/semantic-model/server/medallion-normalization-service';
 import { EcobaseMedallionOrderService } from '../features/semantic-model/server/medallion-order-service';
+import { EcobaseSemanticLinkVerifier } from '../features/semantic-model/server/semantic-link-verifier';
 import {
   EcobaseMedallionWorkflowService,
   type EntityLinkParams,
   type WorkflowActionParams,
 } from '../features/semantic-model/server/medallion-workflow-service';
+import { EcobaseCompanyProductFamilyService } from '../features/inventory-planning/server/company-product-family-service';
 import { EcobasePlanningCalculationService } from '../features/inventory-planning/server/planning-calculation-service';
 import { EcobasePlanningSettingsService } from './services/planning-settings-service';
 import { EcobasePlanningProductService } from '../features/inventory-planning/server/planning-product-service';
@@ -1075,6 +1077,35 @@ export function createEcobaseInventoryPlanningActions() {
     refreshReadModel: async (ctx, next) => {
       const service = new EcobaseInventoryPlanningService(ctx.db);
       ctx.body = { data: await service.refreshReadModel(inventoryPlanningQuery(getValues(ctx.action.params))) };
+      await next();
+    },
+    reconcileFamilies: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      ctx.body = {
+        data: await new EcobaseCompanyProductFamilyService(ctx.db).reconcileAllFamilies(
+          getOptionalString(values, 'companyId'),
+        ),
+      };
+      await next();
+    },
+    setFamilyTarget: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const familyId = getOptionalString(values, 'familyId');
+      const companyProductId = getOptionalString(values, 'companyProductId');
+      if (!familyId || !companyProductId) {
+        ctx.throw(400, 'Ecobase family target selection requires familyId and companyProductId.');
+        return;
+      }
+      const family = await new EcobaseCompanyProductFamilyService(ctx.db).setReplenishmentTarget({
+        familyId,
+        companyProductId,
+        source: 'operator',
+        actorUserId: getActorId(ctx),
+      });
+      const refresh = await new EcobaseInventoryPlanningService(ctx.db).refreshReadModel(
+        inventoryPlanningQuery(values),
+      );
+      ctx.body = { data: { family, refresh } };
       await next();
     },
     workspace: async (ctx, next) => {
@@ -2168,6 +2199,38 @@ export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
       }
       await next();
     },
+    verifySemanticLinks: async (ctx, next) => {
+      ctx.body = { data: await new EcobaseSemanticLinkVerifier(ctx.db).verify() };
+      await next();
+    },
+    verifyOrderDetailsRelationships: async (ctx, next) => {
+      const files = getCsvFiles(getValues(ctx.action.params));
+      if (files.length !== 1) {
+        ctx.throw(400, 'Ecobase OrderDetails verification requires exactly one CSV file.');
+        return;
+      }
+      try {
+        ctx.body = { data: await new EcobaseOrderDetailsRelationshipVerifier(ctx.db).verify(files[0]) };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase OrderDetails verification failed.');
+        return;
+      }
+      await next();
+    },
+    refreshGoldReadModels: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      try {
+        ctx.body = {
+          data: await new EcobaseImportService(ctx.db, registry).refreshGoldReadModels(
+            getOptionalString(values, 'calculationDate'),
+          ),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase gold read-model refresh failed.');
+        return;
+      }
+      await next();
+    },
     analyzeCsvBundle: async (ctx, next) => {
       const values = getValues(ctx.action.params);
       const service = new EcobaseImportService(ctx.db, registry);
@@ -2235,12 +2298,16 @@ export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
       }
       try {
         ctx.body = {
-          data: await new EcobaseClickupOrderStatusService(ctx.db).importCsvFiles({
+          data: await new EcobaseImportService(ctx.db, registry).importClickupOrderStatuses({
             files,
             dryRun: values.dryRun !== false,
             sourceConnectionId: getOptionalString(values, 'sourceConnectionId'),
+            sourceIdentifier: getOptionalString(values, 'sourceIdentifier'),
             importedAt: getOptionalString(values, 'importedAt'),
             snapshotDate: getOptionalString(values, 'snapshotDate'),
+            skipGoldRefresh: values.skipGoldRefresh === true,
+            forceReconcile: values.forceReconcile === true,
+            overrideOperatorStatus: values.overrideOperatorStatus === true,
           }),
         };
       } catch (error) {

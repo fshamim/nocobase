@@ -176,6 +176,79 @@ describe('Sellerboard live URL import', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toHaveLength(0);
   });
 
+  it('parses Sellerboard live report slash dates as month-first', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, status: 200, text: async () => sellerboardGoodsCsv('6/9/2026', 15.2) })),
+    );
+    const items: any[] = [];
+    for await (const item of sellerboardApiAdapter.import({
+      sourceConnectionId: 'sellerboard-source-1',
+      sourceIdentifier: 'manual-live-date-check',
+      sourceVersion: '2026-07-10',
+      idempotencyKey: 'sellerboard-live-date-check',
+      config: {
+        reportUrls: [
+          {
+            name: 'Profit by Product Dashboard Daily Data',
+            category: 'profit_by_product_daily',
+            url: 'https://sellerboard.test/report.csv',
+          },
+        ],
+      },
+    })) {
+      items.push(item);
+    }
+
+    const records = items
+      .filter((item) => item.type === 'record')
+      .flatMap((item) => (Array.isArray(item.record) ? item.record : [item.record]));
+    expect(records).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'listing_daily_fact',
+          data: expect.objectContaining({ snapshotDate: '2026-06-09' }),
+        }),
+      ]),
+    );
+  });
+
+  it('detects day-first live report files before parsing ambiguous dates', async () => {
+    const csv = `${sellerboardGoodsCsv(
+      '13/6/2026',
+      15.2,
+    )}\n8/7/2026,Amazon.com,B00DAYFIRST,DAY-FIRST,Day first,10,1,0,2,1,3,10%`;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, status: 200, text: async () => csv })),
+    );
+    const items: any[] = [];
+    for await (const item of sellerboardApiAdapter.import({
+      sourceConnectionId: 'sellerboard-source-1',
+      sourceIdentifier: 'manual-live-day-first-check',
+      sourceVersion: '2026-07-10',
+      idempotencyKey: 'sellerboard-live-day-first-check',
+      config: {
+        reportUrls: [
+          {
+            name: 'Profit by Product Dashboard Daily Data',
+            category: 'profit_by_product_daily',
+            url: 'https://sellerboard.test/report.csv',
+          },
+        ],
+      },
+    })) {
+      items.push(item);
+    }
+
+    const dates = items
+      .filter((item) => item.type === 'record')
+      .flatMap((item) => (Array.isArray(item.record) ? item.record : [item.record]))
+      .filter((record) => record?.kind === 'listing_daily_fact')
+      .map((record) => record.data.snapshotDate);
+    expect(dates).toEqual(['2026-06-13', '2026-07-08']);
+  });
+
   it('sums live Sellerboard Dashboard by Product sales and unit channels', async () => {
     const csv = `Date,Marketplace,ASIN,SKU,Name,SalesOrganic,SalesPPC,SalesSponsoredProducts,SalesSponsoredDisplay,UnitsOrganic,UnitsPPC,UnitsSponsoredProducts,UnitsSponsoredDisplay,Refunds,GrossProfit,NetProfit,Sessions,Unit Session Percentage
 2026-06-05,Amazon.com,B007P55HOW,DC50944,Dampp Chaser,63.40,10.10,5.50,1.00,3,2,1,1,0,20.1,35,30,10%`;

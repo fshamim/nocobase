@@ -9,7 +9,11 @@
 
 import { describe, expect, it } from 'vitest';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
-import { EcobaseInventoryPlanningService } from '../../features/inventory-planning/server/inventory-planning-service';
+import {
+  calculateInventoryMoneyRisk,
+  EcobaseInventoryPlanningService,
+} from '../../features/inventory-planning/server/inventory-planning-service';
+import { profitTierMovement } from '../../features/inventory-planning/server/profit-tier';
 import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
 
 interface FindParams {
@@ -137,6 +141,11 @@ async function createSilverOrderRecord(db: MemoryDatabase, values: Record<string
     canonicalStatus: values.status,
     lifecycleStatus: values.status,
     statusSource: values.statusSource,
+    authorityStatus: values.authorityStatus,
+    authoritySource: values.authoritySource,
+    authorityTaskRef: values.authorityTaskRef,
+    authorityAsOf: values.authorityAsOf,
+    authorityEvidenceJson: values.authorityEvidenceJson,
     paymentStatus: values.paymentStatus,
     approvalStatus: values.approvalStatus,
     expectedDeliveryDate: values.expectedDeliveryDate,
@@ -163,7 +172,12 @@ async function createSilverOrderLineRecord(db: MemoryDatabase, values: Record<st
     title: values.title,
     brand: values.brand,
   });
-  await upsertRecord(db, ECOBASE_COLLECTIONS.silverCompanyProducts, { id: companyProductId, companyId, productId });
+  await upsertRecord(db, ECOBASE_COLLECTIONS.silverCompanyProducts, {
+    id: companyProductId,
+    companyId,
+    productId,
+    lifecycleStatus: 'active',
+  });
   await upsertRecord(db, ECOBASE_COLLECTIONS.silverSupplierProducts, {
     id: supplierProductId,
     supplierId: values.supplierId,
@@ -194,6 +208,7 @@ async function createSilverActivityCommentRecord(db: MemoryDatabase, values: Rec
     actorUserId: values.actorUserId,
     commentType: values.activityType ?? 'note',
     body: values.notes ?? values.activityType ?? 'note',
+    occurredAt: values.occurredAt,
     deletedAt: values.deletedAt,
     contextSnapshotJson: {
       supplierOrderId: values.supplierOrderId,
@@ -217,786 +232,202 @@ async function upsertRecord(db: MemoryDatabase, collection: string, values: Reco
 }
 
 describe('EcobaseInventoryPlanningService', () => {
-  it('selects highest-profit approval candidates under an explicit budget', async () => {
-    const db = new MemoryDatabase();
-    await createRecord(db, ECOBASE_COLLECTIONS.suppliers, {
-      id: 'supplier-a',
-      naturalKey: 'supplier-a',
-      company: 'Ecofission LLC',
-      name: 'Profit Supplier',
-      active: true,
-    });
-    for (const product of [
-      {
-        id: 'product-high',
-        asin: 'B000HIGH',
-        sku: 'HIGH-SKU',
-        profitPerUnit: 50,
-        bestQty: 20,
-        stock: 0,
-        salesVelocity: 3,
-        orderId: 'order-high',
-        orderRef: 'PO-HIGH',
-        qty: 10,
-        unitCost: 10,
-      },
-      {
-        id: 'product-low',
-        asin: 'B000LOW',
-        sku: 'LOW-SKU',
-        profitPerUnit: 10,
-        bestQty: 10,
-        stock: 0,
-        salesVelocity: 2,
-        orderId: 'order-low',
-        orderRef: 'PO-LOW',
-        qty: 10,
-        unitCost: 10,
-      },
-    ]) {
-      await createRecord(db, ECOBASE_COLLECTIONS.planningProducts, {
-        id: product.id,
-        naturalKey: `Ecofission LLC:${product.asin}`,
-        company: 'Ecofission LLC',
-        canonicalAsin: product.asin,
-        title: product.sku,
-        mappingStatus: 'confirmed',
-      });
-      await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
-        naturalKey: `inventory-${product.id}`,
-        sourceConnectionId: 'source-1',
-        planningProductId: product.id,
-        snapshotDate: '2026-06-09',
-        company: 'Ecofission LLC',
-        asin: product.asin,
-        sku: product.sku,
-        stock: product.stock,
-        salesVelocity: product.salesVelocity,
-      });
-      await createRecord(db, ECOBASE_COLLECTIONS.planningParameters, {
-        naturalKey: `params-${product.id}`,
-        sourceConnectionId: 'source-1',
-        planningProductId: product.id,
-        company: 'Ecofission LLC',
-        asin: product.asin,
-        sku: product.sku,
-        supplier: 'Profit Supplier',
-        supplierId: 'SRO-A',
-        profitPerUnit: product.profitPerUnit,
-        leadTimeDays: 1,
-        payload: { recommendedBestQty: product.bestQty, productStatus: 'Active' },
-      });
-      await createSilverOrderRecord(db, {
-        id: product.orderId,
-        naturalKey: `supplier-order:Ecofission LLC:${product.orderRef}`,
-        company: 'Ecofission LLC',
-        supplierId: 'supplier-a',
-        externalOrderRef: product.orderRef,
-        status: 'approval_pending',
-        sourceStage: 'order_detail',
-        lastMeaningfulUpdateAt: '2026-06-09T00:00:00.000Z',
-      });
-      await createSilverOrderLineRecord(db, {
-        id: `line-${product.id}`,
-        naturalKey: `supplier-order-line:${product.orderRef}:1`,
-        supplierOrderId: product.orderId,
-        company: 'Ecofission LLC',
-        supplierId: 'supplier-a',
-        planningProductId: product.id,
-        asin: product.asin,
-        sku: product.sku,
-        orderedQty: product.qty,
-        receivedQty: 0,
-        unitCost: product.unitCost,
-        sourceOrderLineRef: `${product.orderRef}:1`,
-        sourceStage: 'order_detail',
-        observedAt: '2026-06-09T00:00:00.000Z',
-      });
-    }
-
-    const result = await new EcobaseInventoryPlanningService(db).optimizeBudget({
-      company: 'Ecofission LLC',
-      calculationDate: '2026-06-09',
-      budget: 100,
-    });
-
-    expect(result).toMatchObject({
-      mode: 'budget_optimizer',
-      budget: 100,
-      selectedSpend: 100,
-      remainingBudget: 0,
-      selectedCount: 1,
-    });
-    expect(result.recommendations[0]).toMatchObject({
-      candidateType: 'supplier_order',
-      supplierOrderRef: 'PO-HIGH',
-      recommendedAction: 'approve',
-      spend: 100,
-    });
-    expect(result.skipped.some((candidate: Record<string, unknown>) => candidate.supplierOrderRef === 'PO-LOW')).toBe(
-      true,
-    );
+  it('classifies explicit tier transitions', () => {
+    expect(profitTierMovement('B', 'A')).toBe('down');
+    expect(profitTierMovement('C', 'B')).toBe('down');
+    expect(profitTierMovement('A', 'B')).toBe('up');
+    expect(profitTierMovement(undefined, 'C')).toBe('lost_tier');
+    expect(profitTierMovement('C', undefined)).toBe('new');
   });
 
-  it('shows missing-cost candidates as skipped instead of selecting them silently', async () => {
-    const db = new MemoryDatabase();
-    await createRecord(db, ECOBASE_COLLECTIONS.planningProducts, {
-      id: 'product-no-cost',
-      naturalKey: 'Ecofission LLC:B000NOCOST',
-      company: 'Ecofission LLC',
-      canonicalAsin: 'B000NOCOST',
-      title: 'No cost product',
-      mappingStatus: 'confirmed',
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
-      naturalKey: 'inventory-no-cost',
-      sourceConnectionId: 'source-1',
-      planningProductId: 'product-no-cost',
-      snapshotDate: '2026-06-09',
-      company: 'Ecofission LLC',
-      asin: 'B000NOCOST',
-      sku: 'NO-COST',
-      stock: 0,
+  it('calculates uncovered-stockout money risk without replacing unknown inputs with zero', () => {
+    const base = {
       salesVelocity: 2,
+      profitPerUnit: 5,
+      daysOfCover: 10,
+      targetCoverDays: 40,
+      openOrderCoverageQty: 0,
+      supplierOrderState: 'no_open_order',
+      estimatedOosDate: '2026-07-20',
+    };
+
+    expect(calculateInventoryMoneyRisk(base)).toMatchObject({
+      estimatedProfitRisk: 300,
+      moneyRiskStatus: 'resolved_positive',
+      moneyRiskUncoveredDays: 30,
     });
-    await createRecord(db, ECOBASE_COLLECTIONS.planningParameters, {
-      naturalKey: 'params-no-cost',
-      sourceConnectionId: 'source-1',
-      planningProductId: 'product-no-cost',
-      company: 'Ecofission LLC',
-      asin: 'B000NOCOST',
-      sku: 'NO-COST',
-      profitPerUnit: 25,
-      leadTimeDays: 1,
-      payload: { recommendedBestQty: 10, productStatus: 'Active' },
+    expect(
+      calculateInventoryMoneyRisk({
+        ...base,
+        supplierOrderState: 'purchased_pipeline',
+        expectedArrivalDate: '2026-07-15',
+        expectedArrivalStatus: 'imported',
+        openOrderCoverageQty: 60,
+      }),
+    ).toMatchObject({ estimatedProfitRisk: 0, moneyRiskStatus: 'resolved_zero', moneyRiskUncoveredDays: 0 });
+    expect(
+      calculateInventoryMoneyRisk({
+        ...base,
+        supplierOrderState: 'purchased_pipeline',
+        expectedArrivalDate: '2026-07-25',
+        expectedArrivalStatus: 'imported',
+        openOrderCoverageQty: 60,
+      }),
+    ).toMatchObject({ estimatedProfitRisk: 50, moneyRiskStatus: 'resolved_positive', moneyRiskUncoveredDays: 5 });
+    expect(
+      calculateInventoryMoneyRisk({
+        ...base,
+        supplierOrderState: 'purchased_pipeline',
+        expectedArrivalStatus: 'unknown',
+      }),
+    ).toMatchObject({ estimatedProfitRisk: undefined, moneyRiskStatus: 'unknown_arrival' });
+    expect(calculateInventoryMoneyRisk({ ...base, profitPerUnit: undefined })).toMatchObject({
+      estimatedProfitRisk: undefined,
+      moneyRiskStatus: 'unknown_missing_inputs',
+    });
+    expect(calculateInventoryMoneyRisk({ ...base, profitPerUnit: -5 })).toMatchObject({
+      estimatedProfitRisk: 0,
+      moneyRiskStatus: 'resolved_zero',
+    });
+    expect(calculateInventoryMoneyRisk({ ...base, daysOfCover: 0, targetCoverDays: 30 })).toMatchObject({
+      estimatedProfitRisk: 300,
+      moneyRiskUncoveredDays: 30,
+    });
+    expect(calculateInventoryMoneyRisk({ ...base, openOrderCoverageQty: 20 })).toMatchObject({
+      estimatedProfitRisk: 200,
+      moneyRiskUncoveredDays: 20,
+    });
+  });
+
+  it('materializes exclusive target supply, active-order, stuck, member, and watch boundaries', () => {
+    const service = new EcobaseInventoryPlanningService(new MemoryDatabase()) as unknown as {
+      finalizeGoldContract: (row: Record<string, unknown>, calculationDate: string) => Record<string, unknown>;
+    };
+    const materialize = (values: Record<string, unknown>) =>
+      service.finalizeGoldContract(
+        {
+          productStatus: 'Active',
+          familyRole: 'target',
+          actionStatus: 'order_soon',
+          tier: 'A',
+          salesVelocity: 1,
+          salesVelocityBasis: 'historical_rolling_30_days',
+          salesVelocityStatus: 'trusted_positive',
+          currentPlanningStock: 30,
+          daysOfCover: 30,
+          targetCoverDays: 45,
+          supplierOrderState: 'no_open_order',
+          estimatedOosDate: '2026-08-09',
+          inventoryAsOfDate: '2026-07-10',
+          supplierAvailability: 'resolved_silver_link',
+          leadTimeAvailability: 'resolved_silver_link',
+          unitCostAvailability: 'resolved_cogs',
+          profitAvailability: 'resolved_history',
+          profitPerUnit: 5,
+          openOrderCoverageQty: 0,
+          ...values,
+        },
+        '2026-07-10',
+      );
+
+    expect(materialize({})).toMatchObject({
+      commandCenterPane: 'supplyAction',
+      sourceFreshnessStatus: 'fresh',
+    });
+    expect(materialize({ unitCostAvailability: 'unavailable_no_evidence', unitCost: undefined })).toMatchObject({
+      commandCenterPane: 'supplyAction',
+      dataQualityStatus: 'partial',
+    });
+    expect(materialize({ daysOfCover: 30.01 }).commandCenterPane).toBe('watch');
+    expect(materialize({ daysOfCover: 30.01 }).stuckClassification).toBe('over_30_doc_watch');
+    expect(materialize({ daysOfCover: 60, lastMonthQty: 5, sixMonthAverageQty: 10 }).stuckClassification).toBe(
+      'declining_velocity_watch',
+    );
+    expect(
+      materialize({ daysOfCover: 60.01, familyStuckAction: true, familyStuckClassification: 'over_60_doc' }),
+    ).toMatchObject({ commandCenterPane: 'stuckInventory', stuckClassification: 'over_60_doc' });
+    expect(materialize({ currentPlanningStock: 0, daysOfCover: 0 }).stuck).toBe(false);
+    expect(
+      materialize({
+        salesVelocity: 0,
+        salesVelocityStatus: 'trusted_zero',
+        daysOfCover: undefined,
+        familyStuckAction: true,
+        familyStuckClassification: 'no_sell_through_with_stock',
+      }),
+    ).toMatchObject({
+      commandCenterPane: 'stuckInventory',
+      stuckClassification: 'no_sell_through_with_stock',
+    });
+    expect(
+      materialize({
+        salesVelocity: 0,
+        salesVelocityStatus: 'trusted_zero',
+        daysOfCover: undefined,
+        pipelineStock: 10,
+      }),
+    ).toMatchObject({ commandCenterPane: 'watch', stuckClassification: 'no_sell_through_with_stock' });
+    expect(
+      materialize({ salesVelocity: undefined, salesVelocityStatus: 'missing', daysOfCover: undefined }),
+    ).toMatchObject({ commandCenterPane: 'watch', stuckClassification: 'insufficient_velocity_data' });
+    expect(materialize({ familyRole: 'member', actionStatus: 'family_member_no_reorder' }).commandCenterPane).toBe(
+      'watch',
+    );
+    expect(materialize({ productStatus: 'Inactive' }).commandCenterPane).toBe('watch');
+    expect(
+      materialize({
+        daysOfCover: 90,
+        supplierOrderState: 'purchased_pipeline',
+        expectedArrivalDate: '2026-07-01',
+        expectedArrivalStatus: 'imported',
+        pipelineStock: 10,
+        familyStuckAction: true,
+        familyStuckClassification: 'pipeline_stalled',
+      }),
+    ).toMatchObject({
+      commandCenterPane: 'stuckInventory',
+      stuck: true,
+      stuckClassification: 'pipeline_stalled',
+      supplierOrderState: 'purchased_pipeline',
+    });
+  });
+
+  it('keeps missing inventory values unknown through gold and API projection', async () => {
+    const db = new MemoryDatabase();
+    await createRecord(db, ECOBASE_COLLECTIONS.silverCompanies, { id: 'company-missing-stock', name: 'ACME' });
+    await createRecord(db, ECOBASE_COLLECTIONS.silverProducts, {
+      id: 'product-missing-stock',
+      asin: 'B000NOSTOCK',
+      sku: 'NO-STOCK',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.silverCompanyProducts, {
+      id: 'company-product-missing-stock',
+      companyId: 'company-missing-stock',
+      productId: 'product-missing-stock',
+      lifecycleStatus: 'active',
     });
 
-    const result = await new EcobaseInventoryPlanningService(db).optimizeBudget({
-      company: 'Ecofission LLC',
-      calculationDate: '2026-06-09',
-      budget: 100,
-    });
+    const service = new EcobaseInventoryPlanningService(db);
+    await service.refreshReadModel({ company: 'ACME', calculationDate: '2026-07-10' });
+    const commandCenter = await service.commandCenter({ company: 'ACME', calculationDate: '2026-07-10' });
+    const [goldRow] = await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).find({});
 
-    expect(result.selectedCount).toBe(0);
-    expect(result.skipped[0]).toMatchObject({
-      candidateType: 'planning_product',
-      skipReason: 'missing_unit_cost',
-      reasonCodes: expect.arrayContaining(['missing_unit_cost']),
+    expect(goldRow).toMatchObject({
+      actionStatus: 'missing_inventory',
+      currentPlanningStock: null,
+      daysOfCover: null,
+      estimatedProfitRisk: null,
+      moneyRiskStatus: 'unknown_missing_inputs',
+      commandCenterPane: 'watch',
     });
+    expect(commandCenter.panes.supplyAction.total).toBe(0);
+    expect(commandCenter.summaryCards.find((card) => card.key === 'moneyAtRisk')).toMatchObject({ unknownCount: 1 });
   });
 
   it('requires a positive optimizer budget', async () => {
     await expect(
       new EcobaseInventoryPlanningService(new MemoryDatabase()).optimizeBudget({ budget: 0 }),
     ).rejects.toThrow('Ecobase budget optimizer requires a budget greater than zero.');
-  });
-
-  it('prioritizes order-today tier rows with supplier, lead-time freshness, stock buckets, and velocity-based reorder quantity', async () => {
-    const db = new MemoryDatabase();
-    await createRecord(db, ECOBASE_COLLECTIONS.planningProducts, {
-      id: 'planning-product-1',
-      naturalKey: 'Ecofission LLC:B000RISK',
-      company: 'Ecofission LLC',
-      canonicalAsin: 'B000RISK',
-      title: 'Tier A risk product',
-      mappingStatus: 'confirmed',
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
-      naturalKey: 'inventory-1',
-      sourceConnectionId: 'source-1',
-      planningProductId: 'planning-product-1',
-      snapshotDate: '2026-06-07',
-      company: 'Ecofission LLC',
-      asin: 'B000RISK',
-      sku: 'RISK-SKU',
-      stock: 21,
-      reserved: 2,
-      inbound: 0,
-      ordered: 0,
-      prepStock: 0,
-      salesVelocity: 3,
-      payload: { 'AWD Stock': 0 },
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.planningParameters, {
-      naturalKey: 'params-1',
-      sourceConnectionId: 'source-1',
-      planningProductId: 'planning-product-1',
-      company: 'Ecofission LLC',
-      asin: 'B000RISK',
-      sku: 'RISK-SKU',
-      supplier: 'Fresh Supplier',
-      supplierId: 'supplier-code-1',
-      profitPerUnit: 10,
-      leadTimeDays: 0,
-      safetyBufferDays: 7,
-      payload: { recommendedBestQty: 30, productStatus: 'Active' },
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.suppliers, {
-      id: 'supplier-ref-1',
-      naturalKey: 'Ecofission LLC:Fresh Supplier',
-      sourceConnectionId: 'source-1',
-      supplierId: 'supplier-code-1',
-      name: 'Fresh Supplier',
-      company: 'Ecofission LLC',
-      active: true,
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.supplierProductLinks, {
-      naturalKey: 'link-1',
-      company: 'Ecofission LLC',
-      planningProductId: 'planning-product-1',
-      supplierId: 'supplier-ref-1',
-      role: 'latest_history',
-      source: 'order_details',
-      confidence: 'high',
-      latestBrand: 'Risk Brand',
-      active: true,
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.supplierLeadTimes, {
-      naturalKey: 'leadtime-1',
-      sourceConnectionId: 'source-1',
-      supplierId: 'supplier-code-1',
-      supplierRefId: 'supplier-ref-1',
-      supplierName: 'Fresh Supplier',
-      company: 'Ecofission LLC',
-      leadTimeDays: 0,
-      confirmedAt: '2026-05-20T00:00:00.000Z',
-      source: 'backend_sheet',
-    });
-
-    const [row] = await new EcobaseInventoryPlanningService(db).listRows({
-      company: 'Ecofission LLC',
-      calculationDate: '2026-06-07',
-      targetCoverDays: 30,
-    });
-
-    expect(row).toMatchObject({
-      planningProductId: 'planning-product-1',
-      tier: 'A',
-      tierScore: 300,
-      actionStatus: 'order_today',
-      supplierName: 'Fresh Supplier',
-      supplierSource: 'order_details',
-      leadTimeFreshness: 'fresh',
-      currentPlanningStock: 23,
-      stuck: false,
-      suggestedReorderQty: 67,
-    });
-  });
-
-  it('prefers Sellerboard stock snapshots over manual CSV inventory buckets', async () => {
-    const db = new MemoryDatabase();
-    await createRecord(db, ECOBASE_COLLECTIONS.sourceConnections, {
-      id: 'manual-source',
-      name: 'Manual Amazon Operations CSV',
-      sourceType: 'seller_central_file',
-      domain: 'amazon_operations',
-      active: true,
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.sourceConnections, {
-      id: 'sellerboard-source',
-      name: 'Sellerboard Stock Daily',
-      sourceType: 'sellerboard',
-      domain: 'amazon_operations',
-      active: true,
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.planningProducts, {
-      id: 'planning-product-sellerboard-stock',
-      naturalKey: 'Ecofission LLC:B000SELLERBOARD',
-      company: 'Ecofission LLC',
-      canonicalAsin: 'B000SELLERBOARD',
-      title: 'Sellerboard stock product',
-      mappingStatus: 'confirmed',
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
-      naturalKey: 'manual-inventory-sellerboard-stock',
-      sourceConnectionId: 'manual-source',
-      planningProductId: 'planning-product-sellerboard-stock',
-      snapshotDate: '2026-06-10',
-      company: 'Ecofission LLC',
-      asin: 'B000SELLERBOARD',
-      sku: 'SB-SKU',
-      stock: 999,
-      reserved: 0,
-      inbound: 0,
-      ordered: 0,
-      prepStock: 0,
-      salesVelocity: 99,
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
-      naturalKey: 'sellerboard-inventory-sellerboard-stock',
-      sourceConnectionId: 'sellerboard-source',
-      planningProductId: 'planning-product-sellerboard-stock',
-      snapshotDate: '2026-06-09',
-      company: 'Ecofission LLC',
-      asin: 'B000SELLERBOARD',
-      sku: 'SB-SKU',
-      stock: 12,
-      reserved: 3,
-      inbound: 4,
-      ordered: 5,
-      prepStock: 6,
-      salesVelocity: 2,
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.planningParameters, {
-      naturalKey: 'params-sellerboard-stock',
-      sourceConnectionId: 'manual-source',
-      planningProductId: 'planning-product-sellerboard-stock',
-      company: 'Ecofission LLC',
-      asin: 'B000SELLERBOARD',
-      sku: 'SB-SKU',
-      supplier: 'Stock Supplier',
-      supplierId: 'STOCK-SUPPLIER',
-      leadTimeDays: 5,
-      payload: { productStatus: 'Active' },
-    });
-
-    const [row] = await new EcobaseInventoryPlanningService(db).listRows({
-      company: 'Ecofission LLC',
-      calculationDate: '2026-06-11',
-    });
-
-    expect(row).toMatchObject({
-      planningProductId: 'planning-product-sellerboard-stock',
-      sellableStock: 12,
-      reservedStock: 3,
-      inboundStock: 4,
-      orderedStock: 5,
-      prepStock: 6,
-      currentPlanningStock: 30,
-      salesVelocity: 2,
-    });
-  });
-
-  it('uses OrderDetails history to recover supplier and lead time when planning rows have no supplier mapping', async () => {
-    const db = new MemoryDatabase();
-    await createRecord(db, ECOBASE_COLLECTIONS.planningProducts, {
-      id: 'planning-product-history',
-      naturalKey: 'Ecofission LLC:B000HISTORY',
-      company: 'Ecofission LLC',
-      canonicalAsin: 'B000HISTORY',
-      title: 'OrderDetails supplier product',
-      mappingStatus: 'confirmed',
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
-      naturalKey: 'inventory-history',
-      sourceConnectionId: 'source-1',
-      planningProductId: 'planning-product-history',
-      snapshotDate: '2026-06-07',
-      company: 'Ecofission LLC',
-      asin: 'B000HISTORY',
-      sku: 'HISTORY-SKU',
-      stock: 10,
-      reserved: 0,
-      salesVelocity: 2,
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.planningParameters, {
-      naturalKey: 'params-history',
-      sourceConnectionId: 'source-1',
-      planningProductId: 'planning-product-history',
-      company: 'Ecofission LLC',
-      asin: 'B000HISTORY',
-      sku: 'HISTORY-SKU',
-      profitPerUnit: 20,
-      payload: { recommendedBestQty: 20 },
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.suppliers, {
-      id: 'supplier-ref-history',
-      naturalKey: 'Ecofission LLC:History Supplier',
-      sourceConnectionId: 'source-1',
-      supplierId: 'SRO-HISTORY',
-      name: 'History Supplier',
-      company: 'Ecofission LLC',
-      active: true,
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.supplierLeadTimes, {
-      naturalKey: 'leadtime-history',
-      sourceConnectionId: 'source-1',
-      supplierId: 'SRO-HISTORY',
-      supplierRefId: 'supplier-ref-history',
-      supplierName: 'History Supplier',
-      company: 'Ecofission LLC',
-      leadTimeDays: 4,
-      confirmedAt: '2026-06-01T00:00:00.000Z',
-      source: 'order_details',
-    });
-    await createSilverOrderRecord(db, {
-      id: 'order-history',
-      naturalKey: 'supplier-order:Ecofission LLC:OD-HISTORY',
-      sourceConnectionId: 'source-1',
-      company: 'Ecofission LLC',
-      supplierId: 'supplier-ref-history',
-      externalOrderRef: 'OD-HISTORY',
-      sourceStage: 'order_details',
-      status: 'received',
-      lastMeaningfulUpdateAt: '2026-05-20T00:00:00.000Z',
-    });
-    await createSilverOrderLineRecord(db, {
-      naturalKey: 'line-history',
-      supplierOrderId: 'order-history',
-      company: 'Ecofission LLC',
-      supplierId: 'supplier-ref-history',
-      asin: 'B000HISTORY',
-      sku: 'HISTORY-SKU',
-      orderedQty: 10,
-      receivedQty: 10,
-      observedAt: '2026-05-20T00:00:00.000Z',
-      sourceOrderLineRef: 'OD-HISTORY:1',
-    });
-
-    const [row] = await new EcobaseInventoryPlanningService(db).listRows({
-      company: 'Ecofission LLC',
-      calculationDate: '2026-06-07',
-    });
-
-    expect(row).toMatchObject({
-      supplierName: 'History Supplier',
-      supplierSource: 'order_details_history',
-      leadTimeDays: 4,
-      leadTimeFreshness: 'fresh',
-      latestSafeReorderDate: '2026-06-01',
-      actionStatus: 'overdue',
-      supplierOrderState: 'closed_history',
-      supplierOrderRef: 'OD-HISTORY',
-      supplierOrderOpenQty: 0,
-    });
-  });
-
-  it('uses product-scoped supplier lead time rows even when they only match by supplier name and ASIN', async () => {
-    const db = new MemoryDatabase();
-    await createRecord(db, ECOBASE_COLLECTIONS.planningProducts, {
-      id: 'planning-product-masterstock',
-      naturalKey: 'Muxtex INC:B003WH3SIE',
-      company: 'Muxtex INC',
-      canonicalAsin: 'B003WH3SIE',
-      title: 'Black Patina',
-      mappingStatus: 'confirmed',
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
-      naturalKey: 'inventory-masterstock',
-      sourceConnectionId: 'source-1',
-      planningProductId: 'planning-product-masterstock',
-      snapshotDate: '2026-06-07',
-      company: 'Muxtex INC',
-      asin: 'B003WH3SIE',
-      sku: 'Black Patina 8 Oz',
-      stock: 10,
-      reserved: 0,
-      salesVelocity: 2,
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.planningParameters, {
-      naturalKey: 'params-masterstock',
-      sourceConnectionId: 'source-1',
-      planningProductId: 'planning-product-masterstock',
-      company: 'Muxtex INC',
-      supplier: 'edhoy',
-      profitPerUnit: 20,
-      payload: { recommendedBestQty: 20 },
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.supplierLeadTimes, {
-      naturalKey: 'leadtime-masterstock',
-      sourceConnectionId: 'source-1',
-      supplierName: 'edhoy',
-      company: 'Muxtex INC',
-      asin: 'B003WH3SIE',
-      sku: 'Black Patina 8 Oz',
-      scope: 'product',
-      leadTimeDays: 24,
-      confirmedAt: '2026-06-01T00:00:00.000Z',
-      source: 'masterstock-july2025-lead-time',
-    });
-
-    const [row] = await new EcobaseInventoryPlanningService(db).listRows({
-      company: 'Muxtex INC',
-      calculationDate: '2026-06-07',
-    });
-
-    expect(row).toMatchObject({
-      supplierName: 'edhoy',
-      leadTimeDays: 24,
-      leadTimeFreshness: 'fresh',
-    });
-  });
-
-  it('derives missing lead time from past order expected sellable dates', async () => {
-    const db = new MemoryDatabase();
-    await createRecord(db, ECOBASE_COLLECTIONS.planningProducts, {
-      id: 'planning-product-derived-history',
-      naturalKey: 'Muxtex INC:B0CHPW5VC6',
-      company: 'Muxtex INC',
-      canonicalAsin: 'B0CHPW5VC6',
-      title: 'Derived history product',
-      mappingStatus: 'confirmed',
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
-      naturalKey: 'inventory-derived-history',
-      sourceConnectionId: 'source-1',
-      planningProductId: 'planning-product-derived-history',
-      snapshotDate: '2026-06-07',
-      company: 'Muxtex INC',
-      asin: 'B0CHPW5VC6',
-      sku: '2823018110',
-      stock: 10,
-      reserved: 0,
-      salesVelocity: 2,
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.planningParameters, {
-      naturalKey: 'params-derived-history',
-      sourceConnectionId: 'source-1',
-      planningProductId: 'planning-product-derived-history',
-      company: 'Muxtex INC',
-      supplier: 'Franklin Electric',
-      profitPerUnit: 20,
-      payload: { recommendedBestQty: 20 },
-    });
-    await createSilverOrderRecord(db, {
-      id: 'order-derived-history',
-      naturalKey: 'supplier-order:Muxtex INC:MX32426C',
-      sourceConnectionId: 'source-1',
-      company: 'Muxtex INC',
-      supplierId: 'supplier-ref-derived-history',
-      externalOrderRef: 'MX32426C',
-      sourceStage: 'order_details',
-      status: 'received',
-      orderDate: '2026-03-24',
-      lastMeaningfulUpdateAt: '2026-03-24T00:00:00.000Z',
-    });
-    await createSilverOrderLineRecord(db, {
-      naturalKey: 'line-derived-history',
-      supplierOrderId: 'order-derived-history',
-      company: 'Muxtex INC',
-      supplierId: 'supplier-ref-derived-history',
-      planningProductId: 'planning-product-derived-history',
-      asin: 'B0CHPW5VC6',
-      sku: '2823018110',
-      orderedQty: 10,
-      receivedQty: 10,
-      expectedSellableDate: '2026-04-17',
-      observedAt: '2026-03-24T00:00:00.000Z',
-      sourceOrderLineRef: 'MX32426C:B0CHPW5VC6:2823018110',
-    });
-
-    const [row] = await new EcobaseInventoryPlanningService(db).listRows({
-      company: 'Muxtex INC',
-      calculationDate: '2026-06-07',
-    });
-
-    expect(row).toMatchObject({
-      leadTimeDays: 24,
-      leadTimeFreshness: 'stale',
-    });
-  });
-
-  it('excludes BackendSheet hold/not-selling style statuses from the primary planning queue', async () => {
-    const db = new MemoryDatabase();
-    await createRecord(db, ECOBASE_COLLECTIONS.planningProducts, {
-      id: 'planning-product-hold',
-      naturalKey: 'Ecofission LLC:B000HOLD',
-      company: 'Ecofission LLC',
-      canonicalAsin: 'B000HOLD',
-      title: 'Hold product',
-      mappingStatus: 'confirmed',
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
-      naturalKey: 'inventory-hold',
-      sourceConnectionId: 'source-1',
-      planningProductId: 'planning-product-hold',
-      snapshotDate: '2026-06-07',
-      company: 'Ecofission LLC',
-      stock: 1,
-      reserved: 0,
-      salesVelocity: 1,
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.planningParameters, {
-      naturalKey: 'params-hold',
-      sourceConnectionId: 'source-1',
-      planningProductId: 'planning-product-hold',
-      company: 'Ecofission LLC',
-      supplier: 'Hold Supplier',
-      profitPerUnit: 10,
-      leadTimeDays: 1,
-      payload: { recommendedBestQty: 30, 'Product Status': 'Hold' },
-    });
-
-    const [row] = await new EcobaseInventoryPlanningService(db).listRows({
-      company: 'Ecofission LLC',
-      calculationDate: '2026-06-07',
-    });
-
-    expect(row).toMatchObject({
-      productStatus: 'Hold',
-      planningExcluded: true,
-      actionStatus: 'excluded',
-    });
-  });
-
-  it('derives fallback row company from the source connection company and classifies every tier', async () => {
-    const db = new MemoryDatabase();
-    await createRecord(db, ECOBASE_COLLECTIONS.silverCompanies, {
-      id: 'company-ecofission',
-      name: 'Ecofission LLC',
-      active: true,
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.sourceConnections, {
-      id: 'source-ecofission',
-      name: 'Smoke CSV Source 1',
-      companyId: 'company-ecofission',
-      sourceType: 'sellerboard',
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
-      naturalKey: 'inventory-fallback',
-      sourceConnectionId: 'source-ecofission',
-      snapshotDate: '2026-06-07',
-      asin: 'B000FALLBACK',
-      sku: 'FALLBACK-SKU',
-      stock: 10,
-      reserved: 1,
-      salesVelocity: 2,
-      recommendedReorderQuantity: 50,
-      payload: {
-        'Profit forecast (30 days)': 208.89,
-        'FBA prep. stock Prep center 1 stock': 5,
-        'MTD Revenue ': 1200,
-        'MTD Unit Sold': 24,
-        'MTD Profit ': 180,
-      },
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.planningParameters, {
-      naturalKey: 'params-fallback',
-      sourceConnectionId: 'source-ecofission',
-      asin: 'B000FALLBACK',
-      sku: 'FALLBACK-SKU',
-      leadTimeDays: 3,
-      profitPerUnit: 4,
-      payload: { 'Product Status': 'Active' },
-    });
-    await createSilverOrderRecord(db, {
-      id: 'fallback-order-1',
-      naturalKey: 'supplier-order:Ecofission LLC:FB-100',
-      sourceConnectionId: 'source-ecofission',
-      company: 'Ecofission LLC',
-      supplierId: 'supplier-ref-1',
-      externalOrderRef: 'FB-100',
-      sourceStage: 'manual',
-      status: 'shipped_inbound',
-    });
-    await createSilverOrderLineRecord(db, {
-      id: 'fallback-line-1',
-      naturalKey: 'supplier-order-line:FB-100:1',
-      sourceConnectionId: 'source-ecofission',
-      company: 'Ecofission LLC',
-      supplierOrderId: 'fallback-order-1',
-      asin: 'B000FALLBACK',
-      sku: 'FALLBACK-SKU',
-      orderedQty: 20,
-      receivedQty: 5,
-    });
-
-    const service = new EcobaseInventoryPlanningService(db);
-    const filters = await service.filterOptions();
-    const [row] = await service.listRows({ company: 'Ecofission LLC', calculationDate: '2026-06-07' });
-
-    expect(filters.companies).toContain('Ecofission LLC');
-    expect(filters.companies).not.toContain('Smoke CSV Source 1');
-    expect(row).toMatchObject({
-      company: 'Ecofission LLC',
-      tier: 'B',
-      tierScore: 200,
-      currentPlanningStock: 16,
-      pipelineStock: 5,
-      openOrderCoverageQty: 15,
-      monthToDateRevenue: 1200,
-      monthToDateUnitsSold: 24,
-      monthToDateProfit: 180,
-    });
-  });
-
-  it('ignores inactive source-connection records in fallback planning', async () => {
-    const db = new MemoryDatabase();
-    await createRecord(db, ECOBASE_COLLECTIONS.silverCompanies, {
-      id: 'company-ecofission',
-      name: 'Ecofission LLC',
-      active: true,
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.sourceConnections, {
-      id: 'source-active',
-      name: 'Active Sellerboard',
-      companyId: 'company-ecofission',
-      sourceType: 'sellerboard',
-      active: true,
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.sourceConnections, {
-      id: 'source-inactive',
-      name: 'Inactive Smoke Source',
-      companyId: 'company-ecofission',
-      sourceType: 'sellerboard',
-      active: false,
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
-      naturalKey: 'inventory-active-source',
-      sourceConnectionId: 'source-active',
-      snapshotDate: '2026-06-26',
-      asin: 'B000ACTIVE',
-      sku: 'ACTIVE-SKU',
-      stock: 10,
-      salesVelocity: 1,
-      recommendedReorderQuantity: 10,
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
-      naturalKey: 'inventory-inactive-source',
-      sourceConnectionId: 'source-inactive',
-      snapshotDate: '2026-06-26',
-      asin: 'B000INACTIVE',
-      sku: 'INACTIVE-SKU',
-      stock: 10,
-      salesVelocity: 1,
-      recommendedReorderQuantity: 10,
-    });
-
-    const rows = await new EcobaseInventoryPlanningService(db).listRows({ calculationDate: '2026-06-26' });
-
-    expect(rows.map((row) => row.asin)).toEqual(['B000ACTIVE']);
-  });
-
-  it('ignores invalid fallback snapshot dates instead of treating source versions as newest stock', async () => {
-    const db = new MemoryDatabase();
-    await createRecord(db, ECOBASE_COLLECTIONS.silverCompanies, {
-      id: 'company-ecofission',
-      name: 'Ecofission LLC',
-      active: true,
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.sourceConnections, {
-      id: 'source-active',
-      name: 'Active Sellerboard',
-      companyId: 'company-ecofission',
-      sourceType: 'sellerboard',
-      active: true,
-    });
-    for (let index = 0; index < 5; index += 1) {
-      await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
-        naturalKey: `inventory-invalid-source-version-date-${index}`,
-        sourceConnectionId: 'source-active',
-        snapshotDate: `qa-sellerboard-20260622T23195${index}Z`,
-        asin: `B000INVALID${index}`,
-        sku: `INVALID-SKU-${index}`,
-        stock: 10,
-        salesVelocity: 1,
-        recommendedReorderQuantity: 10,
-      });
-    }
-    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
-      naturalKey: 'inventory-valid-date',
-      sourceConnectionId: 'source-active',
-      snapshotDate: '2026-06-26',
-      asin: 'B000VALID',
-      sku: 'VALID-SKU',
-      stock: 10,
-      salesVelocity: 1,
-      recommendedReorderQuantity: 10,
-    });
-
-    const rows = await new EcobaseInventoryPlanningService(db).listRows({ calculationDate: '2026-06-26', limit: 1 });
-
-    expect(rows.map((row) => row.asin)).toEqual(['B000VALID']);
   });
 
   it('reads only the latest materialized gold refresh cohort', async () => {
@@ -1025,537 +456,6 @@ describe('EcobaseInventoryPlanningService', () => {
     const rows = await new EcobaseInventoryPlanningService(db).listRows({ calculationDate: '2026-06-26' });
 
     expect(rows.map((row) => row.asin)).toEqual(['B000CURRENT']);
-  });
-
-  it('derives fallback profit and tier from Sellerboard daily facts', async () => {
-    const db = new MemoryDatabase();
-    await createRecord(db, ECOBASE_COLLECTIONS.silverCompanies, {
-      id: 'company-ecofission',
-      name: 'Ecofission LLC',
-      active: true,
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.sourceConnections, {
-      id: 'source-ecofission',
-      name: 'Sellerboard - Ecofission LLC',
-      companyId: 'company-ecofission',
-      sourceType: 'sellerboard',
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
-      naturalKey: 'inventory-sellerboard-profit',
-      sourceConnectionId: 'source-ecofission',
-      snapshotDate: '2026-06-26',
-      asin: 'B000SELLERBOARD',
-      sku: 'SB-SKU',
-      stock: 10,
-      salesVelocity: 2,
-      recommendedReorderQuantity: 50,
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.planningParameters, {
-      naturalKey: 'params-sellerboard-profit',
-      sourceConnectionId: 'source-ecofission',
-      asin: 'B000SELLERBOARD',
-      sku: 'SB-SKU',
-      leadTimeDays: 3,
-      payload: { 'Product Status': 'Active' },
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.listingDailyFacts, {
-      naturalKey: 'daily-fact-sellerboard-profit',
-      sourceConnectionId: 'source-ecofission',
-      snapshotDate: '2026-06-20',
-      asin: 'B000SELLERBOARD',
-      sku: 'SB-SKU',
-      sales: 240,
-      units: 12,
-      netProfit: 120,
-      refunds: 1,
-    });
-
-    const [row] = await new EcobaseInventoryPlanningService(db).listRows({
-      company: 'Ecofission LLC',
-      calculationDate: '2026-06-26',
-    });
-
-    expect(row).toMatchObject({
-      profitPerUnit: 10,
-      tier: 'A',
-      tierScore: 500,
-      monthToDateRevenue: 240,
-      monthToDateUnitsSold: 12,
-      monthToDateProfit: 120,
-    });
-    expect(db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).findCalls).toContainEqual(
-      expect.objectContaining({ limit: 100000 }),
-    );
-  });
-
-  it('uses latest prior profit month when current month has no Sellerboard facts', async () => {
-    const db = new MemoryDatabase();
-    await createRecord(db, ECOBASE_COLLECTIONS.silverCompanies, {
-      id: 'company-ecofission',
-      name: 'Ecofission LLC',
-      active: true,
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.sourceConnections, {
-      id: 'source-ecofission',
-      name: 'Sellerboard - Ecofission LLC',
-      companyId: 'company-ecofission',
-      sourceType: 'sellerboard',
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
-      naturalKey: 'inventory-sellerboard-month-boundary',
-      sourceConnectionId: 'source-ecofission',
-      snapshotDate: '2026-07-01',
-      asin: 'B000MONTHBOUNDARY',
-      sku: 'MB-SKU',
-      stock: 10,
-      salesVelocity: 2,
-      recommendedReorderQuantity: 50,
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.planningParameters, {
-      naturalKey: 'params-sellerboard-month-boundary',
-      sourceConnectionId: 'source-ecofission',
-      asin: 'B000MONTHBOUNDARY',
-      sku: 'MB-SKU',
-      leadTimeDays: 3,
-      payload: { 'Product Status': 'Active' },
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.listingDailyFacts, {
-      naturalKey: 'daily-fact-sellerboard-month-boundary',
-      sourceConnectionId: 'source-ecofission',
-      snapshotDate: '2026-06-29',
-      asin: 'B000MONTHBOUNDARY',
-      sku: 'MB-SKU',
-      sales: 240,
-      units: 12,
-      netProfit: 120,
-    });
-
-    const [row] = await new EcobaseInventoryPlanningService(db).listRows({
-      company: 'Ecofission LLC',
-      calculationDate: '2026-07-01',
-    });
-
-    expect(row).toMatchObject({
-      profitPerUnit: 10,
-      tier: 'A',
-      tierScore: 500,
-      monthToDateRevenue: 240,
-      monthToDateUnitsSold: 12,
-      monthToDateProfit: 120,
-    });
-  });
-
-  it('does not assign tier C when Sellerboard profit score is missing or zero', async () => {
-    const db = new MemoryDatabase();
-    await createRecord(db, ECOBASE_COLLECTIONS.silverCompanies, {
-      id: 'company-ecofission',
-      name: 'Ecofission LLC',
-      active: true,
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.sourceConnections, {
-      id: 'source-ecofission',
-      name: 'Sellerboard - Ecofission LLC',
-      companyId: 'company-ecofission',
-      sourceType: 'sellerboard',
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
-      naturalKey: 'inventory-zero-profit',
-      sourceConnectionId: 'source-ecofission',
-      snapshotDate: '2026-06-26',
-      asin: 'B000ZEROPROFIT',
-      sku: 'ZERO-SKU',
-      stock: 10,
-      salesVelocity: 2,
-      recommendedReorderQuantity: 50,
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.planningParameters, {
-      naturalKey: 'params-zero-profit',
-      sourceConnectionId: 'source-ecofission',
-      asin: 'B000ZEROPROFIT',
-      sku: 'ZERO-SKU',
-      leadTimeDays: 3,
-      payload: { 'Product Status': 'Active' },
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.listingDailyFacts, {
-      naturalKey: 'daily-fact-zero-profit',
-      sourceConnectionId: 'source-ecofission',
-      snapshotDate: '2026-06-20',
-      asin: 'B000ZEROPROFIT',
-      sku: 'ZERO-SKU',
-      sales: 120,
-      units: 12,
-      netProfit: 0,
-    });
-
-    const service = new EcobaseInventoryPlanningService(db);
-    const [row] = await service.listRows({ company: 'Ecofission LLC', calculationDate: '2026-06-26' });
-
-    expect(row.profitPerUnit).toBe(0);
-    expect(row.tierScore).toBe(0);
-    expect(row.tier).toBeUndefined();
-
-    const naturalKey = '2026-06-26:Ecofission LLC:fallback:Ecofission LLC:B000ZEROPROFIT:ZERO-SKU';
-    await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
-      id: 'stale-zero-profit-gold-row',
-      naturalKey,
-      calculationDate: '2026-06-26',
-      actionStatus: 'watch',
-      tier: 'C',
-    });
-
-    await service.refreshReadModel({ company: 'Ecofission LLC', calculationDate: '2026-06-26' });
-    const refreshed = (await db
-      .getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows)
-      .findOne({ filter: { naturalKey } })) as Record<string, unknown>;
-    expect(refreshed.tier).toBeNull();
-    expect(refreshed.tierScore).toBe(0);
-  });
-
-  it('keeps untiered no-order products out of active money risk and digest', async () => {
-    const db = new MemoryDatabase();
-    await createRecord(db, ECOBASE_COLLECTIONS.silverCompanies, {
-      id: 'company-ecofission',
-      name: 'Ecofission LLC',
-      active: true,
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.sourceConnections, {
-      id: 'source-ecofission',
-      name: 'Sellerboard - Ecofission LLC',
-      companyId: 'company-ecofission',
-      sourceType: 'sellerboard',
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
-      naturalKey: 'inventory-untiered-risk',
-      sourceConnectionId: 'source-ecofission',
-      snapshotDate: '2026-06-26',
-      asin: 'B000UNTIERED',
-      sku: 'NO-TIER-SKU',
-      stock: 0,
-      salesVelocity: 2,
-      recommendedReorderQuantity: 0,
-      payload: { 'Profit forecast (30 days)': 999 },
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.planningParameters, {
-      naturalKey: 'params-untiered-risk',
-      sourceConnectionId: 'source-ecofission',
-      asin: 'B000UNTIERED',
-      sku: 'NO-TIER-SKU',
-      leadTimeDays: 3,
-      payload: { 'Product Status': 'Active' },
-    });
-
-    const service = new EcobaseInventoryPlanningService(db);
-    const [row] = await service.listRows({ company: 'Ecofission LLC', calculationDate: '2026-06-26' });
-    const digest = await service.digestPreview({ company: 'Ecofission LLC', calculationDate: '2026-06-26' });
-
-    expect(row).toMatchObject({ tier: undefined, estimatedProfitRisk: 0 });
-    expect(row.estimatedProfitRiskBasis).toBe('not_tiered_profit_inputs_missing');
-    expect(digest.summary).toMatchObject({ atRisk: 0, noSupplierOrder: 0, suppliersToContact: 0 });
-    expect(digest.sections.orderNow).toEqual([]);
-    expect(digest.sections.noOrderProducts).toEqual([]);
-    expect(digest.sections.supplierActionItems).toEqual([]);
-    expect(digest.sections.suppliersToContactFirst).toEqual([]);
-  });
-
-  it('tracks tier movement when imported profit changes', async () => {
-    const db = new MemoryDatabase();
-    await createRecord(db, ECOBASE_COLLECTIONS.silverCompanies, {
-      id: 'company-ecofission',
-      name: 'Ecofission LLC',
-      active: true,
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.sourceConnections, {
-      id: 'source-ecofission',
-      name: 'Sellerboard - Ecofission LLC',
-      companyId: 'company-ecofission',
-      sourceType: 'sellerboard',
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
-      naturalKey: 'inventory-tier-drop',
-      sourceConnectionId: 'source-ecofission',
-      snapshotDate: '2026-06-26',
-      asin: 'B000TIERDROP',
-      sku: 'TIER-DROP-SKU',
-      stock: 10,
-      salesVelocity: 2,
-      recommendedReorderQuantity: 50,
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.planningParameters, {
-      naturalKey: 'params-tier-drop',
-      sourceConnectionId: 'source-ecofission',
-      asin: 'B000TIERDROP',
-      sku: 'TIER-DROP-SKU',
-      leadTimeDays: 3,
-      profitPerUnit: 4,
-      payload: { 'Product Status': 'Active' },
-    });
-    const planningProductId = 'fallback:Ecofission LLC:B000TIERDROP:TIER-DROP-SKU';
-    await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
-      id: 'previous-tier-row',
-      naturalKey: `2026-06-25:Ecofission LLC:${planningProductId}`,
-      planningProductId,
-      calculationDate: '2026-06-25',
-      company: 'Ecofission LLC',
-      tier: 'A',
-    });
-
-    await new EcobaseInventoryPlanningService(db).refreshReadModel({
-      company: 'Ecofission LLC',
-      calculationDate: '2026-06-26',
-    });
-    const current = await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).findOne({
-      filter: { naturalKey: `2026-06-26:Ecofission LLC:${planningProductId}` },
-    });
-
-    expect(current).toMatchObject({ tier: 'B', previousTier: 'A', tierMovement: 'down' });
-  });
-
-  it('does not expose unassigned source connection names as company filter options', async () => {
-    const db = new MemoryDatabase();
-    await createRecord(db, ECOBASE_COLLECTIONS.silverCompanies, {
-      id: 'company-ecofission',
-      name: 'Ecofission LLC',
-      active: true,
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.sourceConnections, {
-      id: 'source-ecofission',
-      name: 'Smoke CSV Source 2',
-      companyId: 'company-ecofission',
-      sourceType: 'google_sheets',
-      domain: 'order_management',
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.sourceConnections, {
-      id: 'source-all-companies-order-management',
-      name: 'All Companies Order Management Smoke',
-      sourceType: 'google_sheets',
-      domain: 'order_management',
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.sourceConnections, {
-      id: 'source-order-management-qa',
-      name: 'Order Management Google Sheets QA',
-      sourceType: 'google_sheets',
-      domain: 'order_management',
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
-      naturalKey: 'inventory-unscoped-source',
-      sourceConnectionId: 'source-all-companies-order-management',
-      snapshotDate: '2026-06-07',
-      asin: 'B000UNSCOPED',
-      sku: 'UNSCOPED-SKU',
-      stock: 3,
-      salesVelocity: 1,
-    });
-
-    const service = new EcobaseInventoryPlanningService(db);
-    const filters = await service.filterOptions();
-    const rows = await service.listRows({ calculationDate: '2026-06-07' });
-
-    expect(filters.companies).toEqual(['Ecofission LLC']);
-    expect(rows).toEqual([]);
-  });
-
-  it('materializes inventory planning rows into the gold layer', async () => {
-    const db = new MemoryDatabase();
-    await createRecord(db, ECOBASE_COLLECTIONS.planningProducts, {
-      id: 'planning-product-1',
-      naturalKey: 'product-1',
-      company: 'Ecofission LLC',
-      canonicalAsin: 'B000EDITABLE',
-      title: 'Editable block product',
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
-      naturalKey: 'inventory-1',
-      sourceConnectionId: 'source-1',
-      planningProductId: 'planning-product-1',
-      company: 'Ecofission LLC',
-      canonicalAsin: 'B000EDITABLE',
-      snapshotDate: '2026-06-07',
-      stock: 2,
-      fbaAvailable: 2,
-      reserved: 0,
-      salesVelocity: 1,
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.planningParameters, {
-      naturalKey: 'params-1',
-      sourceConnectionId: 'source-1',
-      planningProductId: 'planning-product-1',
-      company: 'Ecofission LLC',
-      supplier: 'Editable Supplier',
-      profitPerUnit: 15,
-      leadTimeDays: 5,
-      payload: { recommendedBestQty: 25 },
-    });
-
-    const result = await new EcobaseInventoryPlanningService(db).refreshReadModel({
-      company: 'Ecofission LLC',
-      calculationDate: '2026-06-07',
-    });
-
-    const materializedRows = db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).all();
-    expect(result).toMatchObject({ calculationDate: '2026-06-07', rowCount: 1, created: 1, updated: 0 });
-    expect(materializedRows[0]).toMatchObject({
-      naturalKey: '2026-06-07:Ecofission LLC:planning-product-1',
-      company: 'Ecofission LLC',
-      asin: 'B000EDITABLE',
-      supplierName: 'Editable Supplier',
-      calculationDate: '2026-06-07',
-    });
-  });
-
-  it('materializes expected sellable from the selected supplier order line', async () => {
-    const db = new MemoryDatabase();
-    await createRecord(db, ECOBASE_COLLECTIONS.planningProducts, {
-      id: 'planning-product-linked-order-date',
-      naturalKey: 'Muxtex INC:B000LINKED',
-      company: 'Muxtex INC',
-      canonicalAsin: 'B000LINKED',
-      title: 'Linked order date product',
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
-      naturalKey: 'inventory-linked-order-date',
-      sourceConnectionId: 'source-1',
-      planningProductId: 'planning-product-linked-order-date',
-      company: 'Muxtex INC',
-      asin: 'B000LINKED',
-      sku: 'SKU-LINKED',
-      snapshotDate: '2026-07-07',
-      stock: 1,
-      reserved: 0,
-      salesVelocity: 1,
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.planningParameters, {
-      naturalKey: 'params-linked-order-date',
-      sourceConnectionId: 'source-1',
-      planningProductId: 'planning-product-linked-order-date',
-      company: 'Muxtex INC',
-      asin: 'B000LINKED',
-      sku: 'SKU-LINKED',
-      supplier: 'Discount Pond Supply',
-      profitPerUnit: 10,
-      leadTimeDays: 30,
-      payload: { recommendedBestQty: 30 },
-    });
-    await createSilverOrderRecord(db, {
-      id: 'old-order-linked-date',
-      naturalKey: 'supplier-order:Muxtex INC:OLD-LINKED',
-      sourceConnectionId: 'source-1',
-      company: 'Muxtex INC',
-      externalOrderRef: 'OLD-LINKED',
-      status: 'completed',
-      lastMeaningfulUpdateAt: '2025-11-01T00:00:00.000Z',
-    });
-    await createSilverOrderLineRecord(db, {
-      id: 'old-line-linked-date',
-      naturalKey: 'supplier-order-line:OLD-LINKED',
-      sourceConnectionId: 'source-1',
-      company: 'Muxtex INC',
-      supplierOrderId: 'old-order-linked-date',
-      asin: 'B000LINKED',
-      sku: 'SKU-LINKED',
-      orderedQty: 5,
-      receivedQty: 5,
-      expectedSellableDate: '2025-11-10',
-    });
-    await createSilverOrderRecord(db, {
-      id: 'selected-order-linked-date',
-      naturalKey: 'supplier-order:Muxtex INC:MX2626C',
-      sourceConnectionId: 'source-1',
-      company: 'Muxtex INC',
-      externalOrderRef: 'MX2626C',
-      status: 'approval_pending',
-      lastMeaningfulUpdateAt: '2026-02-06T00:00:00.000Z',
-    });
-    await createSilverOrderLineRecord(db, {
-      id: 'selected-line-linked-date',
-      naturalKey: 'supplier-order-line:MX2626C',
-      sourceConnectionId: 'source-1',
-      company: 'Muxtex INC',
-      supplierOrderId: 'selected-order-linked-date',
-      asin: 'B000LINKED',
-      sku: 'SKU-LINKED',
-      orderedQty: 10,
-      receivedQty: 0,
-      expectedSellableDate: '2026-03-02',
-    });
-
-    await new EcobaseInventoryPlanningService(db).refreshReadModel({
-      company: 'Muxtex INC',
-      calculationDate: '2026-07-07',
-    });
-
-    const materializedRows = db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).all();
-    expect(materializedRows[0]).toMatchObject({
-      supplierOrderRef: 'MX2626C',
-      supplierOrderState: 'placed_not_purchased',
-      expectedSellableDate: '2026-03-02',
-    });
-  });
-
-  it('does not link supplier orders by SKU when the order line belongs to a different ASIN', async () => {
-    const db = new MemoryDatabase();
-    await createRecord(db, ECOBASE_COLLECTIONS.planningProducts, {
-      id: 'planning-product-sku-cross-link',
-      naturalKey: 'Muxtex INC:B000TARGET',
-      company: 'Muxtex INC',
-      canonicalAsin: 'B000TARGET',
-      title: 'SKU cross-link product',
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
-      naturalKey: 'inventory-sku-cross-link',
-      sourceConnectionId: 'source-1',
-      planningProductId: 'planning-product-sku-cross-link',
-      company: 'Muxtex INC',
-      asin: 'B000TARGET',
-      sku: 'SHARED-SKU',
-      snapshotDate: '2026-07-07',
-      stock: 1,
-      reserved: 0,
-      salesVelocity: 1,
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.planningParameters, {
-      naturalKey: 'params-sku-cross-link',
-      sourceConnectionId: 'source-1',
-      planningProductId: 'planning-product-sku-cross-link',
-      company: 'Muxtex INC',
-      asin: 'B000TARGET',
-      sku: 'SHARED-SKU',
-      supplier: 'Supplier',
-      profitPerUnit: 10,
-      leadTimeDays: 30,
-      payload: { recommendedBestQty: 30 },
-    });
-    await createSilverOrderRecord(db, {
-      id: 'different-asin-order',
-      naturalKey: 'supplier-order:Muxtex INC:OTHER-ASIN-ORDER',
-      sourceConnectionId: 'source-1',
-      company: 'Muxtex INC',
-      externalOrderRef: 'OTHER-ASIN-ORDER',
-      status: 'approval_pending',
-      lastMeaningfulUpdateAt: '2026-02-06T00:00:00.000Z',
-    });
-    await createSilverOrderLineRecord(db, {
-      id: 'different-asin-line',
-      naturalKey: 'supplier-order-line:OTHER-ASIN-ORDER',
-      sourceConnectionId: 'source-1',
-      company: 'Muxtex INC',
-      supplierOrderId: 'different-asin-order',
-      asin: 'B000OTHER',
-      sku: 'SHARED-SKU',
-      orderedQty: 10,
-      receivedQty: 0,
-      expectedSellableDate: '2026-03-02',
-    });
-
-    const [row] = await new EcobaseInventoryPlanningService(db).listRows({
-      company: 'Muxtex INC',
-      calculationDate: '2026-07-07',
-    });
-
-    expect(row).toMatchObject({
-      supplierOrderState: 'no_open_order',
-    });
-    expect(row.supplierOrderRef).toBeUndefined();
-    expect(row.expectedSellableDate).toBeUndefined();
   });
 
   it('serves inventory planning from gold rows ordered by actionable money at risk', async () => {
@@ -1636,12 +536,39 @@ describe('EcobaseInventoryPlanningService', () => {
     expect(workspace.digest.sections.orderNow[0]).toMatchObject({ asin: 'B000WORK' });
   });
 
-  it('exposes Sellerboard COGS cost on command-center rows without guessing ambiguous ASIN costs', async () => {
+  it('projects persisted Sellerboard COGS evidence without request-time cost guessing', async () => {
     const db = new MemoryDatabase();
     for (const row of [
-      { id: 'exact', asin: 'B000EXACT', sku: 'SKU-EXACT', qty: 10, risk: 300 },
-      { id: 'safe', asin: 'B000SAFE', sku: 'amzn.gr.safe', qty: 4, risk: 200 },
-      { id: 'ambiguous', asin: 'B000AMBIG', sku: 'amzn.gr.ambig', qty: 3, risk: 100 },
+      {
+        id: 'exact',
+        asin: 'B000EXACT',
+        sku: 'SKU-EXACT',
+        qty: 10,
+        risk: 300,
+        unitCost: 4.5,
+        unitCostAvailability: 'resolved_cogs',
+        estimatedOrderCost: 45,
+      },
+      {
+        id: 'safe',
+        asin: 'B000SAFE',
+        sku: 'amzn.gr.safe',
+        qty: 4,
+        risk: 200,
+        unitCost: 7,
+        unitCostAvailability: 'resolved_cogs',
+        estimatedOrderCost: 28,
+      },
+      {
+        id: 'ambiguous',
+        asin: 'B000AMBIG',
+        sku: 'amzn.gr.ambig',
+        qty: 3,
+        risk: 100,
+        unitCost: undefined,
+        unitCostAvailability: 'unavailable_ambiguous',
+        estimatedOrderCost: undefined,
+      },
     ]) {
       await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
         id: row.id,
@@ -1655,25 +582,14 @@ describe('EcobaseInventoryPlanningService', () => {
         tier: 'A',
         estimatedProfitRisk: row.risk,
         suggestedReorderQty: row.qty,
+        unitCost: row.unitCost,
+        unitCostAvailability: row.unitCostAvailability,
+        estimatedOrderCost: row.estimatedOrderCost,
         supplierOrderState: 'no_open_order',
+        supplierAvailability: 'resolved_silver_link',
+        commandCenterPane: 'supplyAction',
       });
     }
-    for (const cost of [
-      { asin: 'B000EXACT', sku: 'SKU-EXACT', unitCost: 4.5 },
-      { asin: 'B000SAFE', sku: 'SAFE-1', unitCost: 7 },
-      { asin: 'B000SAFE', sku: 'SAFE-2', unitCost: 7 },
-      { asin: 'B000AMBIG', sku: 'AMBIG-1', unitCost: 11 },
-      { asin: 'B000AMBIG', sku: 'AMBIG-2', unitCost: 12 },
-    ]) {
-      await createRecord(db, ECOBASE_COLLECTIONS.sellerboardProductCosts, {
-        id: `cost-${cost.sku}`,
-        naturalKey: `Ecofission LLC:${cost.asin}:${cost.sku}`,
-        company: 'Ecofission LLC',
-        sourceFile: 'cogs.csv',
-        ...cost,
-      });
-    }
-
     const commandCenter = await new EcobaseInventoryPlanningService(db).commandCenter({
       calculationDate: '2026-06-07',
       pane: 'supplyAction',
@@ -1682,9 +598,698 @@ describe('EcobaseInventoryPlanningService', () => {
     const rows = commandCenter.panes.supplyAction.rows;
     const row = (asin: string) => rows.find((item) => item.asin === asin);
 
-    expect(row('B000EXACT')).toMatchObject({ unitCost: 4.5, unitCostStatus: 'exact', estimatedOrderCost: 45 });
-    expect(row('B000SAFE')).toMatchObject({ unitCost: 7, unitCostStatus: 'asin_same_cost', estimatedOrderCost: 28 });
-    expect(row('B000AMBIG')).toMatchObject({ unitCostStatus: 'ambiguous', estimatedOrderCost: undefined });
+    expect(row('B000EXACT')).toMatchObject({
+      unitCost: 4.5,
+      unitCostAvailability: 'resolved_cogs',
+      estimatedOrderCost: 45,
+    });
+    expect(row('B000SAFE')).toMatchObject({
+      unitCost: 7,
+      unitCostAvailability: 'resolved_cogs',
+      estimatedOrderCost: 28,
+    });
+    expect(row('B000AMBIG')).toMatchObject({
+      unitCostAvailability: 'unavailable_ambiguous',
+      estimatedOrderCost: undefined,
+    });
+  });
+
+  it('limits no-active-order pane to stockout-soon rows', async () => {
+    const db = new MemoryDatabase();
+    const baseRow = {
+      calculationDate: '2026-07-10',
+      lastRefreshedAt: '2026-07-10T00:00:00.000Z',
+      company: 'Ecofission LLC',
+      asin: 'B000PANE',
+      title: 'Pane row',
+      tier: 'A',
+      productStatus: 'active',
+      supplierOrderState: 'no_open_order',
+      supplierAvailability: 'resolved_silver_link',
+      leadTimeFreshness: 'missing',
+      actionStatus: 'missing_lead_time',
+      targetCoverDays: 45,
+      salesVelocity: 1,
+      estimatedProfitRisk: 10,
+    };
+    await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
+      ...baseRow,
+      id: 'pane-soon-missing-lead-time',
+      naturalKey: 'pane-soon-missing-lead-time',
+      sku: 'SOON-MISSING-LT',
+      daysOfCover: 0,
+      currentPlanningStock: 0,
+      commandCenterPane: 'supplyAction',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
+      ...baseRow,
+      id: 'pane-far-missing-lead-time',
+      naturalKey: 'pane-far-missing-lead-time',
+      sku: 'FAR-MISSING-LT',
+      daysOfCover: 120,
+      currentPlanningStock: 120,
+      commandCenterPane: 'none',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
+      ...baseRow,
+      id: 'pane-known-soon',
+      naturalKey: 'pane-known-soon',
+      sku: 'KNOWN-SOON',
+      leadTimeFreshness: 'fresh',
+      actionStatus: 'order_soon',
+      leadTimeDays: 14,
+      daysOfCover: 20,
+      currentPlanningStock: 20,
+      commandCenterPane: 'supplyAction',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
+      ...baseRow,
+      id: 'pane-missing-supplier',
+      naturalKey: 'pane-missing-supplier',
+      sku: 'MISSING-SUPPLIER',
+      supplierAvailability: 'unavailable_no_evidence',
+      daysOfCover: 0,
+      currentPlanningStock: 0,
+      commandCenterPane: 'supplyAction',
+    });
+
+    const commandCenter = await new EcobaseInventoryPlanningService(db).commandCenter({
+      calculationDate: '2026-07-10',
+      pane: 'supplyAction',
+      pageSize: 10,
+    });
+
+    const skus = commandCenter.panes.supplyAction.rows.map((row) => row.sku);
+    expect(skus).toEqual(expect.arrayContaining(['SOON-MISSING-LT', 'KNOWN-SOON']));
+    expect(skus).not.toContain('FAR-MISSING-LT');
+    expect(skus).not.toContain('MISSING-SUPPLIER');
+    expect(commandCenter.panes.missingSupplier.rows.map((row) => row.sku)).toEqual(['MISSING-SUPPLIER']);
+  });
+
+  it('tiers only products with at least four units in the latest rolling 30-day sales window', async () => {
+    const db = new MemoryDatabase();
+    const company = 'Ecofission LLC';
+    const companyId = `silver-company:${company}`;
+    await createRecord(db, ECOBASE_COLLECTIONS.silverCompanies, { id: companyId, name: company });
+
+    for (const product of [
+      { asin: 'B00RECENT4', sku: 'RECENT-FOUR', recentUnits: 4, stock: 0 },
+      { asin: 'B00RECENT2', sku: 'RECENT-TWO', recentUnits: 2, stock: 20 },
+      { asin: 'B00RECENT0', sku: 'RECENT-ZERO', recentUnits: 0, stock: 20 },
+    ]) {
+      const productId = `silver-product:${product.asin}:${product.sku}`;
+      const companyProductId = `silver-company-product:${company}:${product.asin}:${product.sku}`;
+      await createRecord(db, ECOBASE_COLLECTIONS.silverProducts, {
+        id: productId,
+        asin: product.asin,
+        sku: product.sku,
+      });
+      await createRecord(db, ECOBASE_COLLECTIONS.silverCompanyProducts, {
+        id: companyProductId,
+        companyId,
+        productId,
+        lifecycleStatus: 'active',
+      });
+      await createRecord(db, ECOBASE_COLLECTIONS.silverInventorySnapshots, {
+        id: `inventory-${product.sku}`,
+        companyProductId,
+        snapshotDate: '2026-06-06',
+        sellableStock: product.stock,
+        reserved: 0,
+        inbound: 0,
+        ordered: 0,
+        prepStock: 0,
+      });
+      await createRecord(db, ECOBASE_COLLECTIONS.silverListingDailyFacts, {
+        id: `historical-profit-${product.sku}`,
+        companyProductId,
+        snapshotDate: '2026-01-15',
+        units: 10,
+        sales: 1200,
+        profit: 1000,
+      });
+      if (product.recentUnits > 0) {
+        await createRecord(db, ECOBASE_COLLECTIONS.silverListingDailyFacts, {
+          id: `recent-sales-${product.sku}`,
+          companyProductId,
+          snapshotDate: '2026-06-06',
+          units: product.recentUnits,
+          sales: product.recentUnits * 120,
+          profit: product.recentUnits * 100,
+        });
+      }
+    }
+
+    await new EcobaseInventoryPlanningService(db).refreshReadModel({
+      company,
+      calculationDate: '2026-06-07',
+    });
+
+    const rows = db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).all();
+    expect(rows.find((row) => row.sku === 'RECENT-FOUR')).toMatchObject({
+      recentUnits30: 4,
+      salesVelocity: 4 / 30,
+      salesVelocityBasis: 'historical_rolling_30_days',
+      salesVelocityWindowStart: '2026-05-08',
+      salesVelocityWindowEnd: '2026-06-06',
+      tier: 'A',
+      tierScore: 400,
+      tierEligibilityReason: 'eligible_recent_demand',
+      tierRuleVersion: 'rolling_30d_min_4_v1',
+    });
+    expect(rows.find((row) => row.sku === 'RECENT-TWO')).toMatchObject({
+      recentUnits30: 2,
+      salesVelocity: 2 / 30,
+      tier: null,
+      tierScore: 200,
+      tierEligibilityReason: 'low_recent_demand',
+      commandCenterPane: 'stuckInventory',
+    });
+    expect(rows.find((row) => row.sku === 'RECENT-ZERO')).toMatchObject({
+      recentUnits30: 0,
+      salesVelocity: 0,
+      tier: null,
+      tierScore: 0,
+      tierEligibilityReason: 'low_recent_demand',
+      actionStatus: 'no_sell_through',
+    });
+  });
+
+  it('does not tier snapshot velocity without rolling-30-day sales evidence', async () => {
+    const db = new MemoryDatabase();
+    await createRecord(db, ECOBASE_COLLECTIONS.silverCompanies, { id: 'company-no-history', name: 'No History Inc' });
+    await createRecord(db, ECOBASE_COLLECTIONS.silverProducts, {
+      id: 'product-no-history',
+      asin: 'B00NOHISTORY',
+      sku: 'NO-HISTORY',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.silverCompanyProducts, {
+      id: 'company-product-no-history',
+      companyId: 'company-no-history',
+      productId: 'product-no-history',
+      lifecycleStatus: 'active',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.silverInventorySnapshots, {
+      id: 'inventory-no-history',
+      companyProductId: 'company-product-no-history',
+      snapshotDate: '2026-06-06',
+      sellableStock: 10,
+      salesVelocity: 5,
+    });
+
+    await new EcobaseInventoryPlanningService(db).refreshReadModel({
+      company: 'No History Inc',
+      calculationDate: '2026-06-07',
+    });
+
+    expect(db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).all()[0]).toMatchObject({
+      recentUnits30: null,
+      salesVelocity: 5,
+      salesVelocityBasis: 'inventory_snapshot_fallback',
+      tier: null,
+      tierEligibilityReason: 'missing_recent_sales_evidence',
+      tierRuleVersion: 'rolling_30d_min_4_v1',
+    });
+  });
+
+  it('baselines rule changes and emits a lost tier only on the immediate transition', async () => {
+    const db = new MemoryDatabase();
+    const companyProductId = 'company-product-tier-movement';
+    await createRecord(db, ECOBASE_COLLECTIONS.silverCompanies, { id: 'company-tier-movement', name: 'ACME' });
+    await createRecord(db, ECOBASE_COLLECTIONS.silverProducts, {
+      id: 'product-tier-movement',
+      asin: 'B00TIERMOVE',
+      sku: 'TIER-MOVE',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.silverCompanyProducts, {
+      id: companyProductId,
+      companyId: 'company-tier-movement',
+      productId: 'product-tier-movement',
+      lifecycleStatus: 'active',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.silverInventorySnapshots, {
+      id: 'inventory-tier-movement',
+      companyProductId,
+      snapshotDate: '2026-06-06',
+      sellableStock: 0,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.silverListingDailyFacts, {
+      id: 'historical-tier-movement',
+      companyProductId,
+      snapshotDate: '2026-01-15',
+      units: 10,
+      sales: 600,
+      profit: 500,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.silverListingDailyFacts, {
+      id: 'recent-tier-movement',
+      companyProductId,
+      snapshotDate: '2026-06-06',
+      units: 4,
+      sales: 240,
+      profit: 200,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
+      id: 'legacy-tier-row',
+      naturalKey: `2026-06-06:ACME:${companyProductId}`,
+      planningProductId: companyProductId,
+      company: 'ACME',
+      calculationDate: '2026-06-06',
+      actionStatus: 'watch',
+      tier: 'A',
+      tierRuleVersion: 'legacy_best_month_v1',
+    });
+
+    const service = new EcobaseInventoryPlanningService(db);
+    await service.refreshReadModel({ company: 'ACME', calculationDate: '2026-06-07' });
+    await service.refreshReadModel({ company: 'ACME', calculationDate: '2026-06-07' });
+    await service.refreshReadModel({ company: 'ACME', calculationDate: '2026-06-08' });
+    await db
+      .getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts)
+      .update({ filterByTk: 'recent-tier-movement', values: { units: 2 } });
+    await service.refreshReadModel({ company: 'ACME', calculationDate: '2026-06-09' });
+    await service.refreshReadModel({ company: 'ACME', calculationDate: '2026-06-10' });
+
+    const rows = db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).all();
+    expect(rows.filter((row) => row.calculationDate === '2026-06-07')).toHaveLength(1);
+    expect(rows.find((row) => row.calculationDate === '2026-06-07')).toMatchObject({
+      tier: 'B',
+      previousTier: null,
+      tierMovement: null,
+    });
+    expect(rows.find((row) => row.calculationDate === '2026-06-08')).toMatchObject({
+      tier: 'B',
+      previousTier: 'B',
+      tierMovement: 'same',
+    });
+    expect(rows.find((row) => row.calculationDate === '2026-06-09')).toMatchObject({
+      tier: null,
+      previousTier: 'B',
+      tierMovement: 'lost_tier',
+    });
+    expect(rows.find((row) => row.calculationDate === '2026-06-10')).toMatchObject({
+      tier: null,
+      previousTier: null,
+      tierMovement: null,
+    });
+  });
+
+  it('uses rolling-30-day velocity and treats covered products without recent sales as trusted zero', async () => {
+    const db = new MemoryDatabase();
+    const company = 'Ecofission LLC';
+    const companyId = `silver-company:${company}`;
+    await createRecord(db, ECOBASE_COLLECTIONS.silverCompanies, { id: companyId, name: company });
+
+    for (const product of [
+      { asin: 'B00HISTORYPOS', sku: 'HISTORY-POS', stock: 0, snapshotVelocity: 0, monthlyUnits: 300 },
+      { asin: 'B00HISTORYZERO', sku: 'HISTORY-ZERO', stock: 20, snapshotVelocity: 99, monthlyUnits: 0 },
+      { asin: 'B00SNAPSHOT', sku: 'SNAPSHOT-FALLBACK', stock: 20, snapshotVelocity: 2 },
+      { asin: 'B00MISSINGVEL', sku: 'MISSING-VELOCITY', stock: 20, snapshotVelocity: 0 },
+    ]) {
+      const productId = `silver-product:${product.asin}:${product.sku}`;
+      const companyProductId = `silver-company-product:${company}:${product.asin}:${product.sku}`;
+      await createRecord(db, ECOBASE_COLLECTIONS.silverProducts, {
+        id: productId,
+        asin: product.asin,
+        sku: product.sku,
+      });
+      await createRecord(db, ECOBASE_COLLECTIONS.silverCompanyProducts, {
+        id: companyProductId,
+        companyId,
+        productId,
+        lifecycleStatus: 'active',
+      });
+      await createRecord(db, ECOBASE_COLLECTIONS.silverInventorySnapshots, {
+        id: `inventory-${product.sku}`,
+        companyProductId,
+        snapshotDate: '2026-06-06',
+        sellableStock: product.stock,
+        reserved: 0,
+        inbound: 0,
+        ordered: 0,
+        prepStock: 0,
+        salesVelocity: product.snapshotVelocity,
+      });
+      if (typeof product.monthlyUnits === 'number') {
+        for (const month of ['2025-12', '2026-01', '2026-02', '2026-03', '2026-04', '2026-05']) {
+          await createRecord(db, ECOBASE_COLLECTIONS.silverListingDailyFacts, {
+            id: `fact-${product.sku}-${month}`,
+            companyProductId,
+            snapshotDate: `${month}-15`,
+            units: product.monthlyUnits,
+            sales: product.monthlyUnits * 10,
+            profit: product.monthlyUnits * 3,
+          });
+        }
+      }
+    }
+
+    await createRecord(db, ECOBASE_COLLECTIONS.sellerboardProductCosts, {
+      id: 'cogs-history-positive',
+      naturalKey: `${company}:B00HISTORYPOS:HISTORY-POS`,
+      company,
+      asin: 'B00HISTORYPOS',
+      sku: 'HISTORY-POS',
+      unitCost: 4.5,
+      sourceFile: 'Ecofission_Cost_of_Goods_Sold.csv',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.sellerboardProductCosts, {
+      id: 'cogs-wrong-company',
+      naturalKey: 'Muxtex INC:B00HISTORYPOS:HISTORY-POS',
+      company: 'Muxtex INC',
+      asin: 'B00HISTORYPOS',
+      sku: 'HISTORY-POS',
+      unitCost: 999,
+      sourceFile: 'Muxtex_Cost_of_Goods_Sold.csv',
+    });
+
+    await new EcobaseInventoryPlanningService(db).refreshReadModel({
+      company,
+      calculationDate: '2026-06-07',
+    });
+
+    const rows = db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).all();
+    expect(rows.find((row) => row.sku === 'HISTORY-POS')).toMatchObject({
+      salesVelocity: 10,
+      recentUnits30: 300,
+      salesVelocityBasis: 'historical_rolling_30_days',
+      salesVelocityStatus: 'trusted_positive',
+      salesVelocityWindowStart: '2026-04-16',
+      salesVelocityWindowEnd: '2026-05-15',
+      salesVelocityAsOfDate: '2026-05-15',
+      daysOfCover: 0,
+      estimatedOosDate: '2026-06-07',
+      actionStatus: 'overdue',
+      supplierAvailability: 'unavailable_no_evidence',
+      leadTimeDays: 30,
+      leadTimeFreshness: 'default',
+      leadTimeAvailability: 'resolved_default_30d',
+      unitCost: 4.5,
+      unitCostAvailability: 'resolved_cogs',
+      profitAvailability: 'resolved_history',
+      evidence: { leadTime: { days: 30, source: 'system_default_30d' } },
+    });
+    expect(rows.find((row) => row.sku === 'HISTORY-ZERO')).toMatchObject({
+      salesVelocity: 0,
+      recentUnits30: 0,
+      salesVelocityBasis: 'historical_rolling_30_days',
+      salesVelocityStatus: 'trusted_zero',
+      actionStatus: 'no_sell_through',
+      profitAvailability: 'unavailable_no_sales',
+      digestPriority: expect.any(Number),
+    });
+    expect(Number.isFinite(Number(rows.find((row) => row.sku === 'HISTORY-ZERO')?.digestPriority))).toBe(true);
+    expect(rows.find((row) => row.sku === 'SNAPSHOT-FALLBACK')).toMatchObject({
+      recentUnits30: 0,
+      salesVelocity: 0,
+      salesVelocityBasis: 'historical_rolling_30_days',
+      salesVelocityStatus: 'trusted_zero',
+      actionStatus: 'no_sell_through',
+      tierEligibilityReason: 'low_recent_demand',
+    });
+    expect(rows.find((row) => row.sku === 'MISSING-VELOCITY')).toMatchObject({
+      recentUnits30: 0,
+      salesVelocity: 0,
+      salesVelocityBasis: 'historical_rolling_30_days',
+      salesVelocityStatus: 'trusted_zero',
+      actionStatus: 'no_sell_through',
+      tierEligibilityReason: 'low_recent_demand',
+      unitCostAvailability: 'unavailable_no_evidence',
+      profitAvailability: 'unavailable_no_history',
+    });
+  });
+
+  it('rolls same-family listings into one persisted replenishment target without duplicate heuristics', async () => {
+    const db = new MemoryDatabase();
+    const company = 'Ecofission LLC';
+    const asin = 'B08CD4SHB4';
+    const primarySku = 'B-101 Aramith';
+    const duplicateSku = 'B-101';
+    const primaryCompanyProductId = `silver-company-product:${company}:${asin}:${primarySku}`;
+    const duplicateCompanyProductId = `silver-company-product:${company}:${asin}:${duplicateSku}`;
+    const companyId = `silver-company:${company}`;
+    const accountId = 'amazon-account-family-test';
+    const familyId = 'company-product-family-test';
+
+    await createRecord(db, ECOBASE_COLLECTIONS.silverCompanies, { id: companyId, name: company });
+    await createRecord(db, ECOBASE_COLLECTIONS.silverAmazonAccounts, {
+      id: accountId,
+      companyId,
+      name: 'Ecofission US',
+      marketplace: 'amazon.com',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.silverProducts, {
+      id: `silver-product:${asin}:${primarySku}`,
+      asin,
+      sku: primarySku,
+      title: 'Aramith stock alias',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.silverCompanyProducts, {
+      id: primaryCompanyProductId,
+      companyId,
+      amazonAccountId: accountId,
+      companyProductFamilyId: familyId,
+      productId: `silver-product:${asin}:${primarySku}`,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.silverInventorySnapshots, {
+      id: 'inventory-primary-duplicate-group',
+      companyProductId: primaryCompanyProductId,
+      snapshotDate: '2026-07-09',
+      sellableStock: 6,
+      reserved: 0,
+      inbound: 7,
+      ordered: 0,
+      prepStock: 0,
+      salesVelocity: 1,
+    });
+    for (const month of ['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06']) {
+      await createRecord(db, ECOBASE_COLLECTIONS.silverListingDailyFacts, {
+        id: `fact-primary-duplicate-${month}`,
+        companyProductId: primaryCompanyProductId,
+        snapshotDate: `${month}-15`,
+        units: 30,
+        sales: 300,
+        profit: 90,
+      });
+    }
+    await createSilverOrderRecord(db, {
+      id: 'order-duplicate-sku',
+      company,
+      supplierId: 'supplier-ws',
+      supplierName: 'ws billiard supply',
+      externalOrderRef: 'EF91125A',
+      status: 'paid',
+    });
+    await createSilverOrderLineRecord(db, {
+      id: 'line-duplicate-sku',
+      company,
+      supplierOrderId: 'order-duplicate-sku',
+      supplierId: 'supplier-ws',
+      asin,
+      sku: duplicateSku,
+      orderedQty: 7,
+      receivedQty: 0,
+      unitCost: 322,
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).update({
+      filterByTk: `silver-supplier-product:supplier-ws:${asin}:${duplicateSku}`,
+      values: { leadTimeDays: null },
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.silverCompanyProductSuppliers, {
+      id: 'link-duplicate-sku-supplier',
+      companyProductId: duplicateCompanyProductId,
+      supplierProductId: `silver-supplier-product:supplier-ws:${asin}:${duplicateSku}`,
+      role: 'latest_used',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.silverInventorySnapshots, {
+      id: 'inventory-secondary-duplicate-group',
+      companyProductId: duplicateCompanyProductId,
+      snapshotDate: '2026-07-09',
+      sellableStock: 5,
+      reserved: 0,
+      inbound: 0,
+      ordered: 0,
+      prepStock: 0,
+      salesVelocity: 0,
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).update({
+      filterByTk: duplicateCompanyProductId,
+      values: { amazonAccountId: accountId, companyProductFamilyId: familyId },
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.silverCompanyProductFamilies, {
+      id: familyId,
+      companyId,
+      amazonAccountId: accountId,
+      marketplace: 'amazon.com',
+      canonicalAsin: asin,
+      replenishmentTargetCompanyProductId: primaryCompanyProductId,
+      targetSelectionSource: 'automatic',
+      preferredSupplierId: 'supplier-ws',
+      preferredSupplierProductId: `silver-supplier-product:supplier-ws:${asin}:${duplicateSku}`,
+      supplierSelectionSource: 'latest_valid_order',
+      supplierSelectionEvidenceJson: {
+        sourceCompanyProductId: duplicateCompanyProductId,
+        sourceSku: duplicateSku,
+        sourceOrderRef: 'EF91125A',
+        matchType: 'family_projected',
+      },
+    });
+    for (const month of ['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06']) {
+      await createRecord(db, ECOBASE_COLLECTIONS.silverListingDailyFacts, {
+        id: `fact-secondary-family-${month}`,
+        companyProductId: duplicateCompanyProductId,
+        snapshotDate: `${month}-15`,
+        units: 30,
+        sales: 300,
+        profit: 90,
+      });
+    }
+
+    await new EcobaseInventoryPlanningService(db).refreshReadModel({
+      company,
+      calculationDate: '2026-07-09',
+    });
+
+    const materializedRows = db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).all();
+    expect(materializedRows.find((row) => row.sku === primarySku)).toMatchObject({
+      productStatus: 'Active',
+      companyProductFamilyId: familyId,
+      familyRole: 'target',
+      familyMemberCount: 2,
+      familyCurrentPlanningStock: 18,
+      familySellableStock: 11,
+      familyPipelineStock: 7,
+      familySalesVelocity: 2,
+      familyDaysOfCover: 9,
+      familyEstimatedOosDate: '2026-07-18',
+      familyOpenOrderCoverageQty: 0,
+      familySuggestedReorderQty: 72,
+      supplierName: 'ws billiard supply',
+      supplierAvailability: 'resolved_family_preferred_supplier',
+      leadTimeDays: 30,
+      leadTimeFreshness: 'default',
+      leadTimeAvailability: 'resolved_default_30d',
+      supplierSource: 'family_preferred_supplier',
+      supplierOrderRef: 'EF91125A',
+      supplierOrderOpenQty: 7,
+      supplierOrderReferenceOpenQty: 7,
+      openOrderCoverageQty: 0,
+      unitCost: 322,
+      estimatedOrderCost: 23184,
+      actionStatus: 'overdue',
+      evidence: {
+        familyRollup: expect.objectContaining({
+          sourceSku: duplicateSku,
+          sourceOrderRef: 'EF91125A',
+          supplierOrderCoverageTreatment: 'pipeline_netting',
+        }),
+      },
+    });
+    expect(materializedRows.find((row) => row.sku === duplicateSku)).toMatchObject({
+      productStatus: 'active',
+      companyProductFamilyId: familyId,
+      familyRole: 'member',
+      familyCurrentPlanningStock: 18,
+      familySalesVelocity: 2,
+      actionStatus: 'family_member_no_reorder',
+      supplierName: 'ws billiard supply',
+      unitCost: 322,
+    });
+
+    const commandCenter = await new EcobaseInventoryPlanningService(db).commandCenter({
+      company,
+      calculationDate: '2026-07-09',
+      pane: 'activeOrders',
+    });
+
+    expect(commandCenter.panes.duplicateProducts.total).toBe(0);
+    expect(commandCenter.panes.activeOrders.rows).toEqual([
+      expect.objectContaining({
+        sku: primarySku,
+        familyRole: 'target',
+        supplierOrderRef: 'EF91125A',
+        familyMembers: expect.arrayContaining([
+          expect.objectContaining({ sku: primarySku, familyRole: 'target' }),
+          expect.objectContaining({ sku: duplicateSku, familyRole: 'member' }),
+        ]),
+      }),
+    ]);
+    expect(commandCenter.panes.supplyAction.rows.some((row) => row.sku === duplicateSku)).toBe(false);
+  });
+
+  it('rolls listing-level stuck evidence into one family action without hiding active-order context', () => {
+    const service = new EcobaseInventoryPlanningService(new MemoryDatabase()) as unknown as {
+      applyFamilyRollups: (rows: Record<string, unknown>[], calculationDate: string) => Record<string, unknown>[];
+      finalizeGoldContract: (row: Record<string, unknown>, calculationDate: string) => Record<string, unknown>;
+    };
+    const base = {
+      companyProductFamilyId: 'family-stuck',
+      replenishmentTargetCompanyProductId: 'target-product',
+      familyPreferredSupplierName: 'Preferred Supplier',
+      productStatus: 'Active',
+      targetCoverDays: 45,
+      orderSoonWindowDays: 14,
+      safetyBufferDays: 15,
+      salesVelocityBasis: 'historical_rolling_30_days',
+      inventoryAsOfDate: '2026-07-10',
+      supplierAvailability: 'resolved_silver_link',
+      leadTimeAvailability: 'resolved_silver_link',
+      unitCostAvailability: 'resolved_supplier_product',
+      profitAvailability: 'resolved_history',
+      tier: 'A',
+    };
+    const rows = service.applyFamilyRollups(
+      [
+        {
+          ...base,
+          companyProductId: 'target-product',
+          sku: 'TARGET',
+          currentPlanningStock: 61,
+          sellableStock: 61,
+          salesVelocity: 1,
+          salesVelocityStatus: 'trusted_positive',
+          daysOfCover: 61,
+          unitCost: 2,
+          supplierOrderState: 'purchased_pipeline',
+          supplierOrderRef: 'EF-STUCK',
+          openOrderCoverageQty: 5,
+          expectedArrivalDate: '2026-07-20',
+        },
+        {
+          ...base,
+          companyProductId: 'member-product',
+          sku: 'MEMBER',
+          currentPlanningStock: 10,
+          reservedStock: 10,
+          salesVelocity: 0,
+          salesVelocityStatus: 'trusted_zero',
+          unitCost: 3,
+          supplierOrderState: 'no_open_order',
+          openOrderCoverageQty: 0,
+        },
+      ],
+      '2026-07-10',
+    );
+    const materialized = rows.map((row) => service.finalizeGoldContract(row, '2026-07-10'));
+
+    expect(materialized.filter((row) => row.commandCenterPane === 'stuckInventory')).toEqual([
+      expect.objectContaining({
+        companyProductId: 'target-product',
+        familyStuckAction: true,
+        familyStuckAffectedMemberCount: 2,
+        familyStuckAffectedUnits: 71,
+        familyStuckAffectedValue: 152,
+        familyStuckActiveOrderCount: 1,
+        supplierOrderState: 'purchased_pipeline',
+        recommendedEscalation: 'review_stuck_inventory',
+      }),
+    ]);
+    expect(materialized.find((row) => row.companyProductId === 'member-product')).toMatchObject({
+      familyStuck: true,
+      familyStuckAction: false,
+      commandCenterPane: 'watch',
+      stuckClassification: 'no_sell_through_with_stock',
+    });
   });
 
   it('routes raw imported order statuses into the active-orders command pane', async () => {
@@ -1739,10 +1344,20 @@ describe('EcobaseInventoryPlanningService', () => {
       });
     }
 
-    const commandCenter = await new EcobaseInventoryPlanningService(db).commandCenter({
+    const service = new EcobaseInventoryPlanningService(db);
+    await service.refreshReadModel({ calculationDate: '2026-06-07' });
+    const commandCenter = await service.commandCenter({
       calculationDate: '2026-06-07',
       pane: 'activeOrders',
       pageSize: 10,
+    });
+    const goldRows = await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).find({});
+    expect(goldRows).toHaveLength(1);
+    expect(goldRows[0]).toMatchObject({
+      commandCenterPane: 'activeOrders',
+      supplierOrderState: 'purchased_pipeline',
+      supplierOrderStatus: 'paid',
+      openOrderCoverageQty: 100,
     });
 
     expect(commandCenter.panes.activeOrders.total).toBe(1);
@@ -1752,6 +1367,171 @@ describe('EcobaseInventoryPlanningService', () => {
       supplierOrderStatus: 'paid',
       supplierOrderState: 'purchased_pipeline',
       openOrderCoverageQty: 100,
+      expectedArrivalDate: '2026-07-20',
+      expectedArrivalStatus: 'imported',
+      expectedArrivalSource: 'silver_order_line.expectedSellableDate',
+      expectedArrivalConfidence: 'authoritative',
+      expectedArrivalFreshness: 'fresh',
+    });
+  });
+
+  it('classifies derived, unknown, invalid, and stale active-order arrival evidence', async () => {
+    const db = new MemoryDatabase();
+    const company = 'Ecofission LLC';
+    for (const order of [
+      {
+        id: '51111111-1111-4111-8111-111111111111',
+        asin: 'B00DERIVED',
+        sku: 'DERIVED-ETA',
+        orderDate: '2026-06-01',
+        leadTimeDays: 30,
+      },
+      {
+        id: '52222222-2222-4222-8222-222222222222',
+        asin: 'B00UNKNOWN',
+        sku: 'UNKNOWN-ETA',
+        orderDate: '2026-06-01',
+        expectedSellableDate: 'not-a-date',
+      },
+      {
+        id: '53333333-3333-4333-8333-333333333333',
+        asin: 'B00STALEETA',
+        sku: 'STALE-ETA',
+        orderDate: '2026-05-01',
+        leadTimeDays: 30,
+        expectedSellableDate: '2026-06-01',
+      },
+    ]) {
+      const supplierId = `supplier-${order.sku}`;
+      const companyProductId = `silver-company-product:${company}:${order.asin}:${order.sku}`;
+      const supplierProductId = `silver-supplier-product:${supplierId}:${order.asin}:${order.sku}`;
+      await createSilverOrderRecord(db, {
+        id: order.id,
+        company,
+        supplierId,
+        supplierName: `${order.sku} Supplier`,
+        externalOrderRef: `PO-${order.sku}`,
+        status: 'ORDERED',
+        orderDate: order.orderDate,
+        authorityStatus: order.sku === 'DERIVED-ETA' ? 'clickup_authoritative' : 'alternate_authoritative',
+        authoritySource: order.sku === 'DERIVED-ETA' ? 'clickup_csv' : 'silver_status_evidence',
+        authorityTaskRef: order.sku === 'DERIVED-ETA' ? 'task-derived-eta' : undefined,
+        authorityAsOf: `${order.orderDate}T00:00:00.000Z`,
+        authorityEvidenceJson: { orderRef: `PO-${order.sku}` },
+      });
+      await createSilverOrderLineRecord(db, {
+        id: `line-${order.id}`,
+        company,
+        supplierOrderId: order.id,
+        supplierId,
+        supplierProductId,
+        asin: order.asin,
+        sku: order.sku,
+        orderedQty: 10,
+        receivedQty: 0,
+        leadTimeDays: order.leadTimeDays,
+        expectedSellableDate: order.expectedSellableDate,
+      });
+      if (order.sku === 'UNKNOWN-ETA') {
+        await db
+          .getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts)
+          .update({ filterByTk: supplierProductId, values: { leadTimeDays: undefined } });
+      }
+      await createRecord(db, ECOBASE_COLLECTIONS.silverInventorySnapshots, {
+        id: `inventory-${order.sku}`,
+        companyProductId,
+        snapshotDate: '2026-06-07',
+        sellableStock: 400,
+        reserved: 0,
+        inbound: 0,
+        ordered: 0,
+        prepStock: 0,
+        salesVelocity: 1,
+      });
+      for (const month of ['2025-12', '2026-01', '2026-02', '2026-03', '2026-04', '2026-05']) {
+        await createRecord(db, ECOBASE_COLLECTIONS.silverListingDailyFacts, {
+          id: `fact-${order.sku}-${month}`,
+          companyProductId,
+          snapshotDate: `${month}-15`,
+          units: 300,
+          sales: 3000,
+          netProfit: order.sku === 'UNKNOWN-ETA' ? 0 : 900,
+        });
+      }
+    }
+
+    await createRecord(db, 'users', {
+      id: 202,
+      email: 'clickup-user@example.com',
+      nickname: 'ClickUp User',
+    });
+    await createSilverActivityCommentRecord(db, {
+      id: 'activity-derived-eta',
+      supplierOrderId: '51111111-1111-4111-8111-111111111111',
+      activityType: 'status_update',
+      actor: 'clickup-user@example.com',
+      actorUserId: '202',
+      notes: 'Supplier confirmed dispatch.',
+      occurredAt: '2026-06-06T12:00:00.000Z',
+      source: 'clickup_csv',
+    });
+    await createSilverActivityCommentRecord(db, {
+      id: 'activity-derived-eta-older-imported-last',
+      supplierOrderId: '51111111-1111-4111-8111-111111111111',
+      activityType: 'note',
+      actor: 'clickup-user@example.com',
+      actorUserId: '202',
+      notes: 'Older activity imported after the latest comment.',
+      occurredAt: '2026-06-05T12:00:00.000Z',
+      source: 'clickup_csv',
+    });
+    const service = new EcobaseInventoryPlanningService(db);
+    await service.refreshReadModel({ company, calculationDate: '2026-06-07' });
+    const commandCenter = await service.commandCenter({
+      company,
+      calculationDate: '2026-06-07',
+      pane: 'activeOrders',
+      pageSize: 10,
+    });
+    const row = (sku: string) => commandCenter.panes.activeOrders.rows.find((item) => item.sku === sku);
+    expect(row('DERIVED-ETA')).toMatchObject({
+      supplierOrderState: 'purchased_pipeline',
+      expectedArrivalDate: '2026-07-04',
+      expectedArrivalStatus: 'derived',
+      expectedArrivalConfidence: 'estimated',
+      expectedArrivalFreshness: 'fresh',
+      pipelineHealthStatus: 'on_track',
+      commandCenterPane: 'activeOrders',
+      planningEligibilityStatus: 'eligible',
+      dataQualityStatus: 'partial',
+      supplierOrderAuthorityStatus: 'clickup_authoritative',
+      supplierOrderAuthoritySource: 'clickup_csv',
+      supplierOrderAuthorityTaskRef: 'task-derived-eta',
+      latestSupplierOrderActivityAt: '2026-06-06T12:00:00.000Z',
+      latestSupplierOrderActivityNote: 'Supplier confirmed dispatch.',
+      latestSupplierOrderActivityActor: 'clickup-user@example.com',
+      latestSupplierOrderActivityActorUserId: '202',
+      latestSupplierOrderActivityActorDisplayName: 'ClickUp User',
+      latestSupplierOrderActivityActorEmail: 'clickup-user@example.com',
+      recommendedEscalation: 'recover_supplier',
+    });
+    expect(row('UNKNOWN-ETA')).toMatchObject({
+      supplierOrderState: 'purchased_pipeline',
+      tier: undefined,
+      expectedArrivalStatus: 'unknown',
+      expectedArrivalConfidence: 'none',
+      expectedArrivalFreshness: 'unknown',
+      pipelineHealthStatus: 'unknown_timing',
+      commandCenterPane: 'activeOrders',
+      dataQualityStatus: 'partial',
+    });
+    expect(row('STALE-ETA')).toMatchObject({
+      supplierOrderState: 'purchased_pipeline',
+      expectedArrivalDate: '2026-06-01',
+      expectedArrivalStatus: 'imported',
+      expectedArrivalFreshness: 'stale',
+      pipelineHealthStatus: 'late',
+      commandCenterPane: 'activeOrders',
     });
   });
 
@@ -1820,7 +1600,7 @@ describe('EcobaseInventoryPlanningService', () => {
     });
   });
 
-  it('resolves latest active-order comment authors for command-center rows', async () => {
+  it('projects persisted latest active-order activity without request-time reclassification', async () => {
     const db = new MemoryDatabase();
     const orderId = '11111111-1111-4111-8111-111111111111';
     await createRecord(db, 'users', {
@@ -1872,6 +1652,14 @@ describe('EcobaseInventoryPlanningService', () => {
       estimatedProfitRisk: 120,
       supplierOrderState: 'purchased_pipeline',
       supplierOrderRef: 'ORD-AUTHOR',
+      commandCenterPane: 'activeOrders',
+      latestSupplierOrderActivityAt: new Date('2026-06-07T14:00:00.000Z'),
+      latestSupplierOrderActivityActor: 'nauman.ecofission@gmail.com',
+      latestSupplierOrderActivityActorUserId: '201',
+      latestSupplierOrderActivityActorDisplayName: 'Ahmed Nauman',
+      latestSupplierOrderActivityActorEmail: 'nauman.ecofission@gmail.com',
+      latestSupplierOrderActivityNote: 'Will proceed with the order on Monday.',
+      latestSupplierOrderActivitySource: 'clickup',
     });
 
     const commandCenter = await new EcobaseInventoryPlanningService(db).commandCenter({
@@ -1881,7 +1669,9 @@ describe('EcobaseInventoryPlanningService', () => {
     });
 
     expect(commandCenter.panes.activeOrders.rows[0]).toMatchObject({
+      latestSupplierOrderActivityAt: '2026-06-07T14:00:00.000Z',
       latestSupplierOrderActivityActor: 'nauman.ecofission@gmail.com',
+      latestSupplierOrderActivityActorUserId: '201',
       latestSupplierOrderActivityActorDisplayName: 'Ahmed Nauman',
       latestSupplierOrderActivityActorEmail: 'nauman.ecofission@gmail.com',
       latestSupplierOrderActivityNote: 'Will proceed with the order on Monday.',
@@ -1889,22 +1679,54 @@ describe('EcobaseInventoryPlanningService', () => {
     });
   });
 
+  it('returns drawer order history for a primary SKU when the order used a duplicate alias SKU', async () => {
+    const db = new MemoryDatabase();
+    const supplierId = '77777777-7777-4777-8777-777777777777';
+    const orderId = '88888888-8888-4888-8888-888888888888';
+    await createSilverOrderRecord(db, {
+      id: orderId,
+      company: 'Ecofission LLC',
+      supplierId,
+      supplierName: 'Alias Supplier',
+      externalOrderRef: 'ALIAS-ORDER-1',
+      status: 'approval_pending',
+    });
+    await createSilverOrderLineRecord(db, {
+      id: '99999999-9999-4999-8999-999999999999',
+      company: 'Ecofission LLC',
+      supplierOrderId: orderId,
+      supplierId,
+      asin: 'B000ALIAS',
+      sku: 'ALIAS-SKU',
+      orderedQty: 5,
+    });
+
+    const workspace = await new EcobaseInventoryPlanningService(db).rowWorkspace({
+      company: 'Ecofission LLC',
+      asin: 'B000ALIAS',
+      sku: 'PRIMARY-SKU',
+      supplierId,
+    });
+
+    expect(workspace.orderLineHistory).toEqual([
+      expect.objectContaining({
+        asin: 'B000ALIAS',
+        sku: 'ALIAS-SKU',
+        order: expect.objectContaining({ externalOrderRef: 'ALIAS-ORDER-1' }),
+      }),
+    ]);
+  });
+
   it('shapes row drawer supplier/order history behind the inventory workspace interface', async () => {
     const db = new MemoryDatabase();
     const supplierId = '33333333-3333-4333-8333-333333333333';
     const orderId = '11111111-1111-4111-8111-111111111111';
-    await createRecord(db, ECOBASE_COLLECTIONS.suppliers, {
-      id: supplierId,
-      naturalKey: 'supplier-drawer',
-      company: 'Ecofission LLC',
-      name: 'Drawer Supplier',
-      active: true,
-    });
     await createSilverOrderRecord(db, {
       id: orderId,
       naturalKey: 'order-drawer',
       company: 'Ecofission LLC',
       supplierId,
+      supplierName: 'Drawer Supplier',
       externalOrderRef: 'DRAWER-1',
       status: 'approval_pending',
       lastMeaningfulUpdateAt: '2026-06-07T12:00:00.000Z',
@@ -1936,7 +1758,7 @@ describe('EcobaseInventoryPlanningService', () => {
       actor: 'nauman.ecofission@gmail.com',
       actorUserId: '201',
       notes: 'Waiting on payment.',
-      occurredAt: '2026-06-07T14:00:00.000Z',
+      occurredAt: new Date('2026-06-07T14:00:00.000Z'),
     });
     await createSilverActivityCommentRecord(db, {
       id: '66666666-6666-4666-8666-666666666666',
@@ -1968,9 +1790,9 @@ describe('EcobaseInventoryPlanningService', () => {
     expect(workspace.orderActivities).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          actor: 'nauman.ecofission@gmail.com',
           actorDisplayName: 'Ahmed Nauman',
           actorEmail: 'nauman.ecofission@gmail.com',
+          occurredAt: '2026-06-07T14:00:00.000Z',
           notes: 'Waiting on payment.',
         }),
         expect.objectContaining({
@@ -1990,41 +1812,21 @@ describe('EcobaseInventoryPlanningService', () => {
 
   it('keeps the daily digest bounded to order-now risk and supplier contact priorities', async () => {
     const db = new MemoryDatabase();
-    await createRecord(db, ECOBASE_COLLECTIONS.planningProducts, {
-      id: 'planning-product-1',
-      naturalKey: 'Ecofission LLC:B000RISK',
-      company: 'Ecofission LLC',
-      canonicalAsin: 'B000RISK',
-      mappingStatus: 'confirmed',
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
-      naturalKey: 'inventory-1',
-      sourceConnectionId: 'source-1',
-      planningProductId: 'planning-product-1',
-      snapshotDate: '2026-06-07',
-      company: 'Ecofission LLC',
-      stock: 21,
-      reserved: 0,
-      salesVelocity: 3,
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.planningParameters, {
-      naturalKey: 'params-1',
-      sourceConnectionId: 'source-1',
+    await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
+      id: 'gold-risk-1',
+      calculationDate: '2026-06-07',
       planningProductId: 'planning-product-1',
       company: 'Ecofission LLC',
-      supplier: 'Digest Supplier',
-      profitPerUnit: 10,
-      leadTimeDays: 0,
-      payload: { recommendedBestQty: 30 },
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.supplierLeadTimes, {
-      naturalKey: 'leadtime-1',
-      sourceConnectionId: 'source-1',
+      asin: 'B000RISK',
+      sku: 'SKU-RISK',
+      tier: 'A',
+      actionStatus: 'order_today',
       supplierName: 'Digest Supplier',
-      company: 'Ecofission LLC',
-      leadTimeDays: 0,
-      confirmedAt: '2026-06-01T00:00:00.000Z',
-      source: 'backend_sheet',
+      supplierOrderState: 'placed_not_purchased',
+      supplierOrderStatus: 'approval_pending',
+      supplierOrderRef: 'ORD-1',
+      leadTimeFreshness: 'fresh',
+      digestPriority: 1,
     });
     await createSilverOrderRecord(db, {
       id: '11111111-1111-4111-8111-111111111111',
@@ -2081,44 +1883,63 @@ describe('EcobaseInventoryPlanningService', () => {
 
   it('puts no-order digest rows before placed-but-not-purchased rows and excludes purchased pipeline rows', async () => {
     const db = new MemoryDatabase();
-    for (const id of ['no-order', 'payment-pending', 'approval-soon', 'paid-pipeline', 'paid-evidence']) {
-      await createRecord(db, ECOBASE_COLLECTIONS.planningProducts, {
-        id,
-        naturalKey: `Ecofission LLC:${id}`,
+    const digestRows = [
+      {
+        id: 'no-order',
+        actionStatus: 'overdue',
+        supplierOrderState: 'no_open_order',
+        leadTimeFreshness: 'fresh',
+        digestPriority: 1,
+      },
+      {
+        id: 'payment-pending',
+        actionStatus: 'order_today',
+        supplierOrderState: 'placed_not_purchased',
+        supplierOrderStatus: 'payment_pending',
+        supplierOrderRef: 'PP-1',
+        leadTimeFreshness: 'stale',
+        digestPriority: 2,
+      },
+      {
+        id: 'approval-soon',
+        actionStatus: 'order_soon',
+        supplierOrderState: 'placed_not_purchased',
+        supplierOrderStatus: 'approval_pending',
+        supplierOrderRef: 'APP-1',
+        leadTimeFreshness: 'fresh',
+        digestPriority: 3,
+      },
+      {
+        id: 'paid-pipeline',
+        actionStatus: 'order_today',
+        supplierOrderState: 'purchased_pipeline',
+        supplierOrderStatus: 'paid',
+        supplierOrderRef: 'PAID-1',
+        leadTimeFreshness: 'fresh',
+        digestPriority: 4,
+      },
+      {
+        id: 'paid-evidence',
+        actionStatus: 'order_today',
+        supplierOrderState: 'purchased_pipeline',
+        supplierOrderStatus: 'paid',
+        supplierOrderRef: 'PAID-EVIDENCE-1',
+        leadTimeFreshness: 'fresh',
+        digestPriority: 5,
+      },
+    ];
+    for (const row of digestRows) {
+      await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
+        id: `gold-${row.id}`,
+        calculationDate: '2026-06-07',
+        planningProductId: row.id,
         company: 'Ecofission LLC',
-        canonicalAsin: `ASIN-${id}`,
-        mappingStatus: 'confirmed',
-      });
-      await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
-        naturalKey: `inventory-${id}`,
-        sourceConnectionId: 'source-1',
-        planningProductId: id,
-        snapshotDate: '2026-06-07',
-        company: 'Ecofission LLC',
-        asin: `ASIN-${id}`,
-        sku: `SKU-${id}`,
-        stock: id === 'approval-soon' ? 30 : 1,
-        reserved: 0,
-        salesVelocity: 3,
-      });
-      await createRecord(db, ECOBASE_COLLECTIONS.planningParameters, {
-        naturalKey: `params-${id}`,
-        sourceConnectionId: 'source-1',
-        planningProductId: id,
-        company: 'Ecofission LLC',
-        supplier: 'Digest Supplier',
-        profitPerUnit: 10,
-        leadTimeDays: 0,
-        payload: { recommendedBestQty: 30 },
-      });
-      await createRecord(db, ECOBASE_COLLECTIONS.supplierLeadTimes, {
-        naturalKey: `leadtime-${id}`,
-        sourceConnectionId: 'source-1',
+        asin: `ASIN-${row.id}`,
+        sku: `SKU-${row.id}`,
+        tier: 'A',
         supplierName: 'Digest Supplier',
-        company: 'Ecofission LLC',
-        leadTimeDays: 0,
-        confirmedAt: '2026-06-01T00:00:00.000Z',
-        source: 'backend_sheet',
+        openOrderCoverageQty: 0,
+        ...row,
       });
     }
 

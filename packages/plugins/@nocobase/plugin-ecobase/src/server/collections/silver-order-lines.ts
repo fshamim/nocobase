@@ -32,6 +32,7 @@ export default defineCollection({
       targetKey: 'id',
       onDelete: 'RESTRICT',
     },
+    { name: 'sourceLineKey', type: 'string', allowNull: false },
     { name: 'orderedQty', type: 'double', allowNull: false },
     { name: 'confirmedQty', type: 'double' },
     { name: 'unitCost', type: 'double' },
@@ -41,8 +42,13 @@ export default defineCollection({
     { name: 'supplierPackSize', type: 'double' },
     { name: 'fbaExpectedPackSize', type: 'double' },
     { name: 'prepInstruction', type: 'text' },
-    { name: 'expectedDeliveryDate', type: 'string' },
-    { name: 'expectedSellableDate', type: 'string' },
+    { name: 'expectedDeliveryDate', type: 'dateOnly' },
+    { name: 'expectedSellableDate', type: 'dateOnly' },
+    { name: 'expectedArrivalDate', type: 'dateOnly' },
+    { name: 'expectedArrivalStatus', type: 'string', allowNull: false, defaultValue: 'unknown' },
+    { name: 'expectedArrivalSource', type: 'string' },
+    { name: 'expectedArrivalAsOf', type: 'dateOnly' },
+    { name: 'expectedArrivalConfidence', type: 'string', allowNull: false, defaultValue: 'none' },
     { name: 'upc', type: 'string' },
     { name: 'mapPrice', type: 'double' },
     { name: 'productAnalysisStatus', type: 'string', allowNull: false, defaultValue: 'unknown' },
@@ -51,7 +57,10 @@ export default defineCollection({
   indexes: [
     {
       unique: true,
-      fields: ['orderId', 'companyProductId', 'supplierProductId'],
+      fields: ['orderId', 'sourceLineKey'],
+    },
+    {
+      fields: ['orderId', 'companyProductId'],
     },
   ],
 });

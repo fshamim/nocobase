@@ -125,13 +125,13 @@ describe('Ecobase medallion schema foundation', () => {
     expect(silverCompanies.name).toBe(ECOBASE_COLLECTIONS.silverCompanies);
     expect(field(silverCompanies, 'companyKey')).toMatchObject({ type: 'string', unique: true });
     uniqueIndex(silverProducts, ['asin', 'sku']);
-    uniqueIndex(silverCompanyProducts, ['amazonAccountId', 'productId']);
+    uniqueIndex(silverCompanyProducts, ['companyId', 'amazonAccountId', 'productId']);
     expect(field(silverSuppliers, 'normalizedName')).toMatchObject({ type: 'string' });
     uniqueIndex(silverSupplierExternalRefs, ['sourceSystem', 'normalizedExternalSupplierCode']);
     uniqueIndex(silverSupplierProducts, ['supplierId', 'productId']);
     uniqueIndex(silverOrders, ['companyId', 'orderRef']);
-    expect(field(silverOrderLines, 'expectedDeliveryDate')).toMatchObject({ type: 'string' });
-    expect(field(silverOrderLines, 'expectedSellableDate')).toMatchObject({ type: 'string' });
+    expect(field(silverOrderLines, 'expectedDeliveryDate')).toMatchObject({ type: 'dateOnly' });
+    expect(field(silverOrderLines, 'expectedSellableDate')).toMatchObject({ type: 'dateOnly' });
     uniqueIndex(bronzeSourceRecords, ['sourceConnectionId', 'sourceDataset', 'sourceRecordKey', 'rowHash']);
   });
 

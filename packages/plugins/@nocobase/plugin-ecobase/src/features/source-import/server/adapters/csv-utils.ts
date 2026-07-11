@@ -16,6 +16,7 @@ export interface CsvSourceFile {
   name: string;
   content: string;
   snapshotDate?: string;
+  dateFormat?: 'day-first' | 'month-first';
   expectedRowCount?: number;
 }
 

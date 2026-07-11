@@ -25,6 +25,7 @@ export default defineCollection({
       onDelete: 'CASCADE',
     },
     { name: 'role', type: 'string', allowNull: false },
+    { name: 'lastUsedAt', type: 'datetimeTz' },
   ],
   indexes: [
     {

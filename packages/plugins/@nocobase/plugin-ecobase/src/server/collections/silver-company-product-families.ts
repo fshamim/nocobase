@@ -1,0 +1,70 @@
+import { defineCollection } from '@nocobase/database';
+import { ECOBASE_COLLECTIONS } from './names';
+
+export default defineCollection({
+  migrationRules: ['schema-only'],
+  autoGenId: false,
+  name: ECOBASE_COLLECTIONS.silverCompanyProductFamilies,
+  title: 'Silver company product families',
+  fields: [
+    { name: 'id', type: 'uuid', primaryKey: true },
+    {
+      name: 'company',
+      type: 'belongsTo',
+      target: ECOBASE_COLLECTIONS.silverCompanies,
+      foreignKey: 'companyId',
+      targetKey: 'id',
+      onDelete: 'CASCADE',
+    },
+    {
+      name: 'amazonAccount',
+      type: 'belongsTo',
+      target: ECOBASE_COLLECTIONS.silverAmazonAccounts,
+      foreignKey: 'amazonAccountId',
+      targetKey: 'id',
+      onDelete: 'CASCADE',
+    },
+    { name: 'marketplace', type: 'string', allowNull: false },
+    { name: 'canonicalAsin', type: 'string', allowNull: false },
+    {
+      name: 'replenishmentTarget',
+      type: 'belongsTo',
+      target: ECOBASE_COLLECTIONS.silverCompanyProducts,
+      foreignKey: 'replenishmentTargetCompanyProductId',
+      targetKey: 'id',
+      onDelete: 'SET NULL',
+    },
+    { name: 'targetSelectionSource', type: 'string' },
+    { name: 'targetSelectedAt', type: 'datetimeTz' },
+    { name: 'targetSelectedByUserId', type: 'bigInt', autoFill: false },
+    { name: 'targetReviewRequired', type: 'boolean', allowNull: false, defaultValue: false },
+    { name: 'targetSelectionEvidenceJson', type: 'jsonb', allowNull: false, defaultValue: {} },
+    {
+      name: 'preferredSupplier',
+      type: 'belongsTo',
+      target: ECOBASE_COLLECTIONS.silverSuppliers,
+      foreignKey: 'preferredSupplierId',
+      targetKey: 'id',
+      onDelete: 'SET NULL',
+    },
+    {
+      name: 'preferredSupplierProduct',
+      type: 'belongsTo',
+      target: ECOBASE_COLLECTIONS.silverSupplierProducts,
+      foreignKey: 'preferredSupplierProductId',
+      targetKey: 'id',
+      onDelete: 'SET NULL',
+    },
+    { name: 'supplierSelectionSource', type: 'string' },
+    { name: 'supplierSelectedAt', type: 'datetimeTz' },
+    { name: 'supplierSelectedByUserId', type: 'bigInt', autoFill: false },
+    { name: 'supplierReviewRequired', type: 'boolean', allowNull: false, defaultValue: false },
+    { name: 'supplierSelectionEvidenceJson', type: 'jsonb', allowNull: false, defaultValue: {} },
+  ],
+  indexes: [
+    {
+      unique: true,
+      fields: ['companyId', 'amazonAccountId', 'marketplace', 'canonicalAsin'],
+    },
+  ],
+});

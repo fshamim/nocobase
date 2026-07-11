@@ -125,12 +125,17 @@ export class EcobaseMedallionOrderService {
     if (toPlainRecord(supplierProduct).supplierId !== toPlainRecord(order).supplierId) {
       throw new Error('Ecobase medallion order failed: supplier product belongs to a different supplier.');
     }
+    if (toPlainRecord(supplierProduct).productId !== toPlainRecord(companyProduct).productId) {
+      throw new Error('Ecobase medallion order failed: supplier product belongs to a different product.');
+    }
     if (!Number.isFinite(params.orderedQty) || params.orderedQty <= 0) {
       throw new Error('Ecobase medallion order failed: orderedQty must be greater than zero.');
     }
+    const lineId = randomUUID();
     return this.repo(ECOBASE_COLLECTIONS.silverOrderLines).create({
       values: cleanValues({
-        id: randomUUID(),
+        id: lineId,
+        sourceLineKey: `manual:${lineId}`,
         orderId: params.orderId,
         companyProductId: params.companyProductId,
         supplierProductId: params.supplierProductId,

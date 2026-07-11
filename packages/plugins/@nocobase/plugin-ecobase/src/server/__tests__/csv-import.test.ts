@@ -1510,44 +1510,203 @@ describe('Ecobase current Amazon operations CSV import', () => {
     });
   });
 
-  it('reports ambiguous listing-level planning-product mappings explicitly', async () => {
-    const { db } = await seedSupplierOrderSlice();
-    const planningProductRepo = db.getRepository(ECOBASE_COLLECTIONS.planningProducts);
-    const listingRepo = db.getRepository(ECOBASE_COLLECTIONS.planningProductListings);
-    await planningProductRepo.create({
+  it('keeps ClickUp status authority when later generic supplier-order data is imported', async () => {
+    const { db } = createService('google_sheets', 'order_management');
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
+      values: { id: 'company-1', name: 'Ecofission LLC' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).create({
+      values: { id: 'supplier-1', normalizedName: 'beta supply', displayName: 'Beta Supply' },
+    });
+    const orderRepo = db.getRepository(ECOBASE_COLLECTIONS.silverOrders);
+    await orderRepo.create({
       values: {
-        id: 'planning-product-ambiguous-1',
-        naturalKey: 'planning-product:Ecofission LLC:B0AMBIG1',
-        company: 'Ecofission LLC',
-        canonicalAsin: 'B0AMBIG1',
+        id: 'order-1',
+        companyId: 'company-1',
+        supplierId: 'supplier-1',
+        orderRef: 'PO-200',
+        canonicalStatus: 'shipped_inbound',
+        lifecycleStatus: 'shipped_inbound',
+        statusSource: 'clickup_csv',
+        statusEvidenceJson: {
+          clickupStatusImport: { taskId: 'clickup-task-1', mappedStatus: 'shipped_inbound' },
+          importedAt: '2026-07-06T00:00:00.000Z',
+        },
       },
     });
-    await planningProductRepo.create({
-      values: {
-        id: 'planning-product-ambiguous-2',
-        naturalKey: 'planning-product:Ecofission LLC:B0AMBIG2',
-        company: 'Ecofission LLC',
-        canonicalAsin: 'B0AMBIG2',
+
+    await new EcobaseSupplierOrderService(db).applyImportRecord(
+      {
+        kind: 'supplier_order',
+        data: {
+          company: 'Ecofission LLC',
+          supplierName: 'Beta Supply',
+          externalSupplierCode: 'SRO-B',
+          sourceSystem: 'test',
+          sourceConnectionId: 'source-1',
+          externalOrderRef: 'PO-200',
+          sourceStage: 'purchase_order',
+          status: 'approval_pending',
+          approvalStatus: 'Approved',
+          paymentStatus: 'Pending',
+          lines: [],
+        },
+      },
+      'later-generic-import',
+    );
+
+    expect(await orderRepo.findOne({ filterByTk: 'order-1' })).toMatchObject({
+      canonicalStatus: 'shipped_inbound',
+      lifecycleStatus: 'shipped_inbound',
+      statusSource: 'clickup_csv',
+      statusEvidenceJson: {
+        clickupStatusImport: { taskId: 'clickup-task-1', mappedStatus: 'shipped_inbound' },
+        importedAt: '2026-07-06T00:00:00.000Z',
+        approvalStatus: 'Approved',
+        paymentStatus: 'Pending',
+        lastImportRunId: 'later-generic-import',
       },
     });
-    await listingRepo.create({
+  });
+
+  it('maps a supplier order to its exact SKU when the company-ASIN family has a newer SKU', async () => {
+    const { db } = createService();
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
+      values: { id: 'company-muxtex', name: 'Muxtex INC', companyKey: 'muxtex' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+      values: { id: 'product-old', asin: 'B00D3QAK4Y', sku: '2801054915' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+      values: { id: 'product-new', asin: 'B00D3QAK4Y', sku: '2801054915-NEW' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+      values: { id: 'company-product-old', companyId: 'company-muxtex', productId: 'product-old' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+      values: { id: 'company-product-new', companyId: 'company-muxtex', productId: 'product-new' },
+    });
+
+    const result = await new EcobaseSupplierOrderService(db).applyImportRecord(
+      {
+        kind: 'supplier_order',
+        data: {
+          company: 'Muxtex INC',
+          supplierName: 'Franklin Electric',
+          sourceSystem: 'test',
+          sourceConnectionId: 'source-1',
+          externalOrderRef: 'MX61726D',
+          sourceStage: 'order_detail',
+          status: 'shipped_inbound',
+          orderDate: '2026-06-16',
+          lines: [
+            {
+              sourceOrderLineRef: 'MX61726D:B00D3QAK4Y:2801054915',
+              asin: 'B00D3QAK4Y',
+              sku: '2801054915',
+              orderedQty: 7,
+            },
+          ],
+        },
+      },
+      'import-run-exact-sku',
+    );
+
+    expect(result.warnings).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'planning_product_mapping_ambiguous' })]),
+    );
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).all()).toEqual([
+      expect.objectContaining({
+        companyProductId: 'company-product-old',
+        productAnalysisStatus: 'imported',
+        supplierProductId: expect.any(String),
+      }),
+    ]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductSuppliers).all()).toEqual([
+      expect.objectContaining({ companyProductId: 'company-product-old', role: 'candidate' }),
+    ]);
+  });
+
+  it('reconciles existing unmapped supplier-order lines idempotently', async () => {
+    const { db } = createService();
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
+      values: { id: 'company-muxtex', name: 'Muxtex INC', companyKey: 'muxtex' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+      values: { id: 'product-old', asin: 'B00D3QAK4Y', sku: '2801054915' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+      values: { id: 'product-new', asin: 'B00D3QAK4Y', sku: '2801054915-NEW' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+      values: { id: 'company-product-old', companyId: 'company-muxtex', productId: 'product-old' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+      values: { id: 'company-product-new', companyId: 'company-muxtex', productId: 'product-new' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).create({
+      values: { id: 'supplier-franklin', normalizedName: 'franklin electric', displayName: 'Franklin Electric' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
       values: {
-        naturalKey: 'planning-product-listing:Ecofission LLC:B0AMBIG1:AMBIG-SKU',
-        company: 'Ecofission LLC',
-        planningProductId: 'planning-product-ambiguous-1',
-        canonicalAsin: 'B0AMBIG1',
-        asin: 'B0AMBIG1',
-        sku: 'AMBIG-SKU',
+        id: 'order-mx61726d',
+        companyId: 'company-muxtex',
+        supplierId: 'supplier-franklin',
+        orderRef: 'MX61726D',
+        canonicalStatus: 'shipped_inbound',
+        orderDate: '2026-06-16',
       },
     });
-    await listingRepo.create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
       values: {
-        naturalKey: 'planning-product-listing:Ecofission LLC:B0AMBIG2:AMBIG-SKU',
-        company: 'Ecofission LLC',
-        planningProductId: 'planning-product-ambiguous-2',
-        canonicalAsin: 'B0AMBIG2',
-        asin: 'B0AMBIG2',
-        sku: 'AMBIG-SKU',
+        id: 'line-mx61726d',
+        orderId: 'order-mx61726d',
+        sourceLineKey: 'MX61726D:B00D3QAK4Y:2801054915',
+        orderedQty: 7,
+        confirmedQty: 0,
+        productAnalysisStatus: 'mapping_missing',
+      },
+    });
+
+    const service = new EcobaseSupplierOrderService(db);
+    await expect(service.reconcileAfterImport('repair-run')).resolves.toMatchObject({ repaired: 1, ambiguous: 0 });
+    await expect(service.reconcileAfterImport('repair-run-repeat')).resolves.toMatchObject({
+      repaired: 0,
+      ambiguous: 0,
+    });
+    expect(
+      await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).findOne({ filterByTk: 'line-mx61726d' }),
+    ).toMatchObject({
+      companyProductId: 'company-product-old',
+      supplierProductId: expect.any(String),
+      productAnalysisStatus: 'imported',
+    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductSuppliers).all()).toHaveLength(1);
+  });
+
+  it('reports ambiguous company-product mappings explicitly', async () => {
+    const { db } = createService();
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
+      values: { id: 'company-ecofission', name: 'Ecofission LLC', companyKey: 'ecofission' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+      values: { id: 'product-ambiguous-1', asin: 'B0AMBIG1', sku: 'AMBIG-SKU' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+      values: { id: 'product-ambiguous-2', asin: 'B0AMBIG2', sku: 'AMBIG-SKU' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+      values: {
+        id: 'company-product-ambiguous-1',
+        companyId: 'company-ecofission',
+        productId: 'product-ambiguous-1',
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+      values: {
+        id: 'company-product-ambiguous-2',
+        companyId: 'company-ecofission',
+        productId: 'product-ambiguous-2',
       },
     });
 
@@ -1574,7 +1733,7 @@ describe('Ecobase current Amazon operations CSV import', () => {
         expect.objectContaining({
           code: 'planning_product_mapping_ambiguous',
           payload: expect.objectContaining({
-            planningProductIds: ['planning-product-ambiguous-1', 'planning-product-ambiguous-2'],
+            planningProductIds: ['company-product-ambiguous-1', 'company-product-ambiguous-2'],
           }),
         }),
       ]),
@@ -1773,19 +1932,32 @@ describe('Ecobase current Amazon operations CSV import', () => {
     });
 
     expect(run).toMatchObject({ status: 'success', rowCount: 1, normalizedCount: 1, warningCount: 0 });
-    expect(db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).all()).toEqual([
-      expect.objectContaining({
-        company: 'Ecofission LLC',
-        snapshotDate: '2026-01-02',
-        asin: 'B007P55HOW',
-        sku: 'DC50944',
-        sales: 80,
-        units: 7,
-        netProfit: 35,
-        margin: 43.75,
-        profitPerUnit: 5,
-      }),
-    ]);
+    const imported: any[] = [];
+    for await (const item of sellerboardHistoryCsvAdapter.import({
+      sourceConnectionId: 'source-1',
+      sourceIdentifier: 'sellerboard-history-backfill',
+      sourceVersion: '2026-07-05',
+      idempotencyKey: 'day-first-date-check',
+      config: db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).all()[0].config as Record<string, unknown>,
+    })) {
+      imported.push(item);
+    }
+    expect(imported[0]).toMatchObject({
+      type: 'record',
+      record: {
+        data: {
+          company: 'Ecofission LLC',
+          snapshotDate: '2026-01-02',
+          asin: 'B007P55HOW',
+          sku: 'DC50944',
+          sales: 80,
+          units: 7,
+          netProfit: 35,
+          margin: 43.75,
+          profitPerUnit: 5,
+        },
+      },
+    });
   });
 
   it('imports one-time semicolon Sellerboard history rows with month-first dates', async () => {
@@ -1815,10 +1987,86 @@ describe('Ecobase current Amazon operations CSV import', () => {
     });
 
     expect(run).toMatchObject({ status: 'success', rowCount: 2, normalizedCount: 2, warningCount: 0 });
-    expect(db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).all()).toEqual([
-      expect.objectContaining({ company: 'Retail Heaven Inc', snapshotDate: '2026-01-02' }),
-      expect.objectContaining({ company: 'Retail Heaven Inc', snapshotDate: '2026-04-18' }),
+    const imported: any[] = [];
+    for await (const item of sellerboardHistoryCsvAdapter.import({
+      sourceConnectionId: 'source-1',
+      sourceIdentifier: 'sellerboard-history-backfill',
+      sourceVersion: '2026-07-05',
+      idempotencyKey: 'month-first-date-check',
+      config: db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).all()[0].config as Record<string, unknown>,
+    })) {
+      imported.push(item);
+    }
+    expect(imported).toEqual([
+      expect.objectContaining({
+        type: 'record',
+        record: expect.objectContaining({ data: expect.objectContaining({ snapshotDate: '2026-01-02' }) }),
+      }),
+      expect.objectContaining({
+        type: 'record',
+        record: expect.objectContaining({ data: expect.objectContaining({ snapshotDate: '2026-04-18' }) }),
+      }),
     ]);
+  });
+
+  it('rejects Sellerboard history dates after the import source version', async () => {
+    const { db, service } = createService('sellerboard');
+    db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
+      filterByTk: 'source-1',
+      values: {
+        config: {
+          defaultCompany: 'Retail Heaven Inc',
+          files: [
+            {
+              name: 'Retail_Heaven_Inc_Dashboard_by_product_01_01_2026-03_07_2026.csv',
+              content:
+                'Date;Marketplace;ASIN;SKU;Name;SalesOrganic;UnitsOrganic;NetProfit\n4/18/2026;Amazon.com;B007P55HOW;DC50944;Dampp Chaser;10;2;8\n8/1/2026;Amazon.com;B007P55HOW;DC50944;Dampp Chaser;20;4;12',
+            },
+          ],
+        },
+      },
+    });
+
+    const run = await service.runAdapterImport({
+      sourceConnectionId: 'source-1',
+      adapterName: 'sellerboard-history-csv',
+      sourceIdentifier: 'sellerboard-history-backfill',
+      sourceVersion: '2026-07-05',
+      preserveAuditRun: true,
+    });
+
+    expect(run).toMatchObject({ status: 'partial', rowCount: 2, normalizedCount: 1, errorCount: 1 });
+    expect(
+      db
+        .getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords)
+        .all()
+        .find((record) => record.rowNumber === 2),
+    ).toMatchObject({ observedAt: '2026-04-18' });
+    const imported: any[] = [];
+    for await (const item of sellerboardHistoryCsvAdapter.import({
+      sourceConnectionId: 'source-1',
+      sourceIdentifier: 'sellerboard-history-backfill',
+      sourceVersion: '2026-07-05',
+      idempotencyKey: 'future-date-check',
+      config: db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).all()[0].config as Record<string, unknown>,
+    })) {
+      imported.push(item);
+    }
+    expect(imported).toEqual([
+      expect.objectContaining({
+        type: 'record',
+        record: expect.objectContaining({ data: expect.objectContaining({ snapshotDate: '2026-04-18' }) }),
+      }),
+      expect.objectContaining({
+        type: 'rowIssue',
+        issue: expect.objectContaining({ code: 'sellerboard_history_date_future' }),
+      }),
+    ]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ issueCode: 'sellerboard_history_date_future', normalizationStatus: 'failed' }),
+      ]),
+    );
   });
 
   it('rejects non-slash dates in Sellerboard history files', async () => {
@@ -1851,7 +2099,6 @@ describe('Ecobase current Amazon operations CSV import', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toEqual([
       expect.objectContaining({ issueCode: 'sellerboard_history_date_invalid', normalizationStatus: 'failed' }),
     ]);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toHaveLength(0);
   });
 
   it('imports CSV bundles without storing uploaded content in source connection config and skips unchanged re-uploads', async () => {

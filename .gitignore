@@ -80,3 +80,4 @@ openspec/
 /skills-lock.json
 tmp/
 .local/
+.pi-subagents/

@@ -1,0 +1,366 @@
+import { describe, expect, it } from 'vitest';
+import { EcobaseCompanyProductFamilyService } from '../../features/inventory-planning/server/company-product-family-service';
+import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
+import { ECOBASE_COLLECTIONS } from '../collections/names';
+
+type Row = Record<string, any>;
+
+function matches(row: Row, filter: Row = {}) {
+  return Object.entries(filter).every(([key, value]) => row[key] === value);
+}
+
+class MemoryRepository implements EcobaseRepository {
+  constructor(private rows: Row[] = []) {}
+
+  async find(params: any = {}) {
+    return this.rows.filter((row) => matches(row, params.filter)).map((row) => ({ ...row }));
+  }
+
+  async findOne(params: any = {}) {
+    const row = params.filterByTk
+      ? this.rows.find((item) => item.id === params.filterByTk)
+      : this.rows.find((item) => matches(item, params.filter));
+    return row ? { ...row } : null;
+  }
+
+  async create(params: any) {
+    const row = { ...params.values };
+    this.rows.push(row);
+    return { ...row };
+  }
+
+  async update(params: any) {
+    const row = this.rows.find((item) => item.id === params.filterByTk);
+    if (!row) throw new Error(`MemoryRepository failed: row ${params.filterByTk} was not found.`);
+    Object.assign(row, params.values);
+    return { ...row };
+  }
+}
+
+class MemoryDatabase implements EcobaseDatabase {
+  private repositories = new Map<string, MemoryRepository>();
+
+  getRepository(name: string) {
+    let repository = this.repositories.get(name);
+    if (!repository) {
+      repository = new MemoryRepository();
+      this.repositories.set(name, repository);
+    }
+    return repository;
+  }
+}
+
+async function seed(db: MemoryDatabase) {
+  await db.getRepository(ECOBASE_COLLECTIONS.silverAmazonAccounts).create({
+    values: { id: 'account-us', companyId: 'company-1', marketplace: 'Amazon.com' },
+  });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverAmazonAccounts).create({
+    values: { id: 'account-ca', companyId: 'company-1', marketplace: 'Amazon.ca' },
+  });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverAmazonAccounts).create({
+    values: { id: 'account-us-secondary', companyId: 'company-1', marketplace: 'Amazon.com' },
+  });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+    values: { id: 'product-a', asin: 'B000FAMILY', sku: 'SKU-A' },
+  });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+    values: { id: 'product-b', asin: 'B000FAMILY', sku: 'SKU-B' },
+  });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+    values: { id: 'product-other', asin: 'B000OTHER', sku: 'SKU-X' },
+  });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+    values: {
+      id: 'company-product-a',
+      companyId: 'company-1',
+      amazonAccountId: 'account-us',
+      productId: 'product-a',
+    },
+  });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+    values: {
+      id: 'company-product-b',
+      companyId: 'company-1',
+      amazonAccountId: 'account-us',
+      productId: 'product-b',
+    },
+  });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+    values: {
+      id: 'company-product-other-account',
+      companyId: 'company-1',
+      amazonAccountId: 'account-ca',
+      productId: 'product-a',
+    },
+  });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+    values: {
+      id: 'company-product-other-asin',
+      companyId: 'company-1',
+      amazonAccountId: 'account-us',
+      productId: 'product-other',
+    },
+  });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).create({
+    values: { id: 'supplier-product-a', supplierId: 'supplier-1', productId: 'product-a' },
+  });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).create({
+    values: { id: 'supplier-product-b', supplierId: 'supplier-2', productId: 'product-b' },
+  });
+}
+
+const identity = {
+  companyId: 'company-1',
+  amazonAccountId: 'account-us',
+  marketplace: 'Amazon.com',
+  canonicalAsin: 'b000family',
+};
+
+describe('EcobaseCompanyProductFamilyService', () => {
+  it('creates one idempotent family per company, account, marketplace, and ASIN', async () => {
+    const db = new MemoryDatabase();
+    await seed(db);
+    const service = new EcobaseCompanyProductFamilyService(db);
+
+    const first = await service.ensureFamily(identity);
+    const second = await service.ensureFamily({
+      ...identity,
+      marketplace: ' amazon.com ',
+      canonicalAsin: 'B000FAMILY',
+    });
+    const otherMarketplace = await service.ensureFamily({
+      ...identity,
+      amazonAccountId: 'account-ca',
+      marketplace: 'Amazon.ca',
+    });
+    const otherAccount = await service.ensureFamily({ ...identity, amazonAccountId: 'account-us-secondary' });
+
+    expect(second.id).toBe(first.id);
+    expect(first).toMatchObject({ marketplace: 'amazon.com', canonicalAsin: 'B000FAMILY' });
+    expect(otherMarketplace.id).not.toBe(first.id);
+    expect(otherAccount.id).not.toBe(first.id);
+    expect(await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductFamilies).find()).toHaveLength(3);
+  });
+
+  it('reconciles one family per account and marketplace without crossing boundaries', async () => {
+    const db = new MemoryDatabase();
+    await seed(db);
+
+    const result = await new EcobaseCompanyProductFamilyService(db).reconcileAllFamilies();
+
+    expect(result.familyCount).toBe(3);
+    expect(
+      (await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).find()).every((companyProduct) =>
+        Boolean(companyProduct.companyProductFamilyId),
+      ),
+    ).toBe(true);
+    expect(result.families.map((family) => [family.amazonAccountId, family.marketplace, family.canonicalAsin])).toEqual(
+      expect.arrayContaining([
+        ['account-us', 'amazon.com', 'B000FAMILY'],
+        ['account-ca', 'amazon.ca', 'B000FAMILY'],
+        ['account-us', 'amazon.com', 'B000OTHER'],
+      ]),
+    );
+  });
+
+  it('persists an operator target and rejects a listing outside the family boundary', async () => {
+    const db = new MemoryDatabase();
+    await seed(db);
+    const service = new EcobaseCompanyProductFamilyService(db);
+    const family = await service.ensureFamily(identity);
+
+    const selected = await service.setReplenishmentTarget({
+      familyId: family.id,
+      companyProductId: 'company-product-a',
+      source: 'operator',
+      actorUserId: '101',
+    });
+    const preserved = await service.setReplenishmentTarget({
+      familyId: family.id,
+      companyProductId: 'company-product-b',
+      source: 'automatic',
+    });
+
+    expect(selected).toMatchObject({
+      replenishmentTargetCompanyProductId: 'company-product-a',
+      targetSelectionSource: 'operator',
+      targetSelectedByUserId: '101',
+    });
+    expect(preserved.replenishmentTargetCompanyProductId).toBe('company-product-a');
+    await expect(
+      service.setReplenishmentTarget({
+        familyId: family.id,
+        companyProductId: 'company-product-other-account',
+        source: 'operator',
+      }),
+    ).rejects.toThrow(/does not belong to family/);
+  });
+
+  it('selects the highest-stock initial target once and only recommends later changes', async () => {
+    const db = new MemoryDatabase();
+    await seed(db);
+    const service = new EcobaseCompanyProductFamilyService(db);
+    const family = await service.ensureFamily(identity);
+    await db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).create({
+      values: {
+        id: 'snapshot-a-1',
+        companyProductId: 'company-product-a',
+        snapshotDate: '2026-07-01',
+        sellableStock: 8,
+        reserved: 2,
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).create({
+      values: {
+        id: 'snapshot-b-1',
+        companyProductId: 'company-product-b',
+        snapshotDate: '2026-07-01',
+        sellableStock: 5,
+        inbound: 15,
+      },
+    });
+
+    const selected = await service.reconcileFamily(family.id as string);
+    await db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).create({
+      values: {
+        id: 'snapshot-a-2',
+        companyProductId: 'company-product-a',
+        snapshotDate: '2026-07-02',
+        sellableStock: 30,
+      },
+    });
+    const preserved = await service.reconcileFamily(family.id as string);
+
+    expect(selected).toMatchObject({
+      replenishmentTargetCompanyProductId: 'company-product-b',
+      targetSelectionSource: 'automatic',
+      targetReviewRequired: false,
+    });
+    expect(preserved).toMatchObject({
+      replenishmentTargetCompanyProductId: 'company-product-b',
+      targetReviewRequired: true,
+      targetSelectionEvidenceJson: { recommendedCompanyProductId: 'company-product-a' },
+    });
+  });
+
+  it('selects the latest valid supplier order and preserves source SKU evidence', async () => {
+    const db = new MemoryDatabase();
+    await seed(db);
+    const service = new EcobaseCompanyProductFamilyService(db);
+    const family = await service.ensureFamily(identity);
+    await service.setReplenishmentTarget({
+      familyId: family.id as string,
+      companyProductId: 'company-product-b',
+      source: 'automatic',
+    });
+    for (const order of [
+      { id: 'order-old', supplierId: 'supplier-1', orderRef: 'EF1001A', orderDate: '2026-06-01' },
+      { id: 'order-new', supplierId: 'supplier-2', orderRef: 'EF1002A', orderDate: '2026-07-01' },
+    ]) {
+      await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+        values: { ...order, companyId: 'company-1' },
+      });
+    }
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+      values: {
+        id: 'line-old',
+        orderId: 'order-old',
+        companyProductId: 'company-product-a',
+        supplierProductId: 'supplier-product-a',
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+      values: {
+        id: 'line-new',
+        orderId: 'order-new',
+        companyProductId: 'company-product-b',
+        supplierProductId: 'supplier-product-b',
+      },
+    });
+
+    const reconciled = await service.reconcileFamily(family.id as string);
+
+    expect(reconciled).toMatchObject({
+      preferredSupplierId: 'supplier-2',
+      preferredSupplierProductId: 'supplier-product-b',
+      supplierSelectionSource: 'latest_valid_order',
+      supplierReviewRequired: false,
+      supplierSelectionEvidenceJson: {
+        sourceOrderRef: 'EF1002A',
+        sourceSku: 'SKU-B',
+        matchType: 'exact_target_sku',
+      },
+    });
+  });
+
+  it('preserves an operator supplier and marks conflicting or companyless evidence for review', async () => {
+    const db = new MemoryDatabase();
+    await seed(db);
+    const service = new EcobaseCompanyProductFamilyService(db);
+    const family = await service.ensureFamily(identity);
+    await service.setPreferredSupplierOffer({
+      familyId: family.id as string,
+      supplierId: 'supplier-1',
+      supplierProductId: 'supplier-product-a',
+      source: 'operator',
+      actorUserId: '102',
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+      values: {
+        id: 'order-companyless',
+        supplierId: 'supplier-2',
+        orderRef: 'EF1003A',
+        orderDate: '2026-07-02',
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+      values: {
+        id: 'line-companyless',
+        orderId: 'order-companyless',
+        companyProductId: 'company-product-b',
+        supplierProductId: 'supplier-product-b',
+      },
+    });
+
+    const reconciled = await service.reconcileFamily(family.id as string);
+
+    expect(reconciled).toMatchObject({
+      preferredSupplierId: 'supplier-1',
+      supplierSelectionSource: 'operator',
+      supplierReviewRequired: true,
+      supplierSelectionEvidenceJson: {
+        reviewReason: 'companyless_supplier_order_evidence',
+        sourceOrderRef: 'EF1003A',
+        sourceSku: 'SKU-B',
+      },
+    });
+  });
+
+  it('persists an operator preferred supplier and prevents automatic overwrite', async () => {
+    const db = new MemoryDatabase();
+    await seed(db);
+    const service = new EcobaseCompanyProductFamilyService(db);
+    const family = await service.ensureFamily(identity);
+
+    const selected = await service.setPreferredSupplierOffer({
+      familyId: family.id,
+      supplierId: 'supplier-1',
+      supplierProductId: 'supplier-product-a',
+      source: 'operator',
+      actorUserId: '102',
+    });
+    const preserved = await service.setPreferredSupplierOffer({
+      familyId: family.id,
+      supplierId: 'supplier-2',
+      source: 'latest_valid_order',
+    });
+
+    expect(selected).toMatchObject({
+      preferredSupplierId: 'supplier-1',
+      preferredSupplierProductId: 'supplier-product-a',
+      supplierSelectionSource: 'operator',
+      supplierSelectedByUserId: '102',
+    });
+    expect(preserved.preferredSupplierId).toBe('supplier-1');
+  });
+});

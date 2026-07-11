@@ -1,6 +1,6 @@
 import type { AdapterStreamItem, SourceAdapter, SourceAdapterImportInput } from './types';
-import { CsvRowReader, parseCsv } from './csv-utils';
-import { importCsvFiles } from './amazon-operations-csv-adapter';
+import { CsvRowReader, type CsvSourceFile, parseCsv } from './csv-utils';
+import { importCsvFiles, sellerboardIsoDate } from './amazon-operations-csv-adapter';
 
 type SellerboardReportCategory = 'profit_dashboard' | 'stock_daily' | 'profit_by_product_daily';
 
@@ -60,7 +60,9 @@ function accessAuditRecord(
   return {
     kind: 'source_access_audit',
     data: {
-      naturalKey: [input.sourceConnectionId, 'source_access_audit', adapterName, input.sourceVersion, blockerCode].join(':'),
+      naturalKey: [input.sourceConnectionId, 'source_access_audit', adapterName, input.sourceVersion, blockerCode].join(
+        ':',
+      ),
       sourceConnectionId: input.sourceConnectionId,
       sourceType: 'sellerboard',
       adapterName,
@@ -74,7 +76,9 @@ function accessAuditRecord(
 }
 
 function stringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.length > 0) : [];
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string' && item.length > 0)
+    : [];
 }
 
 function readSecretReports(secretRef: string | undefined): SellerboardReportConfig[] {
@@ -116,7 +120,8 @@ function readReportConfigs(config: Record<string, unknown>): SellerboardReportCo
       }
       return [
         {
-          name: typeof record.name === 'string' && record.name.length > 0 ? record.name : `sellerboard-report-${index + 1}`,
+          name:
+            typeof record.name === 'string' && record.name.length > 0 ? record.name : `sellerboard-report-${index + 1}`,
           category,
           url,
           snapshotDate: typeof record.snapshotDate === 'string' ? record.snapshotDate : undefined,
@@ -133,7 +138,10 @@ function readReportConfigs(config: Record<string, unknown>): SellerboardReportCo
   return [
     {
       name: typeof config.reportName === 'string' ? config.reportName : 'sellerboard-report',
-      category: typeof config.reportCategory === 'string' ? (config.reportCategory as SellerboardReportCategory) : 'profit_dashboard',
+      category:
+        typeof config.reportCategory === 'string'
+          ? (config.reportCategory as SellerboardReportCategory)
+          : 'profit_dashboard',
       url: singleUrl,
       snapshotDate: typeof config.snapshotDate === 'string' ? config.snapshotDate : undefined,
       expectedFreshDate: typeof config.expectedFreshDate === 'string' ? config.expectedFreshDate : undefined,
@@ -172,12 +180,37 @@ function compareIsoDate(left: string, right: string) {
   return left > right ? 1 : -1;
 }
 
-function maxReportDate(csvContent: string) {
+type SellerboardDateFormat = 'day-first' | 'month-first';
+
+function detectSellerboardDateFormat(csvContent: string): SellerboardDateFormat {
+  const parsed = parseCsv(csvContent);
+  for (const row of parsed.rows) {
+    const value = new CsvRowReader(row).string('Date', 'Month', 'Timestamp', 'Snapshot Date');
+    const match = value?.trim().match(/^(\d{1,2})\/(\d{1,2})\/\d{4}$/);
+    if (!match) continue;
+    if (Number(match[1]) > 12) return 'day-first';
+    if (Number(match[2]) > 12) return 'month-first';
+  }
+  return 'month-first';
+}
+
+function sellerboardReportDate(value: string | undefined, format: SellerboardDateFormat) {
+  if (format === 'month-first') return sellerboardIsoDate(value);
+  const match = value?.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!match) return sellerboardIsoDate(value);
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const date = new Date(Date.UTC(Number(match[3]), month - 1, day));
+  if (date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return undefined;
+  return `${match[3]}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}`;
+}
+
+function maxReportDate(csvContent: string, format: SellerboardDateFormat) {
   const parsed = parseCsv(csvContent);
   let maxDate: string | undefined;
   for (const row of parsed.rows) {
     const reader = new CsvRowReader(row);
-    const value = isoDate(reader.string('Date', 'Month', 'Timestamp', 'Snapshot Date'));
+    const value = sellerboardReportDate(reader.string('Date', 'Month', 'Timestamp', 'Snapshot Date'), format);
     if (value && (!maxDate || compareIsoDate(value, maxDate) > 0)) {
       maxDate = value;
     }
@@ -200,7 +233,8 @@ function expectedFreshDate(input: SourceAdapterImportInput, report: SellerboardR
   if (typeof input.config.expectedReportDate === 'string') return input.config.expectedReportDate;
   const sourceDate = /^\d{4}-\d{2}-\d{2}/.test(input.sourceVersion) ? input.sourceVersion.slice(0, 10) : undefined;
   if (!sourceDate) return undefined;
-  return input.sourceIdentifier === 'sellerboard-scheduled' && ROLLING_SELLERBOARD_REPORT_CATEGORIES.has(report.category)
+  return input.sourceIdentifier === 'sellerboard-scheduled' &&
+    ROLLING_SELLERBOARD_REPORT_CATEGORIES.has(report.category)
     ? previousIsoDate(sourceDate)
     : sourceDate;
 }
@@ -217,9 +251,9 @@ function staleStatusMessage(staleReports: Array<Record<string, unknown>>, filesL
   const staleSummary = staleReports
     .map(
       (report) =>
-        `${report.reportName ?? '(unnamed report)'} expected ${report.expectedFreshDate ?? '(unknown expected date)'}, got ${
-          report.maxReportDate ?? 'no report date'
-        }`,
+        `${report.reportName ?? '(unnamed report)'} expected ${
+          report.expectedFreshDate ?? '(unknown expected date)'
+        }, got ${report.maxReportDate ?? 'no report date'}`,
     )
     .join('; ');
   if (filesLength === 0) {
@@ -276,7 +310,7 @@ async function* sellerboardApiImport(input: SourceAdapterImportInput): AsyncIter
   }
 
   const headers = requestHeaders(input);
-  const files = [] as Array<{ name: string; content: string; snapshotDate?: string; expectedRowCount?: number }>;
+  const files: CsvSourceFile[] = [];
   const staleReports: Array<Record<string, unknown>> = [];
 
   for (const report of reports) {
@@ -291,7 +325,10 @@ async function* sellerboardApiImport(input: SourceAdapterImportInput): AsyncIter
           rowNumber: 0,
           severity: 'error',
           code: 'sellerboard_live_fetch_failed',
-          message: error instanceof Error ? error.message : 'Sellerboard live import failed: fetch returned a non-Error failure.',
+          message:
+            error instanceof Error
+              ? error.message
+              : 'Sellerboard live import failed: fetch returned a non-Error failure.',
           sourceKey,
           payload: { reportName: report.name, category: report.category },
         },
@@ -299,24 +336,37 @@ async function* sellerboardApiImport(input: SourceAdapterImportInput): AsyncIter
       continue;
     }
 
+    const dateFormat = detectSellerboardDateFormat(csvContent);
     const expected = expectedFreshDate(input, report);
-    const maxDate = maxReportDate(csvContent);
+    const maxDate = maxReportDate(csvContent, dateFormat);
     const stale =
       shouldRequireFreshData(input) &&
       expected &&
       shouldAssessReportFreshness(report, maxDate) &&
       (!maxDate || compareIsoDate(maxDate, expected) < 0);
     if (stale) {
-      staleReports.push({ reportName: report.name, category: report.category, expectedFreshDate: expected, maxReportDate: maxDate });
+      staleReports.push({
+        reportName: report.name,
+        category: report.category,
+        expectedFreshDate: expected,
+        maxReportDate: maxDate,
+      });
       yield {
         type: 'rowIssue',
         issue: {
           rowNumber: 0,
           severity: 'warning',
           code: 'sellerboard_data_not_fresh',
-          message: `Sellerboard report "${report.name}" is not fresh enough: expected at least ${expected}, got ${maxDate ?? 'no date'}.`,
+          message: `Sellerboard report "${report.name}" is not fresh enough: expected at least ${expected}, got ${
+            maxDate ?? 'no date'
+          }.`,
           sourceKey,
-          payload: { reportName: report.name, category: report.category, expectedFreshDate: expected, maxReportDate: maxDate },
+          payload: {
+            reportName: report.name,
+            category: report.category,
+            expectedFreshDate: expected,
+            maxReportDate: maxDate,
+          },
         },
       };
       continue;
@@ -326,6 +376,7 @@ async function* sellerboardApiImport(input: SourceAdapterImportInput): AsyncIter
       name: `${report.category}-${report.name}.csv`,
       content: csvContent,
       snapshotDate: report.snapshotDate ?? (report.category === 'stock_daily' ? expected ?? maxDate : undefined),
+      dateFormat,
     });
   }
 
@@ -336,14 +387,10 @@ async function* sellerboardApiImport(input: SourceAdapterImportInput): AsyncIter
       rowNumber: 0,
       sourceKey: 'sellerboard-api-freshness',
       payload: { status: 'stale', staleReports },
-      record: accessAuditRecord(
-        input,
-        'sellerboard-api',
-        'stale',
-        'sellerboard_data_not_fresh',
-        message,
-        { staleReports, freshReportCount: files.length },
-      ),
+      record: accessAuditRecord(input, 'sellerboard-api', 'stale', 'sellerboard_data_not_fresh', message, {
+        staleReports,
+        freshReportCount: files.length,
+      }),
     };
   }
 
