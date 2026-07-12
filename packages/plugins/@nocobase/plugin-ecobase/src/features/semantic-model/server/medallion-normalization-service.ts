@@ -692,13 +692,17 @@ export class EcobaseMedallionNormalizationService {
 
   private async sourceCompanyName(sourceConnectionId: string | undefined) {
     if (!sourceConnectionId) return undefined;
-    const sourceModel = this.db.getCollection?.(ECOBASE_COLLECTIONS.sourceConnections).model;
-    if (sourceModel) {
-      const sourceWithCompany = toPlainRecord(
-        await sourceModel.findByPk(sourceConnectionId, { include: ['company'] }),
+    if (this.db.sequelize) {
+      const [rows] = await this.db.sequelize.query(
+        `SELECT c."name"
+         FROM "${ECOBASE_COLLECTIONS.sourceConnections}" s
+         JOIN "${ECOBASE_COLLECTIONS.silverCompanies}" c ON c."id" = s."companyId"
+         WHERE s."id" = :sourceConnectionId
+         LIMIT 1`,
+        { replacements: { sourceConnectionId } },
       );
-      const modelCompanyName = textValue(toPlainRecord(sourceWithCompany.company).name);
-      if (modelCompanyName) return modelCompanyName;
+      const databaseCompanyName = textValue(toPlainRecord(rows?.[0]).name);
+      if (databaseCompanyName) return databaseCompanyName;
     }
     const source = toPlainRecord(
       await this.repo(ECOBASE_COLLECTIONS.sourceConnections).findOne({

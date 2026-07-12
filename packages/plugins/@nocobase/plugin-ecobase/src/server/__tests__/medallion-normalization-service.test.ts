@@ -41,6 +41,7 @@ class FakeRepository implements EcobaseRepository {
 
 class FakeDatabase implements EcobaseDatabase {
   repositories = new Map<string, FakeRepository>();
+  sequelize?: { query: (sql: string, options: unknown) => Promise<unknown[]> };
 
   getRepository(name: string) {
     const existing = this.repositories.get(name);
@@ -48,15 +49,6 @@ class FakeDatabase implements EcobaseDatabase {
     const repo = new FakeRepository();
     this.repositories.set(name, repo);
     return repo;
-  }
-
-  getCollection(name: string) {
-    return {
-      model: {
-        findByPk: async (id: string | number) =>
-          this.getRepository(name).rows.find((row) => String(row.id) === String(id)) ?? null,
-      },
-    };
   }
 }
 
@@ -1132,12 +1124,13 @@ describe('EcobaseMedallionNormalizationService', () => {
 
   it('uses the requested source scope when the Bronze model hides its foreign key', async () => {
     const db = new FakeDatabase();
-    await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).create({
-      values: {
-        id: 'source-1',
-        company: { id: 'company-1', name: 'Ecofission LLC' },
+    db.sequelize = {
+      query: async (sql, options) => {
+        expect(sql).toContain('JOIN "silverCompanies"');
+        expect(options).toEqual({ replacements: { sourceConnectionId: 'source-1' } });
+        return [[{ name: 'Ecofission LLC' }], {}];
       },
-    });
+    };
     const bronze = await seedBronze(
       db,
       {

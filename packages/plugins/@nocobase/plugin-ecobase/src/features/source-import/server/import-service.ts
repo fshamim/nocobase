@@ -208,8 +208,7 @@ export interface EcobaseRepository {
 }
 
 export interface EcobaseDatabase {
-  getRepository(name: string, sourceId?: string | number): EcobaseRepository;
-  getCollection?(name: string): { model: { findByPk(id: string | number, options?: unknown): Promise<unknown> } };
+  getRepository(name: string): EcobaseRepository;
   sequelize?: any;
 }
 
