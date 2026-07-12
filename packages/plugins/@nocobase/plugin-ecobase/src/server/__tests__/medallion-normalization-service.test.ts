@@ -1091,14 +1091,8 @@ describe('EcobaseMedallionNormalizationService', () => {
     });
   });
 
-  it('resolves a Sellerboard company from the source association when the foreign key is not projected', async () => {
+  it('resolves a Sellerboard company from the Bronze source association when foreign keys are not projected', async () => {
     const db = new FakeDatabase();
-    await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).create({
-      values: {
-        id: 'source-1',
-        company: { id: 'company-1', name: 'Ecofission LLC' },
-      },
-    });
     await seedBronze(
       db,
       {
@@ -1109,6 +1103,11 @@ describe('EcobaseMedallionNormalizationService', () => {
         UnitsOrganic: '2',
       },
       {
+        sourceConnectionId: undefined,
+        sourceConnection: {
+          id: 'source-1',
+          company: { id: 'company-1', name: 'Ecofission LLC' },
+        },
         sourceType: 'sellerboard',
         sourceDataset: 'profit_by_product_daily-Profit by Product Dashboard Daily Data.csv',
         observedAt: new Date('2026-01-08T00:00:00.000Z'),

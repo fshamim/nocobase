@@ -50,6 +50,7 @@ export class EcobaseMedallionNormalizationService {
         normalizationStatus: 'pending',
         ...(params.sourceConnectionId ? { sourceConnectionId: params.sourceConnectionId } : {}),
       },
+      appends: ['sourceConnection.company'],
       limit: params.limit,
     });
     const records = [...pendingRecords].sort(
@@ -105,6 +106,8 @@ export class EcobaseMedallionNormalizationService {
   private async mapBronzeRecord(bronze: Record<string, unknown>) {
     const row = new CsvRowReader(stringRecord(toPlainRecord(bronze.payload)));
     const entities: SilverEntity[] = [];
+    const sourceConnection = toPlainRecord(bronze.sourceConnection);
+    const sourceConnectionId = textValue(bronze.sourceConnectionId) ?? textValue(sourceConnection.id);
     const sourceDataset = textValue(bronze.sourceDataset)?.toLowerCase() ?? '';
     const orderShape = sourceDataset.includes('orderdetails')
       ? 'order-details'
@@ -120,7 +123,8 @@ export class EcobaseMedallionNormalizationService {
       orderDetailIdentity?.company?.name ??
       row.string('Company') ??
       row.string('Reached Via') ??
-      (await this.sourceCompanyName(textValue(bronze.sourceConnectionId)));
+      textValue(toPlainRecord(sourceConnection.company).name) ??
+      (await this.sourceCompanyName(sourceConnectionId));
     const supplierName = row.string('Supplier', 'Supplier ', 'Supplier Name');
     const supplierExternalCode =
       orderDetailIdentity?.supplierCode ??
@@ -233,7 +237,7 @@ export class EcobaseMedallionNormalizationService {
           sourceSystem: 'supplier_ids',
           externalSupplierCode: supplierExternalCode,
           displayName: supplierName,
-          sourceConnectionId: textValue(bronze.sourceConnectionId),
+          sourceConnectionId,
           observedAt: textValue(bronze.observedAt),
           payload: toPlainRecord(bronze.payload),
           identityAuthority: orderRef ? 'reference' : 'authoritative',
