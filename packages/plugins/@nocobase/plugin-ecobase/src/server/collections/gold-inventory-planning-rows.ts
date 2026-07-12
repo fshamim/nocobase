@@ -397,6 +397,32 @@ export default defineCollection({
       defaultValue: {},
     },
     {
+      name: 'amazonReceiptStatus',
+      type: 'string',
+      interface: 'input',
+      uiSchema: { title: 'Amazon Receipt Status' },
+      index: true,
+    },
+    {
+      name: 'amazonReceiptObservedAt',
+      type: 'datetimeTz',
+      interface: 'datetime',
+      uiSchema: { title: 'Amazon Receipt Observed At' },
+    },
+    {
+      name: 'amazonReceiptCompletionReason',
+      type: 'string',
+      interface: 'input',
+      uiSchema: { title: 'Amazon Receipt Completion Reason' },
+    },
+    {
+      name: 'amazonReceiptEvidenceJson',
+      type: 'jsonb',
+      interface: 'json',
+      uiSchema: { title: 'Amazon Receipt Evidence' },
+      defaultValue: {},
+    },
+    {
       name: 'supplierOrderOpenQty',
       type: 'double',
       interface: 'number',

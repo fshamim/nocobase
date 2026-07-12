@@ -15,6 +15,7 @@ import {
   normalizeSupplierOrderStatus,
 } from '../../supplier-management/server/supplier-order-service';
 import {
+  amazonReceivedQty,
   silverOrderStatus,
   silverSupplierOrderReadModel,
 } from '../../supplier-management/server/silver-supplier-order-read-model';
@@ -600,6 +601,16 @@ function summarizeSupplierOrderState(
     supplierOrderAuthorityTaskRef: asString(reference?.order.authorityTaskRef),
     supplierOrderAuthorityAsOf: asString(reference?.order.authorityAsOf) ?? asString(reference?.order.updatedAt),
     supplierOrderAuthorityEvidence: toPlainRecord(reference?.order.authorityEvidenceJson),
+    amazonReceiptStatus:
+      asString(reference?.order.amazonReceiptStatus) ?? asString(reference?.line.amazonReceiptStatus),
+    amazonReceiptObservedAt:
+      asString(reference?.order.amazonReceiptObservedAt) ?? asString(reference?.line.amazonReceiptObservedAt),
+    amazonReceiptCompletionReason:
+      asString(reference?.order.amazonReceiptCompletionReason) ??
+      asString(reference?.line.amazonReceiptCompletionReason),
+    amazonReceiptEvidenceJson: asString(toPlainRecord(reference?.order.amazonReceiptEvidenceJson).evidenceKey)
+      ? toPlainRecord(reference?.order.amazonReceiptEvidenceJson)
+      : toPlainRecord(reference?.line.amazonReceiptEvidenceJson),
     supplierOrderSortValue: reference?.sortValue,
     expectedArrivalDate: asString(reference?.line.expectedArrivalDate),
     expectedArrivalStatus: asString(reference?.line.expectedArrivalStatus) ?? 'unknown',
@@ -859,6 +870,10 @@ const INVENTORY_PLANNING_ROW_FIELDS = [
   'supplierOrderAuthorityTaskRef',
   'supplierOrderAuthorityAsOf',
   'supplierOrderAuthorityEvidence',
+  'amazonReceiptStatus',
+  'amazonReceiptObservedAt',
+  'amazonReceiptCompletionReason',
+  'amazonReceiptEvidenceJson',
   'supplierOrderOpenQty',
   'supplierOrderReferenceOpenQty',
   'supplierOrderPurchasedOpenQty',
@@ -1217,7 +1232,7 @@ export class EcobaseInventoryPlanningService {
     const normalizedOrderLines: PlainRecord[] = orderLines.map((line) => ({
       ...line,
       supplierOrderId: asString(line.orderId),
-      receivedQty: asNumber(line.confirmedQty) ?? 0,
+      receivedQty: amazonReceivedQty(line),
       leadTimeDays: asNumber(supplierProductsById.get(asString(line.supplierProductId))?.leadTimeDays),
     }));
     const linesByCompanyProduct = this.groupBy(normalizedOrderLines, 'companyProductId');
@@ -3170,7 +3185,7 @@ export class EcobaseInventoryPlanningService {
           title: asString(product?.title) ?? asString(line.title),
           brand: asString(product?.brand) ?? asString(line.brand),
           orderedQty: asNumber(line.orderedQty) ?? 0,
-          receivedQty: asNumber(line.confirmedQty) ?? asNumber(line.receivedQty) ?? 0,
+          receivedQty: amazonReceivedQty(line),
           unitCost: asNumber(line.unitCost) ?? asNumber(supplierProduct?.unitCost),
           expectedDeliveryDate: asString(line.expectedDeliveryDate) ?? asString(order?.expectedDeliveryDate),
           expectedArrivalDate: asString(line.expectedArrivalDate) ?? asString(line.expectedSellableDate),

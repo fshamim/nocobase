@@ -150,6 +150,10 @@ async function createSilverOrderRecord(db: MemoryDatabase, values: Record<string
     approvalStatus: values.approvalStatus,
     expectedDeliveryDate: values.expectedDeliveryDate,
     shippingCarrier: values.shippingCarrier,
+    amazonReceiptStatus: values.amazonReceiptStatus,
+    amazonReceiptObservedAt: values.amazonReceiptObservedAt,
+    amazonReceiptCompletionReason: values.amazonReceiptCompletionReason,
+    amazonReceiptEvidenceJson: values.amazonReceiptEvidenceJson,
     trackingId: values.trackingId,
     updatedAt: values.lastMeaningfulUpdateAt ?? values.statusUpdatedAt,
   });
@@ -196,6 +200,12 @@ async function createSilverOrderLineRecord(db: MemoryDatabase, values: Record<st
     unitCost: values.unitCost,
     expectedDeliveryDate: values.expectedDeliveryDate,
     expectedSellableDate: values.expectedSellableDate,
+    amazonReceiptStatus: values.amazonReceiptStatus,
+    amazonReceiptObservedQty: values.amazonReceiptObservedQty,
+    amazonReceiptBaselineAt: values.amazonReceiptBaselineAt,
+    amazonReceiptObservedAt: values.amazonReceiptObservedAt,
+    amazonReceiptCompletionReason: values.amazonReceiptCompletionReason,
+    amazonReceiptEvidenceJson: values.amazonReceiptEvidenceJson,
   });
 }
 
@@ -1597,6 +1607,90 @@ describe('EcobaseInventoryPlanningService', () => {
       supplierOrderState: 'closed_history',
       supplierOrderOpenQty: 0,
       openOrderCoverageQty: 0,
+    });
+  });
+
+  it('subtracts only persisted Amazon receipt evidence from Gold open-order coverage', async () => {
+    const db = new MemoryDatabase();
+    const company = 'Ecofission LLC';
+    for (const fixture of [
+      {
+        suffix: 'PARTIAL',
+        receiptStatus: 'partially_observed',
+        lineReceiptStatus: 'amazon_stock_observed',
+        observedQty: 4,
+        expectedOpenQty: 6,
+        expectedState: 'purchased_pipeline',
+      },
+      {
+        suffix: 'LATER',
+        receiptStatus: 'completed_by_later_inbound',
+        lineReceiptStatus: 'completed_by_later_inbound',
+        observedQty: undefined,
+        expectedOpenQty: 0,
+        expectedState: 'closed_history',
+      },
+    ]) {
+      const orderId = `order-${fixture.suffix}`;
+      const asin = `B000${fixture.suffix}`;
+      const sku = `${fixture.suffix}-SKU`;
+      const companyProductId = `silver-company-product:${company}:${asin}:${sku}`;
+      await createSilverOrderRecord(db, {
+        id: orderId,
+        company,
+        supplierId: `supplier-${fixture.suffix}`,
+        externalOrderRef: `PO-${fixture.suffix}`,
+        status: 'INBOUND-MONITORING',
+        amazonReceiptStatus: fixture.receiptStatus,
+        amazonReceiptObservedAt: '2026-06-07T00:00:00.000Z',
+        amazonReceiptCompletionReason: 'receipt-test',
+        amazonReceiptEvidenceJson: { evidenceKey: `order-${fixture.suffix}` },
+      });
+      await createSilverOrderLineRecord(db, {
+        id: `line-${fixture.suffix}`,
+        company,
+        supplierOrderId: orderId,
+        supplierId: `supplier-${fixture.suffix}`,
+        asin,
+        sku,
+        orderedQty: 10,
+        receivedQty: 9,
+        amazonReceiptStatus: fixture.lineReceiptStatus,
+        amazonReceiptObservedQty: fixture.observedQty,
+        amazonReceiptObservedAt: '2026-06-07T00:00:00.000Z',
+        amazonReceiptCompletionReason: 'receipt-test',
+        amazonReceiptEvidenceJson: { evidenceKey: `line-${fixture.suffix}` },
+      });
+      await createRecord(db, ECOBASE_COLLECTIONS.silverInventorySnapshots, {
+        id: `inventory-${fixture.suffix}`,
+        companyProductId,
+        snapshotDate: '2026-06-07',
+        sellableStock: 0,
+        reserved: 0,
+        inbound: 0,
+        ordered: 0,
+        prepStock: 0,
+        salesVelocity: 1,
+      });
+    }
+
+    await new EcobaseInventoryPlanningService(db).refreshReadModel({ calculationDate: '2026-06-07' });
+    const rows = db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).all();
+    const row = (asin: string) => rows.find((item) => item.asin === asin);
+    expect(row('B000PARTIAL')).toMatchObject({
+      openOrderCoverageQty: 6,
+      supplierOrderOpenQty: 6,
+      supplierOrderState: 'purchased_pipeline',
+      amazonReceiptStatus: 'partially_observed',
+      amazonReceiptObservedAt: '2026-06-07T00:00:00.000Z',
+      amazonReceiptCompletionReason: 'receipt-test',
+      amazonReceiptEvidenceJson: { evidenceKey: 'order-PARTIAL' },
+    });
+    expect(row('B000LATER')).toMatchObject({
+      openOrderCoverageQty: 0,
+      supplierOrderOpenQty: 0,
+      supplierOrderState: 'closed_history',
+      amazonReceiptStatus: 'completed_by_later_inbound',
     });
   });
 

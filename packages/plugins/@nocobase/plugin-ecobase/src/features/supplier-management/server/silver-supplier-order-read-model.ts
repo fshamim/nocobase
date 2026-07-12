@@ -108,7 +108,7 @@ export async function silverSupplierOrderReadModel(
         title: asString(product?.title) ?? asString(line.title),
         brand: asString(product?.brand) ?? asString(line.brand),
         orderedQty: asNumber(line.orderedQty) ?? 0,
-        receivedQty: asNumber(line.confirmedQty) ?? asNumber(line.receivedQty) ?? 0,
+        receivedQty: amazonReceivedQty(line),
         unitCost: asNumber(line.unitCost) ?? asNumber(supplierProduct?.unitCost),
         expectedDeliveryDate: asString(line.expectedDeliveryDate) ?? asString(order?.expectedDeliveryDate),
         expectedSellableDate: asString(line.expectedSellableDate),
@@ -138,6 +138,14 @@ export function silverOrderStatus(order: PlainRecord) {
   if (status === 'ordered' || status.includes('paid')) return 'paid';
   if (status.includes('approved') || status.includes('analys') || status === 'in_progress') return 'approval_pending';
   return 'supplier_contacted';
+}
+
+export function amazonReceivedQty(line: PlainRecord) {
+  const orderedQty = Math.max(asNumber(line.orderedQty) ?? 0, 0);
+  const status = normalizeStatus(asString(line.amazonReceiptStatus));
+  if (status === 'completed_by_later_inbound') return orderedQty;
+  if (!['amazon_stock_observed', 'partially_observed'].includes(status)) return 0;
+  return Math.min(Math.max(asNumber(line.amazonReceiptObservedQty) ?? 0, 0), orderedQty);
 }
 
 const LEGACY_SUPPLIER_ORDER_STATUSES = new Set([

@@ -166,6 +166,14 @@ describe('Ecobase medallion schema foundation', () => {
     expect(field(silverOrders, 'amazonReceiptEvidenceJson')).toMatchObject({ type: 'jsonb', defaultValue: {} });
     expect(field(silverOrders, 'canonicalStatus')).toMatchObject({ type: 'string' });
     expect(field(silverOrders, 'lifecycleStatus')).toMatchObject({ type: 'string' });
+
+    expect(field(goldInventoryPlanningRows, 'amazonReceiptStatus')).toMatchObject({ type: 'string', index: true });
+    expect(field(goldInventoryPlanningRows, 'amazonReceiptObservedAt')).toMatchObject({ type: 'datetimeTz' });
+    expect(field(goldInventoryPlanningRows, 'amazonReceiptCompletionReason')).toMatchObject({ type: 'string' });
+    expect(field(goldInventoryPlanningRows, 'amazonReceiptEvidenceJson')).toMatchObject({
+      type: 'jsonb',
+      defaultValue: {},
+    });
   });
 
   it('defines practical FK relationships across core silver and gold tables', () => {
