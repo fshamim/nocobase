@@ -87,6 +87,8 @@ export type InventoryCommandCenterPane =
   | 'supplyAction'
   | 'missingSupplier'
   | 'activeOrders'
+  | 'inboundMonitoring'
+  | 'healthyInventory'
   | 'stuckInventory'
   | 'duplicateProducts';
 
@@ -110,6 +112,8 @@ const COMMAND_CENTER_PANES: InventoryCommandCenterPane[] = [
   'supplyAction',
   'missingSupplier',
   'activeOrders',
+  'inboundMonitoring',
+  'healthyInventory',
   'stuckInventory',
   'duplicateProducts',
 ];
@@ -973,6 +977,8 @@ export class EcobaseInventoryPlanningService {
         supplyAction: this.commandCenterPanePayload('supplyAction', rows, query),
         missingSupplier: this.commandCenterPanePayload('missingSupplier', rows, query),
         activeOrders: this.commandCenterPanePayload('activeOrders', rows, query),
+        inboundMonitoring: this.commandCenterPanePayload('inboundMonitoring', rows, query),
+        healthyInventory: this.commandCenterPanePayload('healthyInventory', rows, query),
         stuckInventory: this.commandCenterPanePayload('stuckInventory', rows, query),
         duplicateProducts: this.commandCenterPanePayload('duplicateProducts', rows, query),
       },
@@ -1613,13 +1619,35 @@ export class EcobaseInventoryPlanningService {
       (asNumber(row.salesVelocity) ?? 0) > 0 &&
       stockoutSoon &&
       ['no_open_order', 'closed_history', ''].includes(supplierOrderState);
-    const commandCenterPane = stuckInventory
-      ? 'stuckInventory'
-      : activeOrder
-        ? 'activeOrders'
-        : supplyAction
-          ? 'supplyAction'
-          : 'watch';
+    const receiptStatus = asString(row.amazonReceiptStatus);
+    const exactSourceStatus = asString(
+      toPlainRecord(toPlainRecord(row.supplierOrderAuthorityEvidence).clickupStatusEvidence).clickupStatus,
+    );
+    const receiptObservedDate = optionalIsoDate(asString(row.amazonReceiptObservedAt)?.slice(0, 10) ?? '');
+    const inventoryAsOfDate = optionalIsoDate(asString(row.inventoryAsOfDate) ?? '');
+    const newerIndependentCondition = Boolean(
+      receiptObservedDate && inventoryAsOfDate && inventoryAsOfDate > receiptObservedDate,
+    );
+    const inboundMonitoring =
+      activeOrder &&
+      exactSourceStatus === 'inbound-monitoring' &&
+      ['awaiting_amazon_stock', 'partially_observed'].includes(receiptStatus ?? '');
+    const fullyObserved = receiptStatus === 'amazon_stock_observed';
+    const healthyInventory =
+      planningTarget && live && !excluded && fullyObserved && (asNumber(row.currentPlanningStock) ?? 0) > 0;
+    const currentStuckInventory = stuckInventory && (!fullyObserved || newerIndependentCondition);
+    const currentSupplyAction = supplyAction && (!fullyObserved || newerIndependentCondition);
+    const commandCenterPane = inboundMonitoring
+      ? 'inboundMonitoring'
+      : currentStuckInventory
+        ? 'stuckInventory'
+        : activeOrder
+          ? 'activeOrders'
+          : currentSupplyAction
+            ? 'supplyAction'
+            : healthyInventory
+              ? 'healthyInventory'
+              : 'watch';
     const planningEligibilityStatus = excluded
       ? 'ineligible_excluded'
       : commandCenterPane !== 'watch'
@@ -1631,7 +1659,6 @@ export class EcobaseInventoryPlanningService {
             : !tiered
               ? 'ineligible_unclassified_tier'
               : 'eligible_watch';
-    const inventoryAsOfDate = optionalIsoDate(asString(row.inventoryAsOfDate) ?? '');
     const inventoryAgeDays = inventoryAsOfDate ? diffDays(calculationDate, inventoryAsOfDate) : undefined;
     const sourceFreshnessStatus =
       typeof inventoryAgeDays !== 'number'
@@ -2216,7 +2243,8 @@ export class EcobaseInventoryPlanningService {
   }
 
   private defaultCommandCenterSort(pane: InventoryCommandCenterPane) {
-    if (pane === 'activeOrders') return 'stockoutGapDays';
+    if (pane === 'activeOrders' || pane === 'inboundMonitoring') return 'stockoutGapDays';
+    if (pane === 'healthyInventory') return 'daysOfCover';
     if (pane === 'stuckInventory') return 'familyStuckAffectedValue';
     if (pane === 'duplicateProducts') return 'currentPlanningStock';
     return 'estimatedProfitRisk';

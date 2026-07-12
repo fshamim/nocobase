@@ -1616,19 +1616,35 @@ describe('EcobaseInventoryPlanningService', () => {
     for (const fixture of [
       {
         suffix: 'PARTIAL',
+        sourceStatus: 'inbound-monitoring',
         receiptStatus: 'partially_observed',
         lineReceiptStatus: 'amazon_stock_observed',
         observedQty: 4,
-        expectedOpenQty: 6,
-        expectedState: 'purchased_pipeline',
+        sellableStock: 0,
       },
       {
         suffix: 'LATER',
+        sourceStatus: 'inbound-monitoring',
         receiptStatus: 'completed_by_later_inbound',
         lineReceiptStatus: 'completed_by_later_inbound',
         observedQty: undefined,
-        expectedOpenQty: 0,
-        expectedState: 'closed_history',
+        sellableStock: 0,
+      },
+      {
+        suffix: 'HEALTHY',
+        sourceStatus: 'inbound-monitoring',
+        receiptStatus: 'amazon_stock_observed',
+        lineReceiptStatus: 'amazon_stock_observed',
+        observedQty: 10,
+        sellableStock: 5,
+      },
+      {
+        suffix: 'DIRECT',
+        sourceStatus: 'direct-ship-fba',
+        receiptStatus: 'awaiting_amazon_stock',
+        lineReceiptStatus: 'awaiting_amazon_stock',
+        observedQty: undefined,
+        sellableStock: 0,
       },
     ]) {
       const orderId = `order-${fixture.suffix}`;
@@ -1640,7 +1656,8 @@ describe('EcobaseInventoryPlanningService', () => {
         company,
         supplierId: `supplier-${fixture.suffix}`,
         externalOrderRef: `PO-${fixture.suffix}`,
-        status: 'INBOUND-MONITORING',
+        status: 'shipped_inbound',
+        authorityEvidenceJson: { clickupStatusEvidence: { clickupStatus: fixture.sourceStatus } },
         amazonReceiptStatus: fixture.receiptStatus,
         amazonReceiptObservedAt: '2026-06-07T00:00:00.000Z',
         amazonReceiptCompletionReason: 'receipt-test',
@@ -1665,7 +1682,7 @@ describe('EcobaseInventoryPlanningService', () => {
         id: `inventory-${fixture.suffix}`,
         companyProductId,
         snapshotDate: '2026-06-07',
-        sellableStock: 0,
+        sellableStock: fixture.sellableStock,
         reserved: 0,
         inbound: 0,
         ordered: 0,
@@ -1674,7 +1691,8 @@ describe('EcobaseInventoryPlanningService', () => {
       });
     }
 
-    await new EcobaseInventoryPlanningService(db).refreshReadModel({ calculationDate: '2026-06-07' });
+    const service = new EcobaseInventoryPlanningService(db);
+    await service.refreshReadModel({ calculationDate: '2026-06-07' });
     const rows = db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).all();
     const row = (asin: string) => rows.find((item) => item.asin === asin);
     expect(row('B000PARTIAL')).toMatchObject({
@@ -1685,13 +1703,34 @@ describe('EcobaseInventoryPlanningService', () => {
       amazonReceiptObservedAt: '2026-06-07T00:00:00.000Z',
       amazonReceiptCompletionReason: 'receipt-test',
       amazonReceiptEvidenceJson: { evidenceKey: 'order-PARTIAL' },
+      commandCenterPane: 'inboundMonitoring',
     });
     expect(row('B000LATER')).toMatchObject({
       openOrderCoverageQty: 0,
       supplierOrderOpenQty: 0,
       supplierOrderState: 'closed_history',
       amazonReceiptStatus: 'completed_by_later_inbound',
+      commandCenterPane: 'watch',
     });
+    expect(row('B000HEALTHY')).toMatchObject({
+      openOrderCoverageQty: 0,
+      supplierOrderState: 'closed_history',
+      amazonReceiptStatus: 'amazon_stock_observed',
+      commandCenterPane: 'healthyInventory',
+    });
+    expect(row('B000DIRECT')).toMatchObject({
+      openOrderCoverageQty: 10,
+      supplierOrderState: 'purchased_pipeline',
+      amazonReceiptStatus: 'awaiting_amazon_stock',
+      commandCenterPane: 'activeOrders',
+    });
+
+    const commandCenter = await service.commandCenter({ calculationDate: '2026-06-07', pageSize: 20 });
+    expect(commandCenter.panes.inboundMonitoring.rows.map((item) => item.asin)).toContain('B000PARTIAL');
+    expect(commandCenter.panes.healthyInventory.rows.map((item) => item.asin)).toContain('B000HEALTHY');
+    expect(commandCenter.panes.activeOrders.rows.map((item) => item.asin)).toContain('B000DIRECT');
+    const routedIds = Object.values(commandCenter.panes).flatMap((pane) => pane.rows.map((item) => item.id));
+    expect(new Set(routedIds).size).toBe(routedIds.length);
   });
 
   it('projects persisted latest active-order activity without request-time reclassification', async () => {
