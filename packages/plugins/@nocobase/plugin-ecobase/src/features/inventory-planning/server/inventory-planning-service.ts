@@ -35,6 +35,7 @@ import {
   type ProfitTierThresholds,
 } from './profit-tier';
 import { summarizeHistoricalProductFacts } from './historical-product-metrics';
+import { latestPreferredInventorySnapshot } from './order-receipt-evidence';
 
 const GOLD_SOURCE_RECORD_LIMIT = 100000;
 const TIER_RULE_VERSION = 'rolling_30d_min_4_v1';
@@ -456,21 +457,6 @@ async function findRecords(db: EcobaseDatabase, collection: string, filter: Plai
 
 function latestByDate(records: PlainRecord[], field: string) {
   return [...records].sort((left, right) => String(right[field] ?? '').localeCompare(String(left[field] ?? '')))[0];
-}
-
-function inventorySnapshotSourceRank(record: PlainRecord, sellerboardSourceConnectionIds: Set<string>) {
-  const sourceConnectionId = asString(record.sourceConnectionId);
-  return sourceConnectionId && sellerboardSourceConnectionIds.has(sourceConnectionId) ? 0 : 1;
-}
-
-function latestPreferredInventorySnapshot(records: PlainRecord[], sellerboardSourceConnectionIds: Set<string>) {
-  return [...records].sort((left, right) => {
-    const sourceRank =
-      inventorySnapshotSourceRank(left, sellerboardSourceConnectionIds) -
-      inventorySnapshotSourceRank(right, sellerboardSourceConnectionIds);
-    if (sourceRank !== 0) return sourceRank;
-    return String(right.snapshotDate ?? '').localeCompare(String(left.snapshotDate ?? ''));
-  })[0];
 }
 
 function sortableDateValue(value: unknown) {
@@ -1281,6 +1267,7 @@ export class EcobaseInventoryPlanningService {
               inbound: asNumber(inventory.inbound),
               ordered: asNumber(inventory.ordered),
               prepStock: asNumber(inventory.prepStock),
+              awdStock: asNumber(inventory.awdStock),
             },
             {},
           )

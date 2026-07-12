@@ -135,6 +135,8 @@ describe('Ecobase medallion schema foundation', () => {
     uniqueIndex(silverOrders, ['companyId', 'orderRef']);
     expect(field(silverOrderLines, 'expectedDeliveryDate')).toMatchObject({ type: 'dateOnly' });
     expect(field(silverOrderLines, 'expectedSellableDate')).toMatchObject({ type: 'dateOnly' });
+    expect(field(silverInventorySnapshots, 'sourceConnectionId')).toMatchObject({ type: 'uuid', index: true });
+    expect(field(silverInventorySnapshots, 'awdStock')).toMatchObject({ type: 'double' });
     uniqueIndex(bronzeSourceRecords, ['sourceConnectionId', 'sourceDataset', 'sourceRecordKey', 'rowHash']);
   });
 

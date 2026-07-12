@@ -303,6 +303,7 @@ export class EcobaseMedallionNormalizationService {
         'Reserved',
         'Inbound',
         'Ordered',
+        'AWD Stock',
         'Estimated Sales Velocity',
         'Est. Sales Velocity',
       )
@@ -319,10 +320,12 @@ export class EcobaseMedallionNormalizationService {
             {
               companyProductId: idOf(companyProduct),
               snapshotDate,
+              sourceConnectionId,
               sellableStock: row.number('FBA/FBM Stock', 'Current Stock', 'FBA'),
               reserved: row.number('Reserved', 'Rerv.'),
               inbound: row.number('Inbound', 'Sent  to FBA'),
               ordered: row.number('Ordered'),
+              awdStock: row.number('AWD Stock'),
               salesVelocity: row.number('Estimated Sales Velocity', 'Est. Sales Velocity'),
             },
           ),

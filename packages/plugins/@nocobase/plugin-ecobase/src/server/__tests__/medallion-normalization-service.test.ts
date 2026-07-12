@@ -113,6 +113,7 @@ describe('EcobaseMedallionNormalizationService', () => {
       'FBA/FBM Stock': '386',
       Reserved: '13',
       Ordered: '500',
+      'AWD Stock': '7',
       'Estimated Sales Velocity': '9.79',
     });
 
@@ -125,6 +126,8 @@ describe('EcobaseMedallionNormalizationService', () => {
       sellableStock: 386,
       reserved: 13,
       ordered: 500,
+      awdStock: 7,
+      sourceConnectionId: 'source-1',
       salesVelocity: 9.79,
     });
     expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).rows[0].normalizationStatus).toBe('normalized');

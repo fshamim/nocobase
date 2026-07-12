@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { defineCollection } from '@nocobase/database';
 import { ECOBASE_COLLECTIONS } from './names';
 
@@ -17,11 +26,13 @@ export default defineCollection({
       onDelete: 'CASCADE',
     },
     { name: 'snapshotDate', type: 'string', allowNull: false },
+    { name: 'sourceConnectionId', type: 'uuid', index: true },
     { name: 'sellableStock', type: 'double' },
     { name: 'reserved', type: 'double' },
     { name: 'inbound', type: 'double' },
     { name: 'ordered', type: 'double' },
     { name: 'prepStock', type: 'double' },
+    { name: 'awdStock', type: 'double' },
     { name: 'salesVelocity', type: 'double' },
   ],
 });
