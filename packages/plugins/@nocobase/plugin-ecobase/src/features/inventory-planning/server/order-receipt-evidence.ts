@@ -61,7 +61,9 @@ export interface AmazonReceiptEvidence {
     | 'missing_current_snapshot';
   confidence: 'high' | 'partial' | 'none';
   baselineSnapshotId?: string;
+  baselineSnapshotDate?: string;
   currentSnapshotId?: string;
+  currentSnapshotDate?: string;
   baselineAmazonVisibleStock?: number;
   currentAmazonVisibleStock?: number;
   netAmazonIncrease?: number;
@@ -149,6 +151,7 @@ export function calculateAmazonReceiptEvidence(input: CalculateAmazonReceiptEvid
       reason: 'missing_current_snapshot',
       confidence: 'none',
       baselineSnapshotId: baseline.id,
+      baselineSnapshotDate: baseline.snapshotDate,
       baselineAmazonVisibleStock: amazonVisibleStock(baseline, awdIncluded),
       awdIncluded,
     };
@@ -175,7 +178,9 @@ export function calculateAmazonReceiptEvidence(input: CalculateAmazonReceiptEvid
     reason: observedAddition > 0 ? 'positive_attributed_addition' : 'no_post_baseline_addition',
     confidence: trustedSalesAvailable ? 'high' : 'partial',
     baselineSnapshotId: baseline.id,
+    baselineSnapshotDate: baseline.snapshotDate,
     currentSnapshotId: current.id,
+    currentSnapshotDate: current.snapshotDate,
     baselineAmazonVisibleStock: baselineStock,
     currentAmazonVisibleStock: currentStock,
     netAmazonIncrease,

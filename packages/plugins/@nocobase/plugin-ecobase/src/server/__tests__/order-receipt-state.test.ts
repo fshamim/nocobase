@@ -87,10 +87,15 @@ describe('Amazon receipt-state vocabulary', () => {
       }),
     ).toMatchObject({ outcome: 'changed', to: 'completed_by_later_inbound', reason: 'later_inbound_cycle' });
 
-    expect(resolveAmazonReceiptState({ sourceOperationalStatus: ' INBOUND-MONITORING ' })).toMatchObject({
+    expect(resolveAmazonReceiptState({ sourceOperationalStatus: ' INBOUND MONITORING ' })).toMatchObject({
       outcome: 'changed',
       to: 'awaiting_amazon_stock',
       reason: 'source_inbound_monitoring',
+    });
+    expect(resolveAmazonReceiptState({ sourceOperationalStatus: 'DIRECT-SHIP-FBA' })).toMatchObject({
+      outcome: 'changed',
+      to: 'awaiting_amazon_stock',
+      reason: 'source_direct_ship_fba',
     });
     expect(resolveAmazonReceiptState({ sourceOperationalStatus: 'ordered' })).toMatchObject({
       outcome: 'changed',

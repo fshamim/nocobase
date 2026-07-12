@@ -46,6 +46,7 @@ import {
   type InventoryCommandCenterPane,
   type InventoryPlanningCommandCenterQuery,
 } from '../features/inventory-planning/server/inventory-planning-service';
+import { EcobaseOrderReceiptReconciliationService } from '../features/inventory-planning/server/order-receipt-reconciliation-service';
 import { EcobaseOrderPlanningService } from '../features/order-planning/server/order-planning-service';
 import { EcobaseMedallionNormalizationService } from '../features/semantic-model/server/medallion-normalization-service';
 import { EcobaseMedallionOrderService } from '../features/semantic-model/server/medallion-order-service';
@@ -1085,6 +1086,21 @@ export function createEcobaseInventoryPlanningActions() {
         data: await new EcobaseCompanyProductFamilyService(ctx.db).reconcileAllFamilies(
           getOptionalString(values, 'companyId'),
         ),
+      };
+      await next();
+    },
+    reconcileReceipts: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const orderIds = getOptionalStringArray(values, 'orderIds');
+      if (!orderIds?.length) {
+        ctx.throw(400, 'Ecobase receipt reconciliation requires at least one order ID.');
+        return;
+      }
+      ctx.body = {
+        data: await new EcobaseOrderReceiptReconciliationService(ctx.db).reconcileAffectedOrders({
+          orderIds,
+          evaluatedAt: getOptionalString(values, 'evaluatedAt'),
+        }),
       };
       await next();
     },
