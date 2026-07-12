@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import {
   EcobaseOrderReceiptReconciliationService,
+  historicalReceiptCandidateOrderIds,
   receiptReconciliationOrderIdsForRefresh,
 } from '../../features/inventory-planning/server/order-receipt-reconciliation-service';
 import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
@@ -136,6 +137,21 @@ function fixture() {
 }
 
 describe('EcobaseOrderReceiptReconciliationService', () => {
+  it('selects only unassessed exact inbound/direct-ship orders for historical backfill', () => {
+    expect(
+      historicalReceiptCandidateOrderIds([
+        { id: 'inbound', statusEvidenceJson: { clickupStatusImport: { clickupStatus: 'inbound-monitoring' } } },
+        { id: 'direct', authorityEvidenceJson: { clickupStatusEvidence: { clickupStatus: 'direct-ship-fba' } } },
+        {
+          id: 'assessed',
+          amazonReceiptStatus: 'awaiting_amazon_stock',
+          statusEvidenceJson: { clickupStatusImport: { clickupStatus: 'inbound-monitoring' } },
+        },
+        { id: 'other', statusEvidenceJson: { clickupStatusImport: { clickupStatus: 'supplier-preparing' } } },
+      ]),
+    ).toEqual(['direct', 'inbound']);
+  });
+
   it('limits automatic refreshes to changed orders and already assessed open receipt states', () => {
     expect(
       receiptReconciliationOrderIdsForRefresh(

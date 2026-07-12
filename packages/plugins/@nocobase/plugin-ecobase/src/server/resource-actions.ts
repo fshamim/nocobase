@@ -1122,6 +1122,19 @@ export function createEcobaseInventoryPlanningActions() {
       };
       await next();
     },
+    backfillReceipts: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      requireReceiptOverrideActor(ctx);
+      ctx.body = {
+        data: await new EcobaseOrderReceiptReconciliationService(ctx.db).backfillHistoricalReceipts({
+          cursor: getOptionalString(values, 'cursor'),
+          batchSize: getOptionalNumber(values, 'batchSize'),
+          dryRun: getOptionalBoolean(values, 'dryRun') !== false,
+          evaluatedAt: getOptionalString(values, 'evaluatedAt'),
+        }),
+      };
+      await next();
+    },
     setReceiptOverride: async (ctx, next) => {
       const values = getValues(ctx.action.params);
       const lineId = getOptionalString(values, 'lineId');

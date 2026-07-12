@@ -32,6 +32,13 @@ export interface ReconcileAffectedOrdersInput {
   evaluatedAt?: string;
 }
 
+export interface ReceiptBackfillInput {
+  cursor?: string;
+  batchSize?: number;
+  dryRun?: boolean;
+  evaluatedAt?: string;
+}
+
 export interface SetReceiptOverrideInput {
   lineId: string;
   status?: AmazonReceiptStatus;
@@ -39,6 +46,22 @@ export interface SetReceiptOverrideInput {
   actorUserId: string;
   clear?: boolean;
   evaluatedAt?: string;
+}
+
+export function historicalReceiptCandidateOrderIds(orders: Row[]) {
+  return orders
+    .filter((order) => {
+      if (text(order.amazonReceiptStatus)) return false;
+      const statusEvidence = record(order.statusEvidenceJson);
+      const authorityEvidence = record(order.authorityEvidenceJson);
+      const exactStatus =
+        text(record(statusEvidence.clickupStatusImport).clickupStatus) ??
+        text(record(authorityEvidence.clickupStatusEvidence).clickupStatus);
+      return ['inbound-monitoring', 'direct-ship-fba'].includes(exactStatus ?? '');
+    })
+    .map((order) => text(order.id))
+    .filter((id): id is string => Boolean(id))
+    .sort();
 }
 
 export function receiptReconciliationOrderIdsForRefresh(orders: Row[], affectedOrderIds: string[]) {
@@ -137,6 +160,28 @@ function aggregateOrderStatus(lines: LineResult[]): AmazonReceiptStatus {
 
 export class EcobaseOrderReceiptReconciliationService {
   constructor(private readonly db: EcobaseDatabase) {}
+
+  async backfillHistoricalReceipts(input: ReceiptBackfillInput = {}) {
+    const batchSize = Math.min(Math.max(Math.floor(input.batchSize ?? 100), 1), 500);
+    const candidates = historicalReceiptCandidateOrderIds(await this.find(ECOBASE_COLLECTIONS.silverOrders, {}));
+    const remaining = input.cursor ? candidates.filter((id) => id > input.cursor!) : candidates;
+    const orderIds = remaining.slice(0, batchSize);
+    const nextCursor = orderIds.at(-1);
+    const preview = {
+      dryRun: input.dryRun !== false,
+      totalCandidates: candidates.length,
+      batchSize: orderIds.length,
+      orderIds,
+      cursor: input.cursor ?? null,
+      nextCursor: nextCursor ?? null,
+      complete: remaining.length <= batchSize,
+    };
+    if (input.dryRun !== false || orderIds.length === 0) return { ...preview, reconciliation: null };
+    return {
+      ...preview,
+      reconciliation: await this.reconcileAffectedOrders({ orderIds, evaluatedAt: input.evaluatedAt }),
+    };
+  }
 
   async setOperatorOverride(input: SetReceiptOverrideInput) {
     const reason = input.reason.trim();

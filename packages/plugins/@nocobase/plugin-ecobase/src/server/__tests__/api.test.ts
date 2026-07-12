@@ -296,6 +296,9 @@ describe('Ecobase inventory-planning public API seam', () => {
     await expect(
       actions.setReceiptOverride(createActionContext(new MemoryDatabase(), values, { id: 1 }, ['admin']), vi.fn()),
     ).rejects.toThrow('could not find Silver order line line-1');
+    const preview = createActionContext(new MemoryDatabase(), { dryRun: true }, { id: 1 }, ['admin']);
+    await actions.backfillReceipts(preview, vi.fn());
+    expect(preview.body).toMatchObject({ data: { dryRun: true, totalCandidates: 0, complete: true } });
   });
 
   it('returns a compact command-center payload with paginated pane rows and drawer data', async () => {
