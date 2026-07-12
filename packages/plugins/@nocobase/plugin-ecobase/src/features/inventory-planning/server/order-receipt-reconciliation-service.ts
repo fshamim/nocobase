@@ -50,6 +50,7 @@ interface LineResult {
   evidenceKey: string;
   orderedQty: number;
   observedQty: number;
+  trustedArrivalEvidence: boolean;
   updated: boolean;
 }
 
@@ -166,40 +167,139 @@ export class EcobaseOrderReceiptReconciliationService {
           if (lineResult.status === 'review_required') result.reviewRequired += 1;
         }
 
-        const orderStatus = aggregateOrderStatus(lineResults);
-        const orderEvidence = {
-          version: 1,
-          lineEvidenceKeys: lineResults.map((line) => line.evidenceKey).sort(),
-        };
-        const orderEvidenceKey = evidenceKey(orderEvidence);
-        const existingOrderEvidence = record(order.amazonReceiptEvidenceJson);
-        if (
-          currentReceiptStatus(order) !== orderStatus ||
-          text(existingOrderEvidence.evidenceKey) !== orderEvidenceKey
-        ) {
-          const observedAt = lineResults
-            .map((line) => line.observedAt)
-            .filter((value): value is string => Boolean(value))
-            .sort()
-            .at(-1);
-          await this.update(
-            ECOBASE_COLLECTIONS.silverOrders,
-            orderId,
-            {
-              amazonReceiptStatus: orderStatus,
-              amazonReceiptObservedAt: observedAt,
-              amazonReceiptCompletionReason: `line_receipt_aggregate_${orderStatus}`,
-              amazonReceiptEvidenceJson: { ...orderEvidence, evidenceKey: orderEvidenceKey },
-            },
-            transaction,
-          );
-          result.updatedOrders += 1;
-        }
+        if (await this.persistOrderAggregate(order, lineResults, transaction)) result.updatedOrders += 1;
+        const laterCycleUpdates = await this.completeOlderCycles(order, lineResults, transaction);
+        result.updatedLines += laterCycleUpdates.updatedLines;
+        result.updatedOrders += laterCycleUpdates.updatedOrders;
       });
     }
 
     result.affectedFamilyIds = [...familyIds].sort();
     return result;
+  }
+
+  private async persistOrderAggregate(order: Row, lines: LineResult[], transaction: Transaction) {
+    const orderStatus = aggregateOrderStatus(lines);
+    const orderEvidence = {
+      version: 1,
+      lineEvidenceKeys: lines.map((line) => line.evidenceKey).sort(),
+    };
+    const key = evidenceKey(orderEvidence);
+    if (
+      currentReceiptStatus(order) === orderStatus &&
+      text(record(order.amazonReceiptEvidenceJson).evidenceKey) === key
+    ) {
+      return false;
+    }
+    const observedAt = lines
+      .map((line) => line.observedAt)
+      .filter((value): value is string => Boolean(value))
+      .sort()
+      .at(-1);
+    await this.update(
+      ECOBASE_COLLECTIONS.silverOrders,
+      text(order.id)!,
+      {
+        amazonReceiptStatus: orderStatus,
+        amazonReceiptObservedAt: observedAt,
+        amazonReceiptCompletionReason: `line_receipt_aggregate_${orderStatus}`,
+        amazonReceiptEvidenceJson: { ...orderEvidence, evidenceKey: key },
+      },
+      transaction,
+    );
+    return true;
+  }
+
+  private async completeOlderCycles(order: Row, lines: LineResult[], transaction: Transaction) {
+    const currentOrderId = text(order.id)!;
+    const currentCycleAt = dateTime(order.authorityAsOf) ?? dateTime(order.orderDate);
+    const trustedFamilyIds = [
+      ...new Set(
+        lines
+          .filter((line) => line.trustedArrivalEvidence)
+          .map((line) => line.familyId)
+          .filter((familyId): familyId is string => Boolean(familyId)),
+      ),
+    ];
+    if (!currentCycleAt || trustedFamilyIds.length === 0) return { updatedLines: 0, updatedOrders: 0 };
+
+    let updatedLines = 0;
+    let updatedOrders = 0;
+    const affectedOrderIds = new Set<string>();
+    for (const familyId of trustedFamilyIds) {
+      const members = await this.find(
+        ECOBASE_COLLECTIONS.silverCompanyProducts,
+        { companyProductFamilyId: familyId },
+        transaction,
+      );
+      for (const member of members) {
+        const companyProductId = text(member.id);
+        if (!companyProductId) continue;
+        for (const olderLine of await this.find(
+          ECOBASE_COLLECTIONS.silverOrderLines,
+          { companyProductId },
+          transaction,
+        )) {
+          const olderOrderId = text(olderLine.orderId);
+          if (!olderOrderId || olderOrderId === currentOrderId || text(olderLine.amazonReceiptOverrideStatus)) continue;
+          const olderOrder = await this.findOne(ECOBASE_COLLECTIONS.silverOrders, olderOrderId, transaction);
+          const olderCycleAt = dateTime(olderOrder?.authorityAsOf) ?? dateTime(olderOrder?.orderDate);
+          if (!olderOrder || !olderCycleAt || olderCycleAt >= currentCycleAt) continue;
+          const sourceTransition = resolveAmazonReceiptState({
+            currentStatus: currentReceiptStatus(olderLine),
+            sourceOperationalStatus: clickupOperationalStatus(olderOrder),
+          });
+          if (
+            sourceTransition.outcome === 'rejected' ||
+            !['awaiting_amazon_stock', 'partially_observed'].includes(sourceTransition.to)
+          ) {
+            continue;
+          }
+          const transition = resolveAmazonReceiptState({
+            currentStatus: currentReceiptStatus(olderLine),
+            sourceOperationalStatus: clickupOperationalStatus(olderOrder),
+            laterInboundOrderId: currentOrderId,
+          });
+          if (transition.outcome === 'rejected') continue;
+          const persisted = await this.persistTransition(
+            olderLine,
+            transition,
+            undefined,
+            { familyId, laterInboundOrderId: currentOrderId },
+            transaction,
+          );
+          if (persisted.updated) {
+            updatedLines += 1;
+            affectedOrderIds.add(olderOrderId);
+          }
+        }
+      }
+    }
+
+    for (const orderId of affectedOrderIds) {
+      const olderOrder = await this.findOne(ECOBASE_COLLECTIONS.silverOrders, orderId, transaction);
+      if (!olderOrder) continue;
+      const olderLines = await this.find(ECOBASE_COLLECTIONS.silverOrderLines, { orderId }, transaction);
+      const lineResults = olderLines.map((line) => this.persistedLineResult(line));
+      if (await this.persistOrderAggregate(olderOrder, lineResults, transaction)) updatedOrders += 1;
+    }
+    return { updatedLines, updatedOrders };
+  }
+
+  private persistedLineResult(line: Row): LineResult {
+    const storedEvidence = record(line.amazonReceiptEvidenceJson);
+    return {
+      lineId: text(line.id)!,
+      status: currentReceiptStatus(line) ?? 'review_required',
+      familyId: text(storedEvidence.familyId),
+      observedAt: dateTime(line.amazonReceiptObservedAt),
+      evidenceKey:
+        text(storedEvidence.evidenceKey) ?? evidenceKey({ lineId: text(line.id), status: 'review_required' }),
+      orderedQty: number(line.orderedQty) ?? 0,
+      observedQty: number(line.amazonReceiptObservedQty) ?? 0,
+      trustedArrivalEvidence: false,
+      updated: false,
+    };
   }
 
   private async reconcileLine(params: {
@@ -413,6 +513,7 @@ export class EcobaseOrderReceiptReconciliationService {
           reviewReason?: string;
           observedQty?: number;
           allocationEvidence?: ReceiptLineAllocationEvidence;
+          laterInboundOrderId?: string;
         }
       | undefined,
     transaction: Transaction,
@@ -426,6 +527,7 @@ export class EcobaseOrderReceiptReconciliationService {
       reviewReason: context?.reviewReason,
       sourceSnapshotIds: [...new Set(context?.sourceSnapshotIds ?? [])].sort(),
       allocationEvidence: context?.allocationEvidence,
+      laterInboundOrderId: context?.laterInboundOrderId,
       receiptEvidence,
     };
     const key = evidenceKey(evidence);
@@ -456,6 +558,7 @@ export class EcobaseOrderReceiptReconciliationService {
       evidenceKey: key,
       orderedQty: number(line.orderedQty) ?? 0,
       observedQty: context?.observedQty ?? number(line.amazonReceiptObservedQty) ?? 0,
+      trustedArrivalEvidence: receiptEvidence?.outcome === 'observed' && (context?.observedQty ?? 0) > 0,
       updated,
     };
   }

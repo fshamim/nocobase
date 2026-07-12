@@ -203,6 +203,97 @@ describe('EcobaseOrderReceiptReconciliationService', () => {
     expect(second).toMatchObject({ updatedOrders: 0, updatedLines: 0, unchangedLines: 2 });
   });
 
+  it('completes only an older cycle after a later cycle has trusted Sellerboard arrival evidence', async () => {
+    const db = fixture();
+    db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows.push({
+      id: 'order-0',
+      companyId: 'company-1',
+      orderRef: 'EF-0',
+      lifecycleStatus: 'shipped_inbound',
+      canonicalStatus: 'shipped_inbound',
+      authorityAsOf: '2026-07-09T12:00:00.000Z',
+      statusEvidenceJson: { clickupStatusImport: { clickupStatus: 'inbound-monitoring' } },
+    });
+    db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows.push({
+      id: 'line-0',
+      orderId: 'order-0',
+      companyProductId: 'product-1',
+      orderedQty: 10,
+    });
+    const service = new EcobaseOrderReceiptReconciliationService(db);
+
+    const first = await service.reconcileAffectedOrders({
+      orderIds: ['order-1'],
+      evaluatedAt: '2026-07-12T12:00:00.000Z',
+    });
+    const second = await service.reconcileAffectedOrders({
+      orderIds: ['order-1'],
+      evaluatedAt: '2026-07-12T12:00:00.000Z',
+    });
+
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[1]).toMatchObject({
+      id: 'line-0',
+      amazonReceiptStatus: 'completed_by_later_inbound',
+      amazonReceiptCompletionReason: 'later_inbound_cycle',
+    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[1]).toMatchObject({
+      id: 'order-0',
+      amazonReceiptStatus: 'completed_by_later_inbound',
+    });
+    expect(first).toMatchObject({ updatedLines: 2, updatedOrders: 2 });
+    expect(second).toMatchObject({ updatedLines: 0, updatedOrders: 0 });
+  });
+
+  it('does not close an older cycle from later-order existence alone or a newer cycle from older evidence', async () => {
+    const db = fixture();
+    db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows.push(
+      {
+        id: 'order-0',
+        companyId: 'company-1',
+        authorityAsOf: '2026-07-09T00:00:00.000Z',
+        statusEvidenceJson: { clickupStatusImport: { clickupStatus: 'inbound-monitoring' } },
+      },
+      {
+        id: 'order-2',
+        companyId: 'company-1',
+        authorityAsOf: '2026-07-13T00:00:00.000Z',
+        statusEvidenceJson: { clickupStatusImport: { clickupStatus: 'inbound-monitoring' } },
+      },
+    );
+    db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows.push(
+      { id: 'line-0', orderId: 'order-0', companyProductId: 'product-1', orderedQty: 10 },
+      { id: 'line-2', orderId: 'order-2', companyProductId: 'product-1', orderedQty: 10 },
+    );
+
+    await new EcobaseOrderReceiptReconciliationService(db).reconcileAffectedOrders({
+      orderIds: ['order-1'],
+      evaluatedAt: '2026-07-12T12:00:00.000Z',
+    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[2].amazonReceiptStatus).toBeUndefined();
+
+    const noEvidenceDb = fixture();
+    noEvidenceDb.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).rows.pop();
+    noEvidenceDb.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows.push({
+      id: 'order-0',
+      companyId: 'company-1',
+      authorityAsOf: '2026-07-09T00:00:00.000Z',
+      statusEvidenceJson: { clickupStatusImport: { clickupStatus: 'inbound-monitoring' } },
+    });
+    noEvidenceDb.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows.push({
+      id: 'line-0',
+      orderId: 'order-0',
+      companyProductId: 'product-1',
+      orderedQty: 10,
+    });
+    await new EcobaseOrderReceiptReconciliationService(noEvidenceDb).reconcileAffectedOrders({
+      orderIds: ['order-1'],
+      evaluatedAt: '2026-07-12T12:00:00.000Z',
+    });
+    expect(
+      noEvidenceDb.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[1].amazonReceiptStatus,
+    ).toBeUndefined();
+  });
+
   it('fails explicitly for an empty scope and reports missing orders without partial writes', async () => {
     const db = fixture();
     const service = new EcobaseOrderReceiptReconciliationService(db);
