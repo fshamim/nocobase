@@ -110,6 +110,14 @@ interface ActivityCommentEditValues {
   notes: string;
 }
 
+const RECEIPT_OVERRIDE_OPTIONS = [
+  'awaiting_amazon_stock',
+  'partially_observed',
+  'amazon_stock_observed',
+  'completed_by_later_inbound',
+  'review_required',
+].map((value) => ({ value, label: value }));
+
 const SUPPLIER_ORDER_STATUS_OPTIONS = [
   'draft',
   'supplier_contacted',
@@ -752,6 +760,8 @@ export default function InventoryPlanningPage() {
   const [productTasks, setProductTasks] = useState<PlainRecord[]>([]);
   const [productTargets, setProductTargets] = useState<PlainRecord[]>([]);
   const [lineEditValues, setLineEditValues] = useState<LineEditValues | null>(null);
+  const [receiptOverrideStatus, setReceiptOverrideStatus] = useState('review_required');
+  const [receiptOverrideReason, setReceiptOverrideReason] = useState('');
   const [orderEditValues, setOrderEditValues] = useState<OrderEditValues | null>(null);
   const [orderCommentText, setOrderCommentText] = useState('');
   const [activityCommentEdit, setActivityCommentEdit] = useState<ActivityCommentEditValues | null>(null);
@@ -2096,6 +2106,27 @@ export default function InventoryPlanningPage() {
     await Promise.all([loadPlanning(), loadDrawerEntities(selectedRow)]);
   };
 
+  const saveReceiptOverride = async (clear = false) => {
+    if (!selectedRow || !lineEditValues) return;
+    if (!receiptOverrideReason.trim()) {
+      message.error(t('Receipt override reason is required.'));
+      return;
+    }
+    await api.request({
+      url: 'ecobaseInventoryPlanning:setReceiptOverride',
+      method: 'post',
+      data: {
+        lineId: lineEditValues.id,
+        status: clear ? undefined : receiptOverrideStatus,
+        reason: receiptOverrideReason.trim(),
+        clear,
+      },
+    });
+    message.success(t(clear ? 'Receipt override cleared' : 'Receipt override saved'));
+    setReceiptOverrideReason('');
+    await Promise.all([loadPlanning(), loadDrawerEntities(selectedRow)]);
+  };
+
   const saveOrderStatus = async () => {
     if (!selectedRow || !orderEditValues) return;
     if (!orderEditValues.supplierOrderId) {
@@ -3153,6 +3184,40 @@ export default function InventoryPlanningPage() {
                               </Button>
                               <Button onClick={() => setLineEditValues(null)}>{t('Cancel')}</Button>
                             </Space>
+                          </Col>
+                          <Col xs={24}>
+                            <Card size="small" title={t('Amazon receipt exception')}>
+                              <Space direction="vertical" style={{ width: '100%' }}>
+                                <Alert
+                                  type="warning"
+                                  showIcon
+                                  message={t(
+                                    'Operator/admin only. Sellerboard evidence remains visible and the override is audited.',
+                                  )}
+                                />
+                                <Select
+                                  value={receiptOverrideStatus}
+                                  onChange={setReceiptOverrideStatus}
+                                  options={RECEIPT_OVERRIDE_OPTIONS.map((option) => ({
+                                    ...option,
+                                    label: t(formatStatusLabel(option.label)),
+                                  }))}
+                                  style={{ width: '100%' }}
+                                />
+                                <Input.TextArea
+                                  rows={2}
+                                  value={receiptOverrideReason}
+                                  onChange={(event) => setReceiptOverrideReason(event.target.value)}
+                                  placeholder={t('Required reason and supporting evidence')}
+                                />
+                                <Space>
+                                  <Button danger onClick={() => void saveReceiptOverride()}>
+                                    {t('Apply receipt override')}
+                                  </Button>
+                                  <Button onClick={() => void saveReceiptOverride(true)}>{t('Clear override')}</Button>
+                                </Space>
+                              </Space>
+                            </Card>
                           </Col>
                         </Row>
                       ) : (

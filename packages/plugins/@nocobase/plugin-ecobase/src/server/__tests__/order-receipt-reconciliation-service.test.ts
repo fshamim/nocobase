@@ -311,6 +311,41 @@ describe('EcobaseOrderReceiptReconciliationService', () => {
     ).toBeUndefined();
   });
 
+  it('records and clears operator overrides without losing immutable audit history', async () => {
+    const db = fixture();
+    const service = new EcobaseOrderReceiptReconciliationService(db);
+
+    await service.setOperatorOverride({
+      lineId: 'line-1',
+      status: 'completed_by_later_inbound',
+      reason: 'Operator verified a later inbound cycle.',
+      actorUserId: '101',
+      evaluatedAt: '2026-07-12T13:00:00.000Z',
+    });
+    await service.setOperatorOverride({
+      lineId: 'line-1',
+      reason: 'Clearing after Sellerboard evidence became available.',
+      actorUserId: '102',
+      clear: true,
+      evaluatedAt: '2026-07-12T14:00:00.000Z',
+    });
+
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[0]).toMatchObject({
+      amazonReceiptOverrideStatus: null,
+      amazonReceiptOverrideReason: null,
+      amazonReceiptOverrideByUserId: '102',
+      amazonReceiptOverrideEvidenceJson: {
+        history: [
+          { action: 'set', actorUserId: '101', status: 'completed_by_later_inbound' },
+          { action: 'cleared', actorUserId: '102' },
+        ],
+      },
+    });
+    await expect(
+      service.setOperatorOverride({ lineId: 'line-1', status: 'review_required', reason: ' ', actorUserId: '101' }),
+    ).rejects.toThrow('requires a reason');
+  });
+
   it('fails explicitly for an empty scope and reports missing orders without partial writes', async () => {
     const db = fixture();
     const service = new EcobaseOrderReceiptReconciliationService(db);

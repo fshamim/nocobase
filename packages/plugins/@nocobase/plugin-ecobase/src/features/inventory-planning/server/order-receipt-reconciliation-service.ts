@@ -32,6 +32,15 @@ export interface ReconcileAffectedOrdersInput {
   evaluatedAt?: string;
 }
 
+export interface SetReceiptOverrideInput {
+  lineId: string;
+  status?: AmazonReceiptStatus;
+  reason: string;
+  actorUserId: string;
+  clear?: boolean;
+  evaluatedAt?: string;
+}
+
 export function receiptReconciliationOrderIdsForRefresh(orders: Row[], affectedOrderIds: string[]) {
   return [
     ...new Set([
@@ -128,6 +137,41 @@ function aggregateOrderStatus(lines: LineResult[]): AmazonReceiptStatus {
 
 export class EcobaseOrderReceiptReconciliationService {
   constructor(private readonly db: EcobaseDatabase) {}
+
+  async setOperatorOverride(input: SetReceiptOverrideInput) {
+    const reason = input.reason.trim();
+    if (!reason) throw new Error('Ecobase receipt override requires a reason.');
+    if (!input.actorUserId.trim()) throw new Error('Ecobase receipt override requires an authenticated actor.');
+    if (!input.clear && (!input.status || !isAmazonReceiptStatus(input.status))) {
+      throw new Error(`Ecobase receipt override status is invalid: ${input.status ?? '(missing)'}.`);
+    }
+    const line = await this.findOne(ECOBASE_COLLECTIONS.silverOrderLines, input.lineId);
+    if (!line) throw new Error(`Ecobase receipt override could not find Silver order line ${input.lineId}.`);
+    const orderId = text(line.orderId);
+    if (!orderId) throw new Error(`Ecobase receipt override line ${input.lineId} has no Silver order.`);
+    const evaluatedAt = input.evaluatedAt ?? new Date().toISOString();
+    if (!Number.isFinite(new Date(evaluatedAt).getTime())) {
+      throw new Error(`Ecobase receipt override received invalid evaluatedAt: ${evaluatedAt}.`);
+    }
+    const existingEvidence = record(line.amazonReceiptOverrideEvidenceJson);
+    const history = Array.isArray(existingEvidence.history) ? existingEvidence.history : [];
+    const event = {
+      action: input.clear ? 'cleared' : 'set',
+      status: input.clear ? undefined : input.status,
+      reason,
+      actorUserId: input.actorUserId,
+      occurredAt: evaluatedAt,
+    };
+    await this.update(ECOBASE_COLLECTIONS.silverOrderLines, input.lineId, {
+      amazonReceiptOverrideStatus: input.clear ? null : input.status,
+      amazonReceiptOverrideReason: input.clear ? null : reason,
+      amazonReceiptOverrideAt: evaluatedAt,
+      amazonReceiptOverrideByUserId: input.actorUserId,
+      amazonReceiptOverrideEvidenceJson: { version: 1, history: [...history, event], latest: event },
+    });
+    const reconciliation = await this.reconcileAffectedOrders({ orderIds: [orderId], evaluatedAt });
+    return { lineId: input.lineId, orderId, override: event, reconciliation };
+  }
 
   async reconcileAffectedOrders(input: ReconcileAffectedOrdersInput): Promise<ReceiptReconciliationResult> {
     const orderIds = [...new Set(input.orderIds.map((id) => id.trim()).filter(Boolean))];

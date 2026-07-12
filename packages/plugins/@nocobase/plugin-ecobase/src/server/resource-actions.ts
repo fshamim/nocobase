@@ -47,6 +47,7 @@ import {
   type InventoryPlanningCommandCenterQuery,
 } from '../features/inventory-planning/server/inventory-planning-service';
 import { EcobaseOrderReceiptReconciliationService } from '../features/inventory-planning/server/order-receipt-reconciliation-service';
+import type { AmazonReceiptStatus } from '../features/inventory-planning/server/order-receipt-state';
 import { EcobaseOrderPlanningService } from '../features/order-planning/server/order-planning-service';
 import { EcobaseMedallionNormalizationService } from '../features/semantic-model/server/medallion-normalization-service';
 import { EcobaseMedallionOrderService } from '../features/semantic-model/server/medallion-order-service';
@@ -173,6 +174,23 @@ function compactInventoryPlanningDigest(digest: unknown) {
       Object.entries(sections).map(([key, rows]) => [key, compactInventoryPlanningRows(rows)]),
     ),
   };
+}
+
+function requireReceiptOverrideActor(ctx: {
+  state?: Record<string, unknown>;
+  throw: (status: number, message: string) => never;
+}) {
+  const roles = Array.isArray(ctx.state?.currentRoles)
+    ? (ctx.state?.currentRoles as unknown[]).filter((role): role is string => typeof role === 'string')
+    : typeof ctx.state?.currentRole === 'string'
+      ? [ctx.state.currentRole]
+      : [];
+  if (!roles.some((role) => ['root', 'admin', 'operator'].includes(role))) {
+    ctx.throw(403, 'Ecobase receipt overrides require an operator or administrator role.');
+  }
+  const actorUserId = getActorId(ctx);
+  if (!actorUserId) ctx.throw(401, 'Ecobase receipt overrides require an authenticated user.');
+  return actorUserId;
 }
 
 function getActorId(ctx: { state?: Record<string, unknown> }) {
@@ -1099,6 +1117,26 @@ export function createEcobaseInventoryPlanningActions() {
       ctx.body = {
         data: await new EcobaseOrderReceiptReconciliationService(ctx.db).reconcileAffectedOrders({
           orderIds,
+          evaluatedAt: getOptionalString(values, 'evaluatedAt'),
+        }),
+      };
+      await next();
+    },
+    setReceiptOverride: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const lineId = getOptionalString(values, 'lineId');
+      const reason = getOptionalString(values, 'reason');
+      if (!lineId || !reason) {
+        ctx.throw(400, 'Ecobase receipt override requires lineId and reason.');
+        return;
+      }
+      ctx.body = {
+        data: await new EcobaseOrderReceiptReconciliationService(ctx.db).setOperatorOverride({
+          lineId,
+          status: getOptionalString(values, 'status') as AmazonReceiptStatus | undefined,
+          reason,
+          actorUserId: requireReceiptOverrideActor(ctx),
+          clear: getOptionalBoolean(values, 'clear'),
           evaluatedAt: getOptionalString(values, 'evaluatedAt'),
         }),
       };

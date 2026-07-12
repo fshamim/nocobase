@@ -143,11 +143,12 @@ function createActionContext(
   db: EcobaseDatabase,
   values: Record<string, unknown> = {},
   currentUser?: Record<string, unknown>,
+  currentRoles?: string[],
 ) {
   return {
     action: { params: { values } },
     db,
-    state: currentUser ? { currentUser } : {},
+    state: { ...(currentUser ? { currentUser } : {}), ...(currentRoles ? { currentRoles } : {}) },
     body: undefined,
     throw(status: number, message: string) {
       const error = new Error(message) as Error & { status?: number };
@@ -284,6 +285,17 @@ describe('Ecobase inventory-planning public API seam', () => {
     await expect(
       actions.setFamilyTarget(createActionContext(new MemoryDatabase(), { familyId: 'family-1' }), vi.fn()),
     ).rejects.toThrow('Ecobase family target selection requires familyId and companyProductId.');
+  });
+
+  it('restricts receipt overrides to authenticated operator/admin roles', async () => {
+    const actions = createEcobaseInventoryPlanningActions();
+    const values = { lineId: 'line-1', status: 'review_required', reason: 'Manual evidence review.' };
+    await expect(
+      actions.setReceiptOverride(createActionContext(new MemoryDatabase(), values, { id: 1 }, ['viewer']), vi.fn()),
+    ).rejects.toThrow('require an operator or administrator role');
+    await expect(
+      actions.setReceiptOverride(createActionContext(new MemoryDatabase(), values, { id: 1 }, ['admin']), vi.fn()),
+    ).rejects.toThrow('could not find Silver order line line-1');
   });
 
   it('returns a compact command-center payload with paginated pane rows and drawer data', async () => {
@@ -754,7 +766,8 @@ describe('Ecobase supplier-order public API seam', () => {
     await actions.updateLineOperatorFields(updateLineContext, vi.fn());
     expect(updateLineContext.body).toMatchObject({
       data: expect.objectContaining({
-        receivedQty: 5,
+        confirmedQty: 5,
+        receivedQty: 0,
         expectedSellableDate: '2025-07-25',
       }),
     });
@@ -772,7 +785,7 @@ describe('Ecobase supplier-order public API seam', () => {
     expect(coverageContext.body).toMatchObject({
       data: expect.objectContaining({
         planningProductId: 'planning-product-1',
-        totalOpenQty: 15,
+        totalOpenQty: 20,
         coverageState: 'arrives_before_stockout',
       }),
     });
@@ -1214,7 +1227,7 @@ describe('Ecobase supplier-order workspace API seam', () => {
     await actions.workspace(workspaceAfter, vi.fn());
     expect(workspaceAfter.body.data.reorderCandidates).toHaveLength(1);
     expect(workspaceAfter.body.data.reorderCandidates[0]).toMatchObject({
-      coverage: expect.objectContaining({ totalOpenQty: 7 }),
+      coverage: expect.objectContaining({ totalOpenQty: 12 }),
       leadTimeDays: 9,
       latestContactAt: '2025-07-10T09:30:00.000Z',
     });
