@@ -65,6 +65,8 @@ export type FormulaHelpGroupKey =
   | 'inventoryQueue'
   | 'inventorySupplyAction'
   | 'inventoryActiveOrders'
+  | 'inventoryInboundMonitoring'
+  | 'inventoryHealthyInventory'
   | 'inventoryStuckInventory'
   | 'inventoryDrawer'
   | 'orderPlanning'
@@ -1129,6 +1131,28 @@ const GROUPS: Record<FormulaHelpGroupKey, HelpGroup> = {
       'This pane answers: which product families already have an order, and will that order be sellable before family stock runs out?',
       'Open order cover only counts bought pipeline units. Placed-not-purchased rows do not reduce Suggested qty.',
       'Follow-up due today is not based on a fixed no-activity-days rule. It means the row has a bought order and needs a fresh status note today.',
+    ],
+  },
+  inventoryInboundMonitoring: {
+    title: 'Inbound Monitoring',
+    formulas: ['daysOfCover', 'estimatedOosDate', 'openOrderCoverage', 'orderLifecycle', 'inventoryMoneyAtRisk'],
+    fields: INVENTORY_ACTIVE_ORDER_FIELDS,
+    tags: INVENTORY_ACTIVE_ORDER_TAGS,
+    notes: [
+      'This pane contains only exact ClickUp inbound-monitoring families whose persisted Amazon receipt state is awaiting or partially observed.',
+      'Sellerboard Amazon-visible stock is the receipt authority. A source status alone never proves receipt, and direct-ship-fba remains in Active Orders until the receipt rule confirms stock.',
+      'Partially observed means some ordered quantity is visible on Amazon while an open quantity remains. The evidence date and warning tags show whether operator review is needed.',
+    ],
+  },
+  inventoryHealthyInventory: {
+    title: 'Healthy inventory',
+    formulas: ['stockParity', 'daysOfCover', 'openOrderCoverage', 'orderLifecycle'],
+    fields: INVENTORY_FIELDS,
+    tags: INVENTORY_TAGS,
+    notes: [
+      'This pane contains families with a persisted Sellerboard-confirmed Amazon receipt and positive current inventory.',
+      'Healthy does not rewrite the ClickUp operational status. A newer independent stockout or stuck condition can route the family back to an action pane.',
+      'Receipt evidence remains visible through the observed date, completion reason, source snapshot lineage, and order history.',
     ],
   },
   inventoryStuckInventory: {

@@ -120,6 +120,7 @@ const COMMAND_CENTER_PANES: InventoryCommandCenterPane[] = [
 
 const COMMAND_CENTER_SORT_KEYS = new Set([
   'actionStatus',
+  'amazonReceiptObservedAt',
   'asin',
   'daysOfCover',
   'daysUntilOos',

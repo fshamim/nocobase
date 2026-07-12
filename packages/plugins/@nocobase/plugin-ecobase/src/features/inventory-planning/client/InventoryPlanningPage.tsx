@@ -55,6 +55,8 @@ type CommandCenterPaneKey =
   | 'supplyAction'
   | 'missingSupplier'
   | 'activeOrders'
+  | 'inboundMonitoring'
+  | 'healthyInventory'
   | 'stuckInventory'
   | 'duplicateProducts';
 
@@ -822,9 +824,16 @@ export default function InventoryPlanningPage() {
       setFilterOptions(unwrapData(unwrapData(filtersResponse).filters ?? filtersResponse));
       setCommandCenter(center);
       setRows(
-        (['supplyAction', 'missingSupplier', 'activeOrders', 'stuckInventory'] as CommandCenterPaneKey[]).flatMap(
-          (key) => unwrapRows(unwrapData(panes[key]).rows),
-        ),
+        (
+          [
+            'supplyAction',
+            'missingSupplier',
+            'activeOrders',
+            'inboundMonitoring',
+            'healthyInventory',
+            'stuckInventory',
+          ] as CommandCenterPaneKey[]
+        ).flatMap((key) => unwrapRows(unwrapData(panes[key]).rows)),
       );
       setDigest(unwrapDigest({}));
     } catch (err) {
@@ -1040,6 +1049,8 @@ export default function InventoryPlanningPage() {
     supplyAction: t('Families needing supply action — no active order'),
     missingSupplier: t('Families missing supplier — stockout risk'),
     activeOrders: t('Families with active orders — pipeline monitoring'),
+    inboundMonitoring: t('Inbound Monitoring — awaiting Amazon stock'),
+    healthyInventory: t('Healthy inventory — Amazon receipt confirmed'),
     stuckInventory: t('Stuck & excess inventory'),
     duplicateProducts: t('Duplicate SKU review'),
   };
@@ -1052,6 +1063,12 @@ export default function InventoryPlanningPage() {
     ),
     activeOrders: t(
       'One row per family with an active order. Check family coverage, arrival timing, and the listing-level order evidence.',
+    ),
+    inboundMonitoring: t(
+      'Exact ClickUp inbound-monitoring families awaiting or partially showing in Sellerboard Amazon stock.',
+    ),
+    healthyInventory: t(
+      'Sellerboard-confirmed Amazon receipts with positive current inventory. Later independent risks can route elsewhere.',
     ),
     stuckInventory: t(
       'One action row per family. Expand it to see which listings are affected, their stock, sell-through, cost, and active orders.',
@@ -1077,6 +1094,16 @@ export default function InventoryPlanningPage() {
       { value: 'expectedArrivalDate', label: t('Expected arrival') },
       { value: 'estimatedProfitRisk', label: t('Money at risk') },
     ],
+    inboundMonitoring: [
+      { value: 'stockoutGapDays', label: t('Stockout gap') },
+      { value: 'expectedArrivalDate', label: t('Expected arrival') },
+      { value: 'estimatedProfitRisk', label: t('Money at risk') },
+    ],
+    healthyInventory: [
+      { value: 'daysOfCover', label: t('Days cover') },
+      { value: 'currentPlanningStock', label: t('Current stock') },
+      { value: 'amazonReceiptObservedAt', label: t('Receipt observed') },
+    ],
     stuckInventory: [
       { value: 'familyStuckAffectedValue', label: t('Affected value') },
       { value: 'familyDaysOfCover', label: t('Family days cover') },
@@ -1092,6 +1119,8 @@ export default function InventoryPlanningPage() {
     supplyAction: 'inventorySupplyAction',
     missingSupplier: 'inventorySupplyAction',
     activeOrders: 'inventoryActiveOrders',
+    inboundMonitoring: 'inventoryInboundMonitoring',
+    healthyInventory: 'inventoryHealthyInventory',
     stuckInventory: 'inventoryStuckInventory',
     duplicateProducts: 'inventoryDrawer',
   };
@@ -1535,6 +1564,44 @@ export default function InventoryPlanningPage() {
         </Space>
       );
     }
+    if (pane === 'inboundMonitoring') {
+      const sourceStatus = asPlainRecord(
+        asPlainRecord(row.supplierOrderAuthorityEvidence).clickupStatusEvidence,
+      ).clickupStatus;
+      return (
+        <Space direction="vertical" size={0}>
+          <Tag color={row.amazonReceiptStatus === 'partially_observed' ? 'gold' : 'processing'}>
+            {t(formatStatusLabel(row.amazonReceiptStatus ?? 'awaiting_amazon_stock'))}
+          </Tag>
+          <Typography.Text strong>{row.supplierOrderRef ?? '—'}</Typography.Text>
+          <Typography.Text type="secondary">
+            {t('Source')} {sourceStatus ?? 'inbound-monitoring'} · {t('Expected')} {formatDate(row.expectedArrivalDate)}
+          </Typography.Text>
+          <Typography.Text>
+            {t('Open coverage')} {formatNumber(row.openOrderCoverageQty)} · {t('Observed')}{' '}
+            {formatDate(row.amazonReceiptObservedAt)}
+          </Typography.Text>
+          {row.dataQualityStatus === 'blocked' ? <Tag color="red">{t('Evidence warning')}</Tag> : null}
+        </Space>
+      );
+    }
+    if (pane === 'healthyInventory') {
+      return (
+        <Space direction="vertical" size={0}>
+          <Tag color="green">{t('Amazon stock observed')}</Tag>
+          <Typography.Text strong>
+            {formatNumber(row.currentPlanningStock)} {t('units current stock')}
+          </Typography.Text>
+          <Typography.Text type="secondary">
+            {t('Sellerboard evidence')} · {formatDate(row.amazonReceiptObservedAt)}
+          </Typography.Text>
+          <Typography.Text>
+            {formatNumber(row.daysOfCover)} {t('days cover')} · {t('Reason')}{' '}
+            {t(formatStatusLabel(row.amazonReceiptCompletionReason ?? 'positive_attributed_addition'))}
+          </Typography.Text>
+        </Space>
+      );
+    }
     if (pane === 'activeOrders') {
       return (
         <Space direction="vertical" size={0}>
@@ -1922,6 +1989,8 @@ export default function InventoryPlanningPage() {
     supplyAction: ['history', 'draft', 'add', 'lead-time'],
     missingSupplier: ['history', 'lead-time'],
     activeOrders: ['history', 'order-status', 'edit-line'],
+    inboundMonitoring: ['history', 'order-status', 'edit-line'],
+    healthyInventory: ['history'],
     stuckInventory: ['product-tasks-targets', 'history'],
     duplicateProducts: ['history'],
   };
@@ -2189,6 +2258,45 @@ export default function InventoryPlanningPage() {
             <Button type="primary" onClick={() => setManagePanels(['lead-time'])}>
               {t('Fix supplier / lead time')}
             </Button>
+          </Space>
+        </Card>
+      );
+    }
+    if (selectedCommandPane === 'inboundMonitoring') {
+      return (
+        <Card size="small" title={t('Amazon receipt monitoring')}>
+          <Space direction="vertical" style={{ width: '100%' }}>
+            <Space size={4} wrap>
+              <Tag color={selectedRow.amazonReceiptStatus === 'partially_observed' ? 'gold' : 'processing'}>
+                {t(formatStatusLabel(selectedRow.amazonReceiptStatus ?? 'awaiting_amazon_stock'))}
+              </Tag>
+              <Typography.Text>
+                {t('Order')} {selectedRow.supplierOrderRef ?? '—'} · {t('Open coverage')}{' '}
+                {formatNumber(selectedRow.openOrderCoverageQty)} · {t('Observed')}{' '}
+                {formatDate(selectedRow.amazonReceiptObservedAt)}
+              </Typography.Text>
+            </Space>
+            <Space size="small" wrap>
+              <Button type="primary" onClick={() => setManagePanels(['order-status'])}>
+                {t('Update status / comment')}
+              </Button>
+              <Button onClick={() => setManagePanels(['history'])}>{t('Review receipt evidence')}</Button>
+            </Space>
+          </Space>
+        </Card>
+      );
+    }
+    if (selectedCommandPane === 'healthyInventory') {
+      return (
+        <Card size="small" title={t('Confirmed Amazon receipt')}>
+          <Space direction="vertical" style={{ width: '100%' }}>
+            <Tag color="green">{t('Amazon stock observed')}</Tag>
+            <Typography.Text>
+              {formatNumber(selectedRow.currentPlanningStock)} {t('units current stock')} ·{' '}
+              {formatNumber(selectedRow.daysOfCover)} {t('days cover')} · {t('Observed')}{' '}
+              {formatDate(selectedRow.amazonReceiptObservedAt)}
+            </Typography.Text>
+            <Button onClick={() => setManagePanels(['history'])}>{t('Review receipt evidence')}</Button>
           </Space>
         </Card>
       );
@@ -2576,9 +2684,16 @@ export default function InventoryPlanningPage() {
           </Col>
         </Row>
         <Space direction="vertical" size="large" style={{ width: '100%' }}>
-          {(['supplyAction', 'missingSupplier', 'activeOrders', 'stuckInventory'] as CommandCenterPaneKey[]).map(
-            renderCommandPane,
-          )}
+          {(
+            [
+              'supplyAction',
+              'missingSupplier',
+              'activeOrders',
+              'inboundMonitoring',
+              'healthyInventory',
+              'stuckInventory',
+            ] as CommandCenterPaneKey[]
+          ).map(renderCommandPane)}
         </Space>
       </Space>
       <Drawer
@@ -2937,7 +3052,7 @@ export default function InventoryPlanningPage() {
                               </Typography.Text>
                             )}
                           </Space>
-                          {selectedCommandPane !== 'activeOrders' && selectedCommandPane !== 'stuckInventory' ? (
+                          {selectedCommandPane && ['supplyAction', 'missingSupplier'].includes(selectedCommandPane) ? (
                             <Button type="primary" onClick={() => void draftOrder()}>
                               {t('Draft new order for this product')}
                             </Button>
