@@ -59,7 +59,7 @@ export class EcobaseMedallionNormalizationService {
     const result: NormalizePendingResult = { normalized: 0, ignored: 0, failed: 0, links: 0, errors: [] };
 
     for (const record of records) {
-      const outcome = await this.normalizeRecord(record);
+      const outcome = await this.normalizeRecord(record, params.sourceConnectionId);
       result.links += outcome.links;
       if (outcome.status === 'normalized') result.normalized += 1;
       if (outcome.status === 'ignored') result.ignored += 1;
@@ -74,6 +74,7 @@ export class EcobaseMedallionNormalizationService {
 
   async normalizeRecord(
     record: unknown,
+    scopedSourceConnectionId?: string,
   ): Promise<{ status: 'normalized' | 'ignored'; links: number } | { status: 'failed'; links: 0; error: string }> {
     const bronze = toPlainRecord(record);
     const bronzeId = textValue(bronze.id);
@@ -82,7 +83,7 @@ export class EcobaseMedallionNormalizationService {
     }
 
     try {
-      const entities = await this.mapBronzeRecord(bronze);
+      const entities = await this.mapBronzeRecord(bronze, scopedSourceConnectionId);
       if (entities.length === 0) {
         await this.markBronzeRecord(bronzeId, 'ignored');
         return { status: 'ignored', links: 0 };
@@ -103,11 +104,12 @@ export class EcobaseMedallionNormalizationService {
     }
   }
 
-  private async mapBronzeRecord(bronze: Record<string, unknown>) {
+  private async mapBronzeRecord(bronze: Record<string, unknown>, scopedSourceConnectionId?: string) {
     const row = new CsvRowReader(stringRecord(toPlainRecord(bronze.payload)));
     const entities: SilverEntity[] = [];
     const sourceConnection = toPlainRecord(bronze.sourceConnection);
-    const sourceConnectionId = textValue(bronze.sourceConnectionId) ?? textValue(sourceConnection.id);
+    const sourceConnectionId =
+      textValue(bronze.sourceConnectionId) ?? textValue(sourceConnection.id) ?? scopedSourceConnectionId;
     const sourceDataset = textValue(bronze.sourceDataset)?.toLowerCase() ?? '';
     const orderShape = sourceDataset.includes('orderdetails')
       ? 'order-details'
