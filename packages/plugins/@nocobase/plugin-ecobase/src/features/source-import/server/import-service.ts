@@ -208,7 +208,7 @@ export interface EcobaseRepository {
 }
 
 export interface EcobaseDatabase {
-  getRepository(name: string): EcobaseRepository;
+  getRepository(name: string, sourceId?: string | number): EcobaseRepository;
   sequelize?: any;
 }
 
