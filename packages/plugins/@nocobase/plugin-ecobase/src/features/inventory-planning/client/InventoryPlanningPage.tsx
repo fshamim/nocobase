@@ -1616,6 +1616,9 @@ export default function InventoryPlanningPage() {
       return (
         <Space direction="vertical" size={0}>
           {renderActiveRiskCell(undefined, row)}
+          {row.amazonReceiptStatus === 'review_required' ? (
+            <Tag color="red">{t('Amazon receipt evidence review')}</Tag>
+          ) : null}
           <Typography.Text strong>{row.supplierOrderRef ?? '—'}</Typography.Text>
           <Typography.Text type="secondary">
             {t('Expected')} {formatDate(row.expectedArrivalDate)}
@@ -2344,6 +2347,9 @@ export default function InventoryPlanningPage() {
               <Tag color={selectedRow.pipelineHealthStatus === 'late' ? 'red' : 'blue'}>
                 {t(formatPipelineHealthLabel(selectedRow.pipelineHealthStatus ?? 'none'))}
               </Tag>
+              {selectedRow.amazonReceiptStatus === 'review_required' ? (
+                <Tag color="red">{t('Amazon receipt evidence review')}</Tag>
+              ) : null}
               <Typography.Text>
                 {t('Expected arrival')} {t(expectedArrivalLabel.label)} ({formatDate(selectedRow.expectedArrivalDate)})
                 · {t('Gap')} {formatNumber(selectedRow.stockoutGapDays)} {t('days')}
