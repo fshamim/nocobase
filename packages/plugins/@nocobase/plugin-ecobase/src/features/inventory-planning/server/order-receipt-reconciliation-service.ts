@@ -10,6 +10,7 @@
 import { createHash } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import type { EcobaseDatabase, EcobaseRepository } from '../../source-import/server/import-service';
+import { allocateReceiptAdditionFifo } from './order-receipt-allocation';
 import {
   calculateAmazonReceiptEvidence,
   type AmazonReceiptEvidence,
@@ -47,7 +48,16 @@ interface LineResult {
   status: AmazonReceiptStatus;
   observedAt?: string;
   evidenceKey: string;
+  orderedQty: number;
+  observedQty: number;
   updated: boolean;
+}
+
+interface ReceiptLineAllocationEvidence {
+  familyObservedAddition: number;
+  lineObservedQty: number;
+  lineRemainingQty: number;
+  unallocatedQty: number;
 }
 
 function text(value: unknown) {
@@ -89,17 +99,15 @@ function currentReceiptStatus(row: Row) {
   return value && isAmazonReceiptStatus(value) ? value : null;
 }
 
-function aggregateOrderStatus(statuses: AmazonReceiptStatus[]): AmazonReceiptStatus {
-  if (statuses.length === 0 || statuses.includes('review_required')) return 'review_required';
-  if (statuses.every((status) => status === 'not_applicable')) return 'not_applicable';
-  const completed = statuses.filter(
-    (status) =>
-      status === 'amazon_stock_observed' || status === 'completed_by_later_inbound' || status === 'not_applicable',
-  );
-  if (completed.length === statuses.length) {
-    return statuses.includes('amazon_stock_observed') ? 'amazon_stock_observed' : 'completed_by_later_inbound';
+function aggregateOrderStatus(lines: LineResult[]): AmazonReceiptStatus {
+  if (lines.length === 0 || lines.some((line) => line.status === 'review_required')) return 'review_required';
+  if (lines.every((line) => line.status === 'not_applicable')) return 'not_applicable';
+  const materialLines = lines.filter((line) => line.status !== 'not_applicable');
+  if (materialLines.every((line) => line.status === 'completed_by_later_inbound')) return 'completed_by_later_inbound';
+  if (materialLines.every((line) => line.observedQty >= line.orderedQty)) return 'amazon_stock_observed';
+  if (materialLines.some((line) => line.observedQty > 0 || line.status === 'completed_by_later_inbound')) {
+    return 'partially_observed';
   }
-  if (completed.length > 0 || statuses.includes('partially_observed')) return 'partially_observed';
   return 'awaiting_amazon_stock';
 }
 
@@ -158,7 +166,7 @@ export class EcobaseOrderReceiptReconciliationService {
           if (lineResult.status === 'review_required') result.reviewRequired += 1;
         }
 
-        const orderStatus = aggregateOrderStatus(lineResults.map((line) => line.status));
+        const orderStatus = aggregateOrderStatus(lineResults);
         const orderEvidence = {
           version: 1,
           lineEvidenceKeys: lineResults.map((line) => line.evidenceKey).sort(),
@@ -310,13 +318,50 @@ export class EcobaseOrderReceiptReconciliationService {
       salesFacts,
       fulfillmentRoute: text(params.order.fulfillmentRoute),
     });
+    const orderedQty = number(params.line.orderedQty);
+    if (orderedQty === undefined || orderedQty <= 0) {
+      return this.persistReview(params.line, 'ordered_quantity_invalid', params.transaction, familyId);
+    }
+    let observedQty = number(params.line.amazonReceiptObservedQty) ?? 0;
+    let allocationEvidence: ReceiptLineAllocationEvidence | undefined;
+    if (evidence.outcome === 'observed') {
+      const orderLines = await this.find(
+        ECOBASE_COLLECTIONS.silverOrderLines,
+        { orderId: text(params.order.id) },
+        params.transaction,
+      );
+      const allocation = allocateReceiptAdditionFifo({
+        observedAddition: evidence.observedAddition ?? 0,
+        lines: orderLines
+          .filter((line) => memberIds.includes(text(line.companyProductId) ?? ''))
+          .map((line) => ({
+            orderLineId: text(line.id)!,
+            familyId,
+            cycleAt: baselineAt,
+            orderedQty: number(line.orderedQty) ?? 0,
+            observedQty: number(line.amazonReceiptObservedQty) ?? 0,
+          }))
+          .filter((line) => line.orderedQty > 0 && line.observedQty <= line.orderedQty),
+      });
+      observedQty =
+        allocation.allocations.find((lineAllocation) => lineAllocation.orderLineId === lineId)?.totalObservedQty ??
+        observedQty;
+      allocationEvidence = {
+        familyObservedAddition: evidence.observedAddition ?? 0,
+        lineObservedQty: observedQty,
+        lineRemainingQty: Math.max(0, orderedQty - observedQty),
+        unallocatedQty: allocation.unallocatedQty,
+      };
+    }
     const transition = resolveAmazonReceiptState({
       currentStatus: currentReceiptStatus(params.line),
       sourceOperationalStatus,
       sellerboardEvidence:
-        evidence.outcome === 'observed' || evidence.outcome === 'review_required'
+        evidence.outcome === 'review_required'
           ? { status: evidence.status, reason: evidence.reason }
-          : undefined,
+          : observedQty > 0
+            ? { status: 'amazon_stock_observed', reason: evidence.reason }
+            : undefined,
     });
     if (transition.outcome === 'rejected') {
       return this.persistReview(params.line, transition.error, params.transaction, familyId);
@@ -332,6 +377,8 @@ export class EcobaseOrderReceiptReconciliationService {
           ...(snapshotIdsByAggregateId.get(evidence.baselineSnapshotId ?? '') ?? []),
           ...(snapshotIdsByAggregateId.get(evidence.currentSnapshotId ?? '') ?? []),
         ],
+        observedQty,
+        allocationEvidence,
       },
       params.transaction,
     );
@@ -359,7 +406,14 @@ export class EcobaseOrderReceiptReconciliationService {
     transition: Exclude<AmazonReceiptTransition, { outcome: 'rejected' }>,
     receiptEvidence: AmazonReceiptEvidence | undefined,
     context:
-      | { familyId?: string; baselineAt?: string; sourceSnapshotIds?: string[]; reviewReason?: string }
+      | {
+          familyId?: string;
+          baselineAt?: string;
+          sourceSnapshotIds?: string[];
+          reviewReason?: string;
+          observedQty?: number;
+          allocationEvidence?: ReceiptLineAllocationEvidence;
+        }
       | undefined,
     transaction: Transaction,
   ): Promise<LineResult> {
@@ -371,6 +425,7 @@ export class EcobaseOrderReceiptReconciliationService {
       transitionReason: receiptEvidence?.reason ?? transition.reason,
       reviewReason: context?.reviewReason,
       sourceSnapshotIds: [...new Set(context?.sourceSnapshotIds ?? [])].sort(),
+      allocationEvidence: context?.allocationEvidence,
       receiptEvidence,
     };
     const key = evidenceKey(evidence);
@@ -384,8 +439,7 @@ export class EcobaseOrderReceiptReconciliationService {
         lineId,
         {
           amazonReceiptStatus: transition.to,
-          amazonReceiptObservedQty:
-            receiptEvidence?.outcome === 'observed' ? receiptEvidence.observedAddition : line.amazonReceiptObservedQty,
+          amazonReceiptObservedQty: context?.observedQty ?? line.amazonReceiptObservedQty,
           amazonReceiptBaselineAt: context?.baselineAt ?? line.amazonReceiptBaselineAt,
           amazonReceiptObservedAt: observedAt ?? line.amazonReceiptObservedAt,
           amazonReceiptCompletionReason: context?.reviewReason ?? receiptEvidence?.reason ?? transition.reason,
@@ -400,6 +454,8 @@ export class EcobaseOrderReceiptReconciliationService {
       status: transition.to,
       observedAt: observedAt ?? dateTime(line.amazonReceiptObservedAt),
       evidenceKey: key,
+      orderedQty: number(line.orderedQty) ?? 0,
+      observedQty: context?.observedQty ?? number(line.amazonReceiptObservedQty) ?? 0,
       updated,
     };
   }

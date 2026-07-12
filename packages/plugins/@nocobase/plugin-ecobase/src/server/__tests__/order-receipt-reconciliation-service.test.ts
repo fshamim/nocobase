@@ -164,8 +164,43 @@ describe('EcobaseOrderReceiptReconciliationService', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[0]).toMatchObject({
       lifecycleStatus: 'inbound-monitoring',
       canonicalStatus: 'shipped_inbound',
-      amazonReceiptStatus: 'amazon_stock_observed',
+      amazonReceiptStatus: 'partially_observed',
     });
+  });
+
+  it('allocates one family increase across same-family lines in FIFO order', async () => {
+    const db = fixture();
+    db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[0].orderedQty = 4;
+    db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows.push({
+      id: 'line-2',
+      orderId: 'order-1',
+      companyProductId: 'product-1',
+      orderedQty: 5,
+    });
+    const service = new EcobaseOrderReceiptReconciliationService(db);
+
+    await service.reconcileAffectedOrders({ orderIds: ['order-1'], evaluatedAt: '2026-07-12T12:00:00.000Z' });
+    const second = await service.reconcileAffectedOrders({
+      orderIds: ['order-1'],
+      evaluatedAt: '2026-07-12T12:00:00.000Z',
+    });
+
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows).toEqual([
+      expect.objectContaining({
+        id: 'line-1',
+        amazonReceiptStatus: 'amazon_stock_observed',
+        amazonReceiptObservedQty: 4,
+      }),
+      expect.objectContaining({
+        id: 'line-2',
+        amazonReceiptStatus: 'amazon_stock_observed',
+        amazonReceiptObservedQty: 2,
+      }),
+    ]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[0]).toMatchObject({
+      amazonReceiptStatus: 'partially_observed',
+    });
+    expect(second).toMatchObject({ updatedOrders: 0, updatedLines: 0, unchangedLines: 2 });
   });
 
   it('fails explicitly for an empty scope and reports missing orders without partial writes', async () => {
