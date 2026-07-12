@@ -686,8 +686,15 @@ export class EcobaseMedallionNormalizationService {
 
   private async sourceCompanyName(sourceConnectionId: string | undefined) {
     if (!sourceConnectionId) return undefined;
-    const source = await this.repo(ECOBASE_COLLECTIONS.sourceConnections).findOne({ filterByTk: sourceConnectionId });
-    const companyId = textValue(toPlainRecord(source).companyId);
+    const source = toPlainRecord(
+      await this.repo(ECOBASE_COLLECTIONS.sourceConnections).findOne({
+        filterByTk: sourceConnectionId,
+        appends: ['company'],
+      }),
+    );
+    const associatedCompanyName = textValue(toPlainRecord(source.company).name);
+    if (associatedCompanyName) return associatedCompanyName;
+    const companyId = textValue(source.companyId);
     if (!companyId) return undefined;
     const company = await this.repo(ECOBASE_COLLECTIONS.silverCompanies).findOne({ filterByTk: companyId });
     return textValue(toPlainRecord(company).name);

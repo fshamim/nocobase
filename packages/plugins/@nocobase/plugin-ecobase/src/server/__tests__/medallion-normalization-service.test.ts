@@ -1091,6 +1091,37 @@ describe('EcobaseMedallionNormalizationService', () => {
     });
   });
 
+  it('resolves a Sellerboard company from the source association when the foreign key is not projected', async () => {
+    const db = new FakeDatabase();
+    await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).create({
+      values: {
+        id: 'source-1',
+        company: { id: 'company-1', name: 'Ecofission LLC' },
+      },
+    });
+    await seedBronze(
+      db,
+      {
+        ASIN: 'B00SOURCECOMPANY',
+        SKU: 'SOURCE-COMPANY',
+        Date: '1/8/2026',
+        SalesOrganic: '10',
+        UnitsOrganic: '2',
+      },
+      {
+        sourceType: 'sellerboard',
+        sourceDataset: 'profit_by_product_daily-Profit by Product Dashboard Daily Data.csv',
+        observedAt: new Date('2026-01-08T00:00:00.000Z'),
+      },
+    );
+
+    const result = await new EcobaseMedallionNormalizationService(db).normalizePending();
+
+    expect(result).toMatchObject({ normalized: 1, failed: 0 });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).rows).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts).rows).toHaveLength(1);
+  });
+
   it('uses adapter-normalized observedAt for Sellerboard dates', async () => {
     const db = new FakeDatabase();
     await seedBronze(

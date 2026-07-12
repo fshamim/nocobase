@@ -42,6 +42,7 @@ type RepositoryFindParams = {
   filterByTk?: string | number;
   sort?: string[];
   limit?: number;
+  appends?: string[];
 };
 
 type RepositoryCreateParams = { values: Record<string, unknown> };
