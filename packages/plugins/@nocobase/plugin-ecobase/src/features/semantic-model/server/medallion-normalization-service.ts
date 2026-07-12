@@ -692,11 +692,14 @@ export class EcobaseMedallionNormalizationService {
 
   private async sourceCompanyName(sourceConnectionId: string | undefined) {
     if (!sourceConnectionId) return undefined;
-    const relatedCompany = await this.db
-      .getRepository(`${ECOBASE_COLLECTIONS.sourceConnections}.company`, sourceConnectionId)
-      .findOne();
-    const relatedCompanyName = textValue(toPlainRecord(relatedCompany).name);
-    if (relatedCompanyName) return relatedCompanyName;
+    const sourceModel = this.db.getCollection?.(ECOBASE_COLLECTIONS.sourceConnections).model;
+    if (sourceModel) {
+      const sourceWithCompany = toPlainRecord(
+        await sourceModel.findByPk(sourceConnectionId, { include: ['company'] }),
+      );
+      const modelCompanyName = textValue(toPlainRecord(sourceWithCompany.company).name);
+      if (modelCompanyName) return modelCompanyName;
+    }
     const source = toPlainRecord(
       await this.repo(ECOBASE_COLLECTIONS.sourceConnections).findOne({
         filterByTk: sourceConnectionId,

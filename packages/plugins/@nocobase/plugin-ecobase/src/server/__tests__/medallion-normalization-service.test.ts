@@ -42,20 +42,21 @@ class FakeRepository implements EcobaseRepository {
 class FakeDatabase implements EcobaseDatabase {
   repositories = new Map<string, FakeRepository>();
 
-  getRepository(name: string, sourceId?: string | number) {
-    if (name === `${ECOBASE_COLLECTIONS.sourceConnections}.company` && sourceId) {
-      const source = this.getRepository(ECOBASE_COLLECTIONS.sourceConnections).rows.find(
-        (row) => String(row.id) === String(sourceId),
-      );
-      const related = new FakeRepository();
-      if (source?.company) related.rows.push(source.company as Record<string, unknown>);
-      return related;
-    }
+  getRepository(name: string) {
     const existing = this.repositories.get(name);
     if (existing) return existing;
     const repo = new FakeRepository();
     this.repositories.set(name, repo);
     return repo;
+  }
+
+  getCollection(name: string) {
+    return {
+      model: {
+        findByPk: async (id: string | number) =>
+          this.getRepository(name).rows.find((row) => String(row.id) === String(id)) ?? null,
+      },
+    };
   }
 }
 
