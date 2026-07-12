@@ -24,6 +24,10 @@ import { EcobaseClickupOrderStatusService, type ClickupOrderStatusImportResult }
 import { EcobaseDataWarningService } from '../../../server/services/data-warning-service';
 import type { EcobaseDataWarning } from '../../../server/services/data-warning-service';
 import { EcobaseInventoryPlanningService } from '../../inventory-planning/server/inventory-planning-service';
+import {
+  EcobaseOrderReceiptReconciliationService,
+  receiptReconciliationOrderIdsForRefresh,
+} from '../../inventory-planning/server/order-receipt-reconciliation-service';
 import { EcobaseManagementKpiFactsService } from '../../daily-operations-brief/server/management-kpi-facts-service';
 import { EcobaseMedallionNormalizationService } from '../../semantic-model/server/medallion-normalization-service';
 import type { NormalizePendingResult } from '../../semantic-model/server/medallion-normalization-service';
@@ -276,6 +280,7 @@ export interface AutomaticGoldRefreshResult {
   orders: { rowCount: number; lastRefreshedAt: string | null };
   suppliers: { rowCount: number; summary: Record<string, unknown> };
   managementKpiFacts: { factCount: number; metrics: Record<string, number>; skippedMetrics: string[] };
+  receiptReconciliation: Record<string, unknown> | null;
 }
 
 export interface RunMedallionPipelineResult {
@@ -537,9 +542,22 @@ export class EcobaseImportService {
     private registry: SourceAdapterRegistry,
   ) {}
 
-  async refreshGoldReadModels(calculationDate = todayIsoDate()): Promise<AutomaticGoldRefreshResult> {
+  async refreshGoldReadModels(
+    calculationDate = todayIsoDate(),
+    affectedOrderIds: string[] = [],
+  ): Promise<AutomaticGoldRefreshResult> {
+    const assessedOrders = await this.db.getRepository(ECOBASE_COLLECTIONS.silverOrders).find({ limit: 20000 });
+    const receiptOrderIds = receiptReconciliationOrderIdsForRefresh(
+      assessedOrders.map(toPlainRecord),
+      affectedOrderIds,
+    );
+    const receiptReconciliation = receiptOrderIds.length
+      ? await new EcobaseOrderReceiptReconciliationService(this.db).reconcileAffectedOrders({
+          orderIds: receiptOrderIds,
+          evaluatedAt: `${calculationDate}T23:59:59.999Z`,
+        })
+      : null;
     const inventoryService = new EcobaseInventoryPlanningService(this.db);
-    await inventoryService.refreshReadModel({ calculationDate, limit: AUTOMATIC_GOLD_REFRESH_LIMIT });
     const orderWorkspace = await new EcobaseOrderPlanningService(this.db).refreshReadModel({
       limit: AUTOMATIC_GOLD_REFRESH_LIMIT,
     });
@@ -570,6 +588,7 @@ export class EcobaseImportService {
         metrics: managementKpiFacts.metrics,
         skippedMetrics: managementKpiFacts.skippedMetrics,
       },
+      receiptReconciliation: receiptReconciliation as unknown as Record<string, unknown> | null,
     };
   }
 
@@ -680,8 +699,13 @@ export class EcobaseImportService {
       const warningCount =
         result.unmatchedRefCount + result.missingMainTaskCount + result.duplicateRefCount + result.invalidCommentCount;
       const errorCount = result.blockingIssueCount;
+      const affectedOrderIds = result.proposedUpdates
+        .map((update) => getString(update, 'supplierOrderId'))
+        .filter((id): id is string => Boolean(id));
       const goldRefresh =
-        !params.skipGoldRefresh && errorCount === 0 ? await this.refreshGoldReadModels(sourceVersion) : null;
+        !params.skipGoldRefresh && errorCount === 0
+          ? await this.refreshGoldReadModels(sourceVersion, affectedOrderIds)
+          : null;
       await importRunRepo.update({
         filterByTk: importRunId,
         values: {

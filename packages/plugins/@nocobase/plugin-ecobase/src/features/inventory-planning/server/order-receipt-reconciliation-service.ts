@@ -32,6 +32,20 @@ export interface ReconcileAffectedOrdersInput {
   evaluatedAt?: string;
 }
 
+export function receiptReconciliationOrderIdsForRefresh(orders: Row[], affectedOrderIds: string[]) {
+  return [
+    ...new Set([
+      ...affectedOrderIds.filter(Boolean),
+      ...orders
+        .filter((order) =>
+          ['awaiting_amazon_stock', 'partially_observed'].includes(text(order.amazonReceiptStatus) ?? ''),
+        )
+        .map((order) => text(order.id))
+        .filter((id): id is string => Boolean(id)),
+    ]),
+  ];
+}
+
 export interface ReceiptReconciliationResult {
   processedOrders: number;
   updatedOrders: number;

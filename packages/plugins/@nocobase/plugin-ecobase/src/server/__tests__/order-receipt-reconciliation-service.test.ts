@@ -9,7 +9,10 @@
 
 import { describe, expect, it } from 'vitest';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
-import { EcobaseOrderReceiptReconciliationService } from '../../features/inventory-planning/server/order-receipt-reconciliation-service';
+import {
+  EcobaseOrderReceiptReconciliationService,
+  receiptReconciliationOrderIdsForRefresh,
+} from '../../features/inventory-planning/server/order-receipt-reconciliation-service';
 import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
 
 type Row = Record<string, unknown> & { id: string };
@@ -133,6 +136,20 @@ function fixture() {
 }
 
 describe('EcobaseOrderReceiptReconciliationService', () => {
+  it('limits automatic refreshes to changed orders and already assessed open receipt states', () => {
+    expect(
+      receiptReconciliationOrderIdsForRefresh(
+        [
+          { id: 'awaiting', amazonReceiptStatus: 'awaiting_amazon_stock' },
+          { id: 'partial', amazonReceiptStatus: 'partially_observed' },
+          { id: 'terminal', amazonReceiptStatus: 'amazon_stock_observed' },
+          { id: 'unassessed' },
+        ],
+        ['changed', 'awaiting'],
+      ),
+    ).toEqual(['changed', 'awaiting', 'partial']);
+  });
+
   it('persists one idempotent receipt transition without changing exact ClickUp status', async () => {
     const db = fixture();
     const service = new EcobaseOrderReceiptReconciliationService(db);
