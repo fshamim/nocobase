@@ -47,6 +47,9 @@ interface FieldOptions {
   type: string;
   primaryKey?: boolean;
   unique?: boolean;
+  allowNull?: boolean;
+  defaultValue?: unknown;
+  index?: boolean;
   target?: string;
   foreignKey?: string;
 }
@@ -133,6 +136,34 @@ describe('Ecobase medallion schema foundation', () => {
     expect(field(silverOrderLines, 'expectedDeliveryDate')).toMatchObject({ type: 'dateOnly' });
     expect(field(silverOrderLines, 'expectedSellableDate')).toMatchObject({ type: 'dateOnly' });
     uniqueIndex(bronzeSourceRecords, ['sourceConnectionId', 'sourceDataset', 'sourceRecordKey', 'rowHash']);
+  });
+
+  it('keeps Amazon receipt assessment nullable and separate from source lifecycle status', () => {
+    expect(field(silverOrderLines, 'amazonReceiptStatus')).toMatchObject({
+      type: 'string',
+      allowNull: true,
+      index: true,
+    });
+    expect(field(silverOrderLines, 'amazonReceiptObservedQty')).toMatchObject({ type: 'double' });
+    expect(field(silverOrderLines, 'amazonReceiptBaselineAt')).toMatchObject({ type: 'datetimeTz' });
+    expect(field(silverOrderLines, 'amazonReceiptObservedAt')).toMatchObject({ type: 'datetimeTz' });
+    expect(field(silverOrderLines, 'amazonReceiptCompletionReason')).toMatchObject({ type: 'string' });
+    expect(field(silverOrderLines, 'amazonReceiptEvidenceJson')).toMatchObject({ type: 'jsonb', defaultValue: {} });
+    expect(field(silverOrderLines, 'amazonReceiptOverrideStatus')).toMatchObject({ type: 'string' });
+    expect(field(silverOrderLines, 'amazonReceiptOverrideReason')).toMatchObject({ type: 'text' });
+    expect(field(silverOrderLines, 'amazonReceiptOverrideAt')).toMatchObject({ type: 'datetimeTz' });
+    expect(field(silverOrderLines, 'amazonReceiptOverrideByUserId')).toMatchObject({ type: 'bigInt' });
+    expect(field(silverOrderLines, 'amazonReceiptOverrideEvidenceJson')).toMatchObject({
+      type: 'jsonb',
+      defaultValue: {},
+    });
+
+    expect(field(silverOrders, 'amazonReceiptStatus')).toMatchObject({ type: 'string', allowNull: true, index: true });
+    expect(field(silverOrders, 'amazonReceiptObservedAt')).toMatchObject({ type: 'datetimeTz' });
+    expect(field(silverOrders, 'amazonReceiptCompletionReason')).toMatchObject({ type: 'string' });
+    expect(field(silverOrders, 'amazonReceiptEvidenceJson')).toMatchObject({ type: 'jsonb', defaultValue: {} });
+    expect(field(silverOrders, 'canonicalStatus')).toMatchObject({ type: 'string' });
+    expect(field(silverOrders, 'lifecycleStatus')).toMatchObject({ type: 'string' });
   });
 
   it('defines practical FK relationships across core silver and gold tables', () => {

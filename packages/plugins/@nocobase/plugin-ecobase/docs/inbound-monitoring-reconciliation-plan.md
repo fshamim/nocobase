@@ -1,6 +1,6 @@
 # Inbound Monitoring and Amazon Receipt Reconciliation Plan
 
-Status: proposed for review  
+Status: aligned for implementation
 Date: 2026-07-12  
 Scope: EcoBase Inventory Planning, ClickUp order-status imports, Sellerboard inventory imports, Silver order evidence, and Gold command-center panes
 
@@ -206,10 +206,10 @@ Never match solely by ASIN across companies or accounts. Use the existing compan
 Use preferred Sellerboard snapshots and the existing source-precedence policy. For receipt reconciliation, define Amazon-visible stock from buckets controlled or acknowledged by Amazon:
 
 ```text
-amazonVisibleStock = FBA sellable + reserved + inbound + AWD
+amazonVisibleStock = FBA sellable + reserved + inbound + routeApplicableAwd
 ```
 
-Exclude supplier-side `ordered` and `prep` buckets from receipt evidence. Confirm the final AWD treatment against the current Sellerboard payload before implementation; if AWD is not part of the applicable fulfillment path, omit it.
+Exclude supplier-side `ordered` and `prep` buckets from receipt evidence. AWD is included only when the Sellerboard payload persists an AWD bucket and the order has explicit AWD fulfillment-route evidence. Otherwise AWD is excluded with an evidence reason; it is never inferred from a generic inbound status.
 
 ### 6.3 Baseline capture
 
@@ -278,9 +278,10 @@ Add queryable scalar fields to `silverOrderLines`:
 - `amazonReceiptBaselineAt`;
 - `amazonReceiptObservedAt`;
 - `amazonReceiptCompletionReason`;
-- `amazonReceiptEvidenceJson`.
+- `amazonReceiptEvidenceJson`;
+- separate operator override state, reason, actor, time, and evidence fields.
 
-The evidence JSON contains snapshot IDs, bucket baselines/deltas, trusted sales adjustment, ClickUp task/import IDs, allocation details, and confidence. Scalar state/date/quantity fields support filtering and indexes.
+The evidence JSON contains snapshot IDs, bucket baselines/deltas, trusted sales adjustment, ClickUp task/import IDs, allocation details, and confidence. Scalar state/date/quantity fields support filtering and indexes. New receipt state fields are nullable on migration: `null` means not yet assessed, not `not_applicable`. Schema deployment must not silently classify legacy orders or alter their coverage before the controlled backfill.
 
 ### 8.2 Silver order aggregate fields
 
@@ -370,13 +371,13 @@ A future CSV still reporting `inbound-monitoring` must not reopen Sellerboard-co
 
 After preferred inventory snapshots are normalized:
 
-1. collect affected company/account/family IDs;
+1. collect affected company/account/family IDs from the committed snapshot records;
 2. commit the import transaction;
 3. reconcile awaiting inbound order lines against the new snapshots;
 4. refresh affected Gold rows;
 5. report observed, partial, completed, and review-required counts.
 
-Sellerboard import failure must not change receipt state.
+Trigger from committed preferred inventory snapshots, not only the aggregate import-run status. A Sellerboard run may be `stale` because profit reports lag while valid stock snapshots were committed. Reconcile that successful inventory dataset, but never reconcile when inventory fetch or normalization failed. Historical failed Bronze audit rows are not an affected scope.
 
 ### 10.3 Manual action
 
@@ -533,7 +534,7 @@ Include known client timelines:
 
 1. Original ClickUp CSV and Bronze remain identical.
 2. Re-importing the same ClickUp CSV creates no duplicate transitions.
-3. The nine currently selected `inbound-monitoring` OOS families route to Inbound Monitoring rather than generic Active Orders.
+3. Every currently selected `inbound-monitoring` OOS family in the fresh local baseline routes to Inbound Monitoring rather than generic Active Orders; count drift from the pre-reseed audit of nine is explained.
 4. `B0DJRRG8JS` shows its repeated order timeline and `OOS in 3 days` urgency.
 5. A controlled Sellerboard snapshot increase moves the mapped line out of awaiting state with stored evidence.
 6. A later same-family order reaching inbound monitoring completes the previous inbound cycle.
@@ -569,10 +570,19 @@ Include known client timelines:
 13. Run live-gate acceptance.
 14. Prepare staging backup, deploy, controlled backfill, import verification, and browser QA.
 
-## 16. Review decisions before implementation
+## 16. Resolved implementation defaults
 
-1. Confirm whether AWD belongs in Amazon-visible receipt stock for every fulfillment route.
-2. Confirm that any positive attributed addition acknowledges a line, while quantity remains visible for partial-receipt review.
-3. Confirm stale inbound escalation threshold; recommended default is the existing purchased-pipeline grace setting rather than another setting.
-4. Confirm Stuck & Excess remains higher primary routing priority than Inbound Monitoring.
-5. Confirm `direct-ship-fba` remains active until separate evidence supports terminal treatment.
+1. AWD counts only when both the Sellerboard bucket and explicit AWD fulfillment-route evidence exist; otherwise exclude it.
+2. Any positive attributed addition acknowledges that mapped line; observed quantity remains visible and order aggregation may still be partial.
+3. Use the existing purchased-pipeline grace setting for stale inbound escalation; do not add another setting.
+4. Stuck & Excess remains higher primary routing priority than Inbound Monitoring.
+5. `direct-ship-fba` remains active until separate Amazon receipt evidence supports completion.
+
+## 17. Alignment after the staging reseed
+
+- Receipt fields deploy nullable and unassessed. Existing Gold coverage remains unchanged until a controlled receipt assessment/backfill writes an assessed state.
+- Current Silver order-line data includes unresolved product mappings. Those lines become explicit `review_required` results; the reconciler must not invent company-product links.
+- Identity is anchored to canonical company IDs and the existing company-product-family Amazon account and marketplace, not raw ASIN or source text.
+- Sellerboard stock reconciliation is driven by committed preferred snapshot IDs, including valid stock data from an aggregate `stale` run.
+- The reconciliation service owns `reconcileAffectedOrders`; operator actions and backfill preview/apply remain separate API surfaces.
+- Acceptance compares against a freshly captured local baseline and permits documented source-quality warnings while requiring zero semantic errors and no unexplained warning regression.

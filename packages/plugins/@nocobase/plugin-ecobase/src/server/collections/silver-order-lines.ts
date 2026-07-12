@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { defineCollection } from '@nocobase/database';
 import { ECOBASE_COLLECTIONS } from './names';
 
@@ -53,6 +62,17 @@ export default defineCollection({
     { name: 'mapPrice', type: 'double' },
     { name: 'productAnalysisStatus', type: 'string', allowNull: false, defaultValue: 'unknown' },
     { name: 'priority', type: 'string' },
+    { name: 'amazonReceiptStatus', type: 'string', allowNull: true, index: true },
+    { name: 'amazonReceiptObservedQty', type: 'double' },
+    { name: 'amazonReceiptBaselineAt', type: 'datetimeTz' },
+    { name: 'amazonReceiptObservedAt', type: 'datetimeTz' },
+    { name: 'amazonReceiptCompletionReason', type: 'string' },
+    { name: 'amazonReceiptEvidenceJson', type: 'jsonb', defaultValue: {} },
+    { name: 'amazonReceiptOverrideStatus', type: 'string' },
+    { name: 'amazonReceiptOverrideReason', type: 'text' },
+    { name: 'amazonReceiptOverrideAt', type: 'datetimeTz' },
+    { name: 'amazonReceiptOverrideByUserId', type: 'bigInt', autoFill: false },
+    { name: 'amazonReceiptOverrideEvidenceJson', type: 'jsonb', defaultValue: {} },
   ],
   indexes: [
     {

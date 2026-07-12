@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { defineCollection } from '@nocobase/database';
 import { ECOBASE_COLLECTIONS } from './names';
 
@@ -51,6 +60,10 @@ export default defineCollection({
     { name: 'authorityEvidenceJson', type: 'jsonb', defaultValue: {} },
     { name: 'operatorStatusOverrideAt', type: 'datetimeTz' },
     { name: 'operatorStatusOverrideByUserId', type: 'uuid', autoFill: false },
+    { name: 'amazonReceiptStatus', type: 'string', allowNull: true, index: true },
+    { name: 'amazonReceiptObservedAt', type: 'datetimeTz' },
+    { name: 'amazonReceiptCompletionReason', type: 'string' },
+    { name: 'amazonReceiptEvidenceJson', type: 'jsonb', defaultValue: {} },
     { name: 'nextAction', type: 'string' },
     { name: 'nextActionDueAt', type: 'datetimeTz' },
     { name: 'nextActionOwnerId', type: 'uuid', autoFill: false },
