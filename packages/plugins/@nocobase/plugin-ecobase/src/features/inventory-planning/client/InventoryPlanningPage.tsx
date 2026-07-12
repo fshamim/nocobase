@@ -1552,6 +1552,7 @@ export default function InventoryPlanningPage() {
       <Typography.Text type="secondary">
         {t(formatStatusLabel(row.actionStatus ?? row.commandCenterPane))}
       </Typography.Text>
+      {row.amazonReceiptStatus === 'review_required' ? <Tag color="red">{t('Receipt evidence review')}</Tag> : null}
     </Space>
   );
   const renderFamilyActionCell = (pane: CommandCenterPaneKey, row: PlainRecord) => {
