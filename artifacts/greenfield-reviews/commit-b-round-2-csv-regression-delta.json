@@ -1,0 +1,21 @@
+{
+  "parentCommit": "b21f686e8f",
+  "currentCommit": "72de684886",
+  "parent": {
+    "total": 47,
+    "passed": 17,
+    "failed": 30,
+    "exitCode": 1,
+    "sha256": "55cb7e7dc0ce9e49b7b21c2c8a4d42d55478afbc46e71da8b96c89a210a2a78f"
+  },
+  "current": {
+    "total": 48,
+    "passed": 18,
+    "failed": 30,
+    "exitCode": 1,
+    "sha256": "8e2794580c6b7f3a3dbd1a2dd486c5e31558a111952269933d6cecc2126f3c3c"
+  },
+  "newFailures": [],
+  "fixedParentFailures": [],
+  "sameFailureSet": true
+}

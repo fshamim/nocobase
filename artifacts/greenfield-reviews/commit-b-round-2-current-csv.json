@@ -1,0 +1,450 @@
+{
+  "numTotalTestSuites": 3,
+  "numPassedTestSuites": 3,
+  "numFailedTestSuites": 0,
+  "numPendingTestSuites": 0,
+  "numTotalTests": 48,
+  "numPassedTests": 18,
+  "numFailedTests": 30,
+  "numPendingTests": 0,
+  "numTodoTests": 0,
+  "startTime": 1783923444882,
+  "success": false,
+  "testResults": [
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": ["", "Ecobase bronze import write path"],
+          "fullName": " Ecobase bronze import write path writes inline CSV files into bronze and automatically normalizes them into silver",
+          "status": "passed",
+          "title": "writes inline CSV files into bronze and automatically normalizes them into silver",
+          "duration": 17,
+          "failureMessages": []
+        },
+        {
+          "ancestorTitles": ["", "Ecobase bronze import write path"],
+          "fullName": " Ecobase bronze import write path rejects out-of-scope rows before Bronze and records the migration decision summary",
+          "status": "passed",
+          "title": "rejects out-of-scope rows before Bronze and records the migration decision summary",
+          "duration": 2,
+          "failureMessages": []
+        },
+        {
+          "ancestorTitles": ["", "Ecobase bronze import write path"],
+          "fullName": " Ecobase bronze import write path keeps invalid source rows in bronze instead of rejecting the whole import",
+          "status": "passed",
+          "title": "keeps invalid source rows in bronze instead of rejecting the whole import",
+          "duration": 0,
+          "failureMessages": []
+        },
+        {
+          "ancestorTitles": ["", "Ecobase bronze import write path"],
+          "fullName": " Ecobase bronze import write path runs active Google Sheets sources through bronze and silver in one pipeline call",
+          "status": "failed",
+          "title": "runs active Google Sheets sources through bronze and silver in one pipeline call",
+          "duration": 9,
+          "failureMessages": ["expected [ { …(16) }, { …(17) } ] to have a length of 3 but got 2"],
+          "location": { "line": 469, "column": 77 }
+        },
+        {
+          "ancestorTitles": ["", "Ecobase bronze import write path"],
+          "fullName": " Ecobase bronze import write path does not duplicate identical bronze rows for audit re-runs",
+          "status": "passed",
+          "title": "does not duplicate identical bronze rows for audit re-runs",
+          "duration": 4,
+          "failureMessages": []
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import imports MasterStock raw rows, verifies row count, and creates listing, inventory, and planning records",
+          "status": "failed",
+          "title": "imports MasterStock raw rows, verifies row count, and creates listing, inventory, and planning records",
+          "duration": 2,
+          "failureMessages": ["expected [ { …(17) }, { …(17) } ] to have a length of +0 but got 2"],
+          "location": { "line": 644, "column": 77 }
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import keeps supplier lead times distinct for the same supplier key in different companies",
+          "status": "failed",
+          "title": "keeps supplier lead times distinct for the same supplier key in different companies",
+          "duration": 3,
+          "failureMessages": [
+            "expected { id: 'record-1', …(14) } to match object { Object (status, rowCount, ...) }\n(16 matching properties omitted from actual)"
+          ],
+          "location": { "line": 679, "column": 17 }
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import uses MasterStock Lead Time as product-specific supplier lead time ahead of manufacturing days",
+          "status": "failed",
+          "title": "uses MasterStock Lead Time as product-specific supplier lead time ahead of manufacturing days",
+          "duration": 1,
+          "failureMessages": ["MemoryDatabase failed: repository undefined was not registered."],
+          "location": { "line": 137, "column": 13 }
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import links planning inputs imported after raw listings so calculations use separate planning-source runs",
+          "status": "failed",
+          "title": "links planning inputs imported after raw listings so calculations use separate planning-source runs",
+          "duration": 4,
+          "failureMessages": ["MemoryDatabase failed: repository undefined was not registered."],
+          "location": { "line": 137, "column": 13 }
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import maps Buybox into traffic snapshots through the same adapter seam",
+          "status": "failed",
+          "title": "maps Buybox into traffic snapshots through the same adapter seam",
+          "duration": 1,
+          "failureMessages": ["expected [] to deeply equal [ ObjectContaining{…} ]"],
+          "location": { "line": 821, "column": 80 }
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import rejects public filePaths without reading arbitrary server files",
+          "status": "failed",
+          "title": "rejects public filePaths without reading arbitrary server files",
+          "duration": 1,
+          "failureMessages": ["expected [ { …(16) } ] to have a length of +0 but got 1"],
+          "location": { "line": 849, "column": 77 }
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import does not echo unknown-shape headers in warning payloads",
+          "status": "failed",
+          "title": "does not echo unknown-shape headers in warning payloads",
+          "duration": 0,
+          "failureMessages": ["expected [ { …(16) } ] to have a length of +0 but got 1"],
+          "location": { "line": 874, "column": 77 }
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import recognizes the remaining required CSV shapes and Google Sheets order-management exports",
+          "status": "failed",
+          "title": "recognizes the remaining required CSV shapes and Google Sheets order-management exports",
+          "duration": 2,
+          "failureMessages": ["Top SKU'S.csv: expected [ { …(17) } ] to have a length of +0 but got 1"],
+          "location": { "line": 907, "column": 92 }
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import imports Supplier Analysis Tracker fields into suppliers",
+          "status": "failed",
+          "title": "imports Supplier Analysis Tracker fields into suppliers",
+          "duration": 1,
+          "failureMessages": ["MemoryDatabase failed: repository undefined was not registered."],
+          "location": { "line": 137, "column": 13 }
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import imports Supplier 2026 status fields into suppliers",
+          "status": "failed",
+          "title": "imports Supplier 2026 status fields into suppliers",
+          "duration": 1,
+          "failureMessages": ["MemoryDatabase failed: repository undefined was not registered."],
+          "location": { "line": 137, "column": 13 }
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import normalizes supplier-order sheets into supplier identities, history links, and coverage read models",
+          "status": "failed",
+          "title": "normalizes supplier-order sheets into supplier identities, history links, and coverage read models",
+          "duration": 3,
+          "failureMessages": ["MemoryDatabase failed: repository undefined was not registered."],
+          "location": { "line": 137, "column": 13 }
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import imports Supplier IDs rows with duplicate placeholder codes without aborting the source",
+          "status": "failed",
+          "title": "imports Supplier IDs rows with duplicate placeholder codes without aborting the source",
+          "duration": 1,
+          "failureMessages": ["MemoryDatabase failed: repository undefined was not registered."],
+          "location": { "line": 137, "column": 13 }
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import links order-details supplier codes through company-scoped Supplier IDs and leaves unknown supplier lead time missing",
+          "status": "failed",
+          "title": "links order-details supplier codes through company-scoped Supplier IDs and leaves unknown supplier lead time missing",
+          "duration": 1,
+          "failureMessages": [
+            "expected { id: 'record-2', …(14) } to match object { Object (status, rowCount, ...) }\n(15 matching properties omitted from actual)"
+          ],
+          "location": { "line": 1231, "column": 22 }
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import lets operators correct the supplier-facing order number from an order-line edit",
+          "status": "failed",
+          "title": "lets operators correct the supplier-facing order number from an order-line edit",
+          "duration": 2,
+          "failureMessages": ["MemoryDatabase failed: repository undefined was not registered."],
+          "location": { "line": 137, "column": 13 }
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import preserves operator-owned supplier-order fields across re-imports and keeps blocked open quantity semantics",
+          "status": "failed",
+          "title": "preserves operator-owned supplier-order fields across re-imports and keeps blocked open quantity semantics",
+          "duration": 2,
+          "failureMessages": ["MemoryDatabase failed: repository undefined was not registered."],
+          "location": { "line": 137, "column": 13 }
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import keeps draft/contacted orders out of coverage and treats supplier-confirmed orders as weak evidence",
+          "status": "failed",
+          "title": "keeps draft/contacted orders out of coverage and treats supplier-confirmed orders as weak evidence",
+          "duration": 2,
+          "failureMessages": ["MemoryDatabase failed: repository undefined was not registered."],
+          "location": { "line": 137, "column": 13 }
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import derives inventory tiers from six complete Sellerboard months, not stock reorder suggestions",
+          "status": "failed",
+          "title": "derives inventory tiers from six complete Sellerboard months, not stock reorder suggestions",
+          "duration": 1,
+          "failureMessages": ["MemoryDatabase failed: repository undefined was not registered."],
+          "location": { "line": 137, "column": 13 }
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import persists tier drops between inventory read-model refreshes",
+          "status": "failed",
+          "title": "persists tier drops between inventory read-model refreshes",
+          "duration": 0,
+          "failureMessages": ["MemoryDatabase failed: repository undefined was not registered."],
+          "location": { "line": 137, "column": 13 }
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import uses product-specific supplier lead time before supplier default lead time in the operator workspace",
+          "status": "failed",
+          "title": "uses product-specific supplier lead time before supplier default lead time in the operator workspace",
+          "duration": 2,
+          "failureMessages": ["MemoryDatabase failed: repository undefined was not registered."],
+          "location": { "line": 137, "column": 13 }
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import preserves imported expected-sellable precedence when a later import only has delivery-date evidence",
+          "status": "failed",
+          "title": "preserves imported expected-sellable precedence when a later import only has delivery-date evidence",
+          "duration": 1,
+          "failureMessages": ["MemoryDatabase failed: repository undefined was not registered."],
+          "location": { "line": 137, "column": 13 }
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import keeps ClickUp status authority when later generic supplier-order data is imported",
+          "status": "passed",
+          "title": "keeps ClickUp status authority when later generic supplier-order data is imported",
+          "duration": 1,
+          "failureMessages": []
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import maps a supplier order to its exact SKU when the company-ASIN family has a newer SKU",
+          "status": "passed",
+          "title": "maps a supplier order to its exact SKU when the company-ASIN family has a newer SKU",
+          "duration": 1,
+          "failureMessages": []
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import reconciles existing unmapped supplier-order lines idempotently",
+          "status": "passed",
+          "title": "reconciles existing unmapped supplier-order lines idempotently",
+          "duration": 1,
+          "failureMessages": []
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import reports ambiguous company-product mappings explicitly",
+          "status": "failed",
+          "title": "reports ambiguous company-product mappings explicitly",
+          "duration": 1,
+          "failureMessages": ["expected [ { …(3) }, { …(3) } ] to deeply equal ArrayContaining{…}"],
+          "location": { "line": 1804, "column": 29 }
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import keeps valid rows when malformed rows produce row-level warnings",
+          "status": "failed",
+          "title": "keeps valid rows when malformed rows produce row-level warnings",
+          "duration": 1,
+          "failureMessages": ["expected [ { …(17) }, { …(16) } ] to deeply equal [ ObjectContaining{…}, …(1) ]"],
+          "location": { "line": 1836, "column": 77 }
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import analyzes mixed CSV bundles before import",
+          "status": "passed",
+          "title": "analyzes mixed CSV bundles before import",
+          "duration": 1,
+          "failureMessages": []
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import analyzes semicolon Sellerboard history files for the history adapter",
+          "status": "passed",
+          "title": "analyzes semicolon Sellerboard history files for the history adapter",
+          "duration": 0,
+          "failureMessages": []
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import analyzes semicolon Sellerboard COGS files for the COGS importer",
+          "status": "passed",
+          "title": "analyzes semicolon Sellerboard COGS files for the COGS importer",
+          "duration": 0,
+          "failureMessages": []
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import imports one-time semicolon Sellerboard history rows with strict day-first dates",
+          "status": "passed",
+          "title": "imports one-time semicolon Sellerboard history rows with strict day-first dates",
+          "duration": 2,
+          "failureMessages": []
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import imports one-time semicolon Sellerboard history rows with month-first dates",
+          "status": "passed",
+          "title": "imports one-time semicolon Sellerboard history rows with month-first dates",
+          "duration": 4,
+          "failureMessages": []
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import rejects Sellerboard history dates after the import source version",
+          "status": "passed",
+          "title": "rejects Sellerboard history dates after the import source version",
+          "duration": 1,
+          "failureMessages": []
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import rejects non-slash dates in Sellerboard history files",
+          "status": "passed",
+          "title": "rejects non-slash dates in Sellerboard history files",
+          "duration": 0,
+          "failureMessages": []
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import imports CSV bundles without storing uploaded content in source connection config and skips unchanged re-uploads",
+          "status": "failed",
+          "title": "imports CSV bundles without storing uploaded content in source connection config and skips unchanged re-uploads",
+          "duration": 1,
+          "failureMessages": ["expected [] to have a length of 1 but got +0"],
+          "location": { "line": 2200, "column": 80 }
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import imports only changed files from CSV bundle re-uploads",
+          "status": "failed",
+          "title": "imports only changed files from CSV bundle re-uploads",
+          "duration": 1,
+          "failureMessages": ["expected [] to have a length of 3 but got +0"],
+          "location": { "line": 2230, "column": 80 }
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import rejects CSV bundle adapter mismatches before writing import rows",
+          "status": "passed",
+          "title": "rejects CSV bundle adapter mismatches before writing import rows",
+          "duration": 1,
+          "failureMessages": []
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import preserves distinct import-run audit trails while normalized records are idempotently updated",
+          "status": "failed",
+          "title": "preserves distinct import-run audit trails while normalized records are idempotently updated",
+          "duration": 1,
+          "failureMessages": ["expected [] to have a length of 1 but got +0"],
+          "location": { "line": 2277, "column": 80 }
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import writes skipped daily snapshot runs when there is no newer source version",
+          "status": "passed",
+          "title": "writes skipped daily snapshot runs when there is no newer source version",
+          "duration": 1,
+          "failureMessages": []
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import imports Google Sheets migration CSV exports through the same raw-row and normalized-record path",
+          "status": "failed",
+          "title": "imports Google Sheets migration CSV exports through the same raw-row and normalized-record path",
+          "duration": 0,
+          "failureMessages": [
+            "expected { id: 'record-1', …(14) } to match object { Object (status, rowCount, ...) }\n(15 matching properties omitted from actual)"
+          ],
+          "location": { "line": 2327, "column": 17 }
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import marks the import run partial when post-import reconciliation fails after rows were saved",
+          "status": "failed",
+          "title": "marks the import run partial when post-import reconciliation fails after rows were saved",
+          "duration": 1,
+          "failureMessages": [
+            "expected { id: 'record-1', …(14) } to match object { Object (status, rowCount, ...) }\n(14 matching properties omitted from actual)"
+          ],
+          "location": { "line": 2368, "column": 19 }
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import treats scheduled rolling Sellerboard reports as fresh when they include the previous completed day",
+          "status": "failed",
+          "title": "treats scheduled rolling Sellerboard reports as fresh when they include the previous completed day",
+          "duration": 3,
+          "failureMessages": [
+            "expected { id: 'record-1', …(14) } to match object { Object (status, rowCount, ...) }\n(14 matching properties omitted from actual)"
+          ],
+          "location": { "line": 2417, "column": 71 }
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import skips already-normalized rolling Sellerboard days on scheduled refresh",
+          "status": "failed",
+          "title": "skips already-normalized rolling Sellerboard days on scheduled refresh",
+          "duration": 1,
+          "failureMessages": [
+            "expected { id: 'record-1', …(14) } to match object { normalizedCount: 4 }\n(18 matching properties omitted from actual)"
+          ],
+          "location": { "line": 2460, "column": 22 }
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import reports partial Sellerboard status when some report URLs fail but available reports normalize",
+          "status": "passed",
+          "title": "reports partial Sellerboard status when some report URLs fail but available reports normalize",
+          "duration": 1,
+          "failureMessages": []
+        },
+        {
+          "ancestorTitles": ["", "Ecobase current Amazon operations CSV import"],
+          "fullName": " Ecobase current Amazon operations CSV import records Sellerboard and Amazon SP-API live-source credential blockers",
+          "status": "passed",
+          "title": "records Sellerboard and Amazon SP-API live-source credential blockers",
+          "duration": 1,
+          "failureMessages": []
+        }
+      ],
+      "startTime": 1783923445727,
+      "endTime": 1783923445815,
+      "status": "failed",
+      "message": "",
+      "name": "/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts"
+    }
+  ]
+}

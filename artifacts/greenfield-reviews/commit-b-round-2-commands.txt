@@ -1,0 +1,6 @@
+parent=b21f686e8f
+parent_worktree=/tmp/ecobase-pre-b
+parent_command=node --no-node-snapshot --max_old_space_size=14096 ./node_modules/vitest/vitest.mjs packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts --run --reporter=json --poolOptions.threads.singleThread=true
+current=72de684886
+current_worktree=/Users/fshamim/Documents/dev/ecofission-bi/nocobase
+current_command=node --no-node-snapshot --max_old_space_size=14096 ./node_modules/vitest/vitest.mjs packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts --run --reporter=json --poolOptions.threads.singleThread=true
