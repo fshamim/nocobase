@@ -120,6 +120,7 @@ const BUSINESS_TABLES = [
 
 const command = process.argv[2];
 const args = new Set(process.argv.slice(3));
+let greenfieldBundleManifest;
 
 main().catch((error) => {
   console.error(error instanceof Error ? error.message : String(error));
@@ -1500,8 +1501,6 @@ function requiredString(value, label) {
   if (typeof value !== 'string' || value.trim().length === 0) throw new Error(`${label} is required`);
   return value.trim();
 }
-
-let greenfieldBundleManifest;
 
 function bundleFilePaths(groupIds) {
   if (!GREENFIELD_BUNDLE_PATH) return undefined;

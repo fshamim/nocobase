@@ -45,6 +45,7 @@ describe('live-gate import orchestration', () => {
     expect(script).not.toContain('nocobase upgrade');
     expect(script).toContain('drop schema public cascade; create schema public;');
     expect(script).toContain("SEED_PROFILE === 'staging-fast-clickup'");
+    expect(script.indexOf('let greenfieldBundleManifest')).toBeLessThan(script.indexOf('main().catch'));
     expect(script.match(/^ {2}\[\d+, [\d_]+\],$/gm)).toHaveLength(12);
     expect(script).toContain('exceeded its ${budgetMs}ms budget');
     for (const metric of ['inputRows', 'acceptedRows', 'discardedRows', 'durationMs']) {
