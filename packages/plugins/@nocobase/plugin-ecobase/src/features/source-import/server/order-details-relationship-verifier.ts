@@ -222,7 +222,8 @@ export class EcobaseOrderDetailsRelationshipVerifier {
       );
       if (companyProductCandidates.length !== 1) {
         actualIds.companyProductIds = companyProductCandidates.map((row) => text(row.id));
-        fail(source.identity.sku ? 'company_product_not_unique' : 'asin_only_company_product_not_unique');
+        const identity = source.identity.sku ? 'company_product' : 'asin_only_company_product';
+        fail(`${identity}_${companyProductCandidates.length === 0 ? 'not_found' : 'not_unique'}`);
         continue;
       }
       const companyProduct = companyProductCandidates[0];
@@ -236,7 +237,7 @@ export class EcobaseOrderDetailsRelationshipVerifier {
       );
       if (supplierProductCandidates.length !== 1) {
         actualIds.supplierProductIds = supplierProductCandidates.map((row) => text(row.id));
-        fail('supplier_product_not_unique');
+        fail(supplierProductCandidates.length === 0 ? 'supplier_product_not_found' : 'supplier_product_not_unique');
         continue;
       }
       const supplierProductId = text(supplierProductCandidates[0].id);
@@ -267,7 +268,7 @@ export class EcobaseOrderDetailsRelationshipVerifier {
       );
       if (lineCandidates.length !== 1) {
         actualIds.orderLineIds = lineCandidates.map((row) => text(row.id));
-        fail('silver_order_line_not_unique');
+        fail(lineCandidates.length === 0 ? 'silver_order_line_not_found' : 'silver_order_line_not_unique');
         continue;
       }
       const line = lineCandidates[0];

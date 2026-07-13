@@ -68,6 +68,7 @@ import type { SilverFocus } from '../features/semantic-model/server/silver-data-
 import { EcobaseSourceConnectionService } from '../features/source-import/server/source-connection-service';
 import { EcobaseSupplierManagementService } from '../features/supplier-management/server/supplier-management-service';
 import { EcobaseSupplierOrderService } from '../features/supplier-management/server/supplier-order-service';
+import { EcobaseSupplierResolutionRepairService } from '../features/supplier-management/server/supplier-resolution-repair-service';
 
 function getValues(params: unknown): Record<string, unknown> {
   if (typeof params !== 'object' || params === null) {
@@ -1767,7 +1768,65 @@ export function createEcobaseSupplierOrderActions() {
 }
 
 export function createEcobaseSupplierManagementActions() {
+  const requireRepairAdministrator = (ctx: any) => {
+    const roles = new Set([ctx.state?.currentRole, ...(ctx.state?.currentRoles ?? [])].filter(Boolean));
+    if (!roles.has('root') && !roles.has('admin')) {
+      ctx.throw(403, 'Ecobase supplier repair requires the root or admin role.');
+    }
+  };
   return {
+    previewSupplierResolutionRepair: async (ctx, next) => {
+      requireRepairAdministrator(ctx);
+      const values = getValues(ctx.action.params);
+      const repairVersion = getOptionalString(values, 'repairVersion');
+      const codeSha = getOptionalString(values, 'codeSha');
+      if (!repairVersion || !codeSha) {
+        ctx.throw(400, 'Ecobase supplier repair preview requires repairVersion and codeSha.');
+        return;
+      }
+      try {
+        ctx.body = {
+          data: await new EcobaseSupplierResolutionRepairService(ctx.db).preview({
+            repairVersion,
+            codeSha,
+            actorUserId: String(ctx.state?.currentUser?.id ?? ctx.auth?.user?.id ?? '') || undefined,
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier repair preview failed.');
+        return;
+      }
+      await next();
+    },
+    applySupplierResolutionRepair: async (ctx, next) => {
+      requireRepairAdministrator(ctx);
+      const values = getValues(ctx.action.params);
+      const runId = getOptionalString(values, 'runId');
+      const decisionDigest = getOptionalString(values, 'decisionDigest');
+      const codeSha = getOptionalString(values, 'codeSha');
+      if (getOptionalString(values, 'confirmation') !== 'APPLY_SUPPLIER_REPAIR') {
+        ctx.throw(400, 'Ecobase supplier repair apply requires confirmation APPLY_SUPPLIER_REPAIR.');
+        return;
+      }
+      if (!runId || !decisionDigest || !codeSha) {
+        ctx.throw(400, 'Ecobase supplier repair apply requires runId, decisionDigest, and codeSha.');
+        return;
+      }
+      try {
+        ctx.body = {
+          data: await new EcobaseSupplierResolutionRepairService(ctx.db).apply({
+            runId,
+            decisionDigest,
+            codeSha,
+            batchSize: getOptionalNumber(values, 'batchSize'),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier repair apply failed.');
+        return;
+      }
+      await next();
+    },
     refreshAttentionRows: async (ctx, next) => {
       const values = getValues(ctx.action.params);
       const service = new EcobaseSupplierManagementService(ctx.db);

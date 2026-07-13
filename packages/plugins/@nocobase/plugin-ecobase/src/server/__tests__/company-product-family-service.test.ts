@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { describe, expect, it } from 'vitest';
 import { EcobaseCompanyProductFamilyService } from '../../features/inventory-planning/server/company-product-family-service';
 import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
@@ -51,6 +60,9 @@ class MemoryDatabase implements EcobaseDatabase {
 }
 
 async function seed(db: MemoryDatabase) {
+  await db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
+    values: { id: 'company-1', name: 'Ecofission LLC' },
+  });
   await db.getRepository(ECOBASE_COLLECTIONS.silverAmazonAccounts).create({
     values: { id: 'account-us', companyId: 'company-1', marketplace: 'Amazon.com' },
   });
@@ -117,6 +129,125 @@ const identity = {
 };
 
 describe('EcobaseCompanyProductFamilyService', () => {
+  it('resolves exact SKU before a governed family target and preserves source-SKU evidence', async () => {
+    const db = new MemoryDatabase();
+    await seed(db);
+    const service = new EcobaseCompanyProductFamilyService(db);
+    const family = await service.ensureFamily(identity);
+    await service.setReplenishmentTarget({
+      familyId: String(family.id),
+      companyProductId: 'company-product-b',
+      source: 'operator',
+    });
+
+    await expect(
+      service.resolveCompanyProduct({
+        companyId: 'company-1',
+        asin: 'B000FAMILY',
+        sku: 'SKU-A',
+        marketplace: 'Amazon.com',
+      }),
+    ).resolves.toMatchObject({
+      companyProductId: 'company-product-a',
+      resolution: 'exact',
+      sourceSku: 'SKU-A',
+    });
+
+    for (const sourceSku of ['DC 50944', 'DC-50944', 'Dampp-Chaser-50944']) {
+      await expect(
+        service.resolveCompanyProduct({
+          companyId: 'company-1',
+          asin: 'B000FAMILY',
+          sku: sourceSku,
+          marketplace: 'Amazon.com',
+        }),
+      ).resolves.toMatchObject({
+        companyProductId: 'company-product-b',
+        resolution: 'family_target',
+        sourceSku,
+        boundary: { amazonAccountId: 'account-us', marketplace: 'amazon.com' },
+      });
+    }
+  });
+
+  it('excludes missing, multiple, cross-boundary, review-flagged, missing, and stale targets', async () => {
+    const db = new MemoryDatabase();
+    await seed(db);
+    const service = new EcobaseCompanyProductFamilyService(db);
+    const family = await service.ensureFamily(identity);
+    await service.setReplenishmentTarget({
+      familyId: String(family.id),
+      companyProductId: 'company-product-b',
+      source: 'operator',
+    });
+
+    await expect(
+      service.resolveCompanyProduct({ companyId: 'company-1', asin: 'B000FAMILY', sku: 'ALIAS' }),
+    ).resolves.toMatchObject({ exclusionReason: 'boundary_ambiguous' });
+    await expect(
+      service.resolveCompanyProduct({
+        companyId: 'company-1',
+        asin: 'B000FAMILY',
+        sku: 'ALIAS',
+        marketplace: 'Amazon.mx',
+      }),
+    ).resolves.toMatchObject({ exclusionReason: 'boundary_missing' });
+    await expect(
+      service.resolveCompanyProduct({
+        companyId: 'company-1',
+        asin: 'B000FAMILY',
+        sku: 'ALIAS',
+        amazonAccountId: 'account-ca',
+        marketplace: 'Amazon.com',
+      }),
+    ).resolves.toMatchObject({ exclusionReason: 'boundary_missing' });
+    await expect(
+      service.resolveCompanyProduct({
+        companyId: 'company-1',
+        asin: 'B000FAMILY',
+        sku: 'ALIAS',
+        marketplace: 'Amazon.ca',
+      }),
+    ).resolves.toMatchObject({ exclusionReason: 'family_missing' });
+
+    const familyRepo = db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductFamilies);
+    await familyRepo.update({ filterByTk: String(family.id), values: { targetReviewRequired: true } });
+    await expect(
+      service.resolveCompanyProduct({
+        companyId: 'company-1',
+        asin: 'B000FAMILY',
+        sku: 'ALIAS',
+        marketplace: 'Amazon.com',
+      }),
+    ).resolves.toMatchObject({ exclusionReason: 'target_review_required' });
+
+    await familyRepo.update({
+      filterByTk: String(family.id),
+      values: { targetReviewRequired: false, replenishmentTargetCompanyProductId: null },
+    });
+    await expect(
+      service.resolveCompanyProduct({
+        companyId: 'company-1',
+        asin: 'B000FAMILY',
+        sku: 'ALIAS',
+        marketplace: 'Amazon.com',
+      }),
+    ).resolves.toMatchObject({ exclusionReason: 'target_missing' });
+
+    await familyRepo.update({
+      filterByTk: String(family.id),
+      values: { replenishmentTargetCompanyProductId: 'company-product-other-account' },
+    });
+    await expect(
+      service.resolveCompanyProduct({
+        companyId: 'company-1',
+        asin: 'B000FAMILY',
+        sku: 'ALIAS',
+        marketplace: 'Amazon.com',
+      }),
+    ).resolves.toMatchObject({ exclusionReason: 'target_not_member' });
+  });
+
   it('creates one idempotent family per company, account, marketplace, and ASIN', async () => {
     const db = new MemoryDatabase();
     await seed(db);

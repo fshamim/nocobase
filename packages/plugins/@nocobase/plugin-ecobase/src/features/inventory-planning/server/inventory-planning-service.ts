@@ -1218,6 +1218,15 @@ export class EcobaseInventoryPlanningService {
     const factsByCompanyProduct = this.groupBy(dailyFacts, 'companyProductId');
     const companyProductsById = new Map(companyProducts.map((row) => [asString(row.id), row]));
     const familiesById = new Map(companyProductFamilies.map((row) => [asString(row.id), row]));
+    const productIdsByFamilyId = new Map<string, Set<string>>();
+    for (const companyProduct of companyProducts) {
+      const familyId = asString(companyProduct.companyProductFamilyId);
+      const productId = asString(companyProduct.productId);
+      if (!familyId || !productId) continue;
+      const productIds = productIdsByFamilyId.get(familyId) ?? new Set<string>();
+      productIds.add(productId);
+      productIdsByFamilyId.set(familyId, productIds);
+    }
     const latestFactDateByCompanyId = new Map<string, string>();
     for (const fact of dailyFacts) {
       const companyId = asString(companyProductsById.get(asString(fact.companyProductId))?.companyId);
@@ -1270,10 +1279,23 @@ export class EcobaseInventoryPlanningService {
       if (!companyProductId || !companyName || !product) continue;
       const companyProductFamilyId = asString(companyProduct.companyProductFamilyId);
       const family = familiesById.get(companyProductFamilyId) ?? {};
-      const preferredSupplierProduct = supplierProductsById.get(asString(family.preferredSupplierProductId)) ?? {};
-      const preferredSupplier = suppliersById.get(
-        asString(family.preferredSupplierId) ?? asString(preferredSupplierProduct.supplierId),
-      );
+      const requestedPreferredSupplierId = asString(family.preferredSupplierId);
+      const familyPreferredSupplierId = suppliersById.has(requestedPreferredSupplierId)
+        ? requestedPreferredSupplierId
+        : undefined;
+      const requestedPreferredSupplierProductId = asString(family.preferredSupplierProductId);
+      const preferredSupplierProductCandidate = supplierProductsById.get(requestedPreferredSupplierProductId);
+      const familyPreferredSupplierProductId =
+        familyPreferredSupplierId &&
+        companyProductFamilyId &&
+        asString(preferredSupplierProductCandidate?.supplierId) === familyPreferredSupplierId &&
+        productIdsByFamilyId
+          .get(companyProductFamilyId)
+          ?.has(asString(preferredSupplierProductCandidate?.productId) ?? '')
+          ? requestedPreferredSupplierProductId
+          : undefined;
+      const preferredSupplierProduct = supplierProductsById.get(familyPreferredSupplierProductId) ?? {};
+      const preferredSupplier = suppliersById.get(familyPreferredSupplierId);
       const asin = asString(product.asin);
       const sku = asString(product.sku);
 
@@ -1478,8 +1500,8 @@ export class EcobaseInventoryPlanningService {
         familyMarketplace: asString(family.marketplace),
         familyCanonicalAsin: asString(family.canonicalAsin),
         replenishmentTargetCompanyProductId: asString(family.replenishmentTargetCompanyProductId),
-        familyPreferredSupplierId: asString(family.preferredSupplierId),
-        familyPreferredSupplierProductId: asString(family.preferredSupplierProductId),
+        familyPreferredSupplierId,
+        familyPreferredSupplierProductId,
         familyPreferredSupplierName: asString(preferredSupplier?.displayName),
         familyUnitCost: asNumber(preferredSupplierProduct.unitCost),
         familyLeadTimeDays: asNumber(preferredSupplierProduct.leadTimeDays),
@@ -2837,14 +2859,29 @@ export class EcobaseInventoryPlanningService {
           throw new Error(`Ecobase inventory-planning refresh failed: row ${naturalKey} is missing id.`);
         }
         await repository.update({ filterByTk: existingId, values });
+        await this.clearMissingGoldSupplierReferences(existingId, row);
         updated += 1;
       } else {
-        await repository.create({ values });
+        const createdRow = toPlainRecord(await repository.create({ values }));
+        await this.clearMissingGoldSupplierReferences(createdRow.id, row);
         created += 1;
       }
     }
 
     return { calculationDate, rowCount: rows.length, created, updated, lastRefreshedAt: refreshedAt };
+  }
+
+  private async clearMissingGoldSupplierReferences(id: unknown, row: PlainRecord) {
+    const values: PlainRecord = {};
+    if (!asString(row.familyPreferredSupplierId)) values.familyPreferredSupplierId = null;
+    if (!asString(row.familyPreferredSupplierProductId)) values.familyPreferredSupplierProductId = null;
+    if (Object.keys(values).length === 0 || (typeof id !== 'string' && typeof id !== 'number')) return;
+    const queryInterface = this.db.sequelize?.getQueryInterface?.();
+    const collection = (this.db as EcobaseDatabase & { getCollection?: (name: string) => any }).getCollection?.(
+      ECOBASE_COLLECTIONS.goldInventoryPlanningRows,
+    );
+    if (!queryInterface || !collection) return;
+    await queryInterface.bulkUpdate(collection.getTableNameWithSchema(), values, { id });
   }
 
   private previousTierSnapshotForRow(row: PlainRecord, previousRows: PlainRecord[], calculationDate: string) {

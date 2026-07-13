@@ -120,10 +120,17 @@ export default defineCollection({
       interface: 'number',
       uiSchema: { title: 'Family Suggested Qty' },
     },
-    { name: 'familyPreferredSupplierId', type: 'uuid', interface: 'input', uiSchema: { title: 'Family Supplier' } },
+    {
+      name: 'familyPreferredSupplierId',
+      type: 'uuid',
+      autoFill: false,
+      interface: 'input',
+      uiSchema: { title: 'Family Supplier' },
+    },
     {
       name: 'familyPreferredSupplierProductId',
       type: 'uuid',
+      autoFill: false,
       interface: 'input',
       uiSchema: { title: 'Family Supplier Product' },
     },

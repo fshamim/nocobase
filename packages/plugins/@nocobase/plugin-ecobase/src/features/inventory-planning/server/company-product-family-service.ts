@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import type { EcobaseDatabase } from '../../source-import/server/import-service';
@@ -13,6 +22,23 @@ export type FamilyIdentity = {
 
 export type FamilySelectionSource = 'automatic' | 'operator';
 export type SupplierSelectionSource = 'latest_valid_order' | 'operator';
+
+export type CompanyProductResolution = {
+  companyProductId?: string;
+  resolution?: 'exact' | 'family_target';
+  sourceSku?: string;
+  boundary?: FamilyIdentity;
+  exclusionReason?:
+    | 'company_not_found'
+    | 'product_not_found'
+    | 'exact_match_ambiguous'
+    | 'boundary_missing'
+    | 'boundary_ambiguous'
+    | 'family_missing'
+    | 'target_missing'
+    | 'target_review_required'
+    | 'target_not_member';
+};
 
 function toPlainRecord(value: unknown): PlainRecord {
   if (!value || typeof value !== 'object') return {};
@@ -61,6 +87,105 @@ export class EcobaseCompanyProductFamilyService {
     const filter = normalizeIdentity(identity);
     const row = await this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductFamilies).findOne({ filter });
     return row ? toPlainRecord(row) : undefined;
+  }
+
+  async resolveCompanyProduct(params: {
+    companyId: string;
+    asin?: string;
+    sku?: string;
+    amazonAccountId?: string;
+    marketplace?: string;
+  }): Promise<CompanyProductResolution> {
+    const companyId = requiredString(params.companyId, 'companyId');
+    const asin = params.asin?.trim().toUpperCase();
+    const sourceSku = params.sku?.trim();
+    if (!asin) return { sourceSku, exclusionReason: 'product_not_found' };
+
+    const [company, products, companyProducts, accounts] = await Promise.all([
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).findOne({ filterByTk: companyId }),
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverProducts).find({ filter: { asin }, limit: 10000 }),
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).find({ filter: { companyId }, limit: 10000 }),
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverAmazonAccounts).find({ filter: { companyId }, limit: 10000 }),
+    ]);
+    if (!company) return { sourceSku, exclusionReason: 'company_not_found' };
+
+    const productsById = new Map(
+      products.map((value) => {
+        const product = toPlainRecord(value);
+        return [idOf(product, 'id'), product];
+      }),
+    );
+    const asinRelations = companyProducts
+      .map(toPlainRecord)
+      .filter((relation) => productsById.has(idOf(relation, 'productId')));
+    if (!asinRelations.length) return { sourceSku, exclusionReason: 'product_not_found' };
+
+    if (sourceSku) {
+      const exactRelations = asinRelations.filter((relation) => {
+        const product = productsById.get(idOf(relation, 'productId'));
+        return (
+          String(product?.sku ?? '')
+            .trim()
+            .toLowerCase() === sourceSku.toLowerCase()
+        );
+      });
+      const scopedExactRelations = this.scopeRelations(exactRelations, accounts.map(toPlainRecord), params);
+      if (scopedExactRelations.length === 1) {
+        return { companyProductId: idOf(scopedExactRelations[0], 'id'), resolution: 'exact', sourceSku };
+      }
+      if (exactRelations.length > 0) return { sourceSku, exclusionReason: 'exact_match_ambiguous' };
+    }
+
+    const scopedRelations = this.scopeRelations(asinRelations, accounts.map(toPlainRecord), params);
+    const boundaries = new Map<string, FamilyIdentity>();
+    const accountById = new Map(accounts.map(toPlainRecord).map((account) => [idOf(account, 'id'), account]));
+    for (const relation of scopedRelations) {
+      const account = accountById.get(idOf(relation, 'amazonAccountId'));
+      if (idOf(account ?? {}, 'companyId') !== companyId) continue;
+      const amazonAccountId = idOf(account ?? {}, 'id');
+      const marketplace = String(account?.marketplace ?? '').trim();
+      if (!amazonAccountId || !marketplace || marketplace.toLowerCase() === 'default') continue;
+      const boundary = normalizeIdentity({ companyId, amazonAccountId, marketplace, canonicalAsin: asin });
+      boundaries.set(
+        [boundary.companyId, boundary.amazonAccountId, boundary.marketplace, boundary.canonicalAsin].join('::'),
+        boundary,
+      );
+    }
+    if (boundaries.size === 0) return { sourceSku, exclusionReason: 'boundary_missing' };
+    if (boundaries.size !== 1) return { sourceSku, exclusionReason: 'boundary_ambiguous' };
+
+    const boundary = [...boundaries.values()][0];
+    const family = await this.findFamily(boundary);
+    if (!family) return { sourceSku, boundary, exclusionReason: 'family_missing' };
+    if (family.targetReviewRequired === true) {
+      return { sourceSku, boundary, exclusionReason: 'target_review_required' };
+    }
+    const targetId = idOf(family, 'replenishmentTargetCompanyProductId');
+    if (!targetId) return { sourceSku, boundary, exclusionReason: 'target_missing' };
+    const members = await this.listMembers(idOf(family, 'id') as string);
+    if (!members.some((member) => idOf(member, 'id') === targetId)) {
+      return { sourceSku, boundary, exclusionReason: 'target_not_member' };
+    }
+    return { companyProductId: targetId, resolution: 'family_target', sourceSku, boundary };
+  }
+
+  private scopeRelations(
+    relations: PlainRecord[],
+    accounts: PlainRecord[],
+    evidence: { amazonAccountId?: string; marketplace?: string },
+  ) {
+    const marketplace = evidence.marketplace?.trim().toLowerCase();
+    const accountById = new Map(accounts.map((account) => [idOf(account, 'id'), account]));
+    return relations.filter((relation) => {
+      if (evidence.amazonAccountId && idOf(relation, 'amazonAccountId') !== evidence.amazonAccountId) return false;
+      if (!marketplace) return true;
+      const account = accountById.get(idOf(relation, 'amazonAccountId'));
+      return (
+        String(account?.marketplace ?? '')
+          .trim()
+          .toLowerCase() === marketplace
+      );
+    });
   }
 
   async getFamily(familyId: string) {

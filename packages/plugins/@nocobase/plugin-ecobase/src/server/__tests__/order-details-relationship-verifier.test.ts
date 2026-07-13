@@ -159,18 +159,64 @@ describe('EcobaseOrderDetailsRelationshipVerifier', () => {
     expect(result.invalidReasons).toMatchObject({ supplier_mismatch_purchase_header: 1 });
   });
 
-  it('reports both a broken silver chain and unreachable inventory history', async () => {
-    const { db, file } = verifierFixture({ includeLine: false });
+  it('distinguishes missing and duplicate company-product matches', async () => {
+    const missing = verifierFixture();
+    missing.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).rows.splice(0, 1);
+    const duplicate = verifierFixture();
+    duplicate.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).rows.push({
+      id: 'company-product-duplicate',
+      companyId: 'company-1',
+      productId: 'product-alias',
+    });
 
-    const result = await new EcobaseOrderDetailsRelationshipVerifier(db).verify(file);
+    const missingResult = await new EcobaseOrderDetailsRelationshipVerifier(missing.db).verify(missing.file);
+    const duplicateResult = await new EcobaseOrderDetailsRelationshipVerifier(duplicate.db).verify(duplicate.file);
 
-    expect(result.ok).toBe(false);
-    expect(result.totals).toMatchObject({ relationshipGaps: 1, inventoryHistoryGaps: 1 });
-    expect(result.discrepancies).toEqual(
+    expect(missingResult.discrepancies).toEqual([
+      expect.objectContaining({ reason: 'company_product_not_found' }),
+      expect.objectContaining({ reason: 'inventory_order_history_not_reachable' }),
+    ]);
+    expect(duplicateResult.discrepancies).toEqual([expect.objectContaining({ reason: 'company_product_not_unique' })]);
+  });
+
+  it('distinguishes missing and duplicate supplier-product matches', async () => {
+    const missing = verifierFixture();
+    missing.db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).rows.length = 0;
+    const duplicate = verifierFixture();
+    duplicate.db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).rows.push({
+      id: 'supplier-product-duplicate',
+      supplierId: 'supplier-1',
+      productId: 'product-alias',
+    });
+
+    const missingResult = await new EcobaseOrderDetailsRelationshipVerifier(missing.db).verify(missing.file);
+    const duplicateResult = await new EcobaseOrderDetailsRelationshipVerifier(duplicate.db).verify(duplicate.file);
+
+    expect(missingResult.discrepancies).toEqual([expect.objectContaining({ reason: 'supplier_product_not_found' })]);
+    expect(duplicateResult.discrepancies).toEqual([expect.objectContaining({ reason: 'supplier_product_not_unique' })]);
+  });
+
+  it('distinguishes missing and duplicate Silver order-line matches', async () => {
+    const missing = verifierFixture({ includeLine: false });
+    const duplicate = verifierFixture();
+    duplicate.db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows.push({
+      ...duplicate.db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[0],
+      id: 'line-duplicate',
+    });
+
+    const missingResult = await new EcobaseOrderDetailsRelationshipVerifier(missing.db).verify(missing.file);
+    const duplicateResult = await new EcobaseOrderDetailsRelationshipVerifier(duplicate.db).verify(duplicate.file);
+
+    expect(missingResult.ok).toBe(false);
+    expect(missingResult.totals).toMatchObject({ relationshipGaps: 1, inventoryHistoryGaps: 1 });
+    expect(missingResult.discrepancies).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ reason: 'silver_order_line_not_unique' }),
+        expect.objectContaining({ reason: 'silver_order_line_not_found' }),
         expect.objectContaining({ reason: 'inventory_order_history_not_reachable' }),
       ]),
     );
+    expect(duplicateResult.discrepancies).toEqual([
+      expect.objectContaining({ reason: 'silver_order_line_not_unique' }),
+    ]);
   });
 });

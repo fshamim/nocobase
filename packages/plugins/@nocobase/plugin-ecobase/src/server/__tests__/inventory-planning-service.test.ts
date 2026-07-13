@@ -1225,6 +1225,54 @@ describe('EcobaseInventoryPlanningService', () => {
       }),
     ]);
     expect(commandCenter.panes.supplyAction.rows.some((row) => row.sku === duplicateSku)).toBe(false);
+
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductFamilies).update({
+      filterByTk: familyId,
+      values: {
+        preferredSupplierId: 'missing-supplier',
+        preferredSupplierProductId: 'missing-supplier-product',
+      },
+    });
+    await new EcobaseInventoryPlanningService(db).refreshReadModel({
+      company,
+      calculationDate: '2026-07-09',
+    });
+    expect(
+      db
+        .getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows)
+        .all()
+        .find((row) => row.sku === primarySku),
+    ).toMatchObject({
+      familyPreferredSupplierId: null,
+      familyPreferredSupplierProductId: null,
+    });
+  });
+
+  it('bypasses UUID auto-fill when clearing optional Gold supplier references', async () => {
+    const calls: unknown[][] = [];
+    const db = {
+      getRepository: () => {
+        throw new Error('repository should not be used by the direct optional-reference cleanup');
+      },
+      getCollection: () => ({ getTableNameWithSchema: () => 'goldInventoryPlanningRows' }),
+      sequelize: {
+        getQueryInterface: () => ({
+          bulkUpdate: async (...args: unknown[]) => calls.push(args),
+        }),
+      },
+    } as unknown as EcobaseDatabase;
+    const service = new EcobaseInventoryPlanningService(db) as unknown as {
+      clearMissingGoldSupplierReferences: (id: string, row: Record<string, unknown>) => Promise<void>;
+    };
+
+    await service.clearMissingGoldSupplierReferences('gold-row-1', {});
+    expect(calls).toEqual([
+      [
+        'goldInventoryPlanningRows',
+        { familyPreferredSupplierId: null, familyPreferredSupplierProductId: null },
+        { id: 'gold-row-1' },
+      ],
+    ]);
   });
 
   it('rolls listing-level stuck evidence into one family action without hiding active-order context', () => {

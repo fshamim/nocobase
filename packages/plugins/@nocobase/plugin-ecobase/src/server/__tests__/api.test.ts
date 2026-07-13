@@ -3270,6 +3270,21 @@ describe('Ecobase Silver Data operator API', () => {
     expect(ids('orderLines')).not.toContain('order-line-2');
   });
 
+  it('restricts supplier repair preview and apply to root or admin roles', async () => {
+    const db = new MemoryDatabase();
+    const actions = createEcobaseSupplierManagementActions();
+    const memberPreview = createActionContext(db, {}, undefined, ['member']);
+    const memberApply = createActionContext(db, {}, undefined, ['member']);
+
+    await expect(actions.previewSupplierResolutionRepair(memberPreview, vi.fn())).rejects.toMatchObject({
+      status: 403,
+    });
+    await expect(actions.applySupplierResolutionRepair(memberApply, vi.fn())).rejects.toMatchObject({ status: 403 });
+
+    const adminPreview = createActionContext(db, {}, undefined, ['admin']);
+    await expect(actions.previewSupplierResolutionRepair(adminPreview, vi.fn())).rejects.toMatchObject({ status: 400 });
+  });
+
   it('rejects read-only updates and links drawer comments to the selected entity', async () => {
     const db = new MemoryDatabase();
     await seedSilverData(db);

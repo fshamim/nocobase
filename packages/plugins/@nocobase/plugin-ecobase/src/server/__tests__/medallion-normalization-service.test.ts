@@ -617,7 +617,7 @@ describe('EcobaseMedallionNormalizationService', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductSuppliers).rows).toHaveLength(0);
   });
 
-  it('links ASIN-only supplier tracker rows to existing company products without SKU-equals-ASIN duplicates', async () => {
+  it('keeps ASIN-only supplier tracker rows unresolved without an approved family target', async () => {
     const db = new FakeDatabase();
     await seedBronze(db, {
       Company: 'Stop Shop LLC',
@@ -643,10 +643,11 @@ describe('EcobaseMedallionNormalizationService', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).rows).toHaveLength(1);
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).rows[0]).toMatchObject({ sku: '2-Pack' });
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).rows).toHaveLength(1);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductSuppliers).rows).toEqual([
-      expect.objectContaining({ role: 'candidate' }),
-    ]);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).rows[0]).not.toHaveProperty('supplierSku');
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductSuppliers).rows).toHaveLength(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).rows).toHaveLength(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).rows[1]).toMatchObject({
+      issueCode: 'supplier_product_unresolved',
+    });
   });
 
   it('keeps Supplier Management identity authoritative when order rows reuse the supplier code', async () => {
@@ -863,7 +864,7 @@ describe('EcobaseMedallionNormalizationService', () => {
     });
   });
 
-  it('resolves ASIN-only OrderDetails only when one company product is supported', async () => {
+  it('rejects ASIN-only OrderDetails without an approved family target', async () => {
     const db = new FakeDatabase();
     await seedBronze(db, {
       Company: 'Stop Shop LLC',
@@ -883,14 +884,12 @@ describe('EcobaseMedallionNormalizationService', () => {
 
     const result = await new EcobaseMedallionNormalizationService(db).normalizePending();
 
-    expect(result.failed).toBe(0);
+    expect(result.failed).toBe(1);
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).rows).toHaveLength(1);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows).toEqual([
-      expect.objectContaining({
-        companyProductId: db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).rows[0].id,
-        orderedQty: 3,
-      }),
-    ]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows).toHaveLength(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).rows[3]).toMatchObject({
+      normalizationStatus: 'failed',
+    });
   });
 
   it('rejects tied ASIN-only OrderDetails without creating a line', async () => {

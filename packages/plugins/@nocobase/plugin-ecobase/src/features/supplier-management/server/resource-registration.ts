@@ -42,6 +42,8 @@ export function createSupplierManagementResourceRegistration(): EcobaseFeatureRe
       {
         resource: 'ecobaseSupplierManagement',
         actions: [
+          'previewSupplierResolutionRepair',
+          'applySupplierResolutionRepair',
           'refreshAttentionRows',
           'rows',
           'summary',

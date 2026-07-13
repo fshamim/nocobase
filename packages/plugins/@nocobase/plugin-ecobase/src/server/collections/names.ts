@@ -10,6 +10,7 @@
 export const ECOBASE_COLLECTIONS = {
   sourceConnections: 'ecobaseSourceConnections',
   importRuns: 'ecobaseImportRuns',
+  repairRuns: 'ecobaseRepairRuns',
   planningProducts: 'ecobasePlanningProducts',
   planningProductListings: 'ecobasePlanningProductListings',
   planningProductMappingAudits: 'ecobasePlanningProductMappingAudits',
