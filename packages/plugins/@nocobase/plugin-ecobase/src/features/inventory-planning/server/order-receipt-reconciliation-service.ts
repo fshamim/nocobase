@@ -561,7 +561,7 @@ export class EcobaseOrderReceiptReconciliationService {
       sourceOperationalStatus,
       sellerboardEvidence:
         evidence.outcome === 'review_required'
-          ? { status: evidence.status, reason: evidence.reason }
+          ? { status: 'review_required', reason: evidence.reason }
           : observedQty > 0
             ? { status: 'amazon_stock_observed', reason: evidence.reason }
             : undefined,

@@ -722,6 +722,8 @@ function inventoryCommandCenterEvidence(commandCenter: PlainRecord, maxItems: nu
       activeOrders: pane('activeOrders'),
       stuckInventory: pane('stuckInventory'),
       duplicateProducts: pane('duplicateProducts'),
+      inboundMonitoring: pane('inboundMonitoring'),
+      healthyInventory: pane('healthyInventory'),
     },
     alerts: commandCenterAlerts(commandCenter, maxItems),
   };
