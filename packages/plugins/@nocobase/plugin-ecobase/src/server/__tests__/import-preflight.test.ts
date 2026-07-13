@@ -203,7 +203,30 @@ describe('Ecobase import preflight', () => {
     });
   });
 
-  it('resolves conflicting authoritative ClickUp statuses by newest task', () => {
+  it('allows current Sellerboard coverage without history only when the profile says history is deferred', () => {
+    const coverage = ['ECOFISSION_LLC', 'RETAIL_HEAVEN_INC', 'MUXTEX_INC', 'STOP_SHOP_LLC'].map((companyKey) => ({
+      companyKey: companyKey as 'ECOFISSION_LLC' | 'RETAIL_HEAVEN_INC' | 'MUXTEX_INC' | 'STOP_SHOP_LLC',
+      account: `${companyKey}-account`,
+      marketplace: 'Amazon.com',
+      complete: true,
+      currentSnapshotAt: '2026-07-13T12:00:00.000Z',
+      historyStartDate: '',
+      historyEndDate: '',
+    }));
+
+    expect(
+      preflightImportFiles([], {
+        asOfDate: '2026-07-13',
+        sellerboardCoverage: coverage,
+        requireSellerboardHistory: false,
+      }),
+    ).toMatchObject({ ok: true, issueCounts: {} });
+    expect(preflightImportFiles([], { asOfDate: '2026-07-13', sellerboardCoverage: coverage }).issueCounts).toEqual({
+      sellerboard_history_incomplete: 4,
+    });
+  });
+
+  it('leaves conflicting authoritative ClickUp statuses reviewable', () => {
     const result = preflightImportFiles([
       {
         name: 'Order Management Clickup Data.csv',
@@ -216,10 +239,10 @@ describe('Ecobase import preflight', () => {
     ]);
 
     expect(result.ok).toBe(true);
-    expect(result.issueCounts).toMatchObject({ clickup_authoritative_status_resolved_by_recency: 1 });
+    expect(result.issueCounts).toMatchObject({ clickup_authoritative_status_conflict_review_required: 1 });
     expect(result.issues[0]).toMatchObject({
       severity: 'warning',
-      code: 'clickup_authoritative_status_resolved_by_recency',
+      code: 'clickup_authoritative_status_conflict_review_required',
       row: 3,
     });
   });

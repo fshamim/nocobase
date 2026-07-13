@@ -72,6 +72,7 @@ export type ImportPreflightResult = {
 export type ImportPreflightOptions = {
   asOfDate: string;
   sellerboardCoverage: SellerboardSourceCoverage[];
+  requireSellerboardHistory?: boolean;
 };
 
 type OrderIdentity = {
@@ -434,12 +435,23 @@ export function preflightImportFiles(files: CsvSourceFile[], options?: ImportPre
       const tasks = Array.isArray(conflict.tasks) ? conflict.tasks : [];
       addIssue({
         severity: 'warning',
-        code: 'clickup_authoritative_status_resolved_by_recency',
+        code: 'clickup_authoritative_status_conflict_review_required',
         file: clickupFileName,
         row: Number((tasks[0] as Record<string, unknown> | undefined)?.lineNumber) || undefined,
-        message: `Ecobase import preflight selected the most recent ClickUp task for order ${String(
+        message: `Ecobase import preflight requires review before applying a ClickUp status for order ${String(
           conflict.ref,
-        )} from conflicting statuses (${Array.isArray(conflict.statuses) ? conflict.statuses.join(', ') : ''}).`,
+        )}; authoritative tasks conflict (${Array.isArray(conflict.statuses) ? conflict.statuses.join(', ') : ''}).`,
+      });
+    }
+    for (const ambiguous of clickup.ambiguousMultiRefTasks) {
+      addIssue({
+        severity: 'warning',
+        code: 'clickup_multi_order_task_discarded',
+        file: clickupFileName,
+        row: Number(ambiguous.lineNumber) || undefined,
+        message: `Ecobase import preflight discarded ClickUp task ${
+          ambiguous.taskId
+        } because it references multiple orders (${ambiguous.orderRefs.join(', ')}).`,
       });
     }
     for (const conflict of clickup.companyConflicts) {
@@ -475,7 +487,11 @@ export function preflightImportFiles(files: CsvSourceFile[], options?: ImportPre
   }
 
   const sellerboardCompleteness = options
-    ? evaluateSellerboardCompleteness(options.sellerboardCoverage, options.asOfDate)
+    ? evaluateSellerboardCompleteness(
+        options.sellerboardCoverage,
+        options.asOfDate,
+        options.requireSellerboardHistory !== false,
+      )
     : undefined;
   if (sellerboardCompleteness) issues.push(...sellerboardCompleteness.issues);
 
@@ -499,7 +515,11 @@ export function preflightImportFiles(files: CsvSourceFile[], options?: ImportPre
   };
 }
 
-export function evaluateSellerboardCompleteness(coverage: SellerboardSourceCoverage[], asOfDate: string) {
+export function evaluateSellerboardCompleteness(
+  coverage: SellerboardSourceCoverage[],
+  asOfDate: string,
+  requireHistory = true,
+) {
   const issues: ImportPreflightIssue[] = [];
   const asOf = dateAtEndOfDay(asOfDate);
   const requiredHistoryStart = new Date(
@@ -550,20 +570,24 @@ export function evaluateSellerboardCompleteness(coverage: SellerboardSourceCover
         );
       }
     }
-    const historyStart = validDate(source.historyStartDate);
-    const historyEnd = validDate(source.historyEndDate);
-    const historyAgeHours = historyEnd ? (asOf.getTime() - historyEnd.getTime()) / 3_600_000 : Number.POSITIVE_INFINITY;
-    if (
-      !historyStart ||
-      historyStart > requiredHistoryStart ||
-      !historyEnd ||
-      historyAgeHours < 0 ||
-      historyAgeHours > FOUR_COMPANY_MIGRATION_PROFILE.sellerboardCurrentMaxAgeHours
-    ) {
-      error(
-        'sellerboard_history_incomplete',
-        `Sellerboard history does not cover the current partial month plus six complete prior months for ${source.companyKey}.`,
-      );
+    if (requireHistory) {
+      const historyStart = validDate(source.historyStartDate);
+      const historyEnd = validDate(source.historyEndDate);
+      const historyAgeHours = historyEnd
+        ? (asOf.getTime() - historyEnd.getTime()) / 3_600_000
+        : Number.POSITIVE_INFINITY;
+      if (
+        !historyStart ||
+        historyStart > requiredHistoryStart ||
+        !historyEnd ||
+        historyAgeHours < 0 ||
+        historyAgeHours > FOUR_COMPANY_MIGRATION_PROFILE.sellerboardCurrentMaxAgeHours
+      ) {
+        error(
+          'sellerboard_history_incomplete',
+          `Sellerboard history does not cover the current partial month plus six complete prior months for ${source.companyKey}.`,
+        );
+      }
     }
   }
 

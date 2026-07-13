@@ -102,14 +102,14 @@ export function summarizeHistoricalProductFacts(
   const recentWindowStartDate = recentWindowEndDate ? new Date(`${recentWindowEndDate}T00:00:00.000Z`) : undefined;
   if (recentWindowStartDate) recentWindowStartDate.setUTCDate(recentWindowStartDate.getUTCDate() - 29);
   const recentWindowStart = recentWindowStartDate?.toISOString().slice(0, 10);
-  const recentUnits30 = recentWindowStart
-    ? facts.reduce((total, fact) => {
+  const recentFacts = recentWindowStart
+    ? facts.filter((fact) => {
         const snapshotDate = asString(fact.snapshotDate);
-        return snapshotDate && snapshotDate >= recentWindowStart && snapshotDate <= recentWindowEndDate
-          ? total + (asNumber(fact.units) ?? 0)
-          : total;
-      }, 0)
-    : undefined;
+        return snapshotDate && snapshotDate >= recentWindowStart && snapshotDate <= recentWindowEndDate;
+      })
+    : [];
+  const recentUnits30 =
+    recentFacts.length > 0 ? recentFacts.reduce((total, fact) => total + (asNumber(fact.units) ?? 0), 0) : undefined;
 
   return {
     sales,

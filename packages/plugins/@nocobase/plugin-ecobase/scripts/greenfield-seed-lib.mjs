@@ -16,6 +16,32 @@ export const EXPECTED_BUNDLE_GROUP_IDS = [
   'sellerboard-history-stop-shop',
   'supplier-management',
 ];
+export const STAGING_FAST_CLICKUP_GROUP_IDS = [
+  'clickup-order-status',
+  'order-management',
+  'supplier-management',
+];
+const BUNDLE_GROUP_IDS_BY_PROFILE = new Map([
+  ['complete', EXPECTED_BUNDLE_GROUP_IDS],
+  ['staging-fast-clickup', STAGING_FAST_CLICKUP_GROUP_IDS],
+]);
+const STAGING_FAST_CLICKUP_FILE_PATHS_BY_GROUP = new Map([
+  ['clickup-order-status', ['data/clickup/Order Management Clickup Data 06-07-2026.csv']],
+  [
+    'order-management',
+    [
+      'data/order-managment-sheets/Ecofission-Order Management - Purchase Orders.csv',
+      'data/order-managment-sheets/Ecofission-Order Management - OrderDetails.csv',
+    ],
+  ],
+  [
+    'supplier-management',
+    [
+      'data/supplier-management-sheets/Supplier Analysis Tracker - Supplier Analysis Tracker.csv',
+      'data/supplier-management-sheets/Supplier Analysis Tracker - Supplier 2026.csv',
+    ],
+  ],
+]);
 const EXPECTED_BUNDLE_FILE_COUNTS = new Map([
   ['order-management', 2],
   ['supplier-management', 2],
@@ -43,8 +69,10 @@ function requireDate(value, label) {
 export function buildBundleChecksum(manifest) {
   return sha256(
     JSON.stringify({
+      profile: manifest.profile,
       profileVersion: manifest.profileVersion,
       asOfDate: manifest.asOfDate,
+      sourceVersion: manifest.sourceVersion,
       groups: manifest.groups.map((group) => ({
         id: group.id,
         files: group.files.map((file) => ({ path: file.path, checksum: file.checksum, rowCount: file.rowCount })),
@@ -53,7 +81,7 @@ export function buildBundleChecksum(manifest) {
   );
 }
 
-export async function validateBundleManifest({ manifestPath, projectRoot }) {
+export async function validateBundleManifest({ manifestPath, projectRoot, profile }) {
   const resolvedManifestPath = path.resolve(requiredString(manifestPath, '--use-bundle'));
   const resolvedProjectRoot = path.resolve(requiredString(projectRoot, '--project-root'));
   let manifest;
@@ -69,6 +97,14 @@ export async function validateBundleManifest({ manifestPath, projectRoot }) {
   if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
     throw new Error('Ecobase greenfield seed failed: bundle manifest must be a JSON object.');
   }
+  const manifestProfile = requiredString(manifest.profile, 'bundle profile');
+  const expectedGroupIds = BUNDLE_GROUP_IDS_BY_PROFILE.get(manifestProfile);
+  if (!expectedGroupIds) {
+    throw new Error(`Ecobase greenfield seed failed: unsupported bundle profile ${manifestProfile}.`);
+  }
+  if (profile && profile !== manifestProfile) {
+    throw new Error(`Ecobase greenfield seed failed: requested profile ${profile} does not match bundle profile ${manifestProfile}.`);
+  }
   if (requiredString(manifest.profileVersion, 'bundle profileVersion') !== '2026-07-13.1') {
     throw new Error(`Ecobase greenfield seed failed: unsupported bundle profileVersion ${manifest.profileVersion}.`);
   }
@@ -80,10 +116,11 @@ export async function validateBundleManifest({ manifestPath, projectRoot }) {
     throw new Error('Ecobase greenfield seed failed: bundle groups must be an array.');
   }
   const groupIds = manifest.groups.map((group) => requiredString(group?.id, 'bundle group id'));
-  if (JSON.stringify([...groupIds].sort()) !== JSON.stringify(EXPECTED_BUNDLE_GROUP_IDS)) {
+  if (JSON.stringify([...groupIds].sort()) !== JSON.stringify(expectedGroupIds)) {
     throw new Error(`Ecobase greenfield seed failed: bundle groups are incomplete or unexpected: ${groupIds.join(', ')}.`);
   }
   const seenPaths = new Set();
+  const filesToValidate = [];
   let fileCount = 0;
   for (const group of manifest.groups) {
     if (!Array.isArray(group.files) || group.files.length === 0) {
@@ -97,6 +134,14 @@ export async function validateBundleManifest({ manifestPath, projectRoot }) {
     }
     for (const file of group.files) {
       const relativePath = requiredString(file?.path, `bundle group ${group.id} file path`);
+      if (
+        manifestProfile === 'staging-fast-clickup' &&
+        !STAGING_FAST_CLICKUP_FILE_PATHS_BY_GROUP.get(group.id)?.includes(relativePath)
+      ) {
+        throw new Error(
+          `Ecobase greenfield seed failed: staging-fast-clickup forbids unapproved source path: ${relativePath}.`,
+        );
+      }
       if (seenPaths.has(relativePath)) {
         throw new Error(`Ecobase greenfield seed failed: duplicate bundle file path ${relativePath}.`);
       }
@@ -111,22 +156,32 @@ export async function validateBundleManifest({ manifestPath, projectRoot }) {
       if (resolvedFilePath !== resolvedProjectRoot && !resolvedFilePath.startsWith(`${resolvedProjectRoot}${path.sep}`)) {
         throw new Error(`Ecobase greenfield seed failed: bundle file path escapes project root: ${relativePath}.`);
       }
-      const actualChecksum = sha256(await readFile(resolvedFilePath));
-      if (actualChecksum !== file.checksum) {
-        throw new Error(`Ecobase greenfield seed failed: bundle file checksum changed for ${relativePath}.`);
-      }
+      filesToValidate.push({ relativePath, resolvedFilePath, checksum: file.checksum });
       fileCount += 1;
     }
   }
-  if (fileCount !== 13) {
-    throw new Error(`Ecobase greenfield seed failed: bundle must contain 13 files, found ${fileCount}.`);
+  const expectedFileCount = [...EXPECTED_BUNDLE_FILE_COUNTS.entries()].reduce(
+    (total, [id, count]) => total + (expectedGroupIds.includes(id) ? count : 0),
+    expectedGroupIds.length - [...EXPECTED_BUNDLE_FILE_COUNTS.keys()].filter((id) => expectedGroupIds.includes(id)).length,
+  );
+  if (fileCount !== expectedFileCount) {
+    throw new Error(
+      `Ecobase greenfield seed failed: ${manifestProfile} bundle must contain ${expectedFileCount} files, found ${fileCount}.`,
+    );
   }
-  const actualBundleChecksum = buildBundleChecksum(manifest);
-  if (actualBundleChecksum !== manifest.bundleChecksum) {
+  const structuralBundleChecksum = buildBundleChecksum(manifest);
+  if (structuralBundleChecksum !== manifest.bundleChecksum) {
     throw new Error('Ecobase greenfield seed failed: bundleChecksum does not match the manifest.');
+  }
+  for (const file of filesToValidate) {
+    const actualChecksum = sha256(await readFile(file.resolvedFilePath));
+    if (actualChecksum !== file.checksum) {
+      throw new Error(`Ecobase greenfield seed failed: bundle file checksum changed for ${file.relativePath}.`);
+    }
   }
   return {
     manifestPath: resolvedManifestPath,
+    profile: manifestProfile,
     projectRoot: resolvedProjectRoot,
     profileVersion: manifest.profileVersion,
     asOfDate: manifest.asOfDate,
@@ -137,7 +192,20 @@ export async function validateBundleManifest({ manifestPath, projectRoot }) {
   };
 }
 
-export function createSeedPlan({ startAt = 'sellerboard', stopAfter = 'gold', skipGold = false, skipReset = false } = {}) {
+export function createSeedPlan({
+  profile = 'complete',
+  target = profile === 'staging-fast-clickup' ? 'staging' : 'local',
+  startAt = 'sellerboard',
+  stopAfter = 'gold',
+  skipGold = false,
+  skipReset = false,
+} = {}) {
+  if (!BUNDLE_GROUP_IDS_BY_PROFILE.has(profile)) {
+    throw new Error(`Ecobase greenfield seed failed: unsupported profile ${profile}.`);
+  }
+  if (profile === 'staging-fast-clickup' && target !== 'staging') {
+    throw new Error('Ecobase greenfield seed failed: staging-fast-clickup requires target staging.');
+  }
   if (!SEED_PHASES.includes(startAt)) {
     throw new Error(`Ecobase greenfield seed failed: --start-at must be one of ${SEED_PHASES.join(', ')}.`);
   }
@@ -148,7 +216,17 @@ export function createSeedPlan({ startAt = 'sellerboard', stopAfter = 'gold', sk
     if (startAt !== 'sellerboard') {
       throw new Error('Ecobase greenfield seed failed: --stop-after bundle cannot be combined with a later --start-at phase.');
     }
-    return { startAt, stopAfter, skipGold, skipReset, phases: [], operations: ['validate_bundle'] };
+    return {
+      profile,
+      target,
+      startAt,
+      stopAfter,
+      skipGold,
+      skipReset,
+      phases: [],
+      operations: ['validate_bundle'],
+      stages: ['validate_bundle'],
+    };
   }
   const startIndex = SEED_PHASES.indexOf(startAt);
   const stopIndex = SEED_PHASES.indexOf(stopAfter);
@@ -159,7 +237,29 @@ export function createSeedPlan({ startAt = 'sellerboard', stopAfter = 'gold', sk
   const operations = ['validate_bundle'];
   if (startAt === 'sellerboard' && !skipReset) operations.push('reset_db', 'restore_sources');
   operations.push('import_data');
-  return { startAt, stopAfter, skipGold, skipReset, phases, operations };
+  if (profile !== 'staging-fast-clickup') {
+    return { profile, target, startAt, stopAfter, skipGold, skipReset, phases, operations, stages: phases };
+  }
+  const stages = ['validate_bundle', 'confirm_staging_target', 'preflight_sellerboard_api_current'];
+  if (startAt === 'sellerboard' && !skipReset) {
+    stages.push('backup_staging', 'reset_staging', 'restore_sources', 'upsert_approved_users');
+  }
+  if (phases.includes('sellerboard')) stages.push('sellerboard_api_current');
+  if (phases.includes('suppliers')) stages.push('suppliers');
+  if (phases.includes('orders')) stages.push('orders', 'checkpoint_c3');
+  if (phases.includes('clickup')) stages.push('clickup_status_comments');
+  if (phases.includes('gold') && !skipGold) stages.push('gold_refresh_once', 'verify_security_and_ui');
+  return {
+    profile,
+    target,
+    startAt,
+    stopAfter,
+    skipGold,
+    skipReset,
+    phases,
+    operations: ['validate_bundle'],
+    stages,
+  };
 }
 
 function isVolatileKey(key) {

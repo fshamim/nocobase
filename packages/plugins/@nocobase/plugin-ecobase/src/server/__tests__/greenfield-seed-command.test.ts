@@ -20,6 +20,7 @@ import {
   businessFingerprint,
   createSeedPlan,
   EXPECTED_BUNDLE_GROUP_IDS,
+  STAGING_FAST_CLICKUP_GROUP_IDS,
   validateBundleManifest,
 } from '../../../scripts/greenfield-seed-lib.mjs';
 
@@ -30,18 +31,32 @@ function sha256(value: string) {
   return createHash('sha256').update(value).digest('hex');
 }
 
-async function fixtureBundle() {
+const STAGING_FAST_PATHS_BY_GROUP: Record<string, string[]> = {
+  'clickup-order-status': ['data/clickup/Order Management Clickup Data 06-07-2026.csv'],
+  'order-management': [
+    'data/order-managment-sheets/Ecofission-Order Management - Purchase Orders.csv',
+    'data/order-managment-sheets/Ecofission-Order Management - OrderDetails.csv',
+  ],
+  'supplier-management': [
+    'data/supplier-management-sheets/Supplier Analysis Tracker - Supplier Analysis Tracker.csv',
+    'data/supplier-management-sheets/Supplier Analysis Tracker - Supplier 2026.csv',
+  ],
+};
+
+async function fixtureBundle(profile = 'complete') {
   const projectRoot = await mkdtemp(path.join(tmpdir(), 'ecobase-greenfield-command-'));
   roots.push(projectRoot);
   const groups = [] as Array<{
     id: string;
     files: Array<{ name: string; path: string; checksum: string; rowCount: number }>;
   }>;
-  for (const id of EXPECTED_BUNDLE_GROUP_IDS) {
+  const groupIds = profile === 'staging-fast-clickup' ? STAGING_FAST_CLICKUP_GROUP_IDS : EXPECTED_BUNDLE_GROUP_IDS;
+  for (const id of groupIds) {
     const count = ['order-management', 'supplier-management'].includes(id) ? 2 : 1;
     const files = [];
     for (let index = 1; index <= count; index += 1) {
-      const relativePath = `fixtures/${id}-${index}.csv`;
+      const relativePath =
+        profile === 'staging-fast-clickup' ? STAGING_FAST_PATHS_BY_GROUP[id][index - 1] : `fixtures/${id}-${index}.csv`;
       const content = `key,value\n${id}-${index},accepted\n`;
       const filePath = path.join(projectRoot, relativePath);
       await mkdir(path.dirname(filePath), { recursive: true });
@@ -51,6 +66,7 @@ async function fixtureBundle() {
     groups.push({ id, files });
   }
   const manifest = {
+    profile,
     profileVersion: '2026-07-13.1',
     asOfDate: '2026-07-13',
     sourceVersion: '2026-07-13T00:00:00.000Z',
@@ -96,6 +112,32 @@ describe('greenfield seed operations', () => {
     ).rejects.toThrow(`bundle file checksum changed for ${firstFile}`);
   });
 
+  it('validates the staging-fast-clickup inventory without Sellerboard history', async () => {
+    const fixture = await fixtureBundle('staging-fast-clickup');
+    await expect(
+      validateBundleManifest({
+        manifestPath: fixture.manifestPath,
+        projectRoot: fixture.projectRoot,
+        profile: 'staging-fast-clickup',
+      }),
+    ).resolves.toMatchObject({ profile: 'staging-fast-clickup', groupCount: 3, fileCount: 5 });
+  });
+
+  it('rejects any unapproved staging-fast-clickup path before opening a CSV payload', async () => {
+    const fixture = await fixtureBundle('staging-fast-clickup');
+    fixture.manifest.groups[0].files[0].path = 'data/clickup/unapproved.csv';
+    fixture.manifest.bundleChecksum = buildBundleChecksum(fixture.manifest);
+    await writeFile(fixture.manifestPath, `${JSON.stringify(fixture.manifest, null, 2)}\n`);
+
+    await expect(
+      validateBundleManifest({
+        manifestPath: fixture.manifestPath,
+        projectRoot: fixture.projectRoot,
+        profile: 'staging-fast-clickup',
+      }),
+    ).rejects.toThrow('staging-fast-clickup forbids unapproved source path');
+  });
+
   it('rejects bundle paths outside the declared project root', async () => {
     const fixture = await fixtureBundle();
     fixture.manifest.groups[0].files[0].path = '../outside.csv';
@@ -105,6 +147,52 @@ describe('greenfield seed operations', () => {
     await expect(
       validateBundleManifest({ manifestPath: fixture.manifestPath, projectRoot: fixture.projectRoot }),
     ).rejects.toThrow('bundle file path escapes project root: ../outside.csv');
+  });
+
+  it('plans staging-fast-clickup without history and fails closed outside staging', () => {
+    expect(createSeedPlan({ profile: 'staging-fast-clickup', target: 'staging' })).toMatchObject({
+      profile: 'staging-fast-clickup',
+      target: 'staging',
+      stages: [
+        'validate_bundle',
+        'confirm_staging_target',
+        'preflight_sellerboard_api_current',
+        'backup_staging',
+        'reset_staging',
+        'restore_sources',
+        'upsert_approved_users',
+        'sellerboard_api_current',
+        'suppliers',
+        'orders',
+        'checkpoint_c3',
+        'clickup_status_comments',
+        'gold_refresh_once',
+        'verify_security_and_ui',
+      ],
+    });
+    expect(() => createSeedPlan({ profile: 'staging-fast-clickup', target: 'production' })).toThrow(
+      'staging-fast-clickup requires target staging',
+    );
+  });
+
+  it('emits a staging-fast-clickup dry plan with no history work', async () => {
+    const fixture = await fixtureBundle('staging-fast-clickup');
+    const events = runDryRun(fixture.manifestPath, fixture.projectRoot, [
+      '--profile',
+      'staging-fast-clickup',
+      '--target',
+      'staging',
+    ]);
+    const serialized = JSON.stringify(events);
+
+    expect(events[0]).toMatchObject({
+      event: 'seed_started',
+      dryRun: true,
+      plan: { profile: 'staging-fast-clickup', target: 'staging' },
+    });
+    expect(serialized).toContain('sellerboard_api_current');
+    expect(serialized).toContain('clickup_status_comments');
+    expect(serialized).not.toMatch(/sellerboard.history|sellerboard_cogs|data\\?\/history/i);
   });
 
   it('plans resumable phases without repeating reset work', () => {

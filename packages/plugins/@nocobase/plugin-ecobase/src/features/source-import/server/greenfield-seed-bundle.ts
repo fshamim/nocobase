@@ -13,6 +13,7 @@ import path from 'node:path';
 import { parseCsv, parseDelimitedCsv } from './adapters/csv-utils';
 import { FOUR_COMPANY_MIGRATION_PROFILE, type FourCompanyKey } from './four-company-migration-profile';
 
+export type GreenfieldSeedProfile = 'complete' | 'staging-fast-clickup';
 export type GreenfieldSeedImportKind = 'adapter' | 'sellerboard_cogs' | 'clickup_order_status';
 
 export interface GreenfieldSeedSourceSpec {
@@ -40,6 +41,7 @@ export interface GreenfieldSeedSourceGroup extends Omit<GreenfieldSeedSourceSpec
 }
 
 export interface GreenfieldSeedBundle {
+  profile: GreenfieldSeedProfile;
   profileVersion: string;
   asOfDate: string;
   sourceVersion: string;
@@ -160,6 +162,11 @@ export const GREENFIELD_SEED_SOURCE_SPECS: GreenfieldSeedSourceSpec[] = [
   },
 ];
 
+const STAGING_FAST_CLICKUP_SOURCE_IDS = new Set(['clickup-order-status', 'order-management', 'supplier-management']);
+export const STAGING_FAST_CLICKUP_SOURCE_SPECS = GREENFIELD_SEED_SOURCE_SPECS.filter((spec) =>
+  STAGING_FAST_CLICKUP_SOURCE_IDS.has(spec.id),
+);
+
 function sha256(value: string) {
   return createHash('sha256').update(value).digest('hex');
 }
@@ -178,12 +185,17 @@ function requireAsOfDate(value: string) {
 export async function buildGreenfieldSeedBundle(params: {
   projectRoot: string;
   asOfDate: string;
+  profile?: GreenfieldSeedProfile;
   specs?: GreenfieldSeedSourceSpec[];
 }): Promise<GreenfieldSeedBundle> {
   const asOfDate = requireAsOfDate(params.asOfDate);
-  const specs = [...(params.specs ?? GREENFIELD_SEED_SOURCE_SPECS)].sort((left, right) =>
-    left.id.localeCompare(right.id),
-  );
+  const profile = params.profile ?? 'complete';
+  if (profile === 'staging-fast-clickup' && params.specs) {
+    throw new Error('Ecobase seed bundle failed: staging-fast-clickup source specs cannot be overridden.');
+  }
+  const profileSpecs =
+    profile === 'staging-fast-clickup' ? STAGING_FAST_CLICKUP_SOURCE_SPECS : GREENFIELD_SEED_SOURCE_SPECS;
+  const specs = [...(params.specs ?? profileSpecs)].sort((left, right) => left.id.localeCompare(right.id));
   const seenPaths = new Set<string>();
   const groups: GreenfieldSeedSourceGroup[] = [];
   for (const spec of specs) {
@@ -218,8 +230,10 @@ export async function buildGreenfieldSeedBundle(params: {
   const sourceVersion = `${asOfDate}T00:00:00.000Z`;
   const bundleChecksum = sha256(
     JSON.stringify({
+      profile,
       profileVersion: FOUR_COMPANY_MIGRATION_PROFILE.profileVersion,
       asOfDate,
+      sourceVersion,
       groups: groups.map((group) => ({
         id: group.id,
         files: group.files.map((file) => ({ path: file.path, checksum: file.checksum, rowCount: file.rowCount })),
@@ -227,6 +241,7 @@ export async function buildGreenfieldSeedBundle(params: {
     }),
   );
   return {
+    profile,
     profileVersion: FOUR_COMPANY_MIGRATION_PROFILE.profileVersion,
     asOfDate,
     sourceVersion,

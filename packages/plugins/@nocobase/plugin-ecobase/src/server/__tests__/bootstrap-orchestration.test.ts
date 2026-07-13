@@ -18,23 +18,25 @@ const script = readFileSync(
 );
 
 describe('live-gate import orchestration', () => {
-  it('keeps the required two-phase twelve-stage order', () => {
+  it('keeps the profile-aware staged order', () => {
     const stages = [...script.matchAll(/runStage\((\d+), '([^']+)'/g)].map((match) => [Number(match[1]), match[2]]);
 
     expect(stages).toEqual([
       [1, 'read-only source preflight'],
-      [2, 'Sellerboard API snapshots'],
+      [2, 'Upsert approved non-login ClickUp attribution users'],
       [3, 'Sellerboard history CSVs'],
       [4, 'Sellerboard COGS CSVs'],
       [5, 'Supplier Management historical tracker'],
       [6, 'Supplier Management current 2026 tracker'],
       [7, 'Order Management Purchase Orders then OrderDetails'],
-      [8, 'Provision confirmed users and reconcile ClickUp status/comments'],
-      [9, 'Reconcile order lines against imported product data'],
+      [8, 'Reconcile order lines against imported product data'],
+      [9, 'Reconcile ClickUp status/comments'],
       [10, 'validate Phase A Silver blockers'],
       [11, 'Phase B final gold read-model refresh'],
       [12, 'strict semantic verification'],
     ]);
+    expect(script).toContain("SEED_PROFILE === 'staging-fast-clickup' ? 3 : 2, 'Sellerboard API snapshots'");
+    expect(script).toContain("SEED_PROFILE !== 'staging-fast-clickup' && seedPhaseEnabled('sellerboard')");
   });
 
   it('does not shell out to NocoBase initialization during reconciliation', () => {

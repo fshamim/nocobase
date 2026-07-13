@@ -220,7 +220,12 @@ describe('EcobaseOrderPlanningService', () => {
       earliestOosDate: '2026-06-26',
       latestComment: 'Call supplier today',
     });
-    expect(result.rows[1]).toMatchObject({ id: 'order-2', moneyAtRisk: 0, riskSource: 'missing' });
+    expect(result.rows[1]).toMatchObject({
+      id: 'order-2',
+      moneyAtRisk: null,
+      supplierGroupMoneyAtRisk: null,
+      riskSource: 'missing',
+    });
     expect(db.touched).not.toContain(ECOBASE_COLLECTIONS.planningProducts);
   });
 
@@ -294,7 +299,7 @@ describe('EcobaseOrderPlanningService', () => {
     expect(result.rows[1]).toMatchObject({ id: 'order-1', tier: 'B', moneyAtRisk: 350 });
   });
 
-  it('zeros stale materialized money risk when the row has no valid tier', async () => {
+  it('keeps stale materialized money risk unknown when the row has no valid tier', async () => {
     const db = new FakeDatabase();
     await seed(db);
     await db.getRepository(ECOBASE_COLLECTIONS.goldOrderPlanningRows).create({
@@ -313,7 +318,12 @@ describe('EcobaseOrderPlanningService', () => {
 
     const result = await new EcobaseOrderPlanningService(db).listOrders({ companyId: 'company-1', hideClosed: false });
 
-    expect(result.rows[0]).toMatchObject({ id: 'order-2', moneyAtRisk: 0, riskSource: 'missing' });
+    expect(result.rows[0]).toMatchObject({
+      id: 'order-2',
+      moneyAtRisk: null,
+      supplierGroupMoneyAtRisk: null,
+      riskSource: 'missing',
+    });
   });
 
   it('reads only the latest materialized order refresh cohort', async () => {

@@ -1,0 +1,65 @@
+{
+  "profile": "staging-fast-clickup",
+  "profileVersion": "2026-07-13.1",
+  "asOfDate": "2026-07-13",
+  "sourceVersion": "2026-07-13T00:00:00.000Z",
+  "bundleChecksum": "263cdf2e938315737d181691673439e3368c8abefff33b55c23b225bf024e78a",
+  "groups": [
+    {
+      "id": "clickup-order-status",
+      "kind": "clickup_order_status",
+      "sourceType": "clickup",
+      "domain": "order_management",
+      "files": [
+        {
+          "name": "Order Management Clickup Data 06-07-2026.csv",
+          "path": "data/clickup/Order Management Clickup Data 06-07-2026.csv",
+          "checksum": "a27ce8c0e4ce72947a99578ad6ed0ad90579dc5bd72ed43fa7a7c071e7a84525",
+          "rowCount": 2784
+        }
+      ]
+    },
+    {
+      "id": "order-management",
+      "kind": "adapter",
+      "adapterName": "google-sheets-migration-csv",
+      "sourceType": "google_sheets",
+      "domain": "order_management",
+      "files": [
+        {
+          "name": "Ecofission-Order Management - Purchase Orders.csv",
+          "path": "data/order-managment-sheets/Ecofission-Order Management - Purchase Orders.csv",
+          "checksum": "3a02973d39965667598e0743d88dca775830d7ed9235895f4c2403cf60a43fc9",
+          "rowCount": 4300
+        },
+        {
+          "name": "Ecofission-Order Management - OrderDetails.csv",
+          "path": "data/order-managment-sheets/Ecofission-Order Management - OrderDetails.csv",
+          "checksum": "560771d12e0d508c0a06b8b6a199475a6c4d6af34a998032b6914da4ec28529a",
+          "rowCount": 6466
+        }
+      ]
+    },
+    {
+      "id": "supplier-management",
+      "kind": "adapter",
+      "adapterName": "google-sheets-migration-csv",
+      "sourceType": "google_sheets",
+      "domain": "supplier_management",
+      "files": [
+        {
+          "name": "Supplier Analysis Tracker - Supplier 2026.csv",
+          "path": "data/supplier-management-sheets/Supplier Analysis Tracker - Supplier 2026.csv",
+          "checksum": "d2fab46cfbb17a9ecb2d3695652c5751a7752367783c57a2a7b44dd90cc1cb5c",
+          "rowCount": 528
+        },
+        {
+          "name": "Supplier Analysis Tracker - Supplier Analysis Tracker.csv",
+          "path": "data/supplier-management-sheets/Supplier Analysis Tracker - Supplier Analysis Tracker.csv",
+          "checksum": "d09f10e4d5c86c1c173d37ac22e19aed7f1fbe1045e5e926d94214523c3098e8",
+          "rowCount": 1659
+        }
+      ]
+    }
+  ]
+}

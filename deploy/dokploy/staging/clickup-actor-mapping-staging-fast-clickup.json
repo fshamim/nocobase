@@ -1,0 +1,48 @@
+{
+  "profile": "staging-fast-clickup",
+  "asOfDate": "2026-07-13",
+  "sourceDataset": "data/clickup/Order Management Clickup Data 06-07-2026.csv",
+  "scope": {
+    "retainedOrderRefCount": 73,
+    "retainedTaskCount": 93,
+    "retainedCommentCount": 863
+  },
+  "mappings": [
+    {
+      "sourceActor": "nauman.ecofission@gmail.com",
+      "occurrenceCount": 601,
+      "mappedUserKey": "ahmed-nauman",
+      "mappedUserName": "Ahmed Nauman",
+      "matchMethod": "exact_email"
+    },
+    {
+      "sourceActor": "kiranecofission@gmail.com",
+      "occurrenceCount": 115,
+      "mappedUserKey": "kiran-mehtab",
+      "mappedUserName": "Kiran Mehtab",
+      "matchMethod": "exact_email"
+    },
+    {
+      "sourceActor": "behroz.ecofission@gmail.com",
+      "occurrenceCount": 86,
+      "mappedUserKey": "behroz",
+      "mappedUserName": "Behroz",
+      "matchMethod": "exact_email"
+    },
+    {
+      "sourceActor": "director@eco-fission.com",
+      "occurrenceCount": 51,
+      "mappedUserKey": "hassan-mehtab",
+      "mappedUserName": "Hassan Mehtab",
+      "matchMethod": "exact_email"
+    },
+    {
+      "sourceActor": "rafay.ecofission@gmail.com",
+      "occurrenceCount": 10,
+      "mappedUserKey": "abdur-rafay-khan",
+      "mappedUserName": "Abdur Rafay Khan",
+      "matchMethod": "exact_email"
+    }
+  ],
+  "unresolvedActors": []
+}

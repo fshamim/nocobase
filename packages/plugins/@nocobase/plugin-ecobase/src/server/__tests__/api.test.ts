@@ -32,7 +32,6 @@ import {
   EcobaseClickupOrderStatusService,
   extractClickupOrderRefsFromTitle,
   parseClickupOrderStatusFiles,
-  resolveClickupCommentActorEmail,
 } from '../../features/source-import/server/clickup-order-status-service';
 
 interface FindParams {
@@ -1505,6 +1504,39 @@ describe('Ecobase import public API seam', () => {
     ]);
   });
 
+  it('discards multi-order ClickUp tasks as warnings instead of import errors', async () => {
+    const db = new MemoryDatabase();
+    const actions = createEcobaseImportActions(createSourceAdapterRegistry([noopTestAdapter]));
+    const sourceConnectionId = 'clickup-source-multi-ref';
+    await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).create({
+      values: { id: sourceConnectionId, sourceType: 'clickup', domain: 'order_management', active: true },
+    });
+    const context = createActionContext(db, {
+      files: [
+        {
+          name: 'clickup.csv',
+          content: 'Task ID,Task Name,Status,Comments\ntask-1,"Order EF1001A and MX1001A",ordered,"[]"',
+        },
+      ],
+      dryRun: false,
+      sourceConnectionId,
+      skipGoldRefresh: true,
+    });
+
+    await actions.importClickupOrderStatuses(context, vi.fn());
+
+    expect(context.body).toMatchObject({
+      data: {
+        status: 'success',
+        errorCount: 0,
+        warningCount: 1,
+        summary: { clickup: { ambiguousMultiRefTaskCount: 1, blockingIssueCount: 0 } },
+      },
+    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverTasks).all()).toHaveLength(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).all()).toHaveLength(0);
+  });
+
   it('maps raw ClickUp statuses to canonical order statuses', () => {
     expect(
       Object.fromEntries(
@@ -1581,13 +1613,6 @@ describe('Ecobase import public API seam', () => {
         clickupStatusImport: { clickupStatus: 'awaiting carrier', mappedStatus: undefined },
       },
     });
-  });
-
-  it('maps approved ClickUp comment actors to Ecobase user emails', () => {
-    expect(resolveClickupCommentActorEmail('nauman.ecofission')).toBe('nauman.ecofission@gmail.com');
-    expect(resolveClickupCommentActorEmail('nauman.ecofission@gmail.com')).toBe('nauman.ecofission@gmail.com');
-    expect(resolveClickupCommentActorEmail('hassan.mehtab95@gmail.com')).toBe('hassan.mehtab95@gmail.com');
-    expect(resolveClickupCommentActorEmail('unknown@example.com')).toBe('unknown@example.com');
   });
 
   it('classifies alternate, intentionally untracked, and unresolved order authority', async () => {
@@ -1736,7 +1761,7 @@ describe('Ecobase import public API seam', () => {
     });
   });
 
-  it('uses the newest conflicting authoritative ClickUp task in a successful ledgered run', async () => {
+  it('keeps conflicting authoritative ClickUp statuses reviewable without guessing', async () => {
     const db = new MemoryDatabase();
     const actions = createEcobaseImportActions(createSourceAdapterRegistry([noopTestAdapter]));
     const clickupSourceId = 'clickup-source-conflict';
@@ -1774,17 +1799,19 @@ describe('Ecobase import public API seam', () => {
         summary: {
           clickup: {
             selectedRefCount: 1,
-            updatedOrderCount: 1,
+            updatedOrderCount: 0,
             conflictingMainTaskCount: 1,
             blockingIssueCount: 0,
+            proposedUpdates: [expect.objectContaining({ requiresReview: true })],
           },
         },
       },
     });
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).all()[0]).toMatchObject({
-      canonicalStatus: 'blocked',
-      lifecycleStatus: 'hold',
-      statusSource: 'clickup_csv',
+      status: 'approval_pending',
+      statusSource: 'google_sheets',
+      statusCheckRequired: true,
+      statusEvidenceJson: { clickupStatusConflict: expect.objectContaining({ ref: 'SS7226A' }) },
     });
   });
 
@@ -2178,7 +2205,7 @@ describe('Ecobase import public API seam', () => {
           entityType: 'supplier_order',
           entityId: 'supplier-order-1',
           commentType: 'note',
-          sourceCommentKey: expect.stringContaining('clickup_comment:task-main:supplier-order-1'),
+          sourceCommentKey: expect.stringContaining('clickup_comment:supplier-order-1'),
           occurredAt: '2026-07-03T19:49:37.000Z',
           createdAt: '2026-07-03T19:49:37.000Z',
           actorUserId: '101',
@@ -2189,7 +2216,8 @@ describe('Ecobase import public API seam', () => {
             supplierId: 'supplier-1',
             supplierOrderId: 'supplier-order-1',
             orderRef: 'SS7226A',
-            taskId: 'task-main',
+            actorResolution: 'mapped',
+            actorUserKey: 'ahmed-nauman',
           }),
         }),
         expect.objectContaining({
@@ -2201,7 +2229,8 @@ describe('Ecobase import public API seam', () => {
           body: 'Supplier confirmed the shipment.',
           contextSnapshotJson: expect.objectContaining({
             orderRef: 'MX12425B',
-            taskId: 'task-comment',
+            actorResolution: 'mapped',
+            actorUserKey: 'kiran-mehtab',
           }),
         }),
       ]),
@@ -2209,12 +2238,42 @@ describe('Ecobase import public API seam', () => {
     expect(JSON.stringify(db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).all())).not.toMatch(
       /gmail\.com|https?:\/\/|"taskName":|"actor":|"comment":/i,
     );
+    expect(db.getRepository('users').all()).toHaveLength(10);
     expect(db.getRepository('users').all()).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ email: 'nauman.ecofission@gmail.com', nickname: 'Ahmed Nauman' }),
-        expect.objectContaining({ email: 'kiranecofission@gmail.com', nickname: 'Kiran Mehtab' }),
+        expect.objectContaining({
+          email: 'nauman.ecofission@gmail.com',
+          username: 'ahmed-nauman',
+          nickname: 'Ahmed Nauman',
+          systemSettings: {
+            ecobaseAttribution: { state: 'pending_invite', loginDisabled: true, attributionOnly: true },
+          },
+        }),
+        expect.objectContaining({
+          email: 'kiranecofission@gmail.com',
+          username: 'kiran-mehtab',
+          nickname: 'Kiran Mehtab',
+        }),
+        expect.objectContaining({
+          username: 'hassan-mehtab',
+          nickname: 'Hassan Mehtab',
+          systemSettings: {
+            ecobaseAttribution: {
+              state: 'pending_invite',
+              loginDisabled: true,
+              attributionOnly: true,
+              title: 'Director',
+            },
+          },
+        }),
       ]),
     );
+    expect(
+      db
+        .getRepository('users')
+        .all()
+        .every((user) => !user.password && !user.roles && !user.permissions),
+    ).toBe(true);
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverTasks).all()).toHaveLength(0);
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverTaskLinks).all()).toHaveLength(0);
     expect(
@@ -2272,7 +2331,7 @@ describe('Ecobase import public API seam', () => {
       },
     });
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).all()).toHaveLength(2);
-    expect(db.getRepository('users').all()).toHaveLength(2);
+    expect(db.getRepository('users').all()).toHaveLength(10);
 
     const editedContext = createActionContext(db, {
       files: [
@@ -2302,6 +2361,88 @@ describe('Ecobase import public API seam', () => {
         .find((comment) => comment.entityId === 'supplier-order-3'),
     ).toMatchObject({ body: 'Supplier confirmed shipment and ETA.' });
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).all()).toHaveLength(2);
+  });
+
+  it('retains safe comments from unresolved actors without creating users or task entities', async () => {
+    const db = new MemoryDatabase();
+    const actions = createEcobaseImportActions(createSourceAdapterRegistry([noopTestAdapter]));
+    const sourceConnectionId = 'clickup-source-unresolved-actor';
+    await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).create({
+      values: { id: sourceConnectionId, sourceType: 'clickup', domain: 'order_management', active: true },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+      values: {
+        id: 'supplier-order-unresolved',
+        company: 'Stop Shop LLC',
+        supplierId: 'supplier-unresolved',
+        externalOrderRef: 'SS7226A',
+        status: 'approval_pending',
+        statusSource: 'google_sheets',
+      },
+    });
+    const comments = JSON.stringify([
+      {
+        text: 'Supplier confirmed shipment.',
+        by: 'Unknown Contractor',
+        date: '7/5/2026, 2:15:00 PM GMT+5',
+      },
+      {
+        text: 'Email unknown@example.com with token abc.',
+        by: 'Unknown Contractor',
+        date: '7/5/2026, 2:16:00 PM GMT+5',
+      },
+    ]).replace(/"/g, '""');
+    const content = [
+      'Task ID,Task Name,Status,Date Created,Comments',
+      `task-unresolved,New Order SS7226A Stop Shop,ordered,1782921599420,"${comments}"`,
+    ].join('\n');
+
+    const context = createActionContext(db, {
+      files: [{ name: 'clickup.csv', content }],
+      dryRun: false,
+      sourceConnectionId,
+      skipGoldRefresh: true,
+    });
+    await actions.importClickupOrderStatuses(context, vi.fn());
+
+    expect(context.body).toMatchObject({
+      data: {
+        status: 'success',
+        summary: {
+          clickup: {
+            selectedCommentCount: 2,
+            proposedCommentCount: 1,
+            importedCommentCount: 1,
+            unresolvedActors: ['Unknown Contractor'],
+            actorMappings: [
+              {
+                sourceActor: 'Unknown Contractor',
+                occurrenceCount: 2,
+                resolution: 'unresolved',
+              },
+            ],
+          },
+        },
+      },
+    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).all()).toEqual([
+      expect.objectContaining({
+        entityId: 'supplier-order-unresolved',
+        actorType: 'external',
+        actorUserId: undefined,
+        body: 'Supplier confirmed shipment.',
+        contextSnapshotJson: expect.objectContaining({
+          actorResolution: 'unresolved',
+          sourceActorHash: expect.stringMatching(/^[a-f0-9]{16}$/),
+        }),
+      }),
+    ]);
+    expect(JSON.stringify(db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).all())).not.toMatch(
+      /Unknown Contractor|unknown@example\.com|task-unresolved/,
+    );
+    expect(db.getRepository('users').all()).toHaveLength(10);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverTasks).all()).toHaveLength(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverTaskLinks).all()).toHaveLength(0);
   });
 
   it('reconciles retained ClickUp evidence after its order is imported', async () => {
@@ -2341,7 +2482,7 @@ describe('Ecobase import public API seam', () => {
     expect(earlyContext.body).toMatchObject({
       data: {
         status: 'success',
-        summary: { clickup: { unmatchedRefCount: 1, importedCommentCount: 0, createdUserCount: 1 } },
+        summary: { clickup: { unmatchedRefCount: 1, importedCommentCount: 0, createdUserCount: 10 } },
       },
     });
     expect(
@@ -2390,7 +2531,7 @@ describe('Ecobase import public API seam', () => {
       },
     });
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).all()).toHaveLength(1);
-    expect(db.getRepository('users').all()).toHaveLength(1);
+    expect(db.getRepository('users').all()).toHaveLength(10);
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverTasks).all()).toHaveLength(0);
 
     const unchangedContext = createActionContext(db, {
@@ -2968,6 +3109,48 @@ describe('Ecobase supplier-management public API seam', () => {
       orderRef: 'SUP-PO-1',
       lifecycleStatus: 'draft',
     });
+  });
+
+  it('keeps all-unknown supplier risk totals null', async () => {
+    const db = new MemoryDatabase();
+    await db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).create({
+      values: { id: 'supplier-unknown-risk', displayName: 'Unknown Risk Supplier', approvalStatus: 'approved' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).create({
+      values: {
+        id: 'inventory-unknown-risk',
+        calculationDate: '2026-07-13',
+        supplierId: 'supplier-unknown-risk',
+        supplierName: 'Unknown Risk Supplier',
+        company: 'Current Only Inc',
+        estimatedProfitRisk: null,
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.goldOrderPlanningRows).create({
+      values: {
+        id: 'order-unknown-risk',
+        calculationDate: '2026-07-13',
+        supplierId: 'supplier-unknown-risk',
+        supplierName: 'Unknown Risk Supplier',
+        companyName: 'Current Only Inc',
+        currentStatus: 'ORDERED',
+        statusCheckRequired: true,
+        moneyAtRisk: null,
+      },
+    });
+
+    const context = createActionContext(db, { company: 'Current Only Inc', calculationDate: '2026-07-13' });
+    await createEcobaseSupplierManagementActions().refreshAttentionRows(context, vi.fn());
+
+    expect(context.body.data.summary).toMatchObject({ moneyAtRisk: null });
+    expect(context.body.data.rows).toEqual([
+      expect.objectContaining({
+        supplierId: 'supplier-unknown-risk',
+        inventoryMoneyAtRisk: null,
+        orderMoneyAtRisk: null,
+        moneyAtRisk: null,
+      }),
+    ]);
   });
 });
 

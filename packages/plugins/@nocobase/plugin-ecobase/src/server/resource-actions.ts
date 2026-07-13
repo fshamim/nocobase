@@ -39,6 +39,7 @@ import {
   NocoBaseEcoNarrativeProvider,
 } from '../features/daily-operations-brief/server/daily-operations-brief-narrative-service';
 import { EcobaseImportService } from '../features/source-import/server/import-service';
+import { EcobaseClickupOrderStatusService } from '../features/source-import/server/clickup-order-status-service';
 import { EcobaseOrderDetailsRelationshipVerifier } from '../features/source-import/server/order-details-relationship-verifier';
 import { EcobaseSellerboardCogsService } from '../features/source-import/server/sellerboard-cogs-service';
 import {
@@ -2496,6 +2497,21 @@ export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
         };
       } catch (error) {
         ctx.throw(400, error instanceof Error ? error.message : 'Ecobase Sellerboard COGS import failed.');
+        return;
+      }
+      await next();
+    },
+    ensureClickupAttributionUsers: async (ctx, next) => {
+      try {
+        const result = await new EcobaseClickupOrderStatusService(ctx.db).ensureApprovedAttributionUsers(false);
+        ctx.body = {
+          data: {
+            approvedUserCount: result.userIdsByKey.size,
+            createdUserCount: result.createdUserCount,
+          },
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase ClickUp attribution user upsert failed.');
         return;
       }
       await next();

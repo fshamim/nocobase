@@ -77,14 +77,28 @@ async function runBootstrap(command, env = {}) {
 async function runSeed(argv) {
   assertKnownOptions(
     argv,
-    new Set(['--dry-run', '--use-bundle', '--project-root', '--start-at', '--stop-after', '--skip-gold', '--skip-reset']),
+    new Set([
+      '--dry-run',
+      '--use-bundle',
+      '--project-root',
+      '--profile',
+      '--target',
+      '--start-at',
+      '--stop-after',
+      '--skip-gold',
+      '--skip-reset',
+    ]),
   );
   const manifestPath = option(argv, '--use-bundle');
   if (!manifestPath) {
     throw new Error('Ecobase greenfield seed failed: --use-bundle is required.');
   }
   const dryRun = flag(argv, '--dry-run');
+  const profile = option(argv, '--profile') ?? 'complete';
+  const target = option(argv, '--target') ?? (profile === 'staging-fast-clickup' ? 'staging' : 'local');
   const plan = createSeedPlan({
+    profile,
+    target,
     startAt: option(argv, '--start-at'),
     stopAfter: option(argv, '--stop-after'),
     skipGold: flag(argv, '--skip-gold'),
@@ -96,6 +110,7 @@ async function runSeed(argv) {
   const bundle = await validateBundleManifest({
     manifestPath,
     projectRoot: option(argv, '--project-root') ?? PROJECT_ROOT,
+    profile,
   });
   event('seed_stage_completed', { phase: 'bundle', dryRun, durationMs: Date.now() - bundleStartedAt, bundle });
   if (dryRun) {
@@ -106,11 +121,18 @@ async function runSeed(argv) {
     event('seed_completed', { dryRun: true, bundleChecksum: bundle.bundleChecksum, plan });
     return;
   }
+  if (profile === 'staging-fast-clickup') {
+    throw new Error(
+      'Ecobase greenfield seed failed: staging-fast-clickup live execution must use the staging deployment procedure after this dry plan.',
+    );
+  }
   assertCleanGit();
   const env = {
     ECOBASE_BOOTSTRAP_SOURCE_VERSION: bundle.asOfDate,
     ECOBASE_GREENFIELD_BUNDLE_PATH: bundle.manifestPath,
     ECOBASE_GREENFIELD_PROJECT_ROOT: bundle.projectRoot,
+    ECOBASE_SEED_PROFILE: plan.profile,
+    ECOBASE_DEPLOYMENT_TARGET: plan.target,
     ECOBASE_SEED_START_AT: plan.startAt,
     ECOBASE_SEED_STOP_AFTER: plan.stopAfter,
     ECOBASE_SEED_SKIP_GOLD: plan.skipGold ? '1' : '0',
@@ -175,6 +197,7 @@ async function runMaintenance(command, argv) {
 function printUsage() {
   process.stdout.write(`Usage:
   node scripts/greenfield-seed.mjs seed --use-bundle PATH [--dry-run] [--project-root PATH]
+    [--profile complete|staging-fast-clickup] [--target local|staging]
     [--start-at sellerboard|suppliers|orders|clickup|gold]
     [--stop-after bundle|sellerboard|suppliers|orders|clickup|gold] [--skip-gold] [--skip-reset]
   node scripts/greenfield-seed.mjs deactivate-migration-sources [--dry-run]

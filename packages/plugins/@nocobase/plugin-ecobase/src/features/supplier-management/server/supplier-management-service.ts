@@ -270,7 +270,12 @@ function riskMoney(row: PlainRecord, fields: string[]) {
     const value = asNumber(row[field]);
     if (value !== undefined) return value;
   }
-  return 0;
+  return undefined;
+}
+
+function sumKnownRisk(rows: PlainRecord[], fields: string[]) {
+  const values = rows.map((row) => riskMoney(row, fields)).filter((value): value is number => value !== undefined);
+  return values.length > 0 ? values.reduce((total, value) => total + value, 0) : undefined;
 }
 
 const PRE_ORDER_STATUSES = new Set([
@@ -308,7 +313,7 @@ function isActiveOrderRiskRow(row: PlainRecord) {
   return (
     Boolean(row.statusCheckRequired) ||
     (asNumber(row.daysSinceLastActivity) ?? 0) >= 3 ||
-    riskMoney(row, ['moneyAtRisk']) > 0
+    (riskMoney(row, ['moneyAtRisk']) ?? 0) > 0
   );
 }
 
@@ -843,12 +848,13 @@ export class EcobaseSupplierManagementService {
         const staleOrderRows = activeOrderRiskRows.filter(
           (row) => Boolean(row.statusCheckRequired) || (asNumber(row.daysSinceLastActivity) ?? 0) >= 3,
         );
-        const inventoryMoneyAtRisk = group.inventoryRows.reduce(
-          (total, row) => total + riskMoney(row, ['estimatedProfitRisk', 'moneyAtRisk']),
-          0,
+        const inventoryMoneyAtRisk = sumKnownRisk(group.inventoryRows, ['estimatedProfitRisk', 'moneyAtRisk']);
+        const orderMoneyAtRisk = sumKnownRisk(activeOrderRiskRows, ['moneyAtRisk']);
+        const knownRisks = [inventoryMoneyAtRisk, orderMoneyAtRisk].filter(
+          (value): value is number => value !== undefined,
         );
-        const orderMoneyAtRisk = activeOrderRiskRows.reduce((total, row) => total + riskMoney(row, ['moneyAtRisk']), 0);
-        const moneyAtRisk = inventoryMoneyAtRisk + orderMoneyAtRisk;
+        const moneyAtRisk = knownRisks.length > 0 ? knownRisks.reduce((total, value) => total + value, 0) : undefined;
+        const riskPriorityScore = moneyAtRisk ?? 0;
         const approvedProductCount = supplierProductRows.filter(
           (product) => asString(product.analysisStatus) === 'approved',
         ).length;
@@ -857,7 +863,7 @@ export class EcobaseSupplierManagementService {
         ).length;
         const lifecycleStatus = effectiveSupplierLifecycleStatus(supplier, orderedSupplierKeys);
         const priorityScore =
-          moneyAtRisk +
+          riskPriorityScore +
           (followState === 'overdue' || followState === 'due_today' ? 10_000 : 0) +
           staleOrderRows.length * 3_000 +
           leadTimeIssueRows.length * 1_000 +
@@ -881,9 +887,9 @@ export class EcobaseSupplierManagementService {
           lastContactedAt: asString(supplier.lastContactedAt),
           lastComment: asString(latestComment?.body),
           latestCommentAt: asString(latestComment?.createdAt),
-          moneyAtRisk,
-          inventoryMoneyAtRisk,
-          orderMoneyAtRisk,
+          moneyAtRisk: moneyAtRisk ?? null,
+          inventoryMoneyAtRisk: inventoryMoneyAtRisk ?? null,
+          orderMoneyAtRisk: orderMoneyAtRisk ?? null,
           staleOrderCount: staleOrderRows.length,
           leadTimeIssueCount: leadTimeIssueRows.length,
           candidateProductCount,
@@ -891,7 +897,7 @@ export class EcobaseSupplierManagementService {
           accountStatus: asString(supplier.accountStatus) ?? asString(supplierAccounts[0]?.status) ?? 'not_started',
           priorityScore,
           priority:
-            priorityScore >= 10_000 || moneyAtRisk > 0
+            priorityScore >= 10_000 || riskPriorityScore > 0
               ? 'urgent'
               : followState === 'overdue'
                 ? 'needs_attention'
@@ -924,7 +930,9 @@ export class EcobaseSupplierManagementService {
       waitingApprovalSuppliers: rows.filter((row) =>
         ['product_review', 'payment_review'].includes(asString(row.lifecycleStatus) ?? ''),
       ).length,
-      moneyAtRisk: rows.reduce((total, row) => total + (asNumber(row.moneyAtRisk) ?? 0), 0),
+      moneyAtRisk: rows.some((row) => asNumber(row.moneyAtRisk) !== undefined)
+        ? rows.reduce((total, row) => total + (asNumber(row.moneyAtRisk) ?? 0), 0)
+        : null,
     };
   }
 
@@ -934,7 +942,7 @@ export class EcobaseSupplierManagementService {
     leadTimeIssueRows: PlainRecord[];
     lifecycleStatus: SupplierLifecycleStatus;
     supplier: PlainRecord;
-    moneyAtRisk: number;
+    moneyAtRisk?: number;
   }) {
     if (!asString(input.supplier.id)) return 'Resolve supplier mapping before contacting';
     if (input.followState === 'overdue' || input.followState === 'due_today') return 'Contact supplier today';
@@ -944,7 +952,7 @@ export class EcobaseSupplierManagementService {
     if (input.lifecycleStatus === 'contacting') return 'Log response or schedule follow-up';
     if (input.lifecycleStatus === 'product_review') return 'Analyze supplier product profitability';
     if (input.lifecycleStatus === 'payment_review') return 'Confirm payment/account access';
-    if (input.moneyAtRisk > 0) return 'Review supplier risk';
+    if ((input.moneyAtRisk ?? 0) > 0) return 'Review supplier risk';
     return 'No action';
   }
 

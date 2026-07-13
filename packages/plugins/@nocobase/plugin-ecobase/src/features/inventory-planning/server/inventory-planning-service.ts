@@ -1211,11 +1211,18 @@ export class EcobaseInventoryPlanningService {
       if (companyProductId && supplierProduct) supplierByProductId.set(companyProductId, { supplierProduct, supplier });
     }
 
+    const sellerboardHistoryLoaded = (await this.repoRows(ECOBASE_COLLECTIONS.importRuns)).some(
+      (run) =>
+        asString(run.adapterName) === 'sellerboard-history-csv' &&
+        asString(run.status) === 'success' &&
+        (asNumber(run.normalizedCount) ?? 0) > 0,
+    );
+    const historicalDailyFacts = sellerboardHistoryLoaded ? dailyFacts : [];
     const sellerboardCostResolver = await new EcobaseSellerboardCogsService(this.db).createResolver(
       companies.map((company) => asString(company.name)).filter((company): company is string => Boolean(company)),
     );
     const snapshotsByCompanyProduct = this.groupBy(inventorySnapshots, 'companyProductId');
-    const factsByCompanyProduct = this.groupBy(dailyFacts, 'companyProductId');
+    const factsByCompanyProduct = this.groupBy(historicalDailyFacts, 'companyProductId');
     const companyProductsById = new Map(companyProducts.map((row) => [asString(row.id), row]));
     const familiesById = new Map(companyProductFamilies.map((row) => [asString(row.id), row]));
     const productIdsByFamilyId = new Map<string, Set<string>>();
@@ -1228,7 +1235,7 @@ export class EcobaseInventoryPlanningService {
       productIdsByFamilyId.set(familyId, productIds);
     }
     const latestFactDateByCompanyId = new Map<string, string>();
-    for (const fact of dailyFacts) {
+    for (const fact of historicalDailyFacts) {
       const companyId = asString(companyProductsById.get(asString(fact.companyProductId))?.companyId);
       const snapshotDate = asString(fact.snapshotDate);
       if (!companyId || !snapshotDate || snapshotDate > calculationDate) continue;
@@ -1588,6 +1595,7 @@ export class EcobaseInventoryPlanningService {
           inventorySnapshotId: asString(inventory?.id),
           supplierProductId: asString(supplierProduct.id),
           historicalFactCount: (factsByCompanyProduct.get(companyProductId) ?? []).length,
+          historyLoadStatus: sellerboardHistoryLoaded ? 'loaded' : 'not_loaded',
           velocity: {
             basis: salesVelocityBasis,
             status: salesVelocityStatus,

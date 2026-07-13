@@ -38,6 +38,7 @@ export function createSourceImportResourceRegistration(
           'analyzeCsvBundle',
           'runCsvBundle',
           'importSellerboardCogs',
+          'ensureClickupAttributionUsers',
           'importClickupOrderStatuses',
           'saveCsvSourceConnection',
           'listSellerboardSources',

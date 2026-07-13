@@ -18,8 +18,28 @@ import {
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const PLUGIN_ROOT = path.resolve(SCRIPT_DIR, '..');
 const NOCOBASE_ROOT = path.resolve(PLUGIN_ROOT, '../../../..');
-const PROJECT_ROOT = path.dirname(NOCOBASE_ROOT);
+const PROJECT_ROOT = path.resolve(process.env.ECOBASE_GREENFIELD_PROJECT_ROOT ?? path.dirname(NOCOBASE_ROOT));
+const SEED_PROFILE = process.env.ECOBASE_SEED_PROFILE ?? 'complete';
+const BUNDLE_PATH = process.env.ECOBASE_GREENFIELD_BUNDLE_PATH;
 const DEFAULT_OUTPUT = path.join(NOCOBASE_ROOT, '.local', 'live-gate-bootstrap', 'import-preflight.json');
+const STAGING_FAST_FILES_BY_GROUP = new Map([
+  ['clickup-order-status', ['data/clickup/Order Management Clickup Data 06-07-2026.csv']],
+  [
+    'order-management',
+    [
+      'data/order-managment-sheets/Ecofission-Order Management - Purchase Orders.csv',
+      'data/order-managment-sheets/Ecofission-Order Management - OrderDetails.csv',
+    ],
+  ],
+  [
+    'supplier-management',
+    [
+      'data/supplier-management-sheets/Supplier Analysis Tracker - Supplier Analysis Tracker.csv',
+      'data/supplier-management-sheets/Supplier Analysis Tracker - Supplier 2026.csv',
+    ],
+  ],
+]);
+const STAGING_FAST_GROUPS = new Set(STAGING_FAST_FILES_BY_GROUP.keys());
 
 function requiredFile(filePath: string) {
   if (!existsSync(filePath)) throw new Error(`Ecobase import preflight failed: required file is missing: ${filePath}`);
@@ -34,7 +54,43 @@ function csvFilesIn(directory: string) {
     .map((name) => path.join(directory, name));
 }
 
+function stagingFastSourceFiles() {
+  if (!BUNDLE_PATH) {
+    throw new Error('Ecobase import preflight requires ECOBASE_GREENFIELD_BUNDLE_PATH for staging-fast-clickup.');
+  }
+  const manifest = JSON.parse(readFileSync(BUNDLE_PATH, 'utf8')) as {
+    profile?: string;
+    groups?: Array<{ id?: string; files?: Array<{ path?: string }> }>;
+  };
+  if (manifest.profile !== 'staging-fast-clickup') {
+    throw new Error('Ecobase import preflight rejected a staging-fast-clickup bundle with the wrong profile.');
+  }
+  const groups = manifest.groups ?? [];
+  if (
+    groups.length !== STAGING_FAST_GROUPS.size ||
+    groups.some((group) => !group.id || !STAGING_FAST_GROUPS.has(group.id))
+  ) {
+    throw new Error('Ecobase import preflight rejected unexpected staging-fast-clickup bundle groups.');
+  }
+  return groups.flatMap((group) => {
+    const expectedPaths = [...(STAGING_FAST_FILES_BY_GROUP.get(group.id ?? '') ?? [])].sort();
+    const actualPaths = (group.files ?? []).map((file) => file.path ?? '').sort();
+    if (JSON.stringify(actualPaths) !== JSON.stringify(expectedPaths)) {
+      throw new Error(`Ecobase import preflight rejected unapproved staging-fast-clickup paths for ${group.id}.`);
+    }
+    return (group.files ?? []).map((file) => {
+      const relativePath = file.path!;
+      const resolved = path.resolve(PROJECT_ROOT, relativePath);
+      if (resolved !== PROJECT_ROOT && !resolved.startsWith(`${PROJECT_ROOT}${path.sep}`)) {
+        throw new Error(`Ecobase import preflight rejected a path outside project root: ${relativePath}.`);
+      }
+      return requiredFile(resolved);
+    });
+  });
+}
+
 function sourceFiles() {
+  if (SEED_PROFILE === 'staging-fast-clickup') return stagingFastSourceFiles();
   return [
     ...csvFilesIn(path.join(PROJECT_ROOT, 'data', 'history')),
     requiredFile(
@@ -116,7 +172,7 @@ async function sellerboardOptions(files: CsvSourceFile[]) {
     const localHistory = files.find(
       (file) => historyPrefix && file.name.includes(`${historyPrefix}_Dashboard_by_product_`),
     );
-    if (!localHistory) {
+    if (SEED_PROFILE !== 'staging-fast-clickup' && !localHistory) {
       throw new Error(`Ecobase import preflight requires Sellerboard history for ${source.companyName}.`);
     }
     const [stockContent, dailyContent] = await Promise.all([
@@ -125,7 +181,7 @@ async function sellerboardOptions(files: CsvSourceFile[]) {
       fetchSellerboardReport(source, 'profit_dashboard'),
     ]);
     const stockRange = dateRange(stockContent);
-    const localHistoryRange = dateRange(localHistory.content);
+    const localHistoryRange = localHistory ? dateRange(localHistory.content) : { start: undefined, end: undefined };
     const dailyRange = dateRange(dailyContent);
     sellerboardCoverage.push({
       companyKey: company.companyKey,
@@ -137,7 +193,11 @@ async function sellerboardOptions(files: CsvSourceFile[]) {
       historyEndDate: dailyRange.end ?? localHistoryRange.end ?? '',
     });
   }
-  return { asOfDate, sellerboardCoverage };
+  return {
+    asOfDate,
+    sellerboardCoverage,
+    requireSellerboardHistory: SEED_PROFILE !== 'staging-fast-clickup',
+  };
 }
 
 function outputPath() {
@@ -155,7 +215,9 @@ async function main() {
     const result = preflightImportFiles(files, options);
     for (const coverage of options.sellerboardCoverage) {
       console.log(
-        `Sellerboard coverage ${coverage.companyKey}: current=${coverage.currentSnapshotAt} history=${coverage.historyStartDate}..${coverage.historyEndDate}`,
+        SEED_PROFILE === 'staging-fast-clickup'
+          ? `Sellerboard coverage ${coverage.companyKey}: current=${coverage.currentSnapshotAt} history=deferred`
+          : `Sellerboard coverage ${coverage.companyKey}: current=${coverage.currentSnapshotAt} history=${coverage.historyStartDate}..${coverage.historyEndDate}`,
       );
     }
     const reportPath = outputPath();

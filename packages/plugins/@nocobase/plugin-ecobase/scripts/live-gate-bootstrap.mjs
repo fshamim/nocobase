@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { businessFingerprint } from './greenfield-seed-lib.mjs';
+import { businessFingerprint, validateBundleManifest } from './greenfield-seed-lib.mjs';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const PLUGIN_ROOT = path.resolve(SCRIPT_DIR, '..');
@@ -19,6 +19,7 @@ const ARTIFACT_DIR = process.env.ECOBASE_LIVE_GATE_BOOTSTRAP_DIR
 const PRIVATE_EXPORT_PATH = path.join(ARTIFACT_DIR, 'live-gate-sources.private.json');
 const REDACTED_EXPORT_PATH = path.join(ARTIFACT_DIR, 'live-gate-sources.redacted.json');
 const IMPORT_STAGE_LOG_PATH = path.join(ARTIFACT_DIR, 'import-stages.json');
+const PREFLIGHT_REPORT_PATH = path.join(ARTIFACT_DIR, 'import-preflight.json');
 const importStageLog = [];
 const importMetrics = { inputRows: 0, acceptedRows: 0, discardedRows: 0 };
 const STAGE_BUDGET_MS = new Map([
@@ -47,6 +48,26 @@ const SEED_PHASES = ['sellerboard', 'suppliers', 'orders', 'clickup', 'gold'];
 const SEED_START_AT = process.env.ECOBASE_SEED_START_AT ?? 'sellerboard';
 const SEED_STOP_AFTER = process.env.ECOBASE_SEED_STOP_AFTER ?? 'gold';
 const SEED_SKIP_GOLD = process.env.ECOBASE_SEED_SKIP_GOLD === '1';
+const SEED_PROFILE = process.env.ECOBASE_SEED_PROFILE ?? 'complete';
+const DEPLOYMENT_TARGET = process.env.ECOBASE_DEPLOYMENT_TARGET ?? 'local';
+const STAGING_FAST_FILES_BY_GROUP = new Map([
+  ['clickup-order-status', ['data/clickup/Order Management Clickup Data 06-07-2026.csv']],
+  [
+    'order-management',
+    [
+      'data/order-managment-sheets/Ecofission-Order Management - Purchase Orders.csv',
+      'data/order-managment-sheets/Ecofission-Order Management - OrderDetails.csv',
+    ],
+  ],
+  [
+    'supplier-management',
+    [
+      'data/supplier-management-sheets/Supplier Analysis Tracker - Supplier Analysis Tracker.csv',
+      'data/supplier-management-sheets/Supplier Analysis Tracker - Supplier 2026.csv',
+    ],
+  ],
+]);
+const STAGING_FAST_GROUPS = new Set(STAGING_FAST_FILES_BY_GROUP.keys());
 const SEED_HEARTBEAT_MS = Number(process.env.ECOBASE_SEED_HEARTBEAT_MS ?? 30_000);
 const REQUIRED_SELLERBOARD_COMPANIES = ['Ecofission LLC', 'Muxtex INC', 'Retail Heaven Inc', 'Stop Shop LLC'];
 const DEFAULT_CSV_SOURCES = [
@@ -106,6 +127,7 @@ main().catch((error) => {
 });
 
 async function main() {
+  await assertDeploymentBoundary();
   switch (command) {
     case 'export-sources':
       await exportSources();
@@ -155,19 +177,38 @@ async function main() {
 
 function preflightData() {
   const script = path.join(PLUGIN_ROOT, 'scripts', 'preflight-import-data.ts');
+  assertSeedProfileBundle();
   validateSourceExport(loadPrivateExport());
-  const result = spawnSync('yarn', ['-s', 'tsx', script], {
+  const result = spawnSync('yarn', ['-s', 'tsx', script, '--output', PREFLIGHT_REPORT_PATH], {
     cwd: NOCOBASE_ROOT,
     env: {
       ...process.env,
       ECOBASE_PREFLIGHT_AS_OF_DATE: BOOTSTRAP_SOURCE_VERSION,
       ECOBASE_PREFLIGHT_SOURCE_EXPORT: PRIVATE_EXPORT_PATH,
+      ECOBASE_SEED_PROFILE: SEED_PROFILE,
+      ECOBASE_GREENFIELD_BUNDLE_PATH: GREENFIELD_BUNDLE_PATH,
+      ECOBASE_GREENFIELD_PROJECT_ROOT: GREENFIELD_PROJECT_ROOT,
     },
     stdio: 'inherit',
   });
   if (result.status !== 0) {
     throw new Error(`Ecobase import preflight failed with exit code ${result.status ?? 'unknown'}.`);
   }
+}
+
+function requireSavedPreflight() {
+  if (!existsSync(PREFLIGHT_REPORT_PATH)) {
+    throw new Error(`staging-fast-clickup requires a successful pre-reset preflight at ${PREFLIGHT_REPORT_PATH}`);
+  }
+  const report = JSON.parse(readFileSync(PREFLIGHT_REPORT_PATH, 'utf8'));
+  if (report.ok !== true || report.sellerboardCompleteness?.ok !== true) {
+    throw new Error('staging-fast-clickup rejected an unsuccessful saved pre-reset preflight');
+  }
+  progressEvent('pre_reset_preflight_reused', {
+    reportPath: PREFLIGHT_REPORT_PATH,
+    sellerboardSourceCount: report.sellerboardCompleteness.sourceCount,
+  });
+  return report;
 }
 
 function printUsage() {
@@ -178,7 +219,7 @@ Commands:
   preflight-data     Validate configured import files without writing to the database
   reset-db           Destroy/recreate only the local live-gate DB volume, using the existing start-live-gate.sh guard
   restore-sources    Restore exported source rows and company IDs into a clean live-gate DB
-  import-data        Run preflight, staged imports, final gold refresh, and strict verification
+  import-data        Require saved preflight for staging-fast-clickup, then run imports, Gold, and verification
   import-supplier-csvs  Import/retry only the supplier-management CSV files
   verify-links       Print/fail post-import medallion link checks
   business-fingerprint  Write the deterministic business fingerprint
@@ -324,15 +365,101 @@ function seedPhaseEnabled(phase) {
   return index >= SEED_PHASES.indexOf(SEED_START_AT) && index <= SEED_PHASES.indexOf(SEED_STOP_AFTER);
 }
 
+async function assertDeploymentBoundary() {
+  if (SEED_PROFILE !== 'staging-fast-clickup') return;
+  const hostname = new URL(BASE_URL).hostname.toLowerCase();
+  if (
+    DEPLOYMENT_TARGET !== 'staging' ||
+    !hostname.includes('staging') ||
+    !APP_CONTAINER.includes('ecobase-staging-') ||
+    !PG_CONTAINER.includes('ecobase-staging-')
+  ) {
+    throw new Error(
+      `staging-fast-clickup refused target=${DEPLOYMENT_TARGET} host=${hostname} app=${APP_CONTAINER} postgres=${PG_CONTAINER}`,
+    );
+  }
+  assertSeedProfileBundle();
+  await validateBundleManifest({
+    manifestPath: GREENFIELD_BUNDLE_PATH,
+    projectRoot: GREENFIELD_PROJECT_ROOT,
+    profile: SEED_PROFILE,
+  });
+}
+
+function assertSeedProfileBundle() {
+  if (SEED_PROFILE !== 'staging-fast-clickup') return;
+  if (!GREENFIELD_BUNDLE_PATH) {
+    throw new Error('staging-fast-clickup requires ECOBASE_GREENFIELD_BUNDLE_PATH');
+  }
+  greenfieldBundleManifest ??= JSON.parse(readFileSync(GREENFIELD_BUNDLE_PATH, 'utf8'));
+  if (greenfieldBundleManifest.profile !== 'staging-fast-clickup') {
+    throw new Error('staging-fast-clickup rejected a bundle with the wrong profile');
+  }
+  const groups = greenfieldBundleManifest.groups ?? [];
+  if (
+    groups.length !== STAGING_FAST_GROUPS.size ||
+    groups.some((group) => !STAGING_FAST_GROUPS.has(group.id))
+  ) {
+    throw new Error('staging-fast-clickup rejected unexpected bundle groups');
+  }
+  for (const group of groups) {
+    const expectedPaths = [...(STAGING_FAST_FILES_BY_GROUP.get(group.id) ?? [])].sort();
+    const actualPaths = (group.files ?? []).map((file) => String(file.path ?? '')).sort();
+    if (JSON.stringify(actualPaths) !== JSON.stringify(expectedPaths)) {
+      throw new Error(`staging-fast-clickup rejected unapproved source paths for group ${group.id}`);
+    }
+  }
+}
+
+function assertNoSellerboardHistoryRuns() {
+  if (SEED_PROFILE !== 'staging-fast-clickup') return;
+  const count = Number(
+    psqlScalar(`select count(*) from "ecobaseImportRuns" where "adapterName" = 'sellerboard-history-csv'`),
+  );
+  if (count !== 0) throw new Error(`staging-fast-clickup found ${count} forbidden Sellerboard history import runs`);
+}
+
+function assertHistoryDependentGoldUnknown() {
+  if (SEED_PROFILE !== 'staging-fast-clickup') return;
+  const falseInventoryHistoryValues = Number(
+    psqlScalar(`select count(*) from "goldInventoryPlanningRows" where
+      "profitPerUnit" is not null or "sixMonthMargin" is not null or "lastMonthQty" is not null or
+      "sixMonthAverageQty" is not null or "sixMonthWorstQty" is not null or "sixMonthBestQty" is not null or
+      "recentUnits30" is not null or "tier" is not null or "tierScore" is not null or
+      "estimatedProfitRisk" is not null`),
+  );
+  const falseOrderRiskValues = Number(
+    psqlScalar(`select count(*) from "goldOrderPlanningRows" where "riskSource" = 'missing'
+      and coalesce("canonicalStatus", '') <> 'COMPLETE' and "moneyAtRisk" is not null`),
+  );
+  const falseSupplierRiskValues = Number(
+    psqlScalar(`select count(*) from "goldSupplierAttentionRows" where "inventoryMoneyAtRisk" is not null
+      or "orderMoneyAtRisk" is not null or "moneyAtRisk" is not null`),
+  );
+  if (falseInventoryHistoryValues + falseOrderRiskValues + falseSupplierRiskValues > 0) {
+    throw new Error(
+      `staging-fast-clickup produced false historical Gold values: inventory=${falseInventoryHistoryValues} orders=${falseOrderRiskValues} suppliers=${falseSupplierRiskValues}`,
+    );
+  }
+  progressEvent('history_deferred_gold_verified', {
+    falseInventoryHistoryValues,
+    falseOrderRiskValues,
+    falseSupplierRiskValues,
+  });
+}
+
 function progressEvent(event, values = {}) {
   console.log(JSON.stringify({ event, at: new Date().toISOString(), ...values }));
 }
 
 async function importData() {
   if (seedPhaseEnabled('sellerboard')) {
-    await runStage(1, 'read-only source preflight', () => preflightData());
+    await runStage(1, 'read-only source preflight', () =>
+      SEED_PROFILE === 'staging-fast-clickup' ? requireSavedPreflight() : preflightData(),
+    );
   }
   waitForCurrentSchema();
+  assertNoSellerboardHistoryRuns();
   if (SEED_START_AT === 'sellerboard') assertBusinessClean('import data');
   const token = await signIn();
   const sources = currentSources();
@@ -350,7 +477,16 @@ async function importData() {
     ? requiredSource(sources, 'clickup', 'order_management')
     : undefined;
 
-  if (seedPhaseEnabled('sellerboard')) await runStage(2, 'Sellerboard API snapshots', async () => {
+  if (SEED_PROFILE === 'staging-fast-clickup' && seedPhaseEnabled('sellerboard')) {
+    await runStage(2, 'Upsert approved non-login ClickUp attribution users', async () => {
+      const result = await runImport(token, 'Approved ClickUp attribution users', 'ecobaseImport:ensureClickupAttributionUsers', {});
+      if (Number(result.approvedUserCount ?? 0) !== 10) {
+        throw new Error(`approved ClickUp attribution user count is ${result.approvedUserCount ?? 0}, expected 10`);
+      }
+    });
+  }
+
+  if (seedPhaseEnabled('sellerboard')) await runStage(SEED_PROFILE === 'staging-fast-clickup' ? 3 : 2, 'Sellerboard API snapshots', async () => {
     for (const company of REQUIRED_SELLERBOARD_COMPANIES) {
       const source = sellerboardByCompany.get(company);
       if (!source) throw new Error(`missing Sellerboard source for ${company}`);
@@ -365,7 +501,7 @@ async function importData() {
     }
   });
 
-  if (seedPhaseEnabled('sellerboard')) await runStage(3, 'Sellerboard history CSVs', async () => {
+  if (SEED_PROFILE !== 'staging-fast-clickup' && seedPhaseEnabled('sellerboard')) await runStage(3, 'Sellerboard history CSVs', async () => {
     for (const filePath of listHistoryDashboardFiles()) {
       const company = companyFromHistoryFile(path.basename(filePath), 'Dashboard_by_product');
       const source = sellerboardByCompany.get(company);
@@ -387,7 +523,7 @@ async function importData() {
     }
   });
 
-  if (seedPhaseEnabled('sellerboard')) await runStage(4, 'Sellerboard COGS CSVs', async () => {
+  if (SEED_PROFILE !== 'staging-fast-clickup' && seedPhaseEnabled('sellerboard')) await runStage(4, 'Sellerboard COGS CSVs', async () => {
     for (const filePath of listCogsFiles()) {
       const company = companyFromHistoryFile(path.basename(filePath), 'Cost_of_Goods_Sold');
       await runImport(
@@ -436,7 +572,19 @@ async function importData() {
     });
   });
 
-  if (seedPhaseEnabled('clickup')) await runStage(8, 'Provision confirmed users and reconcile ClickUp status/comments', async () => {
+  if (seedPhaseEnabled('orders')) await runStage(8, 'Reconcile order lines against imported product data', async () => {
+    await runImport(token, 'Order management product reconciliation', 'ecobaseImport:runCsvBundle', {
+      sourceConnectionId: orderSource.id,
+      adapterName: 'google-sheets-migration-csv',
+      sourceIdentifier: 'order-management-product-reconciliation-v3',
+      sourceVersion: BOOTSTRAP_SOURCE_VERSION,
+      files: orderFiles().map(csvFile),
+      skipGoldRefresh: true,
+    });
+    await verifyOrderDetailsRelationships(token, 'after-product-reconciliation', { strict: false });
+  });
+
+  if (seedPhaseEnabled('clickup')) await runStage(9, 'Reconcile ClickUp status/comments', async () => {
     const run = await runImport(token, 'ClickUp order status', 'ecobaseImport:importClickupOrderStatuses', {
       sourceConnectionId: clickupSource.id,
       sourceIdentifier: 'clickup-order-status-bootstrap',
@@ -447,22 +595,24 @@ async function importData() {
       files: clickupFiles().map(csvFile),
     });
     const clickup = run?.summary?.clickup ?? {};
-    if ((clickup.unresolvedActorEmails ?? []).length > 0) {
-      throw new Error(`ClickUp user provisioning left unresolved actors: ${clickup.unresolvedActorEmails.join(', ')}`);
-    }
+    progressEvent('clickup_actor_mapping', {
+      mappedActorCount: Number(clickup.linkedActorCount ?? 0),
+      unresolvedActorCount: (clickup.unresolvedActors ?? []).length,
+      actorMappings: clickup.actorMappings ?? [],
+    });
     if (
       Number(clickup.matchedOrderCount ?? 0) === 0 ||
       Number(clickup.importedCommentCount ?? 0) + Number(clickup.duplicateCommentCount ?? 0) === 0
     ) {
       throw new Error('ClickUp reconciliation matched no orders or retained no comments after the ordered order bundle');
     }
-    const unlinkedCommentCount = Number(
+    const unlinkedMappedCommentCount = Number(
       psqlScalar(
-        `select count(*) from "silverActivityComments" where "contextSnapshotJson"->>'source' = 'clickup_csv' and "actorUserId" is null`,
+        `select count(*) from "silverActivityComments" where "contextSnapshotJson"->>'source' = 'clickup_csv' and "contextSnapshotJson"->>'actorResolution' = 'mapped' and "actorUserId" is null`,
       ),
     );
-    if (unlinkedCommentCount > 0) {
-      throw new Error(`ClickUp reconciliation left ${unlinkedCommentCount} comments without NocoBase users`);
+    if (unlinkedMappedCommentCount > 0) {
+      throw new Error(`ClickUp reconciliation left ${unlinkedMappedCommentCount} mapped comments without NocoBase users`);
     }
     const clickupTaskCount = Number(
       psqlScalar(`select count(*) from "silverTasks" where "workspaceName" = 'ClickUp export'`),
@@ -470,18 +620,6 @@ async function importData() {
     if (clickupTaskCount > 0) {
       throw new Error(`ClickUp reconciliation created ${clickupTaskCount} forbidden task records`);
     }
-  });
-
-  if (seedPhaseEnabled('clickup')) await runStage(9, 'Reconcile order lines against imported product data', async () => {
-    await runImport(token, 'Order management product reconciliation', 'ecobaseImport:runCsvBundle', {
-      sourceConnectionId: orderSource.id,
-      adapterName: 'google-sheets-migration-csv',
-      sourceIdentifier: 'order-management-product-reconciliation-v3',
-      sourceVersion: BOOTSTRAP_SOURCE_VERSION,
-      files: orderFiles().map(csvFile),
-      skipGoldRefresh: true,
-    });
-    await verifyOrderDetailsRelationships(token, 'after-product-reconciliation', { strict: false });
   });
 
   if (seedPhaseEnabled('gold')) {
@@ -494,12 +632,16 @@ async function importData() {
     }),
   );
   if (seedPhaseEnabled('gold') && !SEED_SKIP_GOLD) {
-    await runStage(12, 'strict semantic verification', () => verifyLinks());
+    await runStage(12, 'strict semantic verification', async () => {
+      assertHistoryDependentGoldUnknown();
+      return verifyLinks();
+    });
   }
   if (seedPhaseEnabled('gold') && SEED_SKIP_GOLD) {
     progressEvent('gold_refresh_skipped', { startAt: SEED_START_AT, stopAfter: SEED_STOP_AFTER });
   }
 
+  assertNoSellerboardHistoryRuns();
   progressEvent('import_bootstrap_completed', {
     startAt: SEED_START_AT,
     stopAfter: SEED_STOP_AFTER,

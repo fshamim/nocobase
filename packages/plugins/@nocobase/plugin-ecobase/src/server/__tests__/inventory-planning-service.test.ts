@@ -101,8 +101,21 @@ class MemoryRepository implements EcobaseRepository {
 class MemoryDatabase implements EcobaseDatabase {
   readonly repositories = new Map<string, MemoryRepository>();
 
-  constructor() {
+  constructor({ historyLoaded = true }: { historyLoaded?: boolean } = {}) {
     Object.values(ECOBASE_COLLECTIONS).forEach((name) => this.repositories.set(name, new MemoryRepository()));
+    if (historyLoaded) {
+      this.repositories.set(
+        ECOBASE_COLLECTIONS.importRuns,
+        new MemoryRepository([
+          {
+            id: 'history-import-evidence',
+            adapterName: 'sellerboard-history-csv',
+            status: 'success',
+            normalizedCount: 1,
+          },
+        ]),
+      );
+    }
     this.repositories.set('users', new MemoryRepository());
   }
 
@@ -738,7 +751,7 @@ describe('EcobaseInventoryPlanningService', () => {
         sales: 1200,
         profit: 1000,
       });
-      if (product.recentUnits > 0) {
+      if (product.recentUnits >= 0) {
         await createRecord(db, ECOBASE_COLLECTIONS.silverListingDailyFacts, {
           id: `recent-sales-${product.sku}`,
           companyProductId,
@@ -819,6 +832,75 @@ describe('EcobaseInventoryPlanningService', () => {
       tier: null,
       tierEligibilityReason: 'missing_recent_sales_evidence',
       tierRuleVersion: 'rolling_30d_min_4_v1',
+    });
+  });
+
+  it('keeps history-dependent Gold fields unknown when no Sellerboard history import succeeded', async () => {
+    const db = new MemoryDatabase({ historyLoaded: false });
+    await createRecord(db, ECOBASE_COLLECTIONS.importRuns, {
+      id: 'sellerboard-api-current-only',
+      adapterName: 'sellerboard-api',
+      status: 'success',
+      normalizedCount: 1,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.silverCompanies, {
+      id: 'company-current-only',
+      name: 'Current Only Inc',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.silverProducts, {
+      id: 'product-current-only',
+      asin: 'B00CURRENT1',
+      sku: 'CURRENT-ONLY',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.silverCompanyProducts, {
+      id: 'company-product-current-only',
+      companyId: 'company-current-only',
+      productId: 'product-current-only',
+      lifecycleStatus: 'active',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.silverInventorySnapshots, {
+      id: 'inventory-current-only',
+      companyProductId: 'company-product-current-only',
+      snapshotDate: '2026-07-13',
+      sellableStock: 12,
+      reserved: 1,
+      inbound: 2,
+      ordered: 0,
+      prepStock: 0,
+      salesVelocity: 3,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.silverListingDailyFacts, {
+      id: 'api-daily-fact-current-only',
+      companyProductId: 'company-product-current-only',
+      snapshotDate: '2026-07-13',
+      units: 300,
+      sales: 3000,
+      profit: 1500,
+    });
+
+    await new EcobaseInventoryPlanningService(db).refreshReadModel({
+      company: 'Current Only Inc',
+      calculationDate: '2026-07-13',
+    });
+
+    expect(db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).all()[0]).toMatchObject({
+      sellableStock: 12,
+      currentPlanningStock: 15,
+      inventoryAsOfDate: '2026-07-13',
+      recentUnits30: null,
+      profitPerUnit: null,
+      sixMonthMargin: null,
+      lastMonthQty: null,
+      sixMonthAverageQty: null,
+      sixMonthWorstQty: null,
+      sixMonthBestQty: null,
+      tier: null,
+      tierScore: null,
+      salesVelocity: 3,
+      salesVelocityBasis: 'inventory_snapshot_fallback',
+      salesVelocityStatus: 'fallback_positive',
+      profitAvailability: 'unavailable_no_history',
+      evidence: { historyLoadStatus: 'not_loaded', historicalFactCount: 0 },
     });
   });
 
@@ -904,7 +986,7 @@ describe('EcobaseInventoryPlanningService', () => {
     });
   });
 
-  it('uses rolling-30-day velocity and treats covered products without recent sales as trusted zero', async () => {
+  it('uses rolling-30-day velocity without inventing zero evidence for uncovered products', async () => {
     const db = new MemoryDatabase();
     const company = 'Ecofission LLC';
     const companyId = `silver-company:${company}`;
@@ -1010,20 +1092,19 @@ describe('EcobaseInventoryPlanningService', () => {
     });
     expect(Number.isFinite(Number(rows.find((row) => row.sku === 'HISTORY-ZERO')?.digestPriority))).toBe(true);
     expect(rows.find((row) => row.sku === 'SNAPSHOT-FALLBACK')).toMatchObject({
-      recentUnits30: 0,
-      salesVelocity: 0,
-      salesVelocityBasis: 'historical_rolling_30_days',
-      salesVelocityStatus: 'trusted_zero',
-      actionStatus: 'no_sell_through',
-      tierEligibilityReason: 'low_recent_demand',
+      recentUnits30: null,
+      salesVelocity: 2,
+      salesVelocityBasis: 'inventory_snapshot_fallback',
+      salesVelocityStatus: 'fallback_positive',
+      tierEligibilityReason: 'missing_recent_sales_evidence',
     });
     expect(rows.find((row) => row.sku === 'MISSING-VELOCITY')).toMatchObject({
-      recentUnits30: 0,
-      salesVelocity: 0,
-      salesVelocityBasis: 'historical_rolling_30_days',
-      salesVelocityStatus: 'trusted_zero',
-      actionStatus: 'no_sell_through',
-      tierEligibilityReason: 'low_recent_demand',
+      recentUnits30: null,
+      salesVelocity: null,
+      salesVelocityBasis: 'unavailable',
+      salesVelocityStatus: 'missing',
+      actionStatus: 'missing_velocity',
+      tierEligibilityReason: 'missing_recent_sales_evidence',
       unitCostAvailability: 'unavailable_no_evidence',
       profitAvailability: 'unavailable_no_history',
     });

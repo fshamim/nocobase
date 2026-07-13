@@ -68,7 +68,7 @@ export interface OrderPlanningRow {
   lineCount: number;
   unresolvedLineCount: number;
   unresolvedLineQuantity: number;
-  moneyAtRisk: number;
+  moneyAtRisk: number | null;
   riskSource: RiskSource;
   earliestOosDate?: string;
   daysUntilOos?: number;
@@ -78,7 +78,7 @@ export interface OrderPlanningRow {
   searchText?: string;
   latestGoldCalculationDate?: string;
   lastRefreshedAt?: string;
-  supplierGroupMoneyAtRisk: number;
+  supplierGroupMoneyAtRisk: number | null;
 }
 
 export interface OrderPlanningLine {
@@ -459,7 +459,7 @@ function goldOrderPlanningRowFromRecord(record: PlainRecord): OrderPlanningRow {
     lineCount: positiveNumber(record.lineCount),
     unresolvedLineCount: positiveNumber(unresolvedMapping.lineCount),
     unresolvedLineQuantity: positiveNumber(unresolvedMapping.orderedQty),
-    moneyAtRisk: tiered ? positiveNumber(record.moneyAtRisk) : 0,
+    moneyAtRisk: tiered ? numberValue(record.moneyAtRisk) ?? null : null,
     riskSource: tiered ? riskSourceFrom(record.riskSource) : 'missing',
     earliestOosDate: dateOnly(record.earliestOosDate),
     daysUntilOos: numberValue(record.daysUntilOos),
@@ -469,7 +469,7 @@ function goldOrderPlanningRowFromRecord(record: PlainRecord): OrderPlanningRow {
     searchText: text(record.searchText),
     latestGoldCalculationDate: dateOnly(record.latestGoldCalculationDate),
     lastRefreshedAt: dateTime(record.lastRefreshedAt),
-    supplierGroupMoneyAtRisk: 0,
+    supplierGroupMoneyAtRisk: null,
   };
 }
 
@@ -754,7 +754,10 @@ export class EcobaseOrderPlanningService {
       if (params.filters.status && row.currentStatus?.toLowerCase() !== params.filters.status.toLowerCase()) {
         return false;
       }
-      if (typeof params.filters.minMoneyAtRisk === 'number' && row.moneyAtRisk < params.filters.minMoneyAtRisk) {
+      if (
+        typeof params.filters.minMoneyAtRisk === 'number' &&
+        (row.moneyAtRisk === null || row.moneyAtRisk < params.filters.minMoneyAtRisk)
+      ) {
         return false;
       }
       if (
@@ -767,12 +770,20 @@ export class EcobaseOrderPlanningService {
       return true;
     });
 
-    const supplierRisk = new Map<string, number>();
+    const supplierRisk = new Map<string, { total: number; knownCount: number }>();
     for (const row of visibleRows) {
-      supplierRisk.set(row.supplierId, (supplierRisk.get(row.supplierId) ?? 0) + row.moneyAtRisk);
+      const risk = supplierRisk.get(row.supplierId) ?? { total: 0, knownCount: 0 };
+      if (row.moneyAtRisk !== null) {
+        risk.total += row.moneyAtRisk;
+        risk.knownCount += 1;
+      }
+      supplierRisk.set(row.supplierId, risk);
     }
     visibleRows = visibleRows
-      .map((row) => ({ ...row, supplierGroupMoneyAtRisk: supplierRisk.get(row.supplierId) ?? 0 }))
+      .map((row) => {
+        const risk = supplierRisk.get(row.supplierId);
+        return { ...row, supplierGroupMoneyAtRisk: risk?.knownCount ? risk.total : null };
+      })
       .sort((left, right) => this.compareOrderPriority(left, right))
       .slice(0, params.limit);
 
@@ -1059,7 +1070,7 @@ export class EcobaseOrderPlanningService {
           : 'missing'
       : 'missing';
     const moneyAtRisk =
-      lifecycle.canonicalStatus === 'COMPLETE' || !tiered ? 0 : params.goldRows.length ? goldRisk : silverRisk;
+      lifecycle.canonicalStatus === 'COMPLETE' ? 0 : !tiered ? null : params.goldRows.length ? goldRisk : silverRisk;
     const searchText = [
       params.companyName,
       text(params.supplier?.displayName) ?? text(params.supplier?.normalizedName),
@@ -1109,7 +1120,7 @@ export class EcobaseOrderPlanningService {
       latestComment,
       remarks: text(params.order.remarks),
       searchText,
-      supplierGroupMoneyAtRisk: 0,
+      supplierGroupMoneyAtRisk: null,
     };
   }
 
@@ -1168,7 +1179,7 @@ export class EcobaseOrderPlanningService {
   private compareOrderPriority(left: OrderPlanningRow, right: OrderPlanningRow) {
     const tierDiff = (left.tierRank ?? 999) - (right.tierRank ?? 999);
     if (tierDiff !== 0) return tierDiff;
-    const riskDiff = right.moneyAtRisk - left.moneyAtRisk;
+    const riskDiff = (right.moneyAtRisk ?? -1) - (left.moneyAtRisk ?? -1);
     if (riskDiff !== 0) return riskDiff;
     const oosDiff = (left.daysUntilOos ?? Number.MAX_SAFE_INTEGER) - (right.daysUntilOos ?? Number.MAX_SAFE_INTEGER);
     if (oosDiff !== 0) return oosDiff;

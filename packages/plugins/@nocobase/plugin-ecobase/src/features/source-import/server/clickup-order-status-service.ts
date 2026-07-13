@@ -20,6 +20,13 @@ import {
   canonicalOrderStatusForOperationalStatus,
   normalizeOrderOperationalStatus,
 } from '../../order-planning/order-operational-status';
+import {
+  APPROVED_CLICKUP_ATTRIBUTION_USERS,
+  approvedClickupAttributionUser,
+  normalizeClickupActorIdentity,
+  resolveClickupActor,
+  type ClickupActorMatchMethod,
+} from './clickup-attribution-users';
 
 const COMPANY_NAME_BY_KEY = Object.fromEntries(
   FOUR_COMPANY_MIGRATION_PROFILE.canonicalCompanies.map((company) => [company.companyKey, company.name]),
@@ -38,24 +45,6 @@ const MAIN_ORDER_PATTERN = /\b(?:new\s*order|restock|po|order)\b/i;
 const HELPER_TASK_PATTERN = /shipping labels?|labels required|time tracking|approval/i;
 
 const COMMENT_PROPOSAL_LIMIT = 20;
-const CLICKUP_COMMENT_USER_EMAIL_BY_KEY: Record<string, string> = {
-  'nauman.ecofission': 'nauman.ecofission@gmail.com',
-  'nauman.ecofission@gmail.com': 'nauman.ecofission@gmail.com',
-  kiranecofission: 'kiranecofission@gmail.com',
-  'kiranecofission@gmail.com': 'kiranecofission@gmail.com',
-  'behroz.ecofission': 'behroz.ecofission@gmail.com',
-  'behroz.ecofission@gmail.com': 'behroz.ecofission@gmail.com',
-  'shabi.ecofission': 'shabi.ecofission@gmail.com',
-  'shabi.ecofission@gmail.com': 'shabi.ecofission@gmail.com',
-  'rafay.ecofission': 'rafay.ecofission@gmail.com',
-  'rafay.ecofission@gmail.com': 'rafay.ecofission@gmail.com',
-  'director@eco-fission.com': 'director@eco-fission.com',
-  syedatif: 'syedatif.ecofission@gmail.com',
-  'syedatif.ecofission': 'syedatif.ecofission@gmail.com',
-  'syedatif.ecofission@gmail.com': 'syedatif.ecofission@gmail.com',
-  'hassan.mehtab95': 'hassan.mehtab95@gmail.com',
-  'hassan.mehtab95@gmail.com': 'hassan.mehtab95@gmail.com',
-};
 
 type PlainRecord = Record<string, unknown>;
 
@@ -78,7 +67,6 @@ type ParsedTask = {
   dateCreatedText?: string;
   parentId?: string;
   listName?: string;
-  assignees: string[];
   lineNumber: number;
   mainOrderTask: boolean;
   comments: ParsedClickupComment[];
@@ -128,7 +116,15 @@ export interface ClickupOrderStatusImportResult {
   discoveredActorCount: number;
   linkedActorCount: number;
   createdUserCount: number;
-  unresolvedActorEmails: string[];
+  unresolvedActors: string[];
+  actorMappings: Array<{
+    sourceActor: string;
+    occurrenceCount: number;
+    resolution: 'mapped' | 'unresolved';
+    mappedUserKey?: string;
+    mappedUserName?: string;
+    matchMethod?: ClickupActorMatchMethod;
+  }>;
 }
 
 function asString(value: unknown) {
@@ -169,66 +165,6 @@ function companyForOrderRef(ref: string) {
 
 function companyFromTaskTitle(taskName: string) {
   return canonicalCompanyName(taskName);
-}
-
-function normalizeClickupActorKey(value: string | undefined) {
-  return value?.trim().toLowerCase() || undefined;
-}
-
-function splitClickupAssignees(value: string | undefined) {
-  const trimmed = value?.trim();
-  if (!trimmed?.startsWith('[') || !trimmed.endsWith(']')) return [];
-  return trimmed
-    .slice(1, -1)
-    .split(',')
-    .map((name) => name.trim())
-    .filter(Boolean);
-}
-
-function personTokens(value: string | undefined): string[] {
-  return value?.toLowerCase().match(/[a-z]+/g) ?? [];
-}
-
-function actorIdentityTokens(email: string) {
-  const local = email.split('@')[0].replace(/ecofission/gi, ' ');
-  return personTokens(local);
-}
-
-function normalizedPersonName(value: string | undefined) {
-  return personTokens(value).join(' ');
-}
-
-function safeUsernameForEmail(email: string) {
-  return email
-    .split('@')[0]
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, '-')
-    .replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, '');
-}
-
-function uniqueDisplayName(email: string, names: Array<{ name: string; weight: number }>) {
-  const identityTokens = actorIdentityTokens(email);
-  if (identityTokens.length === 0) return email;
-  const candidates = names
-    .map((candidate) => {
-      const tokens = personTokens(candidate.name);
-      const exactTokenMatch = identityTokens.every((token) => tokens.includes(token));
-      const compactMatch = tokens.join('').includes(identityTokens.join(''));
-      return { ...candidate, matched: exactTokenMatch || compactMatch };
-    })
-    .filter((candidate) => candidate.matched)
-    .sort((left, right) => right.weight - left.weight || right.name.length - left.name.length);
-  const best = candidates[0];
-  if (!best || (candidates[1] && candidates[1].weight === best.weight && candidates[1].name !== best.name)) {
-    return email;
-  }
-  return best.name;
-}
-
-export function resolveClickupCommentActorEmail(actor: string | undefined) {
-  const key = normalizeClickupActorKey(actor);
-  if (!key) return undefined;
-  return CLICKUP_COMMENT_USER_EMAIL_BY_KEY[key] ?? (key.includes('@') ? key : undefined);
 }
 
 export function extractClickupOrderRefsFromTitle(taskName: string) {
@@ -381,6 +317,8 @@ function commentActivityValues(params: {
   order: PlainRecord;
   supplierOrderId: string;
   actorUserId?: string;
+  actorUserKey?: string;
+  actorMatchMethod?: ClickupActorMatchMethod;
 }) {
   const company = asString(params.order.company);
   const supplierId = asString(params.order.supplierId);
@@ -404,15 +342,27 @@ function commentActivityValues(params: {
   const naturalKey = [
     params.sourceConnectionId,
     'clickup_comment',
-    params.task.taskId,
     params.supplierOrderId,
     params.comment.occurredAt,
     commentHash(params.task, params.comment),
   ].join(':');
+  const actorResolution = params.actorUserId
+    ? {
+        actorResolution: 'mapped',
+        actorUserKey: params.actorUserKey,
+        actorMatchMethod: params.actorMatchMethod,
+      }
+    : {
+        actorResolution: 'unresolved',
+        sourceActorHash: createHash('sha256')
+          .update(normalizeClickupActorIdentity(params.comment.actor))
+          .digest('hex')
+          .slice(0, 16),
+      };
   return {
     entityType: 'supplier_order',
     entityId: params.supplierOrderId,
-    actorType: params.actorUserId ? 'user' : 'operator',
+    actorType: params.actorUserId ? 'user' : 'external',
     actorUserId: params.actorUserId,
     commentType: 'note',
     body,
@@ -427,9 +377,7 @@ function commentActivityValues(params: {
       supplierOrderId: params.supplierOrderId,
       orderRef: params.task.ref,
       occurredAt: params.comment.occurredAt,
-      taskId: params.task.taskId,
-      parentId: params.task.parentId,
-      lineNumber: params.task.lineNumber,
+      ...actorResolution,
     },
     workflowDetectionStatus: 'none',
     createdAt: params.comment.occurredAt,
@@ -466,8 +414,6 @@ function commentProposal(params: { task: ParsedTask; comment: ParsedClickupComme
 
 export function parseClickupOrderStatusFiles(files: CsvSourceFile[]) {
   const tasksByRef = new Map<string, ParsedTask[]>();
-  const actorEmails = new Set<string>();
-  const assigneeNames = new Set<string>();
   const ambiguousMultiRefTasks: Array<Record<string, unknown>> = [];
   let rowCount = 0;
   for (const file of files) {
@@ -488,12 +434,6 @@ export function parseClickupOrderStatusFiles(files: CsvSourceFile[]) {
         return;
       }
       const parsedComments = parseClickupComments(row.string('Comments'));
-      const assignees = splitClickupAssignees(row.string('Assignees'));
-      assignees.forEach((name) => assigneeNames.add(name));
-      parsedComments.comments.forEach((comment) => {
-        const email = resolveClickupCommentActorEmail(comment.actor);
-        if (email) actorEmails.add(email);
-      });
       for (const ref of orderRefs) {
         const company = companyForOrderRef(ref);
         if (!company) continue;
@@ -515,7 +455,6 @@ export function parseClickupOrderStatusFiles(files: CsvSourceFile[]) {
           dateCreatedText: row.string('Date Created Text'),
           parentId: row.string('Parent ID'),
           listName: row.string('List Name'),
-          assignees,
           lineNumber: index + 2,
           mainOrderTask: isMainOrderTask(taskName),
           comments: parsedComments.comments,
@@ -573,8 +512,6 @@ export function parseClickupOrderStatusFiles(files: CsvSourceFile[]) {
     missingMainTaskRefs,
     conflictingMainTasks,
     companyConflicts,
-    actorEmails: [...actorEmails],
-    assigneeNames: [...assigneeNames],
     ambiguousMultiRefTasks,
   };
 }
@@ -582,109 +519,71 @@ export function parseClickupOrderStatusFiles(files: CsvSourceFile[]) {
 export class EcobaseClickupOrderStatusService {
   constructor(private db: EcobaseDatabase) {}
 
-  private async clickupActorDisplayNames(tasks: ParsedTask[], assigneeNames: string[]) {
-    const candidates = new Map<string, { name: string; count: number; sources: Set<string> }>();
-    const addCandidate = (name: string | undefined, source: string) => {
-      const displayName = asString(name);
-      const normalized = normalizedPersonName(displayName);
-      if (!displayName || !normalized || /^\d+$/.test(normalized)) return;
-      const current = candidates.get(normalized) ?? { name: displayName, count: 0, sources: new Set<string>() };
-      current.count += 1;
-      current.sources.add(source);
-      candidates.set(normalized, current);
-    };
-
-    let bronzeRows: unknown[] = [];
-    try {
-      bronzeRows = await this.db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).find({ limit: 100000 });
-    } catch {
-      bronzeRows = [];
-    }
-    for (const row of bronzeRows.map(toPlainRecord)) {
-      const payload = asPlainRecord(row.payload);
-      addCandidate(asString(payload['Placed By']) ?? asString(payload['Placed by']), 'placed_by');
-      addCandidate(asString(payload['SA by']), 'sa_by');
-    }
-    for (const task of tasks) {
-      for (const assignee of task.assignees) addCandidate(assignee, 'clickup_assignee');
-    }
-    assigneeNames.forEach((name) => addCandidate(name, 'clickup_assignee'));
-
-    return [...candidates.values()].map((candidate) => ({
-      name: candidate.name,
-      weight: candidate.count + (candidate.sources.has('placed_by') || candidate.sources.has('sa_by') ? 100000 : 0),
-    }));
-  }
-
-  private async ensureClickupActorUsers(params: {
-    tasks: ParsedTask[];
-    actorEmails: string[];
-    assigneeNames: string[];
-    dryRun: boolean;
-  }) {
-    const emails = [...new Set(params.actorEmails)];
-    if (emails.length === 0) {
-      return {
-        actorUserIdsByEmail: new Map<string, string>(),
-        createdUserCount: 0,
-        unresolvedActorEmails: [] as string[],
-      };
-    }
-
+  async ensureApprovedAttributionUsers(dryRun = false) {
     const userRepo = this.db.getRepository('users');
     const users = (await userRepo.find({ limit: 100000 })).map(toPlainRecord);
-    const usersByEmail = new Map<string, PlainRecord[]>();
-    for (const user of users) {
-      const email = normalizeClickupActorKey(asString(user.email));
-      if (email) usersByEmail.set(email, [...(usersByEmail.get(email) ?? []), user]);
-    }
-    for (const email of emails) {
-      if ((usersByEmail.get(email) ?? []).length > 1) {
-        throw new Error(`Ecobase ClickUp user linking failed: multiple NocoBase users use ${email}.`);
-      }
-    }
-
-    const displayNames = await this.clickupActorDisplayNames(params.tasks, params.assigneeNames);
-    const usedUsernames = new Set(
-      users
-        .map((user) => normalizeClickupActorKey(asString(user.username)))
-        .filter((value): value is string => Boolean(value)),
-    );
+    const userIdsByKey = new Map<string, string>();
+    const claimedUserIds = new Set<string>();
     let createdUserCount = 0;
-    for (const email of emails) {
-      if (usersByEmail.has(email) || params.dryRun) continue;
-      const baseUsername = safeUsernameForEmail(email) || 'clickup-user';
-      const username = usedUsernames.has(baseUsername)
-        ? `${baseUsername}-${createHash('sha1').update(email).digest('hex').slice(0, 8)}`
-        : baseUsername;
-      const created = toPlainRecord(
-        await userRepo.create({
-          values: {
-            email,
-            username,
-            nickname: uniqueDisplayName(email, displayNames),
-          },
-        }),
-      );
-      if (!asIdString(created.id)) {
-        throw new Error(`Ecobase ClickUp user linking failed: created user ${email} has no id.`);
+
+    for (const approved of APPROVED_CLICKUP_ATTRIBUTION_USERS) {
+      const approvedEmails = new Set((approved.emails ?? []).map(normalizeClickupActorIdentity));
+      const matches = users.filter((user) => {
+        const username = normalizeClickupActorIdentity(asString(user.username));
+        const nickname = normalizeClickupActorIdentity(asString(user.nickname));
+        const email = normalizeClickupActorIdentity(asString(user.email));
+        return (
+          username === normalizeClickupActorIdentity(approved.key) ||
+          nickname === normalizeClickupActorIdentity(approved.displayName) ||
+          approvedEmails.has(email)
+        );
+      });
+      if (matches.length > 1) {
+        throw new Error(
+          `Ecobase ClickUp attribution user upsert failed: ${approved.displayName} matches multiple NocoBase users.`,
+        );
       }
-      usedUsernames.add(username);
-      usersByEmail.set(email, [created]);
-      createdUserCount += 1;
+      let user = matches[0];
+      const existingTk = user?.id as string | number | undefined;
+      const existingId = asIdString(existingTk);
+      if (existingId && claimedUserIds.has(existingId)) {
+        throw new Error(
+          `Ecobase ClickUp attribution user upsert failed: NocoBase user ${existingId} matches multiple approved identities.`,
+        );
+      }
+      const settings = asPlainRecord(user?.systemSettings);
+      const values = {
+        username: approved.key,
+        nickname: approved.displayName,
+        ...(approved.emails?.[0] ? { email: approved.emails[0] } : {}),
+        systemSettings: {
+          ...settings,
+          ecobaseAttribution: {
+            state: 'pending_invite',
+            loginDisabled: true,
+            attributionOnly: true,
+            ...(approved.title ? { title: approved.title } : {}),
+          },
+        },
+      };
+      if (!dryRun) {
+        if (existingId) {
+          await userRepo.update({ filterByTk: existingTk, values });
+          user = { ...user, ...values };
+        } else {
+          user = toPlainRecord(await userRepo.create({ values }));
+          createdUserCount += 1;
+          users.push(user);
+        }
+      }
+      const userId = asIdString(user?.id);
+      if (userId) {
+        claimedUserIds.add(userId);
+        userIdsByKey.set(approved.key, userId);
+      }
     }
 
-    const actorUserIdsByEmail = new Map<string, string>();
-    for (const email of emails) {
-      const user = usersByEmail.get(email)?.[0];
-      const userId = asIdString(user?.id);
-      if (userId) actorUserIdsByEmail.set(email, userId);
-    }
-    return {
-      actorUserIdsByEmail,
-      createdUserCount,
-      unresolvedActorEmails: emails.filter((email) => !actorUserIdsByEmail.has(email)),
-    };
+    return { userIdsByKey, createdUserCount };
   }
 
   parseCsvFiles(files: CsvSourceFile[]) {
@@ -783,8 +682,6 @@ export class EcobaseClickupOrderStatusService {
       missingMainTaskRefs,
       conflictingMainTasks,
       companyConflicts,
-      actorEmails,
-      assigneeNames,
       ambiguousMultiRefTasks,
     } = this.parseCsvFiles(params.files);
     const allTasks = [...tasksByRef.values()].flat();
@@ -820,14 +717,43 @@ export class EcobaseClickupOrderStatusService {
         matchedOrderByRef.set(ref, orders[0]);
       }
     }
-    const selectedCommentCount = allTasks.reduce((count, task) => count + task.comments.length, 0);
+    const matchedTasks = [...tasksByRef.entries()]
+      .filter(([ref]) => matchedOrderByRef.has(ref))
+      .flatMap(([, tasks]) => tasks);
+    const selectedCommentCount = matchedTasks.reduce((count, task) => count + task.comments.length, 0);
     const invalidCommentCount = allTasks.reduce((count, task) => count + task.invalidCommentCount, 0);
-    const userLinks = await this.ensureClickupActorUsers({
-      tasks: allTasks,
-      actorEmails,
-      assigneeNames,
-      dryRun,
-    });
+    const userLinks = await this.ensureApprovedAttributionUsers(dryRun);
+    const actorOccurrences = new Map<string, { sourceActor: string; occurrenceCount: number }>();
+    for (const task of matchedTasks) {
+      for (const comment of task.comments) {
+        const sourceActor = asString(comment.actor);
+        const normalizedActor = normalizeClickupActorIdentity(sourceActor);
+        if (!sourceActor || !normalizedActor) continue;
+        const occurrence = actorOccurrences.get(normalizedActor) ?? { sourceActor, occurrenceCount: 0 };
+        occurrence.occurrenceCount += 1;
+        actorOccurrences.set(normalizedActor, occurrence);
+      }
+    }
+    const actorMappings = [...actorOccurrences.values()]
+      .map(({ sourceActor, occurrenceCount }) => {
+        const resolution = resolveClickupActor(sourceActor);
+        const user = resolution.userKey ? approvedClickupAttributionUser(resolution.userKey) : undefined;
+        return {
+          sourceActor,
+          occurrenceCount,
+          resolution: user ? ('mapped' as const) : ('unresolved' as const),
+          mappedUserKey: user?.key,
+          mappedUserName: user?.displayName,
+          matchMethod: resolution.matchMethod,
+        };
+      })
+      .sort(
+        (left, right) =>
+          right.occurrenceCount - left.occurrenceCount || left.sourceActor.localeCompare(right.sourceActor),
+      );
+    const conflictingRefs = new Set(
+      conflictingMainTasks.map((conflict) => asString(conflict.ref)).filter((ref): ref is string => Boolean(ref)),
+    );
     let updatedOrderCount = 0;
     let proposedCommentCount = 0;
     let importedCommentCount = 0;
@@ -845,14 +771,16 @@ export class EcobaseClickupOrderStatusService {
       ).map(toPlainRecord);
       for (const commentTask of commentTasks) {
         for (const comment of commentTask.comments) {
-          const actorEmail = resolveClickupCommentActorEmail(comment.actor);
+          const actorResolution = resolveClickupActor(comment.actor);
           const values = commentActivityValues({
             sourceConnectionId,
             task: commentTask,
             comment,
             order,
             supplierOrderId,
-            actorUserId: actorEmail ? userLinks.actorUserIdsByEmail.get(actorEmail) : undefined,
+            actorUserId: actorResolution.userKey ? userLinks.userIdsByKey.get(actorResolution.userKey) : undefined,
+            actorUserKey: actorResolution.userKey,
+            actorMatchMethod: actorResolution.matchMethod,
           });
           if (!values) continue;
           proposedCommentCount += 1;
@@ -886,6 +814,7 @@ export class EcobaseClickupOrderStatusService {
       const supplierOrderId = asString(order?.id);
       if (!order || !supplierOrderId) continue;
       const evidence = statusEvidence(task);
+      const statusConflict = conflictingRefs.has(ref);
       const operatorOverride =
         asString(order.statusSource) === 'operator' || Boolean(asString(order.operatorStatusOverrideAt));
       const overrideOperatorStatus = operatorOverride && params.overrideOperatorStatus === true;
@@ -908,7 +837,7 @@ export class EcobaseClickupOrderStatusService {
         operatorOverride,
         overrideOperatorStatus,
         statusDiscrepancy,
-        requiresReview: !task.mappedStatus || statusDiscrepancy,
+        requiresReview: !task.mappedStatus || statusDiscrepancy || statusConflict,
       });
       if (operatorOverride && !overrideOperatorStatus) operatorOverrideCount += 1;
       if (overrideOperatorStatus) overriddenOperatorStatusCount += 1;
@@ -917,6 +846,7 @@ export class EcobaseClickupOrderStatusService {
         ...existingEvidence,
         clickupStatusImport: evidence,
         importedAt,
+        clickupStatusConflict: statusConflict ? conflictingMainTasks.find((conflict) => conflict.ref === ref) : null,
         clickupStatusDiscrepancy: statusDiscrepancy
           ? {
               operatorStatus: operatorOperationalStatus ?? order.lifecycleStatus,
@@ -926,7 +856,7 @@ export class EcobaseClickupOrderStatusService {
           : null,
       };
       if (overrideOperatorStatus) delete statusEvidenceJson.operatorOperationalStatus;
-      if (!task.mappedStatus) {
+      if (!task.mappedStatus || statusConflict) {
         await supplierOrderRepo.update({
           filterByTk: supplierOrderId,
           values: { statusEvidenceJson, statusCheckRequired: true },
@@ -955,7 +885,7 @@ export class EcobaseClickupOrderStatusService {
       if (!operatorOverride || overrideOperatorStatus) updatedOrderCount += 1;
     }
 
-    const blockingIssueCount = ambiguousOrders.length + unmappedStatuses.length + ambiguousMultiRefTasks.length;
+    const blockingIssueCount = ambiguousOrders.length + unmappedStatuses.length;
     const authority = dryRun ? undefined : await this.reconcileAuthority(importedAt);
 
     return {
@@ -995,10 +925,13 @@ export class EcobaseClickupOrderStatusService {
       ambiguousMultiRefTasks,
       authorityCounts: authority?.authorityCounts,
       unresolvedAuthorityOrderIds: authority?.unresolvedAuthorityOrderIds,
-      discoveredActorCount: actorEmails.length,
-      linkedActorCount: userLinks.actorUserIdsByEmail.size,
+      discoveredActorCount: actorMappings.length,
+      linkedActorCount: actorMappings.filter((mapping) => mapping.resolution === 'mapped').length,
       createdUserCount: userLinks.createdUserCount,
-      unresolvedActorEmails: userLinks.unresolvedActorEmails,
+      unresolvedActors: actorMappings
+        .filter((mapping) => mapping.resolution === 'unresolved')
+        .map((mapping) => mapping.sourceActor),
+      actorMappings,
     };
   }
 }

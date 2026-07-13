@@ -14,12 +14,16 @@ async function main() {
   const asOfDate = argument('--as-of');
   const output = argument('--output');
   const projectRoot = argument('--project-root') ?? path.resolve(process.cwd(), '..');
+  const profile = argument('--profile') ?? 'complete';
   if (!asOfDate || !output) {
     throw new Error(
-      'Usage: tsx build-greenfield-seed-bundle.ts --as-of YYYY-MM-DD --output PATH [--project-root PATH]',
+      'Usage: tsx build-greenfield-seed-bundle.ts --as-of YYYY-MM-DD --output PATH [--project-root PATH] [--profile complete|staging-fast-clickup]',
     );
   }
-  const bundle = await buildGreenfieldSeedBundle({ projectRoot, asOfDate });
+  if (profile !== 'complete' && profile !== 'staging-fast-clickup') {
+    throw new Error(`Ecobase greenfield seed bundle failed: unsupported profile ${profile}.`);
+  }
+  const bundle = await buildGreenfieldSeedBundle({ projectRoot, asOfDate, profile });
   const outputPath = path.resolve(output);
   await mkdir(path.dirname(outputPath), { recursive: true });
   await writeFile(outputPath, `${JSON.stringify(greenfieldSeedBundleManifest(bundle), null, 2)}\n`);

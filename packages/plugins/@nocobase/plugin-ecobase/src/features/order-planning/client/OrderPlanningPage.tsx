@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { useAPIClient } from '@nocobase/client';
 import dayjs from 'dayjs';
 import {
@@ -56,6 +65,7 @@ function numericValue(value: unknown) {
 }
 
 function formatMoney(value: unknown) {
+  if (value === null || value === undefined || value === '') return '—';
   return numericValue(value).toLocaleString(undefined, {
     style: 'currency',
     currency: 'USD',
@@ -189,7 +199,11 @@ function groupOrders(rows: PlainRecord[]) {
         orderCount: orders.length,
         asinCount: orders.reduce((sum, row) => sum + numericValue(row.asinCount), 0),
         lineCount: orders.reduce((sum, row) => sum + numericValue(row.lineCount), 0),
-        totalMoneyAtRisk: orders.reduce((sum, row) => sum + numericValue(row.moneyAtRisk), 0),
+        totalMoneyAtRisk: orders.some(
+          (row) => row.moneyAtRisk !== null && row.moneyAtRisk !== undefined && row.moneyAtRisk !== '',
+        )
+          ? orders.reduce((sum, row) => sum + numericValue(row.moneyAtRisk), 0)
+          : null,
         earliestOosDate: dates[0],
         earliestDaysUntilOos: timing,
         maxWaitingDays: Math.max(...orders.map((row) => numericValue(row.daysSinceLastActivity))),

@@ -804,7 +804,13 @@ export class EcobaseImportService {
         sourceVersion,
       });
       const warningCount =
-        result.unmatchedRefCount + result.missingMainTaskCount + result.duplicateRefCount + result.invalidCommentCount;
+        result.unmatchedRefCount +
+        result.missingMainTaskCount +
+        result.duplicateRefCount +
+        result.invalidCommentCount +
+        result.conflictingMainTaskCount +
+        result.companyConflictCount +
+        result.ambiguousMultiRefTaskCount;
       const errorCount = result.blockingIssueCount;
       const affectedOrderIds = result.proposedUpdates
         .map((update) => getString(update, 'supplierOrderId'))
@@ -824,7 +830,7 @@ export class EcobaseImportService {
           errorCount,
           errorMessage:
             errorCount > 0
-              ? `ClickUp import quarantined ${errorCount} conflicting or ambiguous order reference group(s).`
+              ? `ClickUp import quarantined ${errorCount} unmapped-status or ambiguous retained-order group(s).`
               : null,
           summary: {
             clickup: result,
