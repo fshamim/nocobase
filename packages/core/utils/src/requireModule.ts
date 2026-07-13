@@ -9,7 +9,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { pathToFileURL } from 'url';
+import { pathToFileURL } from 'node:url';
 
 export async function requireResolve(m: any) {
   if (!process.env.VITEST) {

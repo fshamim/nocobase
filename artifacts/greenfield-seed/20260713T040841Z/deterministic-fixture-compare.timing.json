@@ -1,0 +1,8 @@
+{
+  "phase": "deterministic-fixture-compare",
+  "inputRows": 13,
+  "acceptedRows": 13,
+  "discardedRows": 0,
+  "elapsedMs": 3431,
+  "exitCode": 0
+}

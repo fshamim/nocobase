@@ -1,0 +1,384 @@
+packages/plugins/@nocobase/plugin-ecobase/src/server/services/comparison-service.ts:383:      this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).find({ limit: 50000 }),
+packages/plugins/@nocobase/plugin-ecobase/src/server/services/comparison-service.ts:384:      this.db.getRepository(ECOBASE_COLLECTIONS.silverProducts).find({ limit: 50000 }),
+packages/plugins/@nocobase/plugin-ecobase/src/features/daily-operations-brief/server/daily-management-snapshot-service.ts:753:      this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).find({ limit: 50000 }),
+packages/plugins/@nocobase/plugin-ecobase/src/features/daily-operations-brief/server/daily-management-snapshot-service.ts:754:      this.db.getRepository(ECOBASE_COLLECTIONS.silverProducts).find({ limit: 50000 }),
+packages/plugins/@nocobase/plugin-ecobase/src/features/daily-operations-brief/server/daily-management-snapshot-service.ts:787:      this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).find({ limit: 50000 }),
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts:1125:    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).update({
+packages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/source-connection-service.ts:301:    const bronzeRecordRepo = this.db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords);
+packages/plugins/@nocobase/plugin-ecobase/src/features/daily-operations-brief/server/management-kpi-facts-service.ts:887:      await this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).find({ limit: 100000 }),
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:246:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:482:    await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:485:    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:491:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:503:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:513:    await db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:632:    await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:635:    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:672:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:703:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).all()[0]).toMatchObject({ lifecycleStatus: 'confirmed' });
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:716:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:729:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:886:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:895:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:917:        .getRepository(ECOBASE_COLLECTIONS.silverOrders)
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:967:    await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:970:    await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:973:    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:980:    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:1022:    await db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:1030:    await db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:1101:        .getRepository(ECOBASE_COLLECTIONS.silverOrderLines)
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:1154:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).all()).toEqual(
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:1177:        .getRepository(ECOBASE_COLLECTIONS.silverActivityComments)
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:1243:    await db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:1253:    await db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:1263:    await db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:1386:    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toEqual([]);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:1408:    expect(db.getRepository(ECOBASE_COLLECTIONS.sellerboardProductCosts).all()).toEqual([
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:1423:    const rows = db.getRepository(ECOBASE_COLLECTIONS.sellerboardProductCosts).all();
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:1488:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:1515:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).all()[0]).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:1553:      await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:1568:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).all()).toEqual(
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:1580:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:1615:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).all()[0]).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:1628:      await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:1684:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:1722:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).all()[0]).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:1736:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:1763:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).all()[0]).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:1784:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:1817:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).all()[0]).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:1836:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:1864:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).all()[0]).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:1885:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:1923:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).all()[0]).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:1960:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).all()[0]).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:1979:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:1993:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:2007:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:2021:    await db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:2088:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).all()).toHaveLength(0);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:2113:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).all()).toEqual(
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:2147:    expect(JSON.stringify(db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).all())).not.toMatch(
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:2160:        .getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords)
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:2166:        .getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords)
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:2179:    const activityRepo = db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:2212:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).all()).toHaveLength(2);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:2238:        .getRepository(ECOBASE_COLLECTIONS.silverActivityComments)
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:2242:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).all()).toHaveLength(2);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:2287:        .getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords)
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:2292:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:2312:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).all()).toHaveLength(0);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:2330:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).all()).toHaveLength(1);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:2362:    await db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:2389:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).all()).toHaveLength(1);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:2390:    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()[0].normalizationStatus).toBe('normalized');
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:2623:    await db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:2676:    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toEqual([]);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:2735:    await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:2785:    await db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:2830:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).all()).toEqual(
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:2914:    await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:2917:    await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:2923:    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:2926:    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:2938:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:2948:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:2958:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:2967:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:3074:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:3123:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:3153:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:3156:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:3189:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:3230:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:3257:    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:3335:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).all()).toEqual([
+packages/plugins/@nocobase/plugin-ecobase/src/features/daily-operations-brief/server/daily-operations-brief-service.ts:1369:      this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).find({ limit: 50000 }),
+packages/plugins/@nocobase/plugin-ecobase/src/features/daily-operations-brief/server/daily-operations-brief-service.ts:1370:      this.db.getRepository(ECOBASE_COLLECTIONS.silverProducts).find({ limit: 50000 }),
+packages/plugins/@nocobase/plugin-ecobase/src/features/daily-operations-brief/server/daily-operations-brief-service.ts:1412:      this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).find({ limit: 50000 }),
+packages/plugins/@nocobase/plugin-ecobase/src/features/daily-operations-brief/server/daily-operations-brief-service.ts:1413:      this.db.getRepository(ECOBASE_COLLECTIONS.silverProducts).find({ limit: 50000 }),
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-workflow-service.test.ts:61:  await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-workflow-service.test.ts:134:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[0]).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-receipt-reconciliation-service.test.ts:190:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[0]).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-receipt-reconciliation-service.test.ts:197:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[0]).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-receipt-reconciliation-service.test.ts:206:    db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[0].orderedQty = 4;
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-receipt-reconciliation-service.test.ts:207:    db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows.push({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-receipt-reconciliation-service.test.ts:221:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows).toEqual([
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-receipt-reconciliation-service.test.ts:233:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[0]).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-receipt-reconciliation-service.test.ts:241:    db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows.push({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-receipt-reconciliation-service.test.ts:250:    db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows.push({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-receipt-reconciliation-service.test.ts:267:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[1]).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-receipt-reconciliation-service.test.ts:272:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[1]).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-receipt-reconciliation-service.test.ts:282:    db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows.push(
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-receipt-reconciliation-service.test.ts:296:    db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows.push(
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-receipt-reconciliation-service.test.ts:305:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[2].amazonReceiptStatus).toBeUndefined();
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-receipt-reconciliation-service.test.ts:309:    noEvidenceDb.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows.push({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-receipt-reconciliation-service.test.ts:315:    noEvidenceDb.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows.push({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-receipt-reconciliation-service.test.ts:326:      noEvidenceDb.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[1].amazonReceiptStatus,
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-receipt-reconciliation-service.test.ts:349:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[0]).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-receipt-reconciliation-service.test.ts:391:    db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).rows.push({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-receipt-reconciliation-service.test.ts:410:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[0]).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-receipt-reconciliation-service.test.ts:418:    db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[0].companyProductId = null;
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-receipt-reconciliation-service.test.ts:426:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[0]).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/clickup-order-status-service.ts:599:      bronzeRows = await this.db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).find({ limit: 100000 });
+packages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/clickup-order-status-service.ts:695:    const orderRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverOrders);
+packages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/clickup-order-status-service.ts:791:    const supplierOrderRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverOrders);
+packages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/clickup-order-status-service.ts:792:    const activityRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts:231:    const bronzeRecords = (await app.db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).find()).map(
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/management-kpi-facts-service.test.ts:79:  db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).records.push({
+packages/plugins/@nocobase/plugin-ecobase/src/features/supplier-management/server/supplier-order-service.ts:675:      this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).find({ limit: limit * 4 }),
+packages/plugins/@nocobase/plugin-ecobase/src/features/supplier-management/server/supplier-order-service.ts:676:      this.db.getRepository(ECOBASE_COLLECTIONS.silverProducts).find({ limit: limit * 4 }),
+packages/plugins/@nocobase/plugin-ecobase/src/features/supplier-management/server/supplier-order-service.ts:679:      this.db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).find({ limit }),
+packages/plugins/@nocobase/plugin-ecobase/src/features/supplier-management/server/supplier-order-service.ts:773:        await this.db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).find({ sort: ['-rowNumber'], limit: 5000 })
+packages/plugins/@nocobase/plugin-ecobase/src/features/supplier-management/server/supplier-order-service.ts:889:    const orderRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverOrders);
+packages/plugins/@nocobase/plugin-ecobase/src/features/supplier-management/server/supplier-order-service.ts:951:      await this.db.getRepository(ECOBASE_COLLECTIONS.silverOrders).findOne({ filterByTk: params.supplierOrderId }),
+packages/plugins/@nocobase/plugin-ecobase/src/features/supplier-management/server/supplier-order-service.ts:1000:    return this.db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({ values });
+packages/plugins/@nocobase/plugin-ecobase/src/features/supplier-management/server/supplier-order-service.ts:1083:    const lineRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines);
+packages/plugins/@nocobase/plugin-ecobase/src/features/supplier-management/server/supplier-order-service.ts:1095:        ? toPlainRecord(await this.db.getRepository(ECOBASE_COLLECTIONS.silverOrders).findOne({ filterByTk: orderId }))
+packages/plugins/@nocobase/plugin-ecobase/src/features/supplier-management/server/supplier-order-service.ts:1170:    const orderRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverOrders);
+packages/plugins/@nocobase/plugin-ecobase/src/features/supplier-management/server/supplier-order-service.ts:1257:    const lineRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines);
+packages/plugins/@nocobase/plugin-ecobase/src/features/supplier-management/server/supplier-order-service.ts:1287:      await this.db.getRepository(ECOBASE_COLLECTIONS.silverOrders).update({
+packages/plugins/@nocobase/plugin-ecobase/src/features/supplier-management/server/supplier-order-service.ts:1368:    const lineRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines);
+packages/plugins/@nocobase/plugin-ecobase/src/features/supplier-management/server/supplier-order-service.ts:1430:    const activityRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments);
+packages/plugins/@nocobase/plugin-ecobase/src/features/supplier-management/server/supplier-order-service.ts:1493:    await this.db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).update({
+packages/plugins/@nocobase/plugin-ecobase/src/features/supplier-management/server/supplier-order-service.ts:1508:        .getRepository(ECOBASE_COLLECTIONS.silverActivityComments)
+packages/plugins/@nocobase/plugin-ecobase/src/features/supplier-management/server/supplier-order-service.ts:1515:    await this.db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).update({
+packages/plugins/@nocobase/plugin-ecobase/src/features/supplier-management/server/supplier-order-service.ts:1521:        .getRepository(ECOBASE_COLLECTIONS.silverActivityComments)
+packages/plugins/@nocobase/plugin-ecobase/src/features/supplier-management/server/supplier-order-service.ts:1859:    const orderRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverOrders);
+packages/plugins/@nocobase/plugin-ecobase/src/features/supplier-management/server/supplier-order-service.ts:1985:    const lineRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines);
+packages/plugins/@nocobase/plugin-ecobase/src/features/supplier-management/server/supplier-order-service.ts:2088:    const lineRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines);
+packages/plugins/@nocobase/plugin-ecobase/src/features/supplier-management/server/supplier-order-service.ts:2101:          .getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts)
+packages/plugins/@nocobase/plugin-ecobase/src/features/supplier-management/server/supplier-order-service.ts:2113:        await this.db.getRepository(ECOBASE_COLLECTIONS.silverProducts).findOne({ filterByTk: productId }),
+packages/plugins/@nocobase/plugin-ecobase/src/features/supplier-management/server/supplier-order-service.ts:2219:      await this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).findOne({ filterByTk: planningProductId }),
+packages/plugins/@nocobase/plugin-ecobase/src/features/supplier-management/server/supplier-order-service.ts:2229:        .getRepository(ECOBASE_COLLECTIONS.silverProducts)
+packages/plugins/@nocobase/plugin-ecobase/src/features/supplier-management/server/supplier-order-service.ts:2533:      await this.db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).findOne({ filterByTk: activityId }),
+packages/plugins/@nocobase/plugin-ecobase/src/features/supplier-management/server/supplier-order-service.ts:2556:    const comments = (await this.db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).find({ limit: 10000 }))
+packages/plugins/@nocobase/plugin-ecobase/src/features/supplier-management/server/supplier-management-service.ts:561:      await this.db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).create({
+packages/plugins/@nocobase/plugin-ecobase/src/features/supplier-management/server/supplier-management-service.ts:593:      await this.db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).update({
+packages/plugins/@nocobase/plugin-ecobase/src/features/supplier-management/server/supplier-management-service.ts:642:      await this.db.getRepository(ECOBASE_COLLECTIONS.silverProducts).findOne({ filterByTk: productId }),
+packages/plugins/@nocobase/plugin-ecobase/src/features/supplier-management/server/supplier-management-service.ts:708:      await this.db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/daily-operations-brief-service.test.ts:90:  await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/daily-operations-brief-service.test.ts:93:  await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/bronze-import-service.ts:62:    const repo = this.db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords);
+packages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/bronze-import-service.ts:78:    const repo = this.db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/operator-workspace-service.test.ts:105:    await db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/operator-workspace-service.test.ts:115:    await db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/supplier-resolution-repair-service.test.ts:167:    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).findCalls[0]).toMatchObject({ sort: ['id'] });
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/supplier-resolution-repair-service.test.ts:176:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).records[0]).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/supplier-resolution-repair-service.test.ts:319:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).update({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/supplier-resolution-repair-service.test.ts:334:    db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).records[0].rowHash = 'changed-hash';
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/supplier-resolution-repair-service.test.ts:339:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).records[0]).not.toHaveProperty('companyProductId');
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/supplier-resolution-repair-service.test.ts:340:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).records[0]).not.toHaveProperty('supplierProductId');
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/supplier-resolution-repair-service.test.ts:359:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).records).toEqual([
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/report-service.test.ts:214:  await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/report-service.test.ts:217:  await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/report-service.test.ts:220:  await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/report-service.test.ts:229:  await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/report-service.test.ts:452:    await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/report-service.test.ts:455:    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/report-service.test.ts:458:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/report-service.test.ts:468:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-details-relationship-verifier.test.ts:79:  db.getRepository(ECOBASE_COLLECTIONS.silverProducts).rows.push(
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-details-relationship-verifier.test.ts:83:  db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).rows.push(
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-details-relationship-verifier.test.ts:92:  db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows.push({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-details-relationship-verifier.test.ts:98:  db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).rows.push({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-details-relationship-verifier.test.ts:107:    db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows.push({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-details-relationship-verifier.test.ts:153:    db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[0].supplierId = 'another-supplier';
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-details-relationship-verifier.test.ts:164:    missing.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).rows.splice(0, 1);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-details-relationship-verifier.test.ts:166:    duplicate.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).rows.push({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-details-relationship-verifier.test.ts:202:    duplicate.db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows.push({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-details-relationship-verifier.test.ts:203:      ...duplicate.db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[0],
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts:81:  await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts:84:  await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts:87:  await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts:90:  await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts:93:  await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts:96:  await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts:102:  await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts:117:  await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts:130:  await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts:141:  await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts:152:  await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts:193:  await db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts:324:    await db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).update({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts:341:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).update({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts:349:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).update({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts:367:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).update({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts:371:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).update({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts:375:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).update({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts:392:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).update({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts:423:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).update({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts:452:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).update({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts:480:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows.find((row) => row.id === 'order-1')).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts:487:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).rows.at(-1)).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts:498:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).update({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts:513:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows.find((row) => row.id === 'order-1')).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts:535:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).update({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts:579:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).rows.at(-1)).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts:591:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).update({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts:604:      db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).rows.find((row) => row.id === 'comment-1'),
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts:630:      db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows.find((row) => row.id === 'line-1'),
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts:635:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).rows.at(-1)).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/inventory-planning-service.ts:1025:            .getRepository(ECOBASE_COLLECTIONS.silverOrders)
+packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/inventory-planning-service.ts:1093:            await this.db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).find({
+packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/inventory-planning-service.ts:2968:      await this.db.getRepository(ECOBASE_COLLECTIONS.silverOrders).find({
+packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/inventory-planning-service.ts:3055:    const activityRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments);
+packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/inventory-planning-service.ts:3162:      await this.db.getRepository(ECOBASE_COLLECTIONS.silverProducts).find({ filter: productFilter, limit: 5000 })
+packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/inventory-planning-service.ts:3171:        .getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts)
+packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/inventory-planning-service.ts:3180:      await this.db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).find({
+packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/inventory-planning-service.ts:3196:            .getRepository(ECOBASE_COLLECTIONS.silverOrders)
+packages/plugins/@nocobase/plugin-ecobase/src/features/semantic-model/server/silver-data-service.ts:480:    const comment = await this.db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).create({
+packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/company-product-family-service.ts:106:      this.db.getRepository(ECOBASE_COLLECTIONS.silverProducts).find({ filter: { asin }, limit: 10000 }),
+packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/company-product-family-service.ts:107:      this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).find({ filter: { companyId }, limit: 10000 }),
+packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/company-product-family-service.ts:219:    const repository = this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts);
+packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/company-product-family-service.ts:236:        .getRepository(ECOBASE_COLLECTIONS.silverProducts)
+packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/company-product-family-service.ts:299:      await this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).find({
+packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/company-product-family-service.ts:305:      (await this.db.getRepository(ECOBASE_COLLECTIONS.silverProducts).find({ limit: 100000 })).map((value) => {
+packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/company-product-family-service.ts:362:        await this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).update({
+packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/company-product-family-service.ts:508:        .getRepository(ECOBASE_COLLECTIONS.silverOrderLines)
+packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/company-product-family-service.ts:515:          await this.db.getRepository(ECOBASE_COLLECTIONS.silverOrders).findOne({ filterByTk: orderId }),
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:64:  return db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:66:      id: `bronze-${db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).rows.length + 1}`,
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:123:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).rows).toHaveLength(1);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:124:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).rows).toHaveLength(1);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:133:    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).rows[0].normalizationStatus).toBe('normalized');
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:196:    const companyProducts = db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).rows;
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:201:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[0].companyProductId).toBe(companyProducts[0].id);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:237:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows).toHaveLength(1);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:238:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows).toHaveLength(1);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:257:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows).toHaveLength(0);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:258:    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).rows[0]).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:284:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[0]).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:289:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[0]).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:314:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).rows[0]).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:318:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[0]).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:384:    const lines = db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows;
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:414:      .getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords)
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:420:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).rows).toHaveLength(1);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:486:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows).toHaveLength(0);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:487:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows).toHaveLength(0);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:546:    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).rows[1]).not.toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:643:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).rows).toHaveLength(1);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:644:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).rows[0]).toMatchObject({ sku: '2-Pack' });
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:645:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).rows).toHaveLength(1);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:648:    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).rows[1]).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:734:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).rows).toHaveLength(1);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:736:    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).rows[1]).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:762:    const order = db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[0];
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:763:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).update({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:771:    await db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).update({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:779:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[0]).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:827:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows).toHaveLength(1);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:828:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows).toHaveLength(0);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:829:    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).rows[3]).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:860:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).rows).toHaveLength(0);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:861:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows).toHaveLength(0);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:862:    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).rows[2]).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:888:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).rows).toHaveLength(1);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:889:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows).toHaveLength(0);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:890:    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).rows[3]).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:923:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).rows).toHaveLength(2);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:924:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows).toHaveLength(0);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:952:    const lines = db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows;
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:993:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).rows).toHaveLength(2);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:994:    const lines = db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows;
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:1029:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).rows).toHaveLength(2);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:1032:    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).rows[2]).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:1062:    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).rows[2]).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:1085:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[0]).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:1090:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[0]).not.toHaveProperty('expectedSellableDate');
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:1091:    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).rows[2]).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:1123:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).rows).toHaveLength(1);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:1161:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).rows).toHaveLength(1);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts:1238:    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).rows[0]).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/sellerboard-cogs-service.ts:127:    const repository = this.db.getRepository(ECOBASE_COLLECTIONS.sellerboardProductCosts);
+packages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/sellerboard-cogs-service.ts:207:    const repository = this.db.getRepository(ECOBASE_COLLECTIONS.sellerboardProductCosts);
+packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/planning-calculation-service.ts:192:        this.db.getRepository(ECOBASE_COLLECTIONS.silverProducts).find({ limit: 100000 }),
+packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/planning-calculation-service.ts:193:        this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).find({ limit: 100000 }),
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/sellerboard-live-import.test.ts:162:    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toEqual([
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/sellerboard-live-import.test.ts:265:    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()[0]).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/sellerboard-live-import.test.ts:297:    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all().length).toBeGreaterThan(0);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/sellerboard-live-import.test.ts:315:    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toHaveLength(1);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/sellerboard-live-import.test.ts:345:    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all().length).toBeGreaterThan(0);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/sellerboard-live-import.test.ts:402:    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toEqual([
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/sellerboard-live-import.test.ts:422:    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toEqual([
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/sellerboard-live-import.test.ts:451:    const bronze = db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all();
+packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/planning-product-service.ts:141:      this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).find({ limit: 100000 }),
+packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/planning-product-service.ts:142:      this.db.getRepository(ECOBASE_COLLECTIONS.silverProducts).find({ limit: 100000 }),
+packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/planning-product-service.ts:145:      this.db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).find({ limit: 100000 }),
+packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/planning-product-service.ts:380:      this.db.getRepository(ECOBASE_COLLECTIONS.silverProducts).find({ limit: 100000 }),
+packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/planning-product-service.ts:381:      this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).find({ limit: 100000 }),
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/alert-evaluation-service.test.ts:153:  await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/alert-evaluation-service.test.ts:156:  await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/alert-evaluation-service.test.ts:242:  await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/alert-evaluation-service.test.ts:253:  await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/alert-evaluation-service.test.ts:266:    await db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/supplier-identity-convergence-service.test.ts:194:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).records[0]).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/supplier-identity-convergence-service.test.ts:197:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).records[0]).toMatchObject({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/comparison-service.test.ts:149:  await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/comparison-service.test.ts:152:  await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/ai-retrieval-service.test.ts:33:  await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({ values: { id: 'silver-order-1', company: 'ACME', orderRef: 'PO-AI', externalOrderRef: 'PO-AI', supplierId: 'supplier-1', supplierName: 'Supplier AI', lifecycleStatus: 'paid', status: 'paid', orderDate: '2026-06-01', expectedSellableDate: '2026-06-12', nextAction: 'Track supplier.' } });
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/ai-retrieval-service.test.ts:34:  await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({ values: { id: 'silver-line-1', company: 'ACME', orderRef: 'PO-AI', supplierId: 'supplier-1', supplierName: 'Supplier AI', asin: 'B00AI', sku: 'SKU-AI', title: 'AI product', orderedQty: 20, expectedSellableDate: '2026-06-12', leadTimeDays: 21, lineStatus: 'open' } });
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-order-service.test.ts:67:  await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-order-service.test.ts:70:  await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-order-service.test.ts:110:      await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-order-service.test.ts:227:    await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-order-service.test.ts:254:    const comments = db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).rows;
+packages/plugins/@nocobase/plugin-ecobase/src/server/migrations/20260708091000-backfill-supplier-external-refs.ts:26:    const bronzeRepo = this.db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts:206:    const bronzeRecords = db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all();
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts:223:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).all()).toHaveLength(2);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts:243:    await db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts:250:    await db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts:268:    const bronzeRecords = db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all();
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts:310:    const bronzeRecords = db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all();
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts:357:    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toHaveLength(2);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts:358:    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toEqual(
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts:385:    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toHaveLength(2);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts:438:    const orderRepo = db.getRepository(ECOBASE_COLLECTIONS.silverOrders);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts:494:    await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts:497:    await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts:500:    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts:503:    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts:535:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).all()).toEqual([
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts:552:    await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts:555:    await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts:558:    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts:561:    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts:567:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts:577:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts:595:      await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).findOne({ filterByTk: 'line-mx61726d' }),
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts:873:        .getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords)
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts:897:    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toEqual(
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts:931:    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toEqual([
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts:959:    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toHaveLength(1);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts:987:    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toHaveLength(2);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts:1032:    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toHaveLength(1);
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/planning-products.test.ts:272:    await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/planning-products.test.ts:275:    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/planning-products.test.ts:304:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).all()).toEqual(
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/planning-products.test.ts:354:    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).all()).toHaveLength(2);
+packages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/import-service.ts:553:  const repo = params.db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords);
+packages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/import-service.ts:624:    const repo = this.db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords);
+packages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/import-service.ts:633:    const assessedOrders = await this.db.getRepository(ECOBASE_COLLECTIONS.silverOrders).find({ limit: 20000 });
+packages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/import-service.ts:1664:    await this.db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).update({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/daily-management-snapshot-service.test.ts:111:    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/dashboard-service.test.ts:213:  await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/dashboard-service.test.ts:216:  await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/dashboard-service.test.ts:219:  await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/dashboard-service.test.ts:229:  await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts:75:  await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts:78:  await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts:81:  await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts:84:  await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts:92:  await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts:100:  await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts:108:  await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts:284:      (await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).find()).every((companyProduct) =>
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts:391:      await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts:395:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts:403:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts:439:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts:447:    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/import-service.test.ts:153:    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toEqual([]);

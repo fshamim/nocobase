@@ -83,6 +83,34 @@ describe('safe import boundary', () => {
     ).toEqual({ disposition: 'discard', reasonCode: 'unsupported_order_ref', droppedFieldCount: 0 });
   });
 
+  it('enforces exact supplier-reference accept/reject decisions before Bronze', () => {
+    const supplierItem = (externalRef: string): AdapterStreamItem => ({
+      type: 'record',
+      rowNumber: 2,
+      sourceKey: `supplier.csv:${externalRef}`,
+      payload: {
+        'SR ID': externalRef,
+        'Supplier Name': 'Franklin Machine Products',
+        'Supplier Type': 'Manufacturer',
+        'Reached Via': 'Ecofission LLC',
+      },
+      record: {
+        kind: 'supplier',
+        data: { company: 'Ecofission LLC', supplierExternalRef: externalRef },
+      },
+    });
+    expect(applySafeImportBoundary({ adapter: adapter('google_sheets') }, supplierItem('SRO-1257'))).toEqual({
+      disposition: 'discard',
+      reasonCode: 'supplier_external_ref_rejected',
+      droppedFieldCount: 0,
+    });
+    expect(applySafeImportBoundary({ adapter: adapter('google_sheets') }, supplierItem('SRO-12572'))).toMatchObject({
+      disposition: 'accept',
+      companyKey: 'ECOFISSION_LLC',
+      item: { payload: { supplierExternalRef: 'SRO-12572', supplierName: 'Franklin Machine Products' } },
+    });
+  });
+
   it('routes coherent header-derived order company evidence to review', () => {
     const result = applySafeImportBoundary(
       { adapter: adapter('seller_central_file'), defaultCompany: 'Retail Heaven Inc' },

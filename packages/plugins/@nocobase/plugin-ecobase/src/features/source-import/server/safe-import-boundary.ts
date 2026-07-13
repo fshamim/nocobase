@@ -113,6 +113,15 @@ function sourceCompany(item: AdapterStreamItem, dataset: MigrationDataset) {
     : firstSourceValue(source, ['Company', 'Company Name']);
 }
 
+function rejectedSupplierExternalRef(item: AdapterStreamItem, dataset: MigrationDataset) {
+  if (dataset !== 'supplier_tracker' && dataset !== 'supplier_2026') return undefined;
+  const source = item.type === 'record' ? item.payload : item.type === 'rowIssue' ? item.issue.payload ?? {} : {};
+  const externalRef = firstSourceValue(source, ['SR ID', 'Supplier ID', 'supplierExternalRef'])?.toUpperCase();
+  return FOUR_COMPANY_MIGRATION_PROFILE.supplierExternalRefDecisions.find(
+    (decision) => decision.externalRef === externalRef && decision.disposition === 'reject',
+  );
+}
+
 function normalizedCompany(item: AdapterStreamItem) {
   return recordValue(item, 'company');
 }
@@ -212,6 +221,9 @@ export function applySafeImportBoundary(
   const dataset = projectionDataset(context, item);
   if (!dataset) {
     return { disposition: 'discard', reasonCode: 'unsupported_projection_dataset', droppedFieldCount: 0 };
+  }
+  if (rejectedSupplierExternalRef(item, dataset)) {
+    return { disposition: 'discard', reasonCode: 'supplier_external_ref_rejected', droppedFieldCount: 0 };
   }
   const scopeFree = dataset === 'source_access_audit' || dataset === 'source_issue';
   const decision = scopeFree

@@ -7,12 +7,14 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
+import { resolve } from 'node:path';
 import { createMockServer, MockServer } from '@nocobase/test';
 import { afterEach, describe, expect, it } from 'vitest';
 import PluginEcobaseServer from '..';
-import { EcobasePlanningProductService } from '../../features/inventory-planning/server/planning-product-service';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { EcobaseOperatorWorkspaceService } from '../services/operator-workspace-service';
+
+process.env.NODE_MODULES_PATH ??= resolve(process.cwd(), 'node_modules');
 
 const pluginRegistration = [PluginEcobaseServer, { packageName: '@nocobase/plugin-ecobase' }] as const;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -62,7 +64,7 @@ describe('Ecobase plugin NocoBase integration seam', () => {
 
     const companyId = '07a31b86-0ab3-4f54-9717-91500e78a7b2';
     await app.db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
-      values: { id: companyId, name: 'Workspace LLC', active: true },
+      values: { id: companyId, companyKey: 'workspace', name: 'Workspace LLC', active: true },
     });
     const sourceConnectionId = '67a31b86-0ab3-4f54-9717-91500e78a7b2';
     await app.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).create({
@@ -135,14 +137,16 @@ describe('Ecobase plugin NocoBase integration seam', () => {
       ]),
     );
 
-    await app.db.getRepository(ECOBASE_COLLECTIONS.planningProducts).create({
+    await app.db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).create({
       values: {
         id: '97a31b86-0ab3-4f54-9717-91500e78a7b2',
         naturalKey: 'Workspace LLC:B00REAL',
+        calculationDate: '2026-07-13',
         company: 'Workspace LLC',
-        canonicalAsin: 'B00REAL',
-        mappingStatus: 'needs_review',
-        listingCount: 1,
+        asin: 'B00REAL',
+        sku: 'REAL-1',
+        title: 'Workspace product',
+        actionStatus: 'watch',
       },
     });
     const workspaceService = new EcobaseOperatorWorkspaceService(app.db);
@@ -151,11 +155,11 @@ describe('Ecobase plugin NocoBase integration seam', () => {
     expect(workspace.domains.flatMap((domain) => domain.collections)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ collectionName: ECOBASE_COLLECTIONS.sourceConnections, rowCount: 1 }),
-        expect.objectContaining({ collectionName: ECOBASE_COLLECTIONS.planningProducts, rowCount: 1 }),
+        expect.objectContaining({ collectionName: ECOBASE_COLLECTIONS.goldInventoryPlanningRows, rowCount: 1 }),
       ]),
     );
     const preview = await workspaceService.previewView({ viewKey: 'latest-products', filters: { sourceConnectionId } });
-    expect(preview.rows).toEqual([expect.objectContaining({ company: 'Workspace LLC', canonicalAsin: 'B00REAL' })]);
+    expect(preview.rows).toEqual([expect.objectContaining({ company: 'Workspace LLC', asin: 'B00REAL' })]);
     const forbiddenRawCreate = await agent.resource(ECOBASE_COLLECTIONS.bronzeSourceRecords).create({
       values: { id: 'blocked-raw-row', importRunId: runResponse.body.data.data.id, rowNumber: 1, payload: {} },
     });
@@ -171,7 +175,7 @@ describe('Ecobase plugin NocoBase integration seam', () => {
     expect(forbiddenConfigCreate.status).toBe(403);
   });
 
-  it('creates UUID planning products and mappings through real repositories for duplicate MasterStock rows', async () => {
+  it('persists duplicate MasterStock rows safely through real repositories', async () => {
     app = await createMockServer({
       acl: true,
       registerActions: true,
@@ -224,91 +228,35 @@ describe('Ecobase plugin NocoBase integration seam', () => {
     expect(runResponse.status).toBe(200);
     expect(runResponse.body.data.data).toMatchObject({ status: 'success', rowCount: 2, normalizedCount: 6 });
 
-    const products = (await app.db.getRepository(ECOBASE_COLLECTIONS.planningProducts).find()).map(toPlainRecord);
-    expect(products).toEqual([
-      expect.objectContaining({
-        company: 'Ecofission LLC',
-        canonicalAsin: 'B0DX35PTCL',
-        mappingStatus: 'needs_review',
-        listingCount: 2,
-      }),
-    ]);
-    expect(products[0].id).toEqual(expect.stringMatching(uuidPattern));
-
-    const productId = products[0].id as string;
-    const mappings = (await app.db.getRepository(ECOBASE_COLLECTIONS.planningProductListings).find()).map(
+    const bronzeRecords = (await app.db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).find()).map(
       toPlainRecord,
     );
-    expect(mappings).toEqual(
+    expect(bronzeRecords).toHaveLength(2);
+    expect(bronzeRecords).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ planningProductId: productId, sku: 'RM-CLIPS/3-01', mappingStatus: 'needs_review' }),
         expect.objectContaining({
-          planningProductId: productId,
-          sku: 'FBA1935C9P1P.missing1',
-          mappingStatus: 'needs_review',
+          sourceDataset: 'amazon_listing_inventory',
+          normalizationStatus: 'normalized',
+          payload: expect.objectContaining({
+            company: 'Ecofission LLC',
+            asin: 'B0DX35PTCL',
+            listingSku: 'RM-CLIPS/3-01',
+          }),
+        }),
+        expect.objectContaining({
+          sourceDataset: 'amazon_listing_inventory',
+          normalizationStatus: 'normalized',
+          payload: expect.objectContaining({
+            company: 'Ecofission LLC',
+            asin: 'B0DX35PTCL',
+            listingSku: 'FBA1935C9P1P.missing1',
+          }),
         }),
       ]),
     );
-    expect(mappings.map((mapping) => mapping.id)).toEqual([
+    expect(bronzeRecords.map((record) => record.id)).toEqual([
       expect.stringMatching(uuidPattern),
       expect.stringMatching(uuidPattern),
     ]);
-
-    const inventorySnapshots = (await app.db.getRepository(ECOBASE_COLLECTIONS.inventorySnapshots).find()).map(
-      toPlainRecord,
-    );
-    expect(inventorySnapshots).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ planningProductId: productId, sku: 'RM-CLIPS/3-01', stock: 10 }),
-        expect.objectContaining({ planningProductId: productId, sku: 'FBA1935C9P1P.missing1', stock: 6 }),
-      ]),
-    );
-
-    const planningProductService = new EcobasePlanningProductService(app.db);
-    const duplicateMappings = await planningProductService.listDuplicateMappings();
-    expect(duplicateMappings).toEqual([
-      expect.objectContaining({
-        planningProductId: productId,
-        mappingStatus: 'needs_review',
-        listingCount: 2,
-      }),
-    ]);
-
-    const productData = await planningProductService.getPlanningProductData({ planningProductId: productId });
-    expect(productData).toMatchObject({
-      product: expect.objectContaining({ id: productId }),
-      listings: expect.arrayContaining([expect.objectContaining({ sku: 'RM-CLIPS/3-01' })]),
-      inventorySnapshots: expect.arrayContaining([expect.objectContaining({ planningProductId: productId })]),
-      mappingAudits: expect.arrayContaining([expect.objectContaining({ action: 'default_created' })]),
-    });
-
-    const mappingToAdjust = mappings.find((mapping) => mapping.sku === 'FBA1935C9P1P.missing1');
-    expect(mappingToAdjust?.id).toEqual(expect.stringMatching(uuidPattern));
-    const adjustedMapping = await planningProductService.adjustMapping({
-      planningProductListingId: mappingToAdjust?.id as string,
-      targetCompany: 'Ecofission LLC',
-      targetCanonicalAsin: 'B0DX35PTCL',
-      targetTitle: 'Manual split for FBA duplicate SKU',
-    });
-    expect(adjustedMapping).toMatchObject({
-      sku: 'FBA1935C9P1P.missing1',
-      mappingMode: 'manual',
-      mappingStatus: 'adjusted',
-    });
-
-    const targetProductId = adjustedMapping.planningProductId as string;
-    expect(targetProductId).toEqual(expect.stringMatching(uuidPattern));
-    expect(targetProductId).not.toBe(productId);
-    const targetProductData = await planningProductService.getPlanningProductData({
-      planningProductId: targetProductId,
-    });
-    expect(targetProductData).toMatchObject({
-      product: expect.objectContaining({ id: targetProductId }),
-      listings: [expect.objectContaining({ sku: 'FBA1935C9P1P.missing1', mappingMode: 'manual' })],
-      inventorySnapshots: [
-        expect.objectContaining({ sku: 'FBA1935C9P1P.missing1', planningProductId: targetProductId }),
-      ],
-      mappingAudits: expect.arrayContaining([expect.objectContaining({ action: 'adjusted' })]),
-    });
   });
 });

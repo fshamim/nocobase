@@ -55,6 +55,10 @@ describe('greenfield seed bundle', () => {
     });
     expect(first.groups).toHaveLength(12);
     expect(first.groups.flatMap((group) => group.files)).toHaveLength(15);
+    expect(first.groups.find((group) => group.id === 'order-management')?.files.map((file) => file.name)).toEqual([
+      'Ecofission-Order Management - Purchase Orders.csv',
+      'Ecofission-Order Management - OrderDetails.csv',
+    ]);
     expect(new Set(first.groups.flatMap((group) => group.files.map((file) => file.path))).size).toBe(15);
     expect(first.groups.every((group) => group.files.every((file) => file.rowCount === 1))).toBe(true);
 

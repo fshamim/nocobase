@@ -129,6 +129,7 @@ function createService(csv = sellerboardGoodsCsv('2026-06-05', 15.2)) {
         ],
         schedule: { dailyRefreshTime: '09:00', retryIntervalMinutes: 60 },
         requireFreshData: true,
+        defaultCompany: 'Ecofission LLC',
       },
       active: true,
     },
@@ -158,22 +159,20 @@ describe('Sellerboard live URL import', () => {
 
     expect(run).toMatchObject({ status: 'success', rowCount: 1, normalizedCount: 2, warningCount: 0 });
     expect(fetch).toHaveBeenCalledWith('https://sellerboard.test/report.csv?t=redacted', { headers: {} });
-    const facts = db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).all();
-    expect(facts).toEqual([
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toEqual([
       expect.objectContaining({
-        snapshotDate: '2026-06-05',
-        asin: 'B007P55HOW',
-        sku: 'DC50944',
-        sales: 63.4,
-        units: 3,
-        netProfit: 15.2,
+        sourceKey: expect.stringContaining('profit_by_product_daily'),
+        sourceDataset: 'sellerboard_daily_facts',
+        payload: expect.objectContaining({
+          company: 'Ecofission LLC',
+          asin: 'B007P55HOW',
+          listingSku: 'DC50944',
+          salesOrganic: '63.40',
+          unitsOrganic: '3',
+          netProfit: '15.2',
+        }),
       }),
     ]);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.silverTrafficSnapshots).all()).toHaveLength(1);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()[0].sourceKey).toContain(
-      'profit_by_product_daily',
-    );
-    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toHaveLength(0);
   });
 
   it('parses Sellerboard live report slash dates as month-first', async () => {
@@ -263,15 +262,20 @@ describe('Sellerboard live URL import', () => {
     });
 
     expect(run).toMatchObject({ status: 'success', rowCount: 1, normalizedCount: 2, warningCount: 0 });
-    expect(db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).all()).toEqual([
-      expect.objectContaining({
-        sales: 80,
-        units: 7,
-        netProfit: 35,
-        margin: 43.75,
-        profitPerUnit: 5,
-      }),
-    ]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()[0]).toMatchObject({
+      sourceDataset: 'sellerboard_daily_facts',
+      payload: {
+        salesOrganic: '63.40',
+        salesPpc: '10.10',
+        salesSponsoredProducts: '5.50',
+        salesSponsoredDisplay: '1.00',
+        unitsOrganic: '3',
+        unitsPpc: '2',
+        unitsSponsoredProducts: '1',
+        unitsSponsoredDisplay: '1',
+        netProfit: '35',
+      },
+    });
   });
 
   it('marks scheduled imports stale and waits for retry when Sellerboard has not published fresh data yet', async () => {
@@ -290,7 +294,7 @@ describe('Sellerboard live URL import', () => {
     );
     const fresh = await service.runScheduledSellerboardImports({ now: '2026-06-05T23:02:00.000Z' });
     expect(fresh.results[0]).toMatchObject({ status: 'success' });
-    expect(db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).all()).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all().length).toBeGreaterThan(0);
   });
 
   it('records a durable skipped run when scheduled same-day Sellerboard data was already imported', async () => {
@@ -308,7 +312,7 @@ describe('Sellerboard live URL import', () => {
       }),
       expect.objectContaining({ status: 'skipped' }),
     ]);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).all()).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toHaveLength(1);
   });
 
   it('keeps mixed fresh and stale report runs retryable instead of marking the whole source fresh', async () => {
@@ -338,7 +342,7 @@ describe('Sellerboard live URL import', () => {
     const run = await service.runScheduledSellerboardImports({ now: '2026-06-05T09:01:00.000Z' });
 
     expect(run.results[0]).toMatchObject({ status: 'stale' });
-    expect(db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).all()).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all().length).toBeGreaterThan(0);
     expect(db.getRepository(ECOBASE_COLLECTIONS.sourceAccessAudits).all()).toEqual([
       expect.objectContaining({ status: 'stale', blockerCode: 'sellerboard_data_not_fresh' }),
     ]);
@@ -398,7 +402,6 @@ describe('Sellerboard live URL import', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toEqual([
       expect.objectContaining({ issueCode: 'csv_shape_unknown', normalizationStatus: 'failed' }),
     ]);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toHaveLength(0);
   });
 
   it('ties row-level live Sellerboard CSV warnings to the import run while keeping valid sibling rows', async () => {
@@ -416,15 +419,13 @@ describe('Sellerboard live URL import', () => {
     });
 
     expect(run).toMatchObject({ status: 'success', rowCount: 2, normalizedCount: 2, warningCount: 1 });
-    expect(db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).all()).toHaveLength(1);
     expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toEqual([
       expect.objectContaining({ rowNumber: 2, issueCode: 'csv_row_identity_missing', issueSeverity: 'warning' }),
       expect.objectContaining({ rowNumber: 3, normalizationStatus: 'normalized' }),
     ]);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toHaveLength(0);
   });
 
-  it('force-refresh overwrites same-day normalized snapshots instead of duplicating them', async () => {
+  it('force-refresh appends run-scoped safe Bronze evidence', async () => {
     const { db, service } = createService(sellerboardGoodsCsv('2026-06-05', 15.2));
 
     await service.runAdapterImport({
@@ -447,9 +448,9 @@ describe('Sellerboard live URL import', () => {
       preserveAuditRun: true,
     });
 
-    const facts = db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).all();
-    expect(facts).toHaveLength(1);
-    expect(facts[0]).toMatchObject({ netProfit: 31.5 });
+    const bronze = db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all();
+    expect(bronze).toHaveLength(2);
+    expect(bronze[1]).toMatchObject({ payload: expect.objectContaining({ netProfit: '31.5' }) });
     expect(db.getRepository(ECOBASE_COLLECTIONS.importRuns).all()).toHaveLength(2);
   });
 

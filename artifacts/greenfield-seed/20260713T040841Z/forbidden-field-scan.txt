@@ -1,0 +1,11 @@
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:54477) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/source-record-projection.test.ts  (8 tests | 7 skipped) 2ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 7 skipped (8)
+   Start at  20:11:23
+   Duration  473ms (transform 66ms, setup 156ms, collect 21ms, tests 2ms, environment 169ms, prepare 39ms)

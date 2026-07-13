@@ -1,0 +1,18 @@
+yarn run v1.22.22
+$ /Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/.bin/eslint packages/core/utils/src/requireModule.ts packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/sellerboard-live-import.test.ts packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/accountability-service.test.ts packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/greenfield-seed-bundle.test.ts packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/source-scope-policy.test.ts packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/import-service.test.ts packages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/safe-import-boundary.ts packages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/greenfield-seed-bundle.ts
+
+/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/accountability-service.test.ts
+  130:1  error  Delete `⏎`  prettier/prettier
+
+/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts
+   157:35  error  Insert `⏎·`                                                                                                                                                                                                                                        prettier/prettier
+   343:19  error  Replace `⏎············{·name:·'Supplier·Analysis·Tracker.csv',·content:·supplierAnalysisTrackerCsv,·expectedRowCount:·1·},⏎··········` with `{·name:·'Supplier·Analysis·Tracker.csv',·content:·supplierAnalysisTrackerCsv,·expectedRowCount:·1·}`  prettier/prettier
+   390:1   error  Delete `⏎⏎⏎⏎⏎⏎⏎⏎⏎⏎⏎⏎⏎⏎⏎⏎⏎⏎⏎⏎⏎⏎⏎⏎⏎⏎⏎⏎⏎⏎⏎⏎⏎⏎⏎⏎⏎⏎⏎⏎`                                                                                                                                                                                                  prettier/prettier
+   602:6   error  Delete `⏎⏎⏎⏎`                                                                                                                                                                                                                                      prettier/prettier
+  1063:6   error  Delete `⏎⏎⏎⏎⏎⏎⏎⏎`                                                                                                                                                                                                                                  prettier/prettier
+
+✖ 6 problems (6 errors, 0 warnings)
+  6 errors and 0 warnings potentially fixable with the `--fix` option.
+
+error Command failed with exit code 1.
+info Visit https://yarnpkg.com/en/docs/cli/run for documentation about this command.

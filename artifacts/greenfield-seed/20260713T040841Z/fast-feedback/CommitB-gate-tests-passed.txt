@@ -1,0 +1,268 @@
+=== source-record-projection.test.ts ===
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:53739) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/source-record-projection.test.ts  (8 tests) 4ms
+
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+   Start at  20:10:29
+   Duration  486ms (transform 69ms, setup 163ms, collect 21ms, tests 4ms, environment 172ms, prepare 40ms)
+
+=== source-scope-policy.test.ts ===
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:53743) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/source-scope-policy.test.ts  (5 tests) 2ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  20:10:29
+   Duration  462ms (transform 64ms, setup 152ms, collect 17ms, tests 2ms, environment 164ms, prepare 38ms)
+
+=== order-migration-retention.test.ts ===
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:53747) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-migration-retention.test.ts  (6 tests) 3ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  20:10:30
+   Duration  472ms (transform 72ms, setup 151ms, collect 28ms, tests 3ms, environment 163ms, prepare 40ms)
+
+=== import-service.test.ts ===
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:53751) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/import-service.test.ts  (10 tests) 7ms
+
+ Test Files  1 passed (1)
+      Tests  10 passed (10)
+   Start at  20:10:31
+   Duration  808ms (transform 355ms, setup 155ms, collect 362ms, tests 7ms, environment 160ms, prepare 37ms)
+
+=== csv-import.test.ts ===
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:53775) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts  (22 tests) 40ms
+
+ Test Files  1 passed (1)
+      Tests  22 passed (22)
+   Start at  20:10:32
+   Duration  924ms (transform 374ms, setup 158ms, collect 382ms, tests 40ms, environment 205ms, prepare 43ms)
+
+=== sellerboard-live-import.test.ts ===
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:53819) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/sellerboard-live-import.test.ts  (12 tests) 26ms
+
+ Test Files  1 passed (1)
+      Tests  12 passed (12)
+   Start at  20:10:33
+   Duration  832ms (transform 355ms, setup 157ms, collect 364ms, tests 26ms, environment 159ms, prepare 40ms)
+
+=== accountability-service.test.ts ===
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:53823) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/accountability-service.test.ts  (3 tests) 7ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  20:10:34
+   Duration  799ms (transform 349ms, setup 158ms, collect 352ms, tests 7ms, environment 160ms, prepare 37ms)
+
+=== api.test.ts ===
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:53827) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts  (51 tests) 62ms
+
+ Test Files  1 passed (1)
+      Tests  51 passed (51)
+   Start at  20:10:36
+   Duration  4.06s (transform 1.91s, setup 157ms, collect 3.56s, tests 62ms, environment 158ms, prepare 38ms)
+
+=== integration.test.ts ===
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:53891) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > loads the plugin, syncs collections, runs no-op import action, and reads status through resources
+2026-07-13 20:10:44 [info]  App supervisor initialized                   extra={"discoveryAdapter":"main-only","processAdapter":"main-only","commandAdapter":""} meta={"discoveryAdapter":"main-only","processAdapter":"main-only","commandAdapter":""} module=app-supervisor app=main dataSourceKey=main
+2026-07-13 20:10:44 [debug] create database instance: {"sync":{"alter":{"drop":false},"force":false},"dialect":"sqlite","logging":false,"define":{"charset":"utf8mb4","collate":"utf8mb4_unicode_ci"},"underscored":false,"dialectOptions":{}} databaseInstanceId=S_TefGJ269xuQX88B-1dn
+2026-07-13 20:10:44 [debug] Setting app status                           extra={"appName":"main","status":"commanding"} meta={"appName":"main","status":"commanding"} module=app-supervisor app=main dataSourceKey=main
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > loads the plugin, syncs collections, runs no-op import action, and reads status through resources
+2026-07-13 20:10:44 [info]  connection has been established successfully. method=auth
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > loads the plugin, syncs collections, runs no-op import action, and reads status through resources
+2026-07-13 20:10:44 [info]  allocate worker id: 24                       extra={"method":"load"} module=application method=load app=main reqId=df5b3ec7-4ed1-40fe-98ed-6a5d5ca2bb64 dataSourceKey=main
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > loads the plugin, syncs collections, runs no-op import action, and reads status through resources
+2026-07-13 20:10:44 [info]  tools [getCollectionMetadata] registered from plugin [data-source-manager] module=data-source-manager app=main reqId=df5b3ec7-4ed1-40fe-98ed-6a5d5ca2bb64 dataSourceKey=main
+2026-07-13 20:10:44 [info]  tools [getCollectionNames] registered from plugin [data-source-manager] module=data-source-manager app=main reqId=df5b3ec7-4ed1-40fe-98ed-6a5d5ca2bb64 dataSourceKey=main
+2026-07-13 20:10:44 [info]  tools [getDataSources] registered from plugin [data-source-manager] module=data-source-manager app=main reqId=df5b3ec7-4ed1-40fe-98ed-6a5d5ca2bb64 dataSourceKey=main
+2026-07-13 20:10:44 [info]  tools [searchFieldMetadata] registered from plugin [data-source-manager] module=data-source-manager app=main reqId=df5b3ec7-4ed1-40fe-98ed-6a5d5ca2bb64 dataSourceKey=main
+2026-07-13 20:10:44 [info]  tools [dataQuery] registered from plugin [data-source-manager] module=data-source-manager app=main reqId=df5b3ec7-4ed1-40fe-98ed-6a5d5ca2bb64 dataSourceKey=main
+2026-07-13 20:10:44 [info]  tools [dataSourceCounting] registered from plugin [data-source-manager] module=data-source-manager app=main reqId=df5b3ec7-4ed1-40fe-98ed-6a5d5ca2bb64 dataSourceKey=main
+2026-07-13 20:10:44 [info]  tools [dataSourceQuery] registered from plugin [data-source-manager] module=data-source-manager app=main reqId=df5b3ec7-4ed1-40fe-98ed-6a5d5ca2bb64 dataSourceKey=main
+2026-07-13 20:10:44 [info]  tools [defineCollections] registered from plugin [data-source-manager] module=data-source-manager app=main reqId=df5b3ec7-4ed1-40fe-98ed-6a5d5ca2bb64 dataSourceKey=main
+2026-07-13 20:10:44 [info]  tools [intentRouter] registered from plugin [data-source-manager] module=data-source-manager app=main reqId=df5b3ec7-4ed1-40fe-98ed-6a5d5ca2bb64 dataSourceKey=main
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > loads the plugin, syncs collections, runs no-op import action, and reads status through resources
+2026-07-13 20:10:45 [warn]  [PubSubManager] adapter is not exist or not connected, cannot publish message to channel main.sync.data-source-manager module=application app=main reqId=df5b3ec7-4ed1-40fe-98ed-6a5d5ca2bb64 dataSourceKey=main
+2026-07-13 20:10:45 [warn]  [PubSubManager] adapter is not exist or not connected, cannot publish message to channel main.sync.acl module=application app=main reqId=df5b3ec7-4ed1-40fe-98ed-6a5d5ca2bb64 dataSourceKey=main
+2026-07-13 20:10:45 [warn]  [PubSubManager] adapter is not exist or not connected, cannot publish message to channel main.sync.data-source-manager module=application app=main reqId=df5b3ec7-4ed1-40fe-98ed-6a5d5ca2bb64 dataSourceKey=main
+2026-07-13 20:10:45 [warn]  [PubSubManager] adapter is not exist or not connected, cannot publish message to channel main.sync.acl module=application app=main reqId=df5b3ec7-4ed1-40fe-98ed-6a5d5ca2bb64 dataSourceKey=main
+2026-07-13 20:10:45 [warn]  [PubSubManager] adapter is not exist or not connected, cannot publish message to channel main.sync.data-source-manager module=application app=main reqId=df5b3ec7-4ed1-40fe-98ed-6a5d5ca2bb64 dataSourceKey=main
+2026-07-13 20:10:45 [warn]  [PubSubManager] adapter is not exist or not connected, cannot publish message to channel main.sync.acl module=application app=main reqId=df5b3ec7-4ed1-40fe-98ed-6a5d5ca2bb64 dataSourceKey=main
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > loads the plugin, syncs collections, runs no-op import action, and reads status through resources
+2026-07-13 20:10:46 [info]  app reinstalled successfully [v2.1.6]        module=application app=main reqId=df5b3ec7-4ed1-40fe-98ed-6a5d5ca2bb64 dataSourceKey=main
+2026-07-13 20:10:46 [debug] Setting app status                           extra={"appName":"main"} meta={"appName":"main"} module=app-supervisor app=main dataSourceKey=main
+2026-07-13 20:10:46 [debug] Setting app status                           extra={"appName":"main","status":"commanding"} meta={"appName":"main","status":"commanding"} module=app-supervisor app=main dataSourceKey=main
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > loads the plugin, syncs collections, runs no-op import action, and reads status through resources
+2026-07-13 20:10:46 [warn]  [PubSubManager] adapter is not exist or not connected, cannot publish message to channel main.sync.localeManager module=application app=main reqId=df5b3ec7-4ed1-40fe-98ed-6a5d5ca2bb64 dataSourceKey=main
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > loads the plugin, syncs collections, runs no-op import action, and reads status through resources
+2026-07-13 20:10:46 [debug] loading collections...
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > loads the plugin, syncs collections, runs no-op import action, and reads status through resources
+2026-07-13 20:10:46 [debug] collections loaded
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > loads the plugin, syncs collections, runs no-op import action, and reads status through resources
+2026-07-13 20:10:46 [info]  memory queue storage file not found, skip    module=application app=main reqId=df5b3ec7-4ed1-40fe-98ed-6a5d5ca2bb64 dataSourceKey=main
+2026-07-13 20:10:46 [info]  write roles to ACL                           extra={"method":"writeRolesToACL"} module=acl method=writeRolesToACL app=main reqId=df5b3ec7-4ed1-40fe-98ed-6a5d5ca2bb64 dataSourceKey=main
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > loads the plugin, syncs collections, runs no-op import action, and reads status through resources
+2026-07-13 20:10:47 [debug] Setting app status                           extra={"appName":"main","status":"running"} meta={"appName":"main","status":"running"} module=app-supervisor app=main dataSourceKey=main
+2026-07-13 20:10:47 [info]  app has been started                         module=application app=main reqId=df5b3ec7-4ed1-40fe-98ed-6a5d5ca2bb64 dataSourceKey=main
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > loads the plugin, syncs collections, runs no-op import action, and reads status through resources
+2026-07-13 20:10:47 [info]  request POST /ecobaseImport:adapters?        method=POST path=/ecobaseImport:adapters? req={"header":{"x-role":"admin","x-authenticator":"basic"}} app=main reqId=f8b376eb-817a-40d3-bc0f-6e44973ae1ef
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > loads the plugin, syncs collections, runs no-op import action, and reads status through resources
+2026-07-13 20:10:47 [info]  response /ecobaseImport:adapters?            method=POST path=/ecobaseImport:adapters? res={"status":200} action={"actionName":"adapters","resourceName":"ecobaseImport","params":{"resourceName":"ecobaseImport","actionName":"adapters","values":{}}} userId=1 username=nocobase status=200 cost=16 app=main reqId=f8b376eb-817a-40d3-bc0f-6e44973ae1ef bodySize=1526
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > loads the plugin, syncs collections, runs no-op import action, and reads status through resources
+2026-07-13 20:10:47 [info]  request POST /ecobaseImport:runNoop?         method=POST path=/ecobaseImport:runNoop? req={"header":{"x-role":"admin","x-authenticator":"basic"}} app=main reqId=3ad36345-54cf-45f4-80d1-b4c00cf1046f
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > loads the plugin, syncs collections, runs no-op import action, and reads status through resources
+2026-07-13 20:10:47 [info]  response /ecobaseImport:runNoop?             method=POST path=/ecobaseImport:runNoop? res={"status":200} action={"actionName":"runNoop","resourceName":"ecobaseImport","params":{"resourceName":"ecobaseImport","actionName":"runNoop","values":{"sourceConnectionId":"67a31b86-0ab3-4f54-9717-91500e78a7b2","sourceIdentifier":"manual-noop","sourceVersion":"v1"}}} userId=1 username=nocobase status=200 cost=19 app=main reqId=3ad36345-54cf-45f4-80d1-b4c00cf1046f bodySize=776
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > loads the plugin, syncs collections, runs no-op import action, and reads status through resources
+2026-07-13 20:10:47 [info]  request POST /ecobaseImport:status?          method=POST path=/ecobaseImport:status? req={"header":{"x-role":"admin","x-authenticator":"basic"}} app=main reqId=84fd71ff-e53c-412e-893b-2d0f1ca7aed6
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > loads the plugin, syncs collections, runs no-op import action, and reads status through resources
+2026-07-13 20:10:47 [info]  response /ecobaseImport:status?              method=POST path=/ecobaseImport:status? res={"status":200} action={"actionName":"status","resourceName":"ecobaseImport","params":{"resourceName":"ecobaseImport","actionName":"status","values":{}}} userId=1 username=nocobase status=200 cost=14 app=main reqId=84fd71ff-e53c-412e-893b-2d0f1ca7aed6 bodySize=2543
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > loads the plugin, syncs collections, runs no-op import action, and reads status through resources
+2026-07-13 20:10:47 [info]  request POST /bronzeSourceRecords:create?    method=POST path=/bronzeSourceRecords:create? req={"header":{"x-role":"admin","x-authenticator":"basic"}} app=main reqId=79886b9c-1462-421e-bccd-05ee93e38823
+2026-07-13 20:10:47 [error] No permissions                               extra={"method":"error-handler","err":"ForbiddenError: No permissions\n    at Object.throw (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/koa/lib/context.js:96:11)\n    at middlewares.add.tag (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/acl/src/acl.ts:470:15)\n    at dispatch (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/koa-compose/index.js:42:32)\n    at checkAssociationOperate (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/plugins/@nocobase/plugin-acl/src/server/middlewares/check-association-operate.ts:16:12)\n    at dispatch (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/koa-compose/index.js:42:32)\n    at /Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/plugins/@nocobase/plugin-acl/src/server/server.ts:584:14\n    at dispatch (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/koa-compose/index.js:42:32)\n    at /Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/acl/src/allow-manager.ts:120:13\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at ACLMiddleware (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/acl/src/acl.ts:405:14)"} meta={"err":"ForbiddenError: No permissions\n    at Object.throw (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/koa/lib/context.js:96:11)\n    at middlewares.add.tag (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/acl/src/acl.ts:470:15)\n    at dispatch (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/koa-compose/index.js:42:32)\n    at checkAssociationOperate (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/plugins/@nocobase/plugin-acl/src/server/middlewares/check-association-operate.ts:16:12)\n    at dispatch (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/koa-compose/index.js:42:32)\n    at /Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/plugins/@nocobase/plugin-acl/src/server/server.ts:584:14\n    at dispatch (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/koa-compose/index.js:42:32)\n    at /Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/acl/src/allow-manager.ts:120:13\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at ACLMiddleware (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/acl/src/acl.ts:405:14)"} method=error-handler app=main reqId=79886b9c-1462-421e-bccd-05ee93e38823 dataSourceKey=main
+2026-07-13 20:10:47 [warn]  response /bronzeSourceRecords:create?        method=POST path=/bronzeSourceRecords:create? res=[{"message":"No permissions"}] action={"actionName":"create","resourceName":"bronzeSourceRecords","params":{"resourceName":"bronzeSourceRecords","actionName":"create","values":{"id":"blocked-raw-row","importRunId":"b388980d-458b-4efe-8cac-bf2fd219bb04","rowNumber":1,"payload":{}}}} userId=1 username=nocobase status=403 cost=3 app=main reqId=79886b9c-1462-421e-bccd-05ee93e38823 bodySize=41
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > loads the plugin, syncs collections, runs no-op import action, and reads status through resources
+2026-07-13 20:10:47 [info]  request POST /ecobaseSourceConnections:create? method=POST path=/ecobaseSourceConnections:create? req={"header":{"x-role":"admin","x-authenticator":"basic"}} app=main reqId=b4b848d5-5cfe-4865-af6b-4799ba01b285
+2026-07-13 20:10:47 [error] No permissions                               extra={"method":"error-handler","err":"ForbiddenError: No permissions\n    at Object.throw (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/koa/lib/context.js:96:11)\n    at middlewares.add.tag (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/acl/src/acl.ts:470:15)\n    at dispatch (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/koa-compose/index.js:42:32)\n    at checkAssociationOperate (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/plugins/@nocobase/plugin-acl/src/server/middlewares/check-association-operate.ts:16:12)\n    at dispatch (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/koa-compose/index.js:42:32)\n    at /Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/plugins/@nocobase/plugin-acl/src/server/server.ts:584:14\n    at dispatch (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/koa-compose/index.js:42:32)\n    at /Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/acl/src/allow-manager.ts:120:13\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at ACLMiddleware (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/acl/src/acl.ts:405:14)"} meta={"err":"ForbiddenError: No permissions\n    at Object.throw (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/koa/lib/context.js:96:11)\n    at middlewares.add.tag (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/acl/src/acl.ts:470:15)\n    at dispatch (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/koa-compose/index.js:42:32)\n    at checkAssociationOperate (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/plugins/@nocobase/plugin-acl/src/server/middlewares/check-association-operate.ts:16:12)\n    at dispatch (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/koa-compose/index.js:42:32)\n    at /Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/plugins/@nocobase/plugin-acl/src/server/server.ts:584:14\n    at dispatch (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/koa-compose/index.js:42:32)\n    at /Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/acl/src/allow-manager.ts:120:13\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at ACLMiddleware (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/acl/src/acl.ts:405:14)"} method=error-handler app=main reqId=b4b848d5-5cfe-4865-af6b-4799ba01b285 dataSourceKey=main
+2026-07-13 20:10:47 [warn]  response /ecobaseSourceConnections:create?   method=POST path=/ecobaseSourceConnections:create? res=[{"message":"No permissions"}] action={"actionName":"create","resourceName":"ecobaseSourceConnections","params":{"resourceName":"ecobaseSourceConnections","actionName":"create","values":{"id":"77a31b86-0ab3-4f54-9717-91500e78a7b2","name":"Forbidden config","sourceType":"noop_test","domain":"foundation"}}} userId=1 username=nocobase status=403 cost=2 app=main reqId=b4b848d5-5cfe-4865-af6b-4799ba01b285 bodySize=41
+2026-07-13 20:10:47 [info]  close db                                     extra={"method":"stop"} module=application method=stop app=main reqId=df5b3ec7-4ed1-40fe-98ed-6a5d5ca2bb64 dataSourceKey=main
+2026-07-13 20:10:47 [info]  [queue] gracefully shutting down...          module=application app=main reqId=df5b3ec7-4ed1-40fe-98ed-6a5d5ca2bb64 dataSourceKey=main
+2026-07-13 20:10:47 [info]  memory queue gracefully shutting down...     module=application app=main reqId=df5b3ec7-4ed1-40fe-98ed-6a5d5ca2bb64 dataSourceKey=main
+2026-07-13 20:10:47 [debug] Setting app status                           extra={"appName":"main","status":"stopped"} meta={"appName":"main","status":"stopped"} module=app-supervisor app=main dataSourceKey=main
+2026-07-13 20:10:47 [info]  app has stopped                              extra={"method":"stop"} module=application method=stop app=main reqId=df5b3ec7-4ed1-40fe-98ed-6a5d5ca2bb64 dataSourceKey=main
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > persists duplicate MasterStock rows safely through real repositories
+2026-07-13 20:10:47 [info]  App supervisor initialized                   extra={"discoveryAdapter":"main-only","processAdapter":"main-only","commandAdapter":""} meta={"discoveryAdapter":"main-only","processAdapter":"main-only","commandAdapter":""} module=app-supervisor app=main dataSourceKey=main
+2026-07-13 20:10:47 [debug] create database instance: {"sync":{"alter":{"drop":false},"force":false},"dialect":"sqlite","logging":false,"define":{"charset":"utf8mb4","collate":"utf8mb4_unicode_ci"},"underscored":false,"dialectOptions":{}} databaseInstanceId=fr0wu8NkdPVw00x1oGqsn
+2026-07-13 20:10:47 [debug] Setting app status                           extra={"appName":"main","status":"commanding"} meta={"appName":"main","status":"commanding"} module=app-supervisor app=main dataSourceKey=main
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > persists duplicate MasterStock rows safely through real repositories
+2026-07-13 20:10:47 [info]  connection has been established successfully. method=auth
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > persists duplicate MasterStock rows safely through real repositories
+2026-07-13 20:10:47 [info]  allocate worker id: 4                        extra={"method":"load"} module=application method=load app=main reqId=ce170f6e-aff9-4865-9dfb-83fd57afe1d8 dataSourceKey=main
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > persists duplicate MasterStock rows safely through real repositories
+2026-07-13 20:10:47 [info]  tools [dataQuery] registered from plugin [data-source-manager] module=data-source-manager app=main reqId=ce170f6e-aff9-4865-9dfb-83fd57afe1d8 dataSourceKey=main
+2026-07-13 20:10:47 [info]  tools [dataSourceCounting] registered from plugin [data-source-manager] module=data-source-manager app=main reqId=ce170f6e-aff9-4865-9dfb-83fd57afe1d8 dataSourceKey=main
+2026-07-13 20:10:47 [info]  tools [dataSourceQuery] registered from plugin [data-source-manager] module=data-source-manager app=main reqId=ce170f6e-aff9-4865-9dfb-83fd57afe1d8 dataSourceKey=main
+2026-07-13 20:10:47 [info]  tools [getCollectionMetadata] registered from plugin [data-source-manager] module=data-source-manager app=main reqId=ce170f6e-aff9-4865-9dfb-83fd57afe1d8 dataSourceKey=main
+2026-07-13 20:10:47 [info]  tools [getCollectionNames] registered from plugin [data-source-manager] module=data-source-manager app=main reqId=ce170f6e-aff9-4865-9dfb-83fd57afe1d8 dataSourceKey=main
+2026-07-13 20:10:47 [info]  tools [getDataSources] registered from plugin [data-source-manager] module=data-source-manager app=main reqId=ce170f6e-aff9-4865-9dfb-83fd57afe1d8 dataSourceKey=main
+2026-07-13 20:10:47 [info]  tools [searchFieldMetadata] registered from plugin [data-source-manager] module=data-source-manager app=main reqId=ce170f6e-aff9-4865-9dfb-83fd57afe1d8 dataSourceKey=main
+2026-07-13 20:10:47 [info]  tools [defineCollections] registered from plugin [data-source-manager] module=data-source-manager app=main reqId=ce170f6e-aff9-4865-9dfb-83fd57afe1d8 dataSourceKey=main
+2026-07-13 20:10:47 [info]  tools [intentRouter] registered from plugin [data-source-manager] module=data-source-manager app=main reqId=ce170f6e-aff9-4865-9dfb-83fd57afe1d8 dataSourceKey=main
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > persists duplicate MasterStock rows safely through real repositories
+2026-07-13 20:10:48 [warn]  [PubSubManager] adapter is not exist or not connected, cannot publish message to channel main.sync.data-source-manager module=application app=main reqId=ce170f6e-aff9-4865-9dfb-83fd57afe1d8 dataSourceKey=main
+2026-07-13 20:10:48 [warn]  [PubSubManager] adapter is not exist or not connected, cannot publish message to channel main.sync.acl module=application app=main reqId=ce170f6e-aff9-4865-9dfb-83fd57afe1d8 dataSourceKey=main
+2026-07-13 20:10:48 [warn]  [PubSubManager] adapter is not exist or not connected, cannot publish message to channel main.sync.data-source-manager module=application app=main reqId=ce170f6e-aff9-4865-9dfb-83fd57afe1d8 dataSourceKey=main
+2026-07-13 20:10:48 [warn]  [PubSubManager] adapter is not exist or not connected, cannot publish message to channel main.sync.acl module=application app=main reqId=ce170f6e-aff9-4865-9dfb-83fd57afe1d8 dataSourceKey=main
+2026-07-13 20:10:48 [warn]  [PubSubManager] adapter is not exist or not connected, cannot publish message to channel main.sync.data-source-manager module=application app=main reqId=ce170f6e-aff9-4865-9dfb-83fd57afe1d8 dataSourceKey=main
+2026-07-13 20:10:48 [warn]  [PubSubManager] adapter is not exist or not connected, cannot publish message to channel main.sync.acl module=application app=main reqId=ce170f6e-aff9-4865-9dfb-83fd57afe1d8 dataSourceKey=main
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > persists duplicate MasterStock rows safely through real repositories
+2026-07-13 20:10:48 [info]  app reinstalled successfully [v2.1.6]        module=application app=main reqId=ce170f6e-aff9-4865-9dfb-83fd57afe1d8 dataSourceKey=main
+2026-07-13 20:10:48 [debug] Setting app status                           extra={"appName":"main"} meta={"appName":"main"} module=app-supervisor app=main dataSourceKey=main
+2026-07-13 20:10:48 [debug] Setting app status                           extra={"appName":"main","status":"commanding"} meta={"appName":"main","status":"commanding"} module=app-supervisor app=main dataSourceKey=main
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > persists duplicate MasterStock rows safely through real repositories
+2026-07-13 20:10:48 [warn]  [PubSubManager] adapter is not exist or not connected, cannot publish message to channel main.sync.localeManager module=application app=main reqId=ce170f6e-aff9-4865-9dfb-83fd57afe1d8 dataSourceKey=main
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > persists duplicate MasterStock rows safely through real repositories
+2026-07-13 20:10:48 [debug] loading collections...
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > persists duplicate MasterStock rows safely through real repositories
+2026-07-13 20:10:48 [debug] collections loaded
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > persists duplicate MasterStock rows safely through real repositories
+2026-07-13 20:10:48 [info]  memory queue storage file not found, skip    module=application app=main reqId=ce170f6e-aff9-4865-9dfb-83fd57afe1d8 dataSourceKey=main
+2026-07-13 20:10:48 [info]  write roles to ACL                           extra={"method":"writeRolesToACL"} module=acl method=writeRolesToACL app=main reqId=ce170f6e-aff9-4865-9dfb-83fd57afe1d8 dataSourceKey=main
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > persists duplicate MasterStock rows safely through real repositories
+2026-07-13 20:10:50 [debug] Setting app status                           extra={"appName":"main","status":"running"} meta={"appName":"main","status":"running"} module=app-supervisor app=main dataSourceKey=main
+2026-07-13 20:10:50 [info]  app has been started                         module=application app=main reqId=ce170f6e-aff9-4865-9dfb-83fd57afe1d8 dataSourceKey=main
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > persists duplicate MasterStock rows safely through real repositories
+2026-07-13 20:10:50 [info]  request POST /ecobaseImport:run?             method=POST path=/ecobaseImport:run? req={"header":{"x-role":"admin","x-authenticator":"basic"}} app=main reqId=f5f5025c-cb91-4259-bcdb-34fac34fe574
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > persists duplicate MasterStock rows safely through real repositories
+2026-07-13 20:10:50 [info]  response /ecobaseImport:run?                 method=POST path=/ecobaseImport:run? res={"status":200} action={"actionName":"run","resourceName":"ecobaseImport","params":{"resourceName":"ecobaseImport","actionName":"run","values":{"sourceConnectionId":"3554f272-39d1-4273-a9e5-2e6826479456","adapterName":"amazon-operations-csv","sourceIdentifier":"SampleAM MasterStock known duplicate","sourceVersion":"2025-07-01"}}} userId=1 username=nocobase status=200 cost=224 app=main reqId=f5f5025c-cb91-4259-bcdb-34fac34fe574 bodySize=2069
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > persists duplicate MasterStock rows safely through real repositories
+2026-07-13 20:10:50 [info]  close db                                     extra={"method":"stop"} module=application method=stop app=main reqId=ce170f6e-aff9-4865-9dfb-83fd57afe1d8 dataSourceKey=main
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > persists duplicate MasterStock rows safely through real repositories
+2026-07-13 20:10:50 [info]  [queue] gracefully shutting down...          module=application app=main reqId=ce170f6e-aff9-4865-9dfb-83fd57afe1d8 dataSourceKey=main
+2026-07-13 20:10:50 [info]  memory queue gracefully shutting down...     module=application app=main reqId=ce170f6e-aff9-4865-9dfb-83fd57afe1d8 dataSourceKey=main
+2026-07-13 20:10:50 [debug] Setting app status                           extra={"appName":"main","status":"stopped"} meta={"appName":"main","status":"stopped"} module=app-supervisor app=main dataSourceKey=main
+2026-07-13 20:10:50 [info]  app has stopped                              extra={"method":"stop"} module=application method=stop app=main reqId=ce170f6e-aff9-4865-9dfb-83fd57afe1d8 dataSourceKey=main
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts  (2 tests) 6086ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  20:10:40
+   Duration  9.98s (transform 3.73s, setup 157ms, collect 3.44s, tests 6.09s, environment 162ms, prepare 39ms)

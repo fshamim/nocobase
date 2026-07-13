@@ -200,7 +200,8 @@ export async function buildGreenfieldSeedBundle(params: {
   const groups: GreenfieldSeedSourceGroup[] = [];
   for (const spec of specs) {
     const files: GreenfieldSeedFile[] = [];
-    for (const relativePath of [...spec.paths].sort()) {
+    const orderedPaths = spec.id === 'order-management' ? spec.paths : [...spec.paths].sort();
+    for (const relativePath of orderedPaths) {
       if (seenPaths.has(relativePath)) {
         throw new Error(`Ecobase greenfield seed bundle failed: duplicate source path ${relativePath}.`);
       }

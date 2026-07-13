@@ -248,7 +248,13 @@ describe('Ecobase no-op import and status seam', () => {
           type: 'record',
           rowNumber: 1,
           sourceKey: 'lead-times.csv:1',
-          payload: { supplierName: 'Bad Supplier', leadTimeDays: -1 },
+          payload: {
+            'SR ID': 'SRO-BAD',
+            'Supplier Name': 'Bad Supplier',
+            'Supplier Type': 'Manufacturer',
+            'Reached Via': 'Ecofission LLC',
+            'Lead time(day)': -1,
+          },
           record: {
             kind: 'supplier_lead_time',
             data: {
@@ -304,7 +310,13 @@ describe('Ecobase no-op import and status seam', () => {
           type: 'record',
           rowNumber: 1,
           sourceKey: 'profit-planning.csv:1',
-          payload: { asin: 'B00BADLEAD', leadTimeDays: 1.5 },
+          payload: {
+            Company: 'Ecofission LLC',
+            ASIN: 'B00BADLEAD',
+            Month: '2026-07',
+            'Exp Sales Vel': '1',
+            'Lead time(day)': 1.5,
+          },
           record: {
             kind: 'planning_parameter',
             data: {
@@ -359,7 +371,13 @@ describe('Ecobase no-op import and status seam', () => {
           type: 'record',
           rowNumber: 1,
           sourceKey: 'profit-planning.csv:1',
-          payload: { asin: 'B00STRINGLEAD', leadTimeDays: '4000' },
+          payload: {
+            Company: 'Ecofission LLC',
+            ASIN: 'B00STRINGLEAD',
+            Month: '2026-07',
+            'Exp Sales Vel': '1',
+            'Lead time(day)': '4000',
+          },
           record: {
             kind: 'planning_parameter',
             data: {

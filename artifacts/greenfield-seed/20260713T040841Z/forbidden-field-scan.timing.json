@@ -1,0 +1,8 @@
+{
+  "phase": "forbidden-field-scan",
+  "inputRows": 1,
+  "acceptedRows": 1,
+  "discardedRows": 0,
+  "elapsedMs": 813,
+  "exitCode": 0
+}

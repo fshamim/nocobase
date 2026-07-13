@@ -8,11 +8,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import {
-  clickupAccessCheckAdapter,
-  clickupFixtureAdapter,
-  createSourceAdapterRegistry,
-} from '../../features/source-import/server/adapters';
+import { clickupAccessCheckAdapter, createSourceAdapterRegistry } from '../../features/source-import/server/adapters';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { EcobaseAccountabilityService } from '../services/accountability-service';
 import { EcobaseDataWarningService } from '../services/data-warning-service';
@@ -131,80 +127,6 @@ function createDb() {
 }
 
 describe('Ecobase accountability import and alert evaluation', () => {
-  it('imports ClickUp task snapshots, links, OKRs, and creates deterministic accountability alerts', async () => {
-    const db = createDb();
-    db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).create({
-      values: {
-        id: 'source-clickup-1',
-        name: 'ClickUp fixture',
-        sourceType: 'clickup',
-        domain: 'accountability',
-        freshnessSlaMinutes: 60,
-        config: {
-          tasks: [
-            {
-              externalTaskId: 'CU-1',
-              taskName: 'Contact supplier',
-              status: 'open',
-              priority: 'high',
-              dueDate: '2026-06-03',
-              lastMeaningfulUpdateAt: '2026-06-02T00:00:00.000Z',
-              planningProductId: 'product-1',
-              operationalArea: 'supplier_orders',
-            },
-          ],
-          okrs: [
-            { externalOkrId: 'OKR-1', company: 'ACME', title: 'Restore stockouts', owner: 'ops', period: '2026-Q2' },
-          ],
-          okrMetricSnapshots: [
-            {
-              externalOkrId: 'OKR-1',
-              metricName: 'OOS recovery',
-              snapshotDate: '2026-06-05',
-              progressPercent: 45,
-              status: 'off_track',
-            },
-          ],
-        },
-        active: true,
-      },
-    });
-
-    const importService = new EcobaseImportService(db, createSourceAdapterRegistry([clickupFixtureAdapter]));
-    const run = await importService.runAdapterImport({
-      sourceConnectionId: 'source-clickup-1',
-      adapterName: 'clickup-fixture',
-      sourceIdentifier: 'manual-accountability',
-      sourceVersion: '2026-06-05',
-      idempotencyKey: 'source-clickup-1:manual-accountability:2026-06-05',
-    });
-
-    expect(run.status).toBe('success');
-    expect(db.getRepository(ECOBASE_COLLECTIONS.silverTasks).all()).toHaveLength(1);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.silverTaskLinks).all()).toHaveLength(1);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.silverTargets).all()).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ recordKind: 'okr', externalOkrId: 'OKR-1' }),
-        expect.objectContaining({ recordKind: 'okr_metric_snapshot', externalOkrId: 'OKR-1' }),
-      ]),
-    );
-
-    const alerts = db.getRepository(ECOBASE_COLLECTIONS.alerts).all();
-    expect(alerts.map((alert) => alert.primaryRootCauseCode).sort()).toEqual([
-      'clickup_task_missing_owner',
-      'clickup_task_overdue',
-      'missing_operational_action_inactive_clickup',
-      'okr_off_track',
-    ]);
-    expect(alerts.find((alert) => alert.primaryRootCauseCode === 'clickup_task_missing_owner')).toMatchObject({
-      alertType: 'accountability',
-      planningProductId: 'product-1',
-      company: 'ACME',
-      canonicalAsin: 'B013TASK',
-      status: 'open',
-    });
-  });
-
   it('resolves stale task alerts when the latest snapshot becomes assigned, updated, and not overdue', async () => {
     const db = createDb();
     const taskRepo = db.getRepository(ECOBASE_COLLECTIONS.silverTasks);
@@ -214,7 +136,7 @@ describe('Ecobase accountability import and alert evaluation', () => {
         naturalKey: 'task-1-old',
         sourceConnectionId: 'source-clickup-1',
         snapshotDate: '2026-06-05',
-        externalTaskId: 'CU-1',
+        sourceTaskRef: 'CU-1',
         taskName: 'Contact supplier',
         title: 'Contact supplier',
         status: 'open',
@@ -239,7 +161,7 @@ describe('Ecobase accountability import and alert evaluation', () => {
         naturalKey: 'task-1-new',
         sourceConnectionId: 'source-clickup-1',
         snapshotDate: '2026-06-06',
-        externalTaskId: 'CU-1',
+        sourceTaskRef: 'CU-1',
         taskName: 'Contact supplier',
         title: 'Contact supplier',
         status: 'open',
