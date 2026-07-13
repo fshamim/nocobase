@@ -1,0 +1,8 @@
+{
+  "phase": "commit-c-schema-import",
+  "inputRows": 0,
+  "acceptedRows": 0,
+  "discardedRows": 0,
+  "elapsedMs": 852,
+  "exitCode": 1
+}

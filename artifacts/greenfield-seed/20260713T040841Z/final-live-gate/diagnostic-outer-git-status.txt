@@ -1,0 +1,39 @@
+capturedAt=2026-07-13T17:42:57Z
+repository=/Users/fshamim/Documents/dev/ecofission-bi
+sha=02cb8c45ac61b719d61816713d5fd17ceb476220
+ M README.md
+ D docs/README.md
+ D docs/company-product-family-ambiguity-ledger.md
+ D docs/company-product-family-implementation-plan.md
+ D docs/company-product-family-staging-plan.md
+ D docs/daily-operations-brief-workflow-implementation-plan.md
+ D docs/data-quality-signoff-and-accuracy-harness.md
+ D docs/dokploy-promotion-workflow.md
+ D docs/ecobase-ai-employee-data-access-implementation-plan.md
+ D docs/ecobase-current-er-diagram.md
+ D docs/ecobase-deployment-candidate-checklist.md
+ D docs/ecobase-distribution-policy.md
+ D docs/ecobase-fresh-rehearsal-acceptance-2026-06-27.md
+ D docs/ecobase-navigation-migration-plan.md
+ D docs/ecobase-production-deployment-and-clean-migration-plan.md
+ D docs/ecobase-staging-git-backed-auto-deploy-plan.md
+ D docs/implementation-spec.md
+ D docs/inventory-budget-optimizer-implementation-plan.md
+ D docs/inventory-planning-redesign-mockup.html
+ D docs/inventory-risk-command-center-gold-contract.md
+ D docs/local-nocobase-readiness.md
+ D docs/medallion-business-schema-implementation-plan.md
+ D docs/medallion-er-diagram.md
+ D docs/order-management-card-enrichment-implementation-plan.md
+ D docs/order-management-ui-redesign-plan.md
+ D docs/prd-local-nocobase-ai-builder-delivery.md
+ D docs/product-requirements-and-delivery-plan.md
+ D docs/requirements-traceability.md
+ D docs/supplier-approval-minimal-implementation-tasks.md
+ D docs/supplier-management-modern-page-plan.md
+ D docs/supplier-sheet-field-usage-analysis.md
+ M justfile
+ M task-status.json
+?? docs/EcoBase-agent-course-correction.md
+?? docs/EcoBase-agent-session-audit-evidence.md
+?? docs/history/

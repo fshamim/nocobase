@@ -1380,6 +1380,15 @@ describe('EcobaseInventoryPlanningService', () => {
       unitCost: 4,
       expectedSellableDate: '2026-07-20',
     });
+    await createRecord(db, ECOBASE_COLLECTIONS.silverOrderLines, {
+      id: 'line-unresolved-status',
+      orderId,
+      sourceAsin: 'B00UNRESOLVED',
+      sourceSupplierSku: 'SUPPLIER-ONLY-SKU',
+      productMappingStatus: 'unresolved',
+      orderedQty: 999,
+      unitCost: 100,
+    });
     await createRecord(db, ECOBASE_COLLECTIONS.silverInventorySnapshots, {
       id: 'inventory-active-status',
       companyProductId,

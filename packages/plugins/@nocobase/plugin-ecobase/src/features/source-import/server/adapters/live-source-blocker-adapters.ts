@@ -1,5 +1,14 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import type { AdapterStreamItem, SourceAdapter, SourceAdapterImportInput } from './types';
-import { CsvRowReader, type CsvSourceFile, parseCsv } from './csv-utils';
+import { CsvRowReader, type CsvSourceFile, parseDelimitedCsv } from './csv-utils';
 import { importCsvFiles, sellerboardIsoDate } from './amazon-operations-csv-adapter';
 
 type SellerboardReportCategory = 'profit_dashboard' | 'stock_daily' | 'profit_by_product_daily';
@@ -180,10 +189,15 @@ function compareIsoDate(left: string, right: string) {
   return left > right ? 1 : -1;
 }
 
-type SellerboardDateFormat = 'day-first' | 'month-first';
+export type SellerboardDateFormat = 'day-first' | 'month-first';
 
-function detectSellerboardDateFormat(csvContent: string): SellerboardDateFormat {
-  const parsed = parseCsv(csvContent);
+export function parseSellerboardCsv(content: string) {
+  const header = content.split(/\r?\n/, 1)[0] ?? '';
+  return parseDelimitedCsv(content, header.split(';').length > header.split(',').length ? ';' : ',');
+}
+
+export function detectSellerboardDateFormat(csvContent: string): SellerboardDateFormat {
+  const parsed = parseSellerboardCsv(csvContent);
   for (const row of parsed.rows) {
     const value = new CsvRowReader(row).string('Date', 'Month', 'Timestamp', 'Snapshot Date');
     const match = value?.trim().match(/^(\d{1,2})\/(\d{1,2})\/\d{4}$/);
@@ -194,7 +208,7 @@ function detectSellerboardDateFormat(csvContent: string): SellerboardDateFormat 
   return 'month-first';
 }
 
-function sellerboardReportDate(value: string | undefined, format: SellerboardDateFormat) {
+export function sellerboardReportDate(value: string | undefined, format: SellerboardDateFormat) {
   if (format === 'month-first') return sellerboardIsoDate(value);
   const match = value?.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (!match) return sellerboardIsoDate(value);
@@ -205,8 +219,8 @@ function sellerboardReportDate(value: string | undefined, format: SellerboardDat
   return `${match[3]}-${match[2].padStart(2, '0')}-${match[1].padStart(2, '0')}`;
 }
 
-function maxReportDate(csvContent: string, format: SellerboardDateFormat) {
-  const parsed = parseCsv(csvContent);
+export function maxReportDate(csvContent: string, format: SellerboardDateFormat) {
+  const parsed = parseSellerboardCsv(csvContent);
   let maxDate: string | undefined;
   for (const row of parsed.rows) {
     const reader = new CsvRowReader(row);

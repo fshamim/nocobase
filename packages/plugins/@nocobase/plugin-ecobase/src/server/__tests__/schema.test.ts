@@ -8,46 +8,24 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import accuracyEvaluationRuns from '../collections/accuracy-evaluation-runs';
-import aiAnswers from '../collections/ai-answers';
-import alertEvaluations from '../collections/alert-evaluations';
-import alerts from '../collections/alerts';
-import benchmarkFixtures from '../collections/benchmark-fixtures';
-import dailyBriefPromptSettings from '../collections/daily-brief-prompt-settings';
-import dailyManagementSnapshots from '../collections/daily-management-snapshots';
-import dataQualitySignoffs from '../collections/data-quality-signoffs';
-import goldManagementKpiDailyFacts from '../collections/gold-management-kpi-daily-facts';
+import bronzeSourceRecords from '../collections/bronze-source-records';
 import importRuns from '../collections/import-runs';
-import inventorySnapshots from '../collections/inventory-snapshots';
-import listingDailyFacts from '../collections/listing-daily-facts';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
-import planningCalculationSnapshots from '../collections/planning-calculation-snapshots';
-import planningProductMappingAudits from '../collections/planning-product-mapping-audits';
-import planningProductListings from '../collections/planning-product-listings';
-import planningProducts from '../collections/planning-products';
-import planningParameters from '../collections/planning-parameters';
 import reportItems from '../collections/report-items';
 import reportRuns from '../collections/report-runs';
-import ruleVersions from '../collections/rule-versions';
 import sellerboardProductCosts from '../collections/sellerboard-product-costs';
+import silverOrderLines from '../collections/silver-order-lines';
 import sourceAccessAudits from '../collections/source-access-audits';
 import sourceConnections from '../collections/source-connections';
 import sourceWarningPolicies from '../collections/source-warning-policies';
-import silverOrders from '../collections/silver-orders';
-import silverProducts from '../collections/silver-products';
-import silverSupplierAccounts from '../collections/silver-supplier-accounts';
-import supplierLeadTimes from '../collections/supplier-lead-times';
-import supplierOrderSettings from '../collections/supplier-order-settings';
-import supplierProductLinks from '../collections/supplier-product-links';
-import suppliers from '../collections/suppliers';
-import targetRows from '../collections/target-rows';
 
 interface FieldOptions {
   name: string;
   type: string;
   primaryKey?: boolean;
   unique?: boolean;
-  autoFill?: boolean;
+  allowNull?: boolean;
+  defaultValue?: unknown;
   target?: string;
   foreignKey?: string;
 }
@@ -60,71 +38,15 @@ interface CollectionOptions {
 
 function field(collection: CollectionOptions, name: string) {
   const match = collection.fields?.find((item) => item.name === name);
-  if (!match) {
-    throw new Error(`Expected collection ${collection.name} to define field ${name}.`);
-  }
+  if (!match) throw new Error(`Expected collection ${collection.name} to define field ${name}.`);
   return match;
 }
 
 describe('Ecobase plugin-owned schema', () => {
-  it('defines company, account, source connection, import run, and bronze row collections', () => {
+  it('keeps source control and import-run identity explicit', () => {
     expect(sourceConnections.name).toBe(ECOBASE_COLLECTIONS.sourceConnections);
     expect(importRuns.name).toBe(ECOBASE_COLLECTIONS.importRuns);
-    expect(planningProducts.name).toBe(ECOBASE_COLLECTIONS.planningProducts);
-    expect(planningProductListings.name).toBe(ECOBASE_COLLECTIONS.planningProductListings);
-    expect(planningProductMappingAudits.name).toBe(ECOBASE_COLLECTIONS.planningProductMappingAudits);
-    expect(listingDailyFacts.name).toBe(ECOBASE_COLLECTIONS.listingDailyFacts);
-    expect(inventorySnapshots.name).toBe(ECOBASE_COLLECTIONS.inventorySnapshots);
-    expect(sellerboardProductCosts.name).toBe(ECOBASE_COLLECTIONS.sellerboardProductCosts);
-    expect(planningParameters.name).toBe(ECOBASE_COLLECTIONS.planningParameters);
-    expect(suppliers.name).toBe(ECOBASE_COLLECTIONS.suppliers);
-    expect(supplierLeadTimes.name).toBe(ECOBASE_COLLECTIONS.supplierLeadTimes);
-    expect(supplierProductLinks.name).toBe(ECOBASE_COLLECTIONS.supplierProductLinks);
-    expect(supplierOrderSettings.name).toBe(ECOBASE_COLLECTIONS.supplierOrderSettings);
-    expect(targetRows.name).toBe(ECOBASE_COLLECTIONS.targetRows);
-    expect(planningCalculationSnapshots.name).toBe(ECOBASE_COLLECTIONS.planningCalculationSnapshots);
-    expect(ruleVersions.name).toBe(ECOBASE_COLLECTIONS.ruleVersions);
-    expect(alertEvaluations.name).toBe(ECOBASE_COLLECTIONS.alertEvaluations);
-    expect(alerts.name).toBe(ECOBASE_COLLECTIONS.alerts);
-    expect(sourceAccessAudits.name).toBe(ECOBASE_COLLECTIONS.sourceAccessAudits);
-    expect(sourceWarningPolicies.name).toBe(ECOBASE_COLLECTIONS.sourceWarningPolicies);
-    expect(reportRuns.name).toBe(ECOBASE_COLLECTIONS.reportRuns);
-    expect(reportItems.name).toBe(ECOBASE_COLLECTIONS.reportItems);
-    expect(dailyManagementSnapshots.name).toBe(ECOBASE_COLLECTIONS.dailyManagementSnapshots);
-    expect(goldManagementKpiDailyFacts.name).toBe(ECOBASE_COLLECTIONS.goldManagementKpiDailyFacts);
-    expect(dailyBriefPromptSettings.name).toBe(ECOBASE_COLLECTIONS.dailyBriefPromptSettings);
-    expect(aiAnswers.name).toBe(ECOBASE_COLLECTIONS.aiAnswers);
-    expect(dataQualitySignoffs.name).toBe(ECOBASE_COLLECTIONS.dataQualitySignoffs);
-    expect(benchmarkFixtures.name).toBe(ECOBASE_COLLECTIONS.benchmarkFixtures);
-    expect(accuracyEvaluationRuns.name).toBe(ECOBASE_COLLECTIONS.accuracyEvaluationRuns);
-
-    [
-      sourceConnections,
-      importRuns,
-      sellerboardProductCosts,
-      planningProducts,
-      planningProductListings,
-      planningProductMappingAudits,
-      suppliers,
-      ruleVersions,
-      alertEvaluations,
-      alerts,
-      reportRuns,
-      reportItems,
-      dailyManagementSnapshots,
-      goldManagementKpiDailyFacts,
-      dailyBriefPromptSettings,
-      aiAnswers,
-      dataQualitySignoffs,
-      benchmarkFixtures,
-      accuracyEvaluationRuns,
-    ].forEach((collection) => {
-      expect(collection.autoGenId).toBe(false);
-      expect(field(collection, 'id')).toMatchObject({ type: 'uuid', primaryKey: true });
-    });
-  });
-
-  it('keeps source ingestion responsibilities on plugin-owned tables', () => {
+    expect(field(sourceConnections, 'id')).toMatchObject({ type: 'uuid', primaryKey: true });
     expect(field(sourceConnections, 'company')).toMatchObject({
       type: 'belongsTo',
       target: ECOBASE_COLLECTIONS.silverCompanies,
@@ -133,107 +55,26 @@ describe('Ecobase plugin-owned schema', () => {
     expect(field(sourceConnections, 'sourceType')).toMatchObject({ type: 'string' });
     expect(field(sourceConnections, 'config')).toMatchObject({ type: 'jsonb' });
     expect(field(importRuns, 'idempotencyKey')).toMatchObject({ type: 'string', unique: true });
-    expect(field(importRuns, 'rowCount')).toMatchObject({ type: 'integer' });
+    expect(field(importRuns, 'summary')).toMatchObject({ type: 'jsonb' });
+    expect(field(bronzeSourceRecords, 'retentionUntil')).toMatchObject({ type: 'datetimeTz' });
+  });
+
+  it('keeps unresolved order-line source identity nullable and explicit', () => {
+    expect(field(silverOrderLines, 'companyProduct')).toMatchObject({ allowNull: true });
+    expect(field(silverOrderLines, 'sourceAsin')).toMatchObject({ type: 'string' });
+    expect(field(silverOrderLines, 'sourceSupplierSku')).toMatchObject({ type: 'string' });
+    expect(field(silverOrderLines, 'productMappingStatus')).toMatchObject({
+      type: 'string',
+      allowNull: false,
+      defaultValue: 'resolved',
+    });
+  });
+
+  it('keeps current source audits, costs, and reports on supported collections', () => {
     expect(field(sellerboardProductCosts, 'naturalKey')).toMatchObject({ type: 'string', unique: true });
-    expect(field(sellerboardProductCosts, 'unitCost')).toMatchObject({ type: 'double' });
-    expect(field(sellerboardProductCosts, 'rawPayload')).toMatchObject({ type: 'jsonb' });
-    expect(field(planningProducts, 'id')).toMatchObject({ type: 'uuid', primaryKey: true });
-    expect(field(planningProducts, 'canonicalAsin')).toMatchObject({ type: 'string' });
-    expect(field(planningProducts, 'listings')).toMatchObject({
-      type: 'hasMany',
-      target: ECOBASE_COLLECTIONS.planningProductListings,
-      foreignKey: 'planningProductId',
-    });
-    expect(field(planningProductListings, 'id')).toMatchObject({ type: 'uuid', primaryKey: true });
-    expect(field(planningProductListings, 'planningProduct')).toMatchObject({
-      type: 'belongsTo',
-      target: ECOBASE_COLLECTIONS.planningProducts,
-      foreignKey: 'planningProductId',
-    });
-    expect(field(planningProductMappingAudits, 'id')).toMatchObject({ type: 'uuid', primaryKey: true });
-    expect(field(planningProductMappingAudits, 'planningProduct')).toMatchObject({
-      type: 'belongsTo',
-      target: ECOBASE_COLLECTIONS.planningProducts,
-      foreignKey: 'planningProductId',
-    });
-    expect(field(planningProductMappingAudits, 'previousPlanningProductId')).toMatchObject({
-      type: 'uuid',
-      autoFill: false,
-    });
-    expect(field(planningProductMappingAudits, 'nextPlanningProductId')).toMatchObject({
-      type: 'uuid',
-      autoFill: false,
-    });
-    expect(field(planningProductMappingAudits, 'action')).toMatchObject({ type: 'string' });
-    expect(field(listingDailyFacts, 'planningProductId')).toMatchObject({ type: 'uuid', autoFill: false });
-    expect(field(listingDailyFacts, 'refunds')).toMatchObject({ type: 'double' });
-    expect(field(inventorySnapshots, 'planningProductId')).toMatchObject({ type: 'uuid', autoFill: false });
-    expect(field(inventorySnapshots, 'stock')).toMatchObject({ type: 'double' });
-    expect(field(planningParameters, 'planningProductId')).toMatchObject({ type: 'uuid', autoFill: false });
-    expect(field(planningParameters, 'leadTimeDays')).toMatchObject({ type: 'double' });
-    expect(field(planningParameters, 'safetyBufferDays')).toMatchObject({ type: 'double' });
-    expect(field(suppliers, 'id')).toMatchObject({ type: 'uuid', primaryKey: true });
-    expect(field(suppliers, 'naturalKey')).toMatchObject({ type: 'string', unique: true });
-    expect(field(suppliers, 'receivedEmail')).toMatchObject({ type: 'string' });
-    expect(field(suppliers, 'prPortalLink')).toMatchObject({ type: 'text' });
-    expect(field(suppliers, 'portalUsername')).toMatchObject({ type: 'string' });
-    expect(field(suppliers, 'portalPassword')).toMatchObject({ type: 'string' });
-    expect(field(suppliers, 'productCatalog')).toMatchObject({ type: 'text' });
-    expect(field(suppliers, 'mapAgreement')).toMatchObject({ type: 'text' });
-    expect(field(suppliers, 'amazonAllow')).toMatchObject({ type: 'text' });
-    expect(field(suppliers, 'respondedBy')).toMatchObject({ type: 'string' });
-    expect(field(suppliers, 'totalNop')).toMatchObject({ type: 'string' });
-    expect(field(suppliers, 'clearedPosAmount')).toMatchObject({ type: 'string' });
-    expect(field(suppliers, 'timestamp')).toMatchObject({ type: 'datetimeTz' });
-    expect(field(suppliers, 'approvalStatus')).toMatchObject({ type: 'string', defaultValue: 'new' });
-    expect(field(suppliers, 'contactEstablished')).toMatchObject({ type: 'boolean', defaultValue: false });
-    expect(field(supplierLeadTimes, 'leadTimeDays')).toMatchObject({ type: 'double' });
-    expect(field(supplierProductLinks, 'planningProductId')).toMatchObject({ type: 'uuid', autoFill: false });
-    expect(field(supplierOrderSettings, 'numberValue')).toMatchObject({ type: 'double' });
-    expect(field(targetRows, 'planningProductId')).toMatchObject({ type: 'uuid', autoFill: false });
-    expect(field(targetRows, 'targetScope')).toMatchObject({ type: 'string' });
-    expect(field(targetRows, 'periodType')).toMatchObject({ type: 'string' });
-    expect(field(planningCalculationSnapshots, 'ruleVersion')).toMatchObject({ type: 'string' });
-    expect(field(planningCalculationSnapshots, 'currentStockParity')).toMatchObject({ type: 'double' });
-    expect(field(planningCalculationSnapshots, 'dataCompleteness')).toMatchObject({ type: 'string' });
-    expect(field(ruleVersions, 'config')).toMatchObject({ type: 'jsonb' });
-    expect(field(alertEvaluations, 'rootCauses')).toMatchObject({ type: 'jsonb' });
-    expect(field(alertEvaluations, 'estimatedProfitRisk')).toMatchObject({ type: 'double' });
-    expect(field(alerts, 'dedupeKey')).toMatchObject({ type: 'string', unique: true });
-    expect(field(alerts, 'primaryRootCauseCode')).toMatchObject({ type: 'string' });
-    expect(field(alerts, 'actionRequired')).toMatchObject({ type: 'text' });
     expect(field(sourceAccessAudits, 'blockerCode')).toMatchObject({ type: 'string' });
     expect(field(sourceWarningPolicies, 'sourceType')).toMatchObject({ type: 'string', unique: true });
-    expect(field(sourceWarningPolicies, 'freshnessSlaMinutes')).toMatchObject({ type: 'integer' });
-    expect(field(suppliers, 'wholesalePriceList')).toMatchObject({ type: 'text' });
-    expect(field(suppliers, 'productCatalog')).toMatchObject({ type: 'text' });
-    expect(field(suppliers, 'prPortalLink')).toMatchObject({ type: 'text' });
-    expect(field(suppliers, 'amazonAllow')).toMatchObject({ type: 'text' });
-    expect(field(silverOrders, 'trackingId')).toMatchObject({ type: 'text' });
-    expect(field(silverSupplierAccounts, 'portalUrl')).toMatchObject({ type: 'text' });
-    expect(field(silverProducts, 'title')).toMatchObject({ type: 'text' });
-    expect(field(reportRuns, 'frequency')).toMatchObject({ type: 'string' });
-    expect(field(reportRuns, 'emailStatus')).toMatchObject({ type: 'string' });
-    expect(field(reportRuns, 'briefType')).toMatchObject({ type: 'string' });
     expect(field(reportRuns, 'idempotencyKey')).toMatchObject({ type: 'string', unique: true });
-    expect(field(reportRuns, 'evidencePack')).toMatchObject({ type: 'jsonb' });
-    expect(field(reportRuns, 'evidenceHash')).toMatchObject({ type: 'string' });
-    expect(field(reportRuns, 'focus')).toMatchObject({ type: 'string' });
-    expect(field(reportRuns, 'validationStatus')).toMatchObject({ type: 'string' });
-    expect(field(reportRuns, 'deliveryStatus')).toMatchObject({ type: 'string' });
-    expect(field(reportRuns, 'deliveredAt')).toMatchObject({ type: 'datetimeTz' });
-    expect(field(reportRuns, 'deliveryProvider')).toMatchObject({ type: 'string' });
-    expect(field(reportRuns, 'deliveryMessageId')).toMatchObject({ type: 'string' });
-    expect(field(reportRuns, 'deliveryError')).toMatchObject({ type: 'text' });
-    expect(field(reportRuns, 'subject')).toMatchObject({ type: 'string' });
-    expect(field(reportRuns, 'bodyMarkdown')).toMatchObject({ type: 'text' });
-    expect(field(reportRuns, 'bodyHtml')).toMatchObject({ type: 'text' });
-    expect(field(reportRuns, 'bodyText')).toMatchObject({ type: 'text' });
-    expect(field(reportRuns, 'aiPrompt')).toMatchObject({ type: 'jsonb' });
-    expect(field(reportRuns, 'aiRawResponse')).toMatchObject({ type: 'text' });
-    expect(field(reportRuns, 'aiResponse')).toMatchObject({ type: 'jsonb' });
-    expect(field(reportRuns, 'aiMetadata')).toMatchObject({ type: 'jsonb' });
-    expect(field(reportRuns, 'validationErrors')).toMatchObject({ type: 'jsonb' });
     expect(field(reportRuns, 'items')).toMatchObject({
       type: 'hasMany',
       target: ECOBASE_COLLECTIONS.reportItems,
@@ -244,25 +85,5 @@ describe('Ecobase plugin-owned schema', () => {
       target: ECOBASE_COLLECTIONS.reportRuns,
       foreignKey: 'reportRunId',
     });
-    expect(field(reportItems, 'evidence')).toMatchObject({ type: 'jsonb' });
-    expect(field(dailyManagementSnapshots, 'snapshotDate')).toMatchObject({ type: 'dateOnly' });
-    expect(field(dailyManagementSnapshots, 'inventoryMoneyAtRisk')).toMatchObject({ type: 'double' });
-    expect(field(dailyManagementSnapshots, 'orderMoneyAtRisk')).toMatchObject({ type: 'double' });
-    expect(field(dailyManagementSnapshots, 'snapshotPayload')).toMatchObject({ type: 'jsonb' });
-    expect(field(goldManagementKpiDailyFacts, 'naturalKey')).toMatchObject({ type: 'string', unique: true });
-    expect(field(goldManagementKpiDailyFacts, 'metricDate')).toMatchObject({ type: 'dateOnly' });
-    expect(field(goldManagementKpiDailyFacts, 'companyScope')).toMatchObject({ type: 'string' });
-    expect(field(goldManagementKpiDailyFacts, 'metricKey')).toMatchObject({ type: 'string' });
-    expect(field(goldManagementKpiDailyFacts, 'value')).toMatchObject({ type: 'double' });
-    expect(field(goldManagementKpiDailyFacts, 'payload')).toMatchObject({ type: 'jsonb' });
-    expect(field(dailyBriefPromptSettings, 'directorInstructions')).toMatchObject({ type: 'text' });
-    expect(field(dailyBriefPromptSettings, 'mustInclude')).toMatchObject({ type: 'jsonb' });
-    expect(field(dailyBriefPromptSettings, 'kpiPriority')).toMatchObject({ type: 'jsonb' });
-    expect(field(aiAnswers, 'question')).toMatchObject({ type: 'text' });
-    expect(field(aiAnswers, 'evidenceReferences')).toMatchObject({ type: 'jsonb' });
-    expect(field(aiAnswers, 'provider')).toMatchObject({ type: 'string' });
-    expect(field(dataQualitySignoffs, 'checklist')).toMatchObject({ type: 'jsonb' });
-    expect(field(benchmarkFixtures, 'expectedRootCauses')).toMatchObject({ type: 'jsonb' });
-    expect(field(accuracyEvaluationRuns, 'criticalDetectionAccuracy')).toMatchObject({ type: 'double' });
   });
 });

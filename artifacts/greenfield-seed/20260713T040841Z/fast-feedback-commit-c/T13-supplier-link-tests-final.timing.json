@@ -1,0 +1,9 @@
+{
+  "phase": "t13-supplier-link-tests-final",
+  "inputRows": 0,
+  "acceptedRows": 0,
+  "discardedRows": 0,
+  "elapsedMs": 3099,
+  "exitCode": 0,
+  "note": "supplier-management-service.test.ts does not exist; used current supplier family and identity suites"
+}

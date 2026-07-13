@@ -224,6 +224,55 @@ describe('EcobaseOrderPlanningService', () => {
     expect(db.touched).not.toContain(ECOBASE_COLLECTIONS.planningProducts);
   });
 
+  it('keeps unresolved legacy lines visible with source identity, quantity, and materialized evidence', async () => {
+    const db = new FakeDatabase();
+    await seed(db);
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+      values: {
+        id: 'line-unresolved',
+        orderId: 'order-1',
+        sourceAsin: 'B00UNRESOLVED',
+        sourceSupplierSku: 'SUPPLIER-SKU',
+        productMappingStatus: 'unresolved',
+        orderedQty: 7,
+      },
+    });
+    const service = new EcobaseOrderPlanningService(db);
+
+    const derived = await service.listOrders({ companyId: 'company-1', hideClosed: false });
+    const detail = await service.getOrderDetail('order-1');
+
+    expect(derived.rows[0]).toMatchObject({
+      id: 'order-1',
+      asinCount: 3,
+      lineCount: 3,
+      unresolvedLineCount: 1,
+      unresolvedLineQuantity: 7,
+      statusEvidence: {
+        unresolvedProductMapping: {
+          lineCount: 1,
+          orderedQty: 7,
+          identities: [{ lineId: 'line-unresolved', sourceAsin: 'B00UNRESOLVED', sourceSupplierSku: 'SUPPLIER-SKU' }],
+        },
+      },
+    });
+    expect(detail.lines).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'line-unresolved',
+          asin: 'B00UNRESOLVED',
+          sku: 'SUPPLIER-SKU',
+          productMappingStatus: 'unresolved',
+          orderedQty: 7,
+        }),
+      ]),
+    );
+
+    await service.refreshReadModel({ companyId: 'company-1' });
+    const materialized = await service.listOrders({ companyId: 'company-1', hideClosed: false });
+    expect(materialized.rows[0]).toMatchObject({ unresolvedLineCount: 1, unresolvedLineQuantity: 7 });
+  });
+
   it('prioritizes tier before money at risk', async () => {
     const db = new FakeDatabase();
     await seed(db);

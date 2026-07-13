@@ -127,18 +127,6 @@ export const GREENFIELD_SEED_SOURCE_SPECS: GreenfieldSeedSourceSpec[] = [
     paths: [`${HISTORY}/Stop_Shop_Llc_Cost_of_Goods_Sold_(2026_07_04_09_01_50_733).csv`],
   },
   {
-    id: 'amazon-operations',
-    kind: 'adapter',
-    adapterName: 'amazon-operations-csv',
-    sourceType: 'seller_central_file',
-    domain: 'amazon_operations',
-    delimiter: ',',
-    paths: [
-      'data/SampleAM Weekly Report-July2025 - Buybox.csv',
-      "data/SampleAM Weekly Report-July2025 - Top SKU'S.csv",
-    ],
-  },
-  {
     id: 'order-management',
     kind: 'adapter',
     adapterName: 'google-sheets-migration-csv',

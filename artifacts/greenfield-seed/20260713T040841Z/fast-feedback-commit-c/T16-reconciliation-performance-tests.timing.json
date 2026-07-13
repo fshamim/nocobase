@@ -1,0 +1,9 @@
+{
+  "phase": "t16-reconciliation-performance-tests",
+  "inputRows": 0,
+  "acceptedRows": 0,
+  "discardedRows": 0,
+  "elapsedMs": 817,
+  "exitCode": 1,
+  "note": "idempotency coverage spans medallion normalization, CSV reconciliation, families, inventory and order projections"
+}

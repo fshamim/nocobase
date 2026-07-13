@@ -4,6 +4,15 @@
  * Authors: NocoBase Team.
  *
  * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
  * For more information, please refer to: https:
  */
 
@@ -19,6 +28,7 @@ import { CsvRowReader, type CsvSourceFile, parseCsv } from './adapters/csv-utils
 import { parseClickupOrderStatusFiles } from './clickup-order-status-service';
 import { orderDetailSourceIdentity } from './order-detail-source-identity';
 import { orderIdentityKey, orderRowExclusionReason } from './order-import-policy';
+import { FOUR_COMPANY_MIGRATION_PROFILE, type FourCompanyKey } from './four-company-migration-profile';
 
 export type ImportPreflightSeverity = 'error' | 'warning';
 
@@ -30,6 +40,24 @@ export type ImportPreflightIssue = {
   message: string;
 };
 
+export type SellerboardSourceCoverage = {
+  companyKey: FourCompanyKey;
+  account: string;
+  marketplace: string;
+  complete: boolean;
+  currentSnapshotAt: string;
+  historyStartDate: string;
+  historyEndDate: string;
+};
+
+export type SellerboardCompletenessResult = {
+  ok: boolean;
+  sourceCount: number;
+  companyCount: number;
+  earliestSnapshotAt?: string;
+  latestSnapshotAt?: string;
+};
+
 export type ImportPreflightResult = {
   ok: boolean;
   fileCount: number;
@@ -38,6 +66,12 @@ export type ImportPreflightResult = {
   warningCount: number;
   issueCounts: Record<string, number>;
   issues: ImportPreflightIssue[];
+  sellerboardCompleteness?: SellerboardCompletenessResult;
+};
+
+export type ImportPreflightOptions = {
+  asOfDate: string;
+  sellerboardCoverage: SellerboardSourceCoverage[];
 };
 
 type OrderIdentity = {
@@ -104,7 +138,7 @@ function groupBy<T>(values: T[], keyFor: (value: T) => string) {
   return groups;
 }
 
-export function preflightImportFiles(files: CsvSourceFile[]): ImportPreflightResult {
+export function preflightImportFiles(files: CsvSourceFile[], options?: ImportPreflightOptions): ImportPreflightResult {
   const issues: ImportPreflightIssue[] = [];
   const orderIdentities: OrderIdentity[] = [];
   const lineIdentities = new Map<string, LineIdentity[]>();
@@ -407,6 +441,11 @@ export function preflightImportFiles(files: CsvSourceFile[]): ImportPreflightRes
     }
   }
 
+  const sellerboardCompleteness = options
+    ? evaluateSellerboardCompleteness(options.sellerboardCoverage, options.asOfDate)
+    : undefined;
+  if (sellerboardCompleteness) issues.push(...sellerboardCompleteness.issues);
+
   issues.sort(issueSort);
   const issueCounts = Object.fromEntries(
     [...groupBy(issues, (issue) => issue.code).entries()]
@@ -423,5 +462,113 @@ export function preflightImportFiles(files: CsvSourceFile[]): ImportPreflightRes
     warningCount,
     issueCounts,
     issues,
+    sellerboardCompleteness: sellerboardCompleteness?.result,
   };
+}
+
+export function evaluateSellerboardCompleteness(coverage: SellerboardSourceCoverage[], asOfDate: string) {
+  const issues: ImportPreflightIssue[] = [];
+  const asOf = dateAtEndOfDay(asOfDate);
+  const requiredHistoryStart = new Date(
+    Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth() - FOUR_COMPANY_MIGRATION_PROFILE.sellerboardHistoryMonths, 1),
+  );
+  const expectedCompanies = new Set(
+    FOUR_COMPANY_MIGRATION_PROFILE.canonicalCompanies.map((company) => company.companyKey),
+  );
+  const byCompany = groupBy(coverage, (source) => source.companyKey);
+  const snapshots: Date[] = [];
+  const error = (code: string, message: string) =>
+    issues.push({ severity: 'error', code, file: 'sellerboard', message });
+
+  for (const companyKey of expectedCompanies) {
+    const sources = byCompany.get(companyKey) ?? [];
+    if (sources.length === 0) error('sellerboard_company_missing', `Sellerboard source is missing for ${companyKey}.`);
+    if (sources.length > 1) {
+      error(
+        'sellerboard_company_duplicate',
+        `Sellerboard has ${sources.length} sources for ${companyKey}; expected one.`,
+      );
+    }
+  }
+  for (const source of coverage) {
+    if (!expectedCompanies.has(source.companyKey)) {
+      error('sellerboard_company_unapproved', `Sellerboard source company ${source.companyKey} is not approved.`);
+      continue;
+    }
+    if (!source.account.trim() || !source.marketplace.trim()) {
+      error(
+        'sellerboard_context_missing',
+        `Sellerboard source ${source.companyKey} requires account and marketplace context.`,
+      );
+    }
+    if (!source.complete) {
+      error('sellerboard_snapshot_partial', `Sellerboard current snapshot is partial for ${source.companyKey}.`);
+    }
+    const snapshot = validDate(source.currentSnapshotAt);
+    if (!snapshot) {
+      error('sellerboard_snapshot_invalid', `Sellerboard current snapshot date is invalid for ${source.companyKey}.`);
+    } else {
+      snapshots.push(snapshot);
+      const ageHours = (asOf.getTime() - snapshot.getTime()) / 3_600_000;
+      if (ageHours < 0 || ageHours > FOUR_COMPANY_MIGRATION_PROFILE.sellerboardCurrentMaxAgeHours) {
+        error(
+          'sellerboard_snapshot_stale',
+          `Sellerboard current snapshot is outside the freshness window for ${source.companyKey}.`,
+        );
+      }
+    }
+    const historyStart = validDate(source.historyStartDate);
+    const historyEnd = validDate(source.historyEndDate);
+    const historyAgeHours = historyEnd ? (asOf.getTime() - historyEnd.getTime()) / 3_600_000 : Number.POSITIVE_INFINITY;
+    if (
+      !historyStart ||
+      historyStart > requiredHistoryStart ||
+      !historyEnd ||
+      historyAgeHours < 0 ||
+      historyAgeHours > FOUR_COMPANY_MIGRATION_PROFILE.sellerboardCurrentMaxAgeHours
+    ) {
+      error(
+        'sellerboard_history_incomplete',
+        `Sellerboard history does not cover the current partial month plus six complete prior months for ${source.companyKey}.`,
+      );
+    }
+  }
+
+  const orderedSnapshots = snapshots.sort((left, right) => left.getTime() - right.getTime());
+  const earliest = orderedSnapshots[0];
+  const latest = orderedSnapshots.at(-1);
+  if (
+    earliest &&
+    latest &&
+    (latest.getTime() - earliest.getTime()) / 3_600_000 > FOUR_COMPANY_MIGRATION_PROFILE.sellerboardMaxAsOfSkewHours
+  ) {
+    error('sellerboard_snapshot_skew', 'Sellerboard current snapshots exceed the allowed cross-source as-of skew.');
+  }
+
+  return {
+    result: {
+      ok: issues.length === 0,
+      sourceCount: coverage.length,
+      companyCount: byCompany.size,
+      earliestSnapshotAt: earliest?.toISOString(),
+      latestSnapshotAt: latest?.toISOString(),
+    } satisfies SellerboardCompletenessResult,
+    issues,
+  };
+}
+
+function validDate(value: string) {
+  const date = new Date(value.length === 10 ? `${value}T00:00:00.000Z` : value);
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
+function dateAtEndOfDay(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    throw new Error(`Ecobase import preflight failed: asOfDate "${value}" must use YYYY-MM-DD.`);
+  }
+  const date = new Date(`${value}T23:59:59.999Z`);
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) {
+    throw new Error(`Ecobase import preflight failed: asOfDate "${value}" is invalid.`);
+  }
+  return date;
 }

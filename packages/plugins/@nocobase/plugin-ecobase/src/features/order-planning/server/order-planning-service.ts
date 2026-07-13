@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import type { EcobaseDatabase } from '../../source-import/server/import-service';
@@ -57,6 +66,8 @@ export interface OrderPlanningRow {
   trackingId?: string;
   asinCount: number;
   lineCount: number;
+  unresolvedLineCount: number;
+  unresolvedLineQuantity: number;
   moneyAtRisk: number;
   riskSource: RiskSource;
   earliestOosDate?: string;
@@ -77,6 +88,9 @@ export interface OrderPlanningLine {
   supplierProductId?: string;
   asin?: string;
   sku?: string;
+  sourceAsin?: string;
+  sourceSupplierSku?: string;
+  productMappingStatus: 'resolved' | 'unresolved';
   title?: string;
   brand?: string;
   orderedQty?: number;
@@ -416,6 +430,8 @@ function goldOrderPlanningRowFromRecord(record: PlainRecord): OrderPlanningRow {
   const canonicalStatus = canonicalOrderLifecycleStatus(record.canonicalStatus ?? record.currentStatus);
   const tier = text(record.tier);
   const tiered = isProfitTier(tier);
+  const statusEvidence = recordValue(record.statusEvidenceJson);
+  const unresolvedMapping = recordValue(statusEvidence.unresolvedProductMapping);
   return {
     id: text(record.orderId) ?? text(record.id) ?? '',
     companyId: text(record.companyId) ?? '',
@@ -432,7 +448,7 @@ function goldOrderPlanningRowFromRecord(record: PlainRecord): OrderPlanningRow {
     statusSource: text(record.statusSource),
     statusCheckRequired: record.statusCheckRequired === true,
     statusDiscrepancy: record.statusDiscrepancy === true,
-    statusEvidence: recordValue(record.statusEvidenceJson),
+    statusEvidence,
     tier,
     tierRank: tiered ? tierRank(tier) : numberValue(record.tierRank),
     nextAction: text(record.nextAction),
@@ -441,6 +457,8 @@ function goldOrderPlanningRowFromRecord(record: PlainRecord): OrderPlanningRow {
     trackingId: text(record.trackingId),
     asinCount: positiveNumber(record.asinCount),
     lineCount: positiveNumber(record.lineCount),
+    unresolvedLineCount: positiveNumber(unresolvedMapping.lineCount),
+    unresolvedLineQuantity: positiveNumber(unresolvedMapping.orderedQty),
     moneyAtRisk: tiered ? positiveNumber(record.moneyAtRisk) : 0,
     riskSource: tiered ? riskSourceFrom(record.riskSource) : 'missing',
     earliestOosDate: dateOnly(record.earliestOosDate),
@@ -974,6 +992,17 @@ export class EcobaseOrderPlanningService {
     const orderRef = text(params.order.orderRef) ?? text(params.order.id) ?? '';
     const orderDate = minDate([dateOnly(params.order.orderDate), orderReferenceDate(orderRef)]);
     const asinCount = new Set(params.detailLines.map((line) => line.asin).filter(Boolean)).size;
+    const unresolvedLines = params.detailLines.filter((line) => line.productMappingStatus === 'unresolved');
+    const unresolvedLineQuantity = unresolvedLines.reduce((sum, line) => sum + positiveNumber(line.orderedQty), 0);
+    const unresolvedProductMapping = {
+      lineCount: unresolvedLines.length,
+      orderedQty: unresolvedLineQuantity,
+      identities: unresolvedLines.map((line) => ({
+        lineId: line.id,
+        sourceAsin: line.sourceAsin,
+        sourceSupplierSku: line.sourceSupplierSku,
+      })),
+    };
     const goldRisk = params.goldRows.reduce((sum, row) => sum + positiveNumber(row.estimatedProfitRisk), 0);
     const silverRisk = params.lines.reduce((sum, line) => sum + positiveNumber(line.expectedProfit), 0);
     const earliestOosDate = minDate(params.goldRows.map((row) => dateOnly(row.estimatedOosDate)));
@@ -1061,7 +1090,7 @@ export class EcobaseOrderPlanningService {
       statusCheckRequired:
         lifecycle.statusCheckRequired || statusDiscrepancy || params.order.statusCheckRequired === true,
       statusDiscrepancy,
-      statusEvidence: { ...evidence, ...lifecycle.statusEvidence },
+      statusEvidence: { ...evidence, ...lifecycle.statusEvidence, unresolvedProductMapping },
       tier,
       tierRank: tierRank(tier),
       nextAction: text(params.order.nextAction),
@@ -1070,6 +1099,8 @@ export class EcobaseOrderPlanningService {
       trackingId: text(params.order.trackingId),
       asinCount,
       lineCount: params.lines.length,
+      unresolvedLineCount: unresolvedLines.length,
+      unresolvedLineQuantity,
       moneyAtRisk,
       riskSource,
       earliestOosDate,
@@ -1089,13 +1120,19 @@ export class EcobaseOrderPlanningService {
   ): OrderPlanningLine {
     const companyProduct = companyProducts.get(text(line.companyProductId) ?? '');
     const product = products.get(text(companyProduct?.productId) ?? '');
+    const sourceAsin = text(line.sourceAsin);
+    const sourceSupplierSku = text(line.sourceSupplierSku);
+    const resolved = Boolean(companyProduct && product && text(line.productMappingStatus) !== 'unresolved');
     return {
       id: text(line.id) ?? '',
       orderId: text(line.orderId) ?? '',
       companyProductId: text(line.companyProductId),
       supplierProductId: text(line.supplierProductId),
-      asin: text(product?.asin),
-      sku: text(product?.sku),
+      asin: text(product?.asin) ?? sourceAsin,
+      sku: text(product?.sku) ?? sourceSupplierSku,
+      sourceAsin,
+      sourceSupplierSku,
+      productMappingStatus: resolved ? 'resolved' : 'unresolved',
       title: text(product?.title),
       brand: text(product?.brand),
       orderedQty: numberValue(line.orderedQty),

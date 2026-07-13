@@ -72,6 +72,14 @@ async function seed(db: MemoryDatabase) {
   await db.getRepository(ECOBASE_COLLECTIONS.silverAmazonAccounts).create({
     values: { id: 'account-us-secondary', companyId: 'company-1', marketplace: 'Amazon.com' },
   });
+  for (const supplierId of ['supplier-1', 'supplier-2']) {
+    await db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).create({
+      values: { id: supplierId, displayName: supplierId },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverSupplierAccounts).create({
+      values: { id: `${supplierId}-account`, supplierId, companyId: 'company-1', accountName: supplierId },
+    });
+  }
   await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
     values: { id: 'product-a', asin: 'B000FAMILY', sku: 'SKU-A' },
   });
@@ -406,6 +414,9 @@ describe('EcobaseCompanyProductFamilyService', () => {
         orderId: 'order-new',
         companyProductId: 'company-product-b',
         supplierProductId: 'supplier-product-b',
+        sourceAsin: 'B000FAMILY',
+        sourceSupplierSku: 'SUPPLIER-SKU-B',
+        productMappingStatus: 'resolved',
       },
     });
 
@@ -418,7 +429,9 @@ describe('EcobaseCompanyProductFamilyService', () => {
       supplierReviewRequired: false,
       supplierSelectionEvidenceJson: {
         sourceOrderRef: 'EF1002A',
-        sourceSku: 'SKU-B',
+        sourceAsin: 'B000FAMILY',
+        sourceSku: 'SUPPLIER-SKU-B',
+        productMappingStatus: 'resolved',
         matchType: 'exact_target_sku',
       },
     });
@@ -467,6 +480,65 @@ describe('EcobaseCompanyProductFamilyService', () => {
     });
   });
 
+  it('rejects an operator supplier outside the family company boundary', async () => {
+    const db = new MemoryDatabase();
+    await seed(db);
+    const service = new EcobaseCompanyProductFamilyService(db);
+    const family = await service.ensureFamily(identity);
+    await db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).create({
+      values: { id: 'supplier-foreign', displayName: 'Foreign supplier' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverSupplierAccounts).create({
+      values: { id: 'supplier-foreign-account', supplierId: 'supplier-foreign', companyId: 'company-2' },
+    });
+
+    await expect(
+      service.setPreferredSupplierOffer({
+        familyId: family.id as string,
+        supplierId: 'supplier-foreign',
+        source: 'operator',
+        actorUserId: '102',
+        reason: 'Test boundary.',
+      }),
+    ).rejects.toThrow('does not belong to family company "company-1"');
+  });
+
+  it('audits an operator target and prevents automatic reruns from overwriting it', async () => {
+    const db = new MemoryDatabase();
+    await seed(db);
+    const service = new EcobaseCompanyProductFamilyService(db);
+    const family = await service.ensureFamily(identity);
+
+    const selected = await service.setReplenishmentTarget({
+      familyId: family.id as string,
+      companyProductId: 'company-product-b',
+      source: 'operator',
+      actorUserId: '102',
+      reason: 'Primary replenishment listing confirmed.',
+    });
+    const preserved = await service.setReplenishmentTarget({
+      familyId: family.id as string,
+      companyProductId: 'company-product-a',
+      source: 'automatic',
+    });
+
+    expect(selected).toMatchObject({
+      replenishmentTargetCompanyProductId: 'company-product-b',
+      targetSelectionSource: 'operator',
+      targetSelectedByUserId: '102',
+      targetSelectedAt: expect.any(String),
+      targetSelectionEvidenceJson: {
+        reason: 'Primary replenishment listing confirmed.',
+        actorUserId: '102',
+        selectedAt: expect.any(String),
+      },
+    });
+    expect(preserved).toMatchObject({
+      replenishmentTargetCompanyProductId: 'company-product-b',
+      targetSelectionSource: 'operator',
+    });
+  });
+
   it('persists an operator preferred supplier and prevents automatic overwrite', async () => {
     const db = new MemoryDatabase();
     await seed(db);
@@ -479,6 +551,7 @@ describe('EcobaseCompanyProductFamilyService', () => {
       supplierProductId: 'supplier-product-a',
       source: 'operator',
       actorUserId: '102',
+      reason: 'Primary supplier confirmed by operator.',
     });
     const preserved = await service.setPreferredSupplierOffer({
       familyId: family.id,
@@ -491,7 +564,17 @@ describe('EcobaseCompanyProductFamilyService', () => {
       preferredSupplierProductId: 'supplier-product-a',
       supplierSelectionSource: 'operator',
       supplierSelectedByUserId: '102',
+      supplierSelectedAt: expect.any(String),
+      supplierSelectionEvidenceJson: {
+        reason: 'Primary supplier confirmed by operator.',
+        actorUserId: '102',
+        selectedAt: expect.any(String),
+      },
     });
-    expect(preserved.preferredSupplierId).toBe('supplier-1');
+    expect(preserved).toMatchObject({
+      preferredSupplierId: 'supplier-1',
+      supplierSelectionSource: 'operator',
+      supplierSelectionEvidenceJson: { reason: 'Primary supplier confirmed by operator.' },
+    });
   });
 });

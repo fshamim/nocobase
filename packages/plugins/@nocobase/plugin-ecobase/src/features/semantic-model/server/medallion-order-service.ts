@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import type { EcobaseDatabase, EcobaseRepository } from '../../source-import/server/import-service';
@@ -20,8 +29,11 @@ export interface CreateDraftOrderParams {
 
 export interface CreateOrderLineParams {
   orderId: string;
-  companyProductId: string;
-  supplierProductId: string;
+  companyProductId?: string;
+  supplierProductId?: string;
+  sourceAsin?: string;
+  sourceSupplierSku?: string;
+  productMappingStatus?: 'resolved' | 'unresolved';
   orderedQty: number;
   confirmedQty?: number;
   unitCost?: number;
@@ -109,23 +121,50 @@ export class EcobaseMedallionOrderService {
 
   async createOrderLine(params: CreateOrderLineParams) {
     const order = await this.requireRecord(ECOBASE_COLLECTIONS.silverOrders, params.orderId, 'order');
-    const companyProduct = await this.requireRecord(
-      ECOBASE_COLLECTIONS.silverCompanyProducts,
-      params.companyProductId,
-      'company product',
-    );
-    const supplierProduct = await this.requireRecord(
-      ECOBASE_COLLECTIONS.silverSupplierProducts,
-      params.supplierProductId,
-      'supplier product',
-    );
-    if (toPlainRecord(companyProduct).companyId !== toPlainRecord(order).companyId) {
+    const mappingStatus = params.productMappingStatus ?? 'resolved';
+    if (mappingStatus !== 'resolved' && mappingStatus !== 'unresolved') {
+      throw new Error('Ecobase medallion order failed: productMappingStatus must be resolved or unresolved.');
+    }
+    const sourceAsin = params.sourceAsin?.trim().toUpperCase();
+    const sourceSupplierSku = params.sourceSupplierSku?.trim();
+    if (mappingStatus === 'unresolved') {
+      if (params.companyProductId || params.supplierProductId) {
+        throw new Error('Ecobase medallion order failed: unresolved lines cannot reference mapped products.');
+      }
+      if (!sourceAsin && !sourceSupplierSku) {
+        throw new Error(
+          'Ecobase medallion order failed: sourceAsin or sourceSupplierSku is required for an unresolved line.',
+        );
+      }
+    }
+
+    const companyProduct =
+      mappingStatus === 'resolved'
+        ? await this.requireRecord(
+            ECOBASE_COLLECTIONS.silverCompanyProducts,
+            params.companyProductId,
+            'company product',
+          )
+        : undefined;
+    const supplierProduct =
+      mappingStatus === 'resolved'
+        ? await this.requireRecord(
+            ECOBASE_COLLECTIONS.silverSupplierProducts,
+            params.supplierProductId,
+            'supplier product',
+          )
+        : undefined;
+    if (companyProduct && toPlainRecord(companyProduct).companyId !== toPlainRecord(order).companyId) {
       throw new Error('Ecobase medallion order failed: company product belongs to a different company.');
     }
-    if (toPlainRecord(supplierProduct).supplierId !== toPlainRecord(order).supplierId) {
+    if (supplierProduct && toPlainRecord(supplierProduct).supplierId !== toPlainRecord(order).supplierId) {
       throw new Error('Ecobase medallion order failed: supplier product belongs to a different supplier.');
     }
-    if (toPlainRecord(supplierProduct).productId !== toPlainRecord(companyProduct).productId) {
+    if (
+      companyProduct &&
+      supplierProduct &&
+      toPlainRecord(supplierProduct).productId !== toPlainRecord(companyProduct).productId
+    ) {
       throw new Error('Ecobase medallion order failed: supplier product belongs to a different product.');
     }
     if (!Number.isFinite(params.orderedQty) || params.orderedQty <= 0) {
@@ -139,6 +178,9 @@ export class EcobaseMedallionOrderService {
         orderId: params.orderId,
         companyProductId: params.companyProductId,
         supplierProductId: params.supplierProductId,
+        sourceAsin,
+        sourceSupplierSku,
+        productMappingStatus: mappingStatus,
         orderedQty: params.orderedQty,
         confirmedQty: params.confirmedQty,
         unitCost: params.unitCost,

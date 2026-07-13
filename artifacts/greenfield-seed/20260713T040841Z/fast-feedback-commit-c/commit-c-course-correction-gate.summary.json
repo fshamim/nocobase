@@ -1,0 +1,152 @@
+{
+  "testFiles": 24,
+  "passed": 261,
+  "skipped": 0,
+  "total": 261,
+  "results": [
+    {
+      "file": "packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/schema.test.ts",
+      "passed": 3,
+      "skipped": 0,
+      "total": 3
+    },
+    {
+      "file": "packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-schema.test.ts",
+      "passed": 4,
+      "skipped": 0,
+      "total": 4
+    },
+    {
+      "file": "packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-line-source-identity-migration.test.ts",
+      "passed": 1,
+      "skipped": 0,
+      "total": 1
+    },
+    {
+      "file": "packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-order-service.test.ts",
+      "passed": 6,
+      "skipped": 0,
+      "total": 6
+    },
+    {
+      "file": "packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-identity-service.test.ts",
+      "passed": 7,
+      "skipped": 0,
+      "total": 7
+    },
+    {
+      "file": "packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts",
+      "passed": 38,
+      "skipped": 0,
+      "total": 38
+    },
+    {
+      "file": "packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/supplier-product-link-selection.test.ts",
+      "passed": 3,
+      "skipped": 0,
+      "total": 3
+    },
+    {
+      "file": "packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/sellerboard-live-import.test.ts",
+      "passed": 13,
+      "skipped": 0,
+      "total": 13
+    },
+    {
+      "file": "packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/import-preflight.test.ts",
+      "passed": 6,
+      "skipped": 0,
+      "total": 6
+    },
+    {
+      "file": "packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/planning-calculations.test.ts",
+      "passed": 2,
+      "skipped": 0,
+      "total": 2
+    },
+    {
+      "file": "packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-import-policy.test.ts",
+      "passed": 2,
+      "skipped": 0,
+      "total": 2
+    },
+    {
+      "file": "packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts",
+      "passed": 23,
+      "skipped": 0,
+      "total": 23
+    },
+    {
+      "file": "packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-lifecycle.test.ts",
+      "passed": 13,
+      "skipped": 0,
+      "total": 13
+    },
+    {
+      "file": "packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/supplier-identity-convergence-service.test.ts",
+      "passed": 5,
+      "skipped": 0,
+      "total": 5
+    },
+    {
+      "file": "packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/supplier-resolution-repair-service.test.ts",
+      "passed": 9,
+      "skipped": 0,
+      "total": 9
+    },
+    {
+      "file": "packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/accountability-service.test.ts",
+      "passed": 3,
+      "skipped": 0,
+      "total": 3
+    },
+    {
+      "file": "packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts",
+      "passed": 18,
+      "skipped": 0,
+      "total": 18
+    },
+    {
+      "file": "packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts",
+      "passed": 11,
+      "skipped": 0,
+      "total": 11
+    },
+    {
+      "file": "packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts",
+      "passed": 26,
+      "skipped": 0,
+      "total": 26
+    },
+    {
+      "file": "packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/import-service.test.ts",
+      "passed": 10,
+      "skipped": 0,
+      "total": 10
+    },
+    {
+      "file": "packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts",
+      "passed": 2,
+      "skipped": 0,
+      "total": 2
+    },
+    {
+      "file": "packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/bootstrap-orchestration.test.ts",
+      "passed": 3,
+      "skipped": 0,
+      "total": 3
+    },
+    {
+      "file": "packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts",
+      "passed": 51,
+      "skipped": 0,
+      "total": 51
+    },
+    {
+      "file": "packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/greenfield-seed-bundle.test.ts",
+      "passed": 2,
+      "skipped": 0,
+      "total": 2
+    }
+  ]
+}

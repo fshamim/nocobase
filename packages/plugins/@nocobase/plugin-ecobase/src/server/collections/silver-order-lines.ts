@@ -31,6 +31,7 @@ export default defineCollection({
       target: ECOBASE_COLLECTIONS.silverCompanyProducts,
       foreignKey: 'companyProductId',
       targetKey: 'id',
+      allowNull: true,
       onDelete: 'RESTRICT',
     },
     {
@@ -42,6 +43,9 @@ export default defineCollection({
       onDelete: 'RESTRICT',
     },
     { name: 'sourceLineKey', type: 'string', allowNull: false },
+    { name: 'sourceAsin', type: 'string' },
+    { name: 'sourceSupplierSku', type: 'string' },
+    { name: 'productMappingStatus', type: 'string', allowNull: false, defaultValue: 'resolved' },
     { name: 'orderedQty', type: 'double', allowNull: false },
     { name: 'confirmedQty', type: 'double' },
     { name: 'unitCost', type: 'double' },

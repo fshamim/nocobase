@@ -1,0 +1,39 @@
+capturedAt=2026-07-13T17:42:57Z
+repository=/Users/fshamim/Documents/dev/ecofission-bi/nocobase
+sha=cd9b79e09b24dc82371c1fc33f4e3e04e549a2cb
+ M packages/plugins/@nocobase/plugin-ecobase/scripts/live-gate-bootstrap.mjs
+ M packages/plugins/@nocobase/plugin-ecobase/scripts/preflight-import-data.ts
+ M packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/company-product-family-service.ts
+ M packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/inventory-planning-service.ts
+ M packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/resource-registration.ts
+ M packages/plugins/@nocobase/plugin-ecobase/src/features/order-planning/server/order-planning-service.ts
+ M packages/plugins/@nocobase/plugin-ecobase/src/features/semantic-model/server/medallion-identity-service.ts
+ M packages/plugins/@nocobase/plugin-ecobase/src/features/semantic-model/server/medallion-normalization-service.ts
+ M packages/plugins/@nocobase/plugin-ecobase/src/features/semantic-model/server/medallion-order-service.ts
+ M packages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/adapters/live-source-blocker-adapters.ts
+ M packages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/adapters/sellerboard-history-csv-adapter.ts
+ M packages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/four-company-migration-profile.ts
+ M packages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/greenfield-seed-bundle.ts
+ M packages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/import-preflight.ts
+ M packages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/import-service.ts
+ M packages/plugins/@nocobase/plugin-ecobase/src/features/supplier-management/server/supplier-order-service.ts
+ M packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts
+ M packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/bootstrap-orchestration.test.ts
+ M packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts
+ M packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts
+ M packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/greenfield-seed-bundle.test.ts
+ M packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/import-preflight.test.ts
+ M packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts
+ M packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-identity-service.test.ts
+ M packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts
+ M packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-order-service.test.ts
+ M packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-schema.test.ts
+ M packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts
+ M packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/planning-calculations.test.ts
+ M packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/schema.test.ts
+ M packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/supplier-product-link-selection.test.ts
+ M packages/plugins/@nocobase/plugin-ecobase/src/server/collections/silver-order-lines.ts
+ M packages/plugins/@nocobase/plugin-ecobase/src/server/resource-actions.ts
+?? artifacts/greenfield-seed/20260713T040841Z/fast-feedback-commit-c/
+?? artifacts/greenfield-seed/20260713T040841Z/final-live-gate/
+?? packages/plugins/@nocobase/plugin-ecobase/src/server/migrations/20260713200000-add-order-line-source-identity.ts

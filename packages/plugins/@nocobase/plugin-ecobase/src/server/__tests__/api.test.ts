@@ -281,11 +281,22 @@ describe('Ecobase inventory-planning public API seam', () => {
     ).rejects.toThrow('Ecobase budget optimizer requires a budget greater than zero.');
   });
 
-  it('rejects family target changes without both persisted identities', async () => {
+  it('requires complete, reasoned, operator-authenticated family overrides', async () => {
     const actions = createEcobaseInventoryPlanningActions();
     await expect(
       actions.setFamilyTarget(createActionContext(new MemoryDatabase(), { familyId: 'family-1' }), vi.fn()),
-    ).rejects.toThrow('Ecobase family target selection requires familyId and companyProductId.');
+    ).rejects.toThrow('Ecobase family target selection requires familyId, companyProductId, and reason.');
+    await expect(
+      actions.setFamilyPreferredSupplier(
+        createActionContext(
+          new MemoryDatabase(),
+          { familyId: 'family-1', supplierId: 'supplier-1', reason: 'Approved supplier.' },
+          { id: 1 },
+          ['viewer'],
+        ),
+        vi.fn(),
+      ),
+    ).rejects.toThrow('Ecobase family overrides require an operator or administrator role.');
   });
 
   it('restricts receipt overrides to authenticated operator/admin roles', async () => {
@@ -2343,7 +2354,7 @@ describe('Ecobase import public API seam', () => {
     expect(unchangedContext.body).toMatchObject({ data: { status: 'skipped' } });
   });
 
-  it('normalizes pending bronze rows through resource actions', async () => {
+  it('normalizes pending legacy Bronze rows without creating Amazon identity', async () => {
     const db = new MemoryDatabase();
     await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).create({
       values: {
@@ -2386,7 +2397,7 @@ describe('Ecobase import public API seam', () => {
 
     expect(context.body.data.errors).toEqual([]);
     expect(context.body).toMatchObject({ data: { normalized: 1, failed: 0 } });
-    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).all()).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).all()).toHaveLength(0);
     expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()[0].normalizationStatus).toBe('normalized');
     expect(next).toHaveBeenCalledOnce();
   });

@@ -268,6 +268,7 @@ export interface RunCsvBundleImportParams {
   sourceVersion?: string;
   defaultCompany?: string;
   files: CsvSourceFile[];
+  skipGoldRefresh?: boolean;
 }
 
 export interface ImportClickupOrderStatusesParams {
@@ -933,6 +934,7 @@ export class EcobaseImportService {
       sourceIdentifier,
       sourceVersion,
       preserveAuditRun: true,
+      skipGoldRefresh: params.skipGoldRefresh,
       runtimeConfig: {
         files: changedFiles.map((file) => ({
           ...file,

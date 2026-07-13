@@ -247,6 +247,7 @@ export class EcobaseCompanyProductFamilyService {
     companyProductId: string;
     source: FamilySelectionSource;
     actorUserId?: string;
+    reason?: string;
     evidence?: PlainRecord;
   }) {
     const family = await this.getFamily(params.familyId);
@@ -256,13 +257,19 @@ export class EcobaseCompanyProductFamilyService {
     if (!members.some((member) => idOf(member, 'id') === companyProductId)) {
       throw new Error(`EcoBase company product "${companyProductId}" does not belong to family "${params.familyId}".`);
     }
+    const targetSelectedAt = new Date().toISOString();
     await this.updateFamily(params.familyId, {
       replenishmentTargetCompanyProductId: companyProductId,
       targetSelectionSource: params.source,
-      targetSelectedAt: new Date().toISOString(),
+      targetSelectedAt,
       targetSelectedByUserId: params.actorUserId,
       targetReviewRequired: false,
-      targetSelectionEvidenceJson: params.evidence ?? {},
+      targetSelectionEvidenceJson: {
+        ...(params.evidence ?? {}),
+        ...(params.source === 'operator'
+          ? { reason: params.reason, actorUserId: params.actorUserId, selectedAt: targetSelectedAt }
+          : {}),
+      },
     });
     return this.getFamily(params.familyId);
   }
@@ -273,6 +280,7 @@ export class EcobaseCompanyProductFamilyService {
     supplierProductId?: string;
     source: SupplierSelectionSource;
     actorUserId?: string;
+    reason?: string;
     evidence?: PlainRecord;
   }) {
     const family = await this.getFamily(params.familyId);
@@ -281,15 +289,22 @@ export class EcobaseCompanyProductFamilyService {
     const supplierProductId = params.supplierProductId
       ? requiredString(params.supplierProductId, 'supplierProductId')
       : undefined;
+    if (params.source === 'operator') await this.validateSupplier(params.familyId, supplierId);
     if (supplierProductId) await this.validateSupplierProduct(params.familyId, supplierId, supplierProductId);
+    const supplierSelectedAt = new Date().toISOString();
     await this.updateFamily(params.familyId, {
       preferredSupplierId: supplierId,
       preferredSupplierProductId: supplierProductId,
       supplierSelectionSource: params.source,
-      supplierSelectedAt: new Date().toISOString(),
+      supplierSelectedAt,
       supplierSelectedByUserId: params.actorUserId,
       supplierReviewRequired: false,
-      supplierSelectionEvidenceJson: params.evidence ?? {},
+      supplierSelectionEvidenceJson: {
+        ...(params.evidence ?? {}),
+        ...(params.source === 'operator'
+          ? { reason: params.reason, actorUserId: params.actorUserId, selectedAt: supplierSelectedAt }
+          : {}),
+      },
     });
     return this.getFamily(params.familyId);
   }
@@ -522,7 +537,9 @@ export class EcobaseCompanyProductFamilyService {
           sourceOrderDate: order.orderDate,
           sourceCompanyProductId: companyProductId,
           sourceSupplierProductId: idOf(line, 'supplierProductId'),
-          sourceSku: memberById.get(companyProductId)?.sku,
+          sourceAsin: line.sourceAsin,
+          sourceSku: line.sourceSupplierSku ?? memberById.get(companyProductId)?.sku,
+          productMappingStatus: line.productMappingStatus ?? 'resolved',
           supplierId,
           matchType: companyProductId === targetId ? 'exact_target_sku' : 'family_projected',
         };
@@ -596,6 +613,20 @@ export class EcobaseCompanyProductFamilyService {
       throw new Error(
         `EcoBase Amazon account "${identity.amazonAccountId}" belongs to marketplace "${marketplace}", not "${identity.marketplace}".`,
       );
+    }
+  }
+
+  private async validateSupplier(familyId: string, supplierId: string) {
+    const family = await this.getFamily(familyId);
+    const supplier = await this.db
+      .getRepository(ECOBASE_COLLECTIONS.silverSuppliers)
+      .findOne({ filterByTk: supplierId });
+    if (!supplier) throw new Error(`EcoBase supplier "${supplierId}" was not found.`);
+    const account = await this.db.getRepository(ECOBASE_COLLECTIONS.silverSupplierAccounts).findOne({
+      filter: { supplierId, companyId: idOf(family, 'companyId') },
+    });
+    if (!account) {
+      throw new Error(`EcoBase supplier "${supplierId}" does not belong to family company "${family.companyId}".`);
     }
   }
 

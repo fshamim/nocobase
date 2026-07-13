@@ -11,6 +11,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSourceAdapterRegistry, sellerboardApiAdapter } from '../../features/source-import/server/adapters';
+import { parseSellerboardCsv } from '../../features/source-import/server/adapters/live-source-blocker-adapters';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import {
   EcobaseDatabase,
@@ -146,6 +147,17 @@ afterEach(() => {
 });
 
 describe('Sellerboard live URL import', () => {
+  it('parses comma- and semicolon-delimited reports', () => {
+    expect(parseSellerboardCsv('Date,ASIN\n2026-07-13,B000000001').rows[0]).toEqual({
+      Date: '2026-07-13',
+      ASIN: 'B000000001',
+    });
+    expect(parseSellerboardCsv('Date;ASIN\n13/07/2026;B000000002').rows[0]).toEqual({
+      Date: '13/07/2026',
+      ASIN: 'B000000002',
+    });
+  });
+
   it('fetches live Sellerboard CSV URLs and normalizes through the existing CSV path', async () => {
     const { db, service } = createService();
 

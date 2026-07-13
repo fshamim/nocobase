@@ -1,0 +1,776 @@
+
+=== packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/schema.test.ts ===
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/schema.test.ts --run --reporter=dot
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/schema.test.ts',
+  '--run',
+  '--reporter=dot',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:80989) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/schema.test.ts  (3 tests) 2ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  17:49:00
+   Duration  1.29s (transform 630ms, setup 49ms, collect 1.13s, tests 2ms, environment 0ms, prepare 34ms)
+
+Done in 3.27s.
+
+=== packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-schema.test.ts ===
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-schema.test.ts --run --reporter=dot
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-schema.test.ts',
+  '--run',
+  '--reporter=dot',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:81058) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-schema.test.ts  (4 tests) 4ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  17:49:03
+   Duration  1.32s (transform 662ms, setup 42ms, collect 1.16s, tests 4ms, environment 0ms, prepare 33ms)
+
+Done in 2.85s.
+
+=== packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-line-source-identity-migration.test.ts ===
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-line-source-identity-migration.test.ts --run --reporter=dot
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-line-source-identity-migration.test.ts',
+  '--run',
+  '--reporter=dot',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:81098) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-line-source-identity-migration.test.ts  (1 test) 2ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  17:49:06
+   Duration  3.18s (transform 1.28s, setup 47ms, collect 3.02s, tests 2ms, environment 0ms, prepare 34ms)
+
+Done in 4.86s.
+
+=== packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-order-service.test.ts ===
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-order-service.test.ts --run --reporter=dot
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-order-service.test.ts',
+  '--run',
+  '--reporter=dot',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:81177) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-order-service.test.ts  (6 tests) 5ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  17:49:11
+   Duration  516ms (transform 313ms, setup 50ms, collect 345ms, tests 5ms, environment 0ms, prepare 34ms)
+
+Done in 1.83s.
+
+=== packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-identity-service.test.ts ===
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-identity-service.test.ts --run --reporter=dot
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-identity-service.test.ts',
+  '--run',
+  '--reporter=dot',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:81218) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-identity-service.test.ts  (7 tests) 5ms
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  17:49:13
+   Duration  503ms (transform 307ms, setup 45ms, collect 339ms, tests 5ms, environment 0ms, prepare 34ms)
+
+Done in 1.82s.
+
+=== packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts ===
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts --run --reporter=dot
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts',
+  '--run',
+  '--reporter=dot',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:81233) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts  (38 tests) 24ms
+
+ Test Files  1 passed (1)
+      Tests  38 passed (38)
+   Start at  17:49:15
+   Duration  538ms (transform 311ms, setup 48ms, collect 344ms, tests 24ms, environment 0ms, prepare 38ms)
+
+Done in 1.89s.
+
+=== packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/supplier-product-link-selection.test.ts ===
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/supplier-product-link-selection.test.ts --run --reporter=dot
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/supplier-product-link-selection.test.ts',
+  '--run',
+  '--reporter=dot',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:81272) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/supplier-product-link-selection.test.ts  (3 tests) 2ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  17:49:17
+   Duration  502ms (transform 309ms, setup 46ms, collect 339ms, tests 2ms, environment 0ms, prepare 35ms)
+
+Done in 1.84s.
+
+=== packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/sellerboard-live-import.test.ts ===
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/sellerboard-live-import.test.ts --run --reporter=dot
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/sellerboard-live-import.test.ts',
+  '--run',
+  '--reporter=dot',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:81311) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/sellerboard-live-import.test.ts  (13 tests) 24ms
+
+ Test Files  1 passed (1)
+      Tests  13 passed (13)
+   Start at  17:49:19
+   Duration  536ms (transform 313ms, setup 46ms, collect 349ms, tests 24ms, environment 0ms, prepare 36ms)
+
+Done in 1.84s.
+
+=== packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/import-preflight.test.ts ===
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/import-preflight.test.ts --run --reporter=dot
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/import-preflight.test.ts',
+  '--run',
+  '--reporter=dot',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:81320) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/import-preflight.test.ts  (6 tests) 8ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  17:49:21
+   Duration  544ms (transform 335ms, setup 49ms, collect 372ms, tests 8ms, environment 0ms, prepare 33ms)
+
+Done in 1.83s.
+
+=== packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/planning-calculations.test.ts ===
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/planning-calculations.test.ts --run --reporter=dot
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/planning-calculations.test.ts',
+  '--run',
+  '--reporter=dot',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:81395) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/planning-calculations.test.ts  (2 tests) 5ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  17:49:23
+   Duration  3.53s (transform 1.67s, setup 44ms, collect 3.36s, tests 5ms, environment 0ms, prepare 32ms)
+
+Done in 4.96s.
+
+=== packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-import-policy.test.ts ===
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-import-policy.test.ts --run --reporter=dot
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-import-policy.test.ts',
+  '--run',
+  '--reporter=dot',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:81464) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-import-policy.test.ts  (2 tests) 5ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  17:49:28
+   Duration  507ms (transform 304ms, setup 49ms, collect 335ms, tests 5ms, environment 0ms, prepare 34ms)
+
+Done in 1.82s.
+
+=== packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts ===
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts --run --reporter=dot
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts',
+  '--run',
+  '--reporter=dot',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:81473) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts  (23 tests) 34ms
+
+ Test Files  1 passed (1)
+      Tests  23 passed (23)
+   Start at  17:49:30
+   Duration  590ms (transform 357ms, setup 48ms, collect 394ms, tests 34ms, environment 0ms, prepare 34ms)
+
+Done in 1.83s.
+
+=== packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-lifecycle.test.ts ===
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-lifecycle.test.ts --run --reporter=dot
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-lifecycle.test.ts',
+  '--run',
+  '--reporter=dot',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:81512) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-lifecycle.test.ts  (13 tests) 3ms
+
+ Test Files  1 passed (1)
+      Tests  13 passed (13)
+   Start at  17:49:32
+   Duration  188ms (transform 38ms, setup 44ms, collect 26ms, tests 3ms, environment 0ms, prepare 35ms)
+
+Done in 1.32s.
+
+=== packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/supplier-identity-convergence-service.test.ts ===
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/supplier-identity-convergence-service.test.ts --run --reporter=dot
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/supplier-identity-convergence-service.test.ts',
+  '--run',
+  '--reporter=dot',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:81551) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/supplier-identity-convergence-service.test.ts  (5 tests) 7ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  17:49:33
+   Duration  513ms (transform 312ms, setup 46ms, collect 346ms, tests 7ms, environment 0ms, prepare 33ms)
+
+Done in 1.84s.
+
+=== packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/supplier-resolution-repair-service.test.ts ===
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/supplier-resolution-repair-service.test.ts --run --reporter=dot
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/supplier-resolution-repair-service.test.ts',
+  '--run',
+  '--reporter=dot',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:81560) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/supplier-resolution-repair-service.test.ts  (9 tests) 9ms
+
+ Test Files  1 passed (1)
+      Tests  9 passed (9)
+   Start at  17:49:35
+   Duration  1.59s (transform 883ms, setup 49ms, collect 1.42s, tests 9ms, environment 0ms, prepare 33ms)
+
+Done in 2.88s.
+
+=== packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/accountability-service.test.ts ===
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/accountability-service.test.ts --run --reporter=dot
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/accountability-service.test.ts',
+  '--run',
+  '--reporter=dot',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:81629) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/accountability-service.test.ts  (3 tests) 7ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  17:49:38
+   Duration  523ms (transform 318ms, setup 47ms, collect 352ms, tests 7ms, environment 0ms, prepare 34ms)
+
+Done in 1.89s.
+
+=== packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts ===
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts --run --reporter=dot
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts',
+  '--run',
+  '--reporter=dot',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:81638) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts  (18 tests) 14ms
+
+ Test Files  1 passed (1)
+      Tests  18 passed (18)
+   Start at  17:49:40
+   Duration  525ms (transform 315ms, setup 48ms, collect 349ms, tests 14ms, environment 0ms, prepare 35ms)
+
+Done in 1.82s.
+
+=== packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts ===
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts --run --reporter=dot
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts',
+  '--run',
+  '--reporter=dot',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:81677) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts  (11 tests) 8ms
+
+ Test Files  1 passed (1)
+      Tests  11 passed (11)
+   Start at  17:49:42
+   Duration  211ms (transform 48ms, setup 50ms, collect 37ms, tests 8ms, environment 0ms, prepare 35ms)
+
+Done in 1.34s.
+
+=== packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts ===
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts --run --reporter=dot
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts',
+  '--run',
+  '--reporter=dot',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:81716) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts  (26 tests) 23ms
+
+ Test Files  1 passed (1)
+      Tests  26 passed (26)
+   Start at  17:49:44
+   Duration  565ms (transform 337ms, setup 50ms, collect 377ms, tests 23ms, environment 0ms, prepare 33ms)
+
+Done in 1.85s.
+
+=== packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/import-service.test.ts ===
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/import-service.test.ts --run --reporter=dot
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/import-service.test.ts',
+  '--run',
+  '--reporter=dot',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:81725) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/import-service.test.ts  (10 tests) 9ms
+
+ Test Files  1 passed (1)
+      Tests  10 passed (10)
+   Start at  17:49:46
+   Duration  524ms (transform 318ms, setup 46ms, collect 353ms, tests 9ms, environment 0ms, prepare 34ms)
+
+Done in 1.90s.
+
+=== packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts ===
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts --run --reporter=dot
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts',
+  '--run',
+  '--reporter=dot',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:81794) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > loads the plugin, syncs collections, runs no-op import action, and reads status through resources
+2026-07-13 17:49:51 [info]  App supervisor initialized                   extra={"discoveryAdapter":"main-only","processAdapter":"main-only","commandAdapter":""} meta={"discoveryAdapter":"main-only","processAdapter":"main-only","commandAdapter":""} module=app-supervisor app=main dataSourceKey=main
+2026-07-13 17:49:51 [debug] create database instance: {"sync":{"alter":{"drop":false},"force":false},"dialect":"sqlite","logging":false,"define":{"charset":"utf8mb4","collate":"utf8mb4_unicode_ci"},"underscored":false,"dialectOptions":{},"rawTimezone":"+00:00"} databaseInstanceId=hzo_0bqfjvmhjZ_C3NpW9
+2026-07-13 17:49:51 [debug] Setting app status                           extra={"appName":"main","status":"commanding"} meta={"appName":"main","status":"commanding"} module=app-supervisor app=main dataSourceKey=main
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > loads the plugin, syncs collections, runs no-op import action, and reads status through resources
+2026-07-13 17:49:51 [info]  connection has been established successfully. method=auth
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > loads the plugin, syncs collections, runs no-op import action, and reads status through resources
+2026-07-13 17:49:51 [info]  allocate worker id: 28                       extra={"method":"load"} module=application method=load app=main reqId=d42b9709-289d-4485-ab15-0293fb2fc0c7 dataSourceKey=main
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > loads the plugin, syncs collections, runs no-op import action, and reads status through resources
+2026-07-13 17:49:51 [info]  tools [getCollectionMetadata] registered from plugin [data-source-manager] module=data-source-manager app=main reqId=d42b9709-289d-4485-ab15-0293fb2fc0c7 dataSourceKey=main
+2026-07-13 17:49:51 [info]  tools [getCollectionNames] registered from plugin [data-source-manager] module=data-source-manager app=main reqId=d42b9709-289d-4485-ab15-0293fb2fc0c7 dataSourceKey=main
+2026-07-13 17:49:51 [info]  tools [getDataSources] registered from plugin [data-source-manager] module=data-source-manager app=main reqId=d42b9709-289d-4485-ab15-0293fb2fc0c7 dataSourceKey=main
+2026-07-13 17:49:51 [info]  tools [searchFieldMetadata] registered from plugin [data-source-manager] module=data-source-manager app=main reqId=d42b9709-289d-4485-ab15-0293fb2fc0c7 dataSourceKey=main
+2026-07-13 17:49:51 [info]  tools [dataQuery] registered from plugin [data-source-manager] module=data-source-manager app=main reqId=d42b9709-289d-4485-ab15-0293fb2fc0c7 dataSourceKey=main
+2026-07-13 17:49:51 [info]  tools [dataSourceCounting] registered from plugin [data-source-manager] module=data-source-manager app=main reqId=d42b9709-289d-4485-ab15-0293fb2fc0c7 dataSourceKey=main
+2026-07-13 17:49:51 [info]  tools [dataSourceQuery] registered from plugin [data-source-manager] module=data-source-manager app=main reqId=d42b9709-289d-4485-ab15-0293fb2fc0c7 dataSourceKey=main
+2026-07-13 17:49:51 [info]  tools [defineCollections] registered from plugin [data-source-manager] module=data-source-manager app=main reqId=d42b9709-289d-4485-ab15-0293fb2fc0c7 dataSourceKey=main
+2026-07-13 17:49:51 [info]  tools [intentRouter] registered from plugin [data-source-manager] module=data-source-manager app=main reqId=d42b9709-289d-4485-ab15-0293fb2fc0c7 dataSourceKey=main
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > loads the plugin, syncs collections, runs no-op import action, and reads status through resources
+2026-07-13 17:49:52 [warn]  [PubSubManager] adapter is not exist or not connected, cannot publish message to channel main.sync.data-source-manager module=application app=main reqId=d42b9709-289d-4485-ab15-0293fb2fc0c7 dataSourceKey=main
+2026-07-13 17:49:52 [warn]  [PubSubManager] adapter is not exist or not connected, cannot publish message to channel main.sync.acl module=application app=main reqId=d42b9709-289d-4485-ab15-0293fb2fc0c7 dataSourceKey=main
+2026-07-13 17:49:52 [warn]  [PubSubManager] adapter is not exist or not connected, cannot publish message to channel main.sync.data-source-manager module=application app=main reqId=d42b9709-289d-4485-ab15-0293fb2fc0c7 dataSourceKey=main
+2026-07-13 17:49:52 [warn]  [PubSubManager] adapter is not exist or not connected, cannot publish message to channel main.sync.acl module=application app=main reqId=d42b9709-289d-4485-ab15-0293fb2fc0c7 dataSourceKey=main
+2026-07-13 17:49:52 [warn]  [PubSubManager] adapter is not exist or not connected, cannot publish message to channel main.sync.data-source-manager module=application app=main reqId=d42b9709-289d-4485-ab15-0293fb2fc0c7 dataSourceKey=main
+2026-07-13 17:49:52 [warn]  [PubSubManager] adapter is not exist or not connected, cannot publish message to channel main.sync.acl module=application app=main reqId=d42b9709-289d-4485-ab15-0293fb2fc0c7 dataSourceKey=main
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > loads the plugin, syncs collections, runs no-op import action, and reads status through resources
+2026-07-13 17:49:53 [info]  app reinstalled successfully [v2.1.6]        module=application app=main reqId=d42b9709-289d-4485-ab15-0293fb2fc0c7 dataSourceKey=main
+2026-07-13 17:49:53 [debug] Setting app status                           extra={"appName":"main"} meta={"appName":"main"} module=app-supervisor app=main dataSourceKey=main
+2026-07-13 17:49:53 [debug] Setting app status                           extra={"appName":"main","status":"commanding"} meta={"appName":"main","status":"commanding"} module=app-supervisor app=main dataSourceKey=main
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > loads the plugin, syncs collections, runs no-op import action, and reads status through resources
+2026-07-13 17:49:53 [warn]  [PubSubManager] adapter is not exist or not connected, cannot publish message to channel main.sync.localeManager module=application app=main reqId=d42b9709-289d-4485-ab15-0293fb2fc0c7 dataSourceKey=main
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > loads the plugin, syncs collections, runs no-op import action, and reads status through resources
+2026-07-13 17:49:53 [debug] loading collections...
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > loads the plugin, syncs collections, runs no-op import action, and reads status through resources
+2026-07-13 17:49:53 [debug] collections loaded
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > loads the plugin, syncs collections, runs no-op import action, and reads status through resources
+2026-07-13 17:49:53 [info]  memory queue storage file not found, skip    module=application app=main reqId=d42b9709-289d-4485-ab15-0293fb2fc0c7 dataSourceKey=main
+2026-07-13 17:49:53 [info]  write roles to ACL                           extra={"method":"writeRolesToACL"} module=acl method=writeRolesToACL app=main reqId=d42b9709-289d-4485-ab15-0293fb2fc0c7 dataSourceKey=main
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > loads the plugin, syncs collections, runs no-op import action, and reads status through resources
+2026-07-13 17:49:54 [debug] Setting app status                           extra={"appName":"main","status":"running"} meta={"appName":"main","status":"running"} module=app-supervisor app=main dataSourceKey=main
+2026-07-13 17:49:54 [info]  app has been started                         module=application app=main reqId=d42b9709-289d-4485-ab15-0293fb2fc0c7 dataSourceKey=main
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > loads the plugin, syncs collections, runs no-op import action, and reads status through resources
+2026-07-13 17:49:54 [info]  request POST /ecobaseImport:adapters?        method=POST path=/ecobaseImport:adapters? req={"header":{"x-role":"admin","x-authenticator":"basic"}} app=main reqId=b08a4e7a-3c92-476e-beec-6b316a7b1a1b
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > loads the plugin, syncs collections, runs no-op import action, and reads status through resources
+2026-07-13 17:49:54 [info]  response /ecobaseImport:adapters?            method=POST path=/ecobaseImport:adapters? res={"status":200} action={"actionName":"adapters","resourceName":"ecobaseImport","params":{"resourceName":"ecobaseImport","actionName":"adapters","values":{}}} userId=1 username=nocobase status=200 cost=17 app=main reqId=b08a4e7a-3c92-476e-beec-6b316a7b1a1b bodySize=1526
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > loads the plugin, syncs collections, runs no-op import action, and reads status through resources
+2026-07-13 17:49:54 [info]  request POST /ecobaseImport:runNoop?         method=POST path=/ecobaseImport:runNoop? req={"header":{"x-role":"admin","x-authenticator":"basic"}} app=main reqId=a9425098-3cde-4886-adee-10d8ffe01212
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > loads the plugin, syncs collections, runs no-op import action, and reads status through resources
+2026-07-13 17:49:54 [info]  response /ecobaseImport:runNoop?             method=POST path=/ecobaseImport:runNoop? res={"status":200} action={"actionName":"runNoop","resourceName":"ecobaseImport","params":{"resourceName":"ecobaseImport","actionName":"runNoop","values":{"sourceConnectionId":"67a31b86-0ab3-4f54-9717-91500e78a7b2","sourceIdentifier":"manual-noop","sourceVersion":"v1"}}} userId=1 username=nocobase status=200 cost=16 app=main reqId=a9425098-3cde-4886-adee-10d8ffe01212 bodySize=776
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > loads the plugin, syncs collections, runs no-op import action, and reads status through resources
+2026-07-13 17:49:54 [info]  request POST /ecobaseImport:status?          method=POST path=/ecobaseImport:status? req={"header":{"x-role":"admin","x-authenticator":"basic"}} app=main reqId=924f566e-e7d7-48f1-b186-a5f4bca2277c
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > loads the plugin, syncs collections, runs no-op import action, and reads status through resources
+2026-07-13 17:49:54 [info]  response /ecobaseImport:status?              method=POST path=/ecobaseImport:status? res={"status":200} action={"actionName":"status","resourceName":"ecobaseImport","params":{"resourceName":"ecobaseImport","actionName":"status","values":{}}} userId=1 username=nocobase status=200 cost=13 app=main reqId=924f566e-e7d7-48f1-b186-a5f4bca2277c bodySize=2543
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > loads the plugin, syncs collections, runs no-op import action, and reads status through resources
+2026-07-13 17:49:54 [info]  request POST /bronzeSourceRecords:create?    method=POST path=/bronzeSourceRecords:create? req={"header":{"x-role":"admin","x-authenticator":"basic"}} app=main reqId=ec752b75-c42c-4eb9-83af-a7440fc0b7fe
+2026-07-13 17:49:54 [error] No permissions                               extra={"method":"error-handler","err":"ForbiddenError: No permissions\n    at Object.throw (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/koa/lib/context.js:96:11)\n    at middlewares.add.tag (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/acl/src/acl.ts:470:15)\n    at dispatch (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/koa-compose/index.js:42:32)\n    at checkAssociationOperate (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/plugins/@nocobase/plugin-acl/src/server/middlewares/check-association-operate.ts:16:12)\n    at dispatch (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/koa-compose/index.js:42:32)\n    at /Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/plugins/@nocobase/plugin-acl/src/server/server.ts:584:14\n    at dispatch (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/koa-compose/index.js:42:32)\n    at /Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/acl/src/allow-manager.ts:120:13\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at ACLMiddleware (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/acl/src/acl.ts:405:14)"} meta={"err":"ForbiddenError: No permissions\n    at Object.throw (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/koa/lib/context.js:96:11)\n    at middlewares.add.tag (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/acl/src/acl.ts:470:15)\n    at dispatch (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/koa-compose/index.js:42:32)\n    at checkAssociationOperate (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/plugins/@nocobase/plugin-acl/src/server/middlewares/check-association-operate.ts:16:12)\n    at dispatch (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/koa-compose/index.js:42:32)\n    at /Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/plugins/@nocobase/plugin-acl/src/server/server.ts:584:14\n    at dispatch (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/koa-compose/index.js:42:32)\n    at /Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/acl/src/allow-manager.ts:120:13\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at ACLMiddleware (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/acl/src/acl.ts:405:14)"} method=error-handler app=main reqId=ec752b75-c42c-4eb9-83af-a7440fc0b7fe dataSourceKey=main
+2026-07-13 17:49:54 [warn]  response /bronzeSourceRecords:create?        method=POST path=/bronzeSourceRecords:create? res=[{"message":"No permissions"}] action={"actionName":"create","resourceName":"bronzeSourceRecords","params":{"resourceName":"bronzeSourceRecords","actionName":"create","values":{"id":"blocked-raw-row","importRunId":"177e5f69-fd1c-420a-a38e-b3b5584bdd0b","rowNumber":1,"payload":{}}}} userId=1 username=nocobase status=403 cost=3 app=main reqId=ec752b75-c42c-4eb9-83af-a7440fc0b7fe bodySize=41
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > loads the plugin, syncs collections, runs no-op import action, and reads status through resources
+2026-07-13 17:49:54 [info]  request POST /ecobaseSourceConnections:create? method=POST path=/ecobaseSourceConnections:create? req={"header":{"x-role":"admin","x-authenticator":"basic"}} app=main reqId=805d42ac-8e5b-47fd-b5b2-3ca30182cb97
+2026-07-13 17:49:54 [error] No permissions                               extra={"method":"error-handler","err":"ForbiddenError: No permissions\n    at Object.throw (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/koa/lib/context.js:96:11)\n    at middlewares.add.tag (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/acl/src/acl.ts:470:15)\n    at dispatch (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/koa-compose/index.js:42:32)\n    at checkAssociationOperate (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/plugins/@nocobase/plugin-acl/src/server/middlewares/check-association-operate.ts:16:12)\n    at dispatch (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/koa-compose/index.js:42:32)\n    at /Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/plugins/@nocobase/plugin-acl/src/server/server.ts:584:14\n    at dispatch (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/koa-compose/index.js:42:32)\n    at /Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/acl/src/allow-manager.ts:120:13\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at ACLMiddleware (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/acl/src/acl.ts:405:14)"} meta={"err":"ForbiddenError: No permissions\n    at Object.throw (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/koa/lib/context.js:96:11)\n    at middlewares.add.tag (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/acl/src/acl.ts:470:15)\n    at dispatch (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/koa-compose/index.js:42:32)\n    at checkAssociationOperate (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/plugins/@nocobase/plugin-acl/src/server/middlewares/check-association-operate.ts:16:12)\n    at dispatch (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/koa-compose/index.js:42:32)\n    at /Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/plugins/@nocobase/plugin-acl/src/server/server.ts:584:14\n    at dispatch (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/koa-compose/index.js:42:32)\n    at /Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/acl/src/allow-manager.ts:120:13\n    at processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at ACLMiddleware (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/acl/src/acl.ts:405:14)"} method=error-handler app=main reqId=805d42ac-8e5b-47fd-b5b2-3ca30182cb97 dataSourceKey=main
+2026-07-13 17:49:54 [warn]  response /ecobaseSourceConnections:create?   method=POST path=/ecobaseSourceConnections:create? res=[{"message":"No permissions"}] action={"actionName":"create","resourceName":"ecobaseSourceConnections","params":{"resourceName":"ecobaseSourceConnections","actionName":"create","values":{"id":"77a31b86-0ab3-4f54-9717-91500e78a7b2","name":"Forbidden config","sourceType":"noop_test","domain":"foundation"}}} userId=1 username=nocobase status=403 cost=2 app=main reqId=805d42ac-8e5b-47fd-b5b2-3ca30182cb97 bodySize=41
+2026-07-13 17:49:54 [info]  close db                                     extra={"method":"stop"} module=application method=stop app=main reqId=d42b9709-289d-4485-ab15-0293fb2fc0c7 dataSourceKey=main
+2026-07-13 17:49:54 [info]  [queue] gracefully shutting down...          module=application app=main reqId=d42b9709-289d-4485-ab15-0293fb2fc0c7 dataSourceKey=main
+2026-07-13 17:49:54 [info]  memory queue gracefully shutting down...     module=application app=main reqId=d42b9709-289d-4485-ab15-0293fb2fc0c7 dataSourceKey=main
+2026-07-13 17:49:54 [debug] Setting app status                           extra={"appName":"main","status":"stopped"} meta={"appName":"main","status":"stopped"} module=app-supervisor app=main dataSourceKey=main
+2026-07-13 17:49:54 [info]  app has stopped                              extra={"method":"stop"} module=application method=stop app=main reqId=d42b9709-289d-4485-ab15-0293fb2fc0c7 dataSourceKey=main
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > persists duplicate MasterStock rows safely through real repositories
+2026-07-13 17:49:54 [info]  App supervisor initialized                   extra={"discoveryAdapter":"main-only","processAdapter":"main-only","commandAdapter":""} meta={"discoveryAdapter":"main-only","processAdapter":"main-only","commandAdapter":""} module=app-supervisor app=main dataSourceKey=main
+2026-07-13 17:49:54 [debug] create database instance: {"sync":{"alter":{"drop":false},"force":false},"dialect":"sqlite","logging":false,"define":{"charset":"utf8mb4","collate":"utf8mb4_unicode_ci"},"underscored":false,"dialectOptions":{},"rawTimezone":"+00:00"} databaseInstanceId=GknXOSw8YzN_LDeDFQ1WC
+2026-07-13 17:49:54 [debug] Setting app status                           extra={"appName":"main","status":"commanding"} meta={"appName":"main","status":"commanding"} module=app-supervisor app=main dataSourceKey=main
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > persists duplicate MasterStock rows safely through real repositories
+2026-07-13 17:49:54 [info]  connection has been established successfully. method=auth
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > persists duplicate MasterStock rows safely through real repositories
+2026-07-13 17:49:54 [info]  allocate worker id: 19                       extra={"method":"load"} module=application method=load app=main reqId=2571ae45-bc93-4425-9f0e-580bbd59cdd2 dataSourceKey=main
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > persists duplicate MasterStock rows safely through real repositories
+2026-07-13 17:49:54 [info]  tools [getCollectionMetadata] registered from plugin [data-source-manager] module=data-source-manager app=main reqId=2571ae45-bc93-4425-9f0e-580bbd59cdd2 dataSourceKey=main
+2026-07-13 17:49:54 [info]  tools [getCollectionNames] registered from plugin [data-source-manager] module=data-source-manager app=main reqId=2571ae45-bc93-4425-9f0e-580bbd59cdd2 dataSourceKey=main
+2026-07-13 17:49:54 [info]  tools [getDataSources] registered from plugin [data-source-manager] module=data-source-manager app=main reqId=2571ae45-bc93-4425-9f0e-580bbd59cdd2 dataSourceKey=main
+2026-07-13 17:49:54 [info]  tools [searchFieldMetadata] registered from plugin [data-source-manager] module=data-source-manager app=main reqId=2571ae45-bc93-4425-9f0e-580bbd59cdd2 dataSourceKey=main
+2026-07-13 17:49:54 [info]  tools [dataQuery] registered from plugin [data-source-manager] module=data-source-manager app=main reqId=2571ae45-bc93-4425-9f0e-580bbd59cdd2 dataSourceKey=main
+2026-07-13 17:49:54 [info]  tools [dataSourceCounting] registered from plugin [data-source-manager] module=data-source-manager app=main reqId=2571ae45-bc93-4425-9f0e-580bbd59cdd2 dataSourceKey=main
+2026-07-13 17:49:54 [info]  tools [dataSourceQuery] registered from plugin [data-source-manager] module=data-source-manager app=main reqId=2571ae45-bc93-4425-9f0e-580bbd59cdd2 dataSourceKey=main
+2026-07-13 17:49:54 [info]  tools [defineCollections] registered from plugin [data-source-manager] module=data-source-manager app=main reqId=2571ae45-bc93-4425-9f0e-580bbd59cdd2 dataSourceKey=main
+2026-07-13 17:49:54 [info]  tools [intentRouter] registered from plugin [data-source-manager] module=data-source-manager app=main reqId=2571ae45-bc93-4425-9f0e-580bbd59cdd2 dataSourceKey=main
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > persists duplicate MasterStock rows safely through real repositories
+2026-07-13 17:49:55 [warn]  [PubSubManager] adapter is not exist or not connected, cannot publish message to channel main.sync.data-source-manager module=application app=main reqId=2571ae45-bc93-4425-9f0e-580bbd59cdd2 dataSourceKey=main
+2026-07-13 17:49:55 [warn]  [PubSubManager] adapter is not exist or not connected, cannot publish message to channel main.sync.acl module=application app=main reqId=2571ae45-bc93-4425-9f0e-580bbd59cdd2 dataSourceKey=main
+2026-07-13 17:49:55 [warn]  [PubSubManager] adapter is not exist or not connected, cannot publish message to channel main.sync.data-source-manager module=application app=main reqId=2571ae45-bc93-4425-9f0e-580bbd59cdd2 dataSourceKey=main
+2026-07-13 17:49:55 [warn]  [PubSubManager] adapter is not exist or not connected, cannot publish message to channel main.sync.acl module=application app=main reqId=2571ae45-bc93-4425-9f0e-580bbd59cdd2 dataSourceKey=main
+2026-07-13 17:49:55 [warn]  [PubSubManager] adapter is not exist or not connected, cannot publish message to channel main.sync.data-source-manager module=application app=main reqId=2571ae45-bc93-4425-9f0e-580bbd59cdd2 dataSourceKey=main
+2026-07-13 17:49:55 [warn]  [PubSubManager] adapter is not exist or not connected, cannot publish message to channel main.sync.acl module=application app=main reqId=2571ae45-bc93-4425-9f0e-580bbd59cdd2 dataSourceKey=main
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > persists duplicate MasterStock rows safely through real repositories
+2026-07-13 17:49:55 [info]  app reinstalled successfully [v2.1.6]        module=application app=main reqId=2571ae45-bc93-4425-9f0e-580bbd59cdd2 dataSourceKey=main
+2026-07-13 17:49:55 [debug] Setting app status                           extra={"appName":"main"} meta={"appName":"main"} module=app-supervisor app=main dataSourceKey=main
+2026-07-13 17:49:55 [debug] Setting app status                           extra={"appName":"main","status":"commanding"} meta={"appName":"main","status":"commanding"} module=app-supervisor app=main dataSourceKey=main
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > persists duplicate MasterStock rows safely through real repositories
+2026-07-13 17:49:55 [warn]  [PubSubManager] adapter is not exist or not connected, cannot publish message to channel main.sync.localeManager module=application app=main reqId=2571ae45-bc93-4425-9f0e-580bbd59cdd2 dataSourceKey=main
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > persists duplicate MasterStock rows safely through real repositories
+2026-07-13 17:49:55 [debug] loading collections...
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > persists duplicate MasterStock rows safely through real repositories
+2026-07-13 17:49:55 [debug] collections loaded
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > persists duplicate MasterStock rows safely through real repositories
+2026-07-13 17:49:55 [info]  memory queue storage file not found, skip    module=application app=main reqId=2571ae45-bc93-4425-9f0e-580bbd59cdd2 dataSourceKey=main
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > persists duplicate MasterStock rows safely through real repositories
+2026-07-13 17:49:55 [info]  write roles to ACL                           extra={"method":"writeRolesToACL"} module=acl method=writeRolesToACL app=main reqId=2571ae45-bc93-4425-9f0e-580bbd59cdd2 dataSourceKey=main
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > persists duplicate MasterStock rows safely through real repositories
+2026-07-13 17:49:56 [debug] Setting app status                           extra={"appName":"main","status":"running"} meta={"appName":"main","status":"running"} module=app-supervisor app=main dataSourceKey=main
+2026-07-13 17:49:56 [info]  app has been started                         module=application app=main reqId=2571ae45-bc93-4425-9f0e-580bbd59cdd2 dataSourceKey=main
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > persists duplicate MasterStock rows safely through real repositories
+2026-07-13 17:49:56 [info]  request POST /ecobaseImport:run?             method=POST path=/ecobaseImport:run? req={"header":{"x-role":"admin","x-authenticator":"basic"}} app=main reqId=7ca0bce0-6ae0-4de6-bcd1-753ebd5584ad
+
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > persists duplicate MasterStock rows safely through real repositories
+2026-07-13 17:49:56 [info]  response /ecobaseImport:run?                 method=POST path=/ecobaseImport:run? res={"status":200} action={"actionName":"run","resourceName":"ecobaseImport","params":{"resourceName":"ecobaseImport","actionName":"run","values":{"sourceConnectionId":"3554f272-39d1-4273-a9e5-2e6826479456","adapterName":"amazon-operations-csv","sourceIdentifier":"SampleAM MasterStock known duplicate","sourceVersion":"2025-07-01"}}} userId=1 username=nocobase status=200 cost=75 app=main reqId=7ca0bce0-6ae0-4de6-bcd1-753ebd5584ad bodySize=1886
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts  (2 tests) 5209ms
+stdout | packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/integration.test.ts > Ecobase plugin NocoBase integration seam > persists duplicate MasterStock rows safely through real repositories
+2026-07-13 17:49:56 [info]  close db                                     extra={"method":"stop"} module=application method=stop app=main reqId=2571ae45-bc93-4425-9f0e-580bbd59cdd2 dataSourceKey=main
+2026-07-13 17:49:56 [info]  [queue] gracefully shutting down...          module=application app=main reqId=2571ae45-bc93-4425-9f0e-580bbd59cdd2 dataSourceKey=main
+2026-07-13 17:49:56 [info]  memory queue gracefully shutting down...     module=application app=main reqId=2571ae45-bc93-4425-9f0e-580bbd59cdd2 dataSourceKey=main
+2026-07-13 17:49:56 [debug] Setting app status                           extra={"appName":"main","status":"stopped"} meta={"appName":"main","status":"stopped"} module=app-supervisor app=main dataSourceKey=main
+2026-07-13 17:49:56 [info]  app has stopped                              extra={"method":"stop"} module=application method=stop app=main reqId=2571ae45-bc93-4425-9f0e-580bbd59cdd2 dataSourceKey=main
+
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  17:49:47
+   Duration  8.51s (transform 3.30s, setup 50ms, collect 3.13s, tests 5.21s, environment 0ms, prepare 34ms)
+
+Done in 9.87s.
+
+=== packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/bootstrap-orchestration.test.ts ===
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/bootstrap-orchestration.test.ts --run --reporter=dot
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/bootstrap-orchestration.test.ts',
+  '--run',
+  '--reporter=dot',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:81930) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/bootstrap-orchestration.test.ts  (3 tests) 3ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  17:49:57
+   Duration  176ms (transform 25ms, setup 46ms, collect 12ms, tests 3ms, environment 0ms, prepare 33ms)
+
+Done in 1.33s.
+
+=== packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts ===
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts --run --reporter=dot
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts',
+  '--run',
+  '--reporter=dot',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:81939) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts  (51 tests) 54ms
+
+ Test Files  1 passed (1)
+      Tests  51 passed (51)
+   Start at  17:49:59
+   Duration  3.42s (transform 1.71s, setup 44ms, collect 3.20s, tests 54ms, environment 0ms, prepare 34ms)
+
+Done in 4.84s.
+
+=== packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/greenfield-seed-bundle.test.ts ===
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/greenfield-seed-bundle.test.ts --run --reporter=dot
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/greenfield-seed-bundle.test.ts',
+  '--run',
+  '--reporter=dot',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:82008) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/greenfield-seed-bundle.test.ts  (2 tests) 22ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  17:50:04
+   Duration  206ms (transform 39ms, setup 45ms, collect 27ms, tests 22ms, environment 0ms, prepare 33ms)
+
+Done in 1.41s.

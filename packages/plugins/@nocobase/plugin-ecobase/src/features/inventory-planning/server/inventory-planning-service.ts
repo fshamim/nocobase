@@ -1245,12 +1245,14 @@ export class EcobaseInventoryPlanningService {
         },
       ]),
     );
-    const normalizedOrderLines: PlainRecord[] = orderLines.map((line) => ({
-      ...line,
-      supplierOrderId: asString(line.orderId),
-      receivedQty: amazonReceivedQty(line),
-      leadTimeDays: asNumber(supplierProductsById.get(asString(line.supplierProductId))?.leadTimeDays),
-    }));
+    const normalizedOrderLines: PlainRecord[] = orderLines
+      .filter((line) => asString(line.companyProductId) && asString(line.productMappingStatus) !== 'unresolved')
+      .map((line) => ({
+        ...line,
+        supplierOrderId: asString(line.orderId),
+        receivedQty: amazonReceivedQty(line),
+        leadTimeDays: asNumber(supplierProductsById.get(asString(line.supplierProductId))?.leadTimeDays),
+      }));
     const linesByCompanyProduct = this.groupBy(normalizedOrderLines, 'companyProductId');
     const latestActivityByOrderId = new Map<string, PlainRecord>();
     for (const comment of await this.withActivityAuthors(activityComments)) {

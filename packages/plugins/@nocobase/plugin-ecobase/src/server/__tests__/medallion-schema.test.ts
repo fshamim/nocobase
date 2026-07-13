@@ -133,6 +133,14 @@ describe('Ecobase medallion schema foundation', () => {
     uniqueIndex(silverSupplierExternalRefs, ['sourceSystem', 'normalizedExternalSupplierCode']);
     uniqueIndex(silverSupplierProducts, ['supplierId', 'productId']);
     uniqueIndex(silverOrders, ['companyId', 'orderRef']);
+    expect(field(silverOrderLines, 'companyProduct')).toMatchObject({ allowNull: true });
+    expect(field(silverOrderLines, 'sourceAsin')).toMatchObject({ type: 'string' });
+    expect(field(silverOrderLines, 'sourceSupplierSku')).toMatchObject({ type: 'string' });
+    expect(field(silverOrderLines, 'productMappingStatus')).toMatchObject({
+      type: 'string',
+      allowNull: false,
+      defaultValue: 'resolved',
+    });
     expect(field(silverOrderLines, 'expectedDeliveryDate')).toMatchObject({ type: 'dateOnly' });
     expect(field(silverOrderLines, 'expectedSellableDate')).toMatchObject({ type: 'dateOnly' });
     expect(field(silverInventorySnapshots, 'sourceConnectionId')).toMatchObject({ type: 'uuid', index: true });

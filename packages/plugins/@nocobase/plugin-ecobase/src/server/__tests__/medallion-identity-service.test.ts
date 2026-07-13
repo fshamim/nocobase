@@ -140,7 +140,7 @@ describe('EcobaseMedallionIdentityService', () => {
 
     expect(idOf(sameAccount)).toBe(idOf(account));
     expect(idOf(sameCompanyProduct)).toBe(idOf(companyProduct));
-    expect(idOf(sameProductOtherAccount)).toBe(idOf(companyProduct));
+    expect(idOf(sameProductOtherAccount)).not.toBe(idOf(companyProduct));
     expect(idOf(sourceSkuCompanyProduct)).not.toBe(idOf(companyProduct));
     expect(idOf(otherCompanyProduct)).not.toBe(idOf(companyProduct));
     expect(toPlainRecord(sameCompanyProduct).lifecycleStatus).toBe('active_selling');

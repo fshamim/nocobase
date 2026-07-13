@@ -1,0 +1,1 @@
+cd nocobase && set -o pipefail && ECOBASE_BOOTSTRAP_SOURCE_VERSION=2026-07-13 node packages/plugins/@nocobase/plugin-ecobase/scripts/live-gate-bootstrap.mjs all-after-export --allow-non-clean 2>&1 | tee artifacts/greenfield-seed/20260713T040841Z/final-live-gate/clean-reset-import-first-run.txt

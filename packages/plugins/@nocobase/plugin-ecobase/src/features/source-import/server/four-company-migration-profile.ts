@@ -37,6 +37,8 @@ export const FOUR_COMPANY_MIGRATION_PROFILE = {
     Stop_Shop_Llc: 'STOP_SHOP_LLC',
   },
   sellerboardHistoryMonths: 6,
+  sellerboardCurrentMaxAgeHours: 48,
+  sellerboardMaxAsOfSkewHours: 24,
   completedOrderLookbackDays: 30,
   unknownOrderLookbackDays: 90,
   bronzeRetentionDays: 30,

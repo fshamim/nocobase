@@ -31,6 +31,7 @@ export function createInventoryPlanningResourceRegistration(): EcobaseFeatureRes
           'backfillReceipts',
           'setReceiptOverride',
           'setFamilyTarget',
+          'setFamilyPreferredSupplier',
           'workspace',
           'commandCenter',
           'rows',

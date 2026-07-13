@@ -1,0 +1,9 @@
+{
+  "phase": "t14-product-overrides-tests-final",
+  "inputRows": 0,
+  "acceptedRows": 0,
+  "discardedRows": 0,
+  "elapsedMs": 5100,
+  "exitCode": 0,
+  "note": "override coverage lives in company-product-family-service and API suites"
+}

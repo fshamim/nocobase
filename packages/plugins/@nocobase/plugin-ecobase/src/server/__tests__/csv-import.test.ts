@@ -183,7 +183,7 @@ function createService(sourceType = 'seller_central_file', domain = 'amazon_oper
 }
 
 describe('Ecobase bronze import write path', () => {
-  it('writes inline CSV files into bronze and automatically normalizes them into silver', async () => {
+  it('writes legacy inline CSV files into Bronze without creating Amazon identity', async () => {
     const { db, service } = createService('google_sheets', 'amazon_operations');
     db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
       filterByTk: 'source-1',
@@ -201,6 +201,7 @@ describe('Ecobase bronze import write path', () => {
       sourceIdentifier: 'bronze-master-stock',
       sourceVersion: '2026-06-22',
       preserveAuditRun: true,
+      skipGoldRefresh: true,
     });
 
     const bronzeFiles = db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceFiles).all();
@@ -221,13 +222,11 @@ describe('Ecobase bronze import write path', () => {
     });
     expect(bronzeRecords[0].rowHash).toMatch(/^[a-f0-9]{64}$/);
     expect(bronzeRecords[0].retentionUntil).toBe('2026-07-22T00:00:00.000Z');
-    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).all()).toHaveLength(2);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).all()).toHaveLength(2);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).all()).toHaveLength(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).all()).toHaveLength(0);
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverNormalizationLinks).all().length).toBeGreaterThan(0);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).all().length).toBeGreaterThan(0);
-    expect(run.summary).toMatchObject({
-      goldRefresh: expect.objectContaining({ calculationDate: expect.any(String) }),
-    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).all()).toHaveLength(0);
+    expect(run.summary.goldRefresh).toBeNull();
   });
 
   it('rejects out-of-scope rows before Bronze and records the migration decision summary', async () => {
@@ -796,6 +795,35 @@ describe('Ecobase current Amazon operations CSV import', () => {
     ]);
   });
 
+  it('keeps the current partial month and six complete prior Sellerboard months only', async () => {
+    const imported: any[] = [];
+    for await (const item of sellerboardHistoryCsvAdapter.import({
+      sourceConnectionId: 'source-1',
+      sourceIdentifier: 'sellerboard-history-backfill',
+      sourceVersion: '2026-07-13T00:00:00.000Z',
+      idempotencyKey: 'history-window-check',
+      config: {
+        defaultCompany: 'Ecofission LLC',
+        files: [
+          {
+            name: 'Fissionem_Dashboard_by_product.csv',
+            content: [
+              'Date;Marketplace;ASIN;SKU;SalesOrganic;UnitsOrganic',
+              '31/12/2025;Amazon.com;B000000001;SKU-1;1;1',
+              '01/01/2026;Amazon.com;B000000001;SKU-1;2;2',
+              '13/07/2026;Amazon.com;B000000001;SKU-1;3;3',
+            ].join('\n'),
+          },
+        ],
+      },
+    })) {
+      imported.push(item);
+    }
+
+    expect(imported).toHaveLength(2);
+    expect(imported.map((item) => item.record.data.snapshotDate)).toEqual(['2026-01-01', '2026-07-13']);
+  });
+
   it('rejects Sellerboard history dates after the import source version', async () => {
     const { db, service } = createService('sellerboard');
     db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
@@ -899,6 +927,7 @@ describe('Ecobase current Amazon operations CSV import', () => {
       sourceIdentifier: 'manual-buybox-bundle',
       sourceVersion: '2025-07-01',
       files: [{ name: 'Buybox.csv', content: buyboxCsv }],
+      skipGoldRefresh: true,
     });
     const second = await service.runCsvBundleImport({
       sourceConnectionId: 'source-1',
@@ -909,6 +938,7 @@ describe('Ecobase current Amazon operations CSV import', () => {
     });
 
     expect(first).toMatchObject({ status: 'success', rowCount: 1, normalizedCount: 1, warningCount: 0 });
+    expect(first.summary.goldRefresh).toBeNull();
     expect(second).toMatchObject({ status: 'skipped', rowCount: 0, normalizedCount: 0, warningCount: 1 });
     expect(sourceConnection.config).toEqual({});
     expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toHaveLength(1);

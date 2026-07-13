@@ -1,0 +1,3 @@
+yarn run v1.22.22
+$ /Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/.bin/tsx -e 'import { readdir } from '\''node:fs/promises'\''; void (async () => { const dir='\''./packages/plugins/@nocobase/plugin-ecobase/src/server/collections'\''; await Promise.all((await readdir(dir)).filter((file) => file.endsWith('\''.ts'\'')).map((file) => import(`${dir}/${file}`))); })();'
+Done in 3.59s.

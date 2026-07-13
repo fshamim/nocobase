@@ -1,0 +1,70 @@
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:83325) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/sellerboard-live-import.test.ts  (12 tests) 27ms
+
+ Test Files  1 passed (1)
+      Tests  12 passed (12)
+   Start at  20:48:20
+   Duration  841ms (transform 355ms, setup 157ms, collect 362ms, tests 27ms, environment 168ms, prepare 39ms)
+
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:83359) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/import-preflight.test.ts  (6 tests) 8ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  20:48:21
+   Duration  791ms (transform 337ms, setup 157ms, collect 339ms, tests 8ms, environment 160ms, prepare 40ms)
+
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:83364) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/planning-calculations.test.ts  (2 tests) 5ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  20:48:22
+   Duration  3.85s (transform 1.80s, setup 157ms, collect 3.39s, tests 5ms, environment 167ms, prepare 38ms)
+
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:83433) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ❯ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts  (23 tests | 1 failed) 41ms
+   ❯ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase bronze import write path > writes inline CSV files into bronze and automatically normalizes them into silver
+     → expected [] to have a length of 2 but got +0
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase bronze import write path > writes inline CSV files into bronze and automatically normalizes them into silver
+AssertionError: expected [] to have a length of 2 but got +0
+
+- Expected
++ Received
+
+- 2
++ 0
+
+ ❯ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts:224:72
+    222|     expect(bronzeRecords[0].rowHash).toMatch(/^[a-f0-9]{64}$/);
+    223|     expect(bronzeRecords[0].retentionUntil).toBe('2026-07-22T00:00:00.…
+    224|     expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).all())…
+       |                                                                        ^
+    225|     expect(db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapsho…
+    226|     expect(db.getRepository(ECOBASE_COLLECTIONS.silverNormalizationLin…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 22 passed (23)
+   Start at  20:48:26
+   Duration  865ms (transform 369ms, setup 163ms, collect 375ms, tests 41ms, environment 164ms, prepare 40ms)

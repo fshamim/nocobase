@@ -4,6 +4,15 @@
  * Authors: NocoBase Team.
  *
  * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
  * For more information, please refer to: https:
  */
 
@@ -19,12 +28,34 @@ describe('supplier product link selection', () => {
     expect(selectSupplierProductLink([newer, older])).toBe(newer);
   });
 
-  it('keeps an active preferred supplier above usage recency', () => {
+  it('breaks equal-recency ties by stable supplier identity', () => {
+    const beta = {
+      id: 'link-b',
+      supplierId: 'supplier-b',
+      role: 'latest_history',
+      active: true,
+      lastUsedAt: '2026-02-01T00:00:00.000Z',
+    };
+    const alpha = {
+      id: 'link-a',
+      supplierId: 'supplier-a',
+      role: 'latest_history',
+      active: true,
+      lastUsedAt: '2026-02-01T00:00:00.000Z',
+    };
+
+    expect(selectSupplierProductLink([beta, alpha])).toBe(alpha);
+    expect(selectSupplierProductLink([alpha, beta])).toBe(alpha);
+  });
+
+  it('keeps an active preferred or primary supplier above usage recency', () => {
     const preferred = { supplierId: 'preferred', role: 'preferred', active: true };
     const recent = { supplierId: 'recent', role: 'candidate', active: true, lastUsedAt: '2026-02-01T00:00:00.000Z' };
+    const primary = { supplierId: 'primary', role: 'primary', active: true };
     const inactivePreferred = { supplierId: 'inactive', role: 'preferred', active: false };
 
     expect(selectSupplierProductLink([recent, preferred])).toBe(preferred);
+    expect(selectSupplierProductLink([recent, primary])).toBe(primary);
     expect(selectSupplierProductLink([inactivePreferred, recent])).toBe(recent);
   });
 });

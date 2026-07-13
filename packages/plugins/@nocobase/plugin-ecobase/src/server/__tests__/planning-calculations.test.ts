@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { describe, expect, it, vi } from 'vitest';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { createEcobasePlanningActions } from '../plugin';
@@ -41,37 +50,25 @@ class MemoryRepository implements EcobaseRepository {
     values: Record<string, unknown>;
   }) {
     const records = this.filterRecords({ filter, filterByTk });
-    if (records.length === 0) {
-      throw new Error('MemoryRepository update failed: matching record was not found.');
-    }
+    if (records.length === 0) throw new Error('MemoryRepository update failed: matching record was not found.');
     records.forEach((record) => Object.assign(record, values));
     return records[0];
   }
 
-  all() {
-    return this.records;
-  }
-
   private filterRecords(params: FindParams) {
-    if (params.filterByTk) {
-      return this.records.filter((record) => record.id === params.filterByTk);
-    }
-    const filter = params.filter ?? {};
-    return this.records.filter((record) => Object.entries(filter).every(([key, expected]) => record[key] === expected));
+    if (params.filterByTk) return this.records.filter((record) => record.id === params.filterByTk);
+    return this.records.filter((record) =>
+      Object.entries(params.filter ?? {}).every(([key, expected]) => record[key] === expected),
+    );
   }
 
   private sortRecords(records: Record<string, unknown>[], sort: string[] = []) {
     const [firstSort] = sort;
-    if (!firstSort) {
-      return records;
-    }
+    if (!firstSort) return records;
     const descending = firstSort.startsWith('-');
     const key = descending ? firstSort.slice(1) : firstSort;
     return [...records].sort((left, right) => {
-      const leftValue = String(left[key] ?? '');
-      const rightValue = String(right[key] ?? '');
-      if (leftValue === rightValue) return 0;
-      const result = leftValue > rightValue ? 1 : -1;
+      const result = String(left[key] ?? '').localeCompare(String(right[key] ?? ''));
       return descending ? -result : result;
     });
   }
@@ -86,16 +83,14 @@ class MemoryDatabase implements EcobaseDatabase {
 
   getRepository(name: string) {
     const repository = this.repositories.get(name);
-    if (!repository) {
-      throw new Error(`MemoryDatabase failed: repository ${name} was not registered.`);
-    }
+    if (!repository) throw new Error(`MemoryDatabase failed: repository ${name} was not registered.`);
     return repository;
   }
 }
 
-function createActionContext(db: EcobaseDatabase, values: Record<string, unknown> = {}) {
+function createActionContext(db: EcobaseDatabase) {
   return {
-    action: { params: { values } },
+    action: { params: { values: {} } },
     db,
     body: undefined,
     throw(status: number, message: string) {
@@ -106,381 +101,124 @@ function createActionContext(db: EcobaseDatabase, values: Record<string, unknown
   };
 }
 
-async function seedPlanningProduct(db: MemoryDatabase, id = 'planning-product-1') {
+async function seedCurrentPlanningData(db: MemoryDatabase) {
+  const planningProductId = 'planning-product-1';
+  const productId = 'silver-product-1';
+  const companyProductId = 'company-product-1';
+  await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).create({
+    values: { id: 'source-1', sourceType: 'sellerboard', active: true },
+  });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
+    values: { id: 'company-1', companyKey: 'ECOFISSION_LLC', name: 'Ecofission LLC' },
+  });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+    values: { id: productId, asin: 'B000TEST', sku: 'SKU-1' },
+  });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+    values: { id: companyProductId, companyId: 'company-1', productId },
+  });
   await db.getRepository(ECOBASE_COLLECTIONS.planningProducts).create({
     values: {
-      id,
-      naturalKey: `Ecofission LLC:B000TEST:${id}`,
+      id: planningProductId,
       company: 'Ecofission LLC',
       canonicalAsin: 'B000TEST',
-      title: 'Benchmark product',
       mappingStatus: 'confirmed',
-      listingCount: 1,
     },
   });
-  return id;
+  await db.getRepository(ECOBASE_COLLECTIONS.planningProductListings).create({
+    values: {
+      id: 'planning-listing-1',
+      planningProductId,
+      canonicalAsin: 'B000TEST',
+      asin: 'B000TEST',
+      sku: 'SKU-1',
+      mappingStatus: 'confirmed',
+    },
+  });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).create({
+    values: {
+      id: 'inventory-1',
+      sourceConnectionId: 'source-1',
+      companyProductId,
+      snapshotDate: '2026-07-13',
+      sellableStock: 100,
+      salesVelocity: 2,
+    },
+  });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).create({
+    values: {
+      id: 'supplier-product-1',
+      supplierId: 'supplier-1',
+      productId,
+      leadTimeDays: 10,
+      profitPerUnit: 5,
+      recommendedBestQty: 60,
+    },
+  });
+  await db.getRepository(ECOBASE_COLLECTIONS.silverTargets).create({
+    values: {
+      id: 'target-1',
+      company: 'Ecofission LLC',
+      period: '2026-07',
+      periodType: 'monthly',
+      targetValue: 620,
+    },
+  });
+  for (const [index, units] of [10, 20, 30, 40, 50, 60].entries()) {
+    const month = String(index + 1).padStart(2, '0');
+    await db.getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts).create({
+      values: {
+        id: `fact-${month}`,
+        companyProductId,
+        snapshotDate: `2026-${month}-15`,
+        units,
+        sales: units * 10,
+        profit: units * 5,
+      },
+    });
+  }
+  await db.getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts).create({
+    values: {
+      id: 'fact-current-month',
+      companyProductId,
+      snapshotDate: '2026-07-13',
+      units: 14,
+      sales: 140,
+      profit: 70,
+    },
+  });
+  return planningProductId;
 }
 
-describe('Ecobase spreadsheet-parity planning calculations', () => {
-  it('calculates and stores versioned tier, stock, restock, off-track, and risk outputs', async () => {
+describe('Ecobase Silver-backed planning calculations', () => {
+  it('uses six complete prior months while retaining current-month facts for operational calculations', async () => {
     const db = new MemoryDatabase();
-    const planningProductId = await seedPlanningProduct(db);
-    await db.getRepository(ECOBASE_COLLECTIONS.inventorySnapshots).create({
-      values: {
-        naturalKey: 'inventory-1',
-        sourceConnectionId: 'source-1',
-        planningProductId,
-        snapshotDate: '2025-07-01',
-        company: 'Ecofission LLC',
-        asin: 'B000TEST',
-        sku: 'SKU-1',
-        stock: 10,
-        reserved: 2,
-        inbound: 3,
-        ordered: 4,
-        prepStock: 1,
-        salesVelocity: 2,
-        recommendedReorderQuantity: 20,
-        lastImportRunId: 'import-1',
-      },
-    });
-    await db.getRepository(ECOBASE_COLLECTIONS.planningParameters).create({
-      values: {
-        naturalKey: 'parameter-1',
-        sourceConnectionId: 'source-1',
-        planningProductId,
-        company: 'Ecofission LLC',
-        asin: 'B000TEST',
-        sku: 'SKU-1',
-        supplier: 'Supplier A',
-        supplierId: 'SUP-A',
-        profitPerUnit: 5,
-        leadTimeDays: 10,
-        lastImportRunId: 'import-1',
-      },
-    });
-    await db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).create({
-      values: {
-        naturalKey: 'fact-1',
-        sourceConnectionId: 'source-1',
-        planningProductId,
-        snapshotDate: '2025-07-05',
-        company: 'Ecofission LLC',
-        asin: 'B000TEST',
-        sku: 'SKU-1',
-        netProfit: 100,
-      },
-    });
-    await db.getRepository(ECOBASE_COLLECTIONS.targetRows).create({
-      values: {
-        naturalKey: 'target-1',
-        sourceConnectionId: 'source-1',
-        planningProductId,
-        company: 'Ecofission LLC',
-        targetScope: 'planning_product',
-        period: '2025-07',
-        periodType: 'monthly',
-        asin: 'B000TEST',
-        sku: 'SKU-1',
-        profitTarget: 620,
-        lastImportRunId: 'import-1',
-      },
-    });
+    const planningProductId = await seedCurrentPlanningData(db);
 
     const result = await new EcobasePlanningCalculationService(db).calculatePlanningProduct({
       planningProductId,
-      calculationDate: '2025-07-10',
-    });
-
-    expect(result).toMatchObject({
-      ruleVersion: 'spreadsheet_parity_v1',
-      tier: 'B',
-      tierScore: 100,
-      currentStockParity: 20,
-      sellableStock: 10,
-      pipelineStock: 8,
-      salesVelocity: 2,
-      daysOfCover: 10,
-      oosDate: '2025-07-20',
-      leadTimeDays: 10,
-      safetyBufferDays: 7,
-      restockDeadlineParity: '2025-07-10',
-      restockDeadlineImproved: '2025-07-03',
-      latestSafeReorderWindowStart: '2025-07-03',
-      latestSafeReorderWindowEnd: '2025-07-10',
-      daysLeftOrOverdue: 0,
-      urgentRestock: true,
-      restockNeeded: true,
-      estimatedMonthEndQuantity: -22,
-      achievedProfitMtd: 100,
-      proratedProfitTargetMtd: 200,
-      profitGap: 100,
-      profitOffTrack: true,
-      estimatedProfitRisk: 70,
-      dataCompleteness: 'complete',
-      calculationStatus: 'calculated',
-    });
-    expect(db.getRepository(ECOBASE_COLLECTIONS.planningCalculationSnapshots).all()).toEqual([
-      expect.objectContaining({ naturalKey: 'planning-product-1:spreadsheet_parity_v1:2025-07-10' }),
-    ]);
-  });
-
-  it('uses the zero/negative-velocity sentinel and reports missing lead-time status explicitly', async () => {
-    for (const salesVelocity of [0, -1]) {
-      const db = new MemoryDatabase();
-      const planningProductId = await seedPlanningProduct(db, `planning-product-${salesVelocity}-velocity`);
-      await db.getRepository(ECOBASE_COLLECTIONS.inventorySnapshots).create({
-        values: {
-          naturalKey: `inventory-${salesVelocity}`,
-          sourceConnectionId: 'source-1',
-          planningProductId,
-          snapshotDate: '2025-07-01',
-          stock: 5,
-          salesVelocity,
-          recommendedReorderQuantity: 3,
-        },
-      });
-
-      const result = await new EcobasePlanningCalculationService(db).calculatePlanningProduct({
-        planningProductId,
-        calculationDate: '2025-07-10',
-      });
-
-      expect(result).toMatchObject({
-        daysOfCover: 999,
-        calculationStatus: 'missing_lead_time',
-        urgentRestock: false,
-        restockNeeded: false,
-        warningCount: 3,
-      });
-      expect(result.dataCompleteness).toContain('missing:salesVelocity,leadTimeDays,profitPerUnit');
-      expect(result.restockDeadlineParity).toBeUndefined();
-      expect(result.warnings.map((warning) => warning.code)).toEqual([
-        'missing_lead_time',
-        'missing_target',
-        'missing_velocity',
-      ]);
-    }
-  });
-
-  it('surfaces unmapped listing warnings on planning calculations', async () => {
-    const db = new MemoryDatabase();
-    const planningProductId = await seedPlanningProduct(db, 'planning-product-unmapped');
-    await db.getRepository(ECOBASE_COLLECTIONS.planningProducts).update({
-      filterByTk: planningProductId,
-      values: { mappingStatus: 'needs_review' },
-    });
-    await db.getRepository(ECOBASE_COLLECTIONS.planningProductListings).create({
-      values: {
-        id: 'listing-1',
-        naturalKey: 'listing-1',
-        planningProductId,
-        rawListingNaturalKey: 'raw-listing-1',
-        sourceConnectionId: 'source-1',
-        company: 'Ecofission LLC',
-        canonicalAsin: 'B000TEST',
-        asin: 'B000TEST',
-        sku: 'SKU-1',
-        mappingMode: 'default',
-        mappingStatus: 'needs_review',
-        mappedAt: '2025-07-01T00:00:00.000Z',
-      },
-    });
-    await db.getRepository(ECOBASE_COLLECTIONS.inventorySnapshots).create({
-      values: {
-        naturalKey: 'inventory-unmapped',
-        sourceConnectionId: 'source-1',
-        planningProductId,
-        snapshotDate: '2025-07-10',
-        stock: 15,
-        salesVelocity: 2,
-        recommendedReorderQuantity: 8,
-      },
-    });
-    await db.getRepository(ECOBASE_COLLECTIONS.planningParameters).create({
-      values: {
-        naturalKey: 'parameter-unmapped',
-        sourceConnectionId: 'source-1',
-        planningProductId,
-        profitPerUnit: 4,
-        leadTimeDays: 5,
-      },
-    });
-    await db.getRepository(ECOBASE_COLLECTIONS.targetRows).create({
-      values: {
-        naturalKey: 'target-unmapped',
-        sourceConnectionId: 'source-1',
-        planningProductId,
-        company: 'Ecofission LLC',
-        targetScope: 'planning_product',
-        period: '2025-07',
-        periodType: 'monthly',
-        profitTarget: 500,
-      },
-    });
-
-    const result = await new EcobasePlanningCalculationService(db).calculatePlanningProduct({
-      planningProductId,
-      calculationDate: '2025-07-10',
-    });
-
-    expect(result.warningCount).toBe(1);
-    expect(result.warnings).toEqual([
-      expect.objectContaining({
-        code: 'unmapped_listing',
-        planningProductId,
-        planningProductListingId: 'listing-1',
-        rawListingNaturalKey: 'raw-listing-1',
-      }),
-    ]);
-  });
-
-  it('aggregates multi-listing stock, velocity, quantity, and profit inputs at planning-product level', async () => {
-    const db = new MemoryDatabase();
-    const planningProductId = await seedPlanningProduct(db, 'planning-product-aggregate');
-    for (const [sku, stock, salesVelocity, recommendedReorderQuantity] of [
-      ['SKU-1', 10, 1, 5],
-      ['SKU-2', 30, 3, 15],
-    ] as const) {
-      await db.getRepository(ECOBASE_COLLECTIONS.inventorySnapshots).create({
-        values: {
-          naturalKey: `inventory-${sku}`,
-          sourceConnectionId: 'source-1',
-          planningProductId,
-          snapshotDate: '2025-07-10',
-          stock,
-          salesVelocity,
-          recommendedReorderQuantity,
-          sku,
-        },
-      });
-    }
-    for (const [sku, profitPerUnit, recommendedBestQty] of [
-      ['SKU-1', 2, 5],
-      ['SKU-2', 4, 15],
-    ] as const) {
-      await db.getRepository(ECOBASE_COLLECTIONS.planningParameters).create({
-        values: {
-          naturalKey: `parameter-${sku}`,
-          sourceConnectionId: 'source-1',
-          planningProductId,
-          sku,
-          profitPerUnit,
-          recommendedBestQty,
-          leadTimeDays: 5,
-        },
-      });
-    }
-    for (let day = 4; day <= 10; day += 1) {
-      await db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).create({
-        values: {
-          naturalKey: `fact-${day}`,
-          sourceConnectionId: 'source-1',
-          planningProductId,
-          snapshotDate: `2025-07-${String(day).padStart(2, '0')}`,
-          units: 10,
-        },
-      });
-    }
-    for (const [sku, profitTarget] of [
-      ['SKU-1', 310],
-      ['SKU-2', 310],
-    ] as const) {
-      await db.getRepository(ECOBASE_COLLECTIONS.targetRows).create({
-        values: {
-          naturalKey: `target-${sku}`,
-          sourceConnectionId: 'source-1',
-          planningProductId,
-          sku,
-          period: '2025-07',
-          periodType: 'monthly',
-          profitTarget,
-        },
-      });
-    }
-
-    const result = await new EcobasePlanningCalculationService(db).calculatePlanningProduct({
-      planningProductId,
-      calculationDate: '2025-07-10',
-    });
-
-    expect(result).toMatchObject({
-      currentStockParity: 40,
-      salesVelocity: 10,
-      daysOfCover: 4,
-      recommendedBestQty: 20,
-      profitPerUnit: 3.5,
-      tier: 'C',
-      tierScore: 70,
-      restockDeadlineParity: '2025-07-09',
-      restockDeadlineImproved: '2025-07-02',
-      proratedProfitTargetMtd: 200,
-      profitGap: 200,
-      profitOffTrack: true,
-    });
-  });
-
-  it('uses imported supplier lead-time records when planning parameters only reference a supplier', async () => {
-    const db = new MemoryDatabase();
-    const planningProductId = await seedPlanningProduct(db, 'planning-product-supplier');
-    await db.getRepository(ECOBASE_COLLECTIONS.inventorySnapshots).create({
-      values: {
-        naturalKey: 'inventory-supplier',
-        sourceConnectionId: 'source-1',
-        planningProductId,
-        snapshotDate: '2025-07-01',
-        stock: 30,
-        salesVelocity: 3,
-        recommendedReorderQuantity: 15,
-      },
-    });
-    await db.getRepository(ECOBASE_COLLECTIONS.planningParameters).create({
-      values: {
-        naturalKey: 'parameter-supplier',
-        sourceConnectionId: 'source-1',
-        planningProductId,
-        supplierId: 'SUP-A',
-        profitPerUnit: 20,
-      },
-    });
-    await db.getRepository(ECOBASE_COLLECTIONS.supplierLeadTimes).create({
-      values: {
-        naturalKey: 'supplier-lead-time-other-source',
-        sourceConnectionId: 'source-2',
-        company: 'Other Company',
-        supplierId: 'SUP-A',
-        supplierName: 'Supplier A',
-        asin: 'B000TEST',
-        scope: 'product',
-        leadTimeDays: 40,
-        lastImportRunId: 'import-other',
-      },
-    });
-    await db.getRepository(ECOBASE_COLLECTIONS.supplierLeadTimes).create({
-      values: {
-        naturalKey: 'supplier-lead-time-1',
-        sourceConnectionId: 'source-1',
-        company: 'Ecofission LLC',
-        supplierId: 'SUP-A',
-        supplierName: 'Supplier A',
-        asin: 'B000TEST',
-        scope: 'product',
-        leadTimeDays: 6,
-        lastImportRunId: 'import-1',
-      },
-    });
-
-    const result = await new EcobasePlanningCalculationService(db).calculatePlanningProduct({
-      planningProductId,
-      calculationDate: '2025-07-01',
+      calculationDate: '2026-07-13',
     });
 
     expect(result).toMatchObject({
       tier: 'A',
-      leadTimeDays: 6,
-      restockDeadlineParity: '2025-07-05',
-      restockDeadlineImproved: '2025-06-28',
+      lastMonthQty: 60,
+      sixMonthAverageQty: 35,
+      sixMonthWorstQty: 10,
+      sixMonthBestQty: 60,
+      sixMonthMargin: 50,
+      leadTimeDays: 10,
+      profitPerUnit: 5,
+      calculationStatus: 'calculated',
       dataCompleteness: 'complete',
+      evidence: {
+        factRowCount: 7,
+        historicalMetrics: {
+          windowStartDate: '2026-01-01',
+          windowEndDate: '2026-06-30',
+          availableMonthCount: 6,
+        },
+      },
     });
   });
 

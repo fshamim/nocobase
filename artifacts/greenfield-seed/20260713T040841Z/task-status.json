@@ -1,5 +1,6 @@
 {
   "runId": "20260713T040841Z",
+  "updatedAt": "2026-07-13T17:50:04Z",
   "commit": "f616d507bb1d5bd0022f5cb08b2960af6867fd23",
   "tasks": {
     "T00": {
@@ -54,36 +55,62 @@
       "evidence": ["Gate1-tests.txt", "seed-bundle-manifest.json"]
     },
     "T09": {
-      "status": "not_started",
-      "evidence": []
+      "status": "passed",
+      "evidence": [
+        "fast-feedback-commit-c/T09-order-line-schema-tests-passed.txt",
+        "fast-feedback-commit-c/course-correction-direct-tests-sequential.txt",
+        "fast-feedback-commit-c/commit-c-course-correction-gate.txt"
+      ]
     },
     "T10": {
-      "status": "not_started",
-      "evidence": []
+      "status": "passed",
+      "evidence": [
+        "fast-feedback-commit-c/T10-identity-tests.txt",
+        "fast-feedback-commit-c/commit-c-course-correction-gate.txt"
+      ]
     },
     "T11": {
-      "status": "not_started",
-      "evidence": []
+      "status": "passed",
+      "evidence": [
+        "fast-feedback-commit-c/T11-sellerboard-window-tests-final.txt",
+        "fast-feedback-commit-c/course-correction-direct-tests-sequential.txt",
+        "fast-feedback-commit-c/commit-c-course-correction-gate.txt"
+      ]
     },
     "T12": {
-      "status": "not_started",
-      "evidence": []
+      "status": "passed",
+      "evidence": [
+        "fast-feedback-commit-c/T12-unresolved-order-tests.txt",
+        "fast-feedback-commit-c/commit-c-course-correction-gate.txt"
+      ]
     },
     "T13": {
-      "status": "not_started",
-      "evidence": []
+      "status": "passed",
+      "evidence": [
+        "fast-feedback-commit-c/T13-supplier-link-tests-final.txt",
+        "fast-feedback-commit-c/commit-c-course-correction-gate.txt"
+      ]
     },
     "T14": {
-      "status": "not_started",
-      "evidence": []
+      "status": "passed",
+      "evidence": [
+        "fast-feedback-commit-c/T14-product-overrides-tests-final.txt",
+        "fast-feedback-commit-c/commit-c-course-correction-gate.txt"
+      ]
     },
     "T15": {
-      "status": "not_started",
-      "evidence": []
+      "status": "passed",
+      "evidence": [
+        "fast-feedback-commit-c/T15-two-phase-refresh-tests.txt",
+        "fast-feedback-commit-c/commit-c-course-correction-gate.txt"
+      ]
     },
     "T16": {
-      "status": "not_started",
-      "evidence": []
+      "status": "passed",
+      "evidence": [
+        "fast-feedback-commit-c/T16-reconciliation-performance-tests-final.txt",
+        "fast-feedback-commit-c/commit-c-course-correction-gate.txt"
+      ]
     },
     "T17": {
       "status": "not_started",
@@ -161,6 +188,20 @@
       "phase": "Commit B",
       "status": "changes_requested_fixed_after_final_round",
       "artifact": "greenfield-reviews/commit-b-round-3.md"
+    },
+    {
+      "round": 1,
+      "commit": "working-tree-before-commit-c",
+      "phase": "Commit C",
+      "status": "changes_requested",
+      "artifact": "greenfield-reviews/commit-c-round-1.md"
+    },
+    {
+      "round": 2,
+      "commit": "working-tree-before-commit-c",
+      "phase": "Commit C",
+      "status": "approved",
+      "artifact": "greenfield-reviews/commit-c-round-2.md"
     }
   ],
   "checkpoints": {
@@ -179,6 +220,22 @@
       "csvRegressionDelta": "0 new failures; 18/48 passed vs parent 17/47 passed; same 30 known parent failures",
       "csvRegressionEvidence": "raw parent/current JSON, stderr, exit codes, commands and SHA-256 preserved in greenfield-reviews/commit-b-round-2-*",
       "reviewStatus": "all code findings resolved; final stale attestation hashes corrected"
+    },
+    "Gate2": {
+      "status": "passed",
+      "profileVersion": "2026-07-13.1",
+      "focusedTestFilesPassed": 24,
+      "focusedTestsPassed": 261,
+      "directRegressionTestFilesPassed": 4,
+      "reviewRounds": 2,
+      "requiredMigration": "packages/plugins/@nocobase/plugin-ecobase/src/server/migrations/20260713200000-add-order-line-source-identity.ts",
+      "evidence": [
+        "fast-feedback-commit-c/course-correction-direct-tests-sequential.txt",
+        "fast-feedback-commit-c/commit-c-course-correction-gate.txt",
+        "fast-feedback-commit-c/commit-c-course-correction-gate.summary.json",
+        "greenfield-reviews/commit-c-round-1.md",
+        "greenfield-reviews/commit-c-round-2.md"
+      ]
     }
   }
 }

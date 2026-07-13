@@ -1,0 +1,9 @@
+{
+  "phase": "commit-c-full-server-tests-final",
+  "inputRows": 0,
+  "acceptedRows": 0,
+  "discardedRows": 0,
+  "elapsedMs": 1213,
+  "exitCode": 0,
+  "note": "directory filter is excluded by root Vitest config; shell-expanded all test files"
+}

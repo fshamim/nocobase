@@ -18,6 +18,7 @@ import { EcobaseMedallionIdentityService, normalizeExternalSupplierCode } from '
 import { resolveOrderLifecycle } from '../../order-planning/server/order-lifecycle';
 import { requireCanonicalCompany } from '../../../server/company-identity';
 import { EcobaseCompanyProductFamilyService } from '../../inventory-planning/server/company-product-family-service';
+import { FOUR_COMPANY_MIGRATION_PROFILE } from '../../source-import/server/four-company-migration-profile';
 
 export interface NormalizePendingParams {
   sourceConnectionId?: string;
@@ -124,6 +125,17 @@ export class EcobaseMedallionNormalizationService {
         : sourceDataset.includes('purchase orders') || sourceDataset === 'purchase_orders'
           ? 'purchase-orders'
           : undefined;
+    const importRun = toPlainRecord(
+      bronze.importRun ??
+        (bronze.importRunId
+          ? await this.repo(ECOBASE_COLLECTIONS.importRuns).findOne({ filterByTk: bronze.importRunId as string })
+          : null),
+    );
+    const createsAmazonIdentity = approvedAmazonIdentitySource({
+      sourceType: textValue(bronze.sourceType),
+      sourceDataset,
+      adapterName: textValue(importRun.adapterName),
+    });
     if (orderShape && !safeProjectedDataset && orderRowExclusionReason(orderShape, row)) return entities;
     if (
       !safeProjectedDataset &&
@@ -150,7 +162,7 @@ export class EcobaseMedallionNormalizationService {
       row.string('listingSku', 'sourceSupplierSku', 'SKU') ??
       (orderRef ? row.string('UPC') : undefined);
     const snapshotDate = dateOnly(
-      textValue(bronze.sourceType) === 'sellerboard'
+      createsAmazonIdentity
         ? row.string('period') ?? textValue(bronze.observedAt)
         : row.string('occurredAt', 'period', 'orderDate', 'Timestamp', 'Date', 'Order Date') ??
             textValue(bronze.observedAt),
@@ -211,7 +223,7 @@ export class EcobaseMedallionNormalizationService {
     }
 
     const product =
-      asin && sku
+      createsAmazonIdentity && asin && sku
         ? await this.identity.upsertProduct({
             asin,
             sku,
@@ -221,28 +233,27 @@ export class EcobaseMedallionNormalizationService {
         : null;
     if (product) entities.push(entity('silverProduct', product, 'product'));
 
+    const resolutionSku = approvedAmazonListingSku(asin, sku) ?? sku;
     const companyProductIdentity = company
       ? product
         ? await this.resolveCompanyProductIdentity({
             companyId: idOf(company),
             productId: idOf(product),
-            asin,
-            sku,
             marketplace,
           })
         : asin
-          ? await this.resolveExistingCompanyProductByAsin(idOf(company), asin)
+          ? await this.resolveExistingCompanyProduct({
+              companyId: idOf(company),
+              asin,
+              sku: resolutionSku,
+              marketplace,
+            })
           : null
       : null;
     const account = companyProductIdentity?.account ?? null;
     const companyProduct = companyProductIdentity?.companyProduct ?? null;
     const supplierProductProduct = product ?? companyProductIdentity?.product ?? null;
     if (supplierExternalCode && asin && !sku && !companyProductIdentity) {
-      if (orderRef && orderedQty !== undefined) {
-        throw new Error(
-          `Ecobase medallion normalization failed: OrderDetails ${orderRef}/${asin} has no unique company product for ASIN-only resolution.`,
-        );
-      }
       await this.markBronzeWarning(
         bronze,
         'supplier_product_unresolved',
@@ -477,7 +488,7 @@ export class EcobaseMedallionNormalizationService {
       const existingOrderRecord =
         validatedOrderRecord ?? (await this.repo(ECOBASE_COLLECTIONS.silverOrders).findOne({ filter: orderFilter }));
       const existingOrder = toPlainRecord(existingOrderRecord);
-      const isOrderLine = Boolean(companyProduct && orderedQty !== undefined);
+      const isOrderLine = isOrderDetailInput;
       if (isOrderLine && !textValue(toPlainRecord(existingOrderRecord).id)) {
         throw new Error(
           `Ecobase medallion normalization failed: OrderDetails ${orderRef} has no Purchase Orders header for ${canonicalCompany?.name}.`,
@@ -549,23 +560,22 @@ export class EcobaseMedallionNormalizationService {
       entities.push(entity('silverOrder', order, 'order'));
 
       if (isOrderLine) {
-        if (!supplierProduct) {
-          throw new Error(
-            `Ecobase medallion normalization failed: OrderDetails ${orderRef} has no supplier-product relationship.`,
-          );
-        }
         const orderRecord = toPlainRecord(order);
         const companyProductRecord = toPlainRecord(companyProduct);
         const supplierProductRecord = toPlainRecord(supplierProduct);
         if (textValue(orderRecord.companyId) !== idOf(company)) {
           throw new Error(`Ecobase medallion normalization failed: order ${orderRef} company relationship is invalid.`);
         }
-        if (textValue(orderRecord.supplierId) !== textValue(supplierProductRecord.supplierId)) {
+        const productResolved = Boolean(companyProduct && supplierProduct);
+        if (productResolved && textValue(orderRecord.supplierId) !== textValue(supplierProductRecord.supplierId)) {
           throw new Error(
             `Ecobase medallion normalization failed: order ${orderRef} supplier relationship is invalid.`,
           );
         }
-        if (textValue(companyProductRecord.productId) !== textValue(supplierProductRecord.productId)) {
+        if (
+          productResolved &&
+          textValue(companyProductRecord.productId) !== textValue(supplierProductRecord.productId)
+        ) {
           throw new Error(`Ecobase medallion normalization failed: order ${orderRef} product relationship is invalid.`);
         }
         const sourceLineKey = orderLineSourceKeyForBronze(bronze);
@@ -584,9 +594,12 @@ export class EcobaseMedallionNormalizationService {
               { orderId: idOf(order), sourceLineKey },
               {
                 orderId: idOf(order),
-                companyProductId: idOf(companyProduct),
-                supplierProductId: idOf(supplierProduct),
+                companyProductId: productResolved ? idOf(companyProduct) : undefined,
+                supplierProductId: productResolved ? idOf(supplierProduct) : undefined,
                 sourceLineKey,
+                sourceAsin: asin,
+                sourceSupplierSku: sku,
+                productMappingStatus: productResolved ? 'resolved' : 'unresolved',
                 orderedQty,
                 unitCost: row.number('unitCost', 'PPU', 'COGS', 'Exp. Cost '),
                 expectedProfit: row.number('expectedProfit', 'T.Profit', 'Rec.Best Profit'),
@@ -647,35 +660,8 @@ export class EcobaseMedallionNormalizationService {
   private async resolveCompanyProductIdentity(params: {
     companyId: string;
     productId: string;
-    asin: string;
-    sku: string;
     marketplace?: string;
   }): Promise<CompanyProductIdentity> {
-    const exactProductRelation = await this.repo(ECOBASE_COLLECTIONS.silverCompanyProducts).findOne({
-      filter: { companyId: params.companyId, productId: params.productId },
-    });
-    if (!exactProductRelation) {
-      const account = await this.identity.ensureDefaultAmazonAccount({
-        companyId: params.companyId,
-        marketplace: params.marketplace?.trim() || 'default',
-      });
-      const companyProduct = await this.identity.upsertCompanyProduct({
-        companyId: params.companyId,
-        amazonAccountId: idOf(account),
-        productId: params.productId,
-      });
-      return { account, companyProduct };
-    }
-
-    const resolution = await new EcobaseCompanyProductFamilyService(this.db).resolveCompanyProduct({
-      companyId: params.companyId,
-      asin: params.asin,
-      sku: params.sku,
-      marketplace: params.marketplace,
-    });
-    if (resolution.companyProductId) return this.companyProductIdentityFromId(resolution.companyProductId);
-    if (resolution.exclusionReason !== 'product_not_found') return { account: null, companyProduct: null };
-
     const marketplace = params.marketplace?.trim() || 'default';
     const account = await this.identity.ensureDefaultAmazonAccount({ companyId: params.companyId, marketplace });
     const companyProduct = await this.identity.upsertCompanyProduct({
@@ -688,11 +674,13 @@ export class EcobaseMedallionNormalizationService {
     return { account, companyProduct };
   }
 
-  private async resolveExistingCompanyProductByAsin(
-    companyId: string,
-    asin: string,
-  ): Promise<CompanyProductIdentity | null> {
-    const resolution = await new EcobaseCompanyProductFamilyService(this.db).resolveCompanyProduct({ companyId, asin });
+  private async resolveExistingCompanyProduct(params: {
+    companyId: string;
+    asin: string;
+    sku?: string;
+    marketplace?: string;
+  }): Promise<CompanyProductIdentity | null> {
+    const resolution = await new EcobaseCompanyProductFamilyService(this.db).resolveCompanyProduct(params);
     return resolution.companyProductId ? this.companyProductIdentityFromId(resolution.companyProductId) : null;
   }
 
@@ -852,6 +840,19 @@ function normalizationPriority(record: unknown) {
   return 1;
 }
 
+export function approvedAmazonIdentitySource(input: {
+  sourceType?: string;
+  sourceDataset: string;
+  adapterName?: string;
+}) {
+  if (input.sourceType !== 'sellerboard') return false;
+  if (input.adapterName === 'sellerboard-history-csv') return input.sourceDataset === 'sellerboard_daily_facts';
+  return (
+    input.adapterName === 'sellerboard-api' &&
+    ['amazon_listing_inventory', 'sellerboard_daily_facts'].includes(input.sourceDataset)
+  );
+}
+
 function entity(type: string, record: unknown, relation: string): SilverEntity {
   return {
     type,
@@ -876,6 +877,13 @@ function textValue(value: unknown) {
   if (typeof value === 'string' && value.trim()) return value.trim();
   if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString();
   return undefined;
+}
+
+function approvedAmazonListingSku(asin: string | undefined, sourceSupplierSku: string | undefined) {
+  if (!asin || !sourceSupplierSku) return undefined;
+  return FOUR_COMPANY_MIGRATION_PROFILE.listingSkuAliasDecisions.find(
+    (decision) => decision.asin === asin && decision.sourceSupplierSku === sourceSupplierSku,
+  )?.amazonListingSku;
 }
 
 function leadTimeDaysForSilver(value: string | undefined, supplierExternalCode: string | undefined) {

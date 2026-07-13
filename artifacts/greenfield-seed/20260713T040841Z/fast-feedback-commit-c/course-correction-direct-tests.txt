@@ -1,0 +1,39 @@
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/sellerboard-live-import.test.ts packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/import-preflight.test.ts packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-line-source-identity-migration.test.ts --run --reporter=verbose
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/sellerboard-live-import.test.ts',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/import-preflight.test.ts',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-line-source-identity-migration.test.ts',
+  '--run',
+  '--reporter=verbose',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:79832) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/sellerboard-live-import.test.ts > Sellerboard live URL import > parses comma- and semicolon-delimited reports
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/sellerboard-live-import.test.ts > Sellerboard live URL import > fetches live Sellerboard CSV URLs and normalizes through the existing CSV path
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/sellerboard-live-import.test.ts > Sellerboard live URL import > parses Sellerboard live report slash dates as month-first
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/sellerboard-live-import.test.ts > Sellerboard live URL import > detects day-first live report files before parsing ambiguous dates
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/sellerboard-live-import.test.ts > Sellerboard live URL import > sums live Sellerboard Dashboard by Product sales and unit channels
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/sellerboard-live-import.test.ts > Sellerboard live URL import > marks scheduled imports stale and waits for retry when Sellerboard has not published fresh data yet
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/sellerboard-live-import.test.ts > Sellerboard live URL import > records a durable skipped run when scheduled same-day Sellerboard data was already imported
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/sellerboard-live-import.test.ts > Sellerboard live URL import > keeps mixed fresh and stale report runs retryable instead of marking the whole source fresh
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/sellerboard-live-import.test.ts > Sellerboard live URL import > records missing Sellerboard URL configuration as a credential blocker audit record
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/sellerboard-live-import.test.ts > Sellerboard live URL import > ties invalid live Sellerboard CSV shapes to raw row errors on the import run
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/sellerboard-live-import.test.ts > Sellerboard live URL import > ties row-level live Sellerboard CSV warnings to the import run while keeping valid sibling rows
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/sellerboard-live-import.test.ts > Sellerboard live URL import > force-refresh appends run-scoped safe Bronze evidence
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/sellerboard-live-import.test.ts > Sellerboard live URL import > documents live-gate persistence defaults and destructive-reset guardrails
+
+ Test Files  1 passed (1)
+      Tests  13 passed (13)
+   Start at  17:47:28
+   Duration  556ms (transform 330ms, setup 47ms, collect 363ms, tests 24ms, environment 0ms, prepare 50ms)
+
+Done in 2.54s.

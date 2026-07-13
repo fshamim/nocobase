@@ -1,0 +1,9 @@
+{
+  "phase": "t14-product-overrides-tests",
+  "inputRows": 0,
+  "acceptedRows": 0,
+  "discardedRows": 0,
+  "elapsedMs": 5083,
+  "exitCode": 1,
+  "note": "product-overrides.test.ts does not exist; override coverage lives in company-product-family-service and API suites"
+}

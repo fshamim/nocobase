@@ -11,6 +11,7 @@ import { createHash } from 'node:crypto';
 import type { AdapterStreamItem, NormalizedRecord, SourceAdapter, SourceAdapterImportInput } from './types';
 import { CsvRowReader, CsvSourceFile, normalizedHeaderSet, normalizeHeader, parseDelimitedCsv } from './csv-utils';
 import { sellerboardMetricValues } from './sellerboard-metrics';
+import { FOUR_COMPANY_MIGRATION_PROFILE } from '../four-company-migration-profile';
 
 interface FileConfig {
   files?: CsvSourceFile[];
@@ -71,7 +72,19 @@ function sellerboardDate(value: string | undefined, format: DateFormat) {
 }
 
 function sourceDateUpperBound(sourceVersion: string) {
-  return /^\d{4}-\d{2}-\d{2}$/.test(sourceVersion) ? sourceVersion : undefined;
+  const date = sourceVersion.slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : undefined;
+}
+
+function sourceDateLowerBound(sourceVersion: string) {
+  const upperBound = sourceDateUpperBound(sourceVersion);
+  if (!upperBound) return undefined;
+  const date = new Date(`${upperBound}T00:00:00.000Z`);
+  return new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth() - FOUR_COMPANY_MIGRATION_PROFILE.sellerboardHistoryMonths, 1),
+  )
+    .toISOString()
+    .slice(0, 10);
 }
 
 function defaultCompany(input: SourceAdapterImportInput) {
@@ -177,6 +190,7 @@ export async function* importSellerboardHistoryCsvFiles(
     const parsed = parseDelimitedCsv(file.content ?? '', ';');
     const dateFormat = detectDateFormat(parsed.rows);
     const latestAllowedDate = sourceDateUpperBound(input.sourceVersion);
+    const earliestAllowedDate = sourceDateLowerBound(input.sourceVersion);
     const expectedRowCount = file.expectedRowCount ?? asFileConfig(input.config).expectedRowCounts?.[file.name];
     if (typeof expectedRowCount === 'number' && expectedRowCount !== parsed.rows.length) {
       yield {
@@ -228,6 +242,7 @@ export async function* importSellerboardHistoryCsvFiles(
         };
         continue;
       }
+      if (earliestAllowedDate && snapshotDate < earliestAllowedDate) continue;
       if (latestAllowedDate && snapshotDate > latestAllowedDate) {
         yield {
           type: 'rowIssue',

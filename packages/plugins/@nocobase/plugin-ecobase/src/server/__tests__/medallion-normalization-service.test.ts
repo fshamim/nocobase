@@ -10,7 +10,10 @@
 import { describe, expect, it } from 'vitest';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
-import { EcobaseMedallionNormalizationService } from '../../features/semantic-model/server/medallion-normalization-service';
+import {
+  approvedAmazonIdentitySource,
+  EcobaseMedallionNormalizationService,
+} from '../../features/semantic-model/server/medallion-normalization-service';
 
 class FakeRepository implements EcobaseRepository {
   rows: Record<string, unknown>[] = [];
@@ -61,14 +64,25 @@ function matches(
 }
 
 async function seedBronze(db: FakeDatabase, payload: Record<string, unknown>, overrides: Record<string, unknown> = {}) {
+  const sourceType = String(overrides.sourceType ?? 'sellerboard');
+  const sourceDataset = String(overrides.sourceDataset ?? 'amazon_listing_inventory');
+  const importRunId = `import-${sourceType}-${sourceDataset}`;
+  if (!(await db.getRepository(ECOBASE_COLLECTIONS.importRuns).findOne({ filterByTk: importRunId }))) {
+    await db.getRepository(ECOBASE_COLLECTIONS.importRuns).create({
+      values: {
+        id: importRunId,
+        adapterName: sourceType === 'sellerboard' ? 'sellerboard-api' : 'google-sheets-migration-csv',
+      },
+    });
+  }
   return db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).create({
     values: {
       id: `bronze-${db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).rows.length + 1}`,
       sourceConnectionId: 'source-1',
-      importRunId: 'import-1',
-      sourceType: 'google_sheets',
-      sourceDataset: 'MasterStock.csv',
-      sourceRecordKey: `MasterStock.csv:${payload.ASIN ?? payload['Order ID'] ?? 'row'}`,
+      importRunId,
+      sourceType,
+      sourceDataset,
+      sourceRecordKey: `${sourceDataset}:${payload.ASIN ?? payload['Order ID'] ?? 'row'}`,
       rowHash: `hash-${JSON.stringify(payload).length}`,
       payload,
       observedAt: '2026-06-01T00:00:00.000Z',
@@ -87,21 +101,51 @@ async function seedOrderPrerequisites(db: FakeDatabase, detail: Record<string, u
   await seedBronze(
     db,
     { 'SR ID': supplierCode, 'Supplier Name': supplierName, 'Reached Via': company },
-    { sourceDataset: 'Supplier Analysis Tracker.csv' },
+    { sourceType: 'google_sheets', sourceDataset: 'Supplier Analysis Tracker.csv' },
   );
   await seedBronze(
     db,
     { 'Order ID': orderRef, Timestamp: timestamp, Company: company, 'SR ID': supplierCode, Supplier: supplierName },
-    { sourceDataset: 'Purchase Orders.csv' },
+    { sourceType: 'google_sheets', sourceDataset: 'Purchase Orders.csv' },
   );
 }
 
 async function seedOrderBundle(db: FakeDatabase, detail: Record<string, unknown>) {
   await seedOrderPrerequisites(db, detail);
-  return seedBronze(db, detail, { sourceDataset: 'OrderDetails.csv' });
+  return seedBronze(db, detail, { sourceType: 'google_sheets', sourceDataset: 'OrderDetails.csv' });
 }
 
 describe('EcobaseMedallionNormalizationService', () => {
+  it('creates Amazon identity only for explicit Sellerboard adapters and datasets', () => {
+    expect(
+      approvedAmazonIdentitySource({
+        sourceType: 'sellerboard',
+        adapterName: 'sellerboard-api',
+        sourceDataset: 'amazon_listing_inventory',
+      }),
+    ).toBe(true);
+    expect(
+      approvedAmazonIdentitySource({
+        sourceType: 'sellerboard',
+        adapterName: 'sellerboard-history-csv',
+        sourceDataset: 'sellerboard_daily_facts',
+      }),
+    ).toBe(true);
+    expect(
+      approvedAmazonIdentitySource({
+        sourceType: 'sellerboard',
+        adapterName: 'unapproved-sellerboard-adapter',
+        sourceDataset: 'amazon_listing_inventory',
+      }),
+    ).toBe(false);
+    expect(
+      approvedAmazonIdentitySource({
+        sourceType: 'google_sheets',
+        adapterName: 'google-sheets-migration-csv',
+        sourceDataset: 'amazon_listing_inventory',
+      }),
+    ).toBe(false);
+  });
   it('normalizes product inventory rows into silver identity and fact tables', async () => {
     const db = new FakeDatabase();
     await seedBronze(db, {
@@ -201,6 +245,72 @@ describe('EcobaseMedallionNormalizationService', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[0].companyProductId).toBe(companyProducts[0].id);
   });
 
+  it('maps an exact supplier SKU alias to existing Sellerboard identity without creating a legacy listing', async () => {
+    const db = new FakeDatabase();
+    await seedBronze(
+      db,
+      {
+        Company: 'Ecofission LLC',
+        ASIN: 'B0177E9JPS',
+        SKU: 'ETC-120A',
+        Marketplace: 'Amazon.com',
+        'FBA/FBM Stock': '12',
+      },
+      { sourceType: 'sellerboard', sourceDataset: 'sellerboard_daily_facts' },
+    );
+    await seedOrderBundle(db, {
+      'Order ID': 'EF-ETC-1',
+      Timestamp: '10/07/2026 08:00:00',
+      Company: 'Ecofission LLC',
+      'SR ID': 'SRO-ETC',
+      Supplier: 'ETC Supply',
+      ASIN: 'B0177E9JPS',
+      SKU: 'ETC120A',
+      Qty: '5',
+    });
+
+    const result = await new EcobaseMedallionNormalizationService(db).normalizePending();
+
+    expect(result.failed).toBe(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).rows).toEqual([
+      expect.objectContaining({ asin: 'B0177E9JPS', sku: 'ETC-120A' }),
+    ]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[0]).toMatchObject({
+      sourceAsin: 'B0177E9JPS',
+      sourceSupplierSku: 'ETC120A',
+      productMappingStatus: 'resolved',
+    });
+  });
+
+  it('retains an unresolved legacy order line without creating Amazon identity', async () => {
+    const db = new FakeDatabase();
+    await seedOrderBundle(db, {
+      'Order ID': 'EF-UNRESOLVED-1',
+      Timestamp: '10/07/2026 08:00:00',
+      Company: 'Ecofission LLC',
+      'SR ID': 'SRO-UNRESOLVED',
+      Supplier: 'Unresolved Supply',
+      ASIN: 'B00UNRESOLVED',
+      SKU: 'SUPPLIER-ONLY-SKU',
+      Qty: '5',
+    });
+
+    const result = await new EcobaseMedallionNormalizationService(db).normalizePending();
+
+    expect(result.failed).toBe(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).rows).toHaveLength(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverAmazonAccounts).rows).toHaveLength(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).rows).toHaveLength(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows).toEqual([
+      expect.objectContaining({
+        sourceAsin: 'B00UNRESOLVED',
+        sourceSupplierSku: 'SUPPLIER-ONLY-SKU',
+        productMappingStatus: 'unresolved',
+        orderedQty: 5,
+      }),
+    ]);
+  });
+
   it('normalizes Purchase Orders headers before OrderDetails regardless of bronze row order', async () => {
     const db = new FakeDatabase();
     const detail = {
@@ -293,7 +403,7 @@ describe('EcobaseMedallionNormalizationService', () => {
     });
   });
 
-  it('uses UPC as the order-detail SKU when SKU is blank', async () => {
+  it('preserves UPC as unresolved supplier identity when SKU is blank', async () => {
     const db = new FakeDatabase();
     await seedOrderBundle(db, {
       'Order ID': 'SS21424D',
@@ -311,11 +421,11 @@ describe('EcobaseMedallionNormalizationService', () => {
     const result = await new EcobaseMedallionNormalizationService(db).normalizePending();
 
     expect(result.failed).toBe(0);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).rows[0]).toMatchObject({
-      asin: 'B01DAYLVYG',
-      sku: '13189438670',
-    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).rows).toHaveLength(0);
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[0]).toMatchObject({
+      sourceAsin: 'B01DAYLVYG',
+      sourceSupplierSku: '13189438670',
+      productMappingStatus: 'unresolved',
       orderedQty: 75,
       unitCost: 23.8,
     });
@@ -864,7 +974,7 @@ describe('EcobaseMedallionNormalizationService', () => {
     });
   });
 
-  it('rejects ASIN-only OrderDetails without an approved family target', async () => {
+  it('retains ASIN-only OrderDetails as unresolved without an approved family target', async () => {
     const db = new FakeDatabase();
     await seedBronze(db, {
       Company: 'Stop Shop LLC',
@@ -884,15 +994,14 @@ describe('EcobaseMedallionNormalizationService', () => {
 
     const result = await new EcobaseMedallionNormalizationService(db).normalizePending();
 
-    expect(result.failed).toBe(1);
+    expect(result.failed).toBe(0);
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).rows).toHaveLength(1);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows).toHaveLength(0);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).rows[3]).toMatchObject({
-      normalizationStatus: 'failed',
-    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows).toEqual([
+      expect.objectContaining({ sourceAsin: 'B00UNIQUE', productMappingStatus: 'unresolved', orderedQty: 3 }),
+    ]);
   });
 
-  it('rejects tied ASIN-only OrderDetails without creating a line', async () => {
+  it('retains tied ASIN-only OrderDetails as unresolved without guessing a target', async () => {
     const db = new FakeDatabase();
     await seedBronze(db, {
       Company: 'Stop Shop LLC',
@@ -919,10 +1028,11 @@ describe('EcobaseMedallionNormalizationService', () => {
 
     const result = await new EcobaseMedallionNormalizationService(db).normalizePending();
 
-    expect(result).toMatchObject({ normalized: 4, failed: 1 });
+    expect(result).toMatchObject({ normalized: 5, failed: 0 });
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).rows).toHaveLength(2);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows).toHaveLength(0);
-    expect(result.errors[0]).toMatch(/no unique company product for ASIN-only resolution/);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows).toEqual([
+      expect.objectContaining({ sourceAsin: 'B00TIED', productMappingStatus: 'unresolved', orderedQty: 3 }),
+    ]);
   });
 
   it('deduplicates equivalent source lines and preserves non-equivalent repeated product lines', async () => {
@@ -963,9 +1073,9 @@ describe('EcobaseMedallionNormalizationService', () => {
   it('preserves same-ASIN SKU aliases as distinct order lines', async () => {
     const db = new FakeDatabase();
     const firstLine = {
-      'Order ID': 'EF-ALIAS-1',
+      'Order ID': 'EF1002A',
       Company: 'Ecofission LLC',
-      'SR ID': 'SRO-ALIAS',
+      'SR ID': 'SRO-202',
       Supplier: 'Alias Supplier',
       ASIN: 'B00ALIAS',
       SKU: 'ALIAS-A',
@@ -974,7 +1084,7 @@ describe('EcobaseMedallionNormalizationService', () => {
     await seedOrderPrerequisites(db, firstLine);
     await seedBronze(db, firstLine, {
       sourceDataset: 'OrderDetails.csv',
-      sourceRecordKey: 'OrderDetails.csv:EF-ALIAS-1:B00ALIAS:ALIAS-A',
+      sourceRecordKey: 'OrderDetails.csv:EF1002A:B00ALIAS:ALIAS-A',
       rowHash: 'alias-a',
     });
     await seedBronze(
@@ -982,7 +1092,7 @@ describe('EcobaseMedallionNormalizationService', () => {
       { ...firstLine, SKU: 'ALIAS-B', Qty: '4' },
       {
         sourceDataset: 'OrderDetails.csv',
-        sourceRecordKey: 'OrderDetails.csv:EF-ALIAS-1:B00ALIAS:ALIAS-B',
+        sourceRecordKey: 'OrderDetails.csv:EF1002A:B00ALIAS:ALIAS-B',
         rowHash: 'alias-b',
       },
     );
@@ -990,10 +1100,12 @@ describe('EcobaseMedallionNormalizationService', () => {
     const result = await new EcobaseMedallionNormalizationService(db).normalizePending();
 
     expect(result.failed).toBe(0);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).rows).toHaveLength(2);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).rows).toHaveLength(0);
     const lines = db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows;
     expect(lines).toHaveLength(2);
-    expect(new Set(lines.map((line) => line.companyProductId)).size).toBe(2);
+    expect(lines.map((line) => line.sourceSupplierSku).sort()).toEqual(['ALIAS-A', 'ALIAS-B']);
+    expect(lines.every((line) => line.productMappingStatus === 'unresolved')).toBe(true);
+    expect(lines.every((line) => line.companyProductId === undefined)).toBe(true);
   });
 
   it('does not guess ASIN-only supplier tracker links when company products are ambiguous', async () => {
@@ -1055,9 +1167,8 @@ describe('EcobaseMedallionNormalizationService', () => {
     const result = await new EcobaseMedallionNormalizationService(db).normalizePending();
 
     expect(result.failed).toBe(0);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).rows[0]).toMatchObject({
-      snapshotDate: '2023-06-17',
-    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).rows).toHaveLength(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[0]).toMatchObject({ orderDate: '2023-06-17' });
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverInvoices).rows[0]).not.toHaveProperty('paidAt');
     expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).rows[2]).toMatchObject({
       issueSeverity: 'warning',
@@ -1112,7 +1223,7 @@ describe('EcobaseMedallionNormalizationService', () => {
           company: { id: 'company-1', name: 'Ecofission LLC' },
         },
         sourceType: 'sellerboard',
-        sourceDataset: 'profit_by_product_daily-Profit by Product Dashboard Daily Data.csv',
+        sourceDataset: 'sellerboard_daily_facts',
         observedAt: new Date('2026-01-08T00:00:00.000Z'),
       },
     );
@@ -1144,7 +1255,7 @@ describe('EcobaseMedallionNormalizationService', () => {
       },
       {
         sourceType: 'sellerboard',
-        sourceDataset: 'profit_by_product_daily-Profit by Product Dashboard Daily Data.csv',
+        sourceDataset: 'sellerboard_daily_facts',
         observedAt: new Date('2026-01-08T00:00:00.000Z'),
       },
     );
@@ -1176,7 +1287,7 @@ describe('EcobaseMedallionNormalizationService', () => {
       },
       {
         sourceType: 'sellerboard',
-        sourceDataset: 'profit_by_product_daily-Profit by Product Dashboard Daily Data.csv',
+        sourceDataset: 'sellerboard_daily_facts',
         observedAt: new Date('2026-01-08T00:00:00.000Z'),
       },
     );
@@ -1212,12 +1323,16 @@ describe('EcobaseMedallionNormalizationService', () => {
 
   it('fails invalid source dates instead of defaulting them to today', async () => {
     const db = new FakeDatabase();
-    await seedBronze(db, {
-      Company: 'Ecofission LLC',
-      ASIN: 'B00BADDATE',
-      SKU: 'BAD-DATE',
-      Date: '99/99/2026',
-    });
+    await seedBronze(
+      db,
+      {
+        Company: 'Ecofission LLC',
+        ASIN: 'B00BADDATE',
+        SKU: 'BAD-DATE',
+        Date: '99/99/2026',
+      },
+      { sourceType: 'google_sheets' },
+    );
 
     const result = await new EcobaseMedallionNormalizationService(db).normalizePending();
 

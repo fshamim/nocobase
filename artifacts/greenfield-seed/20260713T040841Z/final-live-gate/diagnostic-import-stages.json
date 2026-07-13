@@ -1,0 +1,39 @@
+{
+  "sourceVersion": "2026-07-13",
+  "stages": [
+    {
+      "number": 1,
+      "label": "read-only source preflight",
+      "status": "success",
+      "startedAt": "2026-07-13T16:42:57.444Z",
+      "finishedAt": "2026-07-13T16:43:26.463Z",
+      "durationMs": 29019,
+      "inputRows": 0,
+      "acceptedRows": 0,
+      "discardedRows": 0
+    },
+    {
+      "number": 2,
+      "label": "Sellerboard API snapshots",
+      "status": "success",
+      "startedAt": "2026-07-13T16:43:31.977Z",
+      "finishedAt": "2026-07-13T16:43:56.281Z",
+      "durationMs": 24304,
+      "inputRows": 2140,
+      "acceptedRows": 12,
+      "discardedRows": 2136
+    },
+    {
+      "number": 3,
+      "label": "Sellerboard history CSVs",
+      "status": "failed",
+      "startedAt": "2026-07-13T16:43:56.282Z",
+      "finishedAt": "2026-07-13T17:31:58.371Z",
+      "durationMs": 2882089,
+      "inputRows": 59217,
+      "acceptedRows": 59217,
+      "discardedRows": 0,
+      "error": "Stage 3 exceeded its 600000ms budget: 2882088ms (Sellerboard history CSVs)."
+    }
+  ]
+}

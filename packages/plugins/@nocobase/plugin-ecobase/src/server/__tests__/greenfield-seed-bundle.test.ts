@@ -53,13 +53,14 @@ describe('greenfield seed bundle', () => {
       sourceVersion: '2026-07-13T00:00:00.000Z',
       bundleChecksum: expect.stringMatching(/^[a-f0-9]{64}$/),
     });
-    expect(first.groups).toHaveLength(12);
-    expect(first.groups.flatMap((group) => group.files)).toHaveLength(15);
+    expect(first.groups).toHaveLength(11);
+    expect(first.groups.flatMap((group) => group.files)).toHaveLength(13);
+    expect(first.groups.some((group) => group.id === 'amazon-operations')).toBe(false);
     expect(first.groups.find((group) => group.id === 'order-management')?.files.map((file) => file.name)).toEqual([
       'Ecofission-Order Management - Purchase Orders.csv',
       'Ecofission-Order Management - OrderDetails.csv',
     ]);
-    expect(new Set(first.groups.flatMap((group) => group.files.map((file) => file.path))).size).toBe(15);
+    expect(new Set(first.groups.flatMap((group) => group.files.map((file) => file.path))).size).toBe(13);
     expect(first.groups.every((group) => group.files.every((file) => file.rowCount === 1))).toBe(true);
 
     const manifest = greenfieldSeedBundleManifest(first);

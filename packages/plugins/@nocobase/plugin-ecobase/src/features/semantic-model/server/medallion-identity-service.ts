@@ -227,7 +227,11 @@ export class EcobaseMedallionIdentityService {
     await this.requireRecord(ECOBASE_COLLECTIONS.silverAmazonAccounts, params.amazonAccountId, 'amazon account');
     await this.requireRecord(ECOBASE_COLLECTIONS.silverProducts, params.productId, 'product');
     return this.upsertByFilter(ECOBASE_COLLECTIONS.silverCompanyProducts, {
-      filter: { companyId: params.companyId, productId: params.productId },
+      filter: {
+        companyId: params.companyId,
+        amazonAccountId: params.amazonAccountId,
+        productId: params.productId,
+      },
       values: {
         companyId: params.companyId,
         amazonAccountId: params.amazonAccountId,

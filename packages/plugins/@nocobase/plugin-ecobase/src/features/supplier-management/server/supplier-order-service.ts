@@ -379,16 +379,30 @@ function asBoolean(value: unknown): boolean | undefined {
 }
 
 export function selectSupplierProductLink(links: PlainRecord[]) {
-  const activeLinks = links
+  const rank = (link: PlainRecord) => {
+    const role = asString(link.role);
+    if (role === 'preferred' || role === 'primary') return 0;
+    if (asString(link.lastUsedAt)) return 1;
+    if (role === 'latest_history') return 2;
+    if (role === 'discovered') return 3;
+    if (role === 'candidate') return 4;
+    return 5;
+  };
+  return links
     .filter((link) => asBoolean(link.active) !== false)
-    .sort((left, right) => (asString(right.lastUsedAt) ?? '').localeCompare(asString(left.lastUsedAt) ?? ''));
-  return (
-    activeLinks.find((link) => asString(link.role) === 'preferred') ??
-    activeLinks.find((link) => Boolean(asString(link.lastUsedAt))) ??
-    activeLinks.find((link) => asString(link.role) === 'latest_history') ??
-    activeLinks.find((link) => asString(link.role) === 'discovered') ??
-    activeLinks.find((link) => asString(link.role) === 'candidate')
-  );
+    .sort(
+      (left, right) =>
+        rank(left) - rank(right) ||
+        (asString(right.lastUsedAt) ?? '').localeCompare(asString(left.lastUsedAt) ?? '') ||
+        [asString(left.supplierProductId), asString(left.supplierId), asString(left.id)]
+          .filter(Boolean)
+          .join(':')
+          .localeCompare(
+            [asString(right.supplierProductId), asString(right.supplierId), asString(right.id)]
+              .filter(Boolean)
+              .join(':'),
+          ),
+    )[0];
 }
 
 function asArray(value: unknown): unknown[] {

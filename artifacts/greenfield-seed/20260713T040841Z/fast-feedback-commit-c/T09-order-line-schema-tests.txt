@@ -1,0 +1,38 @@
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:71586) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ❯ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/schema.test.ts  (3 tests | 1 failed) 6ms
+   ❯ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/schema.test.ts > Ecobase plugin-owned schema > keeps source control and import-run identity explicit
+     → expected { name: 'retentionUntil', …(1) } to match object { type: 'dateOnly' }
+(1 matching property omitted from actual)
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/schema.test.ts > Ecobase plugin-owned schema > keeps source control and import-run identity explicit
+AssertionError: expected { name: 'retentionUntil', …(1) } to match object { type: 'dateOnly' }
+(1 matching property omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "type": "dateOnly",
++   "type": "datetimeTz",
+  }
+
+ ❯ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/schema.test.ts:59:58
+     57|     expect(field(importRuns, 'idempotencyKey')).toMatchObject({ type: …
+     58|     expect(field(importRuns, 'summary')).toMatchObject({ type: 'jsonb'…
+     59|     expect(field(bronzeSourceRecords, 'retentionUntil')).toMatchObject…
+       |                                                          ^
+     60|   });
+     61|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 passed (3)
+   Start at  20:32:53
+   Duration  1.63s (transform 687ms, setup 156ms, collect 1.17s, tests 6ms, environment 165ms, prepare 41ms)

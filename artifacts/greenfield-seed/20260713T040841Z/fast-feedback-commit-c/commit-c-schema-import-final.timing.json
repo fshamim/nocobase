@@ -1,0 +1,9 @@
+{
+  "phase": "commit-c-schema-import-final",
+  "inputRows": 0,
+  "acceptedRows": 0,
+  "discardedRows": 0,
+  "elapsedMs": 3728,
+  "exitCode": 0,
+  "note": "collections/index.ts does not exist; imported every collection module"
+}

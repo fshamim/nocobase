@@ -1,0 +1,112 @@
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:80954) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/sellerboard-live-import.test.ts  (12 tests) 26ms
+
+ Test Files  1 passed (1)
+      Tests  12 passed (12)
+   Start at  20:45:10
+   Duration  818ms (transform 350ms, setup 153ms, collect 355ms, tests 26ms, environment 164ms, prepare 38ms)
+
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:80988) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/import-preflight.test.ts  (6 tests) 8ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  20:45:11
+   Duration  786ms (transform 341ms, setup 149ms, collect 343ms, tests 8ms, environment 157ms, prepare 40ms)
+
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:80993) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ❯ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/planning-calculations.test.ts  (6 tests | 5 failed) 6ms
+   ❯ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/planning-calculations.test.ts > Ecobase spreadsheet-parity planning calculations > calculates and stores versioned tier, stock, restock, off-track, and risk outputs
+     → MemoryDatabase failed: repository undefined was not registered.
+   ❯ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/planning-calculations.test.ts > Ecobase spreadsheet-parity planning calculations > uses the zero/negative-velocity sentinel and reports missing lead-time status explicitly
+     → MemoryDatabase failed: repository undefined was not registered.
+   ❯ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/planning-calculations.test.ts > Ecobase spreadsheet-parity planning calculations > surfaces unmapped listing warnings on planning calculations
+     → MemoryDatabase failed: repository undefined was not registered.
+   ❯ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/planning-calculations.test.ts > Ecobase spreadsheet-parity planning calculations > aggregates multi-listing stock, velocity, quantity, and profit inputs at planning-product level
+     → MemoryDatabase failed: repository undefined was not registered.
+   ❯ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/planning-calculations.test.ts > Ecobase spreadsheet-parity planning calculations > uses imported supplier lead-time records when planning parameters only reference a supplier
+     → MemoryDatabase failed: repository undefined was not registered.
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/planning-calculations.test.ts > Ecobase spreadsheet-parity planning calculations > calculates and stores versioned tier, stock, restock, off-track, and risk outputs
+Error: MemoryDatabase failed: repository undefined was not registered.
+ ❯ MemoryDatabase.getRepository packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/planning-calculations.test.ts:90:13
+     88|     const repository = this.repositories.get(name);
+     89|     if (!repository) {
+     90|       throw new Error(`MemoryDatabase failed: repository ${name} was n…
+       |             ^
+     91|     }
+     92|     return repository;
+ ❯ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/planning-calculations.test.ts:128:14
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/5]⎯
+
+ FAIL  packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/planning-calculations.test.ts > Ecobase spreadsheet-parity planning calculations > uses the zero/negative-velocity sentinel and reports missing lead-time status explicitly
+Error: MemoryDatabase failed: repository undefined was not registered.
+ ❯ MemoryDatabase.getRepository packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/planning-calculations.test.ts:90:13
+     88|     const repository = this.repositories.get(name);
+     89|     if (!repository) {
+     90|       throw new Error(`MemoryDatabase failed: repository ${name} was n…
+       |             ^
+     91|     }
+     92|     return repository;
+ ❯ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/planning-calculations.test.ts:232:16
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/5]⎯
+
+ FAIL  packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/planning-calculations.test.ts > Ecobase spreadsheet-parity planning calculations > surfaces unmapped listing warnings on planning calculations
+Error: MemoryDatabase failed: repository undefined was not registered.
+ ❯ MemoryDatabase.getRepository packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/planning-calculations.test.ts:90:13
+     88|     const repository = this.repositories.get(name);
+     89|     if (!repository) {
+     90|       throw new Error(`MemoryDatabase failed: repository ${name} was n…
+       |             ^
+     91|     }
+     92|     return repository;
+ ❯ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/planning-calculations.test.ts:289:14
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/5]⎯
+
+ FAIL  packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/planning-calculations.test.ts > Ecobase spreadsheet-parity planning calculations > aggregates multi-listing stock, velocity, quantity, and profit inputs at planning-product level
+Error: MemoryDatabase failed: repository undefined was not registered.
+ ❯ MemoryDatabase.getRepository packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/planning-calculations.test.ts:90:13
+     88|     const repository = this.repositories.get(name);
+     89|     if (!repository) {
+     90|       throw new Error(`MemoryDatabase failed: repository ${name} was n…
+       |             ^
+     91|     }
+     92|     return repository;
+ ❯ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/planning-calculations.test.ts:345:16
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/5]⎯
+
+ FAIL  packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/planning-calculations.test.ts > Ecobase spreadsheet-parity planning calculations > uses imported supplier lead-time records when planning parameters only reference a supplier
+Error: MemoryDatabase failed: repository undefined was not registered.
+ ❯ MemoryDatabase.getRepository packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/planning-calculations.test.ts:90:13
+     88|     const repository = this.repositories.get(name);
+     89|     if (!repository) {
+     90|       throw new Error(`MemoryDatabase failed: repository ${name} was n…
+       |             ^
+     91|     }
+     92|     return repository;
+ ❯ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/planning-calculations.test.ts:426:14
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/5]⎯
+
+ Test Files  1 failed (1)
+      Tests  5 failed | 1 passed (6)
+   Start at  20:45:12
+   Duration  4.15s (transform 1.84s, setup 152ms, collect 3.69s, tests 6ms, environment 162ms, prepare 40ms)

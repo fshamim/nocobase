@@ -4,6 +4,15 @@
  * Authors: NocoBase Team.
  *
  * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
  * For more information, please refer to: https:
  */
 
@@ -107,6 +116,68 @@ describe('Ecobase import preflight', () => {
 
     expect(result.ok).toBe(true);
     expect(result.issueCounts).toMatchObject({ order_detail_header_missing: 1 });
+  });
+
+  it('requires complete, fresh, aligned Sellerboard coverage for all four companies', () => {
+    const healthy = preflightImportFiles([], {
+      asOfDate: '2026-07-13',
+      sellerboardCoverage: ['ECOFISSION_LLC', 'RETAIL_HEAVEN_INC', 'MUXTEX_INC', 'STOP_SHOP_LLC'].map((companyKey) => ({
+        companyKey: companyKey as 'ECOFISSION_LLC' | 'RETAIL_HEAVEN_INC' | 'MUXTEX_INC' | 'STOP_SHOP_LLC',
+        account: `${companyKey}-account`,
+        marketplace: 'Amazon.com',
+        complete: true,
+        currentSnapshotAt: '2026-07-13T12:00:00.000Z',
+        historyStartDate: '2026-01-01',
+        historyEndDate: '2026-07-12',
+      })),
+    });
+
+    expect(healthy.ok).toBe(true);
+    expect(healthy.sellerboardCompleteness).toMatchObject({ ok: true, sourceCount: 4, companyCount: 4 });
+
+    const blocked = preflightImportFiles([], {
+      asOfDate: '2026-07-13',
+      sellerboardCoverage: [
+        {
+          companyKey: 'ECOFISSION_LLC',
+          account: 'eco',
+          marketplace: 'Amazon.com',
+          complete: false,
+          currentSnapshotAt: '2026-07-10T00:00:00.000Z',
+          historyStartDate: '2026-01-01',
+          historyEndDate: '2026-07-10',
+        },
+        {
+          companyKey: 'RETAIL_HEAVEN_INC',
+          account: 'retail',
+          marketplace: '',
+          complete: true,
+          currentSnapshotAt: '2026-07-13T12:00:00.000Z',
+          historyStartDate: '2026-02-01',
+          historyEndDate: '2026-07-13',
+        },
+        {
+          companyKey: 'MUXTEX_INC',
+          account: 'muxtex',
+          marketplace: 'Amazon.com',
+          complete: true,
+          currentSnapshotAt: '2026-07-13T12:00:00.000Z',
+          historyStartDate: '2026-01-01',
+          historyEndDate: '2026-07-13',
+        },
+      ],
+    });
+
+    expect(blocked.ok).toBe(false);
+    expect(blocked.sellerboardCompleteness?.ok).toBe(false);
+    expect(blocked.issueCounts).toMatchObject({
+      sellerboard_company_missing: 1,
+      sellerboard_context_missing: 1,
+      sellerboard_snapshot_partial: 1,
+      sellerboard_snapshot_stale: 1,
+      sellerboard_history_incomplete: 2,
+      sellerboard_snapshot_skew: 1,
+    });
   });
 
   it('resolves conflicting authoritative ClickUp statuses by newest task', () => {

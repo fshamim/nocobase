@@ -1,0 +1,35 @@
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:88052) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/supplier-product-link-selection.test.ts  (3 tests) 2ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  20:54:31
+   Duration  797ms (transform 337ms, setup 161ms, collect 336ms, tests 2ms, environment 169ms, prepare 42ms)
+
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:88086) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts  (9 tests) 6ms
+
+ Test Files  1 passed (1)
+      Tests  9 passed (9)
+   Start at  20:54:32
+   Duration  476ms (transform 75ms, setup 152ms, collect 30ms, tests 6ms, environment 163ms, prepare 36ms)
+
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:88090) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/supplier-identity-convergence-service.test.ts  (5 tests) 9ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  20:54:33
+   Duration  837ms (transform 351ms, setup 163ms, collect 354ms, tests 9ms, environment 172ms, prepare 47ms)

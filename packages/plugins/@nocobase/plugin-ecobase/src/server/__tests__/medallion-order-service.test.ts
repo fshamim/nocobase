@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { describe, expect, it } from 'vitest';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { EcobaseMedallionOrderService } from '../../features/semantic-model/server/medallion-order-service';
@@ -174,6 +183,7 @@ describe('EcobaseMedallionOrderService', () => {
     expect(toPlainRecord(line)).toMatchObject({
       orderId: idOf(order),
       sourceLineKey: expect.stringMatching(/^manual:/),
+      productMappingStatus: 'resolved',
       orderedQty: 12,
       unitCost: 3.5,
       supplierPackSize: 6,
@@ -182,6 +192,42 @@ describe('EcobaseMedallionOrderService', () => {
     });
     expect(idOf(sameInvoice)).toBe(idOf(invoice));
     expect(toPlainRecord(sameInvoice)).toMatchObject({ invoiceType: 'normal', invoiceNumber: 'INV-1B', amount: 45 });
+  });
+
+  it('persists unresolved order lines without inventing a company product', async () => {
+    const db = new FakeDatabase();
+    await seedCore(db);
+    const service = new EcobaseMedallionOrderService(db);
+    const order = await service.createDraftOrder({
+      companyId: 'company-1',
+      supplierId: 'supplier-1',
+      orderDate: '2026-06-22',
+    });
+
+    const line = await service.createOrderLine({
+      orderId: idOf(order),
+      orderedQty: 4,
+      productMappingStatus: 'unresolved',
+      sourceAsin: 'B0177E9JPS',
+      sourceSupplierSku: 'ETC120A',
+    });
+
+    expect(toPlainRecord(line)).toMatchObject({
+      orderId: idOf(order),
+      productMappingStatus: 'unresolved',
+      sourceAsin: 'B0177E9JPS',
+      sourceSupplierSku: 'ETC120A',
+      orderedQty: 4,
+    });
+    expect(toPlainRecord(line)).not.toHaveProperty('companyProductId');
+    expect(toPlainRecord(line)).not.toHaveProperty('supplierProductId');
+    await expect(
+      service.createOrderLine({
+        orderId: idOf(order),
+        orderedQty: 1,
+        productMappingStatus: 'unresolved',
+      }),
+    ).rejects.toThrow(/sourceAsin or sourceSupplierSku is required/);
   });
 
   it('rejects missing references and invalid order-line quantities', async () => {

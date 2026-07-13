@@ -1,0 +1,46 @@
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:91453) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts  (11 tests) 10ms
+
+ Test Files  1 passed (1)
+      Tests  11 passed (11)
+   Start at  20:59:06
+   Duration  493ms (transform 76ms, setup 156ms, collect 34ms, tests 10ms, environment 169ms, prepare 37ms)
+
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:91489) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ❯ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts  (51 tests | 1 failed) 68ms
+   ❯ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase import public API seam > normalizes pending bronze rows through resource actions
+     → expected [] to have a length of 1 but got +0
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase import public API seam > normalizes pending bronze rows through resource actions
+AssertionError: expected [] to have a length of 1 but got +0
+
+- Expected
++ Received
+
+- 1
++ 0
+
+ ❯ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts:2400:72
+    2398|     expect(context.body.data.errors).toEqual([]);
+    2399|     expect(context.body).toMatchObject({ data: { normalized: 1, failed…
+    2400|     expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).all())…
+       |                                                                        ^
+    2401|     expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).a…
+    2402|     expect(next).toHaveBeenCalledOnce();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 50 passed (51)
+   Start at  20:59:07
+   Duration  3.91s (transform 1.81s, setup 152ms, collect 3.39s, tests 68ms, environment 170ms, prepare 37ms)

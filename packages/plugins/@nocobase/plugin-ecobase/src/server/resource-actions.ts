@@ -194,6 +194,23 @@ function requireReceiptOverrideActor(ctx: {
   return actorUserId;
 }
 
+function requireFamilyOverrideActor(ctx: {
+  state?: Record<string, unknown>;
+  throw: (status: number, message: string) => never;
+}) {
+  const roles = Array.isArray(ctx.state?.currentRoles)
+    ? (ctx.state?.currentRoles as unknown[]).filter((role): role is string => typeof role === 'string')
+    : typeof ctx.state?.currentRole === 'string'
+      ? [ctx.state.currentRole]
+      : [];
+  if (!roles.some((role) => ['root', 'admin', 'operator'].includes(role))) {
+    ctx.throw(403, 'Ecobase family overrides require an operator or administrator role.');
+  }
+  const actorUserId = getActorId(ctx);
+  if (!actorUserId) ctx.throw(401, 'Ecobase family overrides require an authenticated user.');
+  return actorUserId;
+}
+
 function getActorId(ctx: { state?: Record<string, unknown> }) {
   const currentUser = ctx.state?.currentUser;
   if (typeof currentUser === 'object' && currentUser !== null) {
@@ -1160,15 +1177,42 @@ export function createEcobaseInventoryPlanningActions() {
       const values = getValues(ctx.action.params);
       const familyId = getOptionalString(values, 'familyId');
       const companyProductId = getOptionalString(values, 'companyProductId');
-      if (!familyId || !companyProductId) {
-        ctx.throw(400, 'Ecobase family target selection requires familyId and companyProductId.');
+      const reason = getOptionalString(values, 'reason');
+      if (!familyId || !companyProductId || !reason) {
+        ctx.throw(400, 'Ecobase family target selection requires familyId, companyProductId, and reason.');
         return;
       }
+      const actorUserId = requireFamilyOverrideActor(ctx);
       const family = await new EcobaseCompanyProductFamilyService(ctx.db).setReplenishmentTarget({
         familyId,
         companyProductId,
         source: 'operator',
-        actorUserId: getActorId(ctx),
+        actorUserId,
+        reason,
+      });
+      const refresh = await new EcobaseInventoryPlanningService(ctx.db).refreshReadModel(
+        inventoryPlanningQuery(values),
+      );
+      ctx.body = { data: { family, refresh } };
+      await next();
+    },
+    setFamilyPreferredSupplier: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const familyId = getOptionalString(values, 'familyId');
+      const supplierId = getOptionalString(values, 'supplierId');
+      const reason = getOptionalString(values, 'reason');
+      if (!familyId || !supplierId || !reason) {
+        ctx.throw(400, 'Ecobase family supplier selection requires familyId, supplierId, and reason.');
+        return;
+      }
+      const actorUserId = requireFamilyOverrideActor(ctx);
+      const family = await new EcobaseCompanyProductFamilyService(ctx.db).setPreferredSupplierOffer({
+        familyId,
+        supplierId,
+        supplierProductId: getOptionalString(values, 'supplierProductId'),
+        source: 'operator',
+        actorUserId,
+        reason,
       });
       const refresh = await new EcobaseInventoryPlanningService(ctx.db).refreshReadModel(
         inventoryPlanningQuery(values),
@@ -2199,6 +2243,7 @@ export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
         sourceVersion: getOptionalString(values, 'sourceVersion'),
         idempotencyKey: getOptionalString(values, 'idempotencyKey'),
         preserveAuditRun: true,
+        skipGoldRefresh: values.skipGoldRefresh === true,
       });
       ctx.body = { data: importRun };
       await next();
@@ -2386,6 +2431,7 @@ export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
             sourceVersion: getOptionalString(values, 'sourceVersion'),
             defaultCompany: getOptionalString(values, 'defaultCompany'),
             files: getCsvFiles(values),
+            skipGoldRefresh: values.skipGoldRefresh === true,
           }),
         };
       } catch (error) {

@@ -1,0 +1,102 @@
+{
+  "classification": "diagnostic_only",
+  "acceptedForT21": false,
+  "acceptedForGate4": false,
+  "command": "cd nocobase && set -o pipefail && ECOBASE_BOOTSTRAP_SOURCE_VERSION=2026-07-13 node packages/plugins/@nocobase/plugin-ecobase/scripts/live-gate-bootstrap.mjs all-after-export --allow-non-clean 2>&1 | tee artifacts/greenfield-seed/20260713T040841Z/final-live-gate/clean-reset-import-first-run.txt",
+  "startedAt": "2026-07-13T16:41:30.309Z",
+  "endedAt": "2026-07-13T17:31:58.414Z",
+  "elapsedMs": 3028105,
+  "exitCode": 1,
+  "exitCodeEvidence": "The pi bash tool result is marked isError=true; live-gate-bootstrap.mjs catches the stage-budget exception and calls process.exit(1). set -o pipefail preserved the node exit status through tee.",
+  "gitSha": "cd9b79e09b24dc82371c1fc33f4e3e04e549a2cb",
+  "worktreeClean": false,
+  "allowNonClean": true,
+  "requiredMigrationTracked": false,
+  "requiredMigrationPath": "packages/plugins/@nocobase/plugin-ecobase/src/server/migrations/20260713200000-add-order-line-source-identity.ts",
+  "image": {
+    "name": "ecobase/nocobase:qa-live-gate",
+    "id": "sha256:4e6babe445a1b5a3f8cd01a759507c23856602f864a38c882c15fde84bd50b43",
+    "createdAt": "2026-07-13T16:42:18.127104635Z"
+  },
+  "log": {
+    "originalPath": "artifacts/greenfield-seed/20260713T040841Z/final-live-gate/clean-reset-import-first-run.txt",
+    "localRawCopy": ".local/diagnostic-runs/20260713T164130Z/clean-reset-import-first-run.txt",
+    "archivedPath": "artifacts/greenfield-seed/20260713T040841Z/final-live-gate/clean-reset-import-first-run.txt.gz",
+    "rawSha256": "1bfef228eaed6057b96cb687a4baed2846da16b59a7c7717ceff0824aeb77b96",
+    "archiveSha256": "fd504d32833e9624a2b1911060570aeb9e5d0436f4ff51782e4f69f17f89fd8b"
+  },
+  "stageTimingArtifact": {
+    "path": "artifacts/greenfield-seed/20260713T040841Z/final-live-gate/diagnostic-import-stages.json",
+    "sha256": "e818898f4d1b6a71c6941c082e136ac108a56b93e6df594f63459117e69d8bec"
+  },
+  "finalCompletedStage": {
+    "number": 2,
+    "label": "Sellerboard API snapshots"
+  },
+  "finalAttemptedStage": {
+    "number": 3,
+    "label": "Sellerboard history CSVs",
+    "status": "failed",
+    "reason": "Stage 3 exceeded its 600000ms budget: 2882088ms (Sellerboard history CSVs)."
+  },
+  "phaseTimings": [
+    {
+      "number": 1,
+      "label": "read-only source preflight",
+      "status": "success",
+      "startedAt": "2026-07-13T16:42:57.444Z",
+      "finishedAt": "2026-07-13T16:43:26.463Z",
+      "durationMs": 29019,
+      "budgetMs": 300000,
+      "inputRows": 0,
+      "acceptedRows": 0,
+      "discardedRows": 0
+    },
+    {
+      "number": 2,
+      "label": "Sellerboard API snapshots",
+      "status": "success",
+      "startedAt": "2026-07-13T16:43:31.977Z",
+      "finishedAt": "2026-07-13T16:43:56.281Z",
+      "durationMs": 24304,
+      "budgetMs": 1200000,
+      "inputRows": 2140,
+      "acceptedRows": 12,
+      "discardedRows": 2136
+    },
+    {
+      "number": 3,
+      "label": "Sellerboard history CSVs",
+      "status": "failed",
+      "startedAt": "2026-07-13T16:43:56.282Z",
+      "finishedAt": "2026-07-13T17:31:58.371Z",
+      "durationMs": 2882089,
+      "budgetMs": 600000,
+      "inputRows": 59217,
+      "acceptedRows": 59217,
+      "discardedRows": 0
+    }
+  ],
+  "lastImportCounters": {
+    "stageInputRows": 59217,
+    "stageAcceptedRows": 59217,
+    "stageDiscardedRows": 0,
+    "cumulativeInputRows": 61357,
+    "cumulativeAcceptedRows": 59229,
+    "cumulativeDiscardedRows": 2136,
+    "lastImport": {
+      "label": "Sellerboard history Stop Shop LLC Stop_Shop_Llc_Dashboard_by_product_01_01_2026-03_07_2026_(2026_07_04_09_06_43_378).csv",
+      "status": "success",
+      "rowCount": 14900,
+      "normalizedCount": 14900,
+      "warningCount": 0,
+      "errorCount": 0
+    }
+  },
+  "preflightCounters": {
+    "files": 13,
+    "rows": 79312,
+    "errors": 0,
+    "warnings": 4094
+  }
+}

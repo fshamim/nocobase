@@ -1,0 +1,35 @@
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:72004) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/schema.test.ts  (3 tests) 2ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  20:33:24
+   Duration  1.63s (transform 697ms, setup 156ms, collect 1.17s, tests 2ms, environment 166ms, prepare 39ms)
+
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:72008) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-schema.test.ts  (4 tests) 3ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  20:33:26
+   Duration  1.63s (transform 726ms, setup 155ms, collect 1.20s, tests 3ms, environment 157ms, prepare 37ms)
+
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:72043) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-order-service.test.ts  (6 tests) 6ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  20:33:28
+   Duration  805ms (transform 344ms, setup 156ms, collect 346ms, tests 6ms, environment 169ms, prepare 40ms)

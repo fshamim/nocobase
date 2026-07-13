@@ -1,0 +1,11 @@
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:1386) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+filter:  packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__
+include: packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/**/__tests__/**/*.{test,spec}.{ts,tsx}
+exclude:  **/demos/**, **/node_modules/**, **/dist/**, **/lib/**, **/es/**, **/.dumi/**, **/e2e/**, **/__e2e__/**, **/{vitest,commitlint}.config.*, packages/core/!(sdk|client|client-v2|flow-engine)/**/*, packages/**/src/server/**/*
+watch exclude:  **/node_modules/**, **/dist/**, **/lib/**, **/es/**, **/.dumi/**, **/e2e/**, **/__e2e__/**, **/{vitest,commitlint}.config.*
+
+No test files found, exiting with code 1
