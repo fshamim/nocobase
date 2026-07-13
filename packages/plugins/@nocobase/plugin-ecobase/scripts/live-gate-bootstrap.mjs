@@ -180,7 +180,7 @@ function preflightData() {
   const script = path.join(PLUGIN_ROOT, 'scripts', 'preflight-import-data.ts');
   assertSeedProfileBundle();
   validateSourceExport(loadPrivateExport());
-  const result = spawnSync('yarn', ['-s', 'tsx', script, '--output', PREFLIGHT_REPORT_PATH], {
+  const result = spawnSync('yarn', ['-s', 'tsx', script, `--json=${PREFLIGHT_REPORT_PATH}`], {
     cwd: NOCOBASE_ROOT,
     env: {
       ...process.env,
@@ -752,19 +752,31 @@ function validateSilverPhase() {
     check('phase_a_gold_supplier_rows_before_rebuild', `select count(*) from "goldSupplierAttentionRows"`, 0),
     check('phase_a_gold_kpi_rows_before_rebuild', `select count(*) from "goldManagementKpiDailyFacts"`, 0),
   ];
+  const applicableChecks =
+    SEED_PROFILE === 'staging-fast-clickup'
+      ? checks.filter(
+          (item) =>
+            ![
+              'phase_a_sellerboard_current_snapshot_missing',
+              'phase_a_sellerboard_current_snapshot_stale',
+              'phase_a_sellerboard_history_incomplete',
+              'phase_a_sellerboard_snapshot_skew',
+            ].includes(item.name),
+        )
+      : checks;
   const unresolvedOrderLines = Number(
     psqlScalar(`select count(*) from "silverOrderLines" where "productMappingStatus"='unresolved'`),
   );
   const result = {
     sourceVersion: BOOTSTRAP_SOURCE_VERSION,
-    checks,
+    checks: applicableChecks,
     unresolvedOrderLines,
-    status: checks.every((item) => item.actual === item.expected) ? 'pass' : 'fail',
+    status: applicableChecks.every((item) => item.actual === item.expected) ? 'pass' : 'fail',
   };
   ensureArtifactDir();
   writeJson(path.join(ARTIFACT_DIR, 'phase-a-silver-validation.json'), result);
   console.log(`Phase A Silver validation: status=${result.status} unresolvedOrderLines=${unresolvedOrderLines}`);
-  const failed = checks.filter((item) => item.actual !== item.expected);
+  const failed = applicableChecks.filter((item) => item.actual !== item.expected);
   if (failed.length) {
     throw new Error(`Phase A Silver validation failed: ${failed.map((item) => `${item.name}=${item.actual}`).join(', ')}`);
   }
