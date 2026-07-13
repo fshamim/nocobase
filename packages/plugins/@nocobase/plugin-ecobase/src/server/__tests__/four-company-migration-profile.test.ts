@@ -43,6 +43,7 @@ describe('four-company migration profile', () => {
         { alias: 'StopShop LLC', companyKey: 'STOP_SHOP_LLC' },
       ],
       supplier_csv_provenance: [{ alias: 'Muxtex Inc', companyKey: 'MUXTEX_INC' }],
+      clickup: [],
     });
     expect(FOUR_COMPANY_MIGRATION_PROFILE.supplierExternalRefDecisions).toEqual([
       { externalRef: 'SRO-12939', disposition: 'accept', supplierName: 'Delko Tools' },

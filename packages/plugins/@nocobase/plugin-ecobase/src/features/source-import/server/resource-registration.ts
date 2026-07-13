@@ -32,6 +32,8 @@ export function createSourceImportResourceRegistration(
           'runMedallionPipeline',
           'verifySemanticLinks',
           'verifyOrderDetailsRelationships',
+          'deactivateMigrationSources',
+          'purgeExpiredBronze',
           'refreshGoldReadModels',
           'analyzeCsvBundle',
           'runCsvBundle',

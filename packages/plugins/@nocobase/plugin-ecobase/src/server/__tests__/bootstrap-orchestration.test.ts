@@ -7,15 +7,6 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
-/**
- * This file is part of the NocoBase (R) project.
- * Copyright (c) 2020-2024 NocoBase Co., Ltd.
- * Authors: NocoBase Team.
- *
- * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
- * For more information, please refer to: https:
- */
-
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -55,6 +46,27 @@ describe('live-gate import orchestration', () => {
     for (const metric of ['inputRows', 'acceptedRows', 'discardedRows', 'durationMs']) {
       expect(script).toContain(metric);
     }
+  });
+
+  it('emits progress heartbeats and supports bounded phase resumes', () => {
+    for (const event of ['seed_stage_started', 'seed_stage_heartbeat', 'seed_stage_completed', 'seed_stage_failed']) {
+      expect(script).toContain(`'${event}'`);
+    }
+    expect(script).toContain('ECOBASE_SEED_START_AT');
+    expect(script).toContain('ECOBASE_SEED_STOP_AFTER');
+    expect(script).toContain('ECOBASE_SEED_SKIP_GOLD');
+    expect(script).toContain('ECOBASE_SEED_HEARTBEAT_MS');
+    expect(script).toContain('ECOBASE_GREENFIELD_BUNDLE_PATH');
+    expect(script).toContain("bundleFilePaths(['order-management'])");
+    expect(script).toContain("seedPhaseEnabled('sellerboard')");
+    expect(script).toContain("seedPhaseEnabled('suppliers')");
+    expect(script).toContain("seedPhaseEnabled('orders')");
+    expect(script).toContain("seedPhaseEnabled('clickup')");
+    expect(script).toContain("seedPhaseEnabled('gold')");
+    expect(script).toContain('[3, 3_600_000]');
+    expect(script).toContain('writeBusinessFingerprint()');
+    expect(script).toContain("'rejected_supplier_refs_absent'");
+    expect(script).toContain("'etc_listing_and_supplier_alias_present'");
   });
 
   it('orders source files and final actions deterministically', () => {

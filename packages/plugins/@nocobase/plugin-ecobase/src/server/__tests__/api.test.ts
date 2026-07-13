@@ -96,8 +96,13 @@ class MemoryRepository implements EcobaseRepository {
     const filter = params.filter ?? {};
     return this.records.filter((record) =>
       Object.entries(filter).every(([key, expected]) => {
-        if (typeof expected === 'object' && expected !== null && Array.isArray((expected as { $in?: unknown[] }).$in)) {
-          return (expected as { $in: unknown[] }).$in.includes(record[key]);
+        if (typeof expected === 'object' && expected !== null) {
+          if (Array.isArray((expected as { $in?: unknown[] }).$in)) {
+            return (expected as { $in: unknown[] }).$in.includes(record[key]);
+          }
+          if (typeof (expected as { $lt?: unknown }).$lt === 'string') {
+            return String(record[key] ?? '') < (expected as { $lt: string }).$lt;
+          }
         }
         return record[key] === expected;
       }),
@@ -1330,6 +1335,52 @@ describe('Ecobase supplier-order workspace API seam', () => {
 });
 
 describe('Ecobase import public API seam', () => {
+  it('restricts migration deactivation and expired Bronze purge to administrators', async () => {
+    const db = new MemoryDatabase();
+    const sourceRepo = db.getRepository(ECOBASE_COLLECTIONS.sourceConnections);
+    await sourceRepo.create({
+      values: { id: 'source-supplier', sourceType: 'google_sheets', domain: 'supplier_management', active: true },
+    });
+    await sourceRepo.create({
+      values: { id: 'source-clickup', sourceType: 'clickup', domain: 'order_management', active: true },
+    });
+    await sourceRepo.create({
+      values: { id: 'source-sellerboard', sourceType: 'sellerboard', domain: 'amazon_operations', active: true },
+    });
+    const bronzeRepo = db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords);
+    await bronzeRepo.create({ values: { id: 'bronze-expired', retentionUntil: '2026-08-12T00:00:00.000Z' } });
+    await bronzeRepo.create({ values: { id: 'bronze-current', retentionUntil: '2026-08-14T00:00:00.000Z' } });
+    const actions = createEcobaseImportActions(createSourceAdapterRegistry([noopTestAdapter]));
+
+    await expect(
+      actions.deactivateMigrationSources(createActionContext(db, {}, undefined, ['loggedIn']), vi.fn()),
+    ).rejects.toMatchObject({ status: 403 });
+
+    const deactivateContext = createActionContext(db, {}, undefined, ['admin']);
+    await actions.deactivateMigrationSources(deactivateContext, vi.fn());
+    expect(deactivateContext.body).toEqual({
+      data: {
+        sourceTypes: ['google_sheets', 'clickup'],
+        matchedCount: 2,
+        deactivatedCount: 2,
+      },
+    });
+    expect(sourceRepo.all()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'source-supplier', active: false }),
+        expect.objectContaining({ id: 'source-clickup', active: false }),
+        expect.objectContaining({ id: 'source-sellerboard', active: true }),
+      ]),
+    );
+
+    const purgeContext = createActionContext(db, { before: '2026-08-13T00:00:00.000Z' }, undefined, ['root']);
+    await actions.purgeExpiredBronze(purgeContext, vi.fn());
+    expect(purgeContext.body).toEqual({
+      data: { before: '2026-08-13T00:00:00.000Z', deletedCount: 1 },
+    });
+    expect(bronzeRepo.all()).toEqual([expect.objectContaining({ id: 'bronze-current' })]);
+  });
+
   it('runs the no-op import through resource actions and reads source status', async () => {
     const db = new MemoryDatabase();
     await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).create({

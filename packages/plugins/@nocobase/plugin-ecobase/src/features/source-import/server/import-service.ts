@@ -627,6 +627,26 @@ export class EcobaseImportService {
     return new EcobaseBronzeImportService(this.db).deleteExpiredSourceRecords(asOf);
   }
 
+  async deactivateMigrationSources() {
+    const sourceTypes = [...FOUR_COMPANY_MIGRATION_PROFILE.migrationOnlySourceTypes];
+    const repo = this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections);
+    const sources = await repo.find({ filter: { sourceType: { $in: sourceTypes } }, limit: 100 });
+    const deactivatedCount = sources.map(toPlainRecord).filter((source) => source.active !== false).length;
+    if (deactivatedCount > 0) {
+      await repo.update({ filter: { sourceType: { $in: sourceTypes } }, values: { active: false } });
+    }
+    return { sourceTypes, matchedCount: sources.length, deactivatedCount };
+  }
+
+  async purgeExpiredBronzeRecords(asOf: string) {
+    const before = new Date(asOf);
+    if (Number.isNaN(before.getTime())) {
+      throw new Error(`Ecobase Bronze purge failed: asOf "${asOf}" is not a valid date.`);
+    }
+    const deletedCount = await new EcobaseBronzeImportService(this.db).deleteExpiredSourceRecords(before);
+    return { before: before.toISOString(), deletedCount };
+  }
+
   async refreshGoldReadModels(
     calculationDate = todayIsoDate(),
     affectedOrderIds: string[] = [],

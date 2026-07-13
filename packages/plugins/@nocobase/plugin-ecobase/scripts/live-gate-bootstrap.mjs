@@ -3,11 +3,16 @@ import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { businessFingerprint } from './greenfield-seed-lib.mjs';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const PLUGIN_ROOT = path.resolve(SCRIPT_DIR, '..');
 const NOCOBASE_ROOT = path.resolve(PLUGIN_ROOT, '../../../..');
 const PROJECT_ROOT = path.dirname(NOCOBASE_ROOT);
+const GREENFIELD_PROJECT_ROOT = path.resolve(process.env.ECOBASE_GREENFIELD_PROJECT_ROOT ?? PROJECT_ROOT);
+const GREENFIELD_BUNDLE_PATH = process.env.ECOBASE_GREENFIELD_BUNDLE_PATH
+  ? path.resolve(process.env.ECOBASE_GREENFIELD_BUNDLE_PATH)
+  : undefined;
 const ARTIFACT_DIR = process.env.ECOBASE_LIVE_GATE_BOOTSTRAP_DIR
   ? path.resolve(process.env.ECOBASE_LIVE_GATE_BOOTSTRAP_DIR)
   : path.join(NOCOBASE_ROOT, '.local', 'live-gate-bootstrap');
@@ -19,7 +24,7 @@ const importMetrics = { inputRows: 0, acceptedRows: 0, discardedRows: 0 };
 const STAGE_BUDGET_MS = new Map([
   [1, 300_000],
   [2, 1_200_000],
-  [3, 600_000],
+  [3, 3_600_000],
   [4, 1_200_000],
   [5, 1_200_000],
   [6, 300_000],
@@ -38,6 +43,11 @@ const PG_CONTAINER = process.env.ECOBASE_LIVE_GATE_POSTGRES_CONTAINER ?? 'ecobas
 const ADMIN_EMAIL = process.env.ECOBASE_LIVE_GATE_ADMIN_EMAIL ?? 'admin@nocobase.com';
 const ADMIN_PASSWORD = process.env.ECOBASE_LIVE_GATE_ADMIN_PASSWORD ?? 'admin123';
 const BOOTSTRAP_SOURCE_VERSION = process.env.ECOBASE_BOOTSTRAP_SOURCE_VERSION ?? new Date().toISOString().slice(0, 10);
+const SEED_PHASES = ['sellerboard', 'suppliers', 'orders', 'clickup', 'gold'];
+const SEED_START_AT = process.env.ECOBASE_SEED_START_AT ?? 'sellerboard';
+const SEED_STOP_AFTER = process.env.ECOBASE_SEED_STOP_AFTER ?? 'gold';
+const SEED_SKIP_GOLD = process.env.ECOBASE_SEED_SKIP_GOLD === '1';
+const SEED_HEARTBEAT_MS = Number(process.env.ECOBASE_SEED_HEARTBEAT_MS ?? 30_000);
 const REQUIRED_SELLERBOARD_COMPANIES = ['Ecofission LLC', 'Muxtex INC', 'Retail Heaven Inc', 'Stop Shop LLC'];
 const DEFAULT_CSV_SOURCES = [
   { name: 'Supplier Management CSV upload', sourceType: 'google_sheets', domain: 'supplier_management' },
@@ -51,6 +61,16 @@ const HISTORY_COMPANY_BY_PREFIX = {
   Retail_Heaven_Inc: 'Retail Heaven Inc',
   Stop_Shop_Llc: 'Stop Shop LLC',
 };
+if (!SEED_PHASES.includes(SEED_START_AT) || !SEED_PHASES.includes(SEED_STOP_AFTER)) {
+  throw new Error(`invalid seed phase range: ${SEED_START_AT}..${SEED_STOP_AFTER}`);
+}
+if (SEED_PHASES.indexOf(SEED_START_AT) > SEED_PHASES.indexOf(SEED_STOP_AFTER)) {
+  throw new Error(`seed start phase ${SEED_START_AT} is later than stop phase ${SEED_STOP_AFTER}`);
+}
+if (!Number.isFinite(SEED_HEARTBEAT_MS) || SEED_HEARTBEAT_MS <= 0) {
+  throw new Error('ECOBASE_SEED_HEARTBEAT_MS must be a positive number');
+}
+
 const BUSINESS_TABLES = [
   'ecobaseImportRuns',
   'bronzeSourceRecords',
@@ -108,6 +128,15 @@ async function main() {
     case 'verify-links':
       await verifyLinks();
       return;
+    case 'business-fingerprint':
+      writeBusinessFingerprint();
+      return;
+    case 'deactivate-migration-sources':
+      await deactivateMigrationSources();
+      return;
+    case 'purge-expired-bronze':
+      await purgeExpiredBronze();
+      return;
     case 'enable-schedules':
       restoreExportedSourceConfigs(loadPrivateExport());
       console.log('restored exported source schedules/configs');
@@ -152,6 +181,9 @@ Commands:
   import-data        Run preflight, staged imports, final gold refresh, and strict verification
   import-supplier-csvs  Import/retry only the supplier-management CSV files
   verify-links       Print/fail post-import medallion link checks
+  business-fingerprint  Write the deterministic business fingerprint
+  deactivate-migration-sources  Deactivate Google Sheets and ClickUp migration sources
+  purge-expired-bronze  Delete Bronze records older than ECOBASE_BRONZE_PURGE_BEFORE
   enable-schedules   Restore exported source configs/schedules after verification passes
   all-after-export   preflight-data -> reset-db -> restore-sources -> import-data -> verify-links
 
@@ -287,21 +319,38 @@ async function restoreSources() {
   }
 }
 
+function seedPhaseEnabled(phase) {
+  const index = SEED_PHASES.indexOf(phase);
+  return index >= SEED_PHASES.indexOf(SEED_START_AT) && index <= SEED_PHASES.indexOf(SEED_STOP_AFTER);
+}
+
+function progressEvent(event, values = {}) {
+  console.log(JSON.stringify({ event, at: new Date().toISOString(), ...values }));
+}
+
 async function importData() {
-  await runStage(1, 'read-only source preflight', () => preflightData());
+  if (seedPhaseEnabled('sellerboard')) {
+    await runStage(1, 'read-only source preflight', () => preflightData());
+  }
   waitForCurrentSchema();
-  assertBusinessClean('import data');
+  if (SEED_START_AT === 'sellerboard') assertBusinessClean('import data');
   const token = await signIn();
   const sources = currentSources();
   validateSourceExport({ exportedAt: new Date().toISOString(), apiBase: BASE_URL, companies: [], sources });
-  const sellerboardByCompany = new Map(
-    sources.filter(isSellerboardSource).map((source) => [source.companyName, source]),
-  );
-  const supplierSource = requiredSource(sources, 'google_sheets', 'supplier_management');
-  const orderSource = requiredSource(sources, 'google_sheets', 'order_management');
-  const clickupSource = requiredSource(sources, 'clickup', 'order_management');
+  const sellerboardByCompany = seedPhaseEnabled('sellerboard')
+    ? new Map(sources.filter(isSellerboardSource).map((source) => [source.companyName, source]))
+    : new Map();
+  const supplierSource = seedPhaseEnabled('suppliers')
+    ? requiredSource(sources, 'google_sheets', 'supplier_management')
+    : undefined;
+  const orderSource = seedPhaseEnabled('orders') || seedPhaseEnabled('clickup')
+    ? requiredSource(sources, 'google_sheets', 'order_management')
+    : undefined;
+  const clickupSource = seedPhaseEnabled('clickup')
+    ? requiredSource(sources, 'clickup', 'order_management')
+    : undefined;
 
-  await runStage(2, 'Sellerboard API snapshots', async () => {
+  if (seedPhaseEnabled('sellerboard')) await runStage(2, 'Sellerboard API snapshots', async () => {
     for (const company of REQUIRED_SELLERBOARD_COMPANIES) {
       const source = sellerboardByCompany.get(company);
       if (!source) throw new Error(`missing Sellerboard source for ${company}`);
@@ -316,7 +365,7 @@ async function importData() {
     }
   });
 
-  await runStage(3, 'Sellerboard history CSVs', async () => {
+  if (seedPhaseEnabled('sellerboard')) await runStage(3, 'Sellerboard history CSVs', async () => {
     for (const filePath of listHistoryDashboardFiles()) {
       const company = companyFromHistoryFile(path.basename(filePath), 'Dashboard_by_product');
       const source = sellerboardByCompany.get(company);
@@ -338,7 +387,7 @@ async function importData() {
     }
   });
 
-  await runStage(4, 'Sellerboard COGS CSVs', async () => {
+  if (seedPhaseEnabled('sellerboard')) await runStage(4, 'Sellerboard COGS CSVs', async () => {
     for (const filePath of listCogsFiles()) {
       const company = companyFromHistoryFile(path.basename(filePath), 'Cost_of_Goods_Sold');
       await runImport(
@@ -354,8 +403,8 @@ async function importData() {
     }
   });
 
-  const [historicalSupplierFile, currentSupplierFile] = supplierFiles();
-  await runStage(5, 'Supplier Management historical tracker', () =>
+  const [historicalSupplierFile, currentSupplierFile] = seedPhaseEnabled('suppliers') ? supplierFiles() : [];
+  if (seedPhaseEnabled('suppliers')) await runStage(5, 'Supplier Management historical tracker', () =>
     runImport(token, `Supplier management ${path.basename(historicalSupplierFile)}`, 'ecobaseImport:runCsvBundle', {
       sourceConnectionId: supplierSource.id,
       adapterName: 'google-sheets-migration-csv',
@@ -365,7 +414,7 @@ async function importData() {
       skipGoldRefresh: true,
     }),
   );
-  await runStage(6, 'Supplier Management current 2026 tracker', () =>
+  if (seedPhaseEnabled('suppliers')) await runStage(6, 'Supplier Management current 2026 tracker', () =>
     runImport(token, `Supplier management ${path.basename(currentSupplierFile)}`, 'ecobaseImport:runCsvBundle', {
       sourceConnectionId: supplierSource.id,
       adapterName: 'google-sheets-migration-csv',
@@ -376,7 +425,7 @@ async function importData() {
     }),
   );
 
-  await runStage(7, 'Order Management Purchase Orders then OrderDetails', async () => {
+  if (seedPhaseEnabled('orders')) await runStage(7, 'Order Management Purchase Orders then OrderDetails', async () => {
     await runImport(token, 'Order management ordered bundle', 'ecobaseImport:runCsvBundle', {
       sourceConnectionId: orderSource.id,
       adapterName: 'google-sheets-migration-csv',
@@ -387,7 +436,7 @@ async function importData() {
     });
   });
 
-  await runStage(8, 'Provision confirmed users and reconcile ClickUp status/comments', async () => {
+  if (seedPhaseEnabled('clickup')) await runStage(8, 'Provision confirmed users and reconcile ClickUp status/comments', async () => {
     const run = await runImport(token, 'ClickUp order status', 'ecobaseImport:importClickupOrderStatuses', {
       sourceConnectionId: clickupSource.id,
       sourceIdentifier: 'clickup-order-status-bootstrap',
@@ -423,7 +472,7 @@ async function importData() {
     }
   });
 
-  await runStage(9, 'Reconcile order lines against imported product data', async () => {
+  if (seedPhaseEnabled('clickup')) await runStage(9, 'Reconcile order lines against imported product data', async () => {
     await runImport(token, 'Order management product reconciliation', 'ecobaseImport:runCsvBundle', {
       sourceConnectionId: orderSource.id,
       adapterName: 'google-sheets-migration-csv',
@@ -435,15 +484,28 @@ async function importData() {
     await verifyOrderDetailsRelationships(token, 'after-product-reconciliation', { strict: false });
   });
 
-  await runStage(10, 'validate Phase A Silver blockers', () => validateSilverPhase());
+  if (seedPhaseEnabled('gold')) {
+    await runStage(10, 'validate Phase A Silver blockers', () => validateSilverPhase());
+  }
 
-  await runStage(11, 'Phase B final gold read-model refresh', () =>
+  if (seedPhaseEnabled('gold') && !SEED_SKIP_GOLD) await runStage(11, 'Phase B final gold read-model refresh', () =>
     runImport(token, 'Gold read models', 'ecobaseImport:refreshGoldReadModels', {
       calculationDate: BOOTSTRAP_SOURCE_VERSION,
     }),
   );
-  await runStage(12, 'strict semantic verification', () => verifyLinks());
+  if (seedPhaseEnabled('gold') && !SEED_SKIP_GOLD) {
+    await runStage(12, 'strict semantic verification', () => verifyLinks());
+  }
+  if (seedPhaseEnabled('gold') && SEED_SKIP_GOLD) {
+    progressEvent('gold_refresh_skipped', { startAt: SEED_START_AT, stopAfter: SEED_STOP_AFTER });
+  }
 
+  progressEvent('import_bootstrap_completed', {
+    startAt: SEED_START_AT,
+    stopAfter: SEED_STOP_AFTER,
+    skipGold: SEED_SKIP_GOLD,
+    metrics: importMetrics,
+  });
   console.log('import bootstrap completed; Sellerboard schedules remain disabled until enable-schedules is run');
 }
 
@@ -710,6 +772,26 @@ async function verifyLinks() {
       0,
     ),
     check(
+      'rejected_supplier_refs_absent',
+      `select count(*) from "silverSupplierExternalRefs" where "normalizedExternalSupplierCode" in ('SRO-1293','SRO-1257')`,
+      0,
+    ),
+    check(
+      'accepted_supplier_refs_present',
+      `select count(*) from (values ('SRO-12939','Delko Tools'),('SRO-12572','Franklin Machine Products')) expected(code, name) where not exists (select 1 from "silverSupplierExternalRefs" r join "silverSuppliers" s on s.id=r."supplierId" where r."normalizedExternalSupplierCode"=expected.code and s."displayName"=expected.name)`,
+      0,
+    ),
+    check(
+      'etc_listing_alias_not_duplicated',
+      `select count(*) from "silverProducts" where asin='B0177E9JPS' and sku='ETC120A'`,
+      0,
+    ),
+    check(
+      'etc_listing_and_supplier_alias_present',
+      `select case when exists (select 1 from "silverProducts" p where p.asin='B0177E9JPS' and p.sku='ETC-120A') and exists (select 1 from "silverSupplierProducts" sp join "silverProducts" p on p.id=sp."productId" where p.asin='B0177E9JPS' and p.sku='ETC-120A' and sp."supplierSku"='ETC120A') then 0 else 1 end`,
+      0,
+    ),
+    check(
       'gold_active_order_rows_present',
       `select case when count(*) > 0 then 0 else 1 end from "goldInventoryPlanningRows" where "supplierOrderState" in ('purchased_pipeline','placed_not_purchased')`,
       0,
@@ -724,9 +806,11 @@ async function verifyLinks() {
   const bronzeIssues = psqlJson(
     `select coalesce(jsonb_agg(jsonb_build_object('sourceType', "sourceType", 'sourceDataset', "sourceDataset", 'normalizationStatus', "normalizationStatus", 'issueSeverity', coalesce("issueSeverity", ''), 'issueCode', coalesce("issueCode", ''), 'count', count) order by count desc), '[]'::jsonb) from (select "sourceType", "sourceDataset", "normalizationStatus", coalesce("issueSeverity", '') as "issueSeverity", coalesce("issueCode", '') as "issueCode", count(*)::int as count from "bronzeSourceRecords" where "normalizationStatus" <> 'normalized' or "issueCode" is not null group by 1,2,3,4,5) x`,
   );
+  const fingerprint = writeBusinessFingerprint();
   const report = {
     generatedAt: new Date().toISOString(),
     counts,
+    fingerprint,
     checks,
     actionStatus,
     importRuns,
@@ -753,6 +837,73 @@ async function verifyLinks() {
 
 function check(name, sql, expected, critical = true) {
   return { name, expected, actual: Number(psqlScalar(sql)), critical };
+}
+
+function writeBusinessFingerprint() {
+  waitForCurrentSchema();
+  const payload = {
+    sourceVersion: BOOTSTRAP_SOURCE_VERSION,
+    counts: businessCounts(),
+    companies: psqlJson(
+      `select coalesce(jsonb_agg(jsonb_build_object('companyKey', "companyKey", 'name', name) order by "companyKey"), '[]'::jsonb) from "silverCompanies"`,
+    ),
+    products: psqlJson(
+      `select coalesce(jsonb_agg(jsonb_build_object('asin', asin, 'sku', sku, 'title', title) order by asin, sku), '[]'::jsonb) from "silverProducts"`,
+    ),
+    companyProducts: psqlJson(
+      `select coalesce(jsonb_agg(jsonb_build_object('company', c.name, 'account', a.name, 'marketplace', a.marketplace, 'asin', p.asin, 'sku', p.sku, 'lifecycleStatus', cp."lifecycleStatus", 'listingStatus', cp."listingStatus") order by c.name, a.name, p.asin, p.sku), '[]'::jsonb) from "silverCompanyProducts" cp join "silverCompanies" c on c.id=cp."companyId" join "silverAmazonAccounts" a on a.id=cp."amazonAccountId" join "silverProducts" p on p.id=cp."productId"`,
+    ),
+    supplierRefs: psqlJson(
+      `select coalesce(jsonb_agg(jsonb_build_object('sourceSystem', r."sourceSystem", 'externalSupplierCode', r."normalizedExternalSupplierCode", 'supplierName', s."displayName") order by r."sourceSystem", r."normalizedExternalSupplierCode"), '[]'::jsonb) from "silverSupplierExternalRefs" r join "silverSuppliers" s on s.id=r."supplierId"`,
+    ),
+    supplierProducts: psqlJson(
+      `select coalesce(jsonb_agg(jsonb_build_object('supplier', s."displayName", 'asin', p.asin, 'sku', p.sku, 'supplierSku', sp."supplierSku", 'unitCost', sp."unitCost", 'moq', sp.moq, 'leadTimeDays', sp."leadTimeDays", 'analysisStatus', sp."analysisStatus") order by s."displayName", p.asin, p.sku), '[]'::jsonb) from "silverSupplierProducts" sp join "silverSuppliers" s on s.id=sp."supplierId" join "silverProducts" p on p.id=sp."productId"`,
+    ),
+    orders: psqlJson(
+      `select coalesce(jsonb_agg(jsonb_build_object('company', c.name, 'orderRef', o."orderRef", 'supplier', s."displayName", 'canonicalStatus', o."canonicalStatus", 'lifecycleStatus', o."lifecycleStatus", 'statusSource', o."statusSource") order by c.name, o."orderRef"), '[]'::jsonb) from "silverOrders" o join "silverCompanies" c on c.id=o."companyId" left join "silverSuppliers" s on s.id=o."supplierId"`,
+    ),
+    orderLines: psqlJson(
+      `select coalesce(jsonb_agg(jsonb_build_object('orderRef', o."orderRef", 'sourceLineKey', l."sourceLineKey", 'sourceAsin', l."sourceAsin", 'sourceSupplierSku', l."sourceSupplierSku", 'productMappingStatus', l."productMappingStatus", 'orderedQty', l."orderedQty", 'confirmedQty', l."confirmedQty") order by o."orderRef", l."sourceLineKey"), '[]'::jsonb) from "silverOrderLines" l join "silverOrders" o on o.id=l."orderId"`,
+    ),
+    inventoryGold: psqlJson(
+      `select coalesce(jsonb_agg(jsonb_build_object('company', company, 'asin', asin, 'sku', sku, 'actionStatus', "actionStatus", 'tier', tier, 'currentPlanningStock', "currentPlanningStock", 'suggestedReorderQty', "suggestedReorderQty", 'supplierOrderRef', "supplierOrderRef", 'supplierOrderStatus', "supplierOrderStatus") order by company, asin, sku), '[]'::jsonb) from "goldInventoryPlanningRows"`,
+    ),
+    orderGold: psqlJson(
+      `select coalesce(jsonb_agg(jsonb_build_object('company', "companyName", 'orderRef', "orderRef", 'supplier', "supplierName", 'canonicalStatus', "canonicalStatus", 'operationalStatus', "operationalStatus", 'lineCount', "lineCount", 'moneyAtRisk', "moneyAtRisk") order by "companyName", "orderRef"), '[]'::jsonb) from "goldOrderPlanningRows"`,
+    ),
+    supplierGold: psqlJson(
+      `select coalesce(jsonb_agg(jsonb_build_object('company', "companyName", 'supplier', "supplierName", 'priority', priority, 'lifecycleStatus', "lifecycleStatus", 'followUpState', "followUpState", 'moneyAtRisk', "moneyAtRisk", 'recommendedAction', "recommendedAction") order by "companyName", "supplierName", "naturalKey"), '[]'::jsonb) from "goldSupplierAttentionRows"`,
+    ),
+    managementKpis: psqlJson(
+      `select coalesce(jsonb_agg(jsonb_build_object('metricDate', "metricDate", 'companyScope', "companyScope", 'metricKey', "metricKey", 'value', value, 'sourceRowCount', "sourceRowCount", 'metricVersion', "metricVersion") order by "metricDate", "companyScope", "metricKey"), '[]'::jsonb) from "goldManagementKpiDailyFacts"`,
+    ),
+  };
+  const fingerprint = businessFingerprint(payload);
+  const report = { generatedAt: new Date().toISOString(), ...fingerprint };
+  const reportPath = path.join(ARTIFACT_DIR, 'business-fingerprint.json');
+  writeJson(reportPath, report);
+  console.log(JSON.stringify({ fingerprint: fingerprint.value, reportPath }));
+  return { algorithm: fingerprint.algorithm, value: fingerprint.value, artifact: path.basename(reportPath) };
+}
+
+async function deactivateMigrationSources() {
+  waitForCurrentSchema();
+  const token = await signIn();
+  const result = unwrapActionData(await apiPost(token, 'ecobaseImport:deactivateMigrationSources', {}));
+  console.log(JSON.stringify({ operation: 'deactivate-migration-sources', result }));
+}
+
+async function purgeExpiredBronze() {
+  const before = process.env.ECOBASE_BRONZE_PURGE_BEFORE;
+  if (!before || Number.isNaN(new Date(before).getTime())) {
+    throw new Error('ECOBASE_BRONZE_PURGE_BEFORE must be a valid ISO instant');
+  }
+  waitForCurrentSchema();
+  const token = await signIn();
+  const result = unwrapActionData(
+    await apiPost(token, 'ecobaseImport:purgeExpiredBronze', { before: new Date(before).toISOString() }),
+  );
+  console.log(JSON.stringify({ operation: 'purge-expired-bronze', result }));
 }
 
 async function verifySemanticLinks(token) {
@@ -813,27 +964,45 @@ function csvArtifactCell(value) {
 async function runStage(number, label, operation) {
   const startedAt = new Date();
   const metricsBefore = { ...importMetrics };
+  const budgetMs = STAGE_BUDGET_MS.get(number);
+  progressEvent('seed_stage_started', { number, label, budgetMs: budgetMs ?? null });
   console.log(`stage ${number} start: ${label}`);
+  const heartbeat = setInterval(
+    () =>
+      progressEvent('seed_stage_heartbeat', {
+        number,
+        label,
+        elapsedMs: Date.now() - startedAt.getTime(),
+        inputRows: importMetrics.inputRows - metricsBefore.inputRows,
+        acceptedRows: importMetrics.acceptedRows - metricsBefore.acceptedRows,
+        discardedRows: importMetrics.discardedRows - metricsBefore.discardedRows,
+      }),
+    SEED_HEARTBEAT_MS,
+  );
+  heartbeat.unref();
   try {
     const result = await operation();
     const durationMs = Date.now() - startedAt.getTime();
-    const budgetMs = STAGE_BUDGET_MS.get(number);
     if (budgetMs !== undefined && durationMs > budgetMs) {
       throw new Error(`Stage ${number} exceeded its ${budgetMs}ms budget: ${durationMs}ms (${label}).`);
     }
-    recordImportStage(number, label, startedAt, metricsBefore, 'success');
+    const stage = recordImportStage(number, label, startedAt, metricsBefore, 'success');
+    progressEvent('seed_stage_completed', stage);
     console.log(`stage ${number} end: ${label} durationMs=${durationMs} budgetMs=${budgetMs ?? 'none'}`);
     return result;
   } catch (error) {
-    recordImportStage(number, label, startedAt, metricsBefore, 'failed', error);
+    const stage = recordImportStage(number, label, startedAt, metricsBefore, 'failed', error);
+    progressEvent('seed_stage_failed', stage);
     console.error(`stage ${number} failed: ${label} durationMs=${Date.now() - startedAt.getTime()}`);
     throw error;
+  } finally {
+    clearInterval(heartbeat);
   }
 }
 
 function recordImportStage(number, label, startedAt, metricsBefore, status, error) {
   const finishedAt = new Date();
-  importStageLog.push({
+  const stage = {
     number,
     label,
     status,
@@ -844,9 +1013,11 @@ function recordImportStage(number, label, startedAt, metricsBefore, status, erro
     acceptedRows: importMetrics.acceptedRows - metricsBefore.acceptedRows,
     discardedRows: importMetrics.discardedRows - metricsBefore.discardedRows,
     ...(error ? { error: error instanceof Error ? error.message : String(error) } : {}),
-  });
+  };
+  importStageLog.push(stage);
   ensureArtifactDir();
   writeJson(IMPORT_STAGE_LOG_PATH, { sourceVersion: BOOTSTRAP_SOURCE_VERSION, stages: importStageLog });
+  return stage;
 }
 
 async function runImport(token, label, action, body) {
@@ -1171,36 +1342,79 @@ function requiredString(value, label) {
   return value.trim();
 }
 
+let greenfieldBundleManifest;
+
+function bundleFilePaths(groupIds) {
+  if (!GREENFIELD_BUNDLE_PATH) return undefined;
+  greenfieldBundleManifest ??= JSON.parse(readFileSync(GREENFIELD_BUNDLE_PATH, 'utf8'));
+  const groups = new Map((greenfieldBundleManifest.groups ?? []).map((group) => [group.id, group]));
+  return groupIds.flatMap((id) => {
+    const group = groups.get(id);
+    if (!group || !Array.isArray(group.files) || group.files.length === 0) {
+      throw new Error(`greenfield bundle group is missing files: ${id}`);
+    }
+    return group.files.map((file) => assertFileExists(path.resolve(GREENFIELD_PROJECT_ROOT, file.path)));
+  });
+}
+
 function listHistoryDashboardFiles() {
-  return listDataFiles('history').filter((file) => path.basename(file).includes('_Dashboard_by_product_'));
+  return (
+    bundleFilePaths([
+      'sellerboard-history-ecofission',
+      'sellerboard-history-muxtex',
+      'sellerboard-history-retail-heaven',
+      'sellerboard-history-stop-shop',
+    ]) ?? listDataFiles('history').filter((file) => path.basename(file).includes('_Dashboard_by_product_'))
+  );
 }
 
 function listCogsFiles() {
-  return listDataFiles('history').filter((file) => path.basename(file).includes('_Cost_of_Goods_Sold_'));
+  return (
+    bundleFilePaths([
+      'sellerboard-cogs-ecofission',
+      'sellerboard-cogs-muxtex',
+      'sellerboard-cogs-retail-heaven',
+      'sellerboard-cogs-stop-shop',
+    ]) ?? listDataFiles('history').filter((file) => path.basename(file).includes('_Cost_of_Goods_Sold_'))
+  );
 }
 
 function orderFiles() {
-  return [
-    path.join(PROJECT_ROOT, 'data', 'order-managment-sheets', 'Ecofission-Order Management - Purchase Orders.csv'),
-    path.join(PROJECT_ROOT, 'data', 'order-managment-sheets', 'Ecofission-Order Management - OrderDetails.csv'),
-  ].map(assertFileExists);
+  return (
+    bundleFilePaths(['order-management']) ?? [
+      path.join(PROJECT_ROOT, 'data', 'order-managment-sheets', 'Ecofission-Order Management - Purchase Orders.csv'),
+      path.join(PROJECT_ROOT, 'data', 'order-managment-sheets', 'Ecofission-Order Management - OrderDetails.csv'),
+    ].map(assertFileExists)
+  );
 }
 
 function supplierFiles() {
+  const files =
+    bundleFilePaths(['supplier-management']) ??
+    [
+      path.join(
+        PROJECT_ROOT,
+        'data',
+        'supplier-management-sheets',
+        'Supplier Analysis Tracker - Supplier Analysis Tracker.csv',
+      ),
+      path.join(PROJECT_ROOT, 'data', 'supplier-management-sheets', 'Supplier Analysis Tracker - Supplier 2026.csv'),
+    ].map(assertFileExists);
+  const byName = new Map(files.map((file) => [path.basename(file), file]));
   return [
-    path.join(
-      PROJECT_ROOT,
-      'data',
-      'supplier-management-sheets',
-      'Supplier Analysis Tracker - Supplier Analysis Tracker.csv',
-    ),
-    path.join(PROJECT_ROOT, 'data', 'supplier-management-sheets', 'Supplier Analysis Tracker - Supplier 2026.csv'),
-  ].map(assertFileExists);
+    'Supplier Analysis Tracker - Supplier Analysis Tracker.csv',
+    'Supplier Analysis Tracker - Supplier 2026.csv',
+  ].map((name) => {
+    const file = byName.get(name);
+    if (!file) throw new Error(`greenfield supplier bundle is missing ${name}`);
+    return file;
+  });
 }
 
 function clickupFiles() {
-  return [path.join(PROJECT_ROOT, 'data', 'clickup', 'Order Management Clickup Data 06-07-2026.csv')].map(
-    assertFileExists,
+  return (
+    bundleFilePaths(['clickup-order-status']) ??
+    [path.join(PROJECT_ROOT, 'data', 'clickup', 'Order Management Clickup Data 06-07-2026.csv')].map(assertFileExists)
   );
 }
 

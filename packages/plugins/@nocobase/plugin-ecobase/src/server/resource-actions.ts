@@ -211,6 +211,20 @@ function requireFamilyOverrideActor(ctx: {
   return actorUserId;
 }
 
+function requireMigrationMaintenanceAdministrator(ctx: {
+  state?: Record<string, unknown>;
+  throw: (status: number, message: string) => never;
+}) {
+  const roles = Array.isArray(ctx.state?.currentRoles)
+    ? (ctx.state.currentRoles as unknown[]).filter((role): role is string => typeof role === 'string')
+    : typeof ctx.state?.currentRole === 'string'
+      ? [ctx.state.currentRole]
+      : [];
+  if (!roles.some((role) => ['root', 'admin'].includes(role))) {
+    ctx.throw(403, 'Ecobase migration maintenance requires the root or admin role.');
+  }
+}
+
 function getActorId(ctx: { state?: Record<string, unknown> }) {
   const currentUser = ctx.state?.currentUser;
   if (typeof currentUser === 'object' && currentUser !== null) {
@@ -2384,6 +2398,31 @@ export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
         ctx.body = { data: await new EcobaseOrderDetailsRelationshipVerifier(ctx.db).verify(files[0]) };
       } catch (error) {
         ctx.throw(400, error instanceof Error ? error.message : 'Ecobase OrderDetails verification failed.');
+        return;
+      }
+      await next();
+    },
+    deactivateMigrationSources: async (ctx, next) => {
+      requireMigrationMaintenanceAdministrator(ctx);
+      try {
+        ctx.body = { data: await new EcobaseImportService(ctx.db, registry).deactivateMigrationSources() };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase migration source deactivation failed.');
+        return;
+      }
+      await next();
+    },
+    purgeExpiredBronze: async (ctx, next) => {
+      requireMigrationMaintenanceAdministrator(ctx);
+      const before = getOptionalString(getValues(ctx.action.params), 'before');
+      if (!before) {
+        ctx.throw(400, 'Ecobase Bronze purge requires before.');
+        return;
+      }
+      try {
+        ctx.body = { data: await new EcobaseImportService(ctx.db, registry).purgeExpiredBronzeRecords(before) };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase Bronze purge failed.');
         return;
       }
       await next();
