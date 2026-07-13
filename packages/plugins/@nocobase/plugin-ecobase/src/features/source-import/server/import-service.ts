@@ -19,8 +19,12 @@ import type {
 import { parseCsv, type CsvSourceFile } from './adapters/csv-utils';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import { EcobaseAccountabilityService } from '../../../server/services/accountability-service';
-import { bronzePayloadHash, EcobaseBronzeImportService } from './bronze-import-service';
+import { bronzePayloadHash, bronzeRetentionUntil, EcobaseBronzeImportService } from './bronze-import-service';
 import { EcobaseClickupOrderStatusService, type ClickupOrderStatusImportResult } from './clickup-order-status-service';
+import { FOUR_COMPANY_MIGRATION_PROFILE } from './four-company-migration-profile';
+import { applySafeImportBoundary } from './safe-import-boundary';
+import { projectSourceRecord } from './source-record-projection';
+import { decideCompanyScope } from './source-scope-policy';
 import { EcobaseDataWarningService } from '../../../server/services/data-warning-service';
 import type { EcobaseDataWarning } from '../../../server/services/data-warning-service';
 import { EcobaseInventoryPlanningService } from '../../inventory-planning/server/inventory-planning-service';
@@ -51,12 +55,21 @@ type RepositoryFindParams = {
 
 type RepositoryCreateParams = { values: Record<string, unknown> };
 type RepositoryUpdateParams = { filterByTk?: string | number | null; filter?: Filter; values: Record<string, unknown> };
+type RepositoryDestroyParams = { filter?: Filter; filterByTk?: string | number };
 
 type ImportFileSummary = {
   rowCount: number;
   normalizedCount: number;
   warningCount: number;
   sampleMappedRecord?: Record<string, unknown>;
+};
+
+type ImportDecisionCounts = {
+  acceptedCount: number;
+  discardedCount: number;
+  reviewCount: number;
+  droppedFieldCount: number;
+  reasons: Record<string, number>;
 };
 
 type AdapterImportStreamResult = {
@@ -71,6 +84,7 @@ type AdapterImportStreamResult = {
   fileSummaries: Record<string, ImportFileSummary>;
   supplierOrderTouched: boolean;
   accountabilityTouched: boolean;
+  migrationSummary: ImportDecisionCounts & { bySourceGroup: Record<string, ImportDecisionCounts> };
 };
 
 type AdapterImportStreamParams = {
@@ -209,6 +223,7 @@ export interface EcobaseRepository {
   findOne(params?: RepositoryFindParams): Promise<unknown | null>;
   create(params: RepositoryCreateParams): Promise<unknown>;
   update(params: RepositoryUpdateParams): Promise<unknown>;
+  destroy?(params: RepositoryDestroyParams): Promise<unknown>;
 }
 
 export interface EcobaseDatabase {
@@ -447,6 +462,34 @@ function updateFileSummary(
   };
 }
 
+function updateMigrationSummary(
+  summary: ImportDecisionCounts & { bySourceGroup: Record<string, ImportDecisionCounts> },
+  sourceGroup: string | undefined,
+  decision: ReturnType<typeof applySafeImportBoundary>,
+) {
+  const group = sourceGroup ?? '(unknown source group)';
+  const groupSummary = summary.bySourceGroup[group] ?? {
+    acceptedCount: 0,
+    discardedCount: 0,
+    reviewCount: 0,
+    droppedFieldCount: 0,
+    reasons: {},
+  };
+  const countKey =
+    decision.disposition === 'accept'
+      ? ('acceptedCount' as const)
+      : decision.disposition === 'review'
+        ? ('reviewCount' as const)
+        : ('discardedCount' as const);
+  summary[countKey] += 1;
+  summary.droppedFieldCount += decision.droppedFieldCount;
+  summary.reasons[decision.reasonCode] = (summary.reasons[decision.reasonCode] ?? 0) + 1;
+  groupSummary[countKey] += 1;
+  groupSummary.droppedFieldCount += decision.droppedFieldCount;
+  groupSummary.reasons[decision.reasonCode] = (groupSummary.reasons[decision.reasonCode] ?? 0) + 1;
+  summary.bySourceGroup[group] = groupSummary;
+}
+
 function defaultAdapterNameForSourceConnection(sourceConnection: unknown) {
   const config = getConfig(sourceConnection);
   const configured = typeof config.adapterName === 'string' ? config.adapterName : undefined;
@@ -497,19 +540,48 @@ async function retainClickupSourceRows(params: {
   importRunId: string;
   sourceConnectionId: string;
   sourceVersion: string;
+  retainedOrderRefByTaskId: Map<string, string>;
 }) {
+  const summary = { acceptedCount: 0, discardedCount: 0, droppedFieldCount: 0, reasons: {} as Record<string, number> };
+  const count = (disposition: 'acceptedCount' | 'discardedCount', reason: string) => {
+    summary[disposition] += 1;
+    summary.reasons[reason] = (summary.reasons[reason] ?? 0) + 1;
+  };
   const repo = params.db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords);
   for (const file of params.files) {
     const parsed = parseCsv(file.content);
-    for (const [index, payload] of parsed.rows.entries()) {
+    for (const [index, source] of parsed.rows.entries()) {
       const rowNumber = index + 2;
-      const taskId = getString(payload, 'Task ID') ?? `row-${rowNumber}`;
+      const taskId = getString(source, 'Task ID') ?? `row-${rowNumber}`;
+      const retainedOrderRef = params.retainedOrderRefByTaskId.get(taskId);
+      if (!retainedOrderRef) {
+        count('discardedCount', 'clickup_order_not_retained');
+        continue;
+      }
+      const scope = decideCompanyScope({ source: 'clickup', orderRef: retainedOrderRef });
+      if (scope.disposition === 'discard') {
+        count('discardedCount', scope.reasonCode);
+        continue;
+      }
+      const projection = projectSourceRecord(
+        'clickup_order_evidence',
+        {
+          taskId,
+          parentId: getString(source, 'Parent ID'),
+          orderRef: retainedOrderRef,
+          status: getString(source, 'Status'),
+          statusUpdatedAt: getString(source, 'Date Created Text') ?? getString(source, 'Date Created'),
+        },
+        { retainedOrderRef },
+      );
+      summary.droppedFieldCount += Object.keys(source).length - Object.keys(projection.payload).length;
+      count('acceptedCount', scope.reasonCode);
       const sourceRecordKey = `${file.name}:${taskId}`;
-      const rowHash = bronzePayloadHash(payload);
+      const rowHash = bronzePayloadHash(projection.payload);
       const existing = await repo.findOne({
         filter: {
           sourceConnectionId: params.sourceConnectionId,
-          sourceDataset: file.name,
+          sourceDataset: 'clickup_order_evidence',
           sourceRecordKey,
           rowHash,
         },
@@ -521,19 +593,21 @@ async function retainClickupSourceRows(params: {
           sourceConnectionId: params.sourceConnectionId,
           importRunId: params.importRunId,
           sourceType: 'clickup',
-          sourceDataset: file.name,
+          sourceDataset: 'clickup_order_evidence',
           sourceRecordKey,
           sourceKey: taskId,
           rowNumber,
           observedAt: params.sourceVersion,
-          payload,
+          payload: projection.payload,
           rowHash,
           normalizationStatus: 'normalized',
           normalizedAt: new Date(),
+          retentionUntil: bronzeRetentionUntil(params.sourceVersion),
         },
       });
     }
   }
+  return summary;
 }
 
 export class EcobaseImportService {
@@ -689,12 +763,19 @@ export class EcobaseImportService {
 
     try {
       const result = await clickupService.importCsvFiles({ ...params, dryRun: false });
-      await retainClickupSourceRows({
+      const sourceRetention = await retainClickupSourceRows({
         db: this.db,
         files: params.files,
         importRunId,
         sourceConnectionId: params.sourceConnectionId,
         sourceVersion,
+        retainedOrderRefByTaskId: new Map(
+          [...result.proposedUpdates, ...result.proposedComments].flatMap((update) => {
+            const taskId = getString(update, 'taskId');
+            const orderRef = getString(update, 'externalOrderRef');
+            return taskId && orderRef ? [[taskId, orderRef] as const] : [];
+          }),
+        ),
       });
       const warningCount =
         result.unmatchedRefCount + result.missingMainTaskCount + result.duplicateRefCount + result.invalidCommentCount;
@@ -719,7 +800,17 @@ export class EcobaseImportService {
             errorCount > 0
               ? `ClickUp import quarantined ${errorCount} conflicting or ambiguous order reference group(s).`
               : null,
-          summary: { clickup: result, goldRefresh },
+          summary: {
+            clickup: result,
+            sourceRetention,
+            migration: {
+              profileVersion: FOUR_COMPANY_MIGRATION_PROFILE.profileVersion,
+              asOfDate: sourceVersion.slice(0, 10),
+              ...sourceRetention,
+              reviewCount: 0,
+            },
+            goldRefresh,
+          },
         },
       });
       return toPlainRecord(await importRunRepo.findOne({ filterByTk: importRunId }));
@@ -1143,7 +1234,17 @@ export class EcobaseImportService {
         warningCount,
         errorCount,
         errorMessage: errorMessage ?? statusMessage ?? (normalizedCount > 0 ? firstErrorIssueMessage : null),
-        summary: { files: fileSummaries, medallionNormalization, goldRefresh, ...(params.summary ?? {}) },
+        summary: {
+          files: fileSummaries,
+          medallionNormalization,
+          goldRefresh,
+          migration: {
+            profileVersion: FOUR_COMPANY_MIGRATION_PROFILE.profileVersion,
+            asOfDate: sourceVersion.slice(0, 10),
+            ...stream.migrationSummary,
+          },
+          ...(params.summary ?? {}),
+        },
       },
     });
 
@@ -1164,12 +1265,48 @@ export class EcobaseImportService {
       fileSummaries: {},
       supplierOrderTouched: false,
       accountabilityTouched: false,
+      migrationSummary: {
+        acceptedCount: 0,
+        discardedCount: 0,
+        reviewCount: 0,
+        droppedFieldCount: 0,
+        reasons: {},
+        bySourceGroup: {},
+      },
     };
 
     try {
       await params.bronzeService.createSourceFiles(params.bronzeContext, inlineCsvFiles(params.adapterConfig));
-      for await (const item of params.adapter.import(params.adapterInput)) {
-        const bronzeRecord = await params.bronzeService.createSourceRecord(params.bronzeContext, item);
+      for await (const sourceItem of params.adapter.import(params.adapterInput)) {
+        if (sourceItem.type === 'status') {
+          result.finalStatusOverride = sourceItem.status;
+          if (sourceItem.status === 'blocked' || sourceItem.status === 'failed') {
+            result.errorMessage = sourceItem.message;
+          } else {
+            result.statusMessage = sourceItem.message;
+          }
+          continue;
+        }
+        const sourceGroup = getSourceFileName(
+          sourceItem.type === 'record' ? sourceItem.sourceKey : sourceItem.issue.sourceKey,
+        );
+        const boundary = applySafeImportBoundary(
+          { adapter: params.adapter, defaultCompany: getString(params.adapterConfig, 'defaultCompany') },
+          sourceItem,
+        );
+        updateMigrationSummary(result.migrationSummary, sourceGroup, boundary);
+        if (boundary.disposition === 'discard') {
+          const rowNumber = sourceItem.type === 'record' ? sourceItem.rowNumber : sourceItem.issue.rowNumber;
+          if (rowNumber > 0) {
+            result.rowCount += 1;
+            updateFileSummary(result.fileSummaries, sourceGroup, { rowCount: 1 });
+          }
+          continue;
+        }
+        const item = boundary.item;
+        const bronzeRecord = await params.bronzeService.createSourceRecord(params.bronzeContext, item, {
+          sourceDataset: boundary.sourceDataset,
+        });
         if (item.type === 'record') {
           const records = Array.isArray(item.record) ? item.record : [item.record];
           const fileName = getSourceFileName(item.sourceKey);
@@ -1207,13 +1344,6 @@ export class EcobaseImportService {
           } else {
             result.errorCount += 1;
             result.firstErrorIssueMessage = result.firstErrorIssueMessage ?? item.issue.message;
-          }
-        } else {
-          result.finalStatusOverride = item.status;
-          if (item.status === 'blocked' || item.status === 'failed') {
-            result.errorMessage = item.message;
-          } else {
-            result.statusMessage = item.message;
           }
         }
       }

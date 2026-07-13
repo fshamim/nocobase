@@ -38,9 +38,11 @@ export function resolveMigrationCompany(value: string | undefined, source: Migra
   if (!text) return undefined;
   const canonical = CANONICAL_COMPANY_BY_NAME.get(comparisonKey(text));
   if (canonical) return { ...canonical, match: 'canonical' as const };
-  const alias = FOUR_COMPANY_MIGRATION_PROFILE.companyAliasesBySource[source].find(
-    (candidate) => comparisonKey(candidate.alias) === comparisonKey(text),
-  );
+  const aliases = FOUR_COMPANY_MIGRATION_PROFILE.companyAliasesBySource[source] as readonly {
+    alias: string;
+    companyKey: FourCompanyKey;
+  }[];
+  const alias = aliases.find((candidate) => comparisonKey(candidate.alias) === comparisonKey(text));
   if (!alias) return undefined;
   const company = FOUR_COMPANY_MIGRATION_PROFILE.canonicalCompanies.find(
     (candidate) => candidate.companyKey === alias.companyKey,
@@ -74,6 +76,9 @@ export function decideCompanyScope(input: CompanyScopeInput): MigrationDecision 
   if (new Set(companyKeys).size !== 1) return { disposition: 'discard', reasonCode: 'company_evidence_conflict' };
 
   const companyKey = companyKeys[0];
+  if (!explicit && input.orderRef && input.source === 'clickup') {
+    return { disposition: 'accept', companyKey, reasonCode: 'clickup_order_prefix' };
+  }
   if (!explicit && input.orderRef) {
     return header
       ? { disposition: 'review', companyKey, reasonCode: 'company_from_header_and_order_prefix' }

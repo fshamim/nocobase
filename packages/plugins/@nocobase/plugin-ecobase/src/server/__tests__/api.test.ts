@@ -1422,6 +1422,7 @@ describe('Ecobase import public API seam', () => {
     const rows = db.getRepository(ECOBASE_COLLECTIONS.sellerboardProductCosts).all();
     expect(rows).toHaveLength(2);
     expect(rows[0]).toMatchObject({ unitCost: 5.25 });
+    expect(rows.every((row) => !Object.hasOwn(row, 'rawPayload'))).toBe(true);
   });
 
   it('extracts only compact ClickUp order refs from task titles', () => {
@@ -2116,9 +2117,6 @@ describe('Ecobase import public API seam', () => {
             supplierOrderId: 'supplier-order-1',
             orderRef: 'SS7226A',
             taskId: 'task-main',
-            taskName: 'New Order – SS7226A–Stop Shop Inc – USA – My Weigh',
-            actor: 'nauman.ecofission@gmail.com',
-            comment: expect.objectContaining({ resolved: 'N/A' }),
           }),
         }),
         expect.objectContaining({
@@ -2131,10 +2129,12 @@ describe('Ecobase import public API seam', () => {
           contextSnapshotJson: expect.objectContaining({
             orderRef: 'MX12425B',
             taskId: 'task-comment',
-            actor: 'kiranecofission@gmail.com',
           }),
         }),
       ]),
+    );
+    expect(JSON.stringify(db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).all())).not.toMatch(
+      /gmail\.com|https?:\/\/|"taskName":|"actor":|"comment":/i,
     );
     expect(db.getRepository('users').all()).toEqual(
       expect.arrayContaining([
@@ -2150,6 +2150,20 @@ describe('Ecobase import public API seam', () => {
         .all()
         .filter((row) => row.sourceType === 'clickup'),
     ).toHaveLength(3);
+    expect(
+      db
+        .getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords)
+        .all()
+        .filter((row) => row.sourceType === 'clickup'),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceDataset: 'clickup_order_evidence',
+          retentionUntil: '2026-08-05T00:00:00.000Z',
+          payload: expect.objectContaining({ taskId: 'task-main', orderRef: 'SS7226A' }),
+        }),
+      ]),
+    );
 
     const activityRepo = db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments);
     for (const comment of activityRepo.all()) {

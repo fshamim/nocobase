@@ -1,0 +1,166 @@
+=== four-company-migration-profile.test.ts ===
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/four-company-migration-profile.test.ts --run --reporter=verbose
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/four-company-migration-profile.test.ts',
+  '--run',
+  '--reporter=verbose',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:17143) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/four-company-migration-profile.test.ts > four-company migration profile > owns the exact versioned migration defaults
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/four-company-migration-profile.test.ts > four-company migration profile > keeps aliases and exact identity decisions explicit
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  04:37:25
+   Duration  181ms (transform 29ms, setup 50ms, collect 13ms, tests 2ms, environment 0ms, prepare 39ms)
+
+Done in 1.78s.
+=== greenfield-migration-fixtures.test.ts ===
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/greenfield-migration-fixtures.test.ts --run --reporter=verbose
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/greenfield-migration-fixtures.test.ts',
+  '--run',
+  '--reporter=verbose',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:17192) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/greenfield-migration-fixtures.test.ts > greenfield migration fixtures > covers every required decision family
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/greenfield-migration-fixtures.test.ts > greenfield migration fixtures > contains only synthetic secret-test values and no personal source material
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  04:37:26
+   Duration  189ms (transform 31ms, setup 53ms, collect 16ms, tests 4ms, environment 0ms, prepare 37ms)
+
+Done in 1.31s.
+=== source-record-projection.test.ts ===
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/source-record-projection.test.ts --run --reporter=verbose
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/source-record-projection.test.ts',
+  '--run',
+  '--reporter=verbose',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:17211) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/source-record-projection.test.ts > source record projection > constructs a supplier projection and drops unknown sensitive fields
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/source-record-projection.test.ts > source record projection > retains only operational order fields
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/source-record-projection.test.ts > source record projection > keeps ClickUp comment text only after exact retained-order linkage and only when safe
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/source-record-projection.test.ts > source record projection > rejects unsafe values and nested objects even under allowlisted keys
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/source-record-projection.test.ts > source record projection > counts populated but unselected aliases as dropped
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/source-record-projection.test.ts > source record projection > reports forbidden source-style key and value paths without returning their values
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  04:37:28
+   Duration  191ms (transform 38ms, setup 51ms, collect 23ms, tests 3ms, environment 0ms, prepare 37ms)
+
+Done in 1.34s.
+=== source-scope-policy.test.ts ===
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/source-scope-policy.test.ts --run --reporter=verbose
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/source-scope-policy.test.ts',
+  '--run',
+  '--reporter=verbose',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:17259) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/source-scope-policy.test.ts > greenfield source scope policy > classifies every company fixture with the exact four-company profile
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/source-scope-policy.test.ts > greenfield source scope policy > keeps aliases source-scoped and does not strip punctuation
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/source-scope-policy.test.ts > greenfield source scope policy > rejects unsupported order refs and conflicting company evidence
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/source-scope-policy.test.ts > greenfield source scope policy > marks coherent header-only target-company evidence for review rather than guessing
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  04:37:29
+   Duration  193ms (transform 39ms, setup 53ms, collect 24ms, tests 2ms, environment 0ms, prepare 40ms)
+
+Done in 1.32s.
+=== order-migration-retention.test.ts ===
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-migration-retention.test.ts --run --reporter=verbose
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-migration-retention.test.ts',
+  '--run',
+  '--reporter=verbose',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:17313) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-migration-retention.test.ts > greenfield order migration retention > classifies the fixed operational-retention fixtures
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-migration-retention.test.ts > greenfield order migration retention > retains canonical and adapter-emitted non-terminal orders regardless of age
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-migration-retention.test.ts > greenfield order migration retention > applies the complete-order window to the supplier-order completed status
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-migration-retention.test.ts > greenfield order migration retention > discards cancelled and rejected orders before age or future-delivery exceptions
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-migration-retention.test.ts > greenfield order migration retention > reviews stale unknown orders only when current operational evidence exists
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-migration-retention.test.ts > greenfield order migration retention > fails fast when the explicit as-of date is invalid
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  04:37:31
+   Duration  203ms (transform 47ms, setup 53ms, collect 34ms, tests 3ms, environment 0ms, prepare 37ms)
+
+Done in 1.50s.
+=== order-import-policy.test.ts ===
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-import-policy.test.ts --run --reporter=verbose
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-import-policy.test.ts',
+  '--run',
+  '--reporter=verbose',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:17359) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-import-policy.test.ts > order import source policy > keeps only the most recent complete supported OrderDetails row
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-import-policy.test.ts > order import source policy > registers supplier SR IDs without company and excludes the Call & Email row
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  04:37:32
+   Duration  539ms (transform 320ms, setup 58ms, collect 355ms, tests 6ms, environment 0ms, prepare 41ms)
+
+Done in 1.88s.

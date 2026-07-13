@@ -1,0 +1,12 @@
+packages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/clickup-order-status-service.ts:26:  EF: 'Ecofission LLC',
+packages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/clickup-order-status-service.ts:27:  MX: 'Muxtex INC',
+packages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/clickup-order-status-service.ts:28:  RH: 'Retail Heaven Inc',
+packages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/clickup-order-status-service.ts:29:  SS: 'Stop Shop LLC',
+packages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/clickup-order-status-service.ts:151:  if (compact.includes('ecofission')) return 'Ecofission LLC';
+packages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/clickup-order-status-service.ts:152:  if (compact.includes('muxtex')) return 'Muxtex INC';
+packages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/clickup-order-status-service.ts:153:  if (compact.includes('retailheaven')) return 'Retail Heaven Inc';
+packages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/clickup-order-status-service.ts:154:  if (compact.includes('stopshop')) return 'Stop Shop LLC';
+packages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/sellerboard-cogs-service.ts:37:  Fissionem: 'Ecofission LLC',
+packages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/sellerboard-cogs-service.ts:38:  Muxtex: 'Muxtex INC',
+packages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/sellerboard-cogs-service.ts:39:  Retail_Heaven_Inc: 'Retail Heaven Inc',
+packages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/sellerboard-cogs-service.ts:40:  Stop_Shop_Llc: 'Stop Shop LLC',

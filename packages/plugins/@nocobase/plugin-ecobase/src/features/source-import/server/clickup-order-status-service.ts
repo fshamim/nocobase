@@ -14,6 +14,7 @@ import type { CsvSourceFile } from './adapters/csv-utils';
 import { CsvRowReader, parseCsv } from './adapters/csv-utils';
 import type { EcobaseDatabase } from './import-service';
 import { FOUR_COMPANY_MIGRATION_PROFILE } from './four-company-migration-profile';
+import { projectSourceRecord } from './source-record-projection';
 import { silverSupplierOrderReadModel } from '../../supplier-management/server/silver-supplier-order-read-model';
 import {
   canonicalOrderStatusForOperationalStatus,
@@ -64,7 +65,6 @@ type ParsedClickupComment = {
   occurredAt: string;
   assigned?: boolean;
   resolved?: string;
-  raw: PlainRecord;
 };
 
 type ParsedTask = {
@@ -311,7 +311,6 @@ function parseClickupComments(value: string | undefined) {
         occurredAt,
         assigned: typeof record.assigned === 'boolean' ? record.assigned : undefined,
         resolved: asString(record.resolved),
-        raw: record,
       },
     ];
   });
@@ -339,18 +338,23 @@ function taskOccurredAt(task: ParsedTask) {
 }
 
 function statusEvidence(task: ParsedTask) {
+  const projection = projectSourceRecord(
+    'clickup_order_evidence',
+    {
+      taskId: task.taskId,
+      parentId: task.parentId,
+      orderRef: task.ref,
+      status: task.clickupStatus,
+      statusUpdatedAt: taskOccurredAt(task),
+    },
+    { retainedOrderRef: task.ref },
+  );
   return {
     source: 'clickup_csv',
     extraction: 'task_name_compact_order_ref',
-    orderRef: task.ref,
-    clickupStatus: task.clickupStatus,
+    ...projection.payload,
     mappedStatus: task.mappedStatus,
-    taskId: task.taskId,
-    taskLink: task.taskLink,
-    taskName: task.taskName,
     lineNumber: task.lineNumber,
-    dateCreatedText: task.dateCreatedText,
-    taskOccurredAt: taskOccurredAt(task),
     mainOrderTask: task.mainOrderTask,
   };
 }
@@ -379,6 +383,20 @@ function commentActivityValues(params: {
   if (!company || !supplierId) {
     throw new Error('Ecobase ClickUp comment import failed: matched supplier order is missing company or supplierId.');
   }
+  const projection = projectSourceRecord(
+    'clickup_order_evidence',
+    {
+      taskId: params.task.taskId,
+      parentId: params.task.parentId,
+      orderRef: params.task.ref,
+      status: params.task.clickupStatus,
+      commentOccurredAt: params.comment.occurredAt,
+      commentBody: params.comment.text,
+    },
+    { retainedOrderRef: params.task.ref },
+  );
+  const body = asString(projection.payload.commentBody);
+  if (!body) return undefined;
   const naturalKey = [
     params.sourceConnectionId,
     'clickup_comment',
@@ -393,7 +411,7 @@ function commentActivityValues(params: {
     actorType: params.actorUserId ? 'user' : 'operator',
     actorUserId: params.actorUserId,
     commentType: 'note',
-    body: params.comment.text,
+    body,
     sourceCommentKey: naturalKey,
     occurredAt: params.comment.occurredAt,
     contextSnapshotJson: {
@@ -405,12 +423,9 @@ function commentActivityValues(params: {
       supplierOrderId: params.supplierOrderId,
       orderRef: params.task.ref,
       occurredAt: params.comment.occurredAt,
-      actor: params.comment.actor,
       taskId: params.task.taskId,
-      taskLink: params.task.taskLink,
-      taskName: params.task.taskName,
+      parentId: params.task.parentId,
       lineNumber: params.task.lineNumber,
-      comment: params.comment.raw,
     },
     workflowDetectionStatus: 'none',
     createdAt: params.comment.occurredAt,
@@ -823,6 +838,7 @@ export class EcobaseClickupOrderStatusService {
             supplierOrderId,
             actorUserId: actorEmail ? userLinks.actorUserIdsByEmail.get(actorEmail) : undefined,
           });
+          if (!values) continue;
           proposedCommentCount += 1;
           if (proposedComments.length < COMMENT_PROPOSAL_LIMIT) {
             proposedComments.push(commentProposal({ task: commentTask, comment, supplierOrderId }));

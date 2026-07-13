@@ -10,10 +10,11 @@
 import { randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import type { CsvSourceFile } from './adapters/csv-utils';
-import { CsvRowReader, parseDelimitedCsv } from './adapters/csv-utils';
+import { parseDelimitedCsv } from './adapters/csv-utils';
 import { FOUR_COMPANY_MIGRATION_PROFILE } from './four-company-migration-profile';
 import type { EcobaseDatabase } from './import-service';
 import { toPlainRecord } from './import-service';
+import { projectSourceRecord } from './source-record-projection';
 import { resolveMigrationCompany } from './source-scope-policy';
 
 export type SellerboardCostStatus = 'exact' | 'asin_unique' | 'asin_same_cost' | 'ambiguous' | 'missing';
@@ -125,10 +126,14 @@ export class EcobaseSellerboardCogsService {
   async importCsvFiles(params: { files: CsvSourceFile[]; defaultCompany?: string; importedAt?: string }) {
     const repository = this.db.getRepository(ECOBASE_COLLECTIONS.sellerboardProductCosts);
     const importedAt = params.importedAt ?? new Date().toISOString();
-    const fileSummaries: Record<string, { rowCount: number; importedCount: number; skippedCount: number }> = {};
+    const fileSummaries: Record<
+      string,
+      { rowCount: number; importedCount: number; skippedCount: number; droppedFieldCount: number }
+    > = {};
     let rowCount = 0;
     let importedCount = 0;
     let skippedCount = 0;
+    let droppedFieldCount = 0;
 
     for (const file of params.files) {
       const company = companyFromFileName(file.name, params.defaultCompany);
@@ -136,15 +141,17 @@ export class EcobaseSellerboardCogsService {
         throw new Error(`Sellerboard COGS import failed: company could not be inferred from file ${file.name}.`);
       }
       const parsed = parseDelimitedCsv(file.content, ';');
-      const summary = { rowCount: parsed.rows.length, importedCount: 0, skippedCount: 0 };
+      const summary = { rowCount: parsed.rows.length, importedCount: 0, skippedCount: 0, droppedFieldCount: 0 };
       fileSummaries[file.name] = summary;
       rowCount += parsed.rows.length;
 
       for (const rawRow of parsed.rows) {
-        const row = new CsvRowReader(rawRow);
-        const asin = normalizeAsin(row.string('ASIN'));
-        const sku = normalizeSku(row.string('SKU'));
-        const unitCost = parseSellerboardNumber(row.string('Cost'));
+        const projection = projectSourceRecord('sellerboard_cogs', { ...rawRow, Company: company });
+        droppedFieldCount += projection.droppedFieldCount;
+        summary.droppedFieldCount += projection.droppedFieldCount;
+        const asin = normalizeAsin(projection.payload.asin);
+        const sku = normalizeSku(projection.payload.listingSku);
+        const unitCost = parseSellerboardNumber(normalizeCompany(projection.payload.unitCost));
         if (!asin || !sku || typeof unitCost !== 'number' || unitCost <= 0) {
           skippedCount += 1;
           summary.skippedCount += 1;
@@ -156,13 +163,12 @@ export class EcobaseSellerboardCogsService {
           company,
           asin,
           sku,
-          title: row.string('Title'),
-          costPeriodStartDate: parseSellerboardDate(row.string('CostPeriodStartDate')),
+          title: normalizeCompany(projection.payload.title) || undefined,
+          costPeriodStartDate: parseSellerboardDate(normalizeCompany(projection.payload.observedAt) || undefined),
           unitCost: roundedMoney(unitCost),
-          marketplace: row.string('Marketplace'),
+          marketplace: normalizeCompany(projection.payload.marketplace) || undefined,
           sourceFile: file.name,
           importedAt,
-          rawPayload: row.payload(),
         };
         const existing = await repository.findOne({ filter: { naturalKey: values.naturalKey } });
         if (existing) {
@@ -180,7 +186,21 @@ export class EcobaseSellerboardCogsService {
       }
     }
 
-    return { rowCount, importedCount, skippedCount, fileSummaries };
+    return {
+      rowCount,
+      importedCount,
+      skippedCount,
+      droppedFieldCount,
+      fileSummaries,
+      migration: {
+        profileVersion: FOUR_COMPANY_MIGRATION_PROFILE.profileVersion,
+        asOfDate: importedAt.slice(0, 10),
+        acceptedCount: importedCount,
+        discardedCount: skippedCount,
+        reviewCount: 0,
+        reasons: skippedCount ? { missing_identity_or_cost: skippedCount } : {},
+      },
+    };
   }
 
   async createResolver(companies?: string[]) {

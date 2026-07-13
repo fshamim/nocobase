@@ -10,6 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   findForbiddenSourceMaterial,
+  projectNormalizedRecordData,
   projectSourceRecord,
   SOURCE_RECORD_PROJECTION_VERSION,
 } from '../../features/source-import/server/source-record-projection';
@@ -177,6 +178,23 @@ describe('source record projection', () => {
         Unknown: 'discarded',
       }),
     ).toMatchObject({ payload: { supplierName: 'Selected supplier' }, droppedFieldCount: 2 });
+  });
+
+  it('removes raw nested payloads and sensitive normalized fields before direct persistence', () => {
+    expect(
+      projectNormalizedRecordData({
+        naturalKey: 'synthetic:1',
+        company: 'Ecofission LLC',
+        payload: { raw: 'discard' },
+        portalUrl: 'https://portal.example.invalid',
+        username: 'synthetic-user',
+        statusEvidenceJson: { source: 'raw' },
+      }),
+    ).toEqual({
+      payload: { naturalKey: 'synthetic:1', company: 'Ecofission LLC' },
+      droppedFieldCount: 4,
+      projectionVersion: SOURCE_RECORD_PROJECTION_VERSION,
+    });
   });
 
   it('reports forbidden source-style key and value paths without returning their values', () => {

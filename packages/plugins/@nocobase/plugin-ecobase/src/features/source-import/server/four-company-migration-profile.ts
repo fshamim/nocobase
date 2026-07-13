@@ -22,6 +22,7 @@ export const FOUR_COMPANY_MIGRATION_PROFILE = {
       { alias: 'StopShop LLC', companyKey: 'STOP_SHOP_LLC' },
     ],
     supplier_csv_provenance: [{ alias: 'Muxtex Inc', companyKey: 'MUXTEX_INC' }],
+    clickup: [],
   },
   orderPrefixCompanyKeys: {
     EF: 'ECOFISSION_LLC',

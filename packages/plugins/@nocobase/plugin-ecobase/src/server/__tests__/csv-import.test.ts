@@ -27,6 +27,7 @@ import { EcobasePlanningCalculationService } from '../../features/inventory-plan
 import { EcobaseInventoryPlanningService } from '../../features/inventory-planning/server/inventory-planning-service';
 import { EcobaseSupplierOrderService } from '../../features/supplier-management/server/supplier-order-service';
 import { silverSupplierOrderReadModel } from '../../features/supplier-management/server/silver-supplier-order-read-model';
+import { findForbiddenSourceMaterial } from '../../features/source-import/server/source-record-projection';
 
 interface FindParams {
   filter?: Record<string, unknown>;
@@ -324,6 +325,46 @@ describe('Ecobase bronze import write path', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).all().length).toBeGreaterThan(0);
     expect(run.summary).toMatchObject({
       goldRefresh: expect.objectContaining({ calculationDate: expect.any(String) }),
+    });
+  });
+
+  it('rejects out-of-scope rows before Bronze and records the migration decision summary', async () => {
+    const { db, service } = createService();
+    db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
+      filterByTk: 'source-1',
+      values: {
+        config: {
+          files: [{ name: 'MasterStock.csv', content: sameSupplierDifferentCompanyCsv, expectedRowCount: 2 }],
+        },
+      },
+    });
+
+    const run = await service.runAdapterImport({
+      sourceConnectionId: 'source-1',
+      adapterName: 'amazon-operations-csv',
+      sourceIdentifier: 'safe-boundary-company-scope',
+      sourceVersion: '2026-07-13T00:00:00.000Z',
+      preserveAuditRun: true,
+      skipGoldRefresh: true,
+    });
+
+    const bronzeRecords = db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all();
+    expect(bronzeRecords).toHaveLength(1);
+    expect(bronzeRecords[0]).toMatchObject({
+      sourceDataset: 'amazon_listing_inventory',
+      payload: expect.objectContaining({ company: 'Ecofission LLC', asin: 'B00PUSNY5A', listingSku: 'W101' }),
+      retentionUntil: '2026-08-12T00:00:00.000Z',
+    });
+    expect(JSON.stringify(bronzeRecords[0])).not.toContain('Other Company');
+    expect(findForbiddenSourceMaterial(bronzeRecords)).toEqual([]);
+    expect(run.summary).toMatchObject({
+      migration: {
+        profileVersion: '2026-07-13.1',
+        acceptedCount: 1,
+        discardedCount: 1,
+        reviewCount: 0,
+        reasons: { canonical_company: 1, company_out_of_scope: 1 },
+      },
     });
   });
 

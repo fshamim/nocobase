@@ -112,37 +112,52 @@ export class EcobaseMedallionNormalizationService {
     const sourceConnectionId =
       textValue(bronze.sourceConnectionId) ?? textValue(sourceConnection.id) ?? scopedSourceConnectionId;
     const sourceDataset = textValue(bronze.sourceDataset)?.toLowerCase() ?? '';
-    const orderShape = sourceDataset.includes('orderdetails')
-      ? 'order-details'
-      : sourceDataset.includes('purchase orders')
-        ? 'purchase-orders'
-        : undefined;
-    if (orderShape && orderRowExclusionReason(orderShape, row)) return entities;
-    if (sourceDataset.includes('supplier analysis') && row.string('Reached Via')?.toLowerCase() === 'call & email') {
+    const safeProjectedDataset = [
+      'order_details',
+      'purchase_orders',
+      'supplier_tracker',
+      'supplier_provenance',
+    ].includes(sourceDataset);
+    const orderShape =
+      sourceDataset.includes('orderdetails') || sourceDataset === 'order_details'
+        ? 'order-details'
+        : sourceDataset.includes('purchase orders') || sourceDataset === 'purchase_orders'
+          ? 'purchase-orders'
+          : undefined;
+    if (orderShape && !safeProjectedDataset && orderRowExclusionReason(orderShape, row)) return entities;
+    if (
+      !safeProjectedDataset &&
+      sourceDataset.includes('supplier analysis') &&
+      row.string('Reached Via')?.toLowerCase() === 'call & email'
+    ) {
       return entities;
     }
     const orderDetailIdentity = sourceDataset.includes('orderdetails') ? orderDetailSourceIdentity(row) : undefined;
     const companyName =
       orderDetailIdentity?.company?.name ??
-      row.string('Company') ??
+      row.string('company', 'companyProvenance', 'Company') ??
       row.string('Reached Via') ??
       textValue(toPlainRecord(sourceConnection.company).name) ??
       (await this.sourceCompanyName(sourceConnectionId));
-    const supplierName = row.string('Supplier', 'Supplier ', 'Supplier Name');
+    const supplierName = row.string('supplierName', 'Supplier', 'Supplier ', 'Supplier Name');
     const supplierExternalCode =
       orderDetailIdentity?.supplierCode ??
-      normalizeExternalSupplierCode(row.string('SR ID', 'SR ID ', 'externalSupplierCode'));
-    const asin = orderDetailIdentity?.asin ?? row.string('ASIN', 'ASIN ')?.toUpperCase();
-    const orderRef = orderDetailIdentity?.orderRef ?? row.string('Order ID');
-    const sku = orderDetailIdentity?.sku ?? row.string('SKU') ?? (orderRef ? row.string('UPC') : undefined);
+      normalizeExternalSupplierCode(row.string('supplierExternalRef', 'SR ID', 'SR ID ', 'externalSupplierCode'));
+    const asin = orderDetailIdentity?.asin ?? row.string('asin', 'sourceAsin', 'ASIN', 'ASIN ')?.toUpperCase();
+    const orderRef = orderDetailIdentity?.orderRef ?? row.string('orderRef', 'Order ID');
+    const sku =
+      orderDetailIdentity?.sku ??
+      row.string('listingSku', 'sourceSupplierSku', 'SKU') ??
+      (orderRef ? row.string('UPC') : undefined);
     const snapshotDate = dateOnly(
       textValue(bronze.sourceType) === 'sellerboard'
-        ? textValue(bronze.observedAt)
-        : row.string('Timestamp', 'Date', 'Order Date') ?? textValue(bronze.observedAt),
+        ? row.string('period') ?? textValue(bronze.observedAt)
+        : row.string('occurredAt', 'period', 'orderDate', 'Timestamp', 'Date', 'Order Date') ??
+            textValue(bronze.observedAt),
     );
-    const marketplace = row.string('Marketplace', 'Market ', 'Amazon Account');
-    const leadTimeText = row.string('Lead time(day)', 'Manuf. time days', 'Lead Time');
-    const orderedQty = orderDetailIdentity?.orderedQty ?? row.number('Qty', 'Ordered');
+    const marketplace = row.string('marketplace', 'account', 'Marketplace', 'Market ', 'Amazon Account');
+    const leadTimeText = row.string('leadTimeDays', 'Lead time(day)', 'Manuf. time days', 'Lead Time');
+    const orderedQty = orderDetailIdentity?.orderedQty ?? row.number('quantity', 'Qty', 'Ordered');
     let expectedOrderSupplierId: string | undefined;
     if (orderRef) {
       if (!supplierExternalCode) {
@@ -200,8 +215,8 @@ export class EcobaseMedallionNormalizationService {
         ? await this.identity.upsertProduct({
             asin,
             sku,
-            title: row.string('Title', 'Name'),
-            brand: row.string('Brand', 'Brand '),
+            title: row.string('title', 'Title', 'Name'),
+            brand: row.string('brand', 'Brand', 'Brand '),
           })
         : null;
     if (product) entities.push(entity('silverProduct', product, 'product'));
@@ -271,8 +286,8 @@ export class EcobaseMedallionNormalizationService {
         ? await this.identity.upsertSupplierProduct({
             supplierId: idOf(supplier),
             productId: idOf(supplierProductProduct),
-            supplierSku: row.string('Supplier SKU'),
-            unitCost: row.number('COGS', 'PPU', 'Exp. Cost '),
+            supplierSku: row.string('sourceSupplierSku', 'Supplier SKU'),
+            unitCost: row.number('unitCost', 'COGS', 'PPU', 'Exp. Cost '),
             leadTimeDays: supplierProductLeadTime?.days,
             leadTimeIsDefault: supplierProductLeadTime?.isDefault,
             analysisStatus: 'imported',
@@ -300,6 +315,12 @@ export class EcobaseMedallionNormalizationService {
       companyProduct &&
       hasAnyNumber(
         row,
+        'sellableStock',
+        'reservedStock',
+        'inboundStock',
+        'orderedStock',
+        'awdStock',
+        'salesVelocity',
         'FBA/FBM Stock',
         'Current Stock',
         'FBA',
@@ -324,12 +345,12 @@ export class EcobaseMedallionNormalizationService {
               companyProductId: idOf(companyProduct),
               snapshotDate,
               sourceConnectionId,
-              sellableStock: row.number('FBA/FBM Stock', 'Current Stock', 'FBA'),
-              reserved: row.number('Reserved', 'Rerv.'),
-              inbound: row.number('Inbound', 'Sent  to FBA'),
-              ordered: row.number('Ordered'),
-              awdStock: row.number('AWD Stock'),
-              salesVelocity: row.number('Estimated Sales Velocity', 'Est. Sales Velocity'),
+              sellableStock: row.number('sellableStock', 'FBA/FBM Stock', 'Current Stock', 'FBA'),
+              reserved: row.number('reservedStock', 'Reserved', 'Rerv.'),
+              inbound: row.number('inboundStock', 'Inbound', 'Sent  to FBA'),
+              ordered: row.number('orderedStock', 'Ordered'),
+              awdStock: row.number('awdStock', 'AWD Stock'),
+              salesVelocity: row.number('salesVelocity', 'Estimated Sales Velocity', 'Est. Sales Velocity'),
             },
           ),
           'inventory_snapshot',
@@ -341,6 +362,20 @@ export class EcobaseMedallionNormalizationService {
       companyProduct &&
       hasAnyNumber(
         row,
+        'sales',
+        'salesOrganic',
+        'salesPpc',
+        'salesSponsoredProducts',
+        'salesSponsoredBrands',
+        'salesSponsoredDisplay',
+        'units',
+        'unitsOrganic',
+        'unitsPpc',
+        'unitsSponsoredProducts',
+        'unitsSponsoredBrands',
+        'unitsSponsoredDisplay',
+        'grossProfit',
+        'netProfit',
         'SalesOrganic',
         'SalesPPC',
         'SalesSponsoredProducts',
@@ -367,14 +402,32 @@ export class EcobaseMedallionNormalizationService {
               companyProductId: idOf(companyProduct),
               snapshotDate,
               sales:
+                row.number('sales') ??
+                sumNumbers(
+                  row,
+                  'salesOrganic',
+                  'salesPpc',
+                  'salesSponsoredProducts',
+                  'salesSponsoredBrands',
+                  'salesSponsoredDisplay',
+                ) ??
                 sumNumbers(row, 'SalesOrganic', 'SalesPPC', 'SalesSponsoredProducts', 'SalesSponsoredDisplay') ??
                 row.number('Ordered Product Sales', 'Total Sales'),
               units:
+                row.number('units') ??
+                sumNumbers(
+                  row,
+                  'unitsOrganic',
+                  'unitsPpc',
+                  'unitsSponsoredProducts',
+                  'unitsSponsoredBrands',
+                  'unitsSponsoredDisplay',
+                ) ??
                 sumNumbers(row, 'UnitsOrganic', 'UnitsPPC', 'UnitsSponsoredProducts', 'UnitsSponsoredDisplay') ??
                 row.number('Units Achieved', 'Units Ordered'),
-              profit: row.number('NetProfit', 'GrossProfit', 'Profit Achieved'),
-              margin: row.number('Margin', 'Margin '),
-              refunds: row.number('Refunds', 'Refund Units'),
+              profit: row.number('netProfit', 'grossProfit', 'NetProfit', 'GrossProfit', 'Profit Achieved'),
+              margin: row.number('margin', 'Margin', 'Margin '),
+              refunds: row.number('refunds', 'Refunds', 'Refund Units'),
             },
           ),
           'listing_daily_fact',
@@ -384,7 +437,17 @@ export class EcobaseMedallionNormalizationService {
 
     if (
       companyProduct &&
-      hasAnyNumber(row, 'Sessions', 'Sessions - Total', 'Featured Offer (Buy Box) Percentage', 'BB %')
+      hasAnyNumber(
+        row,
+        'sessions',
+        'pageViews',
+        'buyBoxPercentage',
+        'unitSessionPercentage',
+        'Sessions',
+        'Sessions - Total',
+        'Featured Offer (Buy Box) Percentage',
+        'BB %',
+      )
     ) {
       entities.push(
         entity(
@@ -398,9 +461,10 @@ export class EcobaseMedallionNormalizationService {
             {
               companyProductId: idOf(companyProduct),
               snapshotDate,
-              sessions: row.number('Sessions', 'Sessions - Total'),
-              buyBoxPercentage: row.number('Featured Offer (Buy Box) Percentage', 'BB %'),
-              conversionRate: row.number('Unit Session Percentage'),
+              sessions: row.number('sessions', 'Sessions', 'Sessions - Total'),
+              pageViews: row.number('pageViews', 'Page Views', 'Page Views - Total'),
+              buyBoxPercentage: row.number('buyBoxPercentage', 'Featured Offer (Buy Box) Percentage', 'BB %'),
+              conversionRate: row.number('unitSessionPercentage', 'Unit Session Percentage'),
             },
           ),
           'traffic_snapshot',
@@ -433,8 +497,8 @@ export class EcobaseMedallionNormalizationService {
         canonicalStatus: textValue(existingOrder.canonicalStatus),
         existingStatusCheckRequired: existingOrder.statusCheckRequired === true,
         lifecyclePhase: 'imported',
-        lifecycleStatus: row.string('Order Status', 'PO Status', 'AM Status'),
-        sourceOrderStatus: row.string('Order Status', 'Order status', 'PO Status', 'AM Status'),
+        lifecycleStatus: row.string('status', 'Order Status', 'PO Status', 'AM Status'),
+        sourceOrderStatus: row.string('status', 'Order Status', 'Order status', 'PO Status', 'AM Status'),
         paymentStatus: row.string('Payment Status', 'Payment Status '),
         invoiceStatus: row.string('Invoice Status'),
         poApproval: row.string('PO approval', 'Approval Status', 'PO Approval'),
@@ -447,7 +511,7 @@ export class EcobaseMedallionNormalizationService {
       });
       const expectedDeliveryDate = await this.optionalDateOnlyWarning(
         bronze,
-        row.string('Expected Delivery', 'Expected Delivery Date', 'ETA', 'Arrival to Amazon'),
+        row.string('expectedDeliveryDate', 'Expected Delivery', 'Expected Delivery Date', 'ETA', 'Arrival to Amazon'),
         'expected_delivery_date_unparsed',
         'expected delivery date',
       );
@@ -480,7 +544,7 @@ export class EcobaseMedallionNormalizationService {
               : 'insufficient_silver_evidence',
             expectedArrivalAsOf: snapshotDate,
             expectedArrivalConfidence: expectedDeliveryDate ? 'authoritative' : 'none',
-            expectedCost: row.number('Exp. Cost ', 'Expected Cost'),
+            expectedCost: row.number('expectedCost', 'Exp. Cost ', 'Expected Cost'),
           });
       entities.push(entity('silverOrder', order, 'order'));
 
@@ -524,8 +588,8 @@ export class EcobaseMedallionNormalizationService {
                 supplierProductId: idOf(supplierProduct),
                 sourceLineKey,
                 orderedQty,
-                unitCost: row.number('PPU', 'COGS', 'Exp. Cost '),
-                expectedProfit: row.number('T.Profit', 'Rec.Best Profit'),
+                unitCost: row.number('unitCost', 'PPU', 'COGS', 'Exp. Cost '),
+                expectedProfit: row.number('expectedProfit', 'T.Profit', 'Rec.Best Profit'),
                 expectedDeliveryDate,
                 expectedSellableDate,
                 expectedArrivalDate,

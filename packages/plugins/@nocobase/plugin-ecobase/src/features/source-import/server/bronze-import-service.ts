@@ -11,6 +11,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { AdapterStreamItem, SourceAdapter } from './adapters';
 import type { CsvSourceFile } from './adapters/csv-utils';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
+import { FOUR_COMPANY_MIGRATION_PROFILE } from './four-company-migration-profile';
 import type { EcobaseDatabase } from './import-service';
 
 export interface BronzeImportContext {
@@ -19,6 +20,10 @@ export interface BronzeImportContext {
   sourceIdentifier: string;
   sourceVersion: string;
   adapter: SourceAdapter;
+}
+
+export interface BronzeSourceRecordOptions {
+  sourceDataset?: string;
 }
 
 export class EcobaseBronzeImportService {
@@ -49,9 +54,25 @@ export class EcobaseBronzeImportService {
     }
   }
 
-  async createSourceRecord(context: BronzeImportContext, item: AdapterStreamItem) {
+  async deleteExpiredSourceRecords(asOf: string | Date) {
+    const date = asOf instanceof Date ? asOf : new Date(asOf);
+    if (Number.isNaN(date.getTime())) {
+      throw new Error(`Ecobase Bronze retention cleanup failed: asOf "${asOf}" is not a valid date.`);
+    }
+    const repo = this.db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords);
+    if (!repo.destroy) {
+      throw new Error('Ecobase Bronze retention cleanup failed: repository destroy is unavailable.');
+    }
+    return repo.destroy({ filter: { retentionUntil: { $lt: date.toISOString() } } });
+  }
+
+  async createSourceRecord(
+    context: BronzeImportContext,
+    item: AdapterStreamItem,
+    options: BronzeSourceRecordOptions = {},
+  ) {
     const sourceKey = sourceKeyFor(context, item);
-    const sourceDataset = datasetFor(sourceKey, context.sourceIdentifier);
+    const sourceDataset = options.sourceDataset ?? datasetFor(sourceKey, context.sourceIdentifier);
     const payload = payloadFor(item);
     const rowHash = bronzePayloadHash(payload);
     const repo = this.db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords);
@@ -81,7 +102,7 @@ export class EcobaseBronzeImportService {
         normalizedError: normalizedErrorFor(item),
         issueSeverity: issueSeverityFor(item),
         issueCode: issueCodeFor(item),
-        retentionUntil: retentionDate(context.sourceVersion),
+        retentionUntil: bronzeRetentionUntil(context.sourceVersion),
       },
     });
   }
@@ -151,10 +172,10 @@ function issueCodeFor(item: AdapterStreamItem) {
   return undefined;
 }
 
-function retentionDate(sourceVersion: string) {
+export function bronzeRetentionUntil(sourceVersion: string) {
   const start = new Date(sourceVersion);
   const base = Number.isNaN(start.getTime()) ? new Date() : start;
-  base.setUTCMonth(base.getUTCMonth() + 24);
+  base.setUTCDate(base.getUTCDate() + FOUR_COMPANY_MIGRATION_PROFILE.bronzeRetentionDays);
   return base.toISOString();
 }
 

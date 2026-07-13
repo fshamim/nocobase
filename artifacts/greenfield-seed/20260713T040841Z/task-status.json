@@ -1,0 +1,159 @@
+{
+  "runId": "20260713T040841Z",
+  "commit": "f616d507bb1d5bd0022f5cb08b2960af6867fd23",
+  "tasks": {
+    "T00": {
+      "status": "passed",
+      "evidence": [
+        "baseline-git-sha.txt",
+        "node-version.txt",
+        "yarn-version.txt",
+        "plugin-version.txt",
+        "docker-availability.txt",
+        "live-gate-health.txt",
+        "baseline-integration-test.txt",
+        "baseline-domain-tests.txt",
+        "baseline-known-failures.md"
+      ]
+    },
+    "T01": {
+      "status": "passed",
+      "evidence": ["T01-profile-test.txt", "T01-company-literal-scan.txt"]
+    },
+    "T02": {
+      "status": "passed",
+      "evidence": ["T02-fixture-test.txt", "T02-fixture-secret-scan.txt"]
+    },
+    "T03": {
+      "status": "passed",
+      "evidence": [
+        "T03-projection-test.txt",
+        "CommitA-review-round1-fixes-tests.txt",
+        "CommitA-review-round2-fixes-tests.txt",
+        "CommitA-review-round3-fixes-test.txt"
+      ]
+    },
+    "T04": {
+      "status": "passed",
+      "evidence": ["T04-scope-retention-tests.txt", "Gate0-tests.txt", "CommitA-review-round1-api-test.txt"]
+    },
+    "T05": {
+      "status": "verified",
+      "evidence": ["Gate1-tests.txt", "Gate1-build-final.txt"]
+    },
+    "T06": {
+      "status": "verified",
+      "evidence": ["Gate1-tests.txt", "Gate1-eslint-final.txt"]
+    },
+    "T07": {
+      "status": "verified",
+      "evidence": ["seed-bundle-manifest.json", "T07-bundle-build.txt"]
+    },
+    "T08": {
+      "status": "verified",
+      "evidence": ["Gate1-tests.txt", "seed-bundle-manifest.json"]
+    },
+    "T09": {
+      "status": "not_started",
+      "evidence": []
+    },
+    "T10": {
+      "status": "not_started",
+      "evidence": []
+    },
+    "T11": {
+      "status": "not_started",
+      "evidence": []
+    },
+    "T12": {
+      "status": "not_started",
+      "evidence": []
+    },
+    "T13": {
+      "status": "not_started",
+      "evidence": []
+    },
+    "T14": {
+      "status": "not_started",
+      "evidence": []
+    },
+    "T15": {
+      "status": "not_started",
+      "evidence": []
+    },
+    "T16": {
+      "status": "not_started",
+      "evidence": []
+    },
+    "T17": {
+      "status": "not_started",
+      "evidence": []
+    },
+    "T18": {
+      "status": "not_started",
+      "evidence": []
+    },
+    "T19": {
+      "status": "not_started",
+      "evidence": []
+    },
+    "T20": {
+      "status": "not_started",
+      "evidence": []
+    },
+    "T21": {
+      "status": "not_started",
+      "evidence": []
+    },
+    "T22": {
+      "status": "not_started",
+      "evidence": []
+    },
+    "T23": {
+      "status": "not_started",
+      "evidence": []
+    },
+    "T24": {
+      "status": "not_started",
+      "evidence": []
+    },
+    "T25": {
+      "status": "not_started",
+      "evidence": []
+    }
+  },
+  "reviews": [
+    {
+      "round": 1,
+      "commit": "8a7cf522a9",
+      "status": "changes_requested",
+      "artifact": "greenfield-reviews/commit-a-round-1.md"
+    },
+    {
+      "round": 2,
+      "commit": "f04f994031",
+      "status": "changes_requested",
+      "artifact": "greenfield-reviews/commit-a-round-2.md"
+    },
+    {
+      "round": 3,
+      "commit": "8260ccb125",
+      "status": "changes_requested_fixed_after_final_round",
+      "artifact": "greenfield-reviews/commit-a-round-3.md"
+    }
+  ],
+  "checkpoints": {
+    "Gate1": {
+      "status": "passed",
+      "profileVersion": "2026-07-13.1",
+      "asOfDate": "2026-07-13",
+      "sourceGroups": 12,
+      "sourceFiles": 15,
+      "dryRunRows": 80811,
+      "bundleChecksum": "10e52743b542cef950a9f3ba8176ebf5d4db804e156cc10a2ee9836078874a5b",
+      "focusedTestsPassed": 24,
+      "eslintExit": 0,
+      "buildExit": 0
+    }
+  }
+}

@@ -12,6 +12,7 @@ export const SOURCE_RECORD_PROJECTION_VERSION = '2026-07-13.1';
 export type MigrationDataset =
   | 'sellerboard_current'
   | 'sellerboard_daily_facts'
+  | 'amazon_listing_inventory'
   | 'sellerboard_cogs'
   | 'purchase_orders'
   | 'order_details'
@@ -78,13 +79,42 @@ const FIELD_PROJECTIONS: Record<Exclude<MigrationDataset, 'clickup_order_evidenc
     pageViews: ['Page Views', 'PageViews'],
     unitSessionPercentage: ['Unit Session Percentage'],
   },
+  amazon_listing_inventory: {
+    company: ['Company'],
+    account: ['Account', 'Amazon Account'],
+    marketplace: ['Marketplace', 'Market '],
+    period: ['Timestamp', 'Date', 'Month'],
+    asin: ['ASIN', 'ASIN '],
+    listingSku: ['SKU'],
+    title: ['Title', 'Name'],
+    brand: ['Brand', 'Brand '],
+    sellableStock: ['FBA/FBM Stock', 'Current Stock', 'FBA'],
+    reservedStock: ['Reserved', 'Rerv.'],
+    inboundStock: ['Inbound', 'Sent  to FBA'],
+    orderedStock: ['Ordered'],
+    awdStock: ['AWD Stock'],
+    salesVelocity: ['Estimated Sales Velocity', 'Est. Sales Velocity', 'Exp Sales Vel'],
+    targetCoverDays: ['Target stock range after new order days'],
+    recommendedQuantity: ['Recommended quantity for  reordering', 'Rec.Best Qty'],
+    supplierExternalRef: ['SR ID', 'SR ID '],
+    supplierName: ['Supplier', 'Supplier ', 'Supplier Name'],
+    sourceSupplierSku: ['Supplier SKU'],
+    leadTimeDays: ['Lead time(day)', 'Lead Time', 'Manuf. time days'],
+    unitCost: ['COGS', 'PPU', 'Exp. Cost '],
+    roi: ['ROI, %'],
+    sessions: ['Sessions', 'Sessions - Total'],
+    pageViews: ['Page Views', 'Page Views - Total'],
+    buyBoxPercentage: ['Featured Offer (Buy Box) Percentage', 'BB %'],
+    unitSessionPercentage: ['Unit Session Percentage'],
+  },
   sellerboard_cogs: {
     company: ['Company'],
     account: ['Account', 'Amazon Account'],
     marketplace: ['Marketplace', 'Market '],
-    observedAt: ['Date', 'Timestamp'],
+    observedAt: ['CostPeriodStartDate', 'Date', 'Timestamp'],
     asin: ['ASIN', 'ASIN '],
     listingSku: ['SKU'],
+    title: ['Title'],
     unitCost: ['COGS', 'Cost', 'Unit Cost'],
     currency: ['Currency'],
   },
@@ -145,7 +175,7 @@ const CLICKUP_FIELD_PROJECTION: FieldProjection = {
   parentId: ['parentId', 'Parent ID'],
   orderRef: ['orderRef', 'Order ID'],
   status: ['status', 'Status'],
-  statusUpdatedAt: ['statusUpdatedAt', 'Date Updated'],
+  statusUpdatedAt: ['statusUpdatedAt', 'Date Updated', 'Date Created Text', 'Date Created'],
   commentId: ['commentId', 'Comment ID'],
   commentOccurredAt: ['commentOccurredAt', 'Comment Date'],
   commentBody: ['commentBody'],
@@ -219,6 +249,18 @@ export function projectSourceRecord(
     if (selectedCommentBody && !Object.hasOwn(projected.payload, 'commentBody')) projected.droppedFieldCount += 1;
   }
   return { ...projected, projectionVersion: SOURCE_RECORD_PROJECTION_VERSION };
+}
+
+export function projectNormalizedRecordData(source: Record<string, unknown>): SourceRecordProjection {
+  const payload: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (!isForbiddenKey(key) && safeScalar(value)) payload[key] = value;
+  }
+  return {
+    payload,
+    droppedFieldCount: Object.keys(source).length - Object.keys(payload).length,
+    projectionVersion: SOURCE_RECORD_PROJECTION_VERSION,
+  };
 }
 
 export function findForbiddenSourceMaterial(value: unknown, path = '$'): string[] {

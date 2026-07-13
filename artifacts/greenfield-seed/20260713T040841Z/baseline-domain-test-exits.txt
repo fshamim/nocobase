@@ -1,0 +1,6 @@
+order-import-policy=0
+medallion-identity-service=0
+medallion-normalization-service=0
+company-product-family-service=0
+inventory-planning-service=0
+order-planning-service=0

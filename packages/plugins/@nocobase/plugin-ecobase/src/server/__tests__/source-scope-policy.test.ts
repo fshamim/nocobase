@@ -51,6 +51,14 @@ describe('greenfield source scope policy', () => {
     ).toEqual({ disposition: 'accept', companyKey: 'STOP_SHOP_LLC', reasonCode: 'approved_source_alias' });
   });
 
+  it('accepts ClickUp order evidence from an approved compact order prefix', () => {
+    expect(decideCompanyScope({ source: 'clickup', orderRef: 'SS7226A' })).toEqual({
+      disposition: 'accept',
+      companyKey: 'STOP_SHOP_LLC',
+      reasonCode: 'clickup_order_prefix',
+    });
+  });
+
   it('marks coherent header-only target-company evidence for review rather than guessing', () => {
     expect(
       decideCompanyScope({

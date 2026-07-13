@@ -1,0 +1,74 @@
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts --run --reporter=verbose
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts',
+  '--run',
+  '--reporter=verbose',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:17550) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase AI public API seam > answers ephemerally without creating an aiAnswers audit row
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase AI public API seam > registers read-only Ecobase AI employee tools with stable names
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase AI public API seam > answers inventory questions from silver/gold medallion tables only
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase inventory-planning public API seam > rejects budget optimization without a positive budget
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase inventory-planning public API seam > rejects family target changes without both persisted identities
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase inventory-planning public API seam > restricts receipt overrides to authenticated operator/admin roles
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase inventory-planning public API seam > returns a compact command-center payload with paginated pane rows and drawer data
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase supplier-order public API seam > creates medallion draft orders and lines through the API seam
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase supplier-order public API seam > creates comments, approvals, and deterministic workflow execution through API seam
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase supplier-order public API seam > exposes coverage queries and explicit operator-owned line updates
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase supplier-order workspace API seam > updates an order supplier by company-scoped supplier selection and keeps lines in sync
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase supplier-order workspace API seam > creates planned orders from reorder candidates, records activity, and isolates companies
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase supplier-order workspace API seam > edits and soft-deletes manual comments but keeps imported comments read-only
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase import public API seam > runs the no-op import through resource actions and reads source status
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase import public API seam > imports Sellerboard COGS CSV files into product costs
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase import public API seam > extracts only compact ClickUp order refs from task titles
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase import public API seam > maps raw ClickUp statuses to canonical order statuses
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase import public API seam > preserves unknown ClickUp statuses as reviewable evidence
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase import public API seam > maps approved ClickUp comment actors to Ecobase user emails
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase import public API seam > classifies alternate, intentionally untracked, and unresolved order authority
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase import public API seam > dry-runs ClickUp order-status imports without updating supplier orders
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase import public API seam > matches NewOrder tasks by canonical company and never updates another company sharing the ref
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase import public API seam > uses the newest conflicting authoritative ClickUp task in a successful ledgered run
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase import public API seam > keeps operator status above a later ClickUp status
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase import public API seam > overrides operator status only when explicitly requested by the importer
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase import public API seam > synchronizes a newer ClickUp status over a previously imported ClickUp status
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase import public API seam > applies ClickUp order-status imports to matched supplier orders with evidence
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase import public API seam > imports ClickUp comments as idempotent supplier-order notes
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase import public API seam > reconciles retained ClickUp evidence after its order is imported
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase import public API seam > normalizes pending bronze rows through resource actions
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase import public API seam > exposes missing required source warnings through the status action
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase import public API seam > rejects run requests without sourceConnectionId
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase import public API seam > analyzes CSV bundles and creates matching manual CSV source connections
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase import public API seam > ensures default manual CSV source connections
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase import public API seam > lists available adapters through the public action
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase import public API seam > saves, lists, and deletes Sellerboard live source configuration
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase alert public API seam > evaluates deterministic alerts through the public resource action and lists open alerts
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase supplier-management public API seam > drives medallion supplier lifecycle, comments, and risk digest actions
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase Silver Data operator API > searches across product, supplier, order, and invoice keys
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase Silver Data operator API > looks up bounded entity types without global cross-table matches
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase Silver Data operator API > applies date filters to bounded lookup and linked context
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase Silver Data operator API > resolves search matches into linked records without unrelated same-order products
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase Silver Data operator API > keeps order focus scoped to the selected order only
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase Silver Data operator API > keeps supplier focus scoped to the selected supplier
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase Silver Data operator API > keeps order-line focus scoped to the selected line and its order
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase Silver Data operator API > resolves invoice focus through its order lines and products
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase Silver Data operator API > keeps exact order search scoped to the matched order only
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase Silver Data operator API > resolves company focus into only that company products and orders
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase Silver Data operator API > resolves product focus into related orders, lines, supplier, tasks, approvals, and targets
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase Silver Data operator API > restricts supplier repair preview and apply to root or admin roles
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts > Ecobase Silver Data operator API > rejects read-only updates and links drawer comments to the selected entity
+
+ Test Files  1 passed (1)
+      Tests  51 passed (51)
+   Start at  04:37:45
+   Duration  3.88s (transform 1.93s, setup 54ms, collect 3.65s, tests 57ms, environment 0ms, prepare 37ms)
+
+Done in 6.00s.

@@ -1,0 +1,3 @@
+/usr/local/bin/docker
+Docker version 29.6.1, build 8900f1d
+docker-info: available

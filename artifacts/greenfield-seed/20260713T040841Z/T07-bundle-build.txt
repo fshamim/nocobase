@@ -1,0 +1,1 @@
+{"output":"/Users/fshamim/Documents/dev/ecofission-bi/nocobase/artifacts/greenfield-seed/20260713T040841Z/seed-bundle-manifest.json","bundleChecksum":"10e52743b542cef950a9f3ba8176ebf5d4db804e156cc10a2ee9836078874a5b","groups":12}

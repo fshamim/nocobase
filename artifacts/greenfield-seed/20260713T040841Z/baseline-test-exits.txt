@@ -1,0 +1,2 @@
+integration_exit=1
+domain_exit=0

@@ -1,0 +1,217 @@
+{
+  "profileVersion": "2026-07-13.1",
+  "asOfDate": "2026-07-13",
+  "sourceVersion": "2026-07-13T00:00:00.000Z",
+  "bundleChecksum": "10e52743b542cef950a9f3ba8176ebf5d4db804e156cc10a2ee9836078874a5b",
+  "groups": [
+    {
+      "id": "amazon-operations",
+      "kind": "adapter",
+      "adapterName": "amazon-operations-csv",
+      "sourceType": "seller_central_file",
+      "domain": "amazon_operations",
+      "files": [
+        {
+          "name": "SampleAM Weekly Report-July2025 - Buybox.csv",
+          "path": "data/SampleAM Weekly Report-July2025 - Buybox.csv",
+          "checksum": "19da3cd3614f2dda766f36cf104bcac457e6f67bbcea447b26620d2526594c51",
+          "rowCount": 263
+        },
+        {
+          "name": "SampleAM Weekly Report-July2025 - Top SKU'S.csv",
+          "path": "data/SampleAM Weekly Report-July2025 - Top SKU'S.csv",
+          "checksum": "b42d8dc99f112d18e9d1dc56b10abd2b707c1db17f7ef8b6ddbca13375724871",
+          "rowCount": 1240
+        }
+      ]
+    },
+    {
+      "id": "clickup-order-status",
+      "kind": "clickup_order_status",
+      "sourceType": "clickup",
+      "domain": "order_management",
+      "files": [
+        {
+          "name": "Order Management Clickup Data 06-07-2026.csv",
+          "path": "data/clickup/Order Management Clickup Data 06-07-2026.csv",
+          "checksum": "a27ce8c0e4ce72947a99578ad6ed0ad90579dc5bd72ed43fa7a7c071e7a84525",
+          "rowCount": 2784
+        }
+      ]
+    },
+    {
+      "id": "order-management",
+      "kind": "adapter",
+      "adapterName": "google-sheets-migration-csv",
+      "sourceType": "google_sheets",
+      "domain": "order_management",
+      "files": [
+        {
+          "name": "Ecofission-Order Management - OrderDetails.csv",
+          "path": "data/order-managment-sheets/Ecofission-Order Management - OrderDetails.csv",
+          "checksum": "560771d12e0d508c0a06b8b6a199475a6c4d6af34a998032b6914da4ec28529a",
+          "rowCount": 6466
+        },
+        {
+          "name": "Ecofission-Order Management - Purchase Orders.csv",
+          "path": "data/order-managment-sheets/Ecofission-Order Management - Purchase Orders.csv",
+          "checksum": "3a02973d39965667598e0743d88dca775830d7ed9235895f4c2403cf60a43fc9",
+          "rowCount": 4300
+        }
+      ]
+    },
+    {
+      "id": "sellerboard-cogs-ecofission",
+      "kind": "sellerboard_cogs",
+      "sourceType": "sellerboard",
+      "domain": "amazon_operations",
+      "companyKey": "ECOFISSION_LLC",
+      "defaultCompany": "Ecofission LLC",
+      "files": [
+        {
+          "name": "Fissionem_Cost_of_Goods_Sold_(2026_07_04_04_50_18_570).csv",
+          "path": "data/history/Fissionem_Cost_of_Goods_Sold_(2026_07_04_04_50_18_570).csv",
+          "checksum": "d3d21bc437efdecee1d216b701252618bca6b15242ac5ea530acfb14dc8ce234",
+          "rowCount": 1114
+        }
+      ]
+    },
+    {
+      "id": "sellerboard-cogs-muxtex",
+      "kind": "sellerboard_cogs",
+      "sourceType": "sellerboard",
+      "domain": "amazon_operations",
+      "companyKey": "MUXTEX_INC",
+      "defaultCompany": "Muxtex INC",
+      "files": [
+        {
+          "name": "Muxtex_Cost_of_Goods_Sold_(2026_07_04_08_59_22_030).csv",
+          "path": "data/history/Muxtex_Cost_of_Goods_Sold_(2026_07_04_08_59_22_030).csv",
+          "checksum": "ef23db33e62c6e0be292aa378ff626aa83b0df18bf112bf6b2b7a739f6c37f24",
+          "rowCount": 1447
+        }
+      ]
+    },
+    {
+      "id": "sellerboard-cogs-retail-heaven",
+      "kind": "sellerboard_cogs",
+      "sourceType": "sellerboard",
+      "domain": "amazon_operations",
+      "companyKey": "RETAIL_HEAVEN_INC",
+      "defaultCompany": "Retail Heaven Inc",
+      "files": [
+        {
+          "name": "Retail_Heaven_Inc_Cost_of_Goods_Sold_(2026_07_04_08_57_41_530).csv",
+          "path": "data/history/Retail_Heaven_Inc_Cost_of_Goods_Sold_(2026_07_04_08_57_41_530).csv",
+          "checksum": "e5bb2786e8bd05b7d878292819fdd06e119d69e3009db1bb2833a3492883ae53",
+          "rowCount": 929
+        }
+      ]
+    },
+    {
+      "id": "sellerboard-cogs-stop-shop",
+      "kind": "sellerboard_cogs",
+      "sourceType": "sellerboard",
+      "domain": "amazon_operations",
+      "companyKey": "STOP_SHOP_LLC",
+      "defaultCompany": "Stop Shop LLC",
+      "files": [
+        {
+          "name": "Stop_Shop_Llc_Cost_of_Goods_Sold_(2026_07_04_09_01_50_733).csv",
+          "path": "data/history/Stop_Shop_Llc_Cost_of_Goods_Sold_(2026_07_04_09_01_50_733).csv",
+          "checksum": "f4f4bdd81741c541cea8ca6816810ddf098f2bfe1073832c8149f61f057d1cda",
+          "rowCount": 864
+        }
+      ]
+    },
+    {
+      "id": "sellerboard-history-ecofission",
+      "kind": "adapter",
+      "adapterName": "sellerboard-history-csv",
+      "sourceType": "sellerboard",
+      "domain": "amazon_operations",
+      "companyKey": "ECOFISSION_LLC",
+      "defaultCompany": "Ecofission LLC",
+      "files": [
+        {
+          "name": "Fissionem_Dashboard_by_product_01_01_2026-03_07_2026_(2026_07_04_05_00_00_598).csv",
+          "path": "data/history/Fissionem_Dashboard_by_product_01_01_2026-03_07_2026_(2026_07_04_05_00_00_598).csv",
+          "checksum": "e27aba4fec427064b64678298aded5cf9cd871cb9b4e18bb4f83c40554f84a12",
+          "rowCount": 24438
+        }
+      ]
+    },
+    {
+      "id": "sellerboard-history-muxtex",
+      "kind": "adapter",
+      "adapterName": "sellerboard-history-csv",
+      "sourceType": "sellerboard",
+      "domain": "amazon_operations",
+      "companyKey": "MUXTEX_INC",
+      "defaultCompany": "Muxtex INC",
+      "files": [
+        {
+          "name": "Muxtex_Dashboard_by_product_01_01_2026-03_07_2026_(2026_07_04_09_28_26_538).csv",
+          "path": "data/history/Muxtex_Dashboard_by_product_01_01_2026-03_07_2026_(2026_07_04_09_28_26_538).csv",
+          "checksum": "93e7aa50a759ae312206b2538fa9220690c0bcbe38a61f146c991400ce0c499f",
+          "rowCount": 11353
+        }
+      ]
+    },
+    {
+      "id": "sellerboard-history-retail-heaven",
+      "kind": "adapter",
+      "adapterName": "sellerboard-history-csv",
+      "sourceType": "sellerboard",
+      "domain": "amazon_operations",
+      "companyKey": "RETAIL_HEAVEN_INC",
+      "defaultCompany": "Retail Heaven Inc",
+      "files": [
+        {
+          "name": "Retail_Heaven_Inc_Dashboard_by_product_01_01_2026-03_07_2026_(2026_07_04_04_52_29_164).csv",
+          "path": "data/history/Retail_Heaven_Inc_Dashboard_by_product_01_01_2026-03_07_2026_(2026_07_04_04_52_29_164).csv",
+          "checksum": "d2857cdc64e49c71cca82157c024025d93c2414f3f37e3aa8c70d7bcc1f05975",
+          "rowCount": 8526
+        }
+      ]
+    },
+    {
+      "id": "sellerboard-history-stop-shop",
+      "kind": "adapter",
+      "adapterName": "sellerboard-history-csv",
+      "sourceType": "sellerboard",
+      "domain": "amazon_operations",
+      "companyKey": "STOP_SHOP_LLC",
+      "defaultCompany": "Stop Shop LLC",
+      "files": [
+        {
+          "name": "Stop_Shop_Llc_Dashboard_by_product_01_01_2026-03_07_2026_(2026_07_04_09_06_43_378).csv",
+          "path": "data/history/Stop_Shop_Llc_Dashboard_by_product_01_01_2026-03_07_2026_(2026_07_04_09_06_43_378).csv",
+          "checksum": "a8f63fc5a464060c2b3ae938a5dfd102594fd3d4de190a7cd80b9888857129ef",
+          "rowCount": 14900
+        }
+      ]
+    },
+    {
+      "id": "supplier-management",
+      "kind": "adapter",
+      "adapterName": "google-sheets-migration-csv",
+      "sourceType": "google_sheets",
+      "domain": "supplier_management",
+      "files": [
+        {
+          "name": "Supplier Analysis Tracker - Supplier 2026.csv",
+          "path": "data/supplier-management-sheets/Supplier Analysis Tracker - Supplier 2026.csv",
+          "checksum": "d2fab46cfbb17a9ecb2d3695652c5751a7752367783c57a2a7b44dd90cc1cb5c",
+          "rowCount": 528
+        },
+        {
+          "name": "Supplier Analysis Tracker - Supplier Analysis Tracker.csv",
+          "path": "data/supplier-management-sheets/Supplier Analysis Tracker - Supplier Analysis Tracker.csv",
+          "checksum": "d09f10e4d5c86c1c173d37ac22e19aed7f1fbe1045e5e926d94214523c3098e8",
+          "rowCount": 1659
+        }
+      ]
+    }
+  ]
+}
