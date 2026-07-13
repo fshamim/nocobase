@@ -115,7 +115,30 @@ describe('Ecobase import preflight', () => {
     ]);
 
     expect(result.ok).toBe(true);
-    expect(result.issueCounts).toMatchObject({ order_detail_header_missing: 1 });
+    expect(result.issueCounts).toMatchObject({ discarded_order_detail_parent_missing: 1 });
+  });
+
+  it('blocks a retained order whose only detail rows conflict with the header supplier', () => {
+    const result = preflightImportFiles([
+      {
+        name: 'Purchase Orders.csv',
+        content: [
+          'Timestamp,Order ID,Company,SR ID,Supplier,Order status,Payment Status',
+          '2026-07-01,EF1001A,Ecofission LLC,SRO-H,Header Supplier,In Progress,Pending',
+        ].join('\n'),
+      },
+      {
+        name: 'OrderDetails.csv',
+        content: [
+          'Order ID,Company,SR ID,Supplier,ASIN,SKU,Qty,Lead time(day)',
+          'EF1001A,Ecofission LLC,SRO-D,Detail Supplier,B000000001,SKU-1,4,30',
+        ].join('\n'),
+      },
+    ]);
+
+    expect(result.ok).toBe(false);
+    expect(result.errorCount).toBe(1);
+    expect(result.issueCounts).toMatchObject({ retained_order_has_no_usable_lines: 1 });
   });
 
   it('requires complete, fresh, aligned Sellerboard coverage for all four companies', () => {

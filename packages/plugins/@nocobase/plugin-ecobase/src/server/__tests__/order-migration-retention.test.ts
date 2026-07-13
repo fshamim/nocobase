@@ -43,7 +43,6 @@ describe('greenfield order migration retention', () => {
   it('retains canonical and adapter-emitted non-terminal orders regardless of age', () => {
     for (const status of [
       'IN TRANSIT TO PREP',
-      'draft',
       'planned',
       'po_placed',
       'confirmed',
@@ -68,6 +67,20 @@ describe('greenfield order migration retention', () => {
         }),
         status,
       ).toEqual({ disposition: 'accept', companyKey: 'ECOFISSION_LLC', reasonCode: 'non_terminal_order' });
+    }
+  });
+
+  it('discards draft and analysis-only orders', () => {
+    for (const status of ['draft', 'analysis', 'analysis-only']) {
+      expect(
+        decideOrderMigrationRetention({
+          companyKey: 'ECOFISSION_LLC',
+          status,
+          orderDate: '2026-07-01',
+          asOfDate: AS_OF_DATE,
+        }),
+        status,
+      ).toEqual({ disposition: 'discard', reasonCode: 'draft_or_analysis_order' });
     }
   });
 

@@ -86,7 +86,7 @@ async function seedCollisionSafeGroup(db: MemoryDatabase) {
   await create(db, ECOBASE_COLLECTIONS.silverSupplierExternalRefs, {
     id: 'supplier-ref',
     supplierId: 'supplier-canonical',
-    sourceSystem: 'order_management',
+    sourceSystem: 'supplier_ids',
     normalizedExternalSupplierCode: 'ALLIED-PIANO',
   });
   await create(db, ECOBASE_COLLECTIONS.silverSupplierProducts, {

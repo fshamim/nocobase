@@ -214,6 +214,7 @@ const BRONZE_ONLY_RECORD_KINDS = new Set([
   'supplier',
   'supplier_identity',
   'supplier_lead_time',
+  'supplier_order',
   'target_row',
 ]);
 const ACCOUNTABILITY_RECORD_KINDS = new Set(['clickup_task_snapshot', 'task_link', 'okr', 'okr_metric_snapshot']);
@@ -1317,6 +1318,30 @@ export class EcobaseImportService {
         const sourceGroup = getSourceFileName(
           sourceItem.type === 'record' ? sourceItem.sourceKey : sourceItem.issue.sourceKey,
         );
+        const aggregateDiscardCount =
+          sourceItem.type === 'rowIssue' && sourceItem.issue.severity === 'warning'
+            ? getNumber(sourceItem.issue.payload, 'discardedCount')
+            : undefined;
+        if (sourceItem.type === 'rowIssue' && aggregateDiscardCount && aggregateDiscardCount > 0) {
+          const reason = sourceItem.issue.code;
+          const group = sourceGroup ?? '(unknown source group)';
+          const groupSummary = result.migrationSummary.bySourceGroup[group] ?? {
+            acceptedCount: 0,
+            discardedCount: 0,
+            reviewCount: 0,
+            droppedFieldCount: 0,
+            reasons: {},
+          };
+          result.migrationSummary.discardedCount += aggregateDiscardCount;
+          result.migrationSummary.reasons[reason] =
+            (result.migrationSummary.reasons[reason] ?? 0) + aggregateDiscardCount;
+          groupSummary.discardedCount += aggregateDiscardCount;
+          groupSummary.reasons[reason] = (groupSummary.reasons[reason] ?? 0) + aggregateDiscardCount;
+          result.migrationSummary.bySourceGroup[group] = groupSummary;
+          result.warningCount += 1;
+          updateFileSummary(result.fileSummaries, group, { warningCount: 1 });
+          continue;
+        }
         const boundary = applySafeImportBoundary(
           { adapter: params.adapter, defaultCompany: getString(params.adapterConfig, 'defaultCompany') },
           sourceItem,

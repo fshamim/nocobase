@@ -1876,6 +1876,34 @@ export class EcobaseSupplierOrderService {
       await orderRepo.findOne({ filter: { companyId, orderRef: record.externalOrderRef } }),
     );
     const existingOrderId = asString(existingOrder.id);
+    if (record.sourceStage === 'order_detail' && !existingOrderId) {
+      return {
+        order: { externalOrderRef: record.externalOrderRef, status: 'skipped', sourceStage: record.sourceStage },
+        warnings: [
+          {
+            code: 'order_detail_header_missing',
+            message: `Ecobase supplier-order import skipped OrderDetails ${record.externalOrderRef} because no Purchase Orders header exists.`,
+            payload: { company: record.company, externalOrderRef: record.externalOrderRef },
+          },
+        ],
+      };
+    }
+    if (record.sourceStage === 'order_detail' && asString(existingOrder.supplierId) !== supplierId) {
+      return {
+        order: existingOrder,
+        warnings: [
+          {
+            code: 'order_detail_supplier_mismatch',
+            message: `Ecobase supplier-order import skipped OrderDetails ${record.externalOrderRef} because its supplier conflicts with the Purchase Orders header.`,
+            payload: {
+              company: record.company,
+              externalOrderRef: record.externalOrderRef,
+              externalSupplierCode: record.externalSupplierCode,
+            },
+          },
+        ],
+      };
+    }
     const existingStatusEvidence = toPlainRecord(existingOrder.statusEvidenceJson);
     const importedStatusUpdatedAt =
       record.statusUpdatedAt ??
@@ -1920,7 +1948,9 @@ export class EcobaseSupplierOrderService {
     }
 
     let persistedOrder: unknown;
-    if (existingOrderId) {
+    if (record.sourceStage === 'order_detail') {
+      persistedOrder = existingOrder;
+    } else if (existingOrderId) {
       await orderRepo.update({ filterByTk: existingOrderId, values: orderValues });
       persistedOrder = await orderRepo.findOne({ filterByTk: existingOrderId });
     } else {
@@ -2390,7 +2420,7 @@ export class EcobaseSupplierOrderService {
       ? toPlainRecord(
           await this.db.getRepository(ECOBASE_COLLECTIONS.silverSupplierExternalRefs).findOne({
             filter: {
-              sourceSystem: identity.sourceSystem,
+              sourceSystem: 'supplier_ids',
               normalizedExternalSupplierCode: externalSupplierCode,
             },
           }),
@@ -2399,6 +2429,7 @@ export class EcobaseSupplierOrderService {
     let supplier = asString(externalRef.supplierId)
       ? toPlainRecord(await supplierRepo.findOne({ filterByTk: asString(externalRef.supplierId) }))
       : {};
+    if (externalSupplierCode && !asString(supplier.id)) return {};
     if (!asString(supplier.id)) {
       const nameMatches = (
         await supplierRepo.find({ filter: { normalizedName: normalizedSupplierName }, limit: 2 })

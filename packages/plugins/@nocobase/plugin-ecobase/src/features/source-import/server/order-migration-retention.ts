@@ -32,8 +32,8 @@ const CANCELLED_OR_REJECTED_STATUSES = new Set([
   'NOT ADDED TO PO',
 ]);
 const COMPLETED_SOURCE_STATUSES = new Set(['COMPLETED', 'RECEIVED']);
+const DRAFT_OR_ANALYSIS_STATUSES = new Set(['DRAFT', 'ANALYSIS', 'ANALYSIS ONLY']);
 const NON_TERMINAL_SOURCE_STATUSES = new Set([
-  'DRAFT',
   'PLANNED',
   'PO PLACED',
   'CONFIRMED',
@@ -94,6 +94,11 @@ function accept(companyKey: FourCompanyKey, reasonCode: string): MigrationDecisi
 export function decideOrderMigrationRetention(input: OrderMigrationRetentionInput): MigrationDecision {
   const asOfDate = dateValue(input.asOfDate);
   if (!asOfDate) throw new Error('Ecobase order migration retention failed: asOfDate must be a valid date.');
+
+  const normalizedStatus = statusKey(input.status);
+  if (normalizedStatus && DRAFT_OR_ANALYSIS_STATUSES.has(normalizedStatus)) {
+    return { disposition: 'discard', reasonCode: 'draft_or_analysis_order' };
+  }
 
   const statusClass = orderStatusClass(input.status);
   if (statusClass === 'cancelled_or_rejected') {

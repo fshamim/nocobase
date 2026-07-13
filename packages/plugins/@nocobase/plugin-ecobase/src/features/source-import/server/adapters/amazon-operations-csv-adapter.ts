@@ -28,6 +28,7 @@ import { analyzeSellerboardHistoryCsvFile } from './sellerboard-history-csv-adap
 import { requireCanonicalCompany } from '../../../../server/company-identity';
 import { orderDetailSourceIdentity } from '../order-detail-source-identity';
 import { orderDetailLineIdentityKey, orderIdentityKey, orderRowExclusionReason } from '../order-import-policy';
+import { decideOrderMigrationRetention } from '../order-migration-retention';
 
 interface FileConfig {
   files?: CsvSourceFile[];
@@ -369,10 +370,18 @@ export function latestOrderDetailRowIndexes(rows: Array<Record<string, string>>)
   return new Set([...latestByIdentity.values()].map(({ index }) => index));
 }
 
-export function orderBundleAuthority(files: CsvSourceFile[]) {
+export function orderBundleAuthority(files: CsvSourceFile[], asOfDate?: string) {
   const latestByOrder = new Map<
     string,
-    { fileName: string; index: number; observedAt: string; supplierCode: string }
+    {
+      fileName: string;
+      index: number;
+      observedAt: string;
+      supplierCode: string;
+      companyKey: NonNullable<ReturnType<typeof orderDetailSourceIdentity>['company']>['companyKey'];
+      status: string;
+      expectedDeliveryDate?: string;
+    }
   >();
   for (const file of files) {
     const parsed = parseCsv(file.content);
@@ -381,8 +390,8 @@ export function orderBundleAuthority(files: CsvSourceFile[]) {
       const row = new CsvRowReader(rawRow);
       if (orderRowExclusionReason('purchase-orders', row)) return;
       const key = orderIdentityKey(row);
-      const supplierCode = orderDetailSourceIdentity(row).supplierCode;
-      if (!key || !supplierCode) return;
+      const identity = orderDetailSourceIdentity(row);
+      if (!key || !identity.supplierCode || !identity.company) return;
       const observedAt = firstDateTime(row, 'Timestamp', 'Order Date', 'Updated At') ?? '';
       const current = latestByOrder.get(key);
       if (
@@ -390,13 +399,74 @@ export function orderBundleAuthority(files: CsvSourceFile[]) {
         observedAt > current.observedAt ||
         (observedAt === current.observedAt && `${file.name}:${index}` > `${current.fileName}:${current.index}`)
       ) {
-        latestByOrder.set(key, { fileName: file.name, index, observedAt, supplierCode });
+        latestByOrder.set(key, {
+          fileName: file.name,
+          index,
+          observedAt,
+          supplierCode: identity.supplierCode,
+          companyKey: identity.company.companyKey,
+          status: row.string('Order status', 'Order Status', 'Status') ?? 'draft',
+          expectedDeliveryDate: firstDate(
+            row,
+            'Expected Delivery',
+            'Expected Delivery Date',
+            'ETA',
+            'Arrival to Amazon',
+          ),
+        });
       }
     });
   }
+
+  const decisionByOrder = new Map(
+    [...latestByOrder].map(([key, value]) => [
+      key,
+      asOfDate
+        ? decideOrderMigrationRetention({
+            companyKey: value.companyKey,
+            status: value.status,
+            orderDate: value.observedAt,
+            expectedDeliveryDate: value.expectedDeliveryDate,
+            asOfDate,
+          })
+        : { disposition: 'accept' as const, companyKey: value.companyKey, reasonCode: 'retention_not_requested' },
+    ]),
+  );
+  const retainedOrderKeys = new Set(
+    [...decisionByOrder].filter(([, decision]) => decision.disposition !== 'discard').map(([key]) => key),
+  );
+  const usableDetailCountByOrder = new Map<string, number>();
+  for (const file of files) {
+    const parsed = parseCsv(file.content);
+    if (detectCsvShape(parsed.headers) !== 'order-details') continue;
+    const latestRows = latestOrderDetailRowIndexes(parsed.rows);
+    parsed.rows.forEach((rawRow, index) => {
+      const row = new CsvRowReader(rawRow);
+      const key = orderIdentityKey(row);
+      if (
+        !key ||
+        !retainedOrderKeys.has(key) ||
+        orderRowExclusionReason('order-details', row) ||
+        !latestRows.has(index) ||
+        orderDetailSourceIdentity(row).supplierCode !== latestByOrder.get(key)?.supplierCode
+      ) {
+        return;
+      }
+      usableDetailCountByOrder.set(key, (usableDetailCountByOrder.get(key) ?? 0) + 1);
+    });
+  }
+
   return {
     supplierByOrder: new Map([...latestByOrder].map(([key, value]) => [key, value.supplierCode])),
     selectedPurchaseRows: new Set([...latestByOrder.values()].map(({ fileName, index }) => `${fileName}:${index}`)),
+    retainedPurchaseRows: new Set(
+      [...latestByOrder]
+        .filter(([key]) => retainedOrderKeys.has(key))
+        .map(([, { fileName, index }]) => `${fileName}:${index}`),
+    ),
+    retainedOrderKeys,
+    decisionByOrder,
+    usableDetailCountByOrder,
   };
 }
 
@@ -1260,7 +1330,19 @@ export async function* importCsvFiles(input: SourceAdapterImportInput): AsyncIte
     return;
   }
 
-  const bundleAuthority = orderBundleAuthority(files);
+  const bundleAuthority = orderBundleAuthority(files, input.sourceVersion.slice(0, 10));
+  const orderIssueSummaries = new Map<
+    string,
+    { code: string; fileName: string; discardedCount: number; severity: 'warning' | 'error' }
+  >();
+  const countOrderIssue = (code: string, fileName: string, severity: 'warning' | 'error' = 'warning') => {
+    const key = `${fileName}:${code}`;
+    const summary = orderIssueSummaries.get(key) ?? { code, fileName, discardedCount: 0, severity };
+    summary.discardedCount += 1;
+    if (severity === 'error') summary.severity = 'error';
+    orderIssueSummaries.set(key, summary);
+  };
+
   for (const file of files) {
     const parsed = parseCsv(file.content);
     const expectedRowCount = file.expectedRowCount ?? asFileConfig(input.config).expectedRowCounts?.[file.name];
@@ -1302,79 +1384,48 @@ export async function* importCsvFiles(input: SourceAdapterImportInput): AsyncIte
       if (shape === 'order-details' || shape === 'purchase-orders') {
         const exclusionReason = orderRowExclusionReason(shape, reader);
         if (exclusionReason) {
-          yield {
-            type: 'rowIssue',
-            issue: {
-              rowNumber,
-              severity: 'warning',
-              code: 'order_row_excluded',
-              message: `Ecobase CSV import excluded ${shape} row ${rowNumber} in ${file.name}: ${exclusionReason}.`,
-              sourceKey,
-              payload: row,
-            },
-          };
+          countOrderIssue(`discarded_order_${exclusionReason}`, file.name);
           continue;
         }
         const orderKey = orderIdentityKey(reader);
-        if (shape === 'purchase-orders' && !bundleAuthority.selectedPurchaseRows.has(`${file.name}:${index}`)) {
-          yield {
-            type: 'rowIssue',
-            issue: {
-              rowNumber,
-              severity: 'warning',
-              code: 'purchase_order_superseded',
-              message: `Ecobase CSV import excluded ${file.name} row ${rowNumber} because a newer Purchase Orders header has the same company and order identity.`,
-              sourceKey,
-              payload: row,
-            },
-          };
-          continue;
+        if (shape === 'purchase-orders') {
+          const rowKey = `${file.name}:${index}`;
+          if (!bundleAuthority.selectedPurchaseRows.has(rowKey)) {
+            countOrderIssue('discarded_purchase_order_superseded', file.name);
+            continue;
+          }
+          if (!bundleAuthority.retainedPurchaseRows.has(rowKey)) {
+            const reasonCode = orderKey ? bundleAuthority.decisionByOrder.get(orderKey)?.reasonCode : undefined;
+            countOrderIssue(`discarded_order_${reasonCode ?? 'retention_policy'}`, file.name);
+            continue;
+          }
         }
         if (shape === 'order-details') {
           const expectedSupplierCode = orderKey ? bundleAuthority.supplierByOrder.get(orderKey) : undefined;
           const actualSupplierCode = orderDetailSourceIdentity(reader).supplierCode;
+          const retainedParent = orderKey ? bundleAuthority.retainedOrderKeys.has(orderKey) : false;
           if (!expectedSupplierCode) {
-            yield {
-              type: 'rowIssue',
-              issue: {
-                rowNumber,
-                severity: 'warning',
-                code: 'order_detail_header_missing',
-                message: `Ecobase CSV import excluded ${file.name} row ${rowNumber} because no accepted Purchase Orders header exists.`,
-                sourceKey,
-                payload: row,
-              },
-            };
+            countOrderIssue('discarded_order_detail_parent_missing', file.name);
             continue;
           }
           if (actualSupplierCode !== expectedSupplierCode) {
-            yield {
-              type: 'rowIssue',
-              issue: {
-                rowNumber,
-                severity: 'warning',
-                code: 'order_detail_supplier_mismatch',
-                message: `Ecobase CSV import excluded ${file.name} row ${rowNumber} because supplier ${actualSupplierCode} conflicts with Purchase Orders supplier ${expectedSupplierCode}.`,
-                sourceKey,
-                payload: row,
-              },
-            };
+            if (!retainedParent) {
+              countOrderIssue('discarded_order_detail_supplier_mismatch', file.name);
+            } else if ((bundleAuthority.usableDetailCountByOrder.get(orderKey ?? '') ?? 0) === 0) {
+              countOrderIssue('retained_order_has_no_usable_lines', file.name, 'error');
+            } else {
+              countOrderIssue('retained_order_detail_supplier_mismatch', file.name);
+            }
             continue;
           }
-        }
-        if (shape === 'order-details' && !latestOrderDetailRows?.has(index)) {
-          yield {
-            type: 'rowIssue',
-            issue: {
-              rowNumber,
-              severity: 'warning',
-              code: 'order_detail_superseded',
-              message: `Ecobase CSV import excluded ${file.name} row ${rowNumber} because a newer row has the same company, order, supplier, ASIN, and SKU identity.`,
-              sourceKey,
-              payload: row,
-            },
-          };
-          continue;
+          if (!retainedParent) {
+            countOrderIssue('discarded_order_detail_parent', file.name);
+            continue;
+          }
+          if (!latestOrderDetailRows?.has(index)) {
+            countOrderIssue('discarded_order_detail_superseded', file.name);
+            continue;
+          }
         }
       }
       if (
@@ -1436,6 +1487,24 @@ export async function* importCsvFiles(input: SourceAdapterImportInput): AsyncIte
         record: records,
       };
     }
+  }
+
+  for (const [, summary] of [...orderIssueSummaries].sort(([left], [right]) => left.localeCompare(right))) {
+    yield {
+      type: 'rowIssue',
+      issue: {
+        rowNumber: 0,
+        severity: summary.severity,
+        code: summary.code,
+        message: `Ecobase CSV import excluded ${summary.discardedCount} order row(s): ${summary.code}.`,
+        sourceKey: `${summary.fileName}:order-import-summary:${summary.code}`,
+        payload: {
+          discardedCount: summary.discardedCount,
+          reasonCode: summary.code,
+          fileName: summary.fileName,
+        },
+      },
+    };
   }
 }
 

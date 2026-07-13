@@ -31,8 +31,8 @@ describe('order import source policy', () => {
       {
         name: 'Purchase Orders.csv',
         content: [
-          'Timestamp,Order ID,Company,SR ID,Supplier,Payment Status',
-          '03/01/2026 09:00:00,EF1001A,Ecofission LLC,SRO-1,Supplier,Paid',
+          'Timestamp,Order ID,Company,SR ID,Supplier,Order status,Payment Status',
+          '03/01/2026 09:00:00,EF1001A,Ecofission LLC,SRO-1,Supplier,In Progress,Paid',
         ].join('\n'),
       },
       {
@@ -55,9 +55,96 @@ describe('order import source policy', () => {
     expect(detailRecords[0]).toMatchObject({ rowNumber: 3, payload: { Qty: '9' } });
     expect(issues).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ rowNumber: 2, code: 'order_detail_superseded' }),
-        expect.objectContaining({ rowNumber: 4, code: 'order_row_excluded' }),
-        expect.objectContaining({ rowNumber: 5, code: 'order_row_excluded' }),
+        expect.objectContaining({
+          rowNumber: 0,
+          code: 'discarded_order_detail_superseded',
+          payload: expect.objectContaining({ discardedCount: 1 }),
+        }),
+        expect.objectContaining({
+          rowNumber: 0,
+          code: 'discarded_order_missing_order_ref',
+          payload: expect.objectContaining({ discardedCount: 1 }),
+        }),
+        expect.objectContaining({
+          rowNumber: 0,
+          code: 'discarded_order_unsupported_order_ref',
+          payload: expect.objectContaining({ discardedCount: 1 }),
+        }),
+      ]),
+    );
+  });
+
+  it('admits details from retained headers and aggregates policy discards', async () => {
+    const items = await importFiles([
+      {
+        name: 'OrderDetails.csv',
+        content: [
+          'Timestamp,Order ID,Company,SR ID,Supplier,ASIN,SKU,Qty,Lead time(day)',
+          '03/01/2020 10:00:00,EF1001A,Ecofission LLC,SRO-1,Open Supplier,B000000001,SKU-1,4,10',
+          '03/01/2020 10:00:00,EF1001A,Ecofission LLC,SRO-9,Wrong Supplier,B000000009,SKU-9,1,10',
+          '26/06/2026 10:00:00,MX1002A,Muxtex INC,SRO-2,Recent Supplier,B000000002,SKU-2,5,10',
+          '02/01/2025 10:00:00,RH1003A,Retail Heaven Inc,SRO-9,Wrong Supplier,B000000003,SKU-3,2,10',
+          '02/07/2026 10:00:00,SS1004A,Stop Shop LLC,SRO-4,Cancelled Supplier,B000000004,SKU-4,2,10',
+          '02/07/2026 10:00:00,EF1005A,Ecofission LLC,SRO-5,Draft Supplier,B000000005,SKU-5,2,10',
+        ].join('\n'),
+      },
+      {
+        name: 'Purchase Orders.csv',
+        content: [
+          'Timestamp,Order ID,Company,SR ID,Supplier,Order status,Payment Status',
+          '03/01/2020 09:00:00,EF1001A,Ecofission LLC,SRO-1,Open Supplier,In Progress,Paid',
+          '25/06/2026 09:00:00,MX1002A,Muxtex INC,SRO-2,Recent Supplier,Completed,Completed',
+          '01/01/2025 09:00:00,RH1003A,Retail Heaven Inc,SRO-3,Old Supplier,Completed,Completed',
+          '01/07/2026 09:00:00,SS1004A,Stop Shop LLC,SRO-4,Cancelled Supplier,Cancelled,',
+          '01/07/2026 09:00:00,EF1005A,Ecofission LLC,SRO-5,Draft Supplier,Draft,',
+        ].join('\n'),
+      },
+    ]);
+
+    const records = items.filter((item) => item.type === 'record');
+    expect(records.map((item) => item.payload['Order ID'])).toEqual(['EF1001A', 'MX1002A', 'EF1001A', 'MX1002A']);
+    expect(items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'rowIssue',
+          issue: expect.objectContaining({
+            rowNumber: 0,
+            code: 'discarded_order_stale_complete_order',
+            payload: expect.objectContaining({ discardedCount: 1 }),
+          }),
+        }),
+        expect.objectContaining({
+          type: 'rowIssue',
+          issue: expect.objectContaining({
+            rowNumber: 0,
+            code: 'discarded_order_cancelled_or_rejected_order',
+            payload: expect.objectContaining({ discardedCount: 1 }),
+          }),
+        }),
+        expect.objectContaining({
+          type: 'rowIssue',
+          issue: expect.objectContaining({
+            rowNumber: 0,
+            code: 'discarded_order_draft_or_analysis_order',
+            payload: expect.objectContaining({ discardedCount: 1 }),
+          }),
+        }),
+        expect.objectContaining({
+          type: 'rowIssue',
+          issue: expect.objectContaining({
+            rowNumber: 0,
+            code: 'discarded_order_detail_supplier_mismatch',
+            payload: expect.objectContaining({ discardedCount: 1 }),
+          }),
+        }),
+        expect.objectContaining({
+          type: 'rowIssue',
+          issue: expect.objectContaining({
+            rowNumber: 0,
+            code: 'retained_order_detail_supplier_mismatch',
+            payload: expect.objectContaining({ discardedCount: 1 }),
+          }),
+        }),
       ]),
     );
   });

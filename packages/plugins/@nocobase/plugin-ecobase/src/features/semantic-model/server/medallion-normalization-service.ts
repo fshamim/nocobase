@@ -835,8 +835,8 @@ export class EcobaseMedallionNormalizationService {
 
 function normalizationPriority(record: unknown) {
   const dataset = textValue(toPlainRecord(record).sourceDataset)?.toLowerCase() ?? '';
-  if (dataset.includes('purchase orders')) return 1;
-  if (dataset.includes('orderdetails')) return 2;
+  if (dataset === 'purchase_orders' || dataset.includes('purchase orders')) return 1;
+  if (dataset === 'order_details' || dataset.includes('orderdetails')) return 2;
   return 1;
 }
 

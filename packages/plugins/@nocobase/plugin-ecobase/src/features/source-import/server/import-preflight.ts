@@ -143,7 +143,7 @@ export function preflightImportFiles(files: CsvSourceFile[], options?: ImportPre
   const orderIdentities: OrderIdentity[] = [];
   const lineIdentities = new Map<string, LineIdentity[]>();
   const clickupFiles: CsvSourceFile[] = [];
-  const bundleAuthority = orderBundleAuthority(files);
+  const bundleAuthority = orderBundleAuthority(files, options?.asOfDate);
   let rowCount = 0;
 
   const addIssue = (issue: ImportPreflightIssue) => issues.push(issue);
@@ -184,36 +184,69 @@ export function preflightImportFiles(files: CsvSourceFile[], options?: ImportPre
           return;
         }
         const orderKey = orderIdentityKey(row);
-        if (shape === 'purchase-orders' && !bundleAuthority.selectedPurchaseRows.has(`${file.name}:${index}`)) {
-          addIssue({
-            severity: 'warning',
-            code: 'purchase_order_superseded',
-            file: file.name,
-            row: rowNumber,
-            message: `Ecobase import preflight excluded Purchase Orders row ${rowNumber} because a newer header has the same company and order identity.`,
-          });
-          return;
+        if (shape === 'purchase-orders') {
+          const rowKey = `${file.name}:${index}`;
+          if (!bundleAuthority.selectedPurchaseRows.has(rowKey)) {
+            addIssue({
+              severity: 'warning',
+              code: 'purchase_order_superseded',
+              file: file.name,
+              row: rowNumber,
+              message: `Ecobase import preflight excluded Purchase Orders row ${rowNumber} because a newer header has the same company and order identity.`,
+            });
+            return;
+          }
+          if (!bundleAuthority.retainedPurchaseRows.has(rowKey)) {
+            const reasonCode = orderKey ? bundleAuthority.decisionByOrder.get(orderKey)?.reasonCode : undefined;
+            addIssue({
+              severity: 'warning',
+              code: `discarded_order_${reasonCode ?? 'retention_policy'}`,
+              file: file.name,
+              row: rowNumber,
+              message: `Ecobase import preflight discarded Purchase Orders row ${rowNumber}: ${
+                reasonCode ?? 'retention policy'
+              }.`,
+            });
+            return;
+          }
         }
         if (shape === 'order-details') {
           const expectedSupplierCode = orderKey ? bundleAuthority.supplierByOrder.get(orderKey) : undefined;
           const actualSupplierCode = orderDetailSourceIdentity(row).supplierCode;
+          const retainedParent = orderKey ? bundleAuthority.retainedOrderKeys.has(orderKey) : false;
           if (!expectedSupplierCode) {
             addIssue({
               severity: 'warning',
-              code: 'order_detail_header_missing',
+              code: 'discarded_order_detail_parent_missing',
               file: file.name,
               row: rowNumber,
-              message: `Ecobase import preflight excluded ${file.name} row ${rowNumber}: no accepted Purchase Orders header exists.`,
+              message: `Ecobase import preflight excluded ${file.name} row ${rowNumber}: no Purchase Orders header exists.`,
             });
             return;
           }
           if (actualSupplierCode !== expectedSupplierCode) {
+            const retainedOrderHasNoUsableLines =
+              retainedParent && (bundleAuthority.usableDetailCountByOrder.get(orderKey ?? '') ?? 0) === 0;
             addIssue({
-              severity: 'warning',
-              code: 'order_detail_supplier_mismatch',
+              severity: retainedOrderHasNoUsableLines ? 'error' : 'warning',
+              code: retainedOrderHasNoUsableLines
+                ? 'retained_order_has_no_usable_lines'
+                : retainedParent
+                  ? 'retained_order_detail_supplier_mismatch'
+                  : 'discarded_order_detail_supplier_mismatch',
               file: file.name,
               row: rowNumber,
               message: `Ecobase import preflight excluded ${file.name} row ${rowNumber}: supplier ${actualSupplierCode} conflicts with Purchase Orders supplier ${expectedSupplierCode}.`,
+            });
+            return;
+          }
+          if (!retainedParent) {
+            addIssue({
+              severity: 'warning',
+              code: 'discarded_order_detail_parent',
+              file: file.name,
+              row: rowNumber,
+              message: `Ecobase import preflight excluded ${file.name} row ${rowNumber}: its Purchase Orders parent was discarded.`,
             });
             return;
           }

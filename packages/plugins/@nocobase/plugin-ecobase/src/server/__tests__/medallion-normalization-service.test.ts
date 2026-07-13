@@ -348,6 +348,62 @@ describe('EcobaseMedallionNormalizationService', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows).toHaveLength(1);
   });
 
+  it('uses one supplier_ids identity and header authority for projected order datasets', async () => {
+    const db = new FakeDatabase();
+    await seedBronze(
+      db,
+      {
+        supplierExternalRef: 'SRO-300',
+        supplierName: 'Acme, Inc.',
+        companyProvenance: 'Ecofission LLC',
+      },
+      { sourceType: 'google_sheets', sourceDataset: 'supplier_tracker' },
+    );
+    await seedBronze(
+      db,
+      {
+        orderRef: 'EF3000A',
+        occurredAt: '2026-07-01T10:00:00.000Z',
+        company: 'Ecofission LLC',
+        supplierExternalRef: 'SRO-300',
+        supplierName: 'Acme Inc',
+        sourceAsin: 'B000000300',
+        sourceSupplierSku: 'SKU-300',
+        quantity: 3,
+      },
+      { sourceType: 'google_sheets', sourceDataset: 'order_details' },
+    );
+    await seedBronze(
+      db,
+      {
+        orderRef: 'EF3000A',
+        occurredAt: '2026-07-01T09:00:00.000Z',
+        company: 'Ecofission LLC',
+        supplierExternalRef: 'SRO-300',
+        supplierName: 'ACME INC',
+        status: 'In Progress',
+      },
+      { sourceType: 'google_sheets', sourceDataset: 'purchase_orders' },
+    );
+
+    const result = await new EcobaseMedallionNormalizationService(db).normalizePending();
+    const supplier = db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).rows[0];
+
+    expect(result).toMatchObject({ normalized: 3, failed: 0 });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).rows).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSupplierExternalRefs).rows).toEqual([
+      expect.objectContaining({
+        supplierId: supplier.id,
+        sourceSystem: 'supplier_ids',
+        normalizedExternalSupplierCode: 'SRO-300',
+      }),
+    ]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows).toEqual([
+      expect.objectContaining({ orderRef: 'EF3000A', supplierId: supplier.id }),
+    ]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows).toHaveLength(1);
+  });
+
   it('ignores order rows whose SR ID was not established by Supplier Management', async () => {
     const db = new FakeDatabase();
     await seedBronze(

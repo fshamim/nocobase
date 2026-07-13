@@ -288,6 +288,97 @@ describe('Ecobase bronze import write path', () => {
     });
   });
 
+  it('imports only retained order rows through canonical supplier identity without going partial', async () => {
+    const { db, service } = createService('google_sheets', 'order_management');
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
+      values: { id: 'company-1', companyKey: 'ECOFISSION_LLC', name: 'Ecofission LLC' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).create({
+      values: { id: 'supplier-1', normalizedName: 'acme inc', displayName: 'Acme Inc' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverSupplierExternalRefs).create({
+      values: {
+        id: 'supplier-ref-1',
+        supplierId: 'supplier-1',
+        sourceSystem: 'supplier_ids',
+        externalSupplierCode: 'SRO-1',
+        normalizedExternalSupplierCode: 'SRO-1',
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
+      filterByTk: 'source-1',
+      values: {
+        config: {
+          files: [
+            {
+              name: 'Purchase Orders.csv',
+              content: [
+                'Timestamp,Order ID,Company,SR ID,Supplier,Order status,Payment Status',
+                '01/01/2020 09:00:00,EF1001A,Ecofission LLC,SRO-1,"Acme, Inc.",In Progress,Pending',
+                '01/01/2025 09:00:00,EF1002A,Ecofission LLC,SRO-1,"Acme, Inc.",Completed,Completed',
+                '01/07/2026 09:00:00,EF1003A,Ecofission LLC,SRO-1,"Acme, Inc.",Cancelled,',
+              ].join('\n'),
+            },
+            {
+              name: 'OrderDetails.csv',
+              content: [
+                'Timestamp,Order ID,Company,SR ID,Supplier,ASIN,SKU,Qty,Lead time(day)',
+                '01/01/2020 10:00:00,EF1001A,Ecofission LLC,SRO-1,"Acme, Inc.",B000000001,SKU-1,4,10',
+                '01/01/2020 10:00:00,EF1001A,Ecofission LLC,SRO-9,Wrong Supplier,B000000009,SKU-9,1,10',
+                '01/01/2025 10:00:00,EF1002A,Ecofission LLC,SRO-1,"Acme, Inc.",B000000002,SKU-2,4,10',
+                '01/07/2026 10:00:00,EF1003A,Ecofission LLC,SRO-1,"Acme, Inc.",B000000003,SKU-3,4,10',
+              ].join('\n'),
+            },
+          ],
+        },
+      },
+    });
+
+    const run = await service.runAdapterImport({
+      sourceConnectionId: 'source-1',
+      adapterName: 'google-sheets-migration-csv',
+      sourceIdentifier: 'retained-order-import',
+      sourceVersion: '2026-07-13T00:00:00.000Z',
+      preserveAuditRun: true,
+      skipGoldRefresh: true,
+    });
+
+    expect(run).toMatchObject({ status: 'success', errorCount: 0, warningCount: 4 });
+    expect(run.summary).toMatchObject({
+      migration: {
+        acceptedCount: 2,
+        discardedCount: 5,
+        reasons: {
+          discarded_order_stale_complete_order: 1,
+          discarded_order_cancelled_or_rejected_order: 1,
+          discarded_order_detail_parent: 2,
+          retained_order_detail_supplier_mismatch: 1,
+        },
+      },
+    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toHaveLength(2);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).all()).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).all()).toEqual([
+      expect.objectContaining({ orderRef: 'EF1001A', supplierId: 'supplier-1' }),
+    ]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).all()).toHaveLength(1);
+
+    const repeatedRun = await service.runAdapterImport({
+      sourceConnectionId: 'source-1',
+      adapterName: 'google-sheets-migration-csv',
+      sourceIdentifier: 'retained-order-import-repeat',
+      sourceVersion: '2026-07-13T00:00:00.000Z',
+      preserveAuditRun: true,
+      skipGoldRefresh: true,
+    });
+
+    expect(repeatedRun).toMatchObject({ status: 'success', errorCount: 0 });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toHaveLength(2);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).all()).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).all()).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).all()).toHaveLength(1);
+  });
+
   it('keeps invalid source rows in bronze instead of rejecting the whole import', async () => {
     const { db, service } = createService('google_sheets', 'amazon_operations');
     db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
@@ -352,7 +443,7 @@ describe('Ecobase bronze import write path', () => {
     expect(result.imports).toHaveLength(2);
     expect(result.normalization.failed).toBe(0);
     expect(result.goldRefresh).toMatchObject({ calculationDate: expect.any(String) });
-    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toHaveLength(2);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toHaveLength(1);
     expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toEqual(
       expect.arrayContaining([expect.objectContaining({ normalizationStatus: 'normalized' })]),
     );
@@ -392,6 +483,15 @@ describe('Ecobase current Amazon operations CSV import', () => {
     });
     await db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).create({
       values: { id: 'supplier-1', normalizedName: 'beta supply', displayName: 'Beta Supply' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverSupplierExternalRefs).create({
+      values: {
+        id: 'supplier-ref-1',
+        supplierId: 'supplier-1',
+        sourceSystem: 'supplier_ids',
+        externalSupplierCode: 'SRO-B',
+        normalizedExternalSupplierCode: 'SRO-B',
+      },
     });
     const orderRepo = db.getRepository(ECOBASE_COLLECTIONS.silverOrders);
     await orderRepo.create({
@@ -444,6 +544,63 @@ describe('Ecobase current Amazon operations CSV import', () => {
     });
   });
 
+  it('does not let OrderDetails replace the Purchase Orders supplier', async () => {
+    const { db } = createService('google_sheets', 'order_management');
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
+      values: { id: 'company-1', name: 'Ecofission LLC' },
+    });
+    for (const [id, code, name] of [
+      ['supplier-header', 'SRO-H', 'Header Supplier'],
+      ['supplier-detail', 'SRO-D', 'Detail Supplier'],
+    ]) {
+      await db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).create({
+        values: { id, normalizedName: name.toLowerCase(), displayName: name },
+      });
+      await db.getRepository(ECOBASE_COLLECTIONS.silverSupplierExternalRefs).create({
+        values: {
+          id: `ref-${id}`,
+          supplierId: id,
+          sourceSystem: 'supplier_ids',
+          externalSupplierCode: code,
+          normalizedExternalSupplierCode: code,
+        },
+      });
+    }
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+      values: {
+        id: 'order-1',
+        companyId: 'company-1',
+        supplierId: 'supplier-header',
+        orderRef: 'EF1001A',
+        canonicalStatus: 'supplier_confirmed',
+      },
+    });
+
+    const result = await new EcobaseSupplierOrderService(db).applyImportRecord(
+      {
+        kind: 'supplier_order',
+        data: {
+          company: 'Ecofission LLC',
+          supplierName: 'Detail Supplier',
+          externalSupplierCode: 'SRO-D',
+          sourceSystem: 'order_details',
+          sourceConnectionId: 'source-1',
+          externalOrderRef: 'EF1001A',
+          sourceStage: 'order_detail',
+          status: 'supplier_preparing',
+          lines: [],
+        },
+      },
+      'detail-import',
+    );
+
+    expect(result.warnings).toEqual([expect.objectContaining({ code: 'order_detail_supplier_mismatch' })]);
+    expect(await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).findOne({ filterByTk: 'order-1' })).toMatchObject({
+      supplierId: 'supplier-header',
+      canonicalStatus: 'supplier_confirmed',
+    });
+  });
+
   it('maps a supplier order to its exact SKU when the company-ASIN family has a newer SKU', async () => {
     const { db } = createService();
     await db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
@@ -462,7 +619,25 @@ describe('Ecobase current Amazon operations CSV import', () => {
       values: { id: 'company-product-new', companyId: 'company-muxtex', productId: 'product-new' },
     });
 
-    const result = await new EcobaseSupplierOrderService(db).applyImportRecord(
+    const supplierOrderService = new EcobaseSupplierOrderService(db);
+    await supplierOrderService.applyImportRecord(
+      {
+        kind: 'supplier_order',
+        data: {
+          company: 'Muxtex INC',
+          supplierName: 'Franklin Electric',
+          sourceSystem: 'test',
+          sourceConnectionId: 'source-1',
+          externalOrderRef: 'MX61726D',
+          sourceStage: 'purchase_order',
+          status: 'supplier_confirmed',
+          orderDate: '2026-06-16',
+          lines: [],
+        },
+      },
+      'import-run-header',
+    );
+    const result = await supplierOrderService.applyImportRecord(
       {
         kind: 'supplier_order',
         data: {
