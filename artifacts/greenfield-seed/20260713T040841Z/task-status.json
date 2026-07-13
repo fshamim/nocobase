@@ -154,11 +154,18 @@
       "phase": "Commit B",
       "status": "evidence_requested_fixed_pending_rereview",
       "artifact": "greenfield-reviews/commit-b-round-2.md"
+    },
+    {
+      "round": 3,
+      "commit": "1b3cc4867b",
+      "phase": "Commit B",
+      "status": "changes_requested_fixed_after_final_round",
+      "artifact": "greenfield-reviews/commit-b-round-3.md"
     }
   ],
   "checkpoints": {
     "Gate1": {
-      "status": "passed_review_fixes_pending_rereview",
+      "status": "passed",
       "profileVersion": "2026-07-13.1",
       "asOfDate": "2026-07-13",
       "sourceGroups": 12,
@@ -170,7 +177,8 @@
       "buildExit": 0,
       "apiFull": "51/51 passed",
       "csvRegressionDelta": "0 new failures; 18/48 passed vs parent 17/47 passed; same 30 known parent failures",
-      "csvRegressionEvidence": "raw parent/current JSON, stderr, exit codes, commands and SHA-256 preserved in greenfield-reviews/commit-b-round-2-*"
+      "csvRegressionEvidence": "raw parent/current JSON, stderr, exit codes, commands and SHA-256 preserved in greenfield-reviews/commit-b-round-2-*",
+      "reviewStatus": "all code findings resolved; final stale attestation hashes corrected"
     }
   }
 }
