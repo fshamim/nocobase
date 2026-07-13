@@ -278,6 +278,23 @@ async function resetDb() {
   const exportData = loadPrivateExport();
   validateSourceExport(exportData);
   console.log('validated private source export before destructive reset');
+  if (SEED_PROFILE === 'staging-fast-clickup') {
+    run('docker', ['stop', APP_CONTAINER]);
+    try {
+      run('docker', [
+        'exec',
+        PG_CONTAINER,
+        'sh',
+        '-lc',
+        'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "drop schema public cascade; create schema public;"',
+      ]);
+    } finally {
+      run('docker', ['start', APP_CONTAINER]);
+    }
+    waitForCurrentSchema();
+    console.log('reset staging PostgreSQL public schema and restarted the staging app');
+    return;
+  }
   const result = run('bash', [path.join(SCRIPT_DIR, 'start-live-gate.sh')], {
     env: {
       ...process.env,
