@@ -36,7 +36,7 @@ export type SafeImportBoundaryResult =
   | {
       disposition: 'accept' | 'review';
       reasonCode: string;
-      companyKey: FourCompanyKey;
+      companyKey?: FourCompanyKey;
       sourceDataset: MigrationDataset;
       droppedFieldCount: number;
       item: AdapterStreamItem;
@@ -63,7 +63,11 @@ function firstSourceValue(source: Record<string, unknown>, keys: string[]) {
 
 function projectionDataset(context: SafeImportBoundaryContext, item: AdapterStreamItem) {
   if (item.type === 'status') return undefined;
-  const source = item.type === 'record' ? item.payload : item.issue.payload;
+  if (item.type === 'rowIssue') return 'source_issue' as const;
+  const kinds = new Set(recordsFor(item).map((record) => record.kind));
+  if (kinds.size > 0 && [...kinds].every((kind) => kind === 'source_access_audit'))
+    return 'source_access_audit' as const;
+  const source = item.payload;
   if (!source) return undefined;
   const shape = detectCsvShape(Object.keys(source));
   if (shape === 'order-details') return 'order_details' as const;
@@ -86,7 +90,13 @@ function projectionDataset(context: SafeImportBoundaryContext, item: AdapterStre
   ) {
     return 'amazon_listing_inventory' as const;
   }
-  if (context.adapter.metadata.name === 'sellerboard-history-csv') return 'sellerboard_daily_facts' as const;
+  if (
+    context.adapter.metadata.name === 'sellerboard-history-csv' ||
+    (context.adapter.metadata.name === 'sellerboard-api' &&
+      [...kinds].every((kind) => ['listing_daily_fact', 'inventory_snapshot', 'traffic_snapshot'].includes(kind)))
+  ) {
+    return 'sellerboard_daily_facts' as const;
+  }
   if (context.adapter.metadata.sourceType === 'clickup') return 'clickup_order_evidence' as const;
   return undefined;
 }
@@ -137,21 +147,27 @@ function canonicalCompanyName(companyKey: FourCompanyKey) {
 function safeProjection(
   dataset: MigrationDataset,
   item: AdapterStreamItem,
-  companyKey: FourCompanyKey,
+  companyKey?: FourCompanyKey,
 ): SourceRecordProjection {
   const source = item.type === 'record' ? item.payload : item.type === 'rowIssue' ? item.issue.payload ?? {} : {};
   const retainedOrderRef = dataset === 'clickup_order_evidence' ? orderRef(item) : undefined;
   const projected = projectSourceRecord(dataset, source, { retainedOrderRef });
-  const companyName = canonicalCompanyName(companyKey);
-  if (dataset === 'supplier_tracker' || dataset === 'supplier_2026') {
-    projected.payload.companyProvenance = companyName;
-  } else {
-    projected.payload.company = companyName;
+  if (companyKey) {
+    const companyName = canonicalCompanyName(companyKey);
+    if (dataset === 'supplier_tracker' || dataset === 'supplier_2026') {
+      projected.payload.companyProvenance = companyName;
+    } else {
+      projected.payload.company = companyName;
+    }
   }
   return projected;
 }
 
-function safeItem(item: AdapterStreamItem, projection: SourceRecordProjection, decision: MigrationDecision) {
+function safeItem(
+  item: AdapterStreamItem,
+  projection: SourceRecordProjection,
+  decision: Pick<MigrationDecision, 'disposition' | 'reasonCode'>,
+) {
   if (item.type === 'record' && decision.disposition === 'accept') {
     let droppedFieldCount = 0;
     const sanitize = (record: NormalizedRecord) => {
@@ -165,9 +181,14 @@ function safeItem(item: AdapterStreamItem, projection: SourceRecordProjection, d
       droppedFieldCount,
     };
   }
-  const rowNumber = item.type === 'record' ? item.rowNumber : item.type === 'rowIssue' ? item.issue.rowNumber : 0;
-  const sourceKey =
-    item.type === 'record' ? item.sourceKey : item.type === 'rowIssue' ? item.issue.sourceKey : undefined;
+  if (item.type === 'rowIssue') {
+    return {
+      item: { ...item, issue: { ...item.issue, payload: projection.payload } } satisfies AdapterStreamItem,
+      droppedFieldCount: 0,
+    };
+  }
+  const rowNumber = item.type === 'record' ? item.rowNumber : 0;
+  const sourceKey = item.type === 'record' ? item.sourceKey : undefined;
   return {
     item: {
       type: 'rowIssue',
@@ -192,16 +213,19 @@ export function applySafeImportBoundary(
   if (!dataset) {
     return { disposition: 'discard', reasonCode: 'unsupported_projection_dataset', droppedFieldCount: 0 };
   }
-  const decision = scopeDecision(context, item, dataset);
+  const scopeFree = dataset === 'source_access_audit' || dataset === 'source_issue';
+  const decision = scopeFree
+    ? ({ disposition: 'accept', reasonCode: `safe_${dataset}` } as const)
+    : scopeDecision(context, item, dataset);
   if (decision.disposition === 'discard') {
     return { disposition: 'discard', reasonCode: decision.reasonCode, droppedFieldCount: 0 };
   }
-  const projection = safeProjection(dataset, item, decision.companyKey);
+  const projection = safeProjection(dataset, item, 'companyKey' in decision ? decision.companyKey : undefined);
   const safe = safeItem(item, projection, decision);
   return {
     disposition: decision.disposition,
     reasonCode: decision.reasonCode,
-    companyKey: decision.companyKey,
+    ...('companyKey' in decision ? { companyKey: decision.companyKey } : {}),
     sourceDataset: dataset,
     droppedFieldCount: projection.droppedFieldCount + safe.droppedFieldCount,
     item: safe.item,

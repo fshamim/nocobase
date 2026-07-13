@@ -140,11 +140,18 @@
       "commit": "8260ccb125",
       "status": "changes_requested_fixed_after_final_round",
       "artifact": "greenfield-reviews/commit-a-round-3.md"
+    },
+    {
+      "round": 1,
+      "commit": "e334426b3c",
+      "phase": "Commit B",
+      "status": "changes_requested_fixed_pending_rereview",
+      "artifact": "greenfield-reviews/commit-b-round-1.md"
     }
   ],
   "checkpoints": {
     "Gate1": {
-      "status": "passed",
+      "status": "passed_review_fixes_pending_rereview",
       "profileVersion": "2026-07-13.1",
       "asOfDate": "2026-07-13",
       "sourceGroups": 12,
@@ -153,7 +160,9 @@
       "bundleChecksum": "10e52743b542cef950a9f3ba8176ebf5d4db804e156cc10a2ee9836078874a5b",
       "focusedTestsPassed": 24,
       "eslintExit": 0,
-      "buildExit": 0
+      "buildExit": 0,
+      "apiFull": "51/51 passed",
+      "csvRegressionDelta": "0 new failures; 18/48 passed vs parent 17/47 passed; same 30 known parent failures"
     }
   }
 }

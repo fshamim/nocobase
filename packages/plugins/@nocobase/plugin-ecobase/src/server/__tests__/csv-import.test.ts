@@ -73,6 +73,19 @@ class MemoryRepository implements EcobaseRepository {
     return records[0];
   }
 
+  async destroy({ filter = {} }: { filter?: Record<string, unknown> }) {
+    const before = this.records.length;
+    this.records = this.records.filter((record) =>
+      Object.entries(filter).some(([key, expected]) => {
+        const lessThan =
+          typeof expected === 'object' && expected !== null ? (expected as { $lt?: unknown }).$lt : undefined;
+        if (lessThan !== undefined) return String(record[key] ?? '') >= String(lessThan);
+        return record[key] !== expected;
+      }),
+    );
+    return before - this.records.length;
+  }
+
   all() {
     return this.records;
   }
@@ -314,11 +327,11 @@ describe('Ecobase bronze import write path', () => {
     expect(bronzeRecords[0]).toMatchObject({
       sourceConnectionId: 'source-1',
       sourceType: 'google_sheets',
-      sourceDataset: 'MasterStock.csv',
+      sourceDataset: 'amazon_listing_inventory',
       normalizationStatus: 'normalized',
     });
     expect(bronzeRecords[0].rowHash).toMatch(/^[a-f0-9]{64}$/);
-    expect(bronzeRecords[0].retentionUntil).toBe('2028-06-22T00:00:00.000Z');
+    expect(bronzeRecords[0].retentionUntil).toBe('2026-07-22T00:00:00.000Z');
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).all()).toHaveLength(2);
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).all()).toHaveLength(2);
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverNormalizationLinks).all().length).toBeGreaterThan(0);
@@ -339,23 +352,42 @@ describe('Ecobase bronze import write path', () => {
       },
     });
 
+    await db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).create({
+      values: {
+        id: 'expired-bronze',
+        retentionUntil: '2026-08-01T00:00:00.000Z',
+        payload: { company: 'Ecofission LLC' },
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).create({
+      values: {
+        id: 'current-bronze',
+        retentionUntil: '2026-09-01T00:00:00.000Z',
+        payload: { company: 'Ecofission LLC' },
+      },
+    });
+
     const run = await service.runAdapterImport({
       sourceConnectionId: 'source-1',
       adapterName: 'amazon-operations-csv',
       sourceIdentifier: 'safe-boundary-company-scope',
       sourceVersion: '2026-07-13T00:00:00.000Z',
+      startedAt: new Date('2026-08-13T00:00:00.000Z'),
       preserveAuditRun: true,
       skipGoldRefresh: true,
     });
 
     const bronzeRecords = db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all();
-    expect(bronzeRecords).toHaveLength(1);
-    expect(bronzeRecords[0]).toMatchObject({
+    expect(bronzeRecords).toHaveLength(2);
+    expect(bronzeRecords.map((row) => row.id)).toContain('current-bronze');
+    expect(bronzeRecords.map((row) => row.id)).not.toContain('expired-bronze');
+    const importedBronze = bronzeRecords.find((row) => row.id !== 'current-bronze');
+    expect(importedBronze).toMatchObject({
       sourceDataset: 'amazon_listing_inventory',
       payload: expect.objectContaining({ company: 'Ecofission LLC', asin: 'B00PUSNY5A', listingSku: 'W101' }),
       retentionUntil: '2026-08-12T00:00:00.000Z',
     });
-    expect(JSON.stringify(bronzeRecords[0])).not.toContain('Other Company');
+    expect(JSON.stringify(importedBronze)).not.toContain('Other Company');
     expect(findForbiddenSourceMaterial(bronzeRecords)).toEqual([]);
     expect(run.summary).toMatchObject({
       migration: {
@@ -392,7 +424,7 @@ describe('Ecobase bronze import write path', () => {
     expect(run.status).toBe('failed');
     expect(bronzeRecords).toHaveLength(1);
     expect(bronzeRecords[0]).toMatchObject({
-      sourceDataset: 'Unknown.csv',
+      sourceDataset: 'source_issue',
       sourceRecordKey: 'Unknown.csv',
       normalizationStatus: 'failed',
       payload: { fileName: 'Unknown.csv', headerCount: 1 },
@@ -2448,6 +2480,7 @@ describe('Ecobase current Amazon operations CSV import', () => {
       filterByTk: 'source-1',
       values: {
         config: {
+          defaultCompany: 'Ecofission LLC',
           schedule: {
             enabled: true,
             dailyRefreshTime: '00:00',

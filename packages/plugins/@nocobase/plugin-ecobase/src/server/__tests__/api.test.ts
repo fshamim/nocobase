@@ -31,6 +31,7 @@ import {
   canonicalOrderStatusForClickupStatus,
   EcobaseClickupOrderStatusService,
   extractClickupOrderRefsFromTitle,
+  parseClickupOrderStatusFiles,
   resolveClickupCommentActorEmail,
 } from '../../features/source-import/server/clickup-order-status-service';
 
@@ -1430,6 +1431,16 @@ describe('Ecobase import public API seam', () => {
     expect(extractClickupOrderRefsFromTitle('Restock Order – MX101725B – Muxtex')).toEqual(['MX101725B']);
     expect(extractClickupOrderRefsFromTitle('Shipping labels required EF11425C')).toEqual(['EF11425C']);
     expect(extractClickupOrderRefsFromTitle('ASIN B07RGG7TXX and UK-KK-KM-250719-03 should not match')).toEqual([]);
+    const ambiguous = parseClickupOrderStatusFiles([
+      {
+        name: 'synthetic-clickup.csv',
+        content: 'Task ID,Task Name,Status,Comments\ntask-1,"Order EF1001A and MX1001A",ordered,"[]"',
+      },
+    ]);
+    expect(ambiguous.tasksByRef.size).toBe(0);
+    expect(ambiguous.ambiguousMultiRefTasks).toEqual([
+      { taskId: 'task-1', lineNumber: 2, orderRefs: ['EF1001A', 'MX1001A'] },
+    ]);
   });
 
   it('maps raw ClickUp statuses to canonical order statuses', () => {

@@ -1,0 +1,48 @@
+{
+  "parentCommit": "b21f686e8f",
+  "currentBaseCommit": "e334426b3c",
+  "parent": {
+    "total": 47,
+    "passed": 17,
+    "failed": 30
+  },
+  "current": {
+    "total": 48,
+    "passed": 18,
+    "failed": 30
+  },
+  "newFailures": [],
+  "fixedParentFailures": [],
+  "knownParentFailures": [
+    "derives inventory tiers from six complete Sellerboard months, not stock reorder suggestions",
+    "does not echo unknown-shape headers in warning payloads",
+    "imports CSV bundles without storing uploaded content in source connection config and skips unchanged re-uploads",
+    "imports Google Sheets migration CSV exports through the same raw-row and normalized-record path",
+    "imports MasterStock raw rows, verifies row count, and creates listing, inventory, and planning records",
+    "imports Supplier 2026 status fields into suppliers",
+    "imports Supplier Analysis Tracker fields into suppliers",
+    "imports Supplier IDs rows with duplicate placeholder codes without aborting the source",
+    "imports only changed files from CSV bundle re-uploads",
+    "keeps draft/contacted orders out of coverage and treats supplier-confirmed orders as weak evidence",
+    "keeps supplier lead times distinct for the same supplier key in different companies",
+    "keeps valid rows when malformed rows produce row-level warnings",
+    "lets operators correct the supplier-facing order number from an order-line edit",
+    "links order-details supplier codes through company-scoped Supplier IDs and leaves unknown supplier lead time missing",
+    "links planning inputs imported after raw listings so calculations use separate planning-source runs",
+    "maps Buybox into traffic snapshots through the same adapter seam",
+    "marks the import run partial when post-import reconciliation fails after rows were saved",
+    "normalizes supplier-order sheets into supplier identities, history links, and coverage read models",
+    "persists tier drops between inventory read-model refreshes",
+    "preserves distinct import-run audit trails while normalized records are idempotently updated",
+    "preserves imported expected-sellable precedence when a later import only has delivery-date evidence",
+    "preserves operator-owned supplier-order fields across re-imports and keeps blocked open quantity semantics",
+    "recognizes the remaining required CSV shapes and Google Sheets order-management exports",
+    "rejects public filePaths without reading arbitrary server files",
+    "reports ambiguous company-product mappings explicitly",
+    "runs active Google Sheets sources through bronze and silver in one pipeline call",
+    "skips already-normalized rolling Sellerboard days on scheduled refresh",
+    "treats scheduled rolling Sellerboard reports as fresh when they include the previous completed day",
+    "uses MasterStock Lead Time as product-specific supplier lead time ahead of manufacturing days",
+    "uses product-specific supplier lead time before supplier default lead time in the operator workspace"
+  ]
+}

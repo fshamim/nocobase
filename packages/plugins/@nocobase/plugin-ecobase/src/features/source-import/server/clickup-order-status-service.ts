@@ -109,6 +109,7 @@ export interface ClickupOrderStatusImportResult {
   conflictingMainTaskCount: number;
   companyConflictCount: number;
   ambiguousOrderCount: number;
+  ambiguousMultiRefTaskCount: number;
   operatorOverrideCount: number;
   overriddenOperatorStatusCount: number;
   blockingIssueCount: number;
@@ -121,6 +122,7 @@ export interface ClickupOrderStatusImportResult {
   conflictingMainTasks: Array<Record<string, unknown>>;
   companyConflicts: Array<Record<string, unknown>>;
   ambiguousOrders: Array<Record<string, unknown>>;
+  ambiguousMultiRefTasks: Array<Record<string, unknown>>;
   authorityCounts?: Record<string, number>;
   unresolvedAuthorityOrderIds?: string[];
   discoveredActorCount: number;
@@ -353,6 +355,8 @@ function statusEvidence(task: ParsedTask) {
     source: 'clickup_csv',
     extraction: 'task_name_compact_order_ref',
     ...projection.payload,
+    clickupStatus: task.clickupStatus,
+    taskOccurredAt: taskOccurredAt(task),
     mappedStatus: task.mappedStatus,
     lineNumber: task.lineNumber,
     mainOrderTask: task.mainOrderTask,
@@ -464,6 +468,7 @@ export function parseClickupOrderStatusFiles(files: CsvSourceFile[]) {
   const tasksByRef = new Map<string, ParsedTask[]>();
   const actorEmails = new Set<string>();
   const assigneeNames = new Set<string>();
+  const ambiguousMultiRefTasks: Array<Record<string, unknown>> = [];
   let rowCount = 0;
   for (const file of files) {
     const parsed = parseCsv(file.content);
@@ -473,6 +478,15 @@ export function parseClickupOrderStatusFiles(files: CsvSourceFile[]) {
       const taskName = row.string('Task Name') ?? '';
       const clickupStatus = normalizeOrderOperationalStatus(row.string('Status'));
       if (!taskName || !clickupStatus) return;
+      const orderRefs = extractClickupOrderRefsFromTitle(taskName);
+      if (orderRefs.length > 1) {
+        ambiguousMultiRefTasks.push({
+          taskId: row.string('Task ID') ?? `${file.name}:${index + 2}`,
+          lineNumber: index + 2,
+          orderRefs,
+        });
+        return;
+      }
       const parsedComments = parseClickupComments(row.string('Comments'));
       const assignees = splitClickupAssignees(row.string('Assignees'));
       assignees.forEach((name) => assigneeNames.add(name));
@@ -480,7 +494,7 @@ export function parseClickupOrderStatusFiles(files: CsvSourceFile[]) {
         const email = resolveClickupCommentActorEmail(comment.actor);
         if (email) actorEmails.add(email);
       });
-      for (const ref of extractClickupOrderRefsFromTitle(taskName)) {
+      for (const ref of orderRefs) {
         const company = companyForOrderRef(ref);
         if (!company) continue;
         const titleCompany = companyFromTaskTitle(taskName);
@@ -561,6 +575,7 @@ export function parseClickupOrderStatusFiles(files: CsvSourceFile[]) {
     companyConflicts,
     actorEmails: [...actorEmails],
     assigneeNames: [...assigneeNames],
+    ambiguousMultiRefTasks,
   };
 }
 
@@ -770,6 +785,7 @@ export class EcobaseClickupOrderStatusService {
       companyConflicts,
       actorEmails,
       assigneeNames,
+      ambiguousMultiRefTasks,
     } = this.parseCsvFiles(params.files);
     const allTasks = [...tasksByRef.values()].flat();
     const supplierOrderRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverOrders);
@@ -939,7 +955,7 @@ export class EcobaseClickupOrderStatusService {
       if (!operatorOverride || overrideOperatorStatus) updatedOrderCount += 1;
     }
 
-    const blockingIssueCount = ambiguousOrders.length + unmappedStatuses.length;
+    const blockingIssueCount = ambiguousOrders.length + unmappedStatuses.length + ambiguousMultiRefTasks.length;
     const authority = dryRun ? undefined : await this.reconcileAuthority(importedAt);
 
     return {
@@ -963,6 +979,7 @@ export class EcobaseClickupOrderStatusService {
       conflictingMainTaskCount: conflictingMainTasks.length,
       companyConflictCount: companyConflicts.length,
       ambiguousOrderCount: ambiguousOrders.length,
+      ambiguousMultiRefTaskCount: ambiguousMultiRefTasks.length,
       operatorOverrideCount,
       overriddenOperatorStatusCount,
       blockingIssueCount,
@@ -975,6 +992,7 @@ export class EcobaseClickupOrderStatusService {
       conflictingMainTasks,
       companyConflicts,
       ambiguousOrders,
+      ambiguousMultiRefTasks,
       authorityCounts: authority?.authorityCounts,
       unresolvedAuthorityOrderIds: authority?.unresolvedAuthorityOrderIds,
       discoveredActorCount: actorEmails.length,

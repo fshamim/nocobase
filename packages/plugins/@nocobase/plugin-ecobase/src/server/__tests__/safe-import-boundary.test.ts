@@ -96,6 +96,52 @@ describe('safe import boundary', () => {
     });
   });
 
+  it('keeps safe source issues and access audits without requiring business-company evidence', () => {
+    expect(
+      applySafeImportBoundary(
+        { adapter: adapter('seller_central_file') },
+        {
+          type: 'rowIssue',
+          issue: {
+            severity: 'error',
+            code: 'csv_shape_unknown',
+            message: 'Synthetic invalid shape.',
+            payload: { fileName: 'unknown.csv', headerCount: 2, Password: 'discard-me' },
+          },
+        },
+      ),
+    ).toMatchObject({
+      disposition: 'accept',
+      sourceDataset: 'source_issue',
+      item: {
+        type: 'rowIssue',
+        issue: { severity: 'error', code: 'csv_shape_unknown', payload: { fileName: 'unknown.csv', headerCount: 2 } },
+      },
+    });
+
+    expect(
+      applySafeImportBoundary(
+        { adapter: adapter('seller_central_file', 'amazon-sp-api-access-check') },
+        {
+          type: 'record',
+          rowNumber: 1,
+          payload: { sourceType: 'seller_central_file', domain: 'amazon_operations', status: 'blocked' },
+          record: {
+            kind: 'source_access_audit',
+            data: { naturalKey: 'synthetic:audit', sourceType: 'seller_central_file', status: 'blocked' },
+          },
+        },
+      ),
+    ).toMatchObject({
+      disposition: 'accept',
+      sourceDataset: 'source_access_audit',
+      item: {
+        type: 'record',
+        payload: { sourceType: 'seller_central_file', domain: 'amazon_operations', accessStatus: 'blocked' },
+      },
+    });
+  });
+
   it('canonicalizes source-scoped Sellerboard aliases in the safe payload', () => {
     const item: AdapterStreamItem = {
       type: 'record',

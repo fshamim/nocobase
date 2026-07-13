@@ -20,7 +20,11 @@ import { parseCsv, type CsvSourceFile } from './adapters/csv-utils';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import { EcobaseAccountabilityService } from '../../../server/services/accountability-service';
 import { bronzePayloadHash, bronzeRetentionUntil, EcobaseBronzeImportService } from './bronze-import-service';
-import { EcobaseClickupOrderStatusService, type ClickupOrderStatusImportResult } from './clickup-order-status-service';
+import {
+  EcobaseClickupOrderStatusService,
+  extractClickupOrderRefsFromTitle,
+  type ClickupOrderStatusImportResult,
+} from './clickup-order-status-service';
 import { FOUR_COMPANY_MIGRATION_PROFILE } from './four-company-migration-profile';
 import { applySafeImportBoundary } from './safe-import-boundary';
 import { projectSourceRecord } from './source-record-projection';
@@ -540,7 +544,6 @@ async function retainClickupSourceRows(params: {
   importRunId: string;
   sourceConnectionId: string;
   sourceVersion: string;
-  retainedOrderRefByTaskId: Map<string, string>;
 }) {
   const summary = { acceptedCount: 0, discardedCount: 0, droppedFieldCount: 0, reasons: {} as Record<string, number> };
   const count = (disposition: 'acceptedCount' | 'discardedCount', reason: string) => {
@@ -553,11 +556,12 @@ async function retainClickupSourceRows(params: {
     for (const [index, source] of parsed.rows.entries()) {
       const rowNumber = index + 2;
       const taskId = getString(source, 'Task ID') ?? `row-${rowNumber}`;
-      const retainedOrderRef = params.retainedOrderRefByTaskId.get(taskId);
-      if (!retainedOrderRef) {
-        count('discardedCount', 'clickup_order_not_retained');
+      const orderRefs = extractClickupOrderRefsFromTitle(getString(source, 'Task Name') ?? '');
+      if (orderRefs.length !== 1) {
+        count('discardedCount', orderRefs.length ? 'clickup_order_ref_ambiguous' : 'clickup_order_ref_missing');
         continue;
       }
+      const retainedOrderRef = orderRefs[0];
       const scope = decideCompanyScope({ source: 'clickup', orderRef: retainedOrderRef });
       if (scope.disposition === 'discard') {
         count('discardedCount', scope.reasonCode);
@@ -615,6 +619,12 @@ export class EcobaseImportService {
     private db: EcobaseDatabase,
     private registry: SourceAdapterRegistry,
   ) {}
+
+  private async cleanupExpiredBronzeRecords(asOf = new Date()) {
+    const repo = this.db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords);
+    if (!repo.destroy) return null;
+    return new EcobaseBronzeImportService(this.db).deleteExpiredSourceRecords(asOf);
+  }
 
   async refreshGoldReadModels(
     calculationDate = todayIsoDate(),
@@ -699,6 +709,7 @@ export class EcobaseImportService {
       );
     }
 
+    await this.cleanupExpiredBronzeRecords();
     const startedAt = new Date();
     const sourceIdentifier = params.sourceIdentifier ?? 'clickup-order-status-csv';
     const sourceVersion =
@@ -769,13 +780,6 @@ export class EcobaseImportService {
         importRunId,
         sourceConnectionId: params.sourceConnectionId,
         sourceVersion,
-        retainedOrderRefByTaskId: new Map(
-          [...result.proposedUpdates, ...result.proposedComments].flatMap((update) => {
-            const taskId = getString(update, 'taskId');
-            const orderRef = getString(update, 'externalOrderRef');
-            return taskId && orderRef ? [[taskId, orderRef] as const] : [];
-          }),
-        ),
       });
       const warningCount =
         result.unmatchedRefCount + result.missingMainTaskCount + result.duplicateRefCount + result.invalidCommentCount;
@@ -1076,6 +1080,7 @@ export class EcobaseImportService {
     const adapter = this.registry.get(params.adapterName);
     validateSourceConnectionForAdapter(sourceConnection, adapter);
 
+    await this.cleanupExpiredBronzeRecords(params.startedAt ?? new Date());
     const startedAt = params.queuedImportRun?.startedAt ?? params.startedAt ?? new Date();
     const sourceIdentifier = params.sourceIdentifier ?? adapter.metadata.name;
     const sourceVersion = params.sourceVersion ?? startedAt.toISOString();
@@ -1300,6 +1305,10 @@ export class EcobaseImportService {
           if (rowNumber > 0) {
             result.rowCount += 1;
             updateFileSummary(result.fileSummaries, sourceGroup, { rowCount: 1 });
+          }
+          if (boundary.reasonCode === 'unsupported_projection_dataset') {
+            result.errorCount += 1;
+            result.errorMessage = `Ecobase import failed: adapter "${params.adapter.metadata.name}" emitted a source row without an approved safe projection.`;
           }
           continue;
         }

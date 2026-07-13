@@ -14,6 +14,8 @@ export type MigrationDataset =
   | 'sellerboard_daily_facts'
   | 'amazon_listing_inventory'
   | 'sellerboard_cogs'
+  | 'source_access_audit'
+  | 'source_issue'
   | 'purchase_orders'
   | 'order_details'
   | 'supplier_tracker'
@@ -106,6 +108,21 @@ const FIELD_PROJECTIONS: Record<Exclude<MigrationDataset, 'clickup_order_evidenc
     pageViews: ['Page Views', 'Page Views - Total'],
     buyBoxPercentage: ['Featured Offer (Buy Box) Percentage', 'BB %'],
     unitSessionPercentage: ['Unit Session Percentage'],
+  },
+  source_access_audit: {
+    sourceType: ['sourceType'],
+    domain: ['domain'],
+    accessStatus: ['accessStatus', 'status'],
+    checkedAt: ['checkedAt', 'observedAt'],
+    message: ['message'],
+  },
+  source_issue: {
+    fileName: ['fileName'],
+    adapterName: ['adapterName'],
+    expectedRowCount: ['expectedRowCount'],
+    actualRowCount: ['actualRowCount', 'rowCount'],
+    headerCount: ['headerCount'],
+    sourceKey: ['sourceKey'],
   },
   sellerboard_cogs: {
     company: ['Company'],
