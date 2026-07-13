@@ -13,21 +13,28 @@ import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import type { CsvSourceFile } from './adapters/csv-utils';
 import { CsvRowReader, parseCsv } from './adapters/csv-utils';
 import type { EcobaseDatabase } from './import-service';
+import { FOUR_COMPANY_MIGRATION_PROFILE } from './four-company-migration-profile';
 import { silverSupplierOrderReadModel } from '../../supplier-management/server/silver-supplier-order-read-model';
 import {
   canonicalOrderStatusForOperationalStatus,
   normalizeOrderOperationalStatus,
 } from '../../order-planning/order-operational-status';
 
-const ORDER_REF_PATTERN = /\b(?:SS|MX|EF|RH)\d{4,8}[A-Z]?\b/gi;
+const COMPANY_NAME_BY_KEY = Object.fromEntries(
+  FOUR_COMPANY_MIGRATION_PROFILE.canonicalCompanies.map((company) => [company.companyKey, company.name]),
+) as Record<string, string>;
+const COMPANY_BY_ORDER_PREFIX = Object.fromEntries(
+  Object.entries(FOUR_COMPANY_MIGRATION_PROFILE.orderPrefixCompanyKeys).map(([prefix, companyKey]) => [
+    prefix,
+    COMPANY_NAME_BY_KEY[companyKey],
+  ]),
+) as Record<string, string>;
+const ORDER_REF_PATTERN = new RegExp(
+  `\\b(?:${Object.keys(FOUR_COMPANY_MIGRATION_PROFILE.orderPrefixCompanyKeys).join('|')})\\d{4,8}[A-Z]?\\b`,
+  'gi',
+);
 const MAIN_ORDER_PATTERN = /\b(?:new\s*order|restock|po|order)\b/i;
 const HELPER_TASK_PATTERN = /shipping labels?|labels required|time tracking|approval/i;
-const COMPANY_BY_ORDER_PREFIX: Record<string, string> = {
-  EF: 'Ecofission LLC',
-  MX: 'Muxtex INC',
-  RH: 'Retail Heaven Inc',
-  SS: 'Stop Shop LLC',
-};
 
 const COMMENT_PROPOSAL_LIMIT = 20;
 const CLICKUP_COMMENT_USER_EMAIL_BY_KEY: Record<string, string> = {
@@ -148,11 +155,10 @@ function normalizeOrderRef(value: string) {
 
 function canonicalCompanyName(value: string | undefined) {
   const compact = value?.toLowerCase().replace(/[^a-z0-9]+/g, '') ?? '';
-  if (compact.includes('ecofission')) return 'Ecofission LLC';
-  if (compact.includes('muxtex')) return 'Muxtex INC';
-  if (compact.includes('retailheaven')) return 'Retail Heaven Inc';
-  if (compact.includes('stopshop')) return 'Stop Shop LLC';
-  return undefined;
+  return FOUR_COMPANY_MIGRATION_PROFILE.canonicalCompanies.find((company) => {
+    const companyName = company.name.toLowerCase().replace(/[^a-z0-9]+/g, '');
+    return compact.includes(companyName.replace(/(?:llc|inc)$/i, ''));
+  })?.name;
 }
 
 function companyForOrderRef(ref: string) {

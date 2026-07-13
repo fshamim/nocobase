@@ -11,8 +11,10 @@ import { randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import type { CsvSourceFile } from './adapters/csv-utils';
 import { CsvRowReader, parseDelimitedCsv } from './adapters/csv-utils';
+import { FOUR_COMPANY_MIGRATION_PROFILE } from './four-company-migration-profile';
 import type { EcobaseDatabase } from './import-service';
 import { toPlainRecord } from './import-service';
+import { resolveMigrationCompany } from './source-scope-policy';
 
 export type SellerboardCostStatus = 'exact' | 'asin_unique' | 'asin_same_cost' | 'ambiguous' | 'missing';
 
@@ -33,12 +35,15 @@ type CostRecord = {
   sourceFile?: string;
 };
 
-const COMPANY_BY_FILE_PREFIX: Record<string, string> = {
-  Fissionem: 'Ecofission LLC',
-  Muxtex: 'Muxtex INC',
-  Retail_Heaven_Inc: 'Retail Heaven Inc',
-  Stop_Shop_Llc: 'Stop Shop LLC',
-};
+const COMPANY_NAME_BY_KEY = Object.fromEntries(
+  FOUR_COMPANY_MIGRATION_PROFILE.canonicalCompanies.map((company) => [company.companyKey, company.name]),
+) as Record<string, string>;
+const COMPANY_BY_FILE_PREFIX = Object.fromEntries(
+  Object.entries(FOUR_COMPANY_MIGRATION_PROFILE.sellerboardCompanyFilePrefixes).map(([prefix, companyKey]) => [
+    prefix,
+    COMPANY_NAME_BY_KEY[companyKey],
+  ]),
+) as Record<string, string>;
 
 function normalizeAsin(value: unknown) {
   return typeof value === 'string' ? value.trim().toUpperCase() : '';
@@ -99,7 +104,7 @@ function companyFromFileName(name: string, defaultCompany?: string) {
   for (const [prefix, company] of Object.entries(COMPANY_BY_FILE_PREFIX)) {
     if (name.startsWith(`${prefix}_Cost_of_Goods_Sold`)) return company;
   }
-  return defaultCompany?.trim();
+  return resolveMigrationCompany(defaultCompany, 'sellerboard')?.name;
 }
 
 function naturalKey(company: string, asin: string, sku: string) {
