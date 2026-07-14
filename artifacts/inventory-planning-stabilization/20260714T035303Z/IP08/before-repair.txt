@@ -1,0 +1,35 @@
+ families 
+----------
+        0
+(1 row)
+
+ company_products | family_linked 
+------------------+---------------
+             2136 |             0
+(1 row)
+
+ lines | resolved | unresolved 
+-------+----------+------------
+   156 |        0 |        156
+(1 row)
+
+ supplier_products 
+-------------------
+                 0
+(1 row)
+
+ company_product_supplier_links 
+--------------------------------
+                              0
+(1 row)
+
+ comments |          comment_digest          
+----------+----------------------------------
+      553 | a68bb9cfa29929462d1940e348e1a30f
+(1 row)
+
+ gold_inventory_rows 
+---------------------
+                2136
+(1 row)
+

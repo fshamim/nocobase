@@ -652,6 +652,24 @@ describe('Ecobase inventory-planning public API seam', () => {
 });
 
 describe('Ecobase supplier-order public API seam', () => {
+  it('exposes operator-authenticated imported-line reconciliation without importing a source', async () => {
+    const context = createActionContext(new MemoryDatabase(), { importRunId: 'maintenance-run' }, { id: 1 }, ['admin']);
+    const next = vi.fn();
+
+    await createEcobaseSupplierOrderActions().reconcileImportedLines(context, next);
+
+    expect(context.body).toMatchObject({
+      data: {
+        importRunId: 'maintenance-run',
+        repaired: 0,
+        ambiguous: 0,
+        missing: 0,
+        skipped: 0,
+      },
+    });
+    expect(next).toHaveBeenCalledOnce();
+  });
+
   it('creates medallion draft orders and lines through the API seam', async () => {
     const db = new MemoryDatabase();
     const actions = createEcobaseSupplierOrderActions();

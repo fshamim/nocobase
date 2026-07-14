@@ -1,0 +1,12 @@
+{
+  "httpStatus": 200,
+  "data": {
+    "createdFamilyCount": 1780,
+    "examinedCompanyProductCount": 2136,
+    "linkedCompanyProductCount": 2136,
+    "familyCount": 1780,
+    "targetSelectedCount": 1618,
+    "targetReviewCount": 162,
+    "supplierReviewCount": 1780
+  }
+}

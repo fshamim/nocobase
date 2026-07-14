@@ -1,0 +1,26 @@
+{
+  "ok": false,
+  "counts": {
+    "technical_blocker": 156,
+    "business_ambiguity": 0,
+    "expected_current_only_gap": 1
+  },
+  "examined": {
+    "companies": 4,
+    "companyProducts": 2136,
+    "families": 1780,
+    "orderLines": 156
+  },
+  "issueCodes": [
+    {
+      "code": "order_line_resolution_incomplete",
+      "classification": "technical_blocker",
+      "count": 156
+    },
+    {
+      "code": "sellerboard_history_not_loaded",
+      "classification": "expected_current_only_gap",
+      "count": 1
+    }
+  ]
+}

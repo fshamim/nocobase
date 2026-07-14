@@ -1479,6 +1479,16 @@ export function createEcobaseSupplierOrderActions() {
       };
       await next();
     },
+    reconcileImportedLines: async (ctx, next) => {
+      const importRunId = getOptionalString(getValues(ctx.action.params), 'importRunId');
+      if (!importRunId) {
+        ctx.throw(400, 'Ecobase supplier-order line reconciliation requires importRunId.');
+        return;
+      }
+      requireReceiptOverrideActor(ctx);
+      ctx.body = { data: await new EcobaseSupplierOrderService(ctx.db).reconcileAfterImport(importRunId) };
+      await next();
+    },
     createPlannedOrder: async (ctx, next) => {
       const values = getValues(ctx.action.params);
       const company = getOptionalString(values, 'company');

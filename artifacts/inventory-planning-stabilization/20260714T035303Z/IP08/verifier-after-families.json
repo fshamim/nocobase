@@ -1,0 +1,1275 @@
+{
+  "httpStatus": 200,
+  "data": {
+    "data": {
+      "ok": false,
+      "counts": {
+        "technical_blocker": 156,
+        "business_ambiguity": 0,
+        "expected_current_only_gap": 1
+      },
+      "examined": {
+        "companies": 4,
+        "companyProducts": 2136,
+        "families": 1780,
+        "orderLines": 156
+      },
+      "issues": [
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "0068f85a-04d5-4824-a22e-f41c6d6b8871",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "00e0a8eb-58b4-4529-85dd-63f3caac3c2b",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "01b87018-184e-467c-817a-f4b3802387c9",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "01cf120e-d830-44e6-bb50-4665fb744d04",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "03b79e36-6cef-47a7-9432-f7c904038f69",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "05a04a2b-0221-4fdd-968a-99127eeeedfb",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "0633ed71-e72e-4a7e-b20b-6c7b372d3182",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "0676c294-9225-424a-a8cc-1062754204a4",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "0769d74a-a4c9-4f94-ad45-99ae89018b1b",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "0d8cd426-6318-494e-9453-dc684c359784",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "0def61e6-790b-4335-9374-04dbff363adf",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "0f8f2f30-5367-4661-91f9-be773abcfaee",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "0fee6816-49a9-4220-a96d-df411ac8c7d8",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "159b5fcf-059d-4631-a586-b0f843e26a8c",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "1ab12980-be73-43fd-88ee-1559427a38f2",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "1cc46150-f60d-4e73-9227-709af7055626",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "1d6b1e01-7aaf-47c2-b3e1-b677f8254195",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "1d874d9e-68b3-4231-a9c4-91d7da9dbbc2",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "1e5a3e70-af73-4ceb-8633-90f491a153ad",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "201d436d-2791-45ec-aae7-6f400ade1014",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "20360929-8e7b-44af-937a-55355f497b2b",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "2397ebaf-2d46-4121-93a8-1a43d814a278",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "28b36cef-f362-4fac-8ff3-f8cfed2ae20f",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "2936ad2c-c7a9-459d-8743-0e90a73a38cc",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "2c3508e0-160e-4356-bf04-79e354105c22",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "2cd1e797-7feb-4b73-9f26-22267bf50418",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "2eef0ed2-a30e-45df-8268-9e081b5305b3",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "2f6baf0b-4a05-47c6-bdda-611d79843359",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "3347e817-ebf3-458e-b6b8-15fe6cabb8c9",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "380a3bfe-cf94-45dc-9849-5b44f53460f2",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "388fe326-01b9-4131-9d96-037859d6032a",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "3a7d135b-3a20-4337-83ed-7270641f5a25",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "3af1e453-9364-4b70-bf7a-a718afc0ea6c",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "3da5c38a-5e16-4ece-9707-91d9da2e1b73",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "3e4d67e3-5872-43e9-9b69-073d29672b5a",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "3e699c02-b7f2-48ff-9ccc-ab00258f11a1",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "424102d5-d8d5-4746-8f3a-12c00b7ec512",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "43ee67d3-47d8-4359-aacc-30212347fdc1",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "44199534-07dc-4690-bc28-be316dcebd1d",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "4ab7f8ca-f906-413e-818d-35fda74dc3e1",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "4af47e77-501a-4d30-8b5c-ecd776d67409",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "4e0cbb8b-bec4-4bd9-88cf-1279b8231b9a",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "5327b85b-0669-402a-aa77-0dae5fe4704f",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "5362aefa-9ae4-454f-86c6-999a3c5905eb",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "53a5a26e-e9cd-4874-b0eb-dfc827c49e00",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "54a30281-f50c-4e4a-8157-99d62a3f5db2",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "57fc255e-4a8c-49af-99d1-fa094a9ed2ed",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "58a79bce-8ee2-4112-99e3-81c86dd18a30",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "59f32540-5cd3-45a5-af9c-3622af0a7c31",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "5a3bb321-392e-48cf-aca1-8c91b46f86b3",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "5a657072-3ed1-4e86-910a-2627c4889509",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "5aaf4a46-edc3-4ca0-8b3f-a5e4fa54ce0b",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "5b8b9ad9-c842-422d-bea8-340f36662c97",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "5cf8a50d-a710-4b7c-9e8c-b99d39c3551f",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "63317613-c868-4fe2-8482-5eba7f92790a",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "63e328d6-883a-4375-a090-92cabb7dbc4e",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "63e534de-ac05-48df-9639-c3e0fd86a4c9",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "65fa63e4-2599-494c-bb37-2beec01ccbfd",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "68bc2532-9304-4732-a1f1-2aa4c5564f28",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "68cc4c30-b986-47f4-a710-2d8ad68e2a55",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "6a846909-976a-4dfc-8cf6-ea09a049ea2f",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "70debb8a-49ea-4b20-8a0b-bf508e61877d",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "71825568-5285-404d-9819-f6b46fa1d897",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "71a81537-2339-43f0-b7e2-4097115f70a0",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "72dc0c87-ed7e-467e-9a77-6f29974709d3",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "748ec119-a937-44a0-bb1b-a54fe4fcffe0",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "764b4d1a-21a1-4a68-a53d-b12d738331ef",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "7988c312-4664-46e1-9e7f-888875886892",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "7a26a5f3-4fb1-4850-a56c-8783b9872f99",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "7c58f959-282d-4ab0-a572-143e9fb5a35d",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "7eb7391a-187f-467b-a2fe-340f527ad33c",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "80adb97f-e6f0-4e82-830c-ff3c805872c1",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "811fde6e-7fce-4f8e-82ec-29cd895d95d8",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "8570ef2f-2e7d-4347-a979-5a3f60b48193",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "8603680d-3434-45d6-91a1-76184eb9adfe",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "862e7c2a-f3bf-4bff-8995-1fbe9302d672",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "8808e5ee-aa0a-44b1-a099-ae316cc2b9bd",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "8b7061de-199d-46ce-9819-91aaed402652",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "900df17a-ef98-4806-beda-5c16331beec2",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "905bbd05-d118-472c-b589-426df02e65b7",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "90d934d9-5824-436c-bf50-2fa92ca92981",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "917b957c-dfcd-40e8-8492-bab840315f76",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "931e2f3e-f425-448b-9ae4-dc9bc009f4be",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "943f1ae6-a235-4a3e-8364-459f1f392830",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "986518d0-375d-4054-9b2e-f0b50934ddb7",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "98a4435a-4658-4419-bcc1-ad5ff152924b",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "9a5830ad-5c73-45c8-8107-54da3e53f4b8",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "9b9ad8ca-8745-4f96-a77e-5212fe7f162d",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "9bec4ece-a143-4264-8231-c91f890b597e",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "9cbe38fd-fd40-41a3-bd47-ada880aa1716",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "9d9aa965-35b0-4e15-bf0b-192a279f1208",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "a003b072-bc17-470b-8a99-b568e90a5f18",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "a07bb30e-c99b-470d-9923-2b1dfa5bd3fd",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "a974f2b5-7bcf-4b9c-a0cd-cc9af83a390c",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "aa5970e4-dcba-44c9-ad00-c72e6414ec89",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "aa77b6a5-63a9-4cd5-950e-ade7db791839",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "aacd2e0b-24bf-4ac9-aa9b-8b9125b50e60",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "ac32751a-25f1-448f-9a36-182e5153a0df",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "acbb682f-ddbc-4140-9a0b-8c036f3897ba",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "adeae771-584d-482d-bc2c-10a8b1e0f722",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "af0c2237-3df5-4036-8614-37e08e8597c6",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "b3d2329f-6dfa-4e71-a883-97e9d530a413",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "b42baf6d-e72c-48d6-99e7-9c9b6a943e97",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "b631c38e-5d13-449f-a9d0-06d1bae78f6a",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "b6d6efa6-f28e-409b-920e-ec069ca50d4c",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "ba251936-d2e2-40c0-84cc-f18f7cc0e77d",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "ba7b46ce-c536-4001-bcf4-8c0de6e3b03f",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "bae60459-7f41-4064-9a58-7da396ca781b",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "bb784791-d3a4-43d3-976c-09af396ed98f",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "bc882fd2-4002-40eb-84aa-8bf818788413",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "bcb6c458-0206-474d-95ab-f06c97f74b28",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "bccc1627-83fd-4151-a9f7-8a77b419e1b8",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "bf272c79-dfff-4a82-a014-64766822f7ed",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "bf5c6d12-e01c-454d-b533-3f5e723e0c6c",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "c0a2a269-cd3d-4d08-8669-753d4b7fe4dc",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "c0bc4a55-9566-493d-a927-cd042f479ea7",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "c22f51db-7bef-4384-9371-4a3cecf277d1",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "c38918ea-71ca-4e28-afa3-d0e214e5a9ce",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "c42cb42c-17c2-4e79-955f-5cbd5717b94b",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "c47a7fdf-c58f-4623-b28b-cffe90bcd1f2",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "c5dc0c93-25af-4243-a5ec-4bd1c262451e",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "c619dd59-fe47-4d00-9076-4cca4916d108",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "c8ee068c-3b8c-42d2-842a-4508509363e2",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "c8fe54dc-1f55-4546-8251-a0686cf6fb97",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "c9d69834-f76d-43f1-a269-39deaa90a2c1",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "cb85ef20-c8cb-4d6a-9c65-069feaf82544",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "cdc2d581-ba6e-4a7a-b9fa-6422eafdffc0",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "cf139fbf-2fa6-4e92-8140-9b26443becd4",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "d34c32c3-4b51-4ab2-a73e-6c3b093dd36e",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "d397b10f-81e7-4d24-aef1-92c361a198f2",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "d469f4db-8e81-4e16-b190-eda9964c85d6",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "d6f214a7-344f-4cc6-97c9-13d6cc8af041",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "d7210ea6-f3bc-4acc-95a4-b99d875bf3c8",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "dacd76f0-a5ae-4071-b96d-4a374944bd31",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "daf645b9-7c76-4ef4-b88e-187138a2a401",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "db6f4493-03b4-4b9a-aafd-d20b200e8530",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "e0b9e9e2-c9ac-443a-a52d-242e11db7865",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "e0e088d5-02e1-4a9f-89a0-95f698d89ece",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "e320372e-3ed0-4109-a1d3-169bf64b33ab",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "e5902874-ee12-4c90-ae00-9b66faf30733",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "e5c60cd1-c169-42ff-94e6-1fd403f68cdd",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "e69c9bb9-a636-4dec-a799-4476df6e4d76",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "e9b530dc-69e2-48fd-9d4a-f074f03bff92",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "ea04b145-4cf1-49f7-950a-cd9e44c92044",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "eab166ce-9131-4319-9eb3-b69a53e86910",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "eac16b47-7f46-458b-b4fe-332509c85de3",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "eb6e4edb-e088-4d8f-9ea1-a2a3887fb12d",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "ec5837fe-4443-4298-ba7e-fa0f770d326c",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "ec6fd897-d412-4779-aa61-eec50b7e6c9e",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "ef9ed025-110f-49ce-898d-4922d3b31baa",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "f2720158-09ed-4d40-a8fa-effb16985e2b",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "f56d6eb6-c00c-44ac-b0eb-fc43fd763e3d",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "f61b8c23-bd6a-4155-9315-8164332b5756",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "f8992a65-afad-4c69-bb3f-0d17b9991382",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "fc9519ea-3008-4048-8cae-9156aa946e54",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "order_line_resolution_incomplete",
+          "entityType": "silverOrderLine",
+          "entityId": "ff435bbf-f9a5-4de1-b0e5-e1e21aff7760",
+          "message": "Unresolved order line lacks an approved named business ambiguity.",
+          "evidence": {}
+        },
+        {
+          "classification": "expected_current_only_gap",
+          "code": "sellerboard_history_not_loaded",
+          "entityType": "silverListingDailyFact",
+          "message": "Sellerboard history is intentionally absent from the current-only source state."
+        }
+      ]
+    }
+  }
+}

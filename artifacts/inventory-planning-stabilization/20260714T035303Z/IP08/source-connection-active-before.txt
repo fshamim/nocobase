@@ -1,0 +1,8 @@
+010d2147-adb3-4b95-b00a-1c4df58d2923|Supplier Management CSV upload|t
+3cf19095-fad0-45ed-a874-e882dbecab1e|Buybox / Amazon Operations CSV upload|t
+44c89767-07e1-44ea-aafc-8954c8dc9543|Ecofission LLC Sellerboard|t
+49784be0-b3e6-49e8-aba8-76f4d7af0560|Order Management CSV upload|t
+5ac716e9-e270-4f13-b079-d39887d64947|Sellerboard - Retail Heaven Inc|t
+81cdcbee-8ea0-4d98-9eb3-d7a538249146|Sellerboard - Muxtex INC|t
+a577d4e4-5aa8-490a-80d2-a090a7b13948|ClickUp order status CSV upload|t
+ee4320ac-c459-4169-b043-a1f881c5a48a|Sellerboard - Stop Shop LLC|t
