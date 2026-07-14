@@ -1,0 +1,35 @@
+{
+  "environment": "staging",
+  "productionExcluded": true,
+  "stagingUrl": "https://ecobase-staging.178-104-193-132.sslip.io",
+  "reportedDeploymentSha": "af3bbd391d8a196906143fed3111b94c983df0c9",
+  "acceptedExecutableCodeSha": "91d59b090e78fd4b43faea7aa2333699a6e56628",
+  "shaReconciliation": {
+    "commitsAfterAcceptedCode": [
+      "59d839f340 docs(ecobase): record staging enrichment evidence",
+      "af3bbd391d docs(ecobase): record history idempotency rerun"
+    ],
+    "executableFilesChanged": 0,
+    "conclusion": "af3bbd391d differs from 91d59b090e only by evidence artifacts; executable application code is 91d59b090e"
+  },
+  "baselineTag": "inventory-planning-final-staging-baseline-20260714",
+  "container": {
+    "name": "ecobase-staging-2ndggj-app-1",
+    "configuredImage": "ecobase/nocobase:staging-git",
+    "imageDigest": "sha256:39ec5de1f77637f5158953e75003e35e1c369e89c37b05476e78e179a1680c37",
+    "startedAt": "2026-07-14T19:46:30.847050709Z"
+  },
+  "database": {
+    "container": "ecobase-staging-2ndggj-postgres-1",
+    "database": "nocobase",
+    "user": "nocobase",
+    "engine": "PostgreSQL 15.18"
+  },
+  "migrations": {
+    "count": 36,
+    "sha256": "d313af0ed94605e6b821a75e3a6b4dbe6d92dd09506663d0e9bb3f4a733d076b"
+  },
+  "featureFlags": [],
+  "enabledSellerboardSchedules": 0,
+  "automaticGoldScheduler": "not configured; Gold refresh remains manual while stabilization is in progress"
+}

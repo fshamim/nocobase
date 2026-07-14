@@ -1,0 +1,20 @@
+{
+  "capturedAt": "2026-07-14T21:55:15.596615+00:00",
+  "companies": { "count": 4, "digest": "edaa333b4445245b2f4cd39abb5e906d" },
+  "accounts": { "count": 6, "digest": "d60c6184a048ede61ed504401e3b5574" },
+  "products": { "count": 1857, "digest": "0bd0d378184ebb768b4d89103a6cbb9d" },
+  "companyProducts": { "count": 2136, "digest": "d3dfc4b484e543f46c4607c733670e0a" },
+  "families": {
+    "count": 1780,
+    "targeted": 1618,
+    "targetReview": 162,
+    "preferredSupplier": 951,
+    "digest": "e5376e11ca88d5669bd19da79820eee5"
+  },
+  "costs": { "count": 1618, "digest": "8993b92a1653d2937790c9906657c8b4" },
+  "history": { "count": 51099, "digest": "52846c5f9374274cad471bfa8a84bc38" },
+  "orders": { "count": 44, "digest": "2aef4bf3f2417f80afe2088457797209" },
+  "orderLines": { "count": 156, "digest": "a4c7f4c2a480878fc4f519958ff5685e" },
+  "comments": { "count": 553, "linkedUsers": 553, "externalActors": 0, "digest": "c445effe8686b2bf2ef2c3e6932dad5b" },
+  "gold": { "count": 2136, "calculationDate": "2026-07-14", "digest": "4b2bb9a5005d9694d78ac298fd75798a" }
+}

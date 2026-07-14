@@ -22,7 +22,9 @@ export type PlanningSettingKey =
   | 'targetCoverDays'
   | 'orderSoonWindowDays'
   | 'leadTimeFreshnessDays'
-  | 'purchasedPipelineGraceDays';
+  | 'purchasedPipelineGraceDays'
+  | 'receivingBufferDays'
+  | 'defaultExpectedArrivalLeadTimeDays';
 
 type ProfitTierSettingKey = keyof ProfitTierThresholds;
 type NumberSettingKey = PlanningSettingKey | ProfitTierSettingKey;
@@ -34,7 +36,10 @@ export type SupplierOrderStatusBucketKey =
 
 export type SupplierOrderStatusBuckets = Record<SupplierOrderStatusBucketKey, string[]>;
 
+export type PlanningFeatureFlagKey = 'enableCurrentOrderCycleSelection' | 'allowDefaultExpectedArrival';
+
 export type EcobasePlanningSettings = Record<NumberSettingKey, number> &
+  Record<PlanningFeatureFlagKey, boolean> &
   SupplierOrderStatusBuckets & {
     id?: string;
     name: string;
@@ -45,6 +50,7 @@ export type EcobasePlanningSettings = Record<NumberSettingKey, number> &
   };
 
 export type SaveEcobasePlanningSettingsParams = Partial<Record<NumberSettingKey, unknown>> &
+  Partial<Record<PlanningFeatureFlagKey, unknown>> &
   Partial<Record<SupplierOrderStatusBucketKey, unknown>> & {
     id?: string;
     name?: string;
@@ -59,6 +65,8 @@ const SETTING_KEYS: PlanningSettingKey[] = [
   'orderSoonWindowDays',
   'leadTimeFreshnessDays',
   'purchasedPipelineGraceDays',
+  'receivingBufferDays',
+  'defaultExpectedArrivalLeadTimeDays',
 ];
 
 const PROFIT_TIER_SETTING_KEYS: ProfitTierSettingKey[] = [
@@ -68,6 +76,8 @@ const PROFIT_TIER_SETTING_KEYS: ProfitTierSettingKey[] = [
 ];
 
 const NUMBER_SETTING_KEYS: NumberSettingKey[] = [...SETTING_KEYS, ...PROFIT_TIER_SETTING_KEYS];
+
+const FEATURE_FLAG_KEYS: PlanningFeatureFlagKey[] = ['enableCurrentOrderCycleSelection', 'allowDefaultExpectedArrival'];
 
 const STATUS_BUCKET_KEYS: SupplierOrderStatusBucketKey[] = [
   'supplierOrderPlacedNotPurchasedStatuses',
@@ -82,6 +92,13 @@ export const DEFAULT_PLANNING_SETTINGS: Record<PlanningSettingKey, number> = {
   orderSoonWindowDays: 14,
   leadTimeFreshnessDays: 60,
   purchasedPipelineGraceDays: 3,
+  receivingBufferDays: 3,
+  defaultExpectedArrivalLeadTimeDays: 30,
+};
+
+export const DEFAULT_PLANNING_FEATURE_FLAGS: Record<PlanningFeatureFlagKey, boolean> = {
+  enableCurrentOrderCycleSelection: false,
+  allowDefaultExpectedArrival: false,
 };
 
 export const DEFAULT_SUPPLIER_ORDER_STATUS_BUCKETS: SupplierOrderStatusBuckets = {
@@ -109,6 +126,8 @@ const SETTING_LABELS: Record<NumberSettingKey, string> = {
   orderSoonWindowDays: 'Order-soon window days',
   leadTimeFreshnessDays: 'Lead-time freshness days',
   purchasedPipelineGraceDays: 'Purchased pipeline grace days',
+  receivingBufferDays: 'Receiving buffer days',
+  defaultExpectedArrivalLeadTimeDays: 'Default expected-arrival lead time days',
   profitTierAThreshold: 'Profit tier A threshold',
   profitTierBThreshold: 'Profit tier B threshold',
   profitTierCThreshold: 'Profit tier C threshold',
@@ -190,6 +209,7 @@ function defaultSettings(): EcobasePlanningSettings {
     name: 'Default planning settings',
     isActive: true,
     ...DEFAULT_PLANNING_SETTINGS,
+    ...DEFAULT_PLANNING_FEATURE_FLAGS,
     ...DEFAULT_PLANNING_BUSINESS_RULES,
   };
 }
@@ -210,6 +230,16 @@ function normalize(row: PlainRecord): EcobasePlanningSettings {
     purchasedPipelineGraceDays:
       positiveInteger(row.purchasedPipelineGraceDays, 'purchasedPipelineGraceDays') ??
       defaults.purchasedPipelineGraceDays,
+    receivingBufferDays:
+      positiveInteger(row.receivingBufferDays, 'receivingBufferDays') ?? defaults.receivingBufferDays,
+    defaultExpectedArrivalLeadTimeDays:
+      positiveInteger(row.defaultExpectedArrivalLeadTimeDays, 'defaultExpectedArrivalLeadTimeDays') ??
+      defaults.defaultExpectedArrivalLeadTimeDays,
+    enableCurrentOrderCycleSelection: asBoolean(
+      row.enableCurrentOrderCycleSelection,
+      defaults.enableCurrentOrderCycleSelection,
+    ),
+    allowDefaultExpectedArrival: asBoolean(row.allowDefaultExpectedArrival, defaults.allowDefaultExpectedArrival),
     profitTierAThreshold:
       positiveInteger(row.profitTierAThreshold, 'profitTierAThreshold') ?? defaults.profitTierAThreshold,
     profitTierBThreshold:
@@ -257,7 +287,11 @@ export class EcobasePlanningSettingsService {
     const settings = rows[0] ?? defaultSettings();
     return {
       settings,
-      defaults: { ...DEFAULT_PLANNING_SETTINGS, ...DEFAULT_PLANNING_BUSINESS_RULES },
+      defaults: {
+        ...DEFAULT_PLANNING_SETTINGS,
+        ...DEFAULT_PLANNING_FEATURE_FLAGS,
+        ...DEFAULT_PLANNING_BUSINESS_RULES,
+      },
       warning:
         rows.length > 1 ? 'Multiple active EcoBase planning settings rows found; using latest updated row.' : undefined,
     };
@@ -286,6 +320,14 @@ export class EcobasePlanningSettingsService {
     for (const key of NUMBER_SETTING_KEYS) {
       values[key] = positiveInteger(params[key], key) ?? positiveInteger(existing[key], key) ?? defaultSettings()[key];
     }
+    for (const key of FEATURE_FLAG_KEYS) {
+      values[key] =
+        typeof params[key] === 'boolean'
+          ? params[key]
+          : typeof existing[key] === 'boolean'
+            ? existing[key]
+            : defaultSettings()[key];
+    }
     for (const key of STATUS_BUCKET_KEYS) {
       values[key] = statusList(params[key], key) ?? statusList(existing[key], key) ?? defaultSettings()[key];
     }
@@ -299,6 +341,10 @@ export class EcobasePlanningSettingsService {
   }
 
   async resetSettings() {
-    return this.saveSettings({ ...DEFAULT_PLANNING_SETTINGS, ...DEFAULT_PLANNING_BUSINESS_RULES });
+    return this.saveSettings({
+      ...DEFAULT_PLANNING_SETTINGS,
+      ...DEFAULT_PLANNING_FEATURE_FLAGS,
+      ...DEFAULT_PLANNING_BUSINESS_RULES,
+    });
   }
 }

@@ -1,0 +1,4 @@
+git tag -a inventory-planning-final-staging-baseline-20260714 af3bbd391d8a196906143fed3111b94c983df0c9
+pg_dump -Fc <staging database> > /root/ecobase-backups/inventory-final-staging-FS00-20260714T214734Z.dump
+pg_restore --list /root/ecobase-backups/inventory-final-staging-FS00-20260714T214734Z.dump
+POST /api/ecobaseInventoryPlanning:commandCenter calculationDate=2026-07-14

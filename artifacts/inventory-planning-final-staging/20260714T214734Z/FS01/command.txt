@@ -1,0 +1,1 @@
+Read-only staging SQL classification of Silver orders/lines and Gold command-center rows as of 2026-07-14.

@@ -1,0 +1,158 @@
+{
+  "orderStateDistribution": [
+    {
+      "canonical_status": "paid",
+      "lifecycle_status": "ordered",
+      "status_source": "clickup_csv",
+      "clickup_status": "ordered",
+      "receipt_status": "null",
+      "count": 13
+    },
+    {
+      "canonical_status": "shipped_inbound",
+      "lifecycle_status": "direct-ship-fba",
+      "status_source": "clickup_csv",
+      "clickup_status": "direct-ship-fba",
+      "receipt_status": "null",
+      "count": 6
+    },
+    {
+      "canonical_status": "shipped_inbound",
+      "lifecycle_status": "inbound-monitoring",
+      "status_source": "clickup_csv",
+      "clickup_status": "inbound-monitoring",
+      "receipt_status": "null",
+      "count": 11
+    },
+    {
+      "canonical_status": "shipped_inbound",
+      "lifecycle_status": "prep-in-progress",
+      "status_source": "clickup_csv",
+      "clickup_status": "prep-in-progress",
+      "receipt_status": "null",
+      "count": 14
+    }
+  ],
+  "familiesWithMultipleActivePurchasedCycles": 32,
+  "olderActiveCyclesWithLaterSameFamilyOrder": 44,
+  "inboundNullReceiptOrders": [
+    { "exact_status": "direct-ship-fba", "orders": 6, "lines": 21 },
+    { "exact_status": "inbound-monitoring", "orders": 11, "lines": 53 }
+  ],
+  "activeEtaDistribution": [{ "eta_status": "unknown", "eta_source": "insufficient_silver_evidence", "count": 109 }],
+  "paneDistribution": [
+    { "pane": "activeOrders", "count": 109 },
+    { "pane": "dataReadiness", "count": 1235 },
+    { "pane": "healthyInventory", "count": 12 },
+    { "pane": "stuckInventory", "count": 109 },
+    { "pane": "supplyAction", "count": 153 }
+  ],
+  "moneyRiskByPane": [
+    { "pane": "activeOrders", "total": 109, "known": 0, "positive": 0, "total_risk": 0.0 },
+    { "pane": "dataReadiness", "total": 1235, "known": 0, "positive": 0, "total_risk": 0.0 },
+    { "pane": "healthyInventory", "total": 12, "known": 11, "positive": 0, "total_risk": 0.0 },
+    { "pane": "stuckInventory", "total": 109, "known": 42, "positive": 12, "total_risk": 2180.83 },
+    { "pane": "supplyAction", "total": 153, "known": 151, "positive": 124, "total_risk": 17428.56 }
+  ],
+  "stuckDistribution": [
+    { "classification": "declining_velocity_watch", "count": 7 },
+    { "classification": "insufficient_velocity_data", "count": 30 },
+    { "classification": "no_sell_through_with_stock", "count": 83 },
+    { "classification": "none", "count": 1388 },
+    { "classification": "over_30_doc_watch", "count": 25 },
+    { "classification": "over_60_doc", "count": 34 },
+    { "classification": "pipeline_stalled", "count": 16 },
+    { "classification": "reserved_stalled", "count": 34 },
+    { "classification": "untrusted_velocity_data", "count": 1 }
+  ],
+  "dataQualityIssueIntersections": [
+    {
+      "issues": "[\"velocity_missing\", \"supplier_unavailable\", \"unit_cost_unavailable\", \"profit_unavailable\"]",
+      "count": 657
+    },
+    { "issues": "[\"velocity_missing\", \"profit_unavailable\"]", "count": 271 },
+    { "issues": "[\"velocity_missing\", \"supplier_unavailable\", \"profit_unavailable\"]", "count": 110 },
+    { "issues": "[\"velocity_missing\"]", "count": 105 },
+    { "issues": "[]", "count": 35 },
+    { "issues": "[\"velocity_missing\", \"unit_cost_unavailable\", \"profit_unavailable\"]", "count": 25 },
+    {
+      "issues": "[\"velocity_missing\", \"unit_cost_unavailable\", \"profit_unavailable\", \"insufficient_velocity_data\"]",
+      "count": 10
+    },
+    { "issues": "[\"velocity_missing\", \"supplier_unavailable\"]", "count": 6 },
+    { "issues": "[\"profit_unavailable\"]", "count": 4 },
+    { "issues": "[\"supplier_unavailable\"]", "count": 4 },
+    { "issues": "[\"unit_cost_unavailable\", \"profit_unavailable\"]", "count": 3 },
+    { "issues": "[\"supplier_unavailable\", \"profit_unavailable\"]", "count": 2 },
+    { "issues": "[\"velocity_missing\", \"profit_unavailable\", \"insufficient_velocity_data\"]", "count": 1 },
+    {
+      "issues": "[\"velocity_missing\", \"supplier_unavailable\", \"unit_cost_unavailable\", \"profit_unavailable\", \"insufficient_velocity_data\"]",
+      "count": 1
+    },
+    { "issues": "[\"velocity_missing\", \"unit_cost_unavailable\"]", "count": 1 }
+  ],
+  "operatorDecisions": {
+    "familyTargets": 0,
+    "familySuppliers": 0,
+    "orderStatuses": 0,
+    "receiptLines": 0,
+    "comments": 553
+  },
+  "safeMultiCycleSamples": [
+    {
+      "company": "Ecofission LLC",
+      "family_asin": "B015OYNTEK",
+      "active_orders": 2,
+      "order_refs": ["EF51826C", "EF61726C"]
+    },
+    {
+      "company": "Ecofission LLC",
+      "family_asin": "B0727SJ17M",
+      "active_orders": 2,
+      "order_refs": ["EF42926A", "EF61726D"]
+    },
+    {
+      "company": "Ecofission LLC",
+      "family_asin": "B07JR2LP6V",
+      "active_orders": 2,
+      "order_refs": ["EF42926A", "EF61726D"]
+    },
+    {
+      "company": "Ecofission LLC",
+      "family_asin": "B0CQKBH7WC",
+      "active_orders": 2,
+      "order_refs": ["EF51826C", "EF61726C"]
+    },
+    { "company": "Muxtex INC", "family_asin": "B0018CFOX2", "active_orders": 2, "order_refs": ["MX61726A", "MX7326A"] },
+    {
+      "company": "Retail Heaven Inc",
+      "family_asin": "B00OXZDQ2C",
+      "active_orders": 2,
+      "order_refs": ["RH61726A", "RH62426A"]
+    },
+    {
+      "company": "Stop Shop LLC",
+      "family_asin": "B000PGOTTM",
+      "active_orders": 4,
+      "order_refs": ["SS51226B", "SS61726B", "SS62426B", "SS7126B"]
+    },
+    {
+      "company": "Stop Shop LLC",
+      "family_asin": "B001OPR9WC",
+      "active_orders": 2,
+      "order_refs": ["SS51226B", "SS61726B"]
+    },
+    {
+      "company": "Stop Shop LLC",
+      "family_asin": "B003458G0Y",
+      "active_orders": 2,
+      "order_refs": ["SS51226B", "SS7126B"]
+    },
+    {
+      "company": "Stop Shop LLC",
+      "family_asin": "B004BDTCNS",
+      "active_orders": 2,
+      "order_refs": ["SS5626C", "SS7326A"]
+    }
+  ]
+}

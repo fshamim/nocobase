@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import {
   ORDER_LIFECYCLE_STATUSES,
   canonicalOrderLifecycleStatus,
@@ -32,6 +41,7 @@ export interface ResolveOrderLifecycleParams {
   remarks?: string;
   dateOfPayment?: string;
   orderDate?: string;
+  calculationDate?: string;
   trackingId?: string;
   shippingCarrier?: string;
   hasLaterSameProductOrder?: boolean;
@@ -39,6 +49,7 @@ export interface ResolveOrderLifecycleParams {
   reservedStock?: number;
   sellableStock?: number;
   receivedQty?: number;
+  amazonReceiptStatus?: string;
 }
 
 export function resolveOrderLifecycle(params: ResolveOrderLifecycleParams): OrderLifecycleResolution {
@@ -49,15 +60,15 @@ export function resolveOrderLifecycle(params: ResolveOrderLifecycleParams): Orde
     importedLifecycleAlias(params.canonicalStatus);
   const sourceStatus = params.sourceOrderStatus ?? params.lifecycleStatus ?? params.lifecyclePhase;
   const sourceCompleted = hasAny(sourceStatus, ['complete', 'completed']);
-  const historical = isOlderThanDays(params.orderDate, 90);
+  const historical = isOlderThanDays(params.orderDate, 90, params.calculationDate);
   const evidence = evidenceFor(params, sourceStatus);
 
   if (operatorStatus) {
     return resolved(operatorStatus, 'operator', false, evidence);
   }
 
-  if (params.statusSource === 'clickup_csv' && importedCanonical) {
-    return resolved(importedCanonical, 'clickup_csv', false, evidence);
+  if (['amazon_stock_observed', 'completed_by_later_inbound'].includes(params.amazonReceiptStatus ?? '')) {
+    return resolved('COMPLETE', 'amazon_receipt', false, evidence);
   }
 
   if (
@@ -86,6 +97,10 @@ export function resolveOrderLifecycle(params: ResolveOrderLifecycleParams): Orde
 
   if (historical && hasHistoricalAgingStatus(sourceStatus)) {
     return resolved('COMPLETE', 'historical_age_evidence', false, evidence);
+  }
+
+  if (params.statusSource === 'clickup_csv' && importedCanonical) {
+    return resolved(importedCanonical, 'clickup_csv', false, evidence);
   }
 
   if (hasCompleteEvidence(params)) {
@@ -211,6 +226,7 @@ function evidenceFor(params: ResolveOrderLifecycleParams, sourceOrderStatus?: st
     reservedStock: params.reservedStock,
     sellableStock: params.sellableStock,
     receivedQty: params.receivedQty,
+    amazonReceiptStatus: params.amazonReceiptStatus,
   };
 }
 
@@ -272,9 +288,12 @@ function positive(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0;
 }
 
-function isOlderThanDays(value: unknown, days: number) {
+function isOlderThanDays(value: unknown, days: number, calculationDate?: string) {
   if (typeof value !== 'string' || !value.trim()) return false;
   const time = new Date(`${value.slice(0, 10)}T00:00:00.000Z`).getTime();
-  if (!Number.isFinite(time)) return false;
-  return Date.now() - time >= days * 86_400_000;
+  const referenceTime = new Date(
+    `${calculationDate?.slice(0, 10) ?? new Date().toISOString().slice(0, 10)}T00:00:00.000Z`,
+  ).getTime();
+  if (!Number.isFinite(time) || !Number.isFinite(referenceTime)) return false;
+  return referenceTime - time >= days * 86_400_000;
 }

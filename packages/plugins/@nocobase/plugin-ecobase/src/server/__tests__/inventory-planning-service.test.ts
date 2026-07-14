@@ -12,6 +12,8 @@ import { ECOBASE_COLLECTIONS } from '../collections/names';
 import {
   calculateInventoryMoneyRisk,
   EcobaseInventoryPlanningService,
+  expectedArrivalEvidence,
+  supplierCoverageStatus,
 } from '../../features/inventory-planning/server/inventory-planning-service';
 import { profitTierMovement } from '../../features/inventory-planning/server/profit-tier';
 import { EcobaseCompanyProductFamilyService } from '../../features/inventory-planning/server/company-product-family-service';
@@ -269,6 +271,49 @@ describe('EcobaseInventoryPlanningService', () => {
     expect(profitTierMovement('A', 'B')).toBe('up');
     expect(profitTierMovement(undefined, 'C')).toBe('lost_tier');
     expect(profitTierMovement('C', undefined)).toBe('new');
+  });
+
+  it('derives ETA from order date, explicit lead-time evidence, and receiving buffer without zero-filling', () => {
+    expect(
+      expectedArrivalEvidence(
+        {
+          leadTimeDays: 30,
+          leadTimeSource: 'planning_settings.default_expected_arrival_lead_time',
+        },
+        { orderDate: '2026-06-01' },
+        '2026-07-14',
+        3,
+      ),
+    ).toMatchObject({
+      expectedArrivalDate: '2026-07-04',
+      expectedArrivalStatus: 'derived',
+      expectedArrivalSource:
+        'planning_settings.default_expected_arrival_lead_time+silver_order.order_date+planning_settings.receiving_buffer',
+      expectedArrivalFreshness: 'stale',
+    });
+    expect(expectedArrivalEvidence({}, { orderDate: '2026-06-01' }, '2026-07-14', 3)).toMatchObject({
+      expectedArrivalStatus: 'unknown',
+      expectedArrivalSource: 'insufficient_silver_evidence',
+    });
+  });
+
+  it('keeps persisted operator status above payment-derived coverage status', () => {
+    const rules = {
+      placedNotPurchased: new Set(['approval_pending']),
+      purchasedPipeline: new Set(['paid']),
+      closed: new Set(['completed']),
+    };
+    expect(
+      supplierCoverageStatus(
+        {
+          status: 'approval_pending',
+          statusSource: 'operator',
+          operatorStatusOverrideAt: '2026-07-14T00:00:00.000Z',
+          paymentStatus: 'Completed',
+        },
+        rules,
+      ),
+    ).toBe('approval_pending');
   });
 
   it('calculates uncovered-stockout money risk without replacing unknown inputs with zero', () => {
@@ -1247,6 +1292,12 @@ describe('EcobaseInventoryPlanningService', () => {
     const accountId = 'amazon-account-family-test';
     const familyId = 'company-product-family-test';
 
+    await createRecord(db, ECOBASE_COLLECTIONS.planningSettings, {
+      id: 'cycle-selection-settings',
+      name: 'Cycle selection test',
+      isActive: true,
+      enableCurrentOrderCycleSelection: true,
+    });
     await createRecord(db, ECOBASE_COLLECTIONS.silverCompanies, { id: companyId, name: company });
     await createRecord(db, ECOBASE_COLLECTIONS.silverAmazonAccounts, {
       id: accountId,
@@ -1295,6 +1346,7 @@ describe('EcobaseInventoryPlanningService', () => {
       supplierName: 'ws billiard supply',
       externalOrderRef: 'EF91125A',
       status: 'paid',
+      orderDate: '2026-06-01',
     });
     await createSilverOrderLineRecord(db, {
       id: 'line-duplicate-sku',
@@ -1306,6 +1358,30 @@ describe('EcobaseInventoryPlanningService', () => {
       orderedQty: 7,
       receivedQty: 0,
       unitCost: 322,
+    });
+    await createSilverOrderRecord(db, {
+      id: 'order-older-family-cycle',
+      company,
+      supplierId: 'supplier-ws',
+      supplierName: 'ws billiard supply',
+      externalOrderRef: 'EF51125A',
+      status: 'paid',
+      orderDate: '2026-05-01',
+    });
+    await createSilverOrderLineRecord(db, {
+      id: 'line-older-family-cycle',
+      company,
+      supplierOrderId: 'order-older-family-cycle',
+      supplierId: 'supplier-ws',
+      asin,
+      sku: primarySku,
+      orderedQty: 100,
+      receivedQty: 0,
+      unitCost: 322,
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).update({
+      filterByTk: primaryCompanyProductId,
+      values: { lifecycleStatus: undefined },
     });
     await db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).update({
       filterByTk: `silver-supplier-product:supplier-ws:${asin}:${duplicateSku}`,

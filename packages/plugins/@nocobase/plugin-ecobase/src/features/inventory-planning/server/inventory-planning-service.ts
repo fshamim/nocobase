@@ -38,6 +38,7 @@ import {
 import { summarizeHistoricalProductFacts } from './historical-product-metrics';
 import { latestPreferredInventorySnapshot } from './order-receipt-evidence';
 import { EcobaseCompanyProductFamilyService } from './company-product-family-service';
+import { selectCurrentFamilyOrderCycle, type FamilyOrderCycleSelection } from './order-cycle-selection';
 
 const GOLD_SOURCE_RECORD_LIMIT = 100000;
 const TIER_RULE_VERSION = 'rolling_30d_min_4_v1';
@@ -143,7 +144,7 @@ const COMMAND_CENTER_SORT_KEYS = new Set([
   'duplicatePrimarySku',
 ]);
 
-type SupplierOrderStatusRules = {
+export type SupplierOrderStatusRules = {
   placedNotPurchased: Set<string>;
   purchasedPipeline: Set<string>;
   closed: Set<string>;
@@ -424,9 +425,15 @@ function supplierOrderStatusRules(buckets: SupplierOrderStatusBuckets): Supplier
   };
 }
 
-function supplierCoverageStatus(order: PlainRecord, rules: SupplierOrderStatusRules) {
+export function supplierCoverageStatus(order: PlainRecord, rules: SupplierOrderStatusRules) {
   const status = normalizeSupplierOrderStatus(asString(order.status));
-  if (asString(order.statusSource) === 'manual' && asString(order.lastOperatorEditAt)) return status;
+  const statusSource = asString(order.statusSource);
+  if (
+    statusSource === 'operator' ||
+    (statusSource === 'manual' && (asString(order.operatorStatusOverrideAt) || asString(order.lastOperatorEditAt)))
+  ) {
+    return status;
+  }
   if (rules.closed.has(status)) return status;
   if (includesStatusText(order.paymentStatus, ['completed', 'complete', 'paid'])) return 'paid';
   if (status === 'approval_pending' && includesStatusText(order.approvalStatus, ['approved'])) return 'payment_pending';
@@ -501,7 +508,7 @@ function validExpectedDate(value: unknown) {
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date ? date : undefined;
 }
 
-function expectedArrivalEvidence(
+export function expectedArrivalEvidence(
   line: PlainRecord,
   order: PlainRecord,
   calculationDate: string | undefined,
@@ -536,7 +543,9 @@ function expectedArrivalEvidence(
     return {
       expectedArrivalDate,
       expectedArrivalStatus: 'derived',
-      expectedArrivalSource: 'silver_order.orderDate_plus_supplier_lead_time_plus_receiving_buffer',
+      expectedArrivalSource: `${
+        asString(line.leadTimeSource) ?? 'silver_order_line.lead_time'
+      }+silver_order.order_date+planning_settings.receiving_buffer`,
       expectedArrivalAsOf: calculationDate,
       expectedArrivalConfidence: 'estimated',
       expectedArrivalFreshness:
@@ -556,7 +565,7 @@ function summarizeSupplierOrderState(
   lines: PlainRecord[],
   supplierOrderById: Map<string, PlainRecord>,
   calculationDate: string | undefined,
-  purchasedPipelineGraceDays: number,
+  receivingBufferDays: number,
   rules: SupplierOrderStatusRules,
 ) {
   let purchasedOpenQty = 0;
@@ -566,9 +575,7 @@ function summarizeSupplierOrderState(
   let historySelected: { line: PlainRecord; order: PlainRecord; sortValue: string } | undefined;
   const resolvedLines = lines.map((line) => {
     const order = supplierOrderById.get(asString(line.supplierOrderId) ?? '');
-    return order
-      ? { ...line, ...expectedArrivalEvidence(line, order, calculationDate, purchasedPipelineGraceDays) }
-      : line;
+    return order ? { ...line, ...expectedArrivalEvidence(line, order, calculationDate, receivingBufferDays) } : line;
   });
 
   for (const line of resolvedLines) {
@@ -578,7 +585,14 @@ function summarizeSupplierOrderState(
     const openQty = Math.max((asNumber(line.orderedQty) ?? 0) - (asNumber(line.receivedQty) ?? 0), 0);
     const sortValue = supplierOrderSortValue(line, order);
     if (!historySelected || sortValue > historySelected.sortValue) historySelected = { line, order, sortValue };
-    if (openQty <= 0 || !isPlacedNotPurchasedSupplierOrderStatus(status, rules)) continue;
+    const receiptStatus = asString(order.amazonReceiptStatus) ?? asString(line.amazonReceiptStatus);
+    if (
+      openQty <= 0 ||
+      ['amazon_stock_observed', 'completed_by_later_inbound', 'not_applicable'].includes(receiptStatus ?? '') ||
+      !isPlacedNotPurchasedSupplierOrderStatus(status, rules)
+    ) {
+      continue;
+    }
     placedNotPurchasedOpenQty += openQty;
     if (!latestPlaced || sortValue > latestPlaced.sortValue) latestPlaced = { line, order, sortValue };
   }
@@ -588,7 +602,14 @@ function summarizeSupplierOrderState(
     if (!order) continue;
     const status = supplierCoverageStatus(order, rules);
     const openQty = Math.max((asNumber(line.orderedQty) ?? 0) - (asNumber(line.receivedQty) ?? 0), 0);
-    if (openQty <= 0 || !isActivePurchasedPipelineStatus(status, rules)) continue;
+    const receiptStatus = asString(order.amazonReceiptStatus) ?? asString(line.amazonReceiptStatus);
+    if (
+      openQty <= 0 ||
+      ['amazon_stock_observed', 'completed_by_later_inbound', 'not_applicable'].includes(receiptStatus ?? '') ||
+      !isActivePurchasedPipelineStatus(status, rules)
+    ) {
+      continue;
+    }
     const sortValue = supplierOrderSortValue(line, order);
     const newerRecoveryCycleStarted = latestPlaced && latestPlaced.sortValue > sortValue;
     if (newerRecoveryCycleStarted) continue;
@@ -1222,6 +1243,7 @@ export class EcobaseInventoryPlanningService {
     const targetCoverDays = settings.targetCoverDays;
     const leadTimeFreshnessDays = settings.leadTimeFreshnessDays;
     const purchasedPipelineGraceDays = settings.purchasedPipelineGraceDays;
+    const receivingBufferDays = settings.receivingBufferDays;
     const profitTierThresholds: ProfitTierThresholds = settings;
     const statusRules = supplierOrderStatusRules(settings);
     const sellerboardSourceConnectionIds = await this.sellerboardSourceConnectionIds();
@@ -1298,24 +1320,88 @@ export class EcobaseInventoryPlanningService {
       if (!current || snapshotDate > current) latestFactDateByCompanyId.set(companyId, snapshotDate);
     }
     const ordersById = new Map(
-      orders.map((order) => [
-        asString(order.id),
-        {
-          ...order,
-          status: silverOrderStatus(order),
-          externalOrderRef: asString(order.orderRef),
-        },
-      ]),
+      orders.map((order) => {
+        const rawStatus = normalizeSupplierOrderStatus(
+          asString(order.canonicalStatus) ?? asString(order.lifecycleStatus) ?? asString(order.lifecyclePhase),
+        );
+        const configuredStatus =
+          statusRules.placedNotPurchased.has(rawStatus) ||
+          statusRules.purchasedPipeline.has(rawStatus) ||
+          statusRules.closed.has(rawStatus);
+        return [
+          asString(order.id),
+          {
+            ...order,
+            status: configuredStatus ? rawStatus : silverOrderStatus(order),
+            externalOrderRef: asString(order.orderRef),
+          },
+        ];
+      }),
     );
     const normalizedOrderLines: PlainRecord[] = orderLines
       .filter((line) => asString(line.companyProductId) && asString(line.productMappingStatus) !== 'unresolved')
-      .map((line) => ({
-        ...line,
-        supplierOrderId: asString(line.orderId),
-        receivedQty: amazonReceivedQty(line),
-        leadTimeDays: asNumber(supplierProductsById.get(asString(line.supplierProductId))?.leadTimeDays),
-      }));
+      .map((line) => {
+        const companyProduct = companyProductsById.get(asString(line.companyProductId));
+        const family = familiesById.get(asString(companyProduct?.companyProductFamilyId));
+        const exactLeadTimeDays = asNumber(supplierProductsById.get(asString(line.supplierProductId))?.leadTimeDays);
+        const familyLeadTimeDays = asNumber(
+          supplierProductsById.get(asString(family?.preferredSupplierProductId))?.leadTimeDays,
+        );
+        const leadTimeDays =
+          exactLeadTimeDays ??
+          familyLeadTimeDays ??
+          (settings.allowDefaultExpectedArrival ? settings.defaultExpectedArrivalLeadTimeDays : undefined);
+        return {
+          ...line,
+          supplierOrderId: asString(line.orderId),
+          receivedQty: amazonReceivedQty(line),
+          leadTimeDays,
+          leadTimeSource:
+            exactLeadTimeDays !== undefined
+              ? 'silver_order_line.supplier_product_lead_time'
+              : familyLeadTimeDays !== undefined
+                ? 'silver_family.preferred_supplier_product_lead_time'
+                : leadTimeDays !== undefined
+                  ? 'planning_settings.default_expected_arrival_lead_time'
+                  : undefined,
+        };
+      });
     const linesByCompanyProduct = this.groupBy(normalizedOrderLines, 'companyProductId');
+    const cycleLinesByFamilyId = new Map<string, Parameters<typeof selectCurrentFamilyOrderCycle>[0]>();
+    for (const line of normalizedOrderLines) {
+      const orderId = asString(line.supplierOrderId);
+      const order = ordersById.get(orderId);
+      const familyId = asString(companyProductsById.get(asString(line.companyProductId))?.companyProductFamilyId);
+      if (!orderId || !order || !familyId) continue;
+      const status = supplierCoverageStatus(order, statusRules);
+      const coverageState = isActivePurchasedPipelineStatus(status, statusRules)
+        ? 'purchased_pipeline'
+        : isPlacedNotPurchasedSupplierOrderStatus(status, statusRules)
+          ? 'placed_not_purchased'
+          : 'closed';
+      const arrival = expectedArrivalEvidence(line, order, calculationDate, receivingBufferDays);
+      const cycleLine = {
+        lineId: asString(line.id) ?? `${orderId}:${asString(line.companyProductId) ?? ''}`,
+        orderId,
+        orderRef: asString(order.externalOrderRef) ?? asString(order.id),
+        authorityAsOf: asString(order.authorityAsOf),
+        orderDate: asString(order.orderDate),
+        expectedArrivalDate: asString(arrival.expectedArrivalDate),
+        expectedArrivalStatus: asString(arrival.expectedArrivalStatus),
+        amazonReceiptStatus: asString(order.amazonReceiptStatus) ?? asString(line.amazonReceiptStatus),
+        openQty: Math.max((asNumber(line.orderedQty) ?? 0) - (asNumber(line.receivedQty) ?? 0), 0),
+        coverageState,
+      } as const;
+      cycleLinesByFamilyId.set(familyId, [...(cycleLinesByFamilyId.get(familyId) ?? []), cycleLine]);
+    }
+    const cycleSelectionByFamilyId = settings.enableCurrentOrderCycleSelection
+      ? new Map<string, FamilyOrderCycleSelection>(
+          [...cycleLinesByFamilyId].map(([familyId, lines]) => [
+            familyId,
+            selectCurrentFamilyOrderCycle(lines, calculationDate, purchasedPipelineGraceDays),
+          ]),
+        )
+      : new Map<string, FamilyOrderCycleSelection>();
     const latestActivityByOrderId = new Map<string, PlainRecord>();
     for (const comment of await this.withActivityAuthors(activityComments)) {
       if (comment.deletedAt) continue;
@@ -1432,12 +1518,17 @@ export class EcobaseInventoryPlanningService {
       const supplierProduct = toPlainRecord(supplierContext?.supplierProduct);
       const supplier = toPlainRecord(supplierContext?.supplier);
       const hasSupplier = Boolean(asString(supplier.id));
-      const productOrderLines = linesByCompanyProduct.get(companyProductId) ?? [];
-      const hasOrderSupplierEvidence = productOrderLines.some((line) => {
+      const allProductOrderLines = linesByCompanyProduct.get(companyProductId) ?? [];
+      const cycleSelection = companyProductFamilyId ? cycleSelectionByFamilyId.get(companyProductFamilyId) : undefined;
+      const selectedLineIds = new Set(cycleSelection?.selectedLineIds ?? []);
+      const productOrderLines = cycleSelection?.selectedOrderId
+        ? allProductOrderLines.filter((line) => selectedLineIds.has(asString(line.id) ?? ''))
+        : allProductOrderLines;
+      const hasOrderSupplierEvidence = allProductOrderLines.some((line) => {
         const order = ordersById.get(asString(line.supplierOrderId));
         return Boolean(asString(line.supplierProductId) || asString(toPlainRecord(order).supplierId));
       });
-      const hasOrderCostEvidence = productOrderLines.some((line) => typeof asNumber(line.unitCost) === 'number');
+      const hasOrderCostEvidence = allProductOrderLines.some((line) => typeof asNumber(line.unitCost) === 'number');
       const sourceLeadTimeDays = asNumber(supplierProduct.leadTimeDays);
       const leadTimeDays = sourceLeadTimeDays ?? DEFAULT_SUPPLIER_LEAD_TIME_DAYS;
       const supplierAvailability = hasSupplier
@@ -1448,13 +1539,17 @@ export class EcobaseInventoryPlanningService {
       const leadTimeAvailability =
         typeof sourceLeadTimeDays === 'number' ? 'resolved_silver_link' : 'resolved_default_30d';
       const leadTimeFreshness = typeof sourceLeadTimeDays === 'number' ? 'fresh' : 'default';
-      const openOrder = summarizeSupplierOrderState(
-        productOrderLines,
-        ordersById,
-        calculationDate,
-        purchasedPipelineGraceDays,
-        statusRules,
-      );
+      const openOrder = {
+        ...summarizeSupplierOrderState(
+          productOrderLines,
+          ordersById,
+          calculationDate,
+          receivingBufferDays,
+          statusRules,
+        ),
+        supplierOrderCycleSelection: cycleSelection,
+        supplierOrderCycleReviewRequired: cycleSelection?.reviewRequired ?? false,
+      };
       const openOrderCoverageQty =
         (asNumber(openOrder.supplierOrderPurchasedOpenQty) ?? 0) +
         (asNumber(openOrder.supplierOrderPlacedNotPurchasedOpenQty) ?? 0);
@@ -1678,6 +1773,7 @@ export class EcobaseInventoryPlanningService {
             days: leadTimeDays,
             source: typeof sourceLeadTimeDays === 'number' ? 'silver_supplier_product' : 'system_default_30d',
           },
+          orderCycle: cycleSelection,
         },
       });
     }
@@ -1804,6 +1900,7 @@ export class EcobaseInventoryPlanningService {
       asString(row.unitCostAvailability)?.startsWith('resolved_') ? undefined : 'unit_cost_unavailable',
       asString(row.profitAvailability)?.startsWith('resolved_') ? undefined : 'profit_unavailable',
       activeOrder && asString(row.expectedArrivalStatus) === 'unknown' ? 'expected_arrival_unknown' : undefined,
+      asBoolean(row.supplierOrderCycleReviewRequired) === true ? 'order_cycle_review_required' : undefined,
       [
         'reserved_stalled',
         'pipeline_stalled',
@@ -1871,6 +1968,8 @@ export class EcobaseInventoryPlanningService {
       'supplierOrderReferenceOpenQty',
       'supplierOrderPurchasedOpenQty',
       'supplierOrderPlacedNotPurchasedOpenQty',
+      'supplierOrderCycleSelection',
+      'supplierOrderCycleReviewRequired',
       'expectedArrivalDate',
       'expectedArrivalStatus',
       'expectedArrivalSource',
@@ -2579,6 +2678,12 @@ export class EcobaseInventoryPlanningService {
       supplierOrderAuthorityEvidence: toPlainRecord(row.supplierOrderAuthorityEvidence),
       supplierOrderOpenQty: asNumber(row.supplierOrderOpenQty),
       supplierOrderReferenceOpenQty: asNumber(row.supplierOrderReferenceOpenQty),
+      supplierOrderCycleSelection: Object.keys(toPlainRecord(row.supplierOrderCycleSelection)).length
+        ? toPlainRecord(row.supplierOrderCycleSelection)
+        : toPlainRecord(toPlainRecord(row.evidence).orderCycle),
+      supplierOrderCycleReviewRequired:
+        asBoolean(row.supplierOrderCycleReviewRequired) ??
+        (Array.isArray(row.dataQualityIssues) && row.dataQualityIssues.includes('order_cycle_review_required')),
       latestSupplierOrderActivityType: asString(row.latestSupplierOrderActivityType),
       latestSupplierOrderActivityAt: sortableDateValue(row.latestSupplierOrderActivityAt) || undefined,
       latestSupplierOrderActivityNote: asString(row.latestSupplierOrderActivityNote),

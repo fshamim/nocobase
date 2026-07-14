@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { describe, expect, it } from 'vitest';
 import { resolveOrderLifecycle } from '../../features/order-planning/server/order-lifecycle';
 import {
@@ -123,6 +132,23 @@ describe('resolveOrderLifecycle', () => {
     });
   });
 
+  it('uses the supplied calculation date for deterministic historical aging', () => {
+    expect(
+      resolveOrderLifecycle({
+        sourceOrderStatus: 'In Progress',
+        orderDate: '2026-05-01',
+        calculationDate: '2026-05-15',
+      }),
+    ).toMatchObject({ canonicalStatus: 'IN-PROGRESS', statusSource: 'fallback' });
+    expect(
+      resolveOrderLifecycle({
+        sourceOrderStatus: 'In Progress',
+        orderDate: '2026-05-01',
+        calculationDate: '2026-09-01',
+      }),
+    ).toMatchObject({ canonicalStatus: 'COMPLETE', statusSource: 'historical_age_evidence' });
+  });
+
   it('lets operator-selected lifecycle status override source evidence', () => {
     expect(
       resolveOrderLifecycle({
@@ -151,6 +177,38 @@ describe('resolveOrderLifecycle', () => {
         sellableStock: 1,
       }),
     ).toMatchObject({ canonicalStatus: 'SHIPPED TO FBA', statusSource: 'clickup_csv', statusCheckRequired: false });
+  });
+
+  it('lets terminal Amazon receipt evidence close a current ClickUp inbound workflow', () => {
+    expect(
+      resolveOrderLifecycle({
+        canonicalStatus: 'shipped_inbound',
+        lifecycleStatus: 'inbound-monitoring',
+        statusSource: 'clickup_csv',
+        amazonReceiptStatus: 'amazon_stock_observed',
+      }),
+    ).toMatchObject({
+      canonicalStatus: 'COMPLETE',
+      statusSource: 'amazon_receipt',
+      statusCheckRequired: false,
+    });
+  });
+
+  it('does not let ClickUp workflow status bypass trusted successor completion', () => {
+    expect(
+      resolveOrderLifecycle({
+        canonicalStatus: 'shipped_inbound',
+        lifecycleStatus: 'inbound-monitoring',
+        statusSource: 'clickup_csv',
+        hasLaterSameProductOrder: true,
+        orderDate: '2026-05-01',
+        calculationDate: '2026-07-14',
+      }),
+    ).toMatchObject({
+      canonicalStatus: 'COMPLETE',
+      statusSource: 'successor_order_evidence',
+      statusCheckRequired: false,
+    });
   });
 
   it('maps inbound stock evidence to INBOUND MONITORING', () => {

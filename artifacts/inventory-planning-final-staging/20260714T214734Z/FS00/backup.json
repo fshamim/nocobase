@@ -1,0 +1,8 @@
+{
+  "path": "/root/ecobase-backups/inventory-final-staging-FS00-20260714T214734Z.dump",
+  "bytes": 39909983,
+  "sha256": "636045e61613b75a3cf1a00aa2acd11a7559f290bba89c3b8fca9b03ec279663",
+  "archiveEntries": 1050,
+  "verifiedReadable": true,
+  "restoreCommandNotExecuted": "pg_restore --clean --if-exists --no-owner --dbname=<staging-restore-target> /root/ecobase-backups/inventory-final-staging-FS00-20260714T214734Z.dump"
+}

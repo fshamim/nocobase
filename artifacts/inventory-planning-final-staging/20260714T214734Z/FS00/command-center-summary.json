@@ -1,0 +1,96 @@
+{
+  "generatedAt": "2026-07-14T21:51:38.265Z",
+  "summaryCards": [
+    {
+      "key": "urgentStockoutRisk",
+      "label": "Urgent stockout risk",
+      "description": "Overdue or order today",
+      "value": 150
+    },
+    {
+      "key": "moneyAtRisk",
+      "label": "Money at risk",
+      "description": "A/B/C tier profit exposure",
+      "value": 23418.15,
+      "unknownCount": 1873,
+      "format": "currency"
+    },
+    {
+      "key": "supplyActionNeeded",
+      "label": "Supply action needed",
+      "description": "No active order placed",
+      "value": 142
+    },
+    {
+      "key": "activeOrdersOffTrack",
+      "label": "Active orders off-track",
+      "description": "Expected after stockout",
+      "value": 0
+    },
+    {
+      "key": "followUpsDueToday",
+      "label": "Follow-ups due today",
+      "description": "Order comments/status needed",
+      "value": 55
+    },
+    { "key": "stuckInventory", "label": "Stuck inventory", "description": "30/60+ DOC with sell-through", "value": 109 }
+  ],
+  "macroRisk": [
+    {
+      "key": "noOrderUrgent",
+      "label": "No order + urgent",
+      "value": 17428.56,
+      "unknownCount": 2,
+      "format": "currency"
+    },
+    { "key": "activeOrderLate", "label": "Active order late", "value": 0, "unknownCount": 0, "format": "currency" },
+    { "key": "followUpsToday", "label": "Follow-ups today", "value": 55, "suffix": "orders" },
+    { "key": "stuckCurrentStock", "label": "Stuck current stock", "value": 3723, "suffix": "units" },
+    { "key": "leadTimeGaps", "label": "Lead-time gaps", "value": 0, "suffix": "rows" }
+  ],
+  "riskBars": {
+    "supplyAction": [
+      { "key": "overdue", "count": 131 },
+      { "key": "order_today", "count": 1 },
+      { "key": "order_soon", "count": 10 },
+      { "key": "stale_lead_time", "count": 0 }
+    ],
+    "activeOrders": [
+      { "key": "purchased_pipeline", "count": 109 },
+      { "key": "placed_not_purchased", "count": 0 }
+    ],
+    "pipelineHealth": [
+      { "key": "on_track", "count": 0 },
+      { "key": "late", "count": 0 },
+      { "key": "unknown_timing", "count": 109 },
+      { "key": "placed_not_purchased", "count": 0 },
+      { "key": "none", "count": 0 }
+    ],
+    "stuckInventory": [
+      { "key": "over_60_doc", "count": 31 },
+      { "key": "over_30_doc", "count": 0 }
+    ]
+  },
+  "paneCounts": {
+    "supplyAction": 142,
+    "missingSupplier": 11,
+    "activeOrders": 109,
+    "inboundMonitoring": 0,
+    "healthyInventory": 12,
+    "stuckInventory": 109,
+    "dataReadiness": 1397,
+    "duplicateProducts": 0
+  },
+  "issueCounts": {
+    "expected_arrival_unknown": 25,
+    "insufficient_velocity_data": 1,
+    "no_sell_through_with_stock": 11,
+    "pipeline_stalled": 4,
+    "profit_unavailable": 9,
+    "reserved_stalled": 15,
+    "supplier_unavailable": 28,
+    "unit_cost_unavailable": 2,
+    "untrusted_velocity_data": 1,
+    "velocity_missing": 1
+  }
+}

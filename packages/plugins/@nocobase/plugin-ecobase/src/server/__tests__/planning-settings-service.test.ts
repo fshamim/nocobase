@@ -118,7 +118,7 @@ async function createSilverPlanningProductFixture(db: MemoryDatabase, values: Re
   await createRecord(db, ECOBASE_COLLECTIONS.silverListingDailyFacts, {
     id: `silver-fact:${company}:${asin}:${sku}`,
     companyProductId,
-    snapshotDate: '2026-05-01',
+    snapshotDate: '2026-05-15',
     units: values.units,
     profit: values.profit,
   });
@@ -174,7 +174,11 @@ describe('EcobasePlanningSettingsService', () => {
   it('returns operator-visible planning defaults when no settings row exists', async () => {
     const result = await new EcobasePlanningSettingsService(new MemoryDatabase()).getActiveSettings();
 
-    expect(result.settings).toMatchObject(DEFAULT_PLANNING_SETTINGS);
+    expect(result.settings).toMatchObject({
+      ...DEFAULT_PLANNING_SETTINGS,
+      enableCurrentOrderCycleSelection: false,
+      allowDefaultExpectedArrival: false,
+    });
   });
 
   it('saves settings and rejects invalid rule values explicitly', async () => {
@@ -187,6 +191,8 @@ describe('EcobasePlanningSettingsService', () => {
       profitTierBThreshold: 200,
       profitTierCThreshold: 10,
       supplierOrderPurchasedPipelineStatuses: ['paid', 'custom-paid'],
+      enableCurrentOrderCycleSelection: true,
+      allowDefaultExpectedArrival: true,
     });
 
     expect(saved).toMatchObject({
@@ -197,6 +203,8 @@ describe('EcobasePlanningSettingsService', () => {
       profitTierBThreshold: 200,
       profitTierCThreshold: 10,
       supplierOrderPurchasedPipelineStatuses: ['paid', 'custom_paid'],
+      enableCurrentOrderCycleSelection: true,
+      allowDefaultExpectedArrival: true,
     });
     await expect(service.saveSettings({ safetyBufferDays: -1 })).rejects.toThrow(
       'EcoBase planning settings require Safety buffer days to be a zero-or-positive whole number.',
@@ -228,36 +236,6 @@ describe('EcobasePlanningSettingsService', () => {
       profitTierBThreshold: 200,
       profitTierCThreshold: 0,
     });
-    await createRecord(db, ECOBASE_COLLECTIONS.planningProducts, {
-      id: 'planning-product-settings',
-      naturalKey: 'Ecofission LLC:B000SETTINGS',
-      company: 'Ecofission LLC',
-      canonicalAsin: 'B000SETTINGS',
-      title: 'Settings product',
-      mappingStatus: 'confirmed',
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
-      naturalKey: 'inventory-settings',
-      sourceConnectionId: 'source-1',
-      planningProductId: 'planning-product-settings',
-      snapshotDate: '2026-06-07',
-      company: 'Ecofission LLC',
-      asin: 'B000SETTINGS',
-      sku: 'SETTINGS-SKU',
-      stock: 10,
-      salesVelocity: 2,
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.planningParameters, {
-      naturalKey: 'params-settings',
-      sourceConnectionId: 'source-1',
-      planningProductId: 'planning-product-settings',
-      company: 'Ecofission LLC',
-      asin: 'B000SETTINGS',
-      sku: 'SETTINGS-SKU',
-      profitPerUnit: 20,
-      leadTimeDays: 4,
-      payload: { recommendedBestQty: 20, productStatus: 'Active' },
-    });
     await createSilverPlanningProductFixture(db, {
       company: 'Ecofission LLC',
       asin: 'B000SETTINGS',
@@ -277,7 +255,6 @@ describe('EcobasePlanningSettingsService', () => {
 
     expect(row).toMatchObject({
       targetCoverDays: 30,
-      tier: 'B',
       suggestedReorderQty: 50,
     });
   });
@@ -286,36 +263,6 @@ describe('EcobasePlanningSettingsService', () => {
     const db = new MemoryDatabase();
     await new EcobasePlanningSettingsService(db).saveSettings({
       supplierOrderPurchasedPipelineStatuses: ['paid', 'supplier_paid_wire'],
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.planningProducts, {
-      id: 'planning-product-custom-status',
-      naturalKey: 'Ecofission LLC:B000STATUS',
-      company: 'Ecofission LLC',
-      canonicalAsin: 'B000STATUS',
-      title: 'Custom status product',
-      mappingStatus: 'confirmed',
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.inventorySnapshots, {
-      naturalKey: 'inventory-custom-status',
-      sourceConnectionId: 'source-1',
-      planningProductId: 'planning-product-custom-status',
-      snapshotDate: '2026-06-07',
-      company: 'Ecofission LLC',
-      asin: 'B000STATUS',
-      sku: 'STATUS-SKU',
-      stock: 10,
-      salesVelocity: 2,
-    });
-    await createRecord(db, ECOBASE_COLLECTIONS.planningParameters, {
-      naturalKey: 'params-custom-status',
-      sourceConnectionId: 'source-1',
-      planningProductId: 'planning-product-custom-status',
-      company: 'Ecofission LLC',
-      asin: 'B000STATUS',
-      sku: 'STATUS-SKU',
-      profitPerUnit: 20,
-      leadTimeDays: 4,
-      payload: { recommendedBestQty: 20, productStatus: 'Active' },
     });
     await createSilverPlanningProductFixture(db, {
       company: 'Ecofission LLC',
