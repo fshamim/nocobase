@@ -2684,6 +2684,10 @@ export class EcobaseInventoryPlanningService {
       supplierOrderCycleReviewRequired:
         asBoolean(row.supplierOrderCycleReviewRequired) ??
         (Array.isArray(row.dataQualityIssues) && row.dataQualityIssues.includes('order_cycle_review_required')),
+      amazonReceiptStatus: asString(row.amazonReceiptStatus),
+      amazonReceiptObservedAt: asString(row.amazonReceiptObservedAt),
+      amazonReceiptCompletionReason: asString(row.amazonReceiptCompletionReason),
+      amazonReceiptEvidenceJson: toPlainRecord(row.amazonReceiptEvidenceJson),
       latestSupplierOrderActivityType: asString(row.latestSupplierOrderActivityType),
       latestSupplierOrderActivityAt: sortableDateValue(row.latestSupplierOrderActivityAt) || undefined,
       latestSupplierOrderActivityNote: asString(row.latestSupplierOrderActivityNote),

@@ -1,0 +1,364 @@
+{
+  "summary": {
+    "excludedCycles": 44,
+    "reviewRequired": 11,
+    "completedByLaterInbound": 33,
+    "familiesWithExcludedCycles": 32,
+    "targetFamiliesWithCycleEvidence": 110
+  },
+  "decisions": [
+    {
+      "reason": "older_cycle_arrival_elapsed_before_later_cycle",
+      "decision": "completed_by_later_inbound",
+      "family_id": "05162f95-2adf-4f60-9e79-baf6d41400a9",
+      "excluded_order_id": "8ca0962a-b3c1-4687-874b-45cee7f1d54f",
+      "excluded_order_ref": "SS42826A",
+      "selected_order_ref": "SS51226B"
+    },
+    {
+      "reason": "older_cycle_arrival_elapsed_before_later_cycle",
+      "decision": "completed_by_later_inbound",
+      "family_id": "083c6469-b6c9-4795-8457-b9b6fc8930be",
+      "excluded_order_id": "5824389e-dad4-4e5b-a480-42d942ce094d",
+      "excluded_order_ref": "EF42926A",
+      "selected_order_ref": "EF61726D"
+    },
+    {
+      "reason": "older_cycle_arrival_elapsed_before_later_cycle",
+      "decision": "completed_by_later_inbound",
+      "family_id": "0f4e50fe-2469-420c-9f6b-6cfad9da0b0d",
+      "excluded_order_id": "5824389e-dad4-4e5b-a480-42d942ce094d",
+      "excluded_order_ref": "EF42926A",
+      "selected_order_ref": "EF61726D"
+    },
+    {
+      "reason": "older_cycle_arrival_elapsed_before_later_cycle",
+      "decision": "completed_by_later_inbound",
+      "family_id": "1124a81b-8ceb-47c1-bfd6-1ed070ece932",
+      "excluded_order_id": "fd612011-42a6-404a-95eb-072cf9579a40",
+      "excluded_order_ref": "EF51826C",
+      "selected_order_ref": "EF61726C"
+    },
+    {
+      "reason": "older_cycle_arrival_elapsed_before_later_cycle",
+      "decision": "completed_by_later_inbound",
+      "family_id": "14b6295b-fae4-4326-a4be-4257797415b1",
+      "excluded_order_id": "9e30ba8f-a788-4529-aa50-197483d40f28",
+      "excluded_order_ref": "SS51226B",
+      "selected_order_ref": "SS62426B"
+    },
+    {
+      "reason": "later_cycle_exists_without_terminal_or_elapsed_arrival_evidence",
+      "decision": "review_required",
+      "family_id": "14b6295b-fae4-4326-a4be-4257797415b1",
+      "excluded_order_id": "ff57ba0f-5af1-46ae-a124-97f8519ed46b",
+      "excluded_order_ref": "SS61726B",
+      "selected_order_ref": "SS62426B"
+    },
+    {
+      "reason": "older_cycle_arrival_elapsed_before_later_cycle",
+      "decision": "completed_by_later_inbound",
+      "family_id": "3f0fd58a-df80-47ff-9549-fd4f6e0c0d95",
+      "excluded_order_id": "8ca0962a-b3c1-4687-874b-45cee7f1d54f",
+      "excluded_order_ref": "SS42826A",
+      "selected_order_ref": "SS51926A"
+    },
+    {
+      "reason": "older_cycle_arrival_elapsed_before_later_cycle",
+      "decision": "completed_by_later_inbound",
+      "family_id": "4e98e0ea-27ef-412f-9de7-e003e01f85b0",
+      "excluded_order_id": "9e30ba8f-a788-4529-aa50-197483d40f28",
+      "excluded_order_ref": "SS51226B",
+      "selected_order_ref": "SS7126B"
+    },
+    {
+      "reason": "later_cycle_exists_without_terminal_or_elapsed_arrival_evidence",
+      "decision": "review_required",
+      "family_id": "4e98e0ea-27ef-412f-9de7-e003e01f85b0",
+      "excluded_order_id": "ff57ba0f-5af1-46ae-a124-97f8519ed46b",
+      "excluded_order_ref": "SS61726B",
+      "selected_order_ref": "SS7126B"
+    },
+    {
+      "reason": "later_cycle_exists_without_terminal_or_elapsed_arrival_evidence",
+      "decision": "review_required",
+      "family_id": "4e98e0ea-27ef-412f-9de7-e003e01f85b0",
+      "excluded_order_id": "6cfc3e4d-9ca4-431c-ae0b-38abf1612533",
+      "excluded_order_ref": "SS62426B",
+      "selected_order_ref": "SS7126B"
+    },
+    {
+      "reason": "older_cycle_arrival_elapsed_before_later_cycle",
+      "decision": "completed_by_later_inbound",
+      "family_id": "54d68dcc-2c36-47a0-8b81-a655b869bb1b",
+      "excluded_order_id": "b8aad6bd-c61d-457a-b12b-619bc0fd3bcb",
+      "excluded_order_ref": "SS51926A",
+      "selected_order_ref": "SS62426B"
+    },
+    {
+      "reason": "later_cycle_exists_without_terminal_or_elapsed_arrival_evidence",
+      "decision": "review_required",
+      "family_id": "54d68dcc-2c36-47a0-8b81-a655b869bb1b",
+      "excluded_order_id": "ff57ba0f-5af1-46ae-a124-97f8519ed46b",
+      "excluded_order_ref": "SS61726B",
+      "selected_order_ref": "SS62426B"
+    },
+    {
+      "reason": "older_cycle_arrival_elapsed_before_later_cycle",
+      "decision": "completed_by_later_inbound",
+      "family_id": "5ef9eedb-3717-449b-a7f4-20e3650e812e",
+      "excluded_order_id": "8ca0962a-b3c1-4687-874b-45cee7f1d54f",
+      "excluded_order_ref": "SS42826A",
+      "selected_order_ref": "SS7126B"
+    },
+    {
+      "reason": "older_cycle_arrival_elapsed_before_later_cycle",
+      "decision": "completed_by_later_inbound",
+      "family_id": "5ef9eedb-3717-449b-a7f4-20e3650e812e",
+      "excluded_order_id": "9e30ba8f-a788-4529-aa50-197483d40f28",
+      "excluded_order_ref": "SS51226B",
+      "selected_order_ref": "SS7126B"
+    },
+    {
+      "reason": "older_cycle_arrival_elapsed_before_later_cycle",
+      "decision": "completed_by_later_inbound",
+      "family_id": "6942877e-117b-415a-9480-4de0d0cf7090",
+      "excluded_order_id": "8ca0962a-b3c1-4687-874b-45cee7f1d54f",
+      "excluded_order_ref": "SS42826A",
+      "selected_order_ref": "SS7126B"
+    },
+    {
+      "reason": "older_cycle_arrival_elapsed_before_later_cycle",
+      "decision": "completed_by_later_inbound",
+      "family_id": "72085714-5293-428e-8207-e523a7024e9e",
+      "excluded_order_id": "8ca0962a-b3c1-4687-874b-45cee7f1d54f",
+      "excluded_order_ref": "SS42826A",
+      "selected_order_ref": "SS61726B"
+    },
+    {
+      "reason": "older_cycle_arrival_elapsed_before_later_cycle",
+      "decision": "completed_by_later_inbound",
+      "family_id": "72085714-5293-428e-8207-e523a7024e9e",
+      "excluded_order_id": "9e30ba8f-a788-4529-aa50-197483d40f28",
+      "excluded_order_ref": "SS51226B",
+      "selected_order_ref": "SS61726B"
+    },
+    {
+      "reason": "older_cycle_arrival_elapsed_before_later_cycle",
+      "decision": "completed_by_later_inbound",
+      "family_id": "77a62960-fb0c-414b-b96e-b89bd1a7e958",
+      "excluded_order_id": "fd612011-42a6-404a-95eb-072cf9579a40",
+      "excluded_order_ref": "EF51826C",
+      "selected_order_ref": "EF61726C"
+    },
+    {
+      "reason": "older_cycle_arrival_elapsed_before_later_cycle",
+      "decision": "completed_by_later_inbound",
+      "family_id": "7e107338-9273-420f-aba5-a71e9f15629e",
+      "excluded_order_id": "9e30ba8f-a788-4529-aa50-197483d40f28",
+      "excluded_order_ref": "SS51226B",
+      "selected_order_ref": "SS61726B"
+    },
+    {
+      "reason": "later_cycle_exists_without_terminal_or_elapsed_arrival_evidence",
+      "decision": "review_required",
+      "family_id": "80ea2dbd-b900-4065-ac6e-7560aaa47d80",
+      "excluded_order_id": "90c8e8c7-98f4-4058-a3a3-bc6343aec18a",
+      "excluded_order_ref": "RH61726A",
+      "selected_order_ref": "RH62426A"
+    },
+    {
+      "reason": "older_cycle_arrival_elapsed_before_later_cycle",
+      "decision": "completed_by_later_inbound",
+      "family_id": "81da36c2-59c6-4e58-a13d-9ba3934e8578",
+      "excluded_order_id": "8ca0962a-b3c1-4687-874b-45cee7f1d54f",
+      "excluded_order_ref": "SS42826A",
+      "selected_order_ref": "SS61726B"
+    },
+    {
+      "reason": "older_cycle_arrival_elapsed_before_later_cycle",
+      "decision": "completed_by_later_inbound",
+      "family_id": "82ed9ee3-0e77-4081-a63f-70f17d0b12a6",
+      "excluded_order_id": "8ca0962a-b3c1-4687-874b-45cee7f1d54f",
+      "excluded_order_ref": "SS42826A",
+      "selected_order_ref": "SS51226B"
+    },
+    {
+      "reason": "older_cycle_arrival_elapsed_before_later_cycle",
+      "decision": "completed_by_later_inbound",
+      "family_id": "85c44628-1cd2-4379-bc33-3e0b18d7d067",
+      "excluded_order_id": "8ca0962a-b3c1-4687-874b-45cee7f1d54f",
+      "excluded_order_ref": "SS42826A",
+      "selected_order_ref": "SS51226B"
+    },
+    {
+      "reason": "older_cycle_arrival_elapsed_before_later_cycle",
+      "decision": "completed_by_later_inbound",
+      "family_id": "85fb51a8-884d-4f54-bf75-7da83e29ca85",
+      "excluded_order_id": "8ca0962a-b3c1-4687-874b-45cee7f1d54f",
+      "excluded_order_ref": "SS42826A",
+      "selected_order_ref": "SS51226B"
+    },
+    {
+      "reason": "later_cycle_exists_without_terminal_or_elapsed_arrival_evidence",
+      "decision": "review_required",
+      "family_id": "8a8d07e7-0471-4aa1-8eb4-365532920fda",
+      "excluded_order_id": "be8edc5e-a5e9-4770-90dc-39ed841a2ae3",
+      "excluded_order_ref": "MX61726A",
+      "selected_order_ref": "MX7326A"
+    },
+    {
+      "reason": "older_cycle_arrival_elapsed_before_later_cycle",
+      "decision": "completed_by_later_inbound",
+      "family_id": "90839489-f003-4180-ac2c-0e8b4421df61",
+      "excluded_order_id": "9e30ba8f-a788-4529-aa50-197483d40f28",
+      "excluded_order_ref": "SS51226B",
+      "selected_order_ref": "SS7126B"
+    },
+    {
+      "reason": "older_cycle_arrival_elapsed_before_later_cycle",
+      "decision": "completed_by_later_inbound",
+      "family_id": "99933ca5-2535-4a93-91d9-cf26996b78df",
+      "excluded_order_id": "b8aad6bd-c61d-457a-b12b-619bc0fd3bcb",
+      "excluded_order_ref": "SS51926A",
+      "selected_order_ref": "SS61726B"
+    },
+    {
+      "reason": "older_cycle_arrival_elapsed_before_later_cycle",
+      "decision": "completed_by_later_inbound",
+      "family_id": "9fe0b8f9-e7f2-45d7-b596-a9660fc52024",
+      "excluded_order_id": "b8aad6bd-c61d-457a-b12b-619bc0fd3bcb",
+      "excluded_order_ref": "SS51926A",
+      "selected_order_ref": "SS61726B"
+    },
+    {
+      "reason": "older_cycle_arrival_elapsed_before_later_cycle",
+      "decision": "completed_by_later_inbound",
+      "family_id": "a306df2c-5cad-4624-8782-3b9bc03a9c49",
+      "excluded_order_id": "8ca0962a-b3c1-4687-874b-45cee7f1d54f",
+      "excluded_order_ref": "SS42826A",
+      "selected_order_ref": "SS62426B"
+    },
+    {
+      "reason": "later_cycle_exists_without_terminal_or_elapsed_arrival_evidence",
+      "decision": "review_required",
+      "family_id": "a306df2c-5cad-4624-8782-3b9bc03a9c49",
+      "excluded_order_id": "ff57ba0f-5af1-46ae-a124-97f8519ed46b",
+      "excluded_order_ref": "SS61726B",
+      "selected_order_ref": "SS62426B"
+    },
+    {
+      "reason": "older_cycle_arrival_elapsed_before_later_cycle",
+      "decision": "completed_by_later_inbound",
+      "family_id": "aa71ab0f-c6c1-44c7-baa4-e08feb110e65",
+      "excluded_order_id": "9e30ba8f-a788-4529-aa50-197483d40f28",
+      "excluded_order_ref": "SS51226B",
+      "selected_order_ref": "SS7126B"
+    },
+    {
+      "reason": "later_cycle_exists_without_terminal_or_elapsed_arrival_evidence",
+      "decision": "review_required",
+      "family_id": "aa71ab0f-c6c1-44c7-baa4-e08feb110e65",
+      "excluded_order_id": "ff57ba0f-5af1-46ae-a124-97f8519ed46b",
+      "excluded_order_ref": "SS61726B",
+      "selected_order_ref": "SS7126B"
+    },
+    {
+      "reason": "older_cycle_arrival_elapsed_before_later_cycle",
+      "decision": "completed_by_later_inbound",
+      "family_id": "c853c831-58a7-44ce-a26a-5cf3ece932cd",
+      "excluded_order_id": "8ca0962a-b3c1-4687-874b-45cee7f1d54f",
+      "excluded_order_ref": "SS42826A",
+      "selected_order_ref": "SS51226B"
+    },
+    {
+      "reason": "older_cycle_arrival_elapsed_before_later_cycle",
+      "decision": "completed_by_later_inbound",
+      "family_id": "d16cdabd-0b1b-4efd-80b1-c2c22f8feb64",
+      "excluded_order_id": "8ca0962a-b3c1-4687-874b-45cee7f1d54f",
+      "excluded_order_ref": "SS42826A",
+      "selected_order_ref": "SS61726B"
+    },
+    {
+      "reason": "older_cycle_arrival_elapsed_before_later_cycle",
+      "decision": "completed_by_later_inbound",
+      "family_id": "d16cdabd-0b1b-4efd-80b1-c2c22f8feb64",
+      "excluded_order_id": "62b428e4-113f-4419-b8b1-2933a8d68373",
+      "excluded_order_ref": "SS52126A",
+      "selected_order_ref": "SS61726B"
+    },
+    {
+      "reason": "older_cycle_arrival_elapsed_before_later_cycle",
+      "decision": "completed_by_later_inbound",
+      "family_id": "d30f1414-96fb-483b-bcb6-d481a9feb69f",
+      "excluded_order_id": "8ca0962a-b3c1-4687-874b-45cee7f1d54f",
+      "excluded_order_ref": "SS42826A",
+      "selected_order_ref": "SS7126B"
+    },
+    {
+      "reason": "older_cycle_arrival_elapsed_before_later_cycle",
+      "decision": "completed_by_later_inbound",
+      "family_id": "d30f1414-96fb-483b-bcb6-d481a9feb69f",
+      "excluded_order_id": "9e30ba8f-a788-4529-aa50-197483d40f28",
+      "excluded_order_ref": "SS51226B",
+      "selected_order_ref": "SS7126B"
+    },
+    {
+      "reason": "later_cycle_exists_without_terminal_or_elapsed_arrival_evidence",
+      "decision": "review_required",
+      "family_id": "d30f1414-96fb-483b-bcb6-d481a9feb69f",
+      "excluded_order_id": "ff57ba0f-5af1-46ae-a124-97f8519ed46b",
+      "excluded_order_ref": "SS61726B",
+      "selected_order_ref": "SS7126B"
+    },
+    {
+      "reason": "later_cycle_exists_without_terminal_or_elapsed_arrival_evidence",
+      "decision": "review_required",
+      "family_id": "d59d4308-73c3-4eb4-939e-de573b396221",
+      "excluded_order_id": "48bb7734-64ab-480f-abaf-01167575d284",
+      "excluded_order_ref": "SS5626C",
+      "selected_order_ref": "SS7326A"
+    },
+    {
+      "reason": "older_cycle_arrival_elapsed_before_later_cycle",
+      "decision": "completed_by_later_inbound",
+      "family_id": "dc37a1d4-22a0-4a16-9195-91e880c77444",
+      "excluded_order_id": "62b428e4-113f-4419-b8b1-2933a8d68373",
+      "excluded_order_ref": "SS52126A",
+      "selected_order_ref": "SS61726B"
+    },
+    {
+      "reason": "older_cycle_arrival_elapsed_before_later_cycle",
+      "decision": "completed_by_later_inbound",
+      "family_id": "e505ce5b-f23a-4099-b11e-0cb9e6a232af",
+      "excluded_order_id": "9e30ba8f-a788-4529-aa50-197483d40f28",
+      "excluded_order_ref": "SS51226B",
+      "selected_order_ref": "SS7126B"
+    },
+    {
+      "reason": "older_cycle_arrival_elapsed_before_later_cycle",
+      "decision": "completed_by_later_inbound",
+      "family_id": "ebd57770-760f-4211-95fe-61370cb0e827",
+      "excluded_order_id": "8ca0962a-b3c1-4687-874b-45cee7f1d54f",
+      "excluded_order_ref": "SS42826A",
+      "selected_order_ref": "SS7126B"
+    },
+    {
+      "reason": "later_cycle_exists_without_terminal_or_elapsed_arrival_evidence",
+      "decision": "review_required",
+      "family_id": "ebd57770-760f-4211-95fe-61370cb0e827",
+      "excluded_order_id": "ff57ba0f-5af1-46ae-a124-97f8519ed46b",
+      "excluded_order_ref": "SS61726B",
+      "selected_order_ref": "SS7126B"
+    },
+    {
+      "reason": "older_cycle_arrival_elapsed_before_later_cycle",
+      "decision": "completed_by_later_inbound",
+      "family_id": "fcd2688d-7cd7-4b3d-8ea3-9b5ccea86fd9",
+      "excluded_order_id": "9e30ba8f-a788-4529-aa50-197483d40f28",
+      "excluded_order_ref": "SS51226B",
+      "selected_order_ref": "SS61726B"
+    }
+  ],
+  "calculationDate": "2026-07-14"
+}

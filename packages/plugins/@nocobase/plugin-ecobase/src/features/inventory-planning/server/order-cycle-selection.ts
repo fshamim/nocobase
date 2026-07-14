@@ -29,6 +29,7 @@ export interface FamilyOrderCycleDecision {
 
 export interface FamilyOrderCycleSelection {
   selectedOrderId?: string;
+  selectedOrderRef?: string;
   selectedLineIds: string[];
   selectedOpenQty: number;
   selectedCoverageState?: 'purchased_pipeline' | 'placed_not_purchased';
@@ -113,6 +114,7 @@ export function selectCurrentFamilyOrderCycle(
 
   return {
     selectedOrderId,
+    selectedOrderRef: selected.orderRef,
     selectedLineIds: selectedLines.map((line) => line.lineId).sort(),
     selectedOpenQty: selectedLines.reduce((total, line) => total + line.openQty, 0),
     selectedCoverageState: selected.coverageState,

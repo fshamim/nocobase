@@ -1,0 +1,14 @@
+{
+  "data": {
+    "data": {
+      "dryRun": false,
+      "totalCandidates": 0,
+      "batchSize": 0,
+      "orderIds": [],
+      "cursor": null,
+      "nextCursor": null,
+      "complete": true,
+      "reconciliation": null
+    }
+  }
+}

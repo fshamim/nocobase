@@ -1,0 +1,33 @@
+{
+  "data": {
+    "data": {
+      "id": "7ecaf9c1-976a-4bd1-9579-12871564336e",
+      "name": "Default planning settings",
+      "isActive": true,
+      "safetyBufferDays": 7,
+      "reorderCycleDays": 30,
+      "targetCoverDays": 45,
+      "orderSoonWindowDays": 14,
+      "leadTimeFreshnessDays": 60,
+      "purchasedPipelineGraceDays": 3,
+      "receivingBufferDays": 3,
+      "defaultExpectedArrivalLeadTimeDays": 30,
+      "enableCurrentOrderCycleSelection": true,
+      "allowDefaultExpectedArrival": true,
+      "profitTierAThreshold": 250,
+      "profitTierBThreshold": 100,
+      "profitTierCThreshold": 0,
+      "supplierOrderPlacedNotPurchasedStatuses": [
+        "draft",
+        "supplier_contacted",
+        "supplier_confirmed",
+        "approval_pending",
+        "payment_pending",
+        "blocked"
+      ],
+      "supplierOrderPurchasedPipelineStatuses": ["paid", "supplier_preparing", "shipped_inbound"],
+      "supplierOrderClosedStatuses": ["completed", "rejected", "cancelled"],
+      "updatedBy": "1"
+    }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "verification": "no staging operator rows exist; focused unit test verifies persisted operator status wins over payment-derived status",
+  "manualStatusRows": 0,
+  "clickupStatusRows": 44,
+  "operatorStatusRows": 0,
+  "operatorRowsWithOverrideTimestamp": 0
+}

@@ -356,6 +356,20 @@ function formatPipelineHealthLabel(value: any) {
   return value === 'late_with_grace' ? 'Late With Buffer' : formatStatusLabel(value);
 }
 
+function formatExpectedArrivalSource(value: any) {
+  const source = String(value ?? '');
+  if (source.startsWith('planning_settings.default_expected_arrival_lead_time')) {
+    return 'Planning default lead time + receiving buffer';
+  }
+  if (source.startsWith('silver_family.preferred_supplier_product_lead_time')) {
+    return 'Preferred supplier lead time + receiving buffer';
+  }
+  if (source.startsWith('silver_order_line.supplier_product_lead_time')) {
+    return 'Order-line supplier lead time + receiving buffer';
+  }
+  return formatStatusLabel(source || 'insufficient_silver_evidence');
+}
+
 function formatTierScore(value: any) {
   const number = finiteNumber(value);
   return typeof number === 'number' ? formatNumber(number) : '—';
@@ -1061,7 +1075,7 @@ export default function InventoryPlanningPage() {
   const commandPaneTitles: Record<CommandCenterPaneKey, string> = {
     supplyAction: t('Families needing supply action — no active order'),
     missingSupplier: t('Families missing supplier — stockout risk'),
-    activeOrders: t('Families with active orders — pipeline monitoring'),
+    activeOrders: t('Families with current order cycles — pipeline monitoring'),
     inboundMonitoring: t('Inbound Monitoring — awaiting Amazon stock'),
     healthyInventory: t('Healthy inventory — current coverage sufficient'),
     stuckInventory: t('Stuck & excess inventory'),
@@ -1076,7 +1090,7 @@ export default function InventoryPlanningPage() {
       'One row per at-risk family without a verified preferred supplier. Expand the family to inspect listing evidence.',
     ),
     activeOrders: t(
-      'One row per family with an active order. Check family coverage, arrival timing, and the listing-level order evidence.',
+      'One row per family with one current order reference. Older cycles are excluded from coverage and shown as evidence.',
     ),
     inboundMonitoring: t(
       'Exact ClickUp inbound-monitoring families awaiting or partially showing in Sellerboard Amazon stock.',
@@ -1587,9 +1601,15 @@ export default function InventoryPlanningPage() {
             {formatCurrency(row.familyStuckAffectedValue)}
           </Typography.Text>
           {finiteNumber(row.familyStuckActiveOrderCount) ? (
-            <Typography.Text type="secondary">
-              {formatNumber(row.familyStuckActiveOrderCount)} {t('active order(s)')}
-            </Typography.Text>
+            <>
+              <Typography.Text type="secondary">
+                {formatNumber(row.familyStuckActiveOrderCount)} {t('active order(s)')}
+              </Typography.Text>
+              <Typography.Text type="secondary">
+                {t('Current order reference')} {row.supplierOrderRef ?? '—'} ·{' '}
+                {formatNumber(row.supplierOrderReferenceOpenQty ?? row.openOrderCoverageQty)} {t('units')}
+              </Typography.Text>
+            </>
           ) : null}
         </Space>
       );
@@ -1644,16 +1664,39 @@ export default function InventoryPlanningPage() {
       );
     }
     if (pane === 'activeOrders') {
+      const cycle = asPlainRecord(row.supplierOrderCycleSelection);
+      const excludedCycles = unwrapRows(cycle.excludedCycles);
+      const receiptEvidence = asPlainRecord(asPlainRecord(row.amazonReceiptEvidenceJson).receiptEvidence);
       return (
         <Space direction="vertical" size={0}>
           {renderActiveRiskCell(undefined, row)}
+          {row.supplierOrderCycleReviewRequired ? <Tag color="red">{t('Older order cycle review')}</Tag> : null}
           {row.amazonReceiptStatus === 'review_required' ? (
             <Tag color="red">{t('Amazon receipt evidence review')}</Tag>
           ) : null}
-          <Typography.Text strong>{row.supplierOrderRef ?? '—'}</Typography.Text>
-          <Typography.Text type="secondary">
-            {t('Expected')} {formatDate(row.expectedArrivalDate)}
+          <Typography.Text strong>
+            {t('Current order reference')} {row.supplierOrderRef ?? cycle.selectedOrderRef ?? '—'}
           </Typography.Text>
+          <Typography.Text type="secondary">
+            {formatNumber(row.supplierOrderReferenceOpenQty ?? row.openOrderCoverageQty)} {t('current-cycle units')}
+          </Typography.Text>
+          <Typography.Text type="secondary">
+            {t('Expected arrival')} {formatDate(row.expectedArrivalDate)} ·{' '}
+            {t(formatStatusLabel(row.expectedArrivalFreshness))}
+          </Typography.Text>
+          <Typography.Text type="secondary">
+            {t(formatExpectedArrivalSource(row.expectedArrivalSource))}
+          </Typography.Text>
+          {excludedCycles.length ? (
+            <Typography.Text type="secondary">
+              {excludedCycles.length} {t('older cycle(s) excluded from coverage')}
+            </Typography.Text>
+          ) : null}
+          {receiptEvidence.reason ? (
+            <Typography.Text type="secondary">
+              {t('Receipt evidence')} {t(formatStatusLabel(receiptEvidence.reason))}
+            </Typography.Text>
+          ) : null}
           {renderPipelineGapCell(undefined, row)}
         </Space>
       );
@@ -1726,7 +1769,7 @@ export default function InventoryPlanningPage() {
     },
     { title: String(t('Tier movement')), dataIndex: 'tier', render: renderCommandTierCell },
     {
-      title: String(t('Latest order')),
+      title: String(t('Current order reference')),
       key: 'order',
       render: (_value: any, row: PlainRecord) => (
         <Space direction="vertical" size={0}>
@@ -2342,9 +2385,14 @@ export default function InventoryPlanningPage() {
                 {t(formatStatusLabel(selectedRow.amazonReceiptStatus ?? 'awaiting_amazon_stock'))}
               </Tag>
               <Typography.Text>
-                {t('Order')} {selectedRow.supplierOrderRef ?? '—'} · {t('Open coverage')}{' '}
+                {t('Current order reference')} {selectedRow.supplierOrderRef ?? '—'} · {t('Open coverage')}{' '}
                 {formatNumber(selectedRow.openOrderCoverageQty)} · {t('Observed')}{' '}
                 {formatDate(selectedRow.amazonReceiptObservedAt)}
+              </Typography.Text>
+              <Typography.Text type="secondary">
+                {t('Expected arrival')} {formatDate(selectedRow.expectedArrivalDate)} ·{' '}
+                {t(formatExpectedArrivalSource(selectedRow.expectedArrivalSource))} ·{' '}
+                {t(formatStatusLabel(selectedRow.expectedArrivalFreshness))}
               </Typography.Text>
             </Space>
             <Space size="small" wrap>
@@ -2390,8 +2438,11 @@ export default function InventoryPlanningPage() {
     }
     if (selectedCommandPane === 'activeOrders') {
       const expectedArrivalLabel = relativeDateLabel(selectedRow.expectedArrivalDate, commandCalculationDate);
+      const cycle = asPlainRecord(selectedRow.supplierOrderCycleSelection);
+      const excludedCycles = unwrapRows(cycle.excludedCycles);
+      const receiptEvidence = asPlainRecord(asPlainRecord(selectedRow.amazonReceiptEvidenceJson).receiptEvidence);
       return (
-        <Card size="small" title={t('Active order follow-up')}>
+        <Card size="small" title={t('Current order-cycle follow-up')}>
           <Space direction="vertical" style={{ width: '100%' }}>
             <Space size={4} wrap>
               <Tag color={supplierOrderStatusColor(selectedRow.supplierOrderStatus)}>
@@ -2400,13 +2451,35 @@ export default function InventoryPlanningPage() {
               <Tag color={selectedRow.pipelineHealthStatus === 'late' ? 'red' : 'blue'}>
                 {t(formatPipelineHealthLabel(selectedRow.pipelineHealthStatus ?? 'none'))}
               </Tag>
+              {selectedRow.supplierOrderCycleReviewRequired ? (
+                <Tag color="red">{t('Older order cycle review')}</Tag>
+              ) : null}
               {selectedRow.amazonReceiptStatus === 'review_required' ? (
                 <Tag color="red">{t('Amazon receipt evidence review')}</Tag>
               ) : null}
-              <Typography.Text>
-                {t('Expected arrival')} {t(expectedArrivalLabel.label)} ({formatDate(selectedRow.expectedArrivalDate)})
-                · {t('Gap')} {formatNumber(selectedRow.stockoutGapDays)} {t('days')}
+              <Typography.Text strong>
+                {t('Current order reference')} {selectedRow.supplierOrderRef ?? cycle.selectedOrderRef ?? '—'}
               </Typography.Text>
+              <Typography.Text>
+                {formatNumber(selectedRow.supplierOrderReferenceOpenQty ?? selectedRow.openOrderCoverageQty)}{' '}
+                {t('current-cycle units')} · {t('Expected arrival')} {t(expectedArrivalLabel.label)} (
+                {formatDate(selectedRow.expectedArrivalDate)}) · {t('Gap')} {formatNumber(selectedRow.stockoutGapDays)}{' '}
+                {t('days')}
+              </Typography.Text>
+              <Typography.Text type="secondary">
+                {t('Arrival evidence')} {t(formatExpectedArrivalSource(selectedRow.expectedArrivalSource))} ·{' '}
+                {t(formatStatusLabel(selectedRow.expectedArrivalFreshness))}
+              </Typography.Text>
+              {excludedCycles.length ? (
+                <Typography.Text type="secondary">
+                  {excludedCycles.length} {t('older cycle(s) excluded from current coverage')}
+                </Typography.Text>
+              ) : null}
+              {receiptEvidence.reason ? (
+                <Typography.Text type="secondary">
+                  {t('Receipt evidence')} {t(formatStatusLabel(receiptEvidence.reason))}
+                </Typography.Text>
+              ) : null}
             </Space>
             <Space size="small" wrap>
               <Button type="primary" onClick={() => setManagePanels(['order-status'])}>
@@ -2995,8 +3068,18 @@ export default function InventoryPlanningPage() {
               <Descriptions.Item label={t('Stock buckets')}>
                 <StockStatus row={selectedRow} t={t} />
               </Descriptions.Item>
-              <Descriptions.Item label={columnHelp(t('Order coverage'), t(orderCoverageText()))}>
+              <Descriptions.Item label={columnHelp(t('Current order-cycle coverage'), t(orderCoverageText()))}>
                 {formatNumber(selectedRow.openOrderCoverageQty)}
+              </Descriptions.Item>
+              <Descriptions.Item label={t('Current order reference')}>
+                {selectedRow.supplierOrderRef ?? '—'} ·{' '}
+                {formatNumber(selectedRow.supplierOrderReferenceOpenQty ?? selectedRow.openOrderCoverageQty)}{' '}
+                {t('units')}
+              </Descriptions.Item>
+              <Descriptions.Item label={t('Expected-arrival evidence')}>
+                {formatDate(selectedRow.expectedArrivalDate)} ·{' '}
+                {t(formatExpectedArrivalSource(selectedRow.expectedArrivalSource))} ·{' '}
+                {t(formatStatusLabel(selectedRow.expectedArrivalFreshness))}
               </Descriptions.Item>
             </Descriptions>
             {actionValues ? (
@@ -3020,14 +3103,26 @@ export default function InventoryPlanningPage() {
                               {
                                 title: String(t('Status')),
                                 key: 'status',
-                                render: (_value: any, line: PlainRecord) => (
-                                  <Tag color={supplierOrderStatusColor(line.order?.status)}>
-                                    {t(line.order?.status ?? 'unknown')}
-                                  </Tag>
-                                ),
+                                render: (_value: any, line: PlainRecord) => {
+                                  const cycleSelection = asPlainRecord(selectedRow.supplierOrderCycleSelection);
+                                  const selectedLineIds = Array.isArray(cycleSelection.selectedLineIds)
+                                    ? cycleSelection.selectedLineIds.map(String)
+                                    : [];
+                                  const currentCycle = selectedLineIds.includes(String(line.id));
+                                  return (
+                                    <Space direction="vertical" size={0}>
+                                      <Tag color={supplierOrderStatusColor(line.order?.status)}>
+                                        {t(line.order?.status ?? 'unknown')}
+                                      </Tag>
+                                      <Tag color={currentCycle ? 'blue' : 'default'}>
+                                        {t(currentCycle ? 'Current cycle' : 'Older cycle — excluded from coverage')}
+                                      </Tag>
+                                    </Space>
+                                  );
+                                },
                               },
                               {
-                                title: String(t('Supplier order')),
+                                title: String(t('Order reference')),
                                 key: 'order',
                                 render: (_value: any, line: PlainRecord) =>
                                   line.order?.externalOrderRef ?? line.supplierOrderId ?? '—',

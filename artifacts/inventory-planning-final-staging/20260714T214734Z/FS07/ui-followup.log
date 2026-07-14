@@ -1,0 +1,81 @@
+yarn run v1.22.22
+$ /Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/.bin/eslint packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/client/InventoryPlanningPage.tsx packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/inventory-planning-service.ts packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/order-cycle-selection.ts packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-cycle-selection.test.ts
+
+/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/client/InventoryPlanningPage.tsx
+  1687:45  error  Replace `{t(formatExpectedArrivalSource(row.expectedArrivalSource))}` with `⏎············{t(formatExpectedArrivalSource(row.expectedArrivalSource))}⏎··········`  prettier/prettier
+
+✖ 1 problem (1 error, 0 warnings)
+  1 error and 0 warnings potentially fixable with the `--fix` option.
+
+error Command failed with exit code 1.
+info Visit https://yarnpkg.com/en/docs/cli/run for documentation about this command.
+yarn run v1.22.22
+$ /Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/.bin/vitest run packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-cycle-selection.test.ts
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:28422) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-cycle-selection.test.ts  (6 tests) 2ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  03:58:21
+   Duration  504ms (transform 56ms, setup 160ms, collect 10ms, tests 2ms, environment 168ms, prepare 40ms)
+
+Done in 1.25s.
+yarn run v1.22.22
+$ /Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/.bin/vitest run packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:28477) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts  (33 tests) 44ms
+
+ Test Files  1 passed (1)
+      Tests  33 passed (33)
+   Start at  03:58:22
+   Duration  948ms (transform 423ms, setup 150ms, collect 441ms, tests 44ms, environment 162ms, prepare 42ms)
+
+Done in 1.69s.
+yarn run v1.22.22
+$ nocobase-v1 build @nocobase/plugin-ecobase --no-dts
+(node:28531) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+$ tsup
+[@nocobase/build]: plugins source layer 1/1 (1 packages)
+@nocobase/plugin-ecobase: plugins/@nocobase/plugin-ecobase build start
+@nocobase/plugin-ecobase: build plugin client
+asset [1m[32m645.047713aac882b5f5.js[39m[22m 97.4 KiB [1m[32m[emitted][39m[22m [1m[32m[immutable][39m[22m
+asset [1m[32m754.739ff4cac5cd48ec.js[39m[22m 43.5 KiB [1m[32m[emitted][39m[22m [1m[32m[immutable][39m[22m
+asset [1m[32m419.fe9d95156ce776e5.js[39m[22m 28.8 KiB [1m[32m[emitted][39m[22m [1m[32m[immutable][39m[22m
+asset [1m[32m413.8b75ccad6947b5d3.js[39m[22m 28.6 KiB [1m[32m[emitted][39m[22m [1m[32m[immutable][39m[22m
+asset [1m[32m318.ff0d65ab13eb4ab2.js[39m[22m 26.8 KiB [1m[32m[emitted][39m[22m [1m[32m[immutable][39m[22m
+asset [1m[32m243.42b55c2d87d4d7cf.js[39m[22m 19.8 KiB [1m[32m[emitted][39m[22m [1m[32m[immutable][39m[22m
+asset [1m[32mindex.js[39m[22m 19.4 KiB [1m[32m[emitted][39m[22m (name: main)
+asset [1m[32m312.91a2b3cd47baa812.js[39m[22m 19 KiB [1m[32m[emitted][39m[22m [1m[32m[immutable][39m[22m
+asset [1m[32m954.1cabaef5b5479549.js[39m[22m 14 KiB [1m[32m[emitted][39m[22m [1m[32m[immutable][39m[22m
+asset [1m[32m921.fd71d6a71c11c668.js[39m[22m 13.6 KiB [1m[32m[emitted][39m[22m [1m[32m[immutable][39m[22m
+asset [1m[32m919.926d5e717d76b646.js[39m[22m 9.23 KiB [1m[32m[emitted][39m[22m [1m[32m[immutable][39m[22m
+asset [1m[32m902.3ac1ffae3865c635.js[39m[22m 2.22 KiB [1m[32m[emitted][39m[22m [1m[32m[immutable][39m[22m
+runtime modules 7.82 KiB 10 modules
+orphan modules 107 KiB [1m[33m[orphan][39m[22m 6 modules
+built modules 653 KiB [1m[33m[built][39m[22m
+  modules by path [1m./src/[39m[22m 651 KiB
+    modules by path [1m./src/features/[39m[22m 560 KiB 9 modules
+    modules by path [1m./src/client/[39m[22m 91.6 KiB
+      [1m./src/client/pages/PlanningSettingsPage.tsx[39m[22m 30.8 KiB [1m[33m[built][39m[22m [1m[33m[code generated][39m[22m
+      [1m./src/client/formula-help.tsx[39m[22m 60.5 KiB [1m[33m[built][39m[22m [1m[33m[code generated][39m[22m
+      [1m./src/client/locale.ts[39m[22m 251 bytes [1m[33m[built][39m[22m [1m[33m[code generated][39m[22m
+  + 7 modules
+[1m./src/client/index.tsx + 3 modules[39m[22m 36 KiB [1m[33m[code generated][39m[22m
+[1m./src/features/order-planning/client/OrderPlanningPage.tsx + 1 modules[39m[22m 71.1 KiB [1m[33m[code generated][39m[22m
+Rspack 1.7.8 compiled [1m[32msuccessfully[39m[22m in 90 ms
+@nocobase/plugin-ecobase: skip plugin client-v2 build, root entry not found
+@nocobase/plugin-ecobase: build plugin server source
+@nocobase/plugin-ecobase: delete server files
+@nocobase/plugin-ecobase: build plugin server dependencies
+@nocobase/plugin-ecobase: These packages zod will be bundled to dist/node_modules. These packages @nocobase/ai, @nocobase/server, @nocobase/database, sequelize, @nocobase/client, antd, react, dayjs will be exclude. For more information, please refer to: https://docs.nocobase.com/development/others/deps.
+@nocobase/plugin-ecobase: write external version
+Done in 3.87s.

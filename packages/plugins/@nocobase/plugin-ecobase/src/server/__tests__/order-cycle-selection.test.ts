@@ -30,6 +30,7 @@ describe('selectCurrentFamilyOrderCycle', () => {
       ),
     ).toMatchObject({
       selectedOrderId: 'new',
+      selectedOrderRef: 'NEW',
       selectedLineIds: ['line-new'],
       selectedOpenQty: 10,
       excludedCycles: [{ orderId: 'old', decision: 'review_required' }],

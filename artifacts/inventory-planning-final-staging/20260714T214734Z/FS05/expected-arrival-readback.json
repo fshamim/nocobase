@@ -1,0 +1,68 @@
+{
+  "summary": {
+    "knownRows": 121,
+    "activeRows": 121,
+    "unknownRows": 0,
+    "knownOrderRefs": 42,
+    "unknownOrderRefs": 0
+  },
+  "breakdown": [
+    {
+      "source": "planning_settings.default_expected_arrival_lead_time+silver_order.order_date+planning_settings.receiving_buffer",
+      "status": "derived",
+      "company": "Ecofission LLC",
+      "freshness": "fresh",
+      "row_count": 15,
+      "order_refs": 5
+    },
+    {
+      "source": "planning_settings.default_expected_arrival_lead_time+silver_order.order_date+planning_settings.receiving_buffer",
+      "status": "derived",
+      "company": "Ecofission LLC",
+      "freshness": "stale",
+      "row_count": 7,
+      "order_refs": 3
+    },
+    {
+      "source": "planning_settings.default_expected_arrival_lead_time+silver_order.order_date+planning_settings.receiving_buffer",
+      "status": "derived",
+      "company": "Muxtex INC",
+      "freshness": "fresh",
+      "row_count": 23,
+      "order_refs": 14
+    },
+    {
+      "source": "planning_settings.default_expected_arrival_lead_time+silver_order.order_date+planning_settings.receiving_buffer",
+      "status": "derived",
+      "company": "Muxtex INC",
+      "freshness": "stale",
+      "row_count": 6,
+      "order_refs": 2
+    },
+    {
+      "source": "planning_settings.default_expected_arrival_lead_time+silver_order.order_date+planning_settings.receiving_buffer",
+      "status": "derived",
+      "company": "Retail Heaven Inc",
+      "freshness": "fresh",
+      "row_count": 14,
+      "order_refs": 7
+    },
+    {
+      "source": "planning_settings.default_expected_arrival_lead_time+silver_order.order_date+planning_settings.receiving_buffer",
+      "status": "derived",
+      "company": "Stop Shop LLC",
+      "freshness": "fresh",
+      "row_count": 41,
+      "order_refs": 7
+    },
+    {
+      "source": "planning_settings.default_expected_arrival_lead_time+silver_order.order_date+planning_settings.receiving_buffer",
+      "status": "derived",
+      "company": "Stop Shop LLC",
+      "freshness": "stale",
+      "row_count": 15,
+      "order_refs": 4
+    }
+  ],
+  "calculationDate": "2026-07-14"
+}
