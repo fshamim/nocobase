@@ -133,6 +133,7 @@ class MemoryDatabase implements EcobaseDatabase {
   constructor() {
     Object.values(ECOBASE_COLLECTIONS).forEach((name) => this.repositories.set(name, new MemoryRepository()));
     this.repositories.set('users', new MemoryRepository());
+    this.repositories.set('rolesUsers', new MemoryRepository());
   }
 
   getRepository(name: string) {

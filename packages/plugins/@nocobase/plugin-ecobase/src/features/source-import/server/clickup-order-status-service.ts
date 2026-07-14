@@ -578,6 +578,7 @@ export class EcobaseClickupOrderStatusService {
       }
       const userId = asIdString(user?.id);
       if (userId) {
+        if (!dryRun) await this.db.getRepository('rolesUsers').destroy({ filter: { userId: user?.id } });
         claimedUserIds.add(userId);
         userIdsByKey.set(approved.key, userId);
       }
