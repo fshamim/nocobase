@@ -36,6 +36,35 @@ function record(value: unknown): PlainRecord {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as PlainRecord) : {};
 }
 
+export function sellerboardHistorySourceConnectionId(params: {
+  company: string;
+  companies: PlainRecord[];
+  sourceConnections: PlainRecord[];
+}) {
+  const companyIds = new Set(
+    params.companies.filter((company) => text(company.name) === params.company).map((company) => text(company.id)),
+  );
+  const matches = params.sourceConnections.filter((source) => {
+    const config = record(source.config);
+    return (
+      text(source.sourceType) === 'sellerboard' &&
+      (companyIds.has(text(source.companyId)) ||
+        text(source.company) === params.company ||
+        text(config.company) === params.company)
+    );
+  });
+  if (matches.length !== 1) {
+    throw new Error(
+      `Sellerboard history apply expected one ${params.company} source connection; found ${matches.length}.`,
+    );
+  }
+  const sourceConnectionId = text(matches[0].id);
+  if (!sourceConnectionId) {
+    throw new Error(`Sellerboard history apply found an invalid ${params.company} source connection.`);
+  }
+  return sourceConnectionId;
+}
+
 export class EcobaseSellerboardHistoryApplyService {
   constructor(
     private db: EcobaseDatabase,
@@ -64,27 +93,16 @@ export class EcobaseSellerboardHistoryApplyService {
     const sourceConnections = (
       await this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).find({ limit: 10000 })
     ).map(toPlainRecord);
+    const companies = (await this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).find({ limit: 10000 })).map(
+      toPlainRecord,
+    );
     const factRepository = this.db.getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts);
     const beforeCount = (await factRepository.find({ limit: 1000000 })).length;
     const runs = [];
     for (const file of [...params.files].sort((left, right) => left.name.localeCompare(right.name))) {
       const company = sellerboardHistoryCompany(file.name);
       if (!company) throw new Error(`Sellerboard history apply could not infer company from ${file.name}.`);
-      const matches = sourceConnections.filter((source) => {
-        const config = record(source.config);
-        return (
-          text(source.sourceType) === 'sellerboard' &&
-          (text(source.company) === company || text(config.company) === company)
-        );
-      });
-      if (matches.length !== 1) {
-        throw new Error(
-          `Sellerboard history apply expected one ${company} source connection; found ${matches.length}.`,
-        );
-      }
-      const sourceConnectionId = text(matches[0].id);
-      if (!sourceConnectionId)
-        throw new Error(`Sellerboard history apply found an invalid ${company} source connection.`);
+      const sourceConnectionId = sellerboardHistorySourceConnectionId({ company, companies, sourceConnections });
       const run = await new EcobaseImportService(this.db, this.registry).runCsvBundleImport({
         sourceConnectionId,
         adapterName: 'sellerboard-history-csv',

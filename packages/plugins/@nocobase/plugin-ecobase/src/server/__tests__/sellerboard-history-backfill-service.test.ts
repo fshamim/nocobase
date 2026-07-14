@@ -16,6 +16,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { sellerboardHistorySourceConnectionId } from '../../features/source-import/server/sellerboard-history-apply-service';
 import { previewSellerboardHistoryBackfill } from '../../features/source-import/server/sellerboard-history-backfill-service';
 
 const header =
@@ -43,6 +44,18 @@ describe('Sellerboard history backfill preview', () => {
     expect(result.fileSummaries.every((summary) => summary.minDate === '2026-07-03')).toBe(true);
     expect(result.fileSummaries.every((summary) => summary.maxDate === '2026-07-03')).toBe(true);
     expect(result.decisionDigest).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it('resolves the Sellerboard source through its canonical company relation', () => {
+    expect(
+      sellerboardHistorySourceConnectionId({
+        company: 'Ecofission LLC',
+        companies: [{ id: 'company-1', name: 'Ecofission LLC' }],
+        sourceConnections: [
+          { id: 'source-1', sourceType: 'sellerboard', companyId: 'company-1', name: 'Sellerboard source' },
+        ],
+      }),
+    ).toBe('source-1');
   });
 
   it('surfaces invalid dates as blocking errors', async () => {
