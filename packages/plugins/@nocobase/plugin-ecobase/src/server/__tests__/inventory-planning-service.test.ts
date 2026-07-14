@@ -14,7 +14,12 @@ import {
   EcobaseInventoryPlanningService,
 } from '../../features/inventory-planning/server/inventory-planning-service';
 import { profitTierMovement } from '../../features/inventory-planning/server/profit-tier';
+import { EcobaseCompanyProductFamilyService } from '../../features/inventory-planning/server/company-product-family-service';
+import { EcobaseSilverIntegrityVerifier } from '../../features/inventory-planning/server/silver-integrity-verifier';
+import { EcobaseSupplierOrderService } from '../../features/supplier-management/server/supplier-order-service';
+import { EcobaseDailyOperationsBriefService } from '../../features/daily-operations-brief/server/daily-operations-brief-service';
 import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
+import { currentOnlyAcceptanceFixture } from './fixtures/current-only-acceptance';
 
 interface FindParams {
   filter?: Record<string, unknown>;
@@ -364,7 +369,7 @@ describe('EcobaseInventoryPlanningService', () => {
       commandCenterPane: 'supplyAction',
       dataQualityStatus: 'partial',
     });
-    expect(materialize({ daysOfCover: 30.01 }).commandCenterPane).toBe('dataReadiness');
+    expect(materialize({ daysOfCover: 30.01 }).commandCenterPane).toBe('supplyAction');
     expect(materialize({ daysOfCover: 30.01 }).stuckClassification).toBe('over_30_doc_watch');
     expect(materialize({ daysOfCover: 60, lastMonthQty: 5, sixMonthAverageQty: 10 }).stuckClassification).toBe(
       'declining_velocity_watch',
@@ -411,11 +416,62 @@ describe('EcobaseInventoryPlanningService', () => {
         familyStuckClassification: 'pipeline_stalled',
       }),
     ).toMatchObject({
-      commandCenterPane: 'stuckInventory',
+      commandCenterPane: 'activeOrders',
       stuck: true,
       stuckClassification: 'pipeline_stalled',
       supplierOrderState: 'purchased_pipeline',
     });
+    expect(
+      materialize({
+        daysOfCover: 90,
+        supplierOrderState: 'purchased_pipeline',
+        supplierOrderAuthorityEvidence: { clickupStatusEvidence: { clickupStatus: 'inbound-monitoring' } },
+        amazonReceiptStatus: 'awaiting_amazon_stock',
+        familyStuckAction: true,
+        familyStuckClassification: 'pipeline_stalled',
+      }).commandCenterPane,
+    ).toBe('inboundMonitoring');
+    expect(materialize({ supplierAvailability: 'unavailable_no_evidence' })).toMatchObject({
+      commandCenterPane: 'supplyAction',
+      commandCenterPaneReason: 'supply_action_supplier_missing',
+    });
+    expect(
+      materialize({
+        familyRole: 'review',
+        actionStatus: 'family_review_required',
+        salesVelocity: undefined,
+        salesVelocityStatus: 'missing',
+        daysOfCover: undefined,
+      }).commandCenterPane,
+    ).toBe('dataReadiness');
+  });
+
+  it('emits one readiness row and no duplicate actions when a family target needs review', () => {
+    const service = new EcobaseInventoryPlanningService(new MemoryDatabase()) as unknown as {
+      applyFamilyRollups: (rows: Record<string, unknown>[], calculationDate: string) => Record<string, unknown>[];
+      finalizeGoldContract: (row: Record<string, unknown>, calculationDate: string) => Record<string, unknown>;
+    };
+    const members = ['member-b', 'member-a'].map((companyProductId) => ({
+      companyProductId,
+      companyProductFamilyId: 'family-review',
+      productStatus: 'Active',
+      actionStatus: 'missing_velocity',
+      salesVelocityStatus: 'missing',
+      targetCoverDays: 45,
+      inventoryAsOfDate: '2026-07-10',
+      onHandStock: 10,
+      currentPlanningStock: 10,
+      supplierOrderState: 'no_open_order',
+    }));
+
+    const materialized = service
+      .applyFamilyRollups(members, '2026-07-10')
+      .map((row) => service.finalizeGoldContract(row, '2026-07-10'));
+
+    expect(materialized.map((row) => [row.companyProductId, row.familyRole, row.commandCenterPane])).toEqual([
+      ['member-b', 'member', 'watch'],
+      ['member-a', 'review', 'dataReadiness'],
+    ]);
   });
 
   it('keeps untiered current-operational targets visible without history enrichment', () => {
@@ -1317,12 +1373,17 @@ describe('EcobaseInventoryPlanningService', () => {
       familyRole: 'target',
       familyMemberCount: 2,
       familyCurrentPlanningStock: 18,
+      familyOnHandStock: 11,
+      familyFuturePositionStock: 18,
       familySellableStock: 11,
       familyPipelineStock: 7,
       familySalesVelocity: 2,
-      familyDaysOfCover: 9,
-      familyEstimatedOosDate: '2026-07-18',
+      familyDaysOfCover: 5.5,
+      familyEstimatedOosDate: '2026-07-14',
+      familyPositionDaysOfCover: 9,
+      familyPositionEstimatedOosDate: '2026-07-18',
       familyOpenOrderCoverageQty: 0,
+      familyTrustedSupplierOrderCoverageQty: 0,
       familySuggestedReorderQty: 72,
       supplierName: 'ws billiard supply',
       supplierAvailability: 'resolved_family_preferred_supplier',
@@ -1425,7 +1486,7 @@ describe('EcobaseInventoryPlanningService', () => {
     ]);
   });
 
-  it('rolls listing-level stuck evidence into one family action without hiding active-order context', () => {
+  it('preserves family stuck evidence while active-order precedence owns the action pane', () => {
     const service = new EcobaseInventoryPlanningService(new MemoryDatabase()) as unknown as {
       applyFamilyRollups: (rows: Record<string, unknown>[], calculationDate: string) => Record<string, unknown>[];
       finalizeGoldContract: (row: Record<string, unknown>, calculationDate: string) => Record<string, unknown>;
@@ -1480,7 +1541,7 @@ describe('EcobaseInventoryPlanningService', () => {
     );
     const materialized = rows.map((row) => service.finalizeGoldContract(row, '2026-07-10'));
 
-    expect(materialized.filter((row) => row.commandCenterPane === 'stuckInventory')).toEqual([
+    expect(materialized.filter((row) => row.commandCenterPane === 'activeOrders')).toEqual([
       expect.objectContaining({
         companyProductId: 'target-product',
         familyStuckAction: true,
@@ -1589,6 +1650,93 @@ describe('EcobaseInventoryPlanningService', () => {
       expectedArrivalSource: 'silver_order_line.expectedSellableDate',
       expectedArrivalConfidence: 'authoritative',
       expectedArrivalFreshness: 'fresh',
+    });
+  });
+
+  it('separates sellable coverage from reserved, Amazon pipeline, and net trusted PO position', async () => {
+    const db = new MemoryDatabase();
+    const company = 'Ecofission LLC';
+    for (const scenario of [
+      { sku: 'ON-TRACK', asin: 'B00ONTRACK', orderDate: '2026-07-01', expectedSellableDate: '2026-07-15' },
+      { sku: 'OFF-TRACK', asin: 'B00OFFTRACK', orderDate: '2026-07-01', expectedSellableDate: '2026-07-25' },
+      { sku: 'UNKNOWN', asin: 'B00UNKNOWNPOS', orderDate: 'not-a-date', expectedSellableDate: undefined },
+    ]) {
+      const orderId = `order-position-${scenario.sku}`;
+      const supplierId = `supplier-position-${scenario.sku}`;
+      const companyProductId = `silver-company-product:${company}:${scenario.asin}:${scenario.sku}`;
+      const supplierProductId = `silver-supplier-product:${supplierId}:${scenario.asin}:${scenario.sku}`;
+      await createSilverOrderRecord(db, {
+        id: orderId,
+        company,
+        supplierId,
+        supplierName: `${scenario.sku} Supplier`,
+        externalOrderRef: `PO-${scenario.sku}`,
+        status: 'paid',
+        orderDate: scenario.orderDate,
+        authorityStatus: 'clickup_authoritative',
+        authorityTaskRef: `task-${scenario.sku}`,
+      });
+      await createSilverOrderLineRecord(db, {
+        id: `line-position-${scenario.sku}`,
+        company,
+        supplierOrderId: orderId,
+        supplierId,
+        supplierProductId,
+        asin: scenario.asin,
+        sku: scenario.sku,
+        orderedQty: 100,
+        receivedQty: 0,
+        expectedSellableDate: scenario.expectedSellableDate,
+      });
+      if (scenario.sku === 'UNKNOWN') {
+        await db
+          .getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts)
+          .update({ filterByTk: supplierProductId, values: { leadTimeDays: undefined } });
+      }
+      await createRecord(db, ECOBASE_COLLECTIONS.silverInventorySnapshots, {
+        id: `inventory-position-${scenario.sku}`,
+        companyProductId,
+        snapshotDate: '2026-07-10',
+        sellableStock: 10,
+        reserved: 100,
+        inbound: 50,
+        ordered: 0,
+        prepStock: 0,
+        salesVelocity: 1,
+      });
+    }
+
+    await new EcobaseInventoryPlanningService(db).refreshReadModel({ company, calculationDate: '2026-07-10' });
+    const rows = await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).find({});
+    const row = (sku: string) => rows.find((candidate) => candidate.sku === sku);
+
+    expect(row('ON-TRACK')).toMatchObject({
+      sellableStock: 10,
+      reservedStock: 100,
+      pipelineStock: 50,
+      currentPlanningStock: 160,
+      onHandStock: 10,
+      daysOfCover: 10,
+      estimatedOosDate: '2026-07-20',
+      trustedSupplierOrderCoverageQty: 50,
+      futurePositionStock: 110,
+      positionDaysOfCover: 110,
+      positionEstimatedOosDate: '2026-10-28',
+      expectedArrivalDate: '2026-07-15',
+      pipelineHealthStatus: 'on_track',
+      stockoutGapDays: -5,
+    });
+    expect(row('OFF-TRACK')).toMatchObject({
+      estimatedOosDate: '2026-07-20',
+      expectedArrivalDate: '2026-07-25',
+      pipelineHealthStatus: 'late',
+      stockoutGapDays: 5,
+    });
+    expect(row('UNKNOWN')).toMatchObject({
+      estimatedOosDate: '2026-07-20',
+      expectedArrivalStatus: 'unknown',
+      pipelineHealthStatus: 'unknown_timing',
+      stockoutGapDays: null,
     });
   });
 
@@ -2433,5 +2581,290 @@ describe('EcobaseInventoryPlanningService', () => {
     expect(digest.sections.suppliersToContactFirst).toEqual([
       expect.objectContaining({ supplierName: 'Digest Supplier', urgentCount: 1 }),
     ]);
+  });
+
+  it('accepts the four-company current-only fixture end to end and remains idempotent', async () => {
+    const fixture = currentOnlyAcceptanceFixture;
+    const db = new MemoryDatabase({ historyLoaded: false });
+    (db as MemoryDatabase & { sequelize: unknown }).sequelize = {
+      transaction: async (run: (transaction: object) => Promise<unknown>) => run({ id: 'fixture-transaction' }),
+    };
+
+    for (const company of fixture.companies) {
+      await createRecord(db, ECOBASE_COLLECTIONS.silverCompanies, company);
+    }
+    for (const account of fixture.accounts) {
+      await createRecord(db, ECOBASE_COLLECTIONS.silverAmazonAccounts, account);
+    }
+    for (const listing of fixture.listings) {
+      await createRecord(db, ECOBASE_COLLECTIONS.silverProducts, {
+        id: listing.productId,
+        asin: listing.asin,
+        sku: listing.sku,
+        title: `Synthetic ${listing.sku}`,
+      });
+      await createRecord(db, ECOBASE_COLLECTIONS.silverCompanyProducts, {
+        id: listing.id,
+        companyId: listing.companyId,
+        amazonAccountId: listing.amazonAccountId,
+        productId: listing.productId,
+        lifecycleStatus: 'active',
+      });
+      await createRecord(db, ECOBASE_COLLECTIONS.silverInventorySnapshots, {
+        id: `snapshot-${listing.id}`,
+        companyProductId: listing.id,
+        snapshotDate: fixture.calculationDate,
+        sellableStock: listing.sellableStock,
+        reserved: listing.reserved,
+        inbound: listing.inbound,
+        ordered: 0,
+        prepStock: 0,
+        ...('salesVelocity' in listing ? { salesVelocity: listing.salesVelocity } : {}),
+      });
+    }
+    for (const supplier of fixture.suppliers) {
+      await createRecord(db, ECOBASE_COLLECTIONS.silverSuppliers, supplier);
+    }
+    for (const supplierRef of fixture.acceptedSupplierRefs) {
+      await createRecord(db, ECOBASE_COLLECTIONS.silverSupplierExternalRefs, {
+        ...supplierRef,
+        sourceSystem: 'synthetic-current-only-fixture',
+        normalizedExternalSupplierCode: supplierRef.externalSupplierCode,
+      });
+    }
+    for (const order of fixture.orders) {
+      await createRecord(db, ECOBASE_COLLECTIONS.silverSupplierProducts, {
+        id: order.supplierProductId,
+        supplierId: order.supplierId,
+        productId: order.productId,
+        supplierSku: order.sourceSupplierSku,
+        unitCost: 10,
+        leadTimeDays: 14,
+      });
+      await createRecord(db, ECOBASE_COLLECTIONS.silverOrders, {
+        id: order.id,
+        companyId: order.companyId,
+        supplierId: order.supplierId,
+        orderRef: order.orderRef,
+        orderDate: fixture.calculationDate,
+        orderIntent: 'purchase_order',
+        canonicalStatus: 'paid',
+        lifecycleStatus: 'paid',
+        authorityStatus: order.clickupTaskRef ? 'clickup_authoritative' : 'alternate_authoritative',
+        authoritySource: order.clickupTaskRef ? 'clickup' : 'synthetic_fixture',
+        authorityTaskRef: order.clickupTaskRef,
+        authorityEvidenceJson: order.clickupTaskRef
+          ? { clickupStatusEvidence: { clickupStatus: 'paid', taskRef: order.clickupTaskRef } }
+          : {},
+      });
+      await createRecord(db, ECOBASE_COLLECTIONS.silverOrderLines, {
+        id: `line-${order.id}`,
+        orderId: order.id,
+        companyProductId: order.companyProductId,
+        supplierProductId: order.supplierProductId,
+        orderedQty: 20,
+        confirmedQty: 0,
+        unitCost: 10,
+        expectedSellableDate: order.expectedSellableDate,
+        sourceAsin: order.sourceAsin,
+        sourceSupplierSku: order.sourceSupplierSku,
+        productMappingStatus: 'resolved',
+        productMappingEvidenceJson: { method: 'exact', fixture: 'current-only-acceptance' },
+      });
+      await createRecord(db, ECOBASE_COLLECTIONS.silverCompanyProductSuppliers, {
+        id: `company-product-supplier-${order.id}`,
+        companyProductId: order.companyProductId,
+        supplierProductId: order.supplierProductId,
+        role: 'candidate',
+        resolutionSource: 'synthetic_current_only_fixture',
+      });
+    }
+    await createRecord(db, ECOBASE_COLLECTIONS.silverSupplierProducts, {
+      id: 'supplier-product-etc',
+      supplierId: fixture.etcAliasOrder.supplierId,
+      productId: 'product-etc',
+      supplierSku: 'ETC-CATALOG-OFFER',
+      unitCost: 12,
+      leadTimeDays: 14,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.silverOrders, {
+      id: fixture.etcAliasOrder.id,
+      companyId: fixture.etcAliasOrder.companyId,
+      supplierId: fixture.etcAliasOrder.supplierId,
+      orderRef: fixture.etcAliasOrder.orderRef,
+      orderDate: fixture.calculationDate,
+      orderIntent: 'purchase_order',
+      canonicalStatus: 'paid',
+      lifecycleStatus: 'paid',
+      authorityStatus: 'alternate_authoritative',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.silverOrderLines, {
+      id: 'line-etc-alias',
+      orderId: fixture.etcAliasOrder.id,
+      orderedQty: 5,
+      confirmedQty: 0,
+      sourceAsin: fixture.etcAliasOrder.sourceAsin,
+      sourceSupplierSku: fixture.etcAliasOrder.sourceSupplierSku,
+      productMappingStatus: 'unresolved',
+      productMappingEvidenceJson: { reason: 'pending_alias_review' },
+    });
+    await createRecord(db, 'users', fixture.attributionUser);
+    await createRecord(db, ECOBASE_COLLECTIONS.silverActivityComments, {
+      id: 'comment-off-track-clickup',
+      entityType: 'supplier_order',
+      entityId: 'order-off-track',
+      actorType: 'user',
+      actorUserId: fixture.attributionUser.id,
+      actorDisplayName: fixture.attributionUser.nickname,
+      actorEmail: fixture.attributionUser.email,
+      commentType: 'status_update',
+      body: 'Synthetic ClickUp follow-up required',
+      createdAt: '2026-07-10T09:00:00.000Z',
+      contextSnapshotJson: {
+        source: 'clickup',
+        actor: fixture.attributionUser.nickname,
+        occurredAt: '2026-07-10T09:00:00.000Z',
+      },
+    });
+
+    const familyService = new EcobaseCompanyProductFamilyService(db);
+    const firstFamilyRun = await familyService.reconcileAllFamilies();
+    const firstLineRun = await new EcobaseSupplierOrderService(db).reconcileAfterImport('current-only-fixture');
+    for (const family of db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductFamilies).all()) {
+      await familyService.reconcileFamily(String(family.id));
+    }
+    const verification = await new EcobaseSilverIntegrityVerifier(db).verify();
+    const inventoryService = new EcobaseInventoryPlanningService(db);
+    await inventoryService.refreshReadModel({ calculationDate: fixture.calculationDate });
+    const commandCenter = await inventoryService.commandCenter({
+      calculationDate: fixture.calculationDate,
+      pageSize: 100,
+    });
+    const dailyBrief = await new EcobaseDailyOperationsBriefService(db).buildEvidencePack({
+      date: fixture.calculationDate,
+      timezone: 'Asia/Karachi',
+      maxItems: 100,
+    });
+
+    const families = db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductFamilies).all();
+    const goldRows = db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).all();
+    const operationalRows = goldRows.filter((row) => row.familyRole !== 'member');
+    const paneRows = Object.values(commandCenter.panes).flatMap((payload) => payload.rows);
+    expect(firstFamilyRun).toMatchObject({ familyCount: 9, examinedCompanyProductCount: 10 });
+    expect(firstLineRun).toMatchObject({ repaired: 1, ambiguous: 0 });
+    expect(verification.issues.filter((issue) => issue.classification === 'technical_blocker')).toEqual([]);
+    expect(verification.ok).toBe(true);
+    expect(verification.issues).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'sellerboard_history_not_loaded' })]),
+    );
+    expect(db.getRepository(ECOBASE_COLLECTIONS.importRuns).all()).toHaveLength(0);
+    expect(families).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          canonicalAsin: 'B00SYNTHTIE',
+          targetReviewRequired: true,
+        }),
+        expect.objectContaining({
+          canonicalAsin: 'B00SYNTHZERO',
+          replenishmentTargetCompanyProductId: 'cp-zero',
+        }),
+      ]),
+    );
+    expect(families.find((family) => family.canonicalAsin === 'B00SYNTHTIE')).not.toHaveProperty(
+      'replenishmentTargetCompanyProductId',
+    );
+    expect(
+      families.filter((family) => family.canonicalAsin === 'B00SYNTHSHARED').map((family) => family.amazonAccountId),
+    ).toEqual(expect.arrayContaining(['account-eco-a', 'account-eco-b']));
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).all()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'line-etc-alias',
+          companyProductId: 'cp-etc',
+          supplierProductId: 'supplier-product-etc',
+          productMappingStatus: 'resolved',
+        }),
+      ]),
+    );
+    expect(
+      db
+        .getRepository(ECOBASE_COLLECTIONS.silverSupplierExternalRefs)
+        .all()
+        .map((row) => row.normalizedExternalSupplierCode),
+    ).toEqual(['SRO-12939', 'SRO-12572']);
+    expect(operationalRows.every((row) => row.commandCenterPane !== 'watch')).toBe(true);
+    expect(goldRows.find((row) => row.asin === 'B00SYNTHTIE' && row.familyRole === 'review')).toMatchObject({
+      commandCenterPane: 'dataReadiness',
+      actionStatus: 'family_review_required',
+    });
+    expect(new Set(operationalRows.map((row) => row.company))).toEqual(
+      new Set(['Ecofission LLC', 'Retail Heaven Inc', 'Muxtex INC', 'Stop Shop LLC']),
+    );
+    expect(goldRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          companyProductId: 'cp-shared-a',
+          salesVelocityBasis: 'inventory_snapshot_fallback',
+          daysOfCover: 2.5,
+          positionDaysOfCover: 17.5,
+        }),
+        expect.objectContaining({ companyProductId: 'cp-missing-velocity', commandCenterPane: 'dataReadiness' }),
+        expect.objectContaining({ companyProductId: 'cp-on-track', commandCenterPane: 'activeOrders' }),
+        expect.objectContaining({
+          companyProductId: 'cp-off-track',
+          commandCenterPane: 'activeOrders',
+          pipelineHealthStatus: 'late',
+          latestSupplierOrderActivityNote: 'Synthetic ClickUp follow-up required',
+        }),
+      ]),
+    );
+    expect(paneRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ company: 'Ecofission LLC' }),
+        expect.objectContaining({ company: 'Retail Heaven Inc' }),
+        expect.objectContaining({ company: 'Muxtex INC' }),
+        expect.objectContaining({ company: 'Stop Shop LLC' }),
+      ]),
+    );
+    expect(dailyBrief.inventoryCommandCenter.alerts.activeOrdersOffTrack).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          companyProductId: 'cp-off-track',
+          latestSupplierOrderActivityNote: 'Synthetic ClickUp follow-up required',
+        }),
+      ]),
+    );
+    expect(dailyBrief.summaryCounts).toMatchObject({
+      dataReadinessCount: expect.any(Number),
+      historyReadinessAffectedCount: 10,
+    });
+    expect(dailyBrief.dataWarnings).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'inventory_history_not_loaded' })]),
+    );
+
+    const firstCounts = {
+      families: families.length,
+      companyProductSupplierLinks: db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductSuppliers).all().length,
+      goldRows: goldRows.length,
+      goldNaturalKeys: goldRows.map((row) => row.naturalKey).sort(),
+    };
+    const secondFamilyRun = await familyService.reconcileAllFamilies();
+    const secondLineRun = await new EcobaseSupplierOrderService(db).reconcileAfterImport('current-only-fixture-repeat');
+    for (const family of db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductFamilies).all()) {
+      await familyService.reconcileFamily(String(family.id));
+    }
+    await inventoryService.refreshReadModel({ calculationDate: fixture.calculationDate });
+    expect(secondFamilyRun).toMatchObject({ createdFamilyCount: 0, linkedCompanyProductCount: 0 });
+    expect(secondLineRun).toMatchObject({ repaired: 0, ambiguous: 0 });
+    expect({
+      families: db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductFamilies).all().length,
+      companyProductSupplierLinks: db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductSuppliers).all().length,
+      goldRows: db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).all().length,
+      goldNaturalKeys: db
+        .getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows)
+        .all()
+        .map((row) => row.naturalKey)
+        .sort(),
+    }).toEqual(firstCounts);
   });
 });

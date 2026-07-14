@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { defineCollection } from '@nocobase/database';
 import { ECOBASE_COLLECTIONS } from './names';
 
@@ -38,6 +47,7 @@ export default defineCollection({
       index: true,
     },
     numberField('inventoryMoneyAtRisk', 'Inventory Money At Risk', true),
+    integerField('inventoryMoneyAtRiskUnknownCount', 'Inventory Money At Risk Unknown Count'),
     integerField('urgentInventorySkuCount', 'Urgent Inventory SKU Count', true),
     integerField('overdueInventorySkuCount', 'Overdue Inventory SKU Count'),
     integerField('aTierInventoryRiskCount', 'A-tier Inventory Risk Count'),

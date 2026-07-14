@@ -1,0 +1,32 @@
+{
+  "gitSha": "23431a26d02769c3aeadc65acbf92ab74f05354e",
+  "stagingDatabaseIdentifier": "ecobase-staging-2ndggj-postgres-1/nocobase",
+  "taskId": "IP13",
+  "startedAt": "2026-07-14T05:59:00Z",
+  "finishedAt": "2026-07-14T06:07:00Z",
+  "exitStatus": 0,
+  "assertions": {
+    "fourCanonicalCompaniesCovered": true,
+    "sharedAsinAccountBoundaryPassed": true,
+    "zeroStockSingletonSelected": true,
+    "duplicateFamilyTieReviewPassed": true,
+    "snapshotFallbackVelocityPassed": true,
+    "missingVelocityReadinessPassed": true,
+    "noOrderRiskPassed": true,
+    "onTrackActiveOrderPassed": true,
+    "offTrackActiveOrderPassed": true,
+    "etcAliasResolved": true,
+    "sroAcceptedRejectedDecisionsPassed": true,
+    "supplierLinkPassed": true,
+    "clickUpContextAndUserPassed": true,
+    "sellerboardHistoryAbsent": true,
+    "silverTechnicalBlockers": 0,
+    "allOperationalRowsVisible": true,
+    "dailyBriefCurrentOnlyWarningPassed": true,
+    "secondRunIdempotent": true,
+    "inventoryPlanningTestsPassed": 31,
+    "pluginBuildPassed": true,
+    "fixtureSecurityScanPassed": true,
+    "stagingDataMutated": false
+  }
+}

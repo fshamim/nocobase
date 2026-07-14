@@ -1,0 +1,90 @@
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts --run --reporter=verbose -t 'accepts the four-company current-only fixture'
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts',
+  '--run',
+  '--reporter=verbose',
+  '-t',
+  'accepts the four-company current-only fixture',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:65230) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ × packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > accepts the four-company current-only fixture end to end and remains idempotent
+   → expected [ { …(6) }, { …(6) } ] to deeply equal []
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > accepts the four-company current-only fixture end to end and remains idempotent
+AssertionError: expected [ { …(6) }, { …(6) } ] to deeply equal []
+
+- Expected
++ Received
+
+- Array []
++ Array [
++   Object {
++     "classification": "technical_blocker",
++     "code": "resolved_line_supplier_link_missing",
++     "entityId": "line-order-on-track",
++     "entityType": "silverOrderLine",
++     "evidence": undefined,
++     "message": "Resolved order line has no company-product supplier link.",
++   },
++   Object {
++     "classification": "technical_blocker",
++     "code": "resolved_line_supplier_link_missing",
++     "entityId": "line-order-off-track",
++     "entityType": "silverOrderLine",
++     "evidence": undefined,
++     "message": "Resolved order line has no company-product supplier link.",
++   },
++ ]
+
+ ❯ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts:2748:97
+    2746|     expect(firstFamilyRun).toMatchObject({ familyCount: 9, examinedCom…
+    2747|     expect(firstLineRun).toMatchObject({ repaired: 1, ambiguous: 0 });
+    2748|     expect(verification.issues.filter((issue) => issue.classification …
+       |                                                                                                 ^
+    2749|     expect(verification.ok).toBe(true);
+    2750|     expect(verification.issues).toEqual(
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 30 skipped (31)
+   Start at  06:05:22
+   Duration  666ms (transform 427ms, setup 51ms, collect 478ms, tests 25ms, environment 0ms, prepare 37ms)
+
+/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/execa/lib/error.js:60
+		error = new Error(message);
+		        ^
+
+Error: Command failed with exit code 1: /Users/fshamim/dotfiles/.nvm/versions/node/v24.14.0/bin/node --no-node-snapshot --max_old_space_size=14096 ./node_modules/vitest/vitest.mjs packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts --run --reporter=verbose -t accepts the four-company current-only fixture --poolOptions.threads.singleThread=true
+    at makeError (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/execa/lib/error.js:60:11)
+    at handlePromise (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/execa/index.js:118:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async Command.<anonymous> (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/cli-v1/src/commands/test.js:203:9) {
+  shortMessage: 'Command failed with exit code 1: /Users/fshamim/dotfiles/.nvm/versions/node/v24.14.0/bin/node --no-node-snapshot --max_old_space_size=14096 ./node_modules/vitest/vitest.mjs packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts --run --reporter=verbose -t accepts the four-company current-only fixture --poolOptions.threads.singleThread=true',
+  command: '/Users/fshamim/dotfiles/.nvm/versions/node/v24.14.0/bin/node --no-node-snapshot --max_old_space_size=14096 ./node_modules/vitest/vitest.mjs packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts --run --reporter=verbose -t accepts the four-company current-only fixture --poolOptions.threads.singleThread=true',
+  escapedCommand: '"/Users/fshamim/dotfiles/.nvm/versions/node/v24.14.0/bin/node" --no-node-snapshot "--max_old_space_size=14096" "./node_modules/vitest/vitest.mjs" "packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts" --run "--reporter=verbose" -t "accepts the four-company current-only fixture" "--poolOptions.threads.singleThread=true"',
+  exitCode: 1,
+  signal: undefined,
+  signalDescription: undefined,
+  stdout: undefined,
+  stderr: undefined,
+  failed: true,
+  timedOut: false,
+  isCanceled: false,
+  killed: false
+}
+
+Node.js v24.14.0
+error Command failed with exit code 1.
+info Visit https://yarnpkg.com/en/docs/cli/run for documentation about this command.

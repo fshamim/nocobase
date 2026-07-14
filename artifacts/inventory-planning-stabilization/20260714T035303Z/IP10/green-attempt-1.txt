@@ -1,0 +1,136 @@
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts --run --reporter=verbose
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts',
+  '--run',
+  '--reporter=verbose',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:43609) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > classifies explicit tier transitions
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > calculates uncovered-stockout money risk without replacing unknown inputs with zero
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > materializes exclusive target supply, active-order, stuck, member, and watch boundaries
+ × packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > keeps untiered current-operational targets visible without history enrichment
+   → expected { productStatus: 'Active', …(33) } to match object { …(2) }
+(39 matching properties omitted from actual)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > keeps missing inventory values unknown through gold and API projection
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > requires a positive optimizer budget
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > reads only the latest materialized gold refresh cohort
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > serves inventory planning from gold rows ordered by actionable money at risk
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > serves filters, rows, and digest through one inventory workspace interface
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > projects persisted Sellerboard COGS evidence without request-time cost guessing
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > limits no-active-order pane to stockout-soon rows
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > tiers only products with at least four units in the latest rolling 30-day sales window
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > does not tier snapshot velocity without rolling-30-day sales evidence
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > keeps history-dependent Gold fields unknown when no Sellerboard history import succeeded
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > baselines rule changes and emits a lost tier only on the immediate transition
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > uses rolling-30-day velocity without inventing zero evidence for uncovered products
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > rolls same-family listings into one persisted replenishment target without duplicate heuristics
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > bypasses UUID auto-fill when clearing optional Gold supplier references
+ × packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > rolls listing-level stuck evidence into one family action without hiding active-order context
+   → expected [] to deeply equal [ ObjectContaining{…} ]
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > routes raw imported order statuses into the active-orders command pane
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > separates sellable coverage from reserved, Amazon pipeline, and net trusted PO position
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > classifies derived, unknown, invalid, and stale active-order arrival evidence
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > does not count completed order history as open coverage
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > subtracts only persisted Amazon receipt evidence from Gold open-order coverage
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > projects persisted latest active-order activity without request-time reclassification
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > returns drawer order history for a primary SKU when the order used a duplicate alias SKU
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > shapes row drawer supplier/order history behind the inventory workspace interface
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > keeps the daily digest bounded to order-now risk and supplier contact priorities
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > puts no-order digest rows before placed-but-not-purchased rows and excludes purchased pipeline rows
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > keeps untiered current-operational targets visible without history enrichment
+AssertionError: expected { productStatus: 'Active', …(33) } to match object { …(2) }
+(39 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "commandCenterPane": "healthyInventory",
+-   "planningEligibilityStatus": "eligible",
++   "commandCenterPane": "dataReadiness",
++   "planningEligibilityStatus": "needs_data_readiness",
+  }
+
+ ❯ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts:476:107
+    474|       planningEligibilityStatus: 'eligible',
+    475|     });
+    476|     expect(materialize({ actionStatus: 'sufficient_stock', currentPlan…
+       |                                                                                                           ^
+    477|       {
+    478|         commandCenterPane: 'healthyInventory',
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > rolls listing-level stuck evidence into one family action without hiding active-order context
+AssertionError: expected [] to deeply equal [ ObjectContaining{…} ]
+
+- Expected
++ Received
+
+- Array [
+-   ObjectContaining {
+-     "companyProductId": "target-product",
+-     "familyStuckAction": true,
+-     "familyStuckActiveOrderCount": 1,
+-     "familyStuckAffectedMemberCount": 2,
+-     "familyStuckAffectedUnits": 71,
+-     "familyStuckAffectedValue": 152,
+-     "recommendedEscalation": "review_stuck_inventory",
+-     "supplierOrderState": "purchased_pipeline",
+-   },
+- ]
++ Array []
+
+ ❯ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts:1511:86
+    1509|     const materialized = rows.map((row) => service.finalizeGoldContrac…
+    1510| 
+    1511|     expect(materialized.filter((row) => row.commandCenterPane === 'stu…
+       |                                                                                      ^
+    1512|       expect.objectContaining({
+    1513|         companyProductId: 'target-product',
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 27 passed (29)
+   Start at  05:37:11
+   Duration  603ms (transform 363ms, setup 50ms, collect 404ms, tests 36ms, environment 0ms, prepare 37ms)
+
+/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/execa/lib/error.js:60
+		error = new Error(message);
+		        ^
+
+Error: Command failed with exit code 1: /Users/fshamim/dotfiles/.nvm/versions/node/v24.14.0/bin/node --no-node-snapshot --max_old_space_size=14096 ./node_modules/vitest/vitest.mjs packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts --run --reporter=verbose --poolOptions.threads.singleThread=true
+    at makeError (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/execa/lib/error.js:60:11)
+    at handlePromise (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/execa/index.js:118:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async Command.<anonymous> (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/cli-v1/src/commands/test.js:203:9) {
+  shortMessage: 'Command failed with exit code 1: /Users/fshamim/dotfiles/.nvm/versions/node/v24.14.0/bin/node --no-node-snapshot --max_old_space_size=14096 ./node_modules/vitest/vitest.mjs packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts --run --reporter=verbose --poolOptions.threads.singleThread=true',
+  command: '/Users/fshamim/dotfiles/.nvm/versions/node/v24.14.0/bin/node --no-node-snapshot --max_old_space_size=14096 ./node_modules/vitest/vitest.mjs packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts --run --reporter=verbose --poolOptions.threads.singleThread=true',
+  escapedCommand: '"/Users/fshamim/dotfiles/.nvm/versions/node/v24.14.0/bin/node" --no-node-snapshot "--max_old_space_size=14096" "./node_modules/vitest/vitest.mjs" "packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts" --run "--reporter=verbose" "--poolOptions.threads.singleThread=true"',
+  exitCode: 1,
+  signal: undefined,
+  signalDescription: undefined,
+  stdout: undefined,
+  stderr: undefined,
+  failed: true,
+  timedOut: false,
+  isCanceled: false,
+  killed: false
+}
+
+Node.js v24.14.0
+error Command failed with exit code 1.
+info Visit https://yarnpkg.com/en/docs/cli/run for documentation about this command.

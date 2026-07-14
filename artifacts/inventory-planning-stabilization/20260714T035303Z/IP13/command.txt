@@ -1,0 +1,27 @@
+Task: IP13 — Add the missing end-to-end current-only acceptance fixture
+
+Commands:
+  yarn test inventory-planning-service.test.ts --run --reporter=verbose
+  yarn build @nocobase/plugin-ecobase
+  synthetic fixture credential/domain scan
+
+Results:
+  inventory planning + current-only E2E: 31 passed
+  plugin build: passed
+  fixture security scan: passed
+
+Synthetic fixture coverage:
+  four canonical companies at small scale
+  two Amazon accounts sharing one ASIN without cross-account family merge
+  zero-stock singleton target
+  duplicate listing family with exact target tie/review
+  current snapshot fallback velocity and missing-velocity readiness
+  no-order risk plus on-track/off-track active orders
+  ETC120A supplier alias resolved to canonical ETC-120A listing
+  accepted SRO-12939/SRO-12572 and rejected SRO-1293/SRO-1257 absent
+  preferred supplier evidence
+  ClickUp-authoritative status/comment with mapped synthetic user
+  no Sellerboard history
+
+Workflow proven:
+  fixture import → family reconcile → order-line/supplier reconcile → preferred supplier reconcile → Silver integrity verify → one Gold refresh → command-center assertions → Daily Brief assertions → repeat reconciliation/refresh with stable family/link/Gold counts and natural keys.

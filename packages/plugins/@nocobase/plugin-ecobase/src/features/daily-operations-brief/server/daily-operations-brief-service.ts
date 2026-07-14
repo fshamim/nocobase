@@ -273,6 +273,7 @@ export type InventoryCommandCenterEvidence = {
   panes: Record<InventoryCommandCenterPane, PlainRecord>;
   alerts: {
     supplyActionNeeded: PlainRecord[];
+    dataReadiness: PlainRecord[];
     activeOrdersOffTrack: PlainRecord[];
     activeOrdersUnknownTiming: PlainRecord[];
     followUpsDueToday: PlainRecord[];
@@ -678,8 +679,10 @@ function commandCenterAlerts(commandCenter: PlainRecord, maxItems: number): Inve
   const missingSupplier = commandPaneRows(commandCenter, 'missingSupplier');
   const activeOrders = commandPaneRows(commandCenter, 'activeOrders');
   const stuckInventory = commandPaneRows(commandCenter, 'stuckInventory');
+  const dataReadiness = commandPaneRows(commandCenter, 'dataReadiness');
   return {
-    supplyActionNeeded: supplyAction.slice(0, maxItems),
+    supplyActionNeeded: [...supplyAction, ...missingSupplier].slice(0, maxItems),
+    dataReadiness: dataReadiness.slice(0, maxItems),
     activeOrdersOffTrack: activeOrders
       .filter((row) => ['late', 'placed_not_purchased'].includes(asString(row.pipelineHealthStatus) ?? ''))
       .slice(0, maxItems),
@@ -816,7 +819,16 @@ export class EcobaseDailyOperationsBriefService {
     inventoryPlanning: EcobaseInventoryPlanningService,
     params: { company?: string; date: string },
   ) {
-    const panes: InventoryCommandCenterPane[] = ['supplyAction', 'activeOrders', 'stuckInventory', 'duplicateProducts'];
+    const panes: InventoryCommandCenterPane[] = [
+      'supplyAction',
+      'missingSupplier',
+      'activeOrders',
+      'inboundMonitoring',
+      'healthyInventory',
+      'stuckInventory',
+      'dataReadiness',
+      'duplicateProducts',
+    ];
     let result: PlainRecord | undefined;
     const fullPanes: PlainRecord = {};
 
@@ -884,7 +896,9 @@ export class EcobaseDailyOperationsBriefService {
       ...commandPaneRows(commandCenterRaw, 'supplyAction'),
       ...commandPaneRows(commandCenterRaw, 'missingSupplier'),
     ];
-    const planningRows = rows.filter((row) => asString(row.commandCenterPane) !== 'duplicateProducts');
+    const planningRows = rows.filter(
+      (row) => asString(row.commandCenterPane) !== 'duplicateProducts' && asString(row.familyRole) !== 'member',
+    );
     const cappedRiskRows = riskRows.slice(0, params.maxItems);
     const omissions = this.buildOmissions({ riskRows, cappedRiskRows, sourceStatus, params });
     const inventoryRisks = this.buildInventoryRisks(cappedRiskRows, params.date);
@@ -907,6 +921,7 @@ export class EcobaseDailyOperationsBriefService {
       buyBoxRisks,
       performanceTrends,
       okrAccountabilityRisks,
+      commandCenter: commandCenterRaw,
     });
     if (
       Object.values(inventoryCommandCenter.alerts).every((items) => items.length === 0) &&
@@ -965,6 +980,9 @@ export class EcobaseDailyOperationsBriefService {
         omittedSupplyActionCount: Math.max(riskRows.length - inventoryRisks.length, 0),
         activeOrderCount: commandPaneRows(commandCenterRaw, 'activeOrders').length,
         stuckInventoryCount: commandPaneRows(commandCenterRaw, 'stuckInventory').length,
+        dataReadinessCount: commandPaneRows(commandCenterRaw, 'dataReadiness').length,
+        historyReadinessAffectedCount:
+          asNumber(toPlainRecord(toPlainRecord(commandCenterRaw.metadata).historyReadiness).affectedRowCount) ?? 0,
         duplicateProductCount: commandPaneRows(commandCenterRaw, 'duplicateProducts').length,
         includedCommandCenterAlertItemCount: Object.values(inventoryCommandCenter.alerts).reduce(
           (total, items) => total + items.length,
@@ -1587,8 +1605,35 @@ export class EcobaseDailyOperationsBriefService {
     buyBoxRisks: BuyBoxRiskEvidence[];
     performanceTrends: PerformanceTrendEvidence[];
     okrAccountabilityRisks: OkrAccountabilityRiskEvidence[];
+    commandCenter: PlainRecord;
   }) {
     const warnings: DataWarningEvidence[] = [];
+    const historyReadiness = toPlainRecord(toPlainRecord(params.commandCenter.metadata).historyReadiness);
+    const historyStatus = asString(historyReadiness.status);
+    if (historyStatus && historyStatus !== 'loaded') {
+      warnings.push({
+        evidenceId: evidenceId('warning', `inventory-history:${historyStatus}`),
+        code: 'inventory_history_not_loaded',
+        message:
+          'Inventory planning is operating from current evidence; tier, profit, and history enrichment is incomplete.',
+        severity: 'warning',
+        metadata: {
+          status: historyStatus,
+          affectedRowCount: asNumber(historyReadiness.affectedRowCount) ?? 0,
+          totalRowCount: asNumber(historyReadiness.totalRowCount) ?? 0,
+        },
+      });
+    }
+    const readinessCount = asNumber(toPlainRecord(toPlainRecord(params.commandCenter.panes).dataReadiness).total) ?? 0;
+    if (readinessCount > 0) {
+      warnings.push({
+        evidenceId: evidenceId('warning', `inventory-readiness:${readinessCount}`),
+        code: 'inventory_data_readiness_required',
+        message: `${readinessCount} inventory family action row(s) need operational data or target review.`,
+        severity: 'warning',
+        metadata: { affectedRowCount: readinessCount },
+      });
+    }
     for (const source of params.sourceStatus) {
       for (const warning of source.warnings) {
         warnings.push({

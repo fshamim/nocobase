@@ -1,0 +1,29 @@
+Task: IP08 — Repair current staging Silver in place
+
+Target:
+  deployed SHA 23431a26d0e... on ecobase/staging
+  database ecobase-staging-2ndggj-postgres-1/nocobase
+  validated backup /var/backups/ecobase-staging/inventory-planning-stabilization/20260714T035303Z-699386fc4e87aafc182adc4112e203e1936f8c16.dump
+
+Gold/source freeze:
+  Temporarily set all 8 source connections inactive; restored original active=true state after repair.
+  No import action was invoked. Latest import startedAt remained 2026-07-14 01:56:00.057+00.
+  Gold remained at 2,136 rows with calculationDate 2026-07-14 and latest update 02:01:11.725+00.
+
+Operations:
+  POST ecobaseInventoryPlanning:reconcileFamilies
+  POST ecobaseInventoryPlanning:verifySilverIntegrity
+  POST ecobaseSupplierOrders:reconcileImportedLines {importRunId: ip08-staging-repair-20260714}
+  POST ecobaseSupplierOrders:reconcileImportedLines {importRunId: ip08-staging-repair-idempotence-20260714}
+  POST ecobaseInventoryPlanning:reconcileFamilies (structural no-op; preferred-supplier pass)
+  POST ecobaseInventoryPlanning:verifySilverIntegrity
+
+Results:
+  families=1780; linked company-products=2136; targets=1618; target reviews=162
+  first line repair: repaired=154, ambiguous=1, missing=1, skipped=0
+  methods: exact=128, family_target=25, reviewed_alias=1
+  reasons: boundary_ambiguous=1, product_not_found=1
+  second line repair: repaired=0; supplierProducts=110; companyProductSupplierLinks=110
+  preferred suppliers=110; supplier reviews=1670
+  verifier: technical_blocker=0, business_ambiguity=2, expected_current_only_gap=1
+  ClickUp comments=553 with unchanged digest a68bb9cfa29929462d1940e348e1a30f

@@ -1,0 +1,419 @@
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts --run --reporter=verbose -t 'accepts the four-company current-only fixture'
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts',
+  '--run',
+  '--reporter=verbose',
+  '-t',
+  'accepts the four-company current-only fixture',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:65561) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ × packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > accepts the four-company current-only fixture end to end and remains idempotent
+   → expected [ Array(9) ] to deeply equal ArrayContaining{…}
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > accepts the four-company current-only fixture end to end and remains idempotent
+AssertionError: expected [ Array(9) ] to deeply equal ArrayContaining{…}
+
+- Expected
++ Received
+
+- ArrayContaining [
+-   ObjectContaining {
++ Array [
++   Object {
++     "amazonAccountId": "account-eco-a",
++     "canonicalAsin": "B00SYNTHSHARED",
++     "companyId": "company-eco",
++     "id": "4e30baf1-dd34-4df6-b971-11da23fbe943",
++     "marketplace": "amazon.com",
++     "replenishmentTargetCompanyProductId": "cp-shared-a",
++     "supplierReviewRequired": true,
++     "supplierSelectionEvidenceJson": Object {
++       "recommendedSupplierId": undefined,
++       "reconciledAt": "2026-07-14T06:05:49.930Z",
++       "reviewReason": "missing_valid_supplier_order",
++     },
++     "targetReviewRequired": false,
++     "targetSelectedAt": "2026-07-14T06:05:49.926Z",
++     "targetSelectedByUserId": undefined,
++     "targetSelectionEvidenceJson": Object {
++       "candidates": Array [
++         Object {
++           "companyProductId": "cp-shared-a",
++           "planningStock": 55,
++           "sellableStock": 5,
++           "sku": "SYN-SHARED-A",
++           "snapshotDate": "2026-07-10",
++         },
++       ],
++       "selectedPlanningStock": 55,
++       "selectedSellableStock": 5,
++       "selectedSnapshotDate": "2026-07-10",
++       "selectionRule": "highest_planning_stock_then_sellable",
++     },
++     "targetSelectionSource": "automatic",
++   },
++   Object {
++     "amazonAccountId": "account-eco-b",
++     "canonicalAsin": "B00SYNTHSHARED",
++     "companyId": "company-eco",
++     "id": "a5dd3c4e-67c5-42a0-8bb0-e1f665f2b250",
++     "marketplace": "amazon.com",
++     "replenishmentTargetCompanyProductId": "cp-shared-b",
++     "supplierReviewRequired": true,
++     "supplierSelectionEvidenceJson": Object {
++       "recommendedSupplierId": undefined,
++       "reconciledAt": "2026-07-14T06:05:49.930Z",
++       "reviewReason": "missing_valid_supplier_order",
++     },
++     "targetReviewRequired": false,
++     "targetSelectedAt": "2026-07-14T06:05:49.927Z",
++     "targetSelectedByUserId": undefined,
++     "targetSelectionEvidenceJson": Object {
++       "candidates": Array [
++         Object {
++           "companyProductId": "cp-shared-b",
++           "planningStock": 20,
++           "sellableStock": 20,
++           "sku": "SYN-SHARED-B",
++           "snapshotDate": "2026-07-10",
++         },
++       ],
++       "selectedPlanningStock": 20,
++       "selectedSellableStock": 20,
++       "selectedSnapshotDate": "2026-07-10",
++       "selectionRule": "highest_planning_stock_then_sellable",
++     },
++     "targetSelectionSource": "automatic",
++   },
++   Object {
++     "amazonAccountId": "account-eco-a",
+      "canonicalAsin": "B00SYNTHTIE",
+-     "replenishmentTargetCompanyProductId": undefined,
++     "companyId": "company-eco",
++     "id": "42d9076a-67a6-40e2-a009-91269b9e666b",
++     "marketplace": "amazon.com",
++     "supplierReviewRequired": true,
++     "supplierSelectionEvidenceJson": Object {
++       "recommendedSupplierId": undefined,
++       "reconciledAt": "2026-07-14T06:05:49.930Z",
++       "reviewReason": "missing_valid_supplier_order",
++     },
+      "targetReviewRequired": true,
++     "targetSelectionEvidenceJson": Object {
++       "candidates": Array [
++         Object {
++           "companyProductId": "cp-tie-a",
++           "planningStock": 10,
++           "sellableStock": 10,
++           "sku": "SYN-TIE-A",
++           "snapshotDate": "2026-07-10",
++         },
++         Object {
++           "companyProductId": "cp-tie-b",
++           "planningStock": 10,
++           "sellableStock": 10,
++           "sku": "SYN-TIE-B",
++           "snapshotDate": "2026-07-10",
+          },
+-   ObjectContaining {
++       ],
++       "recommendedCompanyProductId": undefined,
++       "reconciledAt": "2026-07-14T06:05:49.930Z",
++       "reviewReason": "ambiguous_target_stock_tie",
++       "selectedPlanningStock": undefined,
++       "selectedSellableStock": undefined,
++       "selectedSnapshotDate": undefined,
++       "selectionRule": "highest_planning_stock_then_sellable",
++     },
++   },
++   Object {
++     "amazonAccountId": "account-eco-a",
+      "canonicalAsin": "B00SYNTHZERO",
++     "companyId": "company-eco",
++     "id": "74dd10ec-f781-4cd3-854d-97ef0977b582",
++     "marketplace": "amazon.com",
+      "replenishmentTargetCompanyProductId": "cp-zero",
++     "supplierReviewRequired": true,
++     "supplierSelectionEvidenceJson": Object {
++       "recommendedSupplierId": undefined,
++       "reconciledAt": "2026-07-14T06:05:49.930Z",
++       "reviewReason": "missing_valid_supplier_order",
++     },
++     "targetReviewRequired": false,
++     "targetSelectedAt": "2026-07-14T06:05:49.927Z",
++     "targetSelectedByUserId": undefined,
++     "targetSelectionEvidenceJson": Object {
++       "candidates": Array [
++         Object {
++           "companyProductId": "cp-zero",
++           "planningStock": 0,
++           "sellableStock": 0,
++           "sku": "SYN-ZERO",
++           "snapshotDate": "2026-07-10",
++         },
++       ],
++       "selectedPlanningStock": 0,
++       "selectedSellableStock": 0,
++       "selectedSnapshotDate": "2026-07-10",
++       "selectionRule": "highest_planning_stock_then_sellable",
++     },
++     "targetSelectionSource": "automatic",
++   },
++   Object {
++     "amazonAccountId": "account-eco-a",
++     "canonicalAsin": "B00SYNTHMISS",
++     "companyId": "company-eco",
++     "id": "06c89c9c-3d48-458e-890b-5a65d5c24a9b",
++     "marketplace": "amazon.com",
++     "replenishmentTargetCompanyProductId": "cp-missing-velocity",
++     "supplierReviewRequired": true,
++     "supplierSelectionEvidenceJson": Object {
++       "recommendedSupplierId": undefined,
++       "reconciledAt": "2026-07-14T06:05:49.930Z",
++       "reviewReason": "missing_valid_supplier_order",
++     },
++     "targetReviewRequired": false,
++     "targetSelectedAt": "2026-07-14T06:05:49.927Z",
++     "targetSelectedByUserId": undefined,
++     "targetSelectionEvidenceJson": Object {
++       "candidates": Array [
++         Object {
++           "companyProductId": "cp-missing-velocity",
++           "planningStock": 4,
++           "sellableStock": 4,
++           "sku": "SYN-MISSING-VELOCITY",
++           "snapshotDate": "2026-07-10",
++         },
++       ],
++       "selectedPlanningStock": 4,
++       "selectedSellableStock": 4,
++       "selectedSnapshotDate": "2026-07-10",
++       "selectionRule": "highest_planning_stock_then_sellable",
++     },
++     "targetSelectionSource": "automatic",
++   },
++   Object {
++     "amazonAccountId": "account-eco-a",
++     "canonicalAsin": "B00SYNTHONTRACK",
++     "companyId": "company-eco",
++     "id": "ed5659d8-7210-40fb-b87f-2b788b9ca7e5",
++     "marketplace": "amazon.com",
++     "preferredSupplierId": "supplier-delko",
++     "preferredSupplierProductId": "supplier-product-on-track",
++     "replenishmentTargetCompanyProductId": "cp-on-track",
++     "supplierReviewRequired": false,
++     "supplierSelectedAt": "2026-07-14T06:05:49.930Z",
++     "supplierSelectedByUserId": undefined,
++     "supplierSelectionEvidenceJson": Object {
++       "matchType": "exact_target_sku",
++       "productMappingStatus": "resolved",
++       "selectionRule": "latest_valid_source_order_date",
++       "sourceAsin": "B00SYNTHONTRACK",
++       "sourceCompanyProductId": "cp-on-track",
++       "sourceOrderDate": "2026-07-10",
++       "sourceOrderId": "order-on-track",
++       "sourceOrderRef": "EF-SYN-ON-TRACK",
++       "sourceSku": "SYN-ON-TRACK",
++       "sourceSupplierProductId": "supplier-product-on-track",
++       "supplierId": "supplier-delko",
++     },
++     "supplierSelectionSource": "latest_valid_order",
++     "targetReviewRequired": false,
++     "targetSelectedAt": "2026-07-14T06:05:49.927Z",
++     "targetSelectedByUserId": undefined,
++     "targetSelectionEvidenceJson": Object {
++       "candidates": Array [
++         Object {
++           "companyProductId": "cp-on-track",
++           "planningStock": 10,
++           "sellableStock": 10,
++           "sku": "SYN-ON-TRACK",
++           "snapshotDate": "2026-07-10",
++         },
++       ],
++       "selectedPlanningStock": 10,
++       "selectedSellableStock": 10,
++       "selectedSnapshotDate": "2026-07-10",
++       "selectionRule": "highest_planning_stock_then_sellable",
++     },
++     "targetSelectionSource": "automatic",
++   },
++   Object {
++     "amazonAccountId": "account-retail",
++     "canonicalAsin": "B00SYNTHRETAIL",
++     "companyId": "company-retail",
++     "id": "99c6d389-1d41-45cb-ad30-857412309882",
++     "marketplace": "amazon.com",
++     "replenishmentTargetCompanyProductId": "cp-retail",
++     "supplierReviewRequired": true,
++     "supplierSelectionEvidenceJson": Object {
++       "recommendedSupplierId": undefined,
++       "reconciledAt": "2026-07-14T06:05:49.930Z",
++       "reviewReason": "missing_valid_supplier_order",
++     },
++     "targetReviewRequired": false,
++     "targetSelectedAt": "2026-07-14T06:05:49.927Z",
++     "targetSelectedByUserId": undefined,
++     "targetSelectionEvidenceJson": Object {
++       "candidates": Array [
++         Object {
++           "companyProductId": "cp-retail",
++           "planningStock": 20,
++           "sellableStock": 20,
++           "sku": "SYN-RETAIL",
++           "snapshotDate": "2026-07-10",
++         },
++       ],
++       "selectedPlanningStock": 20,
++       "selectedSellableStock": 20,
++       "selectedSnapshotDate": "2026-07-10",
++       "selectionRule": "highest_planning_stock_then_sellable",
++     },
++     "targetSelectionSource": "automatic",
++   },
++   Object {
++     "amazonAccountId": "account-muxtex",
++     "canonicalAsin": "B00SYNTHOFFTRACK",
++     "companyId": "company-muxtex",
++     "id": "b388141c-7637-4e0e-b872-55e740326118",
++     "marketplace": "amazon.com",
++     "preferredSupplierId": "supplier-franklin",
++     "preferredSupplierProductId": "supplier-product-off-track",
++     "replenishmentTargetCompanyProductId": "cp-off-track",
++     "supplierReviewRequired": false,
++     "supplierSelectedAt": "2026-07-14T06:05:49.930Z",
++     "supplierSelectedByUserId": undefined,
++     "supplierSelectionEvidenceJson": Object {
++       "matchType": "exact_target_sku",
++       "productMappingStatus": "resolved",
++       "selectionRule": "latest_valid_source_order_date",
++       "sourceAsin": "B00SYNTHOFFTRACK",
++       "sourceCompanyProductId": "cp-off-track",
++       "sourceOrderDate": "2026-07-10",
++       "sourceOrderId": "order-off-track",
++       "sourceOrderRef": "MX-SYN-OFF-TRACK",
++       "sourceSku": "SYN-OFF-TRACK",
++       "sourceSupplierProductId": "supplier-product-off-track",
++       "supplierId": "supplier-franklin",
++     },
++     "supplierSelectionSource": "latest_valid_order",
++     "targetReviewRequired": false,
++     "targetSelectedAt": "2026-07-14T06:05:49.928Z",
++     "targetSelectedByUserId": undefined,
++     "targetSelectionEvidenceJson": Object {
++       "candidates": Array [
++         Object {
++           "companyProductId": "cp-off-track",
++           "planningStock": 10,
++           "sellableStock": 10,
++           "sku": "SYN-OFF-TRACK",
++           "snapshotDate": "2026-07-10",
++         },
++       ],
++       "selectedPlanningStock": 10,
++       "selectedSellableStock": 10,
++       "selectedSnapshotDate": "2026-07-10",
++       "selectionRule": "highest_planning_stock_then_sellable",
++     },
++     "targetSelectionSource": "automatic",
++   },
++   Object {
++     "amazonAccountId": "account-stop",
++     "canonicalAsin": "B0177E9JPS",
++     "companyId": "company-stop",
++     "id": "19d2059b-6fe8-4dff-a5e3-c85925a90522",
++     "marketplace": "amazon.com",
++     "preferredSupplierId": "supplier-franklin",
++     "preferredSupplierProductId": "supplier-product-etc",
++     "replenishmentTargetCompanyProductId": "cp-etc",
++     "supplierReviewRequired": false,
++     "supplierSelectedAt": "2026-07-14T06:05:49.930Z",
++     "supplierSelectedByUserId": undefined,
++     "supplierSelectionEvidenceJson": Object {
++       "matchType": "exact_target_sku",
++       "productMappingStatus": "resolved",
++       "selectionRule": "latest_valid_source_order_date",
++       "sourceAsin": "B0177E9JPS",
++       "sourceCompanyProductId": "cp-etc",
++       "sourceOrderDate": "2026-07-10",
++       "sourceOrderId": "order-etc-alias",
++       "sourceOrderRef": "SS-SYN-ETC",
++       "sourceSku": "ETC120A",
++       "sourceSupplierProductId": "supplier-product-etc",
++       "supplierId": "supplier-franklin",
++     },
++     "supplierSelectionSource": "latest_valid_order",
++     "targetReviewRequired": false,
++     "targetSelectedAt": "2026-07-14T06:05:49.928Z",
++     "targetSelectedByUserId": undefined,
++     "targetSelectionEvidenceJson": Object {
++       "candidates": Array [
++         Object {
++           "companyProductId": "cp-etc",
++           "planningStock": 3,
++           "sellableStock": 3,
++           "sku": "ETC-120A",
++           "snapshotDate": "2026-07-10",
++         },
++       ],
++       "selectedPlanningStock": 3,
++       "selectedSellableStock": 3,
++       "selectedSnapshotDate": "2026-07-10",
++       "selectionRule": "highest_planning_stock_then_sellable",
++     },
++     "targetSelectionSource": "automatic",
+    },
+  ]
+
+ ❯ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts:2761:22
+    2759|     );
+    2760|     expect(db.getRepository(ECOBASE_COLLECTIONS.importRuns).all()).toH…
+    2761|     expect(families).toEqual(
+       |                      ^
+    2762|       expect.arrayContaining([
+    2763|         expect.objectContaining({
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 30 skipped (31)
+   Start at  06:05:49
+   Duration  622ms (transform 388ms, setup 49ms, collect 437ms, tests 27ms, environment 0ms, prepare 36ms)
+
+/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/execa/lib/error.js:60
+		error = new Error(message);
+		        ^
+
+Error: Command failed with exit code 1: /Users/fshamim/dotfiles/.nvm/versions/node/v24.14.0/bin/node --no-node-snapshot --max_old_space_size=14096 ./node_modules/vitest/vitest.mjs packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts --run --reporter=verbose -t accepts the four-company current-only fixture --poolOptions.threads.singleThread=true
+    at makeError (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/execa/lib/error.js:60:11)
+    at handlePromise (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/execa/index.js:118:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async Command.<anonymous> (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/cli-v1/src/commands/test.js:203:9) {
+  shortMessage: 'Command failed with exit code 1: /Users/fshamim/dotfiles/.nvm/versions/node/v24.14.0/bin/node --no-node-snapshot --max_old_space_size=14096 ./node_modules/vitest/vitest.mjs packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts --run --reporter=verbose -t accepts the four-company current-only fixture --poolOptions.threads.singleThread=true',
+  command: '/Users/fshamim/dotfiles/.nvm/versions/node/v24.14.0/bin/node --no-node-snapshot --max_old_space_size=14096 ./node_modules/vitest/vitest.mjs packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts --run --reporter=verbose -t accepts the four-company current-only fixture --poolOptions.threads.singleThread=true',
+  escapedCommand: '"/Users/fshamim/dotfiles/.nvm/versions/node/v24.14.0/bin/node" --no-node-snapshot "--max_old_space_size=14096" "./node_modules/vitest/vitest.mjs" "packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts" --run "--reporter=verbose" -t "accepts the four-company current-only fixture" "--poolOptions.threads.singleThread=true"',
+  exitCode: 1,
+  signal: undefined,
+  signalDescription: undefined,
+  stdout: undefined,
+  stderr: undefined,
+  failed: true,
+  timedOut: false,
+  isCanceled: false,
+  killed: false
+}
+
+Node.js v24.14.0
+error Command failed with exit code 1.
+info Visit https://yarnpkg.com/en/docs/cli/run for documentation about this command.

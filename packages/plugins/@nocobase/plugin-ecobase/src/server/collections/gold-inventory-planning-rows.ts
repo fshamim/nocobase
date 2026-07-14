@@ -98,6 +98,13 @@ export default defineCollection({
     { name: 'familyTier', type: 'string', interface: 'input', uiSchema: { title: 'Family Tier' }, index: true },
     { name: 'familyTierScore', type: 'double', interface: 'number', uiSchema: { title: 'Family Tier Score' } },
     { name: 'familyCurrentPlanningStock', type: 'double', interface: 'number', uiSchema: { title: 'Family Stock' } },
+    { name: 'familyOnHandStock', type: 'double', interface: 'number', uiSchema: { title: 'Family On Hand' } },
+    {
+      name: 'familyFuturePositionStock',
+      type: 'double',
+      interface: 'number',
+      uiSchema: { title: 'Family Future Position' },
+    },
     { name: 'familySellableStock', type: 'double', interface: 'number', uiSchema: { title: 'Family Sellable' } },
     { name: 'familyReservedStock', type: 'double', interface: 'number', uiSchema: { title: 'Family Reserved' } },
     { name: 'familyPipelineStock', type: 'double', interface: 'number', uiSchema: { title: 'Family Pipeline' } },
@@ -109,10 +116,28 @@ export default defineCollection({
     { name: 'familyDaysOfCover', type: 'double', interface: 'number', uiSchema: { title: 'Family Days of Cover' } },
     { name: 'familyEstimatedOosDate', type: 'dateOnly', interface: 'date', uiSchema: { title: 'Family OOS Date' } },
     {
+      name: 'familyPositionDaysOfCover',
+      type: 'double',
+      interface: 'number',
+      uiSchema: { title: 'Family Position Days of Cover' },
+    },
+    {
+      name: 'familyPositionEstimatedOosDate',
+      type: 'dateOnly',
+      interface: 'date',
+      uiSchema: { title: 'Family Position OOS Date' },
+    },
+    {
       name: 'familyOpenOrderCoverageQty',
       type: 'double',
       interface: 'number',
       uiSchema: { title: 'Family Order Coverage' },
+    },
+    {
+      name: 'familyTrustedSupplierOrderCoverageQty',
+      type: 'double',
+      interface: 'number',
+      uiSchema: { title: 'Family Trusted Supplier Order Coverage' },
     },
     {
       name: 'familySuggestedReorderQty',
@@ -343,6 +368,13 @@ export default defineCollection({
       interface: 'number',
       uiSchema: { title: 'Current Planning Stock' },
     },
+    { name: 'onHandStock', type: 'double', interface: 'number', uiSchema: { title: 'On-Hand Stock' } },
+    {
+      name: 'futurePositionStock',
+      type: 'double',
+      interface: 'number',
+      uiSchema: { title: 'Future Position Stock' },
+    },
     { name: 'sellableStock', type: 'double', interface: 'number', uiSchema: { title: 'Sellable Stock' } },
     { name: 'reservedStock', type: 'double', interface: 'number', uiSchema: { title: 'Reserved Stock' } },
     { name: 'pipelineStock', type: 'double', interface: 'number', uiSchema: { title: 'Replenishment Stock' } },
@@ -355,6 +387,12 @@ export default defineCollection({
       type: 'double',
       interface: 'number',
       uiSchema: { title: 'Open Order Coverage Qty' },
+    },
+    {
+      name: 'trustedSupplierOrderCoverageQty',
+      type: 'double',
+      interface: 'number',
+      uiSchema: { title: 'Trusted Supplier Order Coverage Qty' },
     },
     {
       name: 'supplierOrderState',
@@ -585,6 +623,18 @@ export default defineCollection({
       type: 'integer',
       interface: 'integer',
       uiSchema: { title: 'Days Until OOS' },
+    },
+    {
+      name: 'positionDaysOfCover',
+      type: 'double',
+      interface: 'number',
+      uiSchema: { title: 'Position Days of Cover' },
+    },
+    {
+      name: 'positionEstimatedOosDate',
+      type: 'dateOnly',
+      interface: 'date',
+      uiSchema: { title: 'Position OOS Date' },
     },
     {
       name: 'latestSafeReorderDate',

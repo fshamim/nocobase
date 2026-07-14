@@ -584,7 +584,13 @@ export class EcobaseDailyManagementSnapshotService {
     const dataWarnings = evidenceWarnings(params.evidencePack);
     const sourceStatus = evidenceSourceStatus(params.evidencePack);
     const supplyActionRows = inventoryRows.filter((row) => asString(row.commandCenterPane) === 'supplyAction');
-    const planningRows = inventoryRows.filter((row) => asString(row.commandCenterPane) !== 'duplicateProducts');
+    const dataReadinessRows = inventoryRows.filter((row) => asString(row.commandCenterPane) === 'dataReadiness');
+    const activeOrderRows = inventoryRows.filter((row) => asString(row.commandCenterPane) === 'activeOrders');
+    const stuckInventoryRows = inventoryRows.filter((row) => asString(row.commandCenterPane) === 'stuckInventory');
+    const planningRows = inventoryRows.filter(
+      (row) => asString(row.commandCenterPane) !== 'duplicateProducts' && asString(row.familyRole) !== 'member',
+    );
+    const knownMoneyRiskRows = planningRows.filter((row) => asNumber(row.estimatedProfitRisk) !== undefined);
     const sevenDaysOut = dateAdd(params.snapshotDate, 7);
     const staleOrders = orderRows.filter(
       (row) =>
@@ -604,6 +610,9 @@ export class EcobaseDailyManagementSnapshotService {
       metricSources: {
         inventoryRows: inventoryRows.length,
         supplyActionRows: supplyActionRows.length,
+        activeOrderRows: activeOrderRows.length,
+        stuckInventoryRows: stuckInventoryRows.length,
+        dataReadinessRows: dataReadinessRows.length,
         orderRows: orderRows.length,
         supplierAttentionRows: supplierAttentionRows.length,
         dataWarnings: dataWarnings.length,
@@ -619,7 +628,8 @@ export class EcobaseDailyManagementSnapshotService {
       companyScope: params.companyScope,
       reportRunId: params.reportRunId,
       generatedAt: new Date().toISOString(),
-      inventoryMoneyAtRisk: sum(planningRows, 'estimatedProfitRisk'),
+      inventoryMoneyAtRisk: knownMoneyRiskRows.length ? sum(knownMoneyRiskRows, 'estimatedProfitRisk') : null,
+      inventoryMoneyAtRiskUnknownCount: planningRows.length - knownMoneyRiskRows.length,
       urgentInventorySkuCount: supplyActionRows.length,
       overdueInventorySkuCount: count(supplyActionRows, (row) => asString(row.actionStatus) === 'overdue'),
       aTierInventoryRiskCount: count(supplyActionRows, (row) => asString(row.tier) === 'A'),
@@ -650,7 +660,7 @@ export class EcobaseDailyManagementSnapshotService {
         count(supplyActionRows, (row) =>
           ['fallback_or_inferred', 'missing'].includes(asString(row.supplierEvidenceState) ?? ''),
         ),
-      todayActionCount: supplyActionRows.length + orderRows.length + taskRiskCount,
+      todayActionCount: supplyActionRows.length + dataReadinessRows.length + orderRows.length + taskRiskCount,
       buyBoxRiskCount: Array.isArray(params.evidencePack?.buyBoxRisks) ? params.evidencePack.buyBoxRisks.length : 0,
       performanceTrendCount: Array.isArray(params.evidencePack?.performanceTrends)
         ? params.evidencePack.performanceTrends.length

@@ -198,8 +198,21 @@ function daysUntilDate(date: unknown, calculationDate: string) {
   return value ? diffDays(value, calculationDate) : undefined;
 }
 
+function operationalDaysOfCover(row: PlainRecord) {
+  return asString(row.familyRole) === 'target'
+    ? asNumber(row.familyDaysOfCover) ?? asNumber(row.daysOfCover)
+    : asNumber(row.daysOfCover);
+}
+
+function operationalEstimatedOosDate(row: PlainRecord) {
+  return asString(row.familyRole) === 'target'
+    ? optionalIsoDate(asString(row.familyEstimatedOosDate) ?? '') ??
+        optionalIsoDate(asString(row.estimatedOosDate) ?? '')
+    : optionalIsoDate(asString(row.estimatedOosDate) ?? '');
+}
+
 function stockoutGapDays(row: PlainRecord) {
-  const estimatedOosDate = optionalIsoDate(asString(row.estimatedOosDate) ?? '');
+  const estimatedOosDate = operationalEstimatedOosDate(row);
   const expectedArrivalDate = optionalIsoDate(asString(row.expectedArrivalDate) ?? '');
   return estimatedOosDate && expectedArrivalDate ? diffDays(expectedArrivalDate, estimatedOosDate) : undefined;
 }
@@ -207,7 +220,7 @@ function stockoutGapDays(row: PlainRecord) {
 export function calculateInventoryMoneyRisk(row: PlainRecord) {
   const salesVelocity = asNumber(row.salesVelocity);
   const profitPerUnit = asNumber(row.profitPerUnit);
-  const daysOfCover = asNumber(row.daysOfCover);
+  const daysOfCover = operationalDaysOfCover(row);
   const targetCoverDays = asNumber(row.targetCoverDays);
   const missingInputs = [
     !(typeof salesVelocity === 'number' && salesVelocity > 0) ? 'trusted_velocity' : undefined,
@@ -220,7 +233,7 @@ export function calculateInventoryMoneyRisk(row: PlainRecord) {
     profitPerUnit,
     daysOfCover,
     targetCoverDays,
-    openOrderCoverageQty: asNumber(row.openOrderCoverageQty) ?? 0,
+    openOrderCoverageQty: asNumber(row.trustedSupplierOrderCoverageQty) ?? asNumber(row.openOrderCoverageQty) ?? 0,
     stockoutGapDays: stockoutGapDays(row),
   };
   if (missingInputs.length > 0) {
@@ -244,7 +257,9 @@ export function calculateInventoryMoneyRisk(row: PlainRecord) {
     };
   }
 
-  const coverageDays = (asNumber(row.openOrderCoverageQty) ?? 0) / (salesVelocity as number);
+  const coverageDays =
+    (asNumber(row.trustedSupplierOrderCoverageQty) ?? asNumber(row.openOrderCoverageQty) ?? 0) /
+    (salesVelocity as number);
   const coverageShortfallDays = Math.max((targetCoverDays as number) - (daysOfCover as number) - coverageDays, 0);
   const timingGapDays = activeOrder ? Math.max(stockoutGapDays(row) ?? 0, 0) : 0;
   const uncoveredDays = Math.max(coverageShortfallDays, timingGapDays);
@@ -779,6 +794,8 @@ const INVENTORY_PLANNING_ROW_FIELDS = [
   'familyTier',
   'familyTierScore',
   'familyCurrentPlanningStock',
+  'familyOnHandStock',
+  'familyFuturePositionStock',
   'familySellableStock',
   'familyReservedStock',
   'familyPipelineStock',
@@ -789,7 +806,10 @@ const INVENTORY_PLANNING_ROW_FIELDS = [
   'familySalesVelocity',
   'familyDaysOfCover',
   'familyEstimatedOosDate',
+  'familyPositionDaysOfCover',
+  'familyPositionEstimatedOosDate',
   'familyOpenOrderCoverageQty',
+  'familyTrustedSupplierOrderCoverageQty',
   'familySuggestedReorderQty',
   'familyPreferredSupplierId',
   'familyPreferredSupplierProductId',
@@ -861,6 +881,8 @@ const INVENTORY_PLANNING_ROW_FIELDS = [
   'leadTimeFreshnessDays',
   'purchasedPipelineGraceDays',
   'currentPlanningStock',
+  'onHandStock',
+  'futurePositionStock',
   'sellableStock',
   'reservedStock',
   'pipelineStock',
@@ -869,6 +891,7 @@ const INVENTORY_PLANNING_ROW_FIELDS = [
   'prepStock',
   'awdStock',
   'openOrderCoverageQty',
+  'trustedSupplierOrderCoverageQty',
   'supplierOrderState',
   'supplierOrderId',
   'supplierOrderStatus',
@@ -910,6 +933,8 @@ const INVENTORY_PLANNING_ROW_FIELDS = [
   'daysOfCover',
   'estimatedOosDate',
   'daysUntilOos',
+  'positionDaysOfCover',
+  'positionEstimatedOosDate',
   'latestSafeReorderDate',
   'daysUntilSafeReorder',
   'supplierId',
@@ -1435,22 +1460,35 @@ export class EcobaseInventoryPlanningService {
         (asNumber(openOrder.supplierOrderPlacedNotPurchasedOpenQty) ?? 0);
       const latestActivity = latestActivityByOrderId.get(asString(openOrder.supplierOrderId) ?? '');
       const latestActivityContext = toPlainRecord(latestActivity?.contextSnapshotJson);
-      const estimatedOosDate =
-        salesVelocity > 0 && typeof stockBuckets.currentPlanningStock === 'number'
-          ? addDays(calculationDate, Math.floor(stockBuckets.currentPlanningStock / salesVelocity))
+      const onHandStock = stockBuckets.sellableStock;
+      const trustedSupplierOrderCoverageQty =
+        typeof stockBuckets.pipelineStock === 'number'
+          ? Math.max((asNumber(openOrder.supplierOrderPurchasedOpenQty) ?? 0) - stockBuckets.pipelineStock, 0)
           : undefined;
+      const futurePositionStock =
+        typeof onHandStock === 'number' && typeof stockBuckets.pipelineStock === 'number'
+          ? onHandStock + stockBuckets.pipelineStock + (trustedSupplierOrderCoverageQty ?? 0)
+          : undefined;
+      const estimatedOosDate =
+        salesVelocity > 0 && typeof onHandStock === 'number'
+          ? addDays(calculationDate, Math.floor(onHandStock / salesVelocity))
+          : undefined;
+      const positionDaysOfCover =
+        salesVelocity > 0 && typeof futurePositionStock === 'number' ? futurePositionStock / salesVelocity : undefined;
+      const positionEstimatedOosDate =
+        typeof positionDaysOfCover === 'number' ? addDays(calculationDate, Math.floor(positionDaysOfCover)) : undefined;
       const latestSafeReorderDate =
         estimatedOosDate && typeof leadTimeDays === 'number'
           ? addDays(estimatedOosDate, -(leadTimeDays + safetyBufferDays))
           : undefined;
       const daysUntilSafeReorder = latestSafeReorderDate ? diffDays(latestSafeReorderDate, calculationDate) : undefined;
       const suggestedReorderQty =
-        typeof stockBuckets.currentPlanningStock === 'number'
+        typeof onHandStock === 'number' && typeof stockBuckets.pipelineStock === 'number'
           ? this.suggestedReorderQuantity({
               salesVelocity,
               targetCoverDays,
-              currentPlanningStock: stockBuckets.currentPlanningStock,
-              openOrderCoverageQty,
+              currentPlanningStock: onHandStock + stockBuckets.pipelineStock,
+              openOrderCoverageQty: trustedSupplierOrderCoverageQty ?? 0,
             })
           : undefined;
       const supplierUnitCost = asNumber(supplierProduct.unitCost);
@@ -1477,9 +1515,7 @@ export class EcobaseInventoryPlanningService {
             : 'unavailable_no_history';
       const productStatus = derivedProductStatus(asString(companyProduct.lifecycleStatus), stockBuckets);
       const daysOfCover =
-        salesVelocity > 0 && typeof stockBuckets.currentPlanningStock === 'number'
-          ? stockBuckets.currentPlanningStock / salesVelocity
-          : undefined;
+        salesVelocity > 0 && typeof onHandStock === 'number' ? onHandStock / salesVelocity : undefined;
       const actionStatus =
         typeof stockBuckets.currentPlanningStock === 'number'
           ? this.actionStatus({
@@ -1576,9 +1612,14 @@ export class EcobaseInventoryPlanningService {
         sixMonthWorstQty: historical.sixMonthWorstQty,
         sixMonthBestQty: historical.sixMonthBestQty,
         ...stockBuckets,
+        onHandStock,
+        futurePositionStock,
+        trustedSupplierOrderCoverageQty,
         inventoryAsOfDate: asString(inventory?.snapshotDate),
         daysOfCover,
         estimatedOosDate,
+        positionDaysOfCover,
+        positionEstimatedOosDate,
         latestSafeReorderDate,
         daysUntilSafeReorder,
         suggestedReorderQty,
@@ -1650,7 +1691,8 @@ export class EcobaseInventoryPlanningService {
   private finalizeGoldContract(row: PlainRecord, calculationDate: string) {
     const productStatus = asString(row.productStatus)?.toLowerCase();
     const familyRole = asString(row.familyRole);
-    const planningTarget = familyRole === 'target' || familyRole === 'unassigned';
+    const planningTarget = familyRole !== 'member';
+    const familyReview = familyRole === 'review';
     const live = productStatus === 'active' || productStatus === 'live';
     const tiered = isProfitTier(row.tier);
     const actionStatus = asString(row.actionStatus) ?? '';
@@ -1658,6 +1700,7 @@ export class EcobaseInventoryPlanningService {
     const supplierOrderState = asString(row.supplierOrderState) ?? '';
     const activeOrder =
       planningTarget &&
+      !familyReview &&
       live &&
       !excluded &&
       ['purchased_pipeline', 'placed_not_purchased'].includes(supplierOrderState);
@@ -1665,19 +1708,22 @@ export class EcobaseInventoryPlanningService {
     const familyStuckAction = asBoolean(row.familyStuckAction) === true;
     const stuck = familyStuckAction ? asString(row.familyStuckClassification) ?? listingStuck : listingStuck;
     const stuckInventory =
+      planningTarget &&
+      !familyReview &&
       !excluded &&
       (familyStuckAction ||
         (familyRole === 'unassigned' &&
           ['over_60_doc', 'no_sell_through_with_stock', 'reserved_stalled', 'pipeline_stalled'].includes(stuck)));
+    const daysOfCover = operationalDaysOfCover(row);
     const stockoutSoon =
-      typeof asNumber(row.daysOfCover) === 'number' &&
+      typeof daysOfCover === 'number' &&
       typeof asNumber(row.targetCoverDays) === 'number' &&
-      (asNumber(row.daysOfCover) ?? Infinity) <= (asNumber(row.targetCoverDays) ?? 0);
+      daysOfCover <= (asNumber(row.targetCoverDays) ?? 0);
     const supplyAction =
       live &&
       !excluded &&
       planningTarget &&
-      !['over_30_doc_watch', 'declining_velocity_watch'].includes(listingStuck) &&
+      !familyReview &&
       (asNumber(row.salesVelocity) ?? 0) > 0 &&
       stockoutSoon &&
       ['no_open_order', 'closed_history', ''].includes(supplierOrderState);
@@ -1695,13 +1741,20 @@ export class EcobaseInventoryPlanningService {
       exactSourceStatus === 'inbound-monitoring' &&
       ['awaiting_amazon_stock', 'partially_observed'].includes(receiptStatus ?? '');
     const fullyObserved = receiptStatus === 'amazon_stock_observed';
+    const onHandStock = ['target', 'review'].includes(familyRole ?? '')
+      ? asNumber(row.familyOnHandStock) ??
+        asNumber(row.onHandStock) ??
+        asNumber(row.sellableStock) ??
+        asNumber(row.currentPlanningStock)
+      : asNumber(row.onHandStock) ?? asNumber(row.sellableStock) ?? asNumber(row.currentPlanningStock);
     const healthyInventory =
       planningTarget &&
+      !familyReview &&
       live &&
       !excluded &&
       !activeOrder &&
       !stuckInventory &&
-      (asNumber(row.currentPlanningStock) ?? 0) > 0 &&
+      (onHandStock ?? 0) > 0 &&
       (asNumber(row.salesVelocity) ?? 0) > 0 &&
       !stockoutSoon;
     const currentStuckInventory = stuckInventory && (!fullyObserved || newerIndependentCondition);
@@ -1709,10 +1762,10 @@ export class EcobaseInventoryPlanningService {
     const dataReadiness = planningTarget && live && !excluded;
     const commandCenterPane = inboundMonitoring
       ? 'inboundMonitoring'
-      : currentStuckInventory
-        ? 'stuckInventory'
-        : activeOrder
-          ? 'activeOrders'
+      : activeOrder
+        ? 'activeOrders'
+        : currentStuckInventory
+          ? 'stuckInventory'
           : currentSupplyAction
             ? 'supplyAction'
             : healthyInventory
@@ -1774,10 +1827,14 @@ export class EcobaseInventoryPlanningService {
       stuckClassification: stuck,
       pipelineHealthStatus: pipelineHealthStatus(row, calculationDate),
       stockoutGapDays: stockoutGapDays(row),
-      daysUntilOos: daysUntilDate(row.estimatedOosDate, calculationDate),
+      daysUntilOos: daysUntilDate(operationalEstimatedOosDate(row), calculationDate),
       commandCenterPane,
       commandCenterPaneReason:
-        commandCenterPane === 'watch' ? 'no_command_center_action_required' : `classified_${commandCenterPane}`,
+        commandCenterPane === 'supplyAction' && !asString(row.supplierAvailability)?.startsWith('resolved_')
+          ? 'supply_action_supplier_missing'
+          : commandCenterPane === 'watch'
+            ? 'no_command_center_action_required'
+            : `classified_${commandCenterPane}`,
       planningEligibilityStatus,
       planningEligibilityReason:
         planningEligibilityStatus === 'eligible' ? `verified_${commandCenterPane}` : planningEligibilityStatus,
@@ -1833,6 +1890,11 @@ export class EcobaseInventoryPlanningService {
     for (const [familyId, members] of groups) {
       const targetId = asString(members[0]?.replenishmentTargetCompanyProductId);
       const target = members.find((row) => asString(row.companyProductId) === targetId);
+      const review = target
+        ? undefined
+        : [...members].sort((left, right) =>
+            String(left.companyProductId ?? '').localeCompare(String(right.companyProductId ?? '')),
+          )[0];
       const targetSku = asString(target?.sku);
       const supplierEvidence = toPlainRecord(toPlainRecord(members[0]?.familyRollupEvidence).supplierSelection);
       const sourceCompanyProductId = asString(supplierEvidence.sourceCompanyProductId);
@@ -1857,19 +1919,35 @@ export class EcobaseInventoryPlanningService {
         ? velocityValues.reduce((total, value) => total + value, 0)
         : undefined;
       const grossOpenOrderCoverageQty = sum(members, 'openOrderCoverageQty');
+      const grossTrustedSupplierOrderCoverageQty = sum(members, 'supplierOrderPurchasedOpenQty');
       const familyOpenOrderCoverageQty = Math.max(0, grossOpenOrderCoverageQty - stock.familyPipelineStock);
+      const familyTrustedSupplierOrderCoverageQty = Math.max(
+        0,
+        grossTrustedSupplierOrderCoverageQty - stock.familyPipelineStock,
+      );
+      const familyOnHandStock = stock.familySellableStock;
+      const familyFuturePositionStock =
+        familyOnHandStock + stock.familyPipelineStock + familyTrustedSupplierOrderCoverageQty;
       const familyDaysOfCover =
         typeof familySalesVelocity === 'number' && familySalesVelocity > 0
-          ? stock.familyCurrentPlanningStock / familySalesVelocity
+          ? familyOnHandStock / familySalesVelocity
           : undefined;
       const familyEstimatedOosDate =
         typeof familyDaysOfCover === 'number' ? addDays(calculationDate, Math.floor(familyDaysOfCover)) : undefined;
+      const familyPositionDaysOfCover =
+        typeof familySalesVelocity === 'number' && familySalesVelocity > 0
+          ? familyFuturePositionStock / familySalesVelocity
+          : undefined;
+      const familyPositionEstimatedOosDate =
+        typeof familyPositionDaysOfCover === 'number'
+          ? addDays(calculationDate, Math.floor(familyPositionDaysOfCover))
+          : undefined;
       const familySuggestedReorderQty = target
         ? this.suggestedReorderQuantity({
             salesVelocity: familySalesVelocity,
             targetCoverDays: asNumber(target.targetCoverDays) ?? 0,
-            currentPlanningStock: stock.familyCurrentPlanningStock,
-            openOrderCoverageQty: familyOpenOrderCoverageQty,
+            currentPlanningStock: familyOnHandStock + stock.familyPipelineStock,
+            openOrderCoverageQty: familyTrustedSupplierOrderCoverageQty,
           })
         : undefined;
       const familyUnitCost =
@@ -1917,7 +1995,7 @@ export class EcobaseInventoryPlanningService {
         (total, { row }) => total + (asNumber(row.currentPlanningStock) ?? 0) * (asNumber(row.unitCost) ?? 0),
         0,
       );
-      const familyStuckActionRow = target ?? affectedMembers[0]?.row;
+      const familyStuckActionRow = target ?? review ?? affectedMembers[0]?.row;
       const familyStuckActiveOrderCount = members.filter((row) =>
         ['purchased_pipeline', 'placed_not_purchased'].includes(asString(row.supplierOrderState) ?? ''),
       ).length;
@@ -1953,10 +2031,15 @@ export class EcobaseInventoryPlanningService {
         familyTier: asString(target?.tier),
         familyTierScore: asNumber(target?.tierScore),
         ...stock,
+        familyOnHandStock,
+        familyFuturePositionStock,
         familySalesVelocity,
         familyDaysOfCover,
         familyEstimatedOosDate,
+        familyPositionDaysOfCover,
+        familyPositionEstimatedOosDate,
         familyOpenOrderCoverageQty,
+        familyTrustedSupplierOrderCoverageQty,
         familySuggestedReorderQty,
         familyUnitCost,
         familyLeadTimeDays,
@@ -1982,8 +2065,10 @@ export class EcobaseInventoryPlanningService {
         sourceSku: asString(supplierEvidence.sourceSku) ?? asString(orderSource?.sku),
         sourceOrderRef: asString(supplierEvidence.sourceOrderRef) ?? asString(orderSource?.supplierOrderRef),
         grossOpenOrderCoverageQty,
+        grossTrustedSupplierOrderCoverageQty,
         sellerboardPipelineQty: stock.familyPipelineStock,
         netOpenOrderCoverageQty: familyOpenOrderCoverageQty,
+        netTrustedSupplierOrderCoverageQty: familyTrustedSupplierOrderCoverageQty,
         supplierOrderCoverageTreatment: 'pipeline_netting',
       };
 
@@ -1994,11 +2079,11 @@ export class EcobaseInventoryPlanningService {
         const resolved = {
           ...row,
           ...familyValues,
-          familyRole: isTarget ? 'target' : target ? 'member' : 'review',
+          familyRole: isTarget ? 'target' : row === review ? 'review' : 'member',
           familyStuckAction: row === familyStuckActionRow && affectedMembers.length > 0,
           familySuggestedReorderQty: isTarget ? familySuggestedReorderQty : undefined,
           familyEstimatedOrderCost: isTarget ? familyValues.familyEstimatedOrderCost : undefined,
-          actionStatus: isTarget ? familyActionStatus : 'family_member_no_reorder',
+          actionStatus: isTarget || row === review ? familyActionStatus : 'family_member_no_reorder',
           suggestedReorderQty: isTarget ? familySuggestedReorderQty : undefined,
           estimatedOrderCost: isTarget ? familyValues.familyEstimatedOrderCost : undefined,
           ...(isTarget

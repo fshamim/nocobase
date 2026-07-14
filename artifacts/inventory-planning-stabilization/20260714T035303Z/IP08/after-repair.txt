@@ -1,0 +1,45 @@
+ families | targets | target_reviews | preferred_suppliers | supplier_reviews 
+----------+---------+----------------+---------------------+------------------
+     1780 |    1618 |            162 |                 110 |             1670
+(1 row)
+
+ company_products | family_linked 
+------------------+---------------
+             2136 |          2136
+(1 row)
+
+ lines | resolved | unresolved 
+-------+----------+------------
+   156 |      154 |          2
+(1 row)
+
+ supplier_products 
+-------------------
+               110
+(1 row)
+
+ company_product_supplier_links 
+--------------------------------
+                            110
+(1 row)
+
+ comments |          comment_digest          
+----------+----------------------------------
+      553 | a68bb9cfa29929462d1940e348e1a30f
+(1 row)
+
+ clickup_orders | missing_task_refs 
+----------------+-------------------
+             44 |                 0
+(1 row)
+
+ gold_inventory_rows | latest_calculation_date |     latest_gold_update     
+---------------------+-------------------------+----------------------------
+                2136 | 2026-07-14              | 2026-07-14 02:01:11.725+00
+(1 row)
+
+  latest_import_started_at  
+----------------------------
+ 2026-07-14 01:56:00.057+00
+(1 row)
+

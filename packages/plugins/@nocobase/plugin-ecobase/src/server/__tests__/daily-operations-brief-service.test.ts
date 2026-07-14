@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
 import { EcobaseDailyOperationsBriefService } from '../../features/daily-operations-brief/server/daily-operations-brief-service';
+import { EcobaseDailyManagementSnapshotService } from '../../features/daily-operations-brief/server/daily-management-snapshot-service';
 
 class MemoryRepository implements EcobaseRepository {
   private sequence = 1;
@@ -126,6 +127,7 @@ async function seedGoldInventoryRow(db: MemoryDatabase, values: Record<string, u
       productStatus: values.productStatus ?? 'active',
       commandCenterPane: values.commandCenterPane ?? 'watch',
       commandCenterPaneReason: values.commandCenterPaneReason ?? 'not_in_action_population',
+      familyRole: values.familyRole,
       planningEligibilityStatus: values.planningEligibilityStatus ?? 'watch',
       planningEligibilityReason: values.planningEligibilityReason ?? 'not_in_action_population',
       dataQualityStatus: values.dataQualityStatus ?? 'ready',
@@ -161,9 +163,12 @@ async function seedGoldInventoryRow(db: MemoryDatabase, values: Record<string, u
       stuck: values.stuck ?? false,
       stuckClassification: values.stuckClassification ?? 'none',
       recommendedEscalation: values.recommendedEscalation,
+      latestSupplierOrderActivityAt: values.latestSupplierOrderActivityAt,
+      latestSupplierOrderActivityNote: values.latestSupplierOrderActivityNote,
+      latestSupplierOrderActivityActor: values.latestSupplierOrderActivityActor,
       openOrderCoverageQty: values.openOrderCoverageQty ?? 0,
       digestPriority: values.digestPriority ?? 1,
-      evidence: {},
+      evidence: values.evidence ?? {},
     },
   });
 }
@@ -252,6 +257,120 @@ describe('EcobaseDailyOperationsBriefService broader evidence focus', () => {
       activeOrderOffTrackCount: 1,
       followUpDueTodayCount: 1,
       stuckInventoryReviewCount: 1,
+    });
+  });
+
+  it('keeps current-only actions visible and reports readiness and unknown money risk without duplicate members', async () => {
+    const { db, brief } = service();
+    const currentOnlyEvidence = { historyLoadStatus: 'not_loaded' };
+    await seedGoldInventoryRow(db, {
+      id: 'gold-current-supply',
+      asin: 'B00CURRENTSUPPLY',
+      familyRole: 'target',
+      actionStatus: 'overdue',
+      commandCenterPane: 'supplyAction',
+      planningEligibilityStatus: 'eligible',
+      estimatedProfitRisk: null,
+      moneyRiskStatus: 'unknown_missing_inputs',
+      evidence: currentOnlyEvidence,
+    });
+    await seedGoldInventoryRow(db, {
+      id: 'gold-current-readiness',
+      asin: 'B00CURRENTREADY',
+      familyRole: 'review',
+      actionStatus: 'missing_velocity',
+      commandCenterPane: 'dataReadiness',
+      planningEligibilityStatus: 'needs_data_readiness',
+      dataQualityStatus: 'blocked',
+      dataQualityIssues: ['velocity_missing'],
+      estimatedProfitRisk: null,
+      moneyRiskStatus: 'unknown_missing_inputs',
+      evidence: currentOnlyEvidence,
+    });
+    await seedGoldInventoryRow(db, {
+      id: 'gold-current-active',
+      asin: 'B00CURRENTACTIVE',
+      familyRole: 'target',
+      actionStatus: 'already_ordered',
+      commandCenterPane: 'activeOrders',
+      planningEligibilityStatus: 'eligible',
+      supplierOrderState: 'purchased_pipeline',
+      supplierOrderStatus: 'paid',
+      supplierOrderRef: 'PO-CURRENT',
+      pipelineHealthStatus: 'late',
+      expectedArrivalDate: '2026-06-20',
+      estimatedOosDate: '2026-06-12',
+      latestSupplierOrderActivityAt: '2026-06-10T09:00:00.000Z',
+      latestSupplierOrderActivityNote: 'ClickUp follow-up required',
+      latestSupplierOrderActivityActor: 'Operations User',
+      recommendedEscalation: 'follow_up_order',
+      estimatedProfitRisk: null,
+      moneyRiskStatus: 'unknown_missing_inputs',
+      evidence: currentOnlyEvidence,
+    });
+    await seedGoldInventoryRow(db, {
+      id: 'gold-current-member',
+      asin: 'B00CURRENTMEMBER',
+      familyRole: 'member',
+      commandCenterPane: 'watch',
+      estimatedProfitRisk: 999,
+      moneyRiskStatus: 'resolved_positive',
+      evidence: currentOnlyEvidence,
+    });
+
+    const evidence = await brief.buildEvidencePack({
+      company: 'ACME',
+      date: '2026-06-10',
+      timezone: 'Asia/Karachi',
+      maxItems: 10,
+    });
+    const snapshot = await new EcobaseDailyManagementSnapshotService(db).upsertFromEvidence({
+      date: '2026-06-10',
+      company: 'ACME',
+      reportRunId: '11111111-1111-4111-8111-111111111111',
+      evidencePack: evidence,
+    });
+
+    expect(evidence.inventoryRisks).toEqual([
+      expect.objectContaining({ asin: 'B00CURRENTSUPPLY', estimatedProfitRisk: undefined }),
+    ]);
+    expect(evidence.inventoryCommandCenter.alerts.dataReadiness).toEqual([
+      expect.objectContaining({ asin: 'B00CURRENTREADY', commandCenterPane: 'dataReadiness' }),
+    ]);
+    expect(evidence.inventoryCommandCenter.alerts.activeOrdersOffTrack).toEqual([
+      expect.objectContaining({
+        asin: 'B00CURRENTACTIVE',
+        latestSupplierOrderActivityNote: 'ClickUp follow-up required',
+        latestSupplierOrderActivityActor: 'Operations User',
+      }),
+    ]);
+    expect(evidence.summaryCounts).toMatchObject({
+      supplyActionCount: 1,
+      activeOrderCount: 1,
+      activeOrderOffTrackCount: 1,
+      dataReadinessCount: 1,
+      historyReadinessAffectedCount: 4,
+      moneyAtRiskKnownTotal: 0,
+      moneyAtRiskUnknownCount: 3,
+    });
+    expect(evidence.dataWarnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'inventory_history_not_loaded' }),
+        expect.objectContaining({ code: 'inventory_data_readiness_required' }),
+      ]),
+    );
+    expect(snapshot).toMatchObject({
+      inventoryMoneyAtRisk: null,
+      inventoryMoneyAtRiskUnknownCount: 3,
+      todayActionCount: 2,
+      snapshotPayload: {
+        metricSources: expect.objectContaining({
+          inventoryRows: 4,
+          supplyActionRows: 1,
+          activeOrderRows: 1,
+          dataReadinessRows: 1,
+        }),
+      },
     });
   });
 

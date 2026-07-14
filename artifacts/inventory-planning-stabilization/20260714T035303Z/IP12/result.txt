@@ -1,0 +1,58 @@
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/daily-operations-brief-service.test.ts --run --reporter=verbose
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/daily-operations-brief-service.test.ts',
+  '--run',
+  '--reporter=verbose',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:55222) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/daily-operations-brief-service.test.ts > EcobaseDailyOperationsBriefService broader evidence focus > reuses inventory command-center buckets for daily decision alerts
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/daily-operations-brief-service.test.ts > EcobaseDailyOperationsBriefService broader evidence focus > keeps current-only actions visible and reports readiness and unknown money risk without duplicate members
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/daily-operations-brief-service.test.ts > EcobaseDailyOperationsBriefService broader evidence focus > keeps exact paginated Gold totals and separates unknown active-order timing
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/daily-operations-brief-service.test.ts > EcobaseDailyOperationsBriefService broader evidence focus > chooses Buy Box focus from a deterministic win-rate drop
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/daily-operations-brief-service.test.ts > EcobaseDailyOperationsBriefService broader evidence focus > chooses velocity focus when units drop and inventory is not urgent
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/daily-operations-brief-service.test.ts > EcobaseDailyOperationsBriefService broader evidence focus > chooses profit-gap focus when target profit is missed without a velocity drop
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/daily-operations-brief-service.test.ts > EcobaseDailyOperationsBriefService broader evidence focus > chooses OKR focus for off-track OKR and stale task evidence
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/daily-operations-brief-service.test.ts > EcobaseDailyOperationsBriefService broader evidence focus > keeps critical source quality above otherwise valid Buy Box risk
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/daily-operations-brief-service.test.ts > EcobaseDailyOperationsBriefService broader evidence focus > marks new products without baseline as watch-list evidence instead of off-track focus
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/daily-operations-brief-service.test.ts > EcobaseDailyOperationsBriefService broader evidence focus > uses mixed-domain priority order after inventory and supplier orders
+
+ Test Files  1 passed (1)
+      Tests  10 passed (10)
+   Start at  05:52:15
+   Duration  541ms (transform 332ms, setup 46ms, collect 370ms, tests 21ms, environment 0ms, prepare 33ms)
+
+Done in 1.85s.
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/daily-management-snapshot-service.test.ts --run --reporter=verbose
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/daily-management-snapshot-service.test.ts',
+  '--run',
+  '--reporter=verbose',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:59295) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/daily-management-snapshot-service.test.ts > EcobaseDailyManagementSnapshotService > persists management KPIs and compares the 7-day trend
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/daily-management-snapshot-service.test.ts > EcobaseDailyBriefPromptSettingsService > saves global prompt settings without an undefined company filter
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+   Start at  05:57:44
+   Duration  552ms (transform 342ms, setup 50ms, collect 385ms, tests 4ms, environment 0ms, prepare 37ms)
+
+Done in 2.82s.

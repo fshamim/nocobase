@@ -508,6 +508,27 @@ describe('Ecobase inventory-planning public API seam', () => {
         stuckClassification: 'none',
       },
     });
+    await goldRows.create({
+      values: {
+        ...baseRow,
+        id: 'gold-7',
+        naturalKey: '2026-07-05:ACME:B007:SKU-7',
+        asin: 'B007',
+        sku: 'SKU-7',
+        title: 'Current-only readiness product',
+        tier: null,
+        profitPerUnit: null,
+        estimatedProfitRisk: null,
+        moneyRiskStatus: 'unknown_missing_inputs',
+        salesVelocity: null,
+        salesVelocityStatus: 'missing',
+        actionStatus: 'missing_velocity',
+        commandCenterPane: 'dataReadiness',
+        dataQualityStatus: 'blocked',
+        dataQualityIssues: ['velocity_missing'],
+        evidence: { historyLoadStatus: 'not_loaded' },
+      },
+    });
     await db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
       values: { id: 'company-2', name: 'ACME' },
     });
@@ -566,7 +587,13 @@ describe('Ecobase inventory-planning public API seam', () => {
     await actions.commandCenter(context, vi.fn());
     const data = context.body?.data as Record<string, any>;
 
-    expect(data.metadata).toMatchObject({ company: 'ACME', calculationDate: '2026-07-05', targetCoverDays: 45 });
+    expect(data.metadata).toMatchObject({
+      company: 'ACME',
+      calculationDate: '2026-07-05',
+      targetCoverDays: 45,
+      planningMode: 'current_operational',
+      historyReadiness: { status: 'partial', affectedRowCount: 1, totalRowCount: 7 },
+    });
     expect(data.summaryCards.map((card: Record<string, unknown>) => card.label)).toEqual([
       'Urgent stockout risk',
       'Money at risk',
@@ -576,6 +603,14 @@ describe('Ecobase inventory-planning public API seam', () => {
       'Stuck inventory',
     ]);
     expect(data.macroRisk.map((item: Record<string, unknown>) => item.label)).toContain('Stuck current stock');
+    expect(data.summaryCards.find((card: Record<string, unknown>) => card.key === 'moneyAtRisk')).toMatchObject({
+      value: 600,
+      unknownCount: 2,
+    });
+    expect(data.panes.dataReadiness).toMatchObject({
+      total: 1,
+      rows: [expect.objectContaining({ id: 'gold-7', tier: undefined, profitPerUnit: undefined })],
+    });
     expect(data.panes.supplyAction).toMatchObject({ total: 1, pageSize: 1 });
     expect(data.panes.supplyAction.rows[0]).toMatchObject({
       id: 'gold-1',

@@ -1,0 +1,23 @@
+Task: IP09 — Separate on-hand coverage from future position
+
+Red/green:
+  yarn test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts --run --reporter=verbose
+  Red: current DOC/OOS counted sellable + reserved + Amazon pipeline (160 days; OOS 2026-12-17).
+  Green: 29 passed.
+
+Coverage contract:
+  onHandStock = sellableStock
+  daysOfCover / estimatedOosDate = onHandStock / trusted velocity
+  trustedSupplierOrderCoverageQty = max(purchased open PO - Amazon pipeline, 0)
+  futurePositionStock = onHandStock + Amazon pipeline + trusted supplier PO coverage
+  positionDaysOfCover / positionEstimatedOosDate = future position / trusted velocity
+  reserved remains separate and never counts as on-hand or future available stock
+  family fields apply the same contract; currentPlanningStock remains as a compatibility display total
+
+Verification scenarios:
+  large inbound does not postpone current OOS
+  reserved does not count as available
+  arrival before current OOS is on_track
+  arrival after current OOS is late
+  missing arrival remains unknown_timing
+  Amazon pipeline is netted from trusted supplier PO coverage

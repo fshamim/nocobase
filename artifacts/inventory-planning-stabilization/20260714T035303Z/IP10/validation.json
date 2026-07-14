@@ -1,0 +1,26 @@
+{
+  "gitSha": "23431a26d02769c3aeadc65acbf92ab74f05354e",
+  "stagingDatabaseIdentifier": "ecobase-staging-2ndggj-postgres-1/nocobase",
+  "taskId": "IP10",
+  "startedAt": "2026-07-14T05:35:00Z",
+  "finishedAt": "2026-07-14T05:38:30Z",
+  "exitStatus": 0,
+  "assertions": {
+    "inboundMonitoringPrecedencePassed": true,
+    "activeOrdersPrecedencePassed": true,
+    "stuckInventoryPrecedencePassed": true,
+    "supplyActionPrecedencePassed": true,
+    "healthyInventoryPrecedencePassed": true,
+    "dataReadinessPrecedencePassed": true,
+    "supplyActionIndependentOfTier": true,
+    "healthyIndependentOfReceiptEvent": true,
+    "missingSupplierVisibleSupplySubtype": true,
+    "familyMembersDoNotDuplicateActions": true,
+    "familyReviewHasSingleVisibleRow": true,
+    "operationalTargetsAvoidHiddenWatch": true,
+    "currentOnlyFixtureVisible": true,
+    "inventoryPlanningTestsPassed": 30,
+    "eslintPassed": true,
+    "stagingDataMutated": false
+  }
+}

@@ -1,0 +1,20 @@
+Task: IP10 — Correct Gold pane classification
+
+Command:
+  yarn test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts --run --reporter=verbose
+  Result: 30 passed.
+
+Verified precedence:
+  1. inboundMonitoring for explicit inbound-monitoring receipt evidence
+  2. activeOrders for purchased / placed-not-purchased pipeline, even when stuck evidence exists
+  3. stuckInventory for trusted actionable stuck cases without higher-priority active receipt/order state
+  4. supplyAction for no-order current stockout/reorder risk, independent of tier
+  5. healthyInventory for sufficient sellable on-hand, independent of receipt events
+  6. dataReadiness for unresolved family target or missing operational calculation
+
+Additional assertions:
+  missing supplier remains supplyAction with reason supply_action_supplier_missing
+  family members stay in watch and cannot own action panes
+  target-review families emit exactly one dataReadiness review row; other members stay non-actionable
+  current-only/no-history fallback velocity remains visible in supplyAction
+  no operational target/review row falls through to hidden watch

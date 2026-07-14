@@ -1,0 +1,23 @@
+Task: IP11 — Render current-only/readiness behavior in the UI
+
+Commands:
+  yarn eslint --fix InventoryPlanningPage.tsx api.test.ts
+  yarn test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts --run --reporter=verbose
+  yarn build @nocobase/plugin-ecobase
+
+Results:
+  API contract: 56 passed
+  plugin build/declarations: passed
+
+UI contract:
+  dataReadiness is a first-class pane and included in row loading/navigation
+  current-only history warning shows affected row count
+  tier/history/profit nulls render as — / not loaded
+  money cards and macro risk show unknown row counts instead of converting all-unknown risk to $0
+  quick navigation includes Category A, Category B, healthy, stuck, and readiness
+  family members remain expandable from the family action row
+  velocity basis/status is visible for family and member rows
+  current DOC/OOS and future-position DOC/OOS are shown separately
+  healthy inventory copy no longer requires a receipt event
+
+API fixture proves partial history metadata, readiness pane presence, null tier/profit, and two unknown money-risk rows.

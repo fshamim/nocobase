@@ -1,0 +1,50 @@
+{
+  "gitSha": "23431a26d02769c3aeadc65acbf92ab74f05354e",
+  "stagingDatabaseIdentifier": "ecobase-staging-2ndggj-postgres-1/nocobase",
+  "taskId": "IP08",
+  "startedAt": "2026-07-14T04:57:30Z",
+  "finishedAt": "2026-07-14T05:25:30Z",
+  "exitStatus": 0,
+  "assertions": {
+    "backupConfirmed": true,
+    "deployedShaConfirmed": true,
+    "sourceConnectionsPausedDuringRepair": 8,
+    "sourceConnectionsRestored": 8,
+    "sourceImportsInvoked": 0,
+    "goldRefreshesInvoked": 0,
+    "familyCount": 1780,
+    "familyLinkedCompanyProducts": 2136,
+    "targetSelectedCount": 1618,
+    "targetReviewCount": 162,
+    "resolvedOrderLines": 154,
+    "unresolvedOrderLines": 2,
+    "sourceKeyParsingSkips": 0,
+    "resolutionMethods": {
+      "exact": 128,
+      "family_target": 25,
+      "reviewed_alias": 1
+    },
+    "resolutionReasons": {
+      "boundary_ambiguous": 1,
+      "product_not_found": 1
+    },
+    "supplierProducts": 110,
+    "companyProductSupplierLinks": 110,
+    "preferredSuppliers": 110,
+    "supplierReviews": 1670,
+    "idempotentSecondRunRepairs": 0,
+    "etcCanonicalListings": 1,
+    "etcForbiddenListings": 0,
+    "etcResolvedLines": 1,
+    "acceptedSroExactRefs": 2,
+    "rejectedSroExactRefs": 0,
+    "technicalRelationshipBlockers": 0,
+    "approvedBusinessAmbiguities": 2,
+    "expectedCurrentOnlyGaps": 1,
+    "clickupCommentsBefore": 553,
+    "clickupCommentsAfter": 553,
+    "clickupCommentDigestUnchanged": true,
+    "clickupAuthoritativeOrders": 44,
+    "clickupOrdersMissingTaskRef": 0
+  }
+}

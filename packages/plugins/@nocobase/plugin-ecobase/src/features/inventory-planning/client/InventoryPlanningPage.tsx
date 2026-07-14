@@ -58,6 +58,7 @@ type CommandCenterPaneKey =
   | 'inboundMonitoring'
   | 'healthyInventory'
   | 'stuckInventory'
+  | 'dataReadiness'
   | 'duplicateProducts';
 
 interface DigestPreview {
@@ -842,6 +843,7 @@ export default function InventoryPlanningPage() {
             'inboundMonitoring',
             'healthyInventory',
             'stuckInventory',
+            'dataReadiness',
           ] as CommandCenterPaneKey[]
         ).flatMap((key) => unwrapRows(unwrapData(panes[key]).rows)),
       );
@@ -1049,6 +1051,7 @@ export default function InventoryPlanningPage() {
   );
 
   const commandMetadata = unwrapData(commandCenter.metadata);
+  const commandHistoryReadiness = unwrapData(commandMetadata.historyReadiness);
   const commandPanes = unwrapData(commandCenter.panes);
   const commandSummaryCards = Array.isArray(commandCenter.summaryCards) ? commandCenter.summaryCards : [];
   const commandMacroRisk = unwrapRows(commandCenter.macroRisk);
@@ -1060,8 +1063,9 @@ export default function InventoryPlanningPage() {
     missingSupplier: t('Families missing supplier — stockout risk'),
     activeOrders: t('Families with active orders — pipeline monitoring'),
     inboundMonitoring: t('Inbound Monitoring — awaiting Amazon stock'),
-    healthyInventory: t('Healthy inventory — Amazon receipt confirmed'),
+    healthyInventory: t('Healthy inventory — current coverage sufficient'),
     stuckInventory: t('Stuck & excess inventory'),
+    dataReadiness: t('Data readiness — operational inputs needed'),
     duplicateProducts: t('Duplicate SKU review'),
   };
   const commandPaneDescriptions: Record<CommandCenterPaneKey, string> = {
@@ -1078,10 +1082,13 @@ export default function InventoryPlanningPage() {
       'Exact ClickUp inbound-monitoring families awaiting or partially showing in Sellerboard Amazon stock.',
     ),
     healthyInventory: t(
-      'Sellerboard-confirmed Amazon receipts with positive current inventory. Later independent risks can route elsewhere.',
+      'Current sellable stock and trusted velocity show sufficient on-hand coverage; no receipt event is required.',
     ),
     stuckInventory: t(
       'One action row per family. Expand it to see which listings are affected, their stock, sell-through, cost, and active orders.',
+    ),
+    dataReadiness: t(
+      'Current inventory is retained here when velocity, family target, or another required operational input is not ready.',
     ),
     duplicateProducts: t(
       'Same company + ASIN rows with different SKUs. Review and resolve before using them for planning.',
@@ -1119,6 +1126,11 @@ export default function InventoryPlanningPage() {
       { value: 'familyDaysOfCover', label: t('Family days cover') },
       { value: 'familyCurrentPlanningStock', label: t('Family stock') },
     ],
+    dataReadiness: [
+      { value: 'company', label: t('Company') },
+      { value: 'familyCanonicalAsin', label: t('Family ASIN') },
+      { value: 'inventoryAsOfDate', label: t('Inventory date') },
+    ],
     duplicateProducts: [
       { value: 'currentPlanningStock', label: t('Planning stock') },
       { value: 'asin', label: t('ASIN') },
@@ -1132,6 +1144,7 @@ export default function InventoryPlanningPage() {
     inboundMonitoring: 'inventoryInboundMonitoring',
     healthyInventory: 'inventoryHealthyInventory',
     stuckInventory: 'inventoryStuckInventory',
+    dataReadiness: 'inventoryDrawer',
     duplicateProducts: 'inventoryDrawer',
   };
   const renderRiskBars = (items: PlainRecord[]) => (
@@ -1539,10 +1552,16 @@ export default function InventoryPlanningPage() {
         {formatNumber(row.familySalesVelocity)} {t('/day')}
       </Typography.Text>
       <Typography.Text type="secondary">
-        {formatNumber(row.familyDaysOfCover)} {t('days cover')}
+        {t('Current')} {formatNumber(row.familyDaysOfCover)} {t('days')} · {t('OOS')}{' '}
+        {formatDate(row.familyEstimatedOosDate)}
       </Typography.Text>
       <Typography.Text type="secondary">
-        {t('OOS')} {formatDate(row.familyEstimatedOosDate)}
+        {t('Position')} {formatNumber(row.familyPositionDaysOfCover)} {t('days')} · {t('OOS')}{' '}
+        {formatDate(row.familyPositionEstimatedOosDate)}
+      </Typography.Text>
+      <Typography.Text type="secondary">
+        {t('Velocity basis')} {t(formatStatusLabel(row.salesVelocityBasis ?? 'unavailable'))} ·{' '}
+        {t(formatStatusLabel(row.salesVelocityStatus ?? 'missing'))}
       </Typography.Text>
     </Space>
   );
@@ -1599,16 +1618,27 @@ export default function InventoryPlanningPage() {
     if (pane === 'healthyInventory') {
       return (
         <Space direction="vertical" size={0}>
-          <Tag color="green">{t('Amazon stock observed')}</Tag>
+          <Tag color="green">{t('Current coverage sufficient')}</Tag>
           <Typography.Text strong>
-            {formatNumber(row.currentPlanningStock)} {t('units current stock')}
+            {formatNumber(row.familyOnHandStock ?? row.onHandStock)} {t('units on hand')}
           </Typography.Text>
           <Typography.Text type="secondary">
-            {t('Sellerboard evidence')} · {formatDate(row.amazonReceiptObservedAt)}
+            {t('Current')} {formatNumber(row.familyDaysOfCover ?? row.daysOfCover)} {t('days')} · {t('Position')}{' '}
+            {formatNumber(row.familyPositionDaysOfCover ?? row.positionDaysOfCover)} {t('days')}
           </Typography.Text>
+        </Space>
+      );
+    }
+    if (pane === 'dataReadiness') {
+      const issues = Array.isArray(row.dataQualityIssues) ? row.dataQualityIssues : [];
+      return (
+        <Space direction="vertical" size={0}>
+          <Tag color="gold">{t('Needs data readiness')}</Tag>
           <Typography.Text>
-            {formatNumber(row.daysOfCover)} {t('days cover')} · {t('Reason')}{' '}
-            {t(formatStatusLabel(row.amazonReceiptCompletionReason ?? 'positive_attributed_addition'))}
+            {issues.length ? issues.map(formatStatusLabel).join(', ') : t('Family target review')}
+          </Typography.Text>
+          <Typography.Text type="secondary">
+            {t('History')} {t(formatStatusLabel(asPlainRecord(row.evidence).historyLoadStatus ?? 'not loaded'))}
           </Typography.Text>
         </Space>
       );
@@ -1684,7 +1714,12 @@ export default function InventoryPlanningPage() {
             {formatNumber(row.salesVelocity)} {t('/day')}
           </Typography.Text>
           <Typography.Text type="secondary">
-            {formatNumber(row.daysOfCover)} {t('days cover')}
+            {t('Current')} {formatNumber(row.daysOfCover)} {t('days')} · {t('Position')}{' '}
+            {formatNumber(row.positionDaysOfCover)} {t('days')}
+          </Typography.Text>
+          <Typography.Text type="secondary">
+            {t(formatStatusLabel(row.salesVelocityBasis ?? 'unavailable'))} ·{' '}
+            {t(formatStatusLabel(row.salesVelocityStatus ?? 'missing'))}
           </Typography.Text>
         </Space>
       ),
@@ -2006,6 +2041,7 @@ export default function InventoryPlanningPage() {
     inboundMonitoring: ['history', 'order-status', 'edit-line'],
     healthyInventory: ['history'],
     stuckInventory: ['product-tasks-targets', 'history'],
+    dataReadiness: ['history'],
     duplicateProducts: ['history'],
   };
 
@@ -2323,15 +2359,31 @@ export default function InventoryPlanningPage() {
     }
     if (selectedCommandPane === 'healthyInventory') {
       return (
-        <Card size="small" title={t('Confirmed Amazon receipt')}>
+        <Card size="small" title={t('Healthy current coverage')}>
           <Space direction="vertical" style={{ width: '100%' }}>
-            <Tag color="green">{t('Amazon stock observed')}</Tag>
+            <Tag color="green">{t('Current coverage sufficient')}</Tag>
             <Typography.Text>
-              {formatNumber(selectedRow.currentPlanningStock)} {t('units current stock')} ·{' '}
-              {formatNumber(selectedRow.daysOfCover)} {t('days cover')} · {t('Observed')}{' '}
-              {formatDate(selectedRow.amazonReceiptObservedAt)}
+              {formatNumber(selectedRow.familyOnHandStock ?? selectedRow.onHandStock)} {t('units on hand')} ·{' '}
+              {t('Current')} {formatNumber(selectedRow.familyDaysOfCover ?? selectedRow.daysOfCover)} {t('days')} ·{' '}
+              {t('Position')} {formatNumber(selectedRow.familyPositionDaysOfCover ?? selectedRow.positionDaysOfCover)}{' '}
+              {t('days')}
             </Typography.Text>
-            <Button onClick={() => setManagePanels(['history'])}>{t('Review receipt evidence')}</Button>
+            <Button onClick={() => setManagePanels(['history'])}>{t('Review inventory evidence')}</Button>
+          </Space>
+        </Card>
+      );
+    }
+    if (selectedCommandPane === 'dataReadiness') {
+      return (
+        <Card size="small" title={t('Operational data readiness')}>
+          <Space direction="vertical" style={{ width: '100%' }}>
+            <Tag color="gold">{t('Needs data readiness')}</Tag>
+            <Typography.Text>
+              {(Array.isArray(selectedRow.dataQualityIssues) ? selectedRow.dataQualityIssues : [])
+                .map(formatStatusLabel)
+                .join(', ') || t('Family target review required')}
+            </Typography.Text>
+            <Button onClick={() => setManagePanels(['history'])}>{t('Review available evidence')}</Button>
           </Space>
         </Card>
       );
@@ -2607,6 +2659,16 @@ export default function InventoryPlanningPage() {
         </Typography.Paragraph>
         {error ? <Alert type="error" message={error.message} /> : null}
         {planningSettingsWarning ? <Alert type="warning" message={planningSettingsWarning} showIcon /> : null}
+        {commandHistoryReadiness.status && commandHistoryReadiness.status !== 'loaded' ? (
+          <Alert
+            type="warning"
+            showIcon
+            message={t('Current-only planning is active')}
+            description={`${formatNumber(commandHistoryReadiness.affectedRowCount)} ${t(
+              'rows are operationally visible; tier, profit, and history fields are not loaded.',
+            )}`}
+          />
+        ) : null}
         <Card>
           <Row gutter={[16, 16]} align="bottom">
             <Col xs={24} md={8} xl={5}>
@@ -2668,21 +2730,54 @@ export default function InventoryPlanningPage() {
           </Row>
         </Card>
 
+        <Space size="small" wrap>
+          <Typography.Text strong>{t('Quick navigation')}</Typography.Text>
+          {['A', 'B'].map((category) => (
+            <Button
+              key={category}
+              type={tier === category ? 'primary' : 'default'}
+              onClick={() => setTier((current) => (current === category ? undefined : category))}
+            >
+              {t(`Category ${category}`)}
+            </Button>
+          ))}
+          {(['healthyInventory', 'stuckInventory', 'dataReadiness'] as CommandCenterPaneKey[]).map((pane) => (
+            <Button
+              key={pane}
+              onClick={() => {
+                setOpenCommandPane(pane);
+                setActiveCommandPane(pane);
+                setCommandCenterSortBy(commandPaneSortOptions[pane][0].value);
+              }}
+            >
+              {commandPaneTitles[pane]}
+            </Button>
+          ))}
+        </Space>
+
         <Row gutter={[16, 16]}>
           {commandSummaryCards.map((card: PlainRecord) => {
             const isCurrency = String(card.format) === 'currency';
+            const unknownCount = finiteNumber(card.unknownCount) ?? 0;
+            const totalRowCount = finiteNumber(commandHistoryReadiness.totalRowCount) ?? 0;
+            const allUnknown = unknownCount > 0 && unknownCount === totalRowCount;
             return (
               <Col xs={24} sm={12} lg={4} key={String(card.key)}>
                 <Card>
                   <Statistic
                     title={t(String(card.label ?? card.key))}
-                    value={Number(card.value ?? 0)}
-                    precision={isCurrency ? 2 : 0}
-                    prefix={isCurrency ? '$' : undefined}
+                    value={allUnknown ? '—' : Number(card.value ?? 0)}
+                    precision={allUnknown ? undefined : isCurrency ? 2 : 0}
+                    prefix={isCurrency && !allUnknown ? '$' : undefined}
                     valueStyle={isCurrency ? { color: '#cf1322' } : undefined}
                   />
                   {card.description ? (
                     <Typography.Text type="secondary">{t(String(card.description))}</Typography.Text>
+                  ) : null}
+                  {unknownCount > 0 ? (
+                    <Typography.Text type="warning" style={{ display: 'block' }}>
+                      {formatNumber(unknownCount)} {t('rows unknown')}
+                    </Typography.Text>
                   ) : null}
                 </Card>
               </Col>
@@ -2701,10 +2796,17 @@ export default function InventoryPlanningPage() {
                     <Space direction="vertical" size={0}>
                       <Typography.Text strong>{t(String(item.label ?? item.key))}</Typography.Text>
                       <Typography.Text>
-                        {String(item.format) === 'currency'
-                          ? formatCurrency(item.value)
-                          : `${formatNumber(item.value)}${item.suffix ? ` ${t(String(item.suffix))}` : ''}`}
+                        {finiteNumber(item.unknownCount) && finiteNumber(item.value) === 0
+                          ? '—'
+                          : String(item.format) === 'currency'
+                            ? formatCurrency(item.value)
+                            : `${formatNumber(item.value)}${item.suffix ? ` ${t(String(item.suffix))}` : ''}`}
                       </Typography.Text>
+                      {finiteNumber(item.unknownCount) ? (
+                        <Typography.Text type="warning">
+                          {formatNumber(item.unknownCount)} {t('rows unknown')}
+                        </Typography.Text>
+                      ) : null}
                     </Space>
                   </Col>
                 ))}
@@ -2730,6 +2832,7 @@ export default function InventoryPlanningPage() {
               'inboundMonitoring',
               'healthyInventory',
               'stuckInventory',
+              'dataReadiness',
             ] as CommandCenterPaneKey[]
           ).map(renderCommandPane)}
         </Space>

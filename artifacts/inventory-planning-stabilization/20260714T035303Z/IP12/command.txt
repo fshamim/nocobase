@@ -1,0 +1,20 @@
+Task: IP12 — Correct Daily Brief consumption
+
+Commands:
+  yarn test daily-operations-brief-service.test.ts --run --reporter=verbose
+  yarn test daily-management-snapshot-service.test.ts --run --reporter=verbose
+  yarn build @nocobase/plugin-ecobase
+
+Results:
+  Daily Operations Brief: 10 passed
+  Daily management snapshot: 2 passed
+  Plugin build: passed
+
+Contract:
+  full command-center evidence consumes all authoritative panes, including readiness and missing-supplier subtype
+  supply, active-order, stuck, and readiness counts use Gold pane classification
+  active-order late/follow-up alerts retain ClickUp activity note/actor context
+  current-only history and data-readiness warnings are explicit
+  known money risk is summed separately; all-unknown snapshot risk persists null plus unknown count
+  familyRole=member rows are excluded from planning money-risk totals and independent actions
+  current-only acceptance fixture proves one supply action, one late active order, one readiness row, one non-action member, three unknown risk rows, and no false $0 certainty
