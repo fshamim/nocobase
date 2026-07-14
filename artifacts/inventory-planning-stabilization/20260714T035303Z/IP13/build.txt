@@ -1,6 +1,6 @@
 yarn run v1.22.22
 $ nocobase-v1 build @nocobase/plugin-ecobase
-(node:66201) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(node:71811) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
 (Use `node --trace-deprecation ...` to show where the warning was created)
 $ tsup
 [@nocobase/build]: plugins source layer 1/1 (1 packages)
@@ -30,7 +30,7 @@ built modules 646 KiB [1m[33m[built][39m[22m
   + 7 modules
 [1m./src/client/index.tsx + 3 modules[39m[22m 36 KiB [1m[33m[code generated][39m[22m
 [1m./src/features/order-planning/client/OrderPlanningPage.tsx + 1 modules[39m[22m 71.1 KiB [1m[33m[code generated][39m[22m
-Rspack 1.7.8 compiled [1m[32msuccessfully[39m[22m in 76 ms
+Rspack 1.7.8 compiled [1m[32msuccessfully[39m[22m in 80 ms
 @nocobase/plugin-ecobase: skip plugin client-v2 build, root entry not found
 @nocobase/plugin-ecobase: build plugin server source
 @nocobase/plugin-ecobase: delete server files
@@ -39,51 +39,4 @@ Rspack 1.7.8 compiled [1m[32msuccessfully[39m[22m in 76 ms
 @nocobase/plugin-ecobase: write external version
 [@nocobase/build]: plugins declaration layer 1/1 (1 packages)
 @nocobase/plugin-ecobase: build declaration
-/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/build/lib/buildDeclaration.js:115
-    throw new Error(`Failed to build declarations for ${cwd} 
-          ^
-
-Error: Failed to build declarations for /Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/plugins/@nocobase/plugin-ecobase 
-[96mpackages/plugins/@nocobase/plugin-ecobase/src/features/daily-operations-brief/server/daily-operations-brief-service.ts[0m:[93m985[0m:[93m65[0m - [91merror[0m[90m TS2339: [0mProperty 'metadata' does not exist on type '{ panes: PlainRecord; }'.
-
-[7m985[0m           asNumber(toPlainRecord(toPlainRecord(commandCenterRaw.metadata).historyReadiness).affectedRowCount) ?? 0,
-[7m   [0m [91m                                                                ~~~~~~~~[0m
-
-    at buildDeclaration (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/build/lib/buildDeclaration.js:115:11)
-    at buildPackageDeclarationLifecycle (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/build/lib/build.js:325:5)
-    at /Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/build/lib/build.js:194:9
-    at /Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/build/lib/utils/utils.js:157:7
-    at async Promise.all (index 0)
-    at runWithConcurrency (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/build/lib/utils/utils.js:160:3)
-    at /Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/build/lib/build.js:193:7
-    at runProfiledStage (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/build/lib/utils/utils.js:141:3)
-    at buildPackages (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/build/lib/build.js:188:3)
-    at build (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/build/lib/build.js:116:5)
-
-Node.js v24.14.0
-/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/execa/lib/error.js:60
-		error = new Error(message);
-		        ^
-
-Error: Command failed with exit code 1: nocobase-build @nocobase/plugin-ecobase    
-    at makeError (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/execa/lib/error.js:60:11)
-    at handlePromise (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/execa/index.js:118:26)
-    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
-    at async Command.<anonymous> (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/cli-v1/src/commands/build.js:45:7) {
-  shortMessage: 'Command failed with exit code 1: nocobase-build @nocobase/plugin-ecobase    ',
-  command: 'nocobase-build @nocobase/plugin-ecobase    ',
-  escapedCommand: 'nocobase-build "@nocobase/plugin-ecobase" "" "" "" ""',
-  exitCode: 1,
-  signal: undefined,
-  signalDescription: undefined,
-  stdout: undefined,
-  stderr: undefined,
-  failed: true,
-  timedOut: false,
-  isCanceled: false,
-  killed: false
-}
-
-Node.js v24.14.0
-error Command failed with exit code 1.
-info Visit https://yarnpkg.com/en/docs/cli/run for documentation about this command.
+Done in 8.29s.

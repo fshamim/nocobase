@@ -818,7 +818,7 @@ export class EcobaseDailyOperationsBriefService {
   private async fullInventoryCommandCenter(
     inventoryPlanning: EcobaseInventoryPlanningService,
     params: { company?: string; date: string },
-  ) {
+  ): Promise<PlainRecord> {
     const panes: InventoryCommandCenterPane[] = [
       'supplyAction',
       'missingSupplier',

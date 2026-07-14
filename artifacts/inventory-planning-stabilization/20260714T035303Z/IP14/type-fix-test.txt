@@ -1,0 +1,24 @@
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/daily-operations-brief-service.test.ts --run --reporter=dot
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/daily-operations-brief-service.test.ts',
+  '--run',
+  '--reporter=dot',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:72177) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/daily-operations-brief-service.test.ts  (10 tests) 21ms
+
+ Test Files  1 passed (1)
+      Tests  10 passed (10)
+   Start at  06:13:48
+   Duration  580ms (transform 349ms, setup 49ms, collect 390ms, tests 21ms, environment 0ms, prepare 36ms)
+
+Done in 1.85s.
