@@ -1,10 +1,10 @@
 # Evidence manifest
 
-Generated: 2026-07-14T23:20:00Z
+Generated: 2026-07-14T23:24:00Z
 
 | SHA-256 | File |
 |---|---|
-| `63e5db1aac9c62cfda1c1c09b8335e1bef8a122e748b9b775fd9aea717302a04` | `FINAL-SUMMARY.md` |
+| `bf1fb734d951da3ff2c54000136f04764382d09b2fd9e585ed29bafa168a1ed4` | `FINAL-SUMMARY.md` |
 | `97bc4d0e84a54d8b0010c00f2d223db8147e7df6a50093a48bacb58c058a1408` | `FS00/backup.json` |
 | `ad64cc1310b5e2c67f7b12b565d75f8cd120fb29bec92b636cda0ea51ab7865b` | `FS00/baseline.json` |
 | `6b938e6ed1b65161b0b1260e066b5d148b4906265c71876e9ac48b2134bd2fec` | `FS00/command-center-summary.json` |
@@ -33,7 +33,7 @@ Generated: 2026-07-14T23:20:00Z
 | `8ff59dcef29d0f28f937bdc460402485393f27fd97026b27be459bc57a738f88` | `FS04/cycle-dry-run.json` |
 | `2f0caec62b9e2a9c4cf532f13e5444dc3617445379d5d61b3c8c5cafe9df4f06` | `FS05/commands.txt` |
 | `5e1dd836a72cc67ec64847d233c561e005a21f61cd9e2767952d80c711443fbd` | `FS05/expected-arrival-readback.json` |
-| `aef5acda4acf0899030fa537ac1de2d3fa2f673f83cc6370421e8ae3ac535750` | `FS06/command-center.json` |
+| `5bdc524c51588723afa1d921d796990b6b816296646a4519348a938c1d10fef2` | `FS06/command-center.json` |
 | `9f7ece42393d8fad8597731cb4b69376ed2dc81a93c8842707f4b9d875a61705` | `FS06/commands.txt` |
 | `33ebabe1a5d0c54628b2216edb62c4ae2c30831e8d86b22ec3af9cac6e369e17` | `FS06/refresh.json` |
 | `d348bf7b5d1228d226a587b606102ba162d10a7acdd1093572de62368aeed777` | `FS06/schedules.json` |
@@ -46,7 +46,7 @@ Generated: 2026-07-14T23:20:00Z
 | `1ccfa4df182f9a2f489bc8d288ce683a1edcfb562a6b08a2930465d85373e9f7` | `FS08/active-order-drawer.png` |
 | `0176526d24e78007b3f2bb0c081c91244cb47bcb994e24af3293e91884c10989` | `FS08/command-center-final.json` |
 | `9e548893a3e49f2f904f8e0618417c1c6d2708116816f253069c1ec15aa4ea6b` | `FS08/commands.txt` |
-| `1dda593a3d846b78de71319e523dadab07b6b7ee4fffcab8b46538ded3893508` | `FS08/deployment.json` |
+| `567d13ce15b9c75292d39e6ff60028c044256819e1e4c4b0b3eaae9ff7fa4008` | `FS08/deployment.json` |
 | `c6f855f714a0828107744168f4122c9f59c393f66094dbdd7ce1bc8a2f3be8dd` | `FS08/final-counts.json` |
 | `96b6fdec86501f7ba9f7f266b674252d8b4f2095bcc3b58ed8b1084f63c7fc55` | `FS08/no-reimport-proof.json` |
 | `07f55facd8130efc984e999b1d01ca50f4228d7df9f2f37347db42a577335b20` | `FS08/result.json` |

@@ -15,5 +15,7 @@
     "id": 29374733536,
     "url": "https://github.com/fshamim/nocobase/actions/runs/29374733536",
     "conclusion": "success"
-  }
+  },
+  "executableCommitAfterEvidenceRedaction": "5fc937d09d",
+  "shaReconciliation": "GitHub run 29374733536 deployed 60194d9b8760. Commit 5fc937d09d has the same executable source; only the evidence JSON was rewritten to remove prohibited actor-email fields."
 }
