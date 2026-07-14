@@ -1,0 +1,42 @@
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts --run --reporter=verbose
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts',
+  '--run',
+  '--reporter=verbose',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:91467) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts > EcobaseCompanyProductFamilyService > resolves exact SKU before a governed family target and preserves source-SKU evidence
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts > EcobaseCompanyProductFamilyService > excludes missing, multiple, cross-boundary, review-flagged, missing, and stale targets
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts > EcobaseCompanyProductFamilyService > creates one idempotent family per company, account, marketplace, and ASIN
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts > EcobaseCompanyProductFamilyService > reconciles one family per account and marketplace without crossing boundaries
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts > EcobaseCompanyProductFamilyService > reconciles family prerequisites automatically before a Gold refresh
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts > EcobaseCompanyProductFamilyService > persists an operator target and rejects a listing outside the family boundary
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts > EcobaseCompanyProductFamilyService > selects the highest-stock initial target once and only recommends later changes
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts > EcobaseCompanyProductFamilyService > selects a zero-stock singleton when current stock evidence is present
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts > EcobaseCompanyProductFamilyService > does not turn a missing sellable-stock value into zero-stock evidence
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts > EcobaseCompanyProductFamilyService > excludes inactive listings and sends an exact active-stock tie to review
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts > EcobaseCompanyProductFamilyService > preserves a valid operator target during automatic reconciliation
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts > EcobaseCompanyProductFamilyService > keeps the same ASIN in separate accounts on separate family boundaries
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts > EcobaseCompanyProductFamilyService > selects the latest valid supplier order and preserves source SKU evidence
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts > EcobaseCompanyProductFamilyService > excludes every non-operational preferred-supplier evidence class
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts > EcobaseCompanyProductFamilyService > preserves an operator supplier and marks conflicting or companyless evidence for review
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts > EcobaseCompanyProductFamilyService > preserves an operator supplier and reviews a different latest valid supplier
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts > EcobaseCompanyProductFamilyService > rejects an operator supplier outside the family company boundary
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts > EcobaseCompanyProductFamilyService > audits an operator target and prevents automatic reruns from overwriting it
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts > EcobaseCompanyProductFamilyService > persists an operator preferred supplier and prevents automatic overwrite
+
+ Test Files  1 passed (1)
+      Tests  19 passed (19)
+   Start at  04:30:00
+   Duration  571ms (transform 351ms, setup 52ms, collect 391ms, tests 14ms, environment 0ms, prepare 39ms)
+
+Done in 2.38s.

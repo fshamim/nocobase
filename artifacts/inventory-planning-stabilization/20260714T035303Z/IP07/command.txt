@@ -1,0 +1,14 @@
+Task: IP07 — Add a Silver integrity verifier
+
+Red:
+  yarn test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/silver-integrity-verifier.test.ts --run --reporter=verbose
+  Result: broken account ownership was not also classified as a family membership boundary mismatch.
+
+Green:
+  yarn test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/silver-integrity-verifier.test.ts --run --reporter=verbose
+  Result: 4 passed.
+  yarn test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts --run --reporter=dot
+  Result: 55 passed; independent verifySilverIntegrity maintenance action is registered.
+
+Lint:
+  yarn eslint --fix packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/silver-integrity-verifier.ts packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/silver-integrity-verifier.test.ts packages/plugins/@nocobase/plugin-ecobase/src/server/resource-actions.ts packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/api.test.ts

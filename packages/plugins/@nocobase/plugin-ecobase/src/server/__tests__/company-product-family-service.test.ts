@@ -9,6 +9,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { EcobaseCompanyProductFamilyService } from '../../features/inventory-planning/server/company-product-family-service';
+import { EcobaseInventoryPlanningService } from '../../features/inventory-planning/server/inventory-planning-service';
 import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 
@@ -95,6 +96,7 @@ async function seed(db: MemoryDatabase) {
       companyId: 'company-1',
       amazonAccountId: 'account-us',
       productId: 'product-a',
+      lifecycleStatus: 'active',
     },
   });
   await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
@@ -103,6 +105,7 @@ async function seed(db: MemoryDatabase) {
       companyId: 'company-1',
       amazonAccountId: 'account-us',
       productId: 'product-b',
+      lifecycleStatus: 'active',
     },
   });
   await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
@@ -111,6 +114,7 @@ async function seed(db: MemoryDatabase) {
       companyId: 'company-1',
       amazonAccountId: 'account-ca',
       productId: 'product-a',
+      lifecycleStatus: 'active',
     },
   });
   await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
@@ -119,6 +123,7 @@ async function seed(db: MemoryDatabase) {
       companyId: 'company-1',
       amazonAccountId: 'account-us',
       productId: 'product-other',
+      lifecycleStatus: 'active',
     },
   });
   await db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).create({
@@ -285,9 +290,22 @@ describe('EcobaseCompanyProductFamilyService', () => {
     const db = new MemoryDatabase();
     await seed(db);
 
-    const result = await new EcobaseCompanyProductFamilyService(db).reconcileAllFamilies();
+    const service = new EcobaseCompanyProductFamilyService(db);
+    const result = await service.reconcileAllFamilies();
+    const second = await service.reconcileAllFamilies();
 
-    expect(result.familyCount).toBe(3);
+    expect(result).toMatchObject({
+      familyCount: 3,
+      examinedCompanyProductCount: 4,
+      createdFamilyCount: 3,
+      linkedCompanyProductCount: 4,
+    });
+    expect(second).toMatchObject({
+      familyCount: 3,
+      examinedCompanyProductCount: 4,
+      createdFamilyCount: 0,
+      linkedCompanyProductCount: 0,
+    });
     expect(
       (await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).find()).every((companyProduct) =>
         Boolean(companyProduct.companyProductFamilyId),
@@ -300,6 +318,33 @@ describe('EcobaseCompanyProductFamilyService', () => {
         ['account-us', 'amazon.com', 'B000OTHER'],
       ]),
     );
+  });
+
+  it('reconciles family prerequisites automatically before a Gold refresh', async () => {
+    const db = new MemoryDatabase();
+    await seed(db);
+    await db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).create({
+      values: {
+        id: 'snapshot-refresh-prerequisite',
+        companyProductId: 'company-product-other-asin',
+        snapshotDate: '2026-07-01',
+        sellableStock: 0,
+      },
+    });
+
+    const result = await new EcobaseInventoryPlanningService(db).refreshReadModel({ calculationDate: '2026-07-01' });
+    const companyProduct = await db
+      .getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts)
+      .findOne({ filterByTk: 'company-product-other-asin' });
+
+    expect(result).toMatchObject({
+      familyReconciliation: {
+        examinedCompanyProductCount: 4,
+        createdFamilyCount: 3,
+        linkedCompanyProductCount: 4,
+      },
+    });
+    expect(companyProduct?.companyProductFamilyId).toEqual(expect.any(String));
   });
 
   it('persists an operator target and rejects a listing outside the family boundary', async () => {
@@ -382,6 +427,156 @@ describe('EcobaseCompanyProductFamilyService', () => {
     });
   });
 
+  it('selects a zero-stock singleton when current stock evidence is present', async () => {
+    const db = new MemoryDatabase();
+    await seed(db);
+    await db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).create({
+      values: {
+        id: 'snapshot-ca-zero',
+        companyProductId: 'company-product-other-account',
+        snapshotDate: '2026-07-01',
+        sellableStock: 0,
+        reserved: 0,
+        inbound: 0,
+        ordered: 0,
+      },
+    });
+
+    const result = await new EcobaseCompanyProductFamilyService(db).reconcileAllFamilies();
+    const family = result.families.find((item) => item.amazonAccountId === 'account-ca');
+
+    expect(family).toMatchObject({
+      replenishmentTargetCompanyProductId: 'company-product-other-account',
+      targetReviewRequired: false,
+    });
+  });
+
+  it('does not turn a missing sellable-stock value into zero-stock evidence', async () => {
+    const db = new MemoryDatabase();
+    await seed(db);
+    const service = new EcobaseCompanyProductFamilyService(db);
+    const family = await service.ensureFamily(identity);
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).update({
+      filterByTk: 'company-product-b',
+      values: { lifecycleStatus: 'inactive' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).create({
+      values: {
+        id: 'snapshot-a-missing-stock',
+        companyProductId: 'company-product-a',
+        snapshotDate: '2026-07-01',
+        sellableStock: null,
+      },
+    });
+
+    const reconciled = await service.reconcileFamily(String(family.id));
+    expect(reconciled).toMatchObject({
+      targetReviewRequired: true,
+      targetSelectionEvidenceJson: { reviewReason: 'missing_current_stock_evidence' },
+    });
+    expect(reconciled.replenishmentTargetCompanyProductId).toBeUndefined();
+  });
+
+  it('excludes inactive listings and sends an exact active-stock tie to review', async () => {
+    const db = new MemoryDatabase();
+    await seed(db);
+    const service = new EcobaseCompanyProductFamilyService(db);
+    const family = await service.ensureFamily(identity);
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).update({
+      filterByTk: 'company-product-a',
+      values: { lifecycleStatus: 'inactive' },
+    });
+    for (const [id, companyProductId, stock] of [
+      ['snapshot-inactive-high', 'company-product-a', 100],
+      ['snapshot-active-low', 'company-product-b', 1],
+    ]) {
+      await db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).create({
+        values: { id, companyProductId, snapshotDate: '2026-07-01', sellableStock: stock },
+      });
+    }
+
+    await expect(service.reconcileFamily(String(family.id))).resolves.toMatchObject({
+      replenishmentTargetCompanyProductId: 'company-product-b',
+      targetReviewRequired: false,
+    });
+
+    const tieDb = new MemoryDatabase();
+    await seed(tieDb);
+    const tieService = new EcobaseCompanyProductFamilyService(tieDb);
+    const tieFamily = await tieService.ensureFamily(identity);
+    for (const [id, companyProductId] of [
+      ['snapshot-tie-a', 'company-product-a'],
+      ['snapshot-tie-b', 'company-product-b'],
+    ]) {
+      await tieDb.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).create({
+        values: { id, companyProductId, snapshotDate: '2026-07-01', sellableStock: 10 },
+      });
+    }
+
+    const tied = await tieService.reconcileFamily(String(tieFamily.id));
+    expect(tied).toMatchObject({
+      targetReviewRequired: true,
+      targetSelectionEvidenceJson: { reviewReason: 'ambiguous_target_stock_tie' },
+    });
+    expect(tied.replenishmentTargetCompanyProductId).toBeUndefined();
+  });
+
+  it('preserves a valid operator target during automatic reconciliation', async () => {
+    const db = new MemoryDatabase();
+    await seed(db);
+    const service = new EcobaseCompanyProductFamilyService(db);
+    const family = await service.ensureFamily(identity);
+    for (const [id, companyProductId, stock] of [
+      ['snapshot-operator-a', 'company-product-a', 1],
+      ['snapshot-operator-b', 'company-product-b', 20],
+    ]) {
+      await db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).create({
+        values: { id, companyProductId, snapshotDate: '2026-07-01', sellableStock: stock },
+      });
+    }
+    await service.setReplenishmentTarget({
+      familyId: String(family.id),
+      companyProductId: 'company-product-a',
+      source: 'operator',
+      actorUserId: '102',
+    });
+
+    await expect(service.reconcileFamily(String(family.id))).resolves.toMatchObject({
+      replenishmentTargetCompanyProductId: 'company-product-a',
+      targetSelectionSource: 'operator',
+      targetReviewRequired: false,
+    });
+  });
+
+  it('keeps the same ASIN in separate accounts on separate family boundaries', async () => {
+    const db = new MemoryDatabase();
+    await seed(db);
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+      values: {
+        id: 'company-product-secondary-account',
+        companyId: 'company-1',
+        amazonAccountId: 'account-us-secondary',
+        productId: 'product-a',
+        lifecycleStatus: 'active',
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).create({
+      values: {
+        id: 'snapshot-secondary-account',
+        companyProductId: 'company-product-secondary-account',
+        snapshotDate: '2026-07-01',
+        sellableStock: 0,
+      },
+    });
+
+    const result = await new EcobaseCompanyProductFamilyService(db).reconcileAllFamilies();
+    const sameAsinFamilies = result.families.filter((family) => family.canonicalAsin === 'B000FAMILY');
+
+    expect(sameAsinFamilies.map((family) => family.amazonAccountId)).toEqual(
+      expect.arrayContaining(['account-us', 'account-ca', 'account-us-secondary']),
+    );
+  });
+
   it('selects the latest valid supplier order and preserves source SKU evidence', async () => {
     const db = new MemoryDatabase();
     await seed(db);
@@ -397,7 +592,12 @@ describe('EcobaseCompanyProductFamilyService', () => {
       { id: 'order-new', supplierId: 'supplier-2', orderRef: 'EF1002A', orderDate: '2026-07-01' },
     ]) {
       await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
-        values: { ...order, companyId: 'company-1' },
+        values: {
+          ...order,
+          companyId: 'company-1',
+          canonicalStatus: 'paid',
+          authorityStatus: 'clickup_authoritative',
+        },
       });
     }
     await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
@@ -406,6 +606,8 @@ describe('EcobaseCompanyProductFamilyService', () => {
         orderId: 'order-old',
         companyProductId: 'company-product-a',
         supplierProductId: 'supplier-product-a',
+        orderedQty: 1,
+        productMappingStatus: 'resolved',
       },
     });
     await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
@@ -417,6 +619,7 @@ describe('EcobaseCompanyProductFamilyService', () => {
         sourceAsin: 'B000FAMILY',
         sourceSupplierSku: 'SUPPLIER-SKU-B',
         productMappingStatus: 'resolved',
+        orderedQty: 1,
       },
     });
 
@@ -435,6 +638,89 @@ describe('EcobaseCompanyProductFamilyService', () => {
         matchType: 'exact_target_sku',
       },
     });
+  });
+
+  it('excludes every non-operational preferred-supplier evidence class', async () => {
+    const cases = [
+      {
+        name: 'unresolved mapping',
+        line: { productMappingStatus: 'unresolved' },
+        reason: 'supplier_order_product_mapping_unresolved',
+      },
+      { name: 'nonpositive quantity', line: { orderedQty: 0 }, reason: 'supplier_order_quantity_nonpositive' },
+      { name: 'company mismatch', order: { companyId: 'company-2' }, reason: 'companyless_supplier_order_evidence' },
+      {
+        name: 'unresolved authority',
+        order: { authorityStatus: 'unresolved' },
+        reason: 'supplier_order_authority_unresolved',
+      },
+      {
+        name: 'provisional authority',
+        order: { authorityStatus: 'provisional' },
+        reason: 'supplier_order_authority_unresolved',
+      },
+      { name: 'cancelled status', order: { canonicalStatus: 'cancelled' }, reason: 'supplier_order_lifecycle_invalid' },
+      { name: 'rejected status', order: { canonicalStatus: 'rejected' }, reason: 'supplier_order_lifecycle_invalid' },
+      { name: 'draft status', order: { canonicalStatus: 'draft' }, reason: 'supplier_order_lifecycle_invalid' },
+      {
+        name: 'analysis-only intent',
+        order: { orderIntent: 'analysis-only' },
+        reason: 'supplier_order_lifecycle_invalid',
+      },
+      {
+        name: 'missing supplier',
+        order: { supplierId: 'supplier-missing' },
+        reason: 'supplier_order_supplier_missing',
+      },
+      {
+        name: 'missing supplier product',
+        line: { supplierProductId: 'supplier-product-missing' },
+        reason: 'supplier_order_supplier_product_missing',
+      },
+      { name: 'invalid order date', order: { orderDate: 'not-a-date' }, reason: 'supplier_order_date_missing' },
+    ];
+
+    for (const testCase of cases) {
+      const db = new MemoryDatabase();
+      await seed(db);
+      const service = new EcobaseCompanyProductFamilyService(db);
+      const family = await service.ensureFamily(identity);
+      await service.setReplenishmentTarget({
+        familyId: String(family.id),
+        companyProductId: 'company-product-a',
+        source: 'automatic',
+      });
+      await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+        values: {
+          id: `order-${testCase.name}`,
+          companyId: 'company-1',
+          supplierId: 'supplier-1',
+          orderRef: `REF-${testCase.name}`,
+          orderDate: '2026-07-01',
+          canonicalStatus: 'paid',
+          authorityStatus: 'clickup_authoritative',
+          ...testCase.order,
+        },
+      });
+      await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+        values: {
+          id: `line-${testCase.name}`,
+          orderId: `order-${testCase.name}`,
+          companyProductId: 'company-product-a',
+          supplierProductId: 'supplier-product-a',
+          orderedQty: 1,
+          productMappingStatus: 'resolved',
+          ...testCase.line,
+        },
+      });
+
+      const reconciled = await service.reconcileFamily(String(family.id));
+      expect(reconciled.preferredSupplierId, testCase.name).toBeUndefined();
+      expect(reconciled, testCase.name).toMatchObject({
+        supplierReviewRequired: true,
+        supplierSelectionEvidenceJson: { reviewReason: testCase.reason },
+      });
+    }
   });
 
   it('preserves an operator supplier and marks conflicting or companyless evidence for review', async () => {
@@ -476,6 +762,51 @@ describe('EcobaseCompanyProductFamilyService', () => {
         reviewReason: 'companyless_supplier_order_evidence',
         sourceOrderRef: 'EF1003A',
         sourceSku: 'SKU-B',
+      },
+    });
+  });
+
+  it('preserves an operator supplier and reviews a different latest valid supplier', async () => {
+    const db = new MemoryDatabase();
+    await seed(db);
+    const service = new EcobaseCompanyProductFamilyService(db);
+    const family = await service.ensureFamily(identity);
+    await service.setPreferredSupplierOffer({
+      familyId: String(family.id),
+      supplierId: 'supplier-1',
+      supplierProductId: 'supplier-product-a',
+      source: 'operator',
+      actorUserId: '102',
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+      values: {
+        id: 'order-operator-conflict',
+        companyId: 'company-1',
+        supplierId: 'supplier-2',
+        orderRef: 'EF1004A',
+        orderDate: '2026-07-03',
+        canonicalStatus: 'paid',
+        authorityStatus: 'clickup_authoritative',
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+      values: {
+        id: 'line-operator-conflict',
+        orderId: 'order-operator-conflict',
+        companyProductId: 'company-product-b',
+        supplierProductId: 'supplier-product-b',
+        orderedQty: 1,
+        productMappingStatus: 'resolved',
+      },
+    });
+
+    await expect(service.reconcileFamily(String(family.id))).resolves.toMatchObject({
+      preferredSupplierId: 'supplier-1',
+      supplierSelectionSource: 'operator',
+      supplierReviewRequired: true,
+      supplierSelectionEvidenceJson: {
+        recommendedSupplierId: 'supplier-2',
+        reviewReason: 'operator_supplier_differs_from_latest_order',
       },
     });
   });

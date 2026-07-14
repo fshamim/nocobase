@@ -1,0 +1,27 @@
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/silver-integrity-verifier.test.ts --run --reporter=verbose
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/silver-integrity-verifier.test.ts',
+  '--run',
+  '--reporter=verbose',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:98729) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/silver-integrity-verifier.test.ts > EcobaseSilverIntegrityVerifier > passes a current-only four-company fixture with zero technical blockers
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/silver-integrity-verifier.test.ts > EcobaseSilverIntegrityVerifier > keeps an approved named line ambiguity nonblocking
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/silver-integrity-verifier.test.ts > EcobaseSilverIntegrityVerifier > reports precise blockers for broken boundaries, relationships, duplicate identity, and ClickUp links
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/silver-integrity-verifier.test.ts > EcobaseSilverIntegrityVerifier > does not suppress an unresolved line without an approved named reason
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  04:39:16
+   Duration  562ms (transform 355ms, setup 49ms, collect 397ms, tests 4ms, environment 0ms, prepare 38ms)
+
+Done in 1.84s.

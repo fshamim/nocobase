@@ -1,0 +1,24 @@
+{
+  "gitSha": "699386fc4e87aafc182adc4112e203e1936f8c16",
+  "stagingDatabaseIdentifier": "ecobase-staging-2ndggj-postgres-1/nocobase",
+  "taskId": "IP03",
+  "startedAt": "2026-07-14T04:11:35Z",
+  "finishedAt": "2026-07-14T04:14:15Z",
+  "exitStatus": 0,
+  "assertions": {
+    "standaloneReconcileFamiliesActionExists": true,
+    "reconciliationReturnsExaminedCount": true,
+    "reconciliationReturnsCreatedCount": true,
+    "reconciliationReturnsLinkedCount": true,
+    "reconciliationReturnsTargetSelectedCount": true,
+    "reconciliationReturnsTargetReviewCount": true,
+    "goldRefreshRunsFamilyPrerequisite": true,
+    "importPostProcessingRunsFamilyBeforeLineReconciliation": true,
+    "secondReconciliationCreatesNoFamilies": true,
+    "secondReconciliationRelinksNoMembers": true,
+    "familyTestsPassed": 17,
+    "inventoryPlanningTestsPassed": 28,
+    "eslintPassed": true,
+    "stagingDataMutated": false
+  }
+}

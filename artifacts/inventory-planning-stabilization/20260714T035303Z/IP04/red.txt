@@ -1,0 +1,174 @@
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts --run --reporter=verbose
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts',
+  '--run',
+  '--reporter=verbose',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:81979) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase bronze import write path > writes legacy inline CSV files into Bronze without creating Amazon identity
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase bronze import write path > rejects out-of-scope rows before Bronze and records the migration decision summary
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase bronze import write path > imports only retained order rows through canonical supplier identity without going partial
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase bronze import write path > keeps invalid source rows in bronze instead of rejecting the whole import
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase bronze import write path > runs active Google Sheets sources through the safe Bronze pipeline
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase bronze import write path > does not duplicate identical bronze rows for audit re-runs
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > keeps ClickUp status authority when later generic supplier-order data is imported
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > does not let OrderDetails replace the Purchase Orders supplier
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > maps a supplier order to its exact SKU when the company-ASIN family has a newer SKU
+ × packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > reconciles existing unmapped supplier-order lines idempotently
+   → expected { importRunId: 'repair-run', …(4) } to match object { repaired: 1, ambiguous: +0, …(1) }
+(3 matching properties omitted from actual)
+ × packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > resolves a reviewed supplier-SKU alias from first-class source fields without creating a product
+   → expected { importRunId: 'repair-etc', …(4) } to match object { repaired: 1, …(1) }
+(4 matching properties omitted from actual)
+ × packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > returns named reasons for multi-account ambiguity and missing current catalog
+   → expected { …(5) } to match object { repaired: +0, ambiguous: 1, …(3) }
+(1 matching property omitted from actual)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > analyzes mixed CSV bundles before import
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > analyzes semicolon Sellerboard history files for the history adapter
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > analyzes semicolon Sellerboard COGS files for the COGS importer
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > imports one-time semicolon Sellerboard history rows with strict day-first dates
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > imports one-time semicolon Sellerboard history rows with month-first dates
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > keeps the current partial month and six complete prior Sellerboard months only
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > rejects Sellerboard history dates after the import source version
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > rejects non-slash dates in Sellerboard history files
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > imports CSV bundles without storing uploaded content in source connection config and skips unchanged re-uploads
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > imports only changed files from CSV bundle re-uploads
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > rejects CSV bundle adapter mismatches before writing import rows
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > preserves distinct import-run audit trails while normalized records are idempotently updated
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > writes skipped daily snapshot runs when there is no newer source version
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > reports partial Sellerboard status when some report URLs fail but available reports normalize
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > records Sellerboard and Amazon SP-API live-source credential blockers
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > reconciles existing unmapped supplier-order lines idempotently
+AssertionError: expected { importRunId: 'repair-run', …(4) } to match object { repaired: 1, ambiguous: +0, …(1) }
+(3 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+    "ambiguous": 0,
+-   "repaired": 1,
+-   "resolutionCounts": Object {
+-     "byMethod": Object {
+-       "exact": 1,
+-     },
+-     "byReason": Object {},
+-   },
++   "repaired": 0,
+  }
+
+ ❯ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts:724:5
+    722| 
+    723|     const service = new EcobaseSupplierOrderService(db);
+    724|     await expect(service.reconcileAfterImport('repair-run')).resolves.…
+       |     ^
+    725|       repaired: 1,
+    726|       ambiguous: 0,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > resolves a reviewed supplier-SKU alias from first-class source fields without creating a product
+AssertionError: expected { importRunId: 'repair-etc', …(4) } to match object { repaired: 1, …(1) }
+(4 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "repaired": 1,
+-   "resolutionCounts": Object {
+-     "byMethod": Object {
+-       "reviewed_alias": 1,
+-     },
+-     "byReason": Object {},
+-   },
++   "repaired": 0,
+  }
+
+ ❯ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts:778:5
+    776|     });
+    777| 
+    778|     await expect(new EcobaseSupplierOrderService(db).reconcileAfterImp…
+       |     ^
+    779|       repaired: 1,
+    780|       resolutionCounts: { byMethod: { reviewed_alias: 1 }, byReason: {…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > returns named reasons for multi-account ambiguity and missing current catalog
+AssertionError: expected { …(5) } to match object { repaired: +0, ambiguous: 1, …(3) }
+(1 matching property omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "ambiguous": 1,
+-   "missing": 1,
++   "ambiguous": 0,
++   "missing": 0,
+    "repaired": 0,
+-   "resolutionCounts": Object {
+-     "byMethod": Object {},
+-     "byReason": Object {
+-       "boundary_ambiguous": 1,
+-       "product_not_found": 1,
+-     },
+-   },
+-   "skipped": 0,
++   "skipped": 2,
+  }
+
+ ❯ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts:843:5
+    841|     }
+    842| 
+    843|     await expect(new EcobaseSupplierOrderService(db).reconcileAfterImp…
+       |     ^
+    844|       repaired: 0,
+    845|       ambiguous: 1,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+ Test Files  1 failed (1)
+      Tests  3 failed | 24 passed (27)
+   Start at  04:17:16
+   Duration  643ms (transform 376ms, setup 51ms, collect 424ms, tests 52ms, environment 0ms, prepare 40ms)
+
+/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/execa/lib/error.js:60
+		error = new Error(message);
+		        ^
+
+Error: Command failed with exit code 1: /Users/fshamim/dotfiles/.nvm/versions/node/v24.14.0/bin/node --no-node-snapshot --max_old_space_size=14096 ./node_modules/vitest/vitest.mjs packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts --run --reporter=verbose --poolOptions.threads.singleThread=true
+    at makeError (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/execa/lib/error.js:60:11)
+    at handlePromise (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/execa/index.js:118:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async Command.<anonymous> (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/cli-v1/src/commands/test.js:203:9) {
+  shortMessage: 'Command failed with exit code 1: /Users/fshamim/dotfiles/.nvm/versions/node/v24.14.0/bin/node --no-node-snapshot --max_old_space_size=14096 ./node_modules/vitest/vitest.mjs packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts --run --reporter=verbose --poolOptions.threads.singleThread=true',
+  command: '/Users/fshamim/dotfiles/.nvm/versions/node/v24.14.0/bin/node --no-node-snapshot --max_old_space_size=14096 ./node_modules/vitest/vitest.mjs packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts --run --reporter=verbose --poolOptions.threads.singleThread=true',
+  escapedCommand: '"/Users/fshamim/dotfiles/.nvm/versions/node/v24.14.0/bin/node" --no-node-snapshot "--max_old_space_size=14096" "./node_modules/vitest/vitest.mjs" "packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts" --run "--reporter=verbose" "--poolOptions.threads.singleThread=true"',
+  exitCode: 1,
+  signal: undefined,
+  signalDescription: undefined,
+  stdout: undefined,
+  stderr: undefined,
+  failed: true,
+  timedOut: false,
+  isCanceled: false,
+  killed: false
+}
+
+Node.js v24.14.0
+error Command failed with exit code 1.
+info Visit https://yarnpkg.com/en/docs/cli/run for documentation about this command.

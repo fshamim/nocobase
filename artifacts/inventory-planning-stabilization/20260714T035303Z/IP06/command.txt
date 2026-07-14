@@ -1,0 +1,14 @@
+Task: IP06 — Correct preferred-supplier evidence filters
+
+Red:
+  yarn test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts --run --reporter=verbose
+  Result: unresolved product mappings were incorrectly accepted as preferred-supplier evidence.
+
+Green:
+  yarn test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts --run --reporter=verbose
+  Result: 19 passed.
+  yarn test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts --run --reporter=verbose
+  Result: 28 passed.
+
+Lint:
+  yarn eslint --fix packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/company-product-family-service.ts packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts

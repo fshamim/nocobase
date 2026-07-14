@@ -1,0 +1,62 @@
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts --run --reporter=verbose
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts',
+  '--run',
+  '--reporter=verbose',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:83208) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts > EcobaseMedallionNormalizationService > creates Amazon identity only for explicit Sellerboard adapters and datasets
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts > EcobaseMedallionNormalizationService > normalizes product inventory rows into silver identity and fact tables
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts > EcobaseMedallionNormalizationService > normalizes Sellerboard history units and sales as channel totals
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts > EcobaseMedallionNormalizationService > links missing-marketplace order details to the existing Sellerboard company product
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts > EcobaseMedallionNormalizationService > maps an exact supplier SKU alias to existing Sellerboard identity without creating a legacy listing
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts > EcobaseMedallionNormalizationService > retains an unresolved legacy order line without creating Amazon identity
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts > EcobaseMedallionNormalizationService > normalizes Purchase Orders headers before OrderDetails regardless of bronze row order
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts > EcobaseMedallionNormalizationService > uses one supplier_ids identity and header authority for projected order datasets
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts > EcobaseMedallionNormalizationService > ignores order rows whose SR ID was not established by Supplier Management
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts > EcobaseMedallionNormalizationService > normalizes order detail rows into silver orders and lines
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts > EcobaseMedallionNormalizationService > preserves UPC as unresolved supplier identity when SKU is blank
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts > EcobaseMedallionNormalizationService > keeps expected sellable dates in silver without falling back to legacy supplier order lines
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts > EcobaseMedallionNormalizationService > is idempotent when the same bronze row is normalized again
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts > EcobaseMedallionNormalizationService > uses SR ID as supplier identity across supplier name drift
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts > EcobaseMedallionNormalizationService > ignores incomplete and unsupported order rows at the normalization boundary
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts > EcobaseMedallionNormalizationService > registers an authoritative supplier SR ID without inventing company linkage
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts > EcobaseMedallionNormalizationService > imports supplier lead-time ranges and defaults unavailable lead-time text
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts > EcobaseMedallionNormalizationService > does not overwrite a specific supplier lead time with a later default row
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts > EcobaseMedallionNormalizationService > fails supplier rows with unsupported numeric lead-time text
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts > EcobaseMedallionNormalizationService > does not create name-only suppliers when SR ID is missing or invalid
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts > EcobaseMedallionNormalizationService > keeps ASIN-only supplier tracker rows unresolved without an approved family target
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts > EcobaseMedallionNormalizationService > keeps Supplier Management identity authoritative when order rows reuse the supplier code
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts > EcobaseMedallionNormalizationService > does not link supplier tracker rows to old ASIN-as-SKU duplicate products
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts > EcobaseMedallionNormalizationService > keeps ClickUp status above later Purchase Orders status inference
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts > EcobaseMedallionNormalizationService > rejects OrderDetails suppliers that disagree with the Purchase Orders header
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts > EcobaseMedallionNormalizationService > ignores OrderDetails rows whose company disagrees with the supported order prefix
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts > EcobaseMedallionNormalizationService > retains ASIN-only OrderDetails as unresolved without an approved family target
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts > EcobaseMedallionNormalizationService > retains tied ASIN-only OrderDetails as unresolved without guessing a target
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts > EcobaseMedallionNormalizationService > deduplicates equivalent source lines and preserves non-equivalent repeated product lines
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts > EcobaseMedallionNormalizationService > preserves same-ASIN SKU aliases as distinct order lines
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts > EcobaseMedallionNormalizationService > does not guess ASIN-only supplier tracker links when company products are ambiguous
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts > EcobaseMedallionNormalizationService > prefers row timestamp over bad generic date cells and warns on optional invoice paid dates
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts > EcobaseMedallionNormalizationService > warns and omits invalid optional expected sellable dates
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts > EcobaseMedallionNormalizationService > resolves a Sellerboard company from the Bronze source association when foreign keys are not projected
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts > EcobaseMedallionNormalizationService > uses the requested source scope when the Bronze model hides its foreign key
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts > EcobaseMedallionNormalizationService > uses adapter-normalized observedAt for Sellerboard dates
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts > EcobaseMedallionNormalizationService > uses Date-object observedAt when source rows do not carry a date column
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts > EcobaseMedallionNormalizationService > fails invalid source dates instead of defaulting them to today
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts > EcobaseMedallionNormalizationService > marks mapper failures clearly without stopping the batch
+
+ Test Files  1 passed (1)
+      Tests  39 passed (39)
+   Start at  04:18:54
+   Duration  567ms (transform 338ms, setup 50ms, collect 379ms, tests 25ms, environment 0ms, prepare 38ms)
+
+Done in 2.34s.

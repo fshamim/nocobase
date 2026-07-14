@@ -1,0 +1,14 @@
+Task: IP05 — Complete line mapping and supplier associations atomically
+
+Red:
+  yarn test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts --run --reporter=verbose
+  Result: mapped line remained productMappingStatus=unresolved, lacked reconciliation evidence, and did not enter a transaction.
+
+Green:
+  yarn test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts --run --reporter=verbose
+  Result: 27 passed.
+  yarn test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-identity-service.test.ts --run --reporter=verbose
+  Result: 7 passed.
+
+Lint:
+  yarn eslint --fix packages/plugins/@nocobase/plugin-ecobase/src/features/supplier-management/server/supplier-order-service.ts packages/plugins/@nocobase/plugin-ecobase/src/features/semantic-model/server/medallion-identity-service.ts packages/plugins/@nocobase/plugin-ecobase/src/server/collections/silver-order-lines.ts packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts

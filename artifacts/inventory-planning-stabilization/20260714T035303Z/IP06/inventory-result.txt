@@ -1,0 +1,51 @@
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts --run --reporter=verbose
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts',
+  '--run',
+  '--reporter=verbose',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:92219) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > classifies explicit tier transitions
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > calculates uncovered-stockout money risk without replacing unknown inputs with zero
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > materializes exclusive target supply, active-order, stuck, member, and watch boundaries
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > keeps untiered current-operational targets visible without history enrichment
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > keeps missing inventory values unknown through gold and API projection
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > requires a positive optimizer budget
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > reads only the latest materialized gold refresh cohort
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > serves inventory planning from gold rows ordered by actionable money at risk
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > serves filters, rows, and digest through one inventory workspace interface
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > projects persisted Sellerboard COGS evidence without request-time cost guessing
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > limits no-active-order pane to stockout-soon rows
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > tiers only products with at least four units in the latest rolling 30-day sales window
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > does not tier snapshot velocity without rolling-30-day sales evidence
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > keeps history-dependent Gold fields unknown when no Sellerboard history import succeeded
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > baselines rule changes and emits a lost tier only on the immediate transition
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > uses rolling-30-day velocity without inventing zero evidence for uncovered products
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > rolls same-family listings into one persisted replenishment target without duplicate heuristics
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > bypasses UUID auto-fill when clearing optional Gold supplier references
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > rolls listing-level stuck evidence into one family action without hiding active-order context
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > routes raw imported order statuses into the active-orders command pane
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > classifies derived, unknown, invalid, and stale active-order arrival evidence
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > does not count completed order history as open coverage
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > subtracts only persisted Amazon receipt evidence from Gold open-order coverage
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > projects persisted latest active-order activity without request-time reclassification
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > returns drawer order history for a primary SKU when the order used a duplicate alias SKU
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > shapes row drawer supplier/order history behind the inventory workspace interface
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > keeps the daily digest bounded to order-now risk and supplier contact priorities
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts > EcobaseInventoryPlanningService > puts no-order digest rows before placed-but-not-purchased rows and excludes purchased pipeline rows
+
+ Test Files  1 passed (1)
+      Tests  28 passed (28)
+   Start at  04:30:57
+   Duration  600ms (transform 366ms, setup 51ms, collect 407ms, tests 28ms, environment 0ms, prepare 38ms)
+
+Done in 2.26s.

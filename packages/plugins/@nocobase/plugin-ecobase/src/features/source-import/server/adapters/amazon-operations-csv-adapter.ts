@@ -29,6 +29,7 @@ import { requireCanonicalCompany } from '../../../../server/company-identity';
 import { orderDetailSourceIdentity } from '../order-detail-source-identity';
 import { orderDetailLineIdentityKey, orderIdentityKey, orderRowExclusionReason } from '../order-import-policy';
 import { decideOrderMigrationRetention } from '../order-migration-retention';
+import type { FourCompanyKey } from '../four-company-migration-profile';
 
 interface FileConfig {
   files?: CsvSourceFile[];
@@ -378,7 +379,7 @@ export function orderBundleAuthority(files: CsvSourceFile[], asOfDate?: string) 
       index: number;
       observedAt: string;
       supplierCode: string;
-      companyKey: NonNullable<ReturnType<typeof orderDetailSourceIdentity>['company']>['companyKey'];
+      companyKey: FourCompanyKey;
       status: string;
       expectedDeliveryDate?: string;
     }
@@ -404,7 +405,7 @@ export function orderBundleAuthority(files: CsvSourceFile[], asOfDate?: string) 
           index,
           observedAt,
           supplierCode: identity.supplierCode,
-          companyKey: identity.company.companyKey,
+          companyKey: identity.company.companyKey as FourCompanyKey,
           status: row.string('Order status', 'Order Status', 'Status') ?? 'draft',
           expectedDeliveryDate: firstDate(
             row,

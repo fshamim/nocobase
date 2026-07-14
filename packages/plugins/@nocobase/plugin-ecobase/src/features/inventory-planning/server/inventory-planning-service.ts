@@ -37,6 +37,7 @@ import {
 } from './profit-tier';
 import { summarizeHistoricalProductFacts } from './historical-product-metrics';
 import { latestPreferredInventorySnapshot } from './order-receipt-evidence';
+import { EcobaseCompanyProductFamilyService } from './company-product-family-service';
 
 const GOLD_SOURCE_RECORD_LIMIT = 100000;
 const TIER_RULE_VERSION = 'rolling_30d_min_4_v1';
@@ -90,6 +91,7 @@ export type InventoryCommandCenterPane =
   | 'inboundMonitoring'
   | 'healthyInventory'
   | 'stuckInventory'
+  | 'dataReadiness'
   | 'duplicateProducts';
 
 export interface InventoryPlanningCommandCenterQuery extends InventoryPlanningQuery {
@@ -115,6 +117,7 @@ const COMMAND_CENTER_PANES: InventoryCommandCenterPane[] = [
   'inboundMonitoring',
   'healthyInventory',
   'stuckInventory',
+  'dataReadiness',
   'duplicateProducts',
 ];
 
@@ -958,6 +961,17 @@ export class EcobaseInventoryPlanningService {
     const rows = await this.readGoldRows({ ...query, limit: undefined });
     const calculationDate = asString(rows[0]?.calculationDate) ?? isoDate(query.calculationDate ?? new Date());
     const targetCoverDays = asNumber(rows[0]?.targetCoverDays);
+    const historyNotLoadedCount = rows.filter(
+      (row) => asString(toPlainRecord(row.evidence).historyLoadStatus) === 'not_loaded',
+    ).length;
+    const historyReadinessStatus =
+      rows.length === 0
+        ? 'unknown'
+        : historyNotLoadedCount === rows.length
+          ? 'not_loaded'
+          : historyNotLoadedCount > 0
+            ? 'partial'
+            : 'loaded';
     const selectedRow = this.findCommandCenterSelectedRow(rows, query);
     return {
       generatedAt: new Date().toISOString(),
@@ -965,6 +979,21 @@ export class EcobaseInventoryPlanningService {
         company: query.company ?? null,
         calculationDate,
         latestDataAsOf: this.latestCommandCenterTimestamp(rows),
+        planningMode: historyReadinessStatus === 'loaded' ? 'history_enriched' : 'current_operational',
+        historyReadiness: {
+          status: historyReadinessStatus,
+          affectedRowCount: historyNotLoadedCount,
+          totalRowCount: rows.length,
+          fields: [
+            'tier',
+            'profitPerUnit',
+            'sixMonthMargin',
+            'lastMonthQty',
+            'sixMonthAverageQty',
+            'sixMonthWorstQty',
+            'sixMonthBestQty',
+          ],
+        },
         historyWindow: {
           label: '6 months',
           fields: ['lastMonthQty', 'sixMonthAverageQty', 'sixMonthWorstQty', 'sixMonthBestQty', 'sixMonthMargin'],
@@ -981,6 +1010,7 @@ export class EcobaseInventoryPlanningService {
         inboundMonitoring: this.commandCenterPanePayload('inboundMonitoring', rows, query),
         healthyInventory: this.commandCenterPanePayload('healthyInventory', rows, query),
         stuckInventory: this.commandCenterPanePayload('stuckInventory', rows, query),
+        dataReadiness: this.commandCenterPanePayload('dataReadiness', rows, query),
         duplicateProducts: this.commandCenterPanePayload('duplicateProducts', rows, query),
       },
       selectedRow: selectedRow
@@ -1648,7 +1678,6 @@ export class EcobaseInventoryPlanningService {
       !excluded &&
       planningTarget &&
       !['over_30_doc_watch', 'declining_velocity_watch'].includes(listingStuck) &&
-      tiered &&
       (asNumber(row.salesVelocity) ?? 0) > 0 &&
       stockoutSoon &&
       ['no_open_order', 'closed_history', ''].includes(supplierOrderState);
@@ -1667,9 +1696,17 @@ export class EcobaseInventoryPlanningService {
       ['awaiting_amazon_stock', 'partially_observed'].includes(receiptStatus ?? '');
     const fullyObserved = receiptStatus === 'amazon_stock_observed';
     const healthyInventory =
-      planningTarget && live && !excluded && fullyObserved && (asNumber(row.currentPlanningStock) ?? 0) > 0;
+      planningTarget &&
+      live &&
+      !excluded &&
+      !activeOrder &&
+      !stuckInventory &&
+      (asNumber(row.currentPlanningStock) ?? 0) > 0 &&
+      (asNumber(row.salesVelocity) ?? 0) > 0 &&
+      !stockoutSoon;
     const currentStuckInventory = stuckInventory && (!fullyObserved || newerIndependentCondition);
-    const currentSupplyAction = supplyAction && (!fullyObserved || newerIndependentCondition);
+    const currentSupplyAction = supplyAction;
+    const dataReadiness = planningTarget && live && !excluded;
     const commandCenterPane = inboundMonitoring
       ? 'inboundMonitoring'
       : currentStuckInventory
@@ -1680,18 +1717,22 @@ export class EcobaseInventoryPlanningService {
             ? 'supplyAction'
             : healthyInventory
               ? 'healthyInventory'
-              : 'watch';
+              : dataReadiness
+                ? 'dataReadiness'
+                : 'watch';
     const planningEligibilityStatus = excluded
       ? 'ineligible_excluded'
-      : commandCenterPane !== 'watch'
-        ? 'eligible'
-        : familyRole === 'member'
-          ? 'ineligible_family_member'
-          : !live
-            ? 'ineligible_inactive'
-            : !tiered
-              ? 'ineligible_unclassified_tier'
-              : 'eligible_watch';
+      : commandCenterPane === 'dataReadiness'
+        ? 'needs_data_readiness'
+        : commandCenterPane !== 'watch'
+          ? 'eligible'
+          : familyRole === 'member'
+            ? 'ineligible_family_member'
+            : !live
+              ? 'ineligible_inactive'
+              : !tiered
+                ? 'ineligible_unclassified_tier'
+                : 'eligible_watch';
     const inventoryAgeDays = inventoryAsOfDate ? diffDays(calculationDate, inventoryAsOfDate) : undefined;
     const sourceFreshnessStatus =
       typeof inventoryAgeDays !== 'number'
@@ -2829,6 +2870,7 @@ export class EcobaseInventoryPlanningService {
 
   async refreshReadModel(query: InventoryPlanningQuery = {}) {
     const calculationDate = isoDate(query.calculationDate ?? new Date());
+    const familyReconciliation = await new EcobaseCompanyProductFamilyService(this.db).reconcileAllFamilies();
     const rows = await this.calculateRows({
       ...query,
       calculationDate,
@@ -2878,7 +2920,14 @@ export class EcobaseInventoryPlanningService {
       }
     }
 
-    return { calculationDate, rowCount: rows.length, created, updated, lastRefreshedAt: refreshedAt };
+    return {
+      calculationDate,
+      rowCount: rows.length,
+      created,
+      updated,
+      lastRefreshedAt: refreshedAt,
+      familyReconciliation,
+    };
   }
 
   private async clearMissingGoldSupplierReferences(id: unknown, row: PlainRecord) {

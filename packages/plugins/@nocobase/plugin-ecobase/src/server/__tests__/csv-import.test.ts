@@ -24,6 +24,7 @@ import {
   EcobaseRepository,
 } from '../../features/source-import/server/import-service';
 import { EcobaseSupplierOrderService } from '../../features/supplier-management/server/supplier-order-service';
+import { EcobaseInventoryPlanningService } from '../../features/inventory-planning/server/inventory-planning-service';
 import { findForbiddenSourceMaterial } from '../../features/source-import/server/source-record-projection';
 
 interface FindParams {
@@ -711,15 +712,31 @@ describe('Ecobase current Amazon operations CSV import', () => {
       values: {
         id: 'line-mx61726d',
         orderId: 'order-mx61726d',
-        sourceLineKey: 'MX61726D:B00D3QAK4Y:2801054915',
+        sourceLineKey: 'sha256:4be51bf382b54b2b',
+        sourceAsin: 'B00D3QAK4Y',
+        sourceSupplierSku: '2801054915',
         orderedQty: 7,
         confirmedQty: 0,
+        productMappingStatus: 'unresolved',
         productAnalysisStatus: 'mapping_missing',
       },
     });
 
+    let transactionCount = 0;
+    (
+      db as MemoryDatabase & { sequelize: { transaction: (run: (transaction: object) => Promise<unknown>) => unknown } }
+    ).sequelize = {
+      transaction: async (run) => {
+        transactionCount += 1;
+        return run({ id: `transaction-${transactionCount}` });
+      },
+    };
     const service = new EcobaseSupplierOrderService(db);
-    await expect(service.reconcileAfterImport('repair-run')).resolves.toMatchObject({ repaired: 1, ambiguous: 0 });
+    await expect(service.reconcileAfterImport('repair-run')).resolves.toMatchObject({
+      repaired: 1,
+      ambiguous: 0,
+      resolutionCounts: { byMethod: { exact: 1 }, byReason: {} },
+    });
     await expect(service.reconcileAfterImport('repair-run-repeat')).resolves.toMatchObject({
       repaired: 0,
       ambiguous: 0,
@@ -729,9 +746,180 @@ describe('Ecobase current Amazon operations CSV import', () => {
     ).toMatchObject({
       companyProductId: 'company-product-old',
       supplierProductId: expect.any(String),
-      productAnalysisStatus: 'imported',
+      productMappingStatus: 'resolved',
+      productAnalysisStatus: 'reconciliation_resolved',
+      productMappingEvidenceJson: {
+        method: 'exact',
+        sourceAsin: 'B00D3QAK4Y',
+        sourceSupplierSku: '2801054915',
+        supplierId: 'supplier-franklin',
+        importRunId: 'repair-run',
+      },
     });
+    expect(transactionCount).toBe(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).all()).toEqual([
+      expect.objectContaining({
+        supplierId: 'supplier-franklin',
+        productId: 'product-old',
+        supplierSku: '2801054915',
+      }),
+    ]);
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductSuppliers).all()).toHaveLength(1);
+
+    await db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).create({
+      values: {
+        id: 'inventory-mapped-line',
+        companyProductId: 'company-product-old',
+        snapshotDate: '2026-06-16',
+        sellableStock: 0,
+        reserved: 0,
+        inbound: 0,
+        ordered: 0,
+        salesVelocity: 1,
+      },
+    });
+    await new EcobaseInventoryPlanningService(db).refreshReadModel({ calculationDate: '2026-06-16' });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).all()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          companyProductId: 'company-product-old',
+          supplierOrderRef: 'MX61726D',
+          supplierOrderOpenQty: 7,
+        }),
+      ]),
+    );
+  });
+
+  it('resolves a reviewed supplier-SKU alias from first-class source fields without creating a product', async () => {
+    const { db } = createService();
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
+      values: { id: 'company-stop-shop', name: 'Stop Shop LLC' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+      values: { id: 'product-etc', asin: 'B0177E9JPS', sku: 'ETC-120A' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+      values: { id: 'company-product-etc', companyId: 'company-stop-shop', productId: 'product-etc' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).create({
+      values: { id: 'supplier-etc', displayName: 'ETC supplier' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).create({
+      values: {
+        id: 'supplier-product-etc-existing',
+        supplierId: 'supplier-etc',
+        productId: 'product-etc',
+        supplierSku: 'ETC-CATALOG-OFFER',
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+      values: {
+        id: 'order-etc',
+        companyId: 'company-stop-shop',
+        supplierId: 'supplier-etc',
+        orderRef: 'SS42826A',
+        orderDate: '2026-06-16',
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+      values: {
+        id: 'line-etc',
+        orderId: 'order-etc',
+        sourceLineKey: 'sha256:etc-line',
+        sourceAsin: 'B0177E9JPS',
+        sourceSupplierSku: 'ETC120A',
+        orderedQty: 1,
+        productMappingStatus: 'unresolved',
+      },
+    });
+
+    await expect(new EcobaseSupplierOrderService(db).reconcileAfterImport('repair-etc')).resolves.toMatchObject({
+      repaired: 1,
+      resolutionCounts: { byMethod: { reviewed_alias: 1 }, byReason: {} },
+    });
+    await expect(
+      db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).findOne({ filterByTk: 'line-etc' }),
+    ).resolves.toMatchObject({
+      companyProductId: 'company-product-etc',
+      supplierProductId: 'supplier-product-etc-existing',
+      sourceSupplierSku: 'ETC120A',
+      productMappingStatus: 'resolved',
+    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).all()).toEqual([
+      expect.objectContaining({ asin: 'B0177E9JPS', sku: 'ETC-120A' }),
+    ]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).all()).toEqual([
+      expect.objectContaining({
+        supplierId: 'supplier-etc',
+        productId: 'product-etc',
+        supplierSku: 'ETC-CATALOG-OFFER',
+      }),
+    ]);
+  });
+
+  it('returns named reasons for multi-account ambiguity and missing current catalog', async () => {
+    const { db } = createService();
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
+      values: { id: 'company-ambiguous', name: 'Ambiguous Inc' },
+    });
+    for (const account of [
+      { id: 'account-one', marketplace: 'amazon.com' },
+      { id: 'account-two', marketplace: 'amazon.ca' },
+    ]) {
+      await db.getRepository(ECOBASE_COLLECTIONS.silverAmazonAccounts).create({
+        values: { ...account, companyId: 'company-ambiguous' },
+      });
+    }
+    await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+      values: { id: 'product-ambiguous', asin: 'B00AMBIGUOUS', sku: 'AMAZON-SKU' },
+    });
+    for (const accountId of ['account-one', 'account-two']) {
+      await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+        values: {
+          id: `company-product-${accountId}`,
+          companyId: 'company-ambiguous',
+          amazonAccountId: accountId,
+          productId: 'product-ambiguous',
+        },
+      });
+    }
+    await db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).create({
+      values: { id: 'supplier-ambiguous', displayName: 'Ambiguous supplier' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+      values: {
+        id: 'order-ambiguous',
+        companyId: 'company-ambiguous',
+        supplierId: 'supplier-ambiguous',
+        orderRef: 'AM1001A',
+        orderDate: '2026-06-16',
+      },
+    });
+    for (const line of [
+      { id: 'line-ambiguous', sourceAsin: 'B00AMBIGUOUS', sourceSupplierSku: 'SUPPLIER-SKU' },
+      { id: 'line-missing-catalog', sourceAsin: 'B00MISSING', sourceSupplierSku: 'MISSING-SKU' },
+    ]) {
+      await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+        values: {
+          ...line,
+          orderId: 'order-ambiguous',
+          sourceLineKey: `sha256:${line.id}`,
+          orderedQty: 1,
+          productMappingStatus: 'unresolved',
+        },
+      });
+    }
+
+    await expect(new EcobaseSupplierOrderService(db).reconcileAfterImport('repair-unresolved')).resolves.toMatchObject({
+      repaired: 0,
+      ambiguous: 1,
+      missing: 1,
+      skipped: 0,
+      resolutionCounts: {
+        byMethod: {},
+        byReason: { boundary_ambiguous: 1, product_not_found: 1 },
+      },
+    });
   });
 
   it('analyzes mixed CSV bundles before import', () => {

@@ -333,26 +333,43 @@ export class EcobaseMedallionIdentityService {
     return repo.create({ values: { id: randomUUID(), ...valuesForUpdate(values) } });
   }
 
-  async upsertCompanyProductSupplier(params: UpsertCompanyProductSupplierParams) {
-    await this.requireRecord(ECOBASE_COLLECTIONS.silverCompanyProducts, params.companyProductId, 'company product');
-    await this.requireRecord(ECOBASE_COLLECTIONS.silverSupplierProducts, params.supplierProductId, 'supplier product');
+  async upsertCompanyProductSupplier(params: UpsertCompanyProductSupplierParams, transaction?: unknown) {
+    await this.requireRecord(
+      ECOBASE_COLLECTIONS.silverCompanyProducts,
+      params.companyProductId,
+      'company product',
+      transaction,
+    );
+    await this.requireRecord(
+      ECOBASE_COLLECTIONS.silverSupplierProducts,
+      params.supplierProductId,
+      'supplier product',
+      transaction,
+    );
     const repo = this.repo(ECOBASE_COLLECTIONS.silverCompanyProductSuppliers);
     const filter = {
       companyProductId: params.companyProductId,
       supplierProductId: params.supplierProductId,
       role: params.role,
     };
-    const existing = await repo.findOne({ filter });
+    const existing = await repo.findOne({ filter, transaction } as never);
     const existingLastUsedAt = toPlainRecord(existing).lastUsedAt;
     const lastUsedAt = latestTimestamp(
       typeof existingLastUsedAt === 'string' ? existingLastUsedAt : undefined,
       params.lastUsedAt,
     );
     if (existing) {
-      await repo.update({ filterByTk: idOf(existing), values: valuesForUpdate({ ...params, lastUsedAt }) });
-      return this.findRequired(repo, idOf(existing), ECOBASE_COLLECTIONS.silverCompanyProductSuppliers);
+      await repo.update({
+        filterByTk: idOf(existing),
+        values: valuesForUpdate({ ...params, lastUsedAt }),
+        transaction,
+      } as never);
+      return this.findRequired(repo, idOf(existing), ECOBASE_COLLECTIONS.silverCompanyProductSuppliers, transaction);
     }
-    return repo.create({ values: { id: randomUUID(), ...valuesForUpdate({ ...params, lastUsedAt }) } });
+    return repo.create({
+      values: { id: randomUUID(), ...valuesForUpdate({ ...params, lastUsedAt }) },
+      transaction,
+    } as never);
   }
 
   private async upsertByFilter(
@@ -368,27 +385,27 @@ export class EcobaseMedallionIdentityService {
     return repo.create({ values: { id: randomUUID(), ...valuesForUpdate(params.values) } });
   }
 
-  private async findRequired(repo: EcobaseRepository, id: string | undefined, label: string) {
-    const record = await this.findById(repo, id, label);
+  private async findRequired(repo: EcobaseRepository, id: string | undefined, label: string, transaction?: unknown) {
+    const record = await this.findById(repo, id, label, transaction);
     if (!record) {
       throw new Error(`Ecobase medallion identity failed: ${label} ${id} was not found after update.`);
     }
     return record;
   }
 
-  private async requireRecord(collectionName: string, id: string | undefined, label: string) {
-    const record = await this.findById(this.repo(collectionName), id, label);
+  private async requireRecord(collectionName: string, id: string | undefined, label: string, transaction?: unknown) {
+    const record = await this.findById(this.repo(collectionName), id, label, transaction);
     if (!record) {
       throw new Error(`Ecobase medallion identity failed: ${label} ${id} does not exist.`);
     }
     return record;
   }
 
-  private async findById(repo: EcobaseRepository, id: string | undefined, label: string) {
+  private async findById(repo: EcobaseRepository, id: string | undefined, label: string, transaction?: unknown) {
     if (!id) {
       throw new Error(`Ecobase medallion identity failed: ${label} id is missing.`);
     }
-    return repo.findOne({ filterByTk: id });
+    return repo.findOne({ filterByTk: id, transaction } as never);
   }
 
   private repo(name: string) {

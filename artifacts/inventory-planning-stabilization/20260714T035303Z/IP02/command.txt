@@ -1,0 +1,12 @@
+Task: IP02 — Correct family candidate and target rules
+
+Red:
+  yarn test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts --run --reporter=verbose
+  Result: zero-stock singleton, missing-stock evidence, tie handling assertion shape, and operator preservation exposed four failures.
+
+Lint:
+  yarn eslint --fix packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/company-product-family-service.ts packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts
+
+Green:
+  yarn test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts --run --reporter=verbose
+  Result: 16 passed.

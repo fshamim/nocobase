@@ -59,6 +59,7 @@ import {
   type WorkflowActionParams,
 } from '../features/semantic-model/server/medallion-workflow-service';
 import { EcobaseCompanyProductFamilyService } from '../features/inventory-planning/server/company-product-family-service';
+import { EcobaseSilverIntegrityVerifier } from '../features/inventory-planning/server/silver-integrity-verifier';
 import { EcobasePlanningCalculationService } from '../features/inventory-planning/server/planning-calculation-service';
 import { EcobasePlanningSettingsService } from './services/planning-settings-service';
 import { EcobasePlanningProductService } from '../features/inventory-planning/server/planning-product-service';
@@ -1138,6 +1139,10 @@ export function createEcobaseInventoryPlanningActions() {
           getOptionalString(values, 'companyId'),
         ),
       };
+      await next();
+    },
+    verifySilverIntegrity: async (ctx, next) => {
+      ctx.body = { data: await new EcobaseSilverIntegrityVerifier(ctx.db).verify() };
       await next();
     },
     reconcileReceipts: async (ctx, next) => {

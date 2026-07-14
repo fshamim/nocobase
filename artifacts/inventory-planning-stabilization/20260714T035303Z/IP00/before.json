@@ -1,0 +1,149 @@
+{
+  "counts": {
+    "orders": 44,
+    "families": 0,
+    "products": 1857,
+    "companies": 4,
+    "orderLines": 156,
+    "amazonAccounts": 6,
+    "companyProducts": 2136,
+    "activityComments": 553,
+    "attributionUsers": 10,
+    "supplierProducts": 0,
+    "listingDailyFacts": 0,
+    "inventorySnapshots": 2136,
+    "attributionRoleLinks": 0,
+    "companyProductSupplierLinks": 0,
+    "familyLinkedCompanyProducts": 0,
+    "attributionAuthenticatorLinks": 0,
+    "attributionUsersWithPasswords": 0
+  },
+  "database": "nocobase",
+  "assertions": {
+    "sroAcceptedExactRefs": 2,
+    "sroRejectedExactRefs": 0,
+    "etcAcceptedListingCount": 1,
+    "etcSupplierSkuLineCount": 1,
+    "etcForbiddenListingCount": 0,
+    "crossCompanyAccountDefects": 0
+  },
+  "capturedAt": "2026-07-14T03:58:23.659558+00:00",
+  "goldLatest": {
+    "rows": 2136,
+    "calculationDate": "2026-07-14",
+    "actionDistribution": {
+      "watch": 17,
+      "overdue": 180,
+      "order_soon": 35,
+      "missing_velocity": 1796,
+      "sufficient_stock": 108
+    },
+    "paneFamilyDistribution": [
+      {
+        "pane": "watch",
+        "count": 2136,
+        "familyRole": "unassigned"
+      }
+    ]
+  },
+  "orderAuthority": {
+    "clickup_authoritative": 44
+  },
+  "companyInventory": [
+    {
+      "company": "Ecofission LLC",
+      "companyProducts": 460,
+      "inventorySnapshots": 460
+    },
+    {
+      "company": "Muxtex INC",
+      "companyProducts": 797,
+      "inventorySnapshots": 797
+    },
+    {
+      "company": "Retail Heaven Inc",
+      "companyProducts": 328,
+      "inventorySnapshots": 328
+    },
+    {
+      "company": "Stop Shop LLC",
+      "companyProducts": 551,
+      "inventorySnapshots": 551
+    }
+  ],
+  "latestImportRuns": [
+    {
+      "domain": "amazon_operations",
+      "status": "stale",
+      "rowCount": 552,
+      "startedAt": "2026-07-14T01:56:00.057+00:00",
+      "sourceType": "sellerboard",
+      "sourceVersion": "2026-07-14T01:56:00.041Z",
+      "normalizedCount": 1654,
+      "sourceConnectionId": "ee4320ac-c459-4169-b043-a1f881c5a48a"
+    },
+    {
+      "domain": "amazon_operations",
+      "status": "stale",
+      "rowCount": 329,
+      "startedAt": "2026-07-14T01:55:21.924+00:00",
+      "sourceType": "sellerboard",
+      "sourceVersion": "2026-07-14T01:55:21.903Z",
+      "normalizedCount": 985,
+      "sourceConnectionId": "5ac716e9-e270-4f13-b079-d39887d64947"
+    },
+    {
+      "domain": "amazon_operations",
+      "status": "stale",
+      "rowCount": 798,
+      "startedAt": "2026-07-14T01:54:34.98+00:00",
+      "sourceType": "sellerboard",
+      "sourceVersion": "2026-07-14T01:54:34.951Z",
+      "normalizedCount": 2392,
+      "sourceConnectionId": "81cdcbee-8ea0-4d98-9eb3-d7a538249146"
+    },
+    {
+      "domain": "amazon_operations",
+      "status": "stale",
+      "rowCount": 461,
+      "startedAt": "2026-07-14T01:54:07.66+00:00",
+      "sourceType": "sellerboard",
+      "sourceVersion": "2026-07-14T01:54:07.614Z",
+      "normalizedCount": 1381,
+      "sourceConnectionId": "44c89767-07e1-44ea-aafc-8954c8dc9543"
+    },
+    {
+      "domain": "order_management",
+      "status": "success",
+      "rowCount": 2784,
+      "startedAt": "2026-07-13T23:54:59.666+00:00",
+      "sourceType": "clickup",
+      "sourceVersion": "2026-07-13",
+      "normalizedCount": 597,
+      "sourceConnectionId": "a577d4e4-5aa8-490a-80d2-a090a7b13948"
+    },
+    {
+      "domain": "order_management",
+      "status": "success",
+      "rowCount": 370,
+      "startedAt": "2026-07-13T23:54:53.351+00:00",
+      "sourceType": "google_sheets",
+      "sourceVersion": "2026-07-13",
+      "normalizedCount": 370,
+      "sourceConnectionId": "49784be0-b3e6-49e8-aba8-76f4d7af0560"
+    },
+    {
+      "domain": "supplier_management",
+      "status": "success",
+      "rowCount": 528,
+      "startedAt": "2026-07-13T23:54:25.479+00:00",
+      "sourceType": "google_sheets",
+      "sourceVersion": "2026-07-13",
+      "normalizedCount": 528,
+      "sourceConnectionId": "010d2147-adb3-4b95-b00a-1c4df58d2923"
+    }
+  ],
+  "orderLineMapping": {
+    "unresolved": 156
+  }
+}

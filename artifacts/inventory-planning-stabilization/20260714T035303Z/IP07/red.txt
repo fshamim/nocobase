@@ -1,0 +1,83 @@
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/silver-integrity-verifier.test.ts --run --reporter=verbose
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/silver-integrity-verifier.test.ts',
+  '--run',
+  '--reporter=verbose',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:98509) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/silver-integrity-verifier.test.ts > EcobaseSilverIntegrityVerifier > passes a current-only four-company fixture with zero technical blockers
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/silver-integrity-verifier.test.ts > EcobaseSilverIntegrityVerifier > keeps an approved named line ambiguity nonblocking
+ × packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/silver-integrity-verifier.test.ts > EcobaseSilverIntegrityVerifier > reports precise blockers for broken boundaries, relationships, duplicate identity, and ClickUp links
+   → expected [ …(7) ] to deeply equal ArrayContaining{…}
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/silver-integrity-verifier.test.ts > EcobaseSilverIntegrityVerifier > does not suppress an unresolved line without an approved named reason
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/silver-integrity-verifier.test.ts > EcobaseSilverIntegrityVerifier > reports precise blockers for broken boundaries, relationships, duplicate identity, and ClickUp links
+AssertionError: expected [ …(7) ] to deeply equal ArrayContaining{…}
+
+- Expected
++ Received
+
+- ArrayContaining [
++ Array [
+    "company_product_account_company_mismatch",
+-   "family_membership_boundary_mismatch",
+    "family_target_outside_family",
+    "resolved_line_company_product_supplier_mismatch",
+    "resolved_line_supplier_link_missing",
+    "supplier_sku_amazon_product_duplicate",
+    "etc_identity_invariant_failed",
+    "activity_comment_user_missing",
+  ]
+
+ ❯ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/silver-integrity-verifier.test.ts:220:36
+    218| 
+    219|     expect(result.ok).toBe(false);
+    220|     expect(technicalCodes(result)).toEqual(
+       |                                    ^
+    221|       expect.arrayContaining([
+    222|         'company_product_account_company_mismatch',
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 passed (4)
+   Start at  04:39:00
+   Duration  543ms (transform 337ms, setup 51ms, collect 374ms, tests 8ms, environment 0ms, prepare 37ms)
+
+/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/execa/lib/error.js:60
+		error = new Error(message);
+		        ^
+
+Error: Command failed with exit code 1: /Users/fshamim/dotfiles/.nvm/versions/node/v24.14.0/bin/node --no-node-snapshot --max_old_space_size=14096 ./node_modules/vitest/vitest.mjs packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/silver-integrity-verifier.test.ts --run --reporter=verbose --poolOptions.threads.singleThread=true
+    at makeError (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/execa/lib/error.js:60:11)
+    at handlePromise (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/execa/index.js:118:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async Command.<anonymous> (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/cli-v1/src/commands/test.js:203:9) {
+  shortMessage: 'Command failed with exit code 1: /Users/fshamim/dotfiles/.nvm/versions/node/v24.14.0/bin/node --no-node-snapshot --max_old_space_size=14096 ./node_modules/vitest/vitest.mjs packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/silver-integrity-verifier.test.ts --run --reporter=verbose --poolOptions.threads.singleThread=true',
+  command: '/Users/fshamim/dotfiles/.nvm/versions/node/v24.14.0/bin/node --no-node-snapshot --max_old_space_size=14096 ./node_modules/vitest/vitest.mjs packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/silver-integrity-verifier.test.ts --run --reporter=verbose --poolOptions.threads.singleThread=true',
+  escapedCommand: '"/Users/fshamim/dotfiles/.nvm/versions/node/v24.14.0/bin/node" --no-node-snapshot "--max_old_space_size=14096" "./node_modules/vitest/vitest.mjs" "packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/silver-integrity-verifier.test.ts" --run "--reporter=verbose" "--poolOptions.threads.singleThread=true"',
+  exitCode: 1,
+  signal: undefined,
+  signalDescription: undefined,
+  stdout: undefined,
+  stderr: undefined,
+  failed: true,
+  timedOut: false,
+  isCanceled: false,
+  killed: false
+}
+
+Node.js v24.14.0
+error Command failed with exit code 1.
+info Visit https://yarnpkg.com/en/docs/cli/run for documentation about this command.

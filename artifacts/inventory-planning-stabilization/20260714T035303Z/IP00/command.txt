@@ -1,0 +1,17 @@
+Task: IP00 — Freeze and baseline current staging
+
+Target confirmation:
+  ssh eco 'git -C /etc/dokploy/compose/ecobase-staging-2ndggj/code rev-parse HEAD && git -C /etc/dokploy/compose/ecobase-staging-2ndggj/code branch --show-current'
+  Expected branch: ecobase/staging
+  Expected URL: https://ecobase-staging.178-104-193-132.sslip.io
+
+Backup:
+  docker exec ecobase-staging-2ndggj-postgres-1 sh -lc 'pg_dump -Fc --no-owner --no-acl -U "$POSTGRES_USER" "$POSTGRES_DB"' > /var/backups/ecobase-staging/inventory-planning-stabilization/20260714T035303Z-699386fc4e87aafc182adc4112e203e1936f8c16.dump
+  docker exec -i ecobase-staging-2ndggj-postgres-1 sh -lc 'pg_restore --list >/dev/null' < /var/backups/ecobase-staging/inventory-planning-stabilization/20260714T035303Z-699386fc4e87aafc182adc4112e203e1936f8c16.dump
+
+Baseline:
+  ssh eco 'docker exec -i ecobase-staging-2ndggj-postgres-1 sh -lc '\''psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'\''' < docs/EcoBase-inventory-planning-validation.sql
+  ssh eco 'docker exec -i ecobase-staging-2ndggj-postgres-1 sh -lc '\''psql -tA -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'\''' < baseline.sql
+
+Gold-refresh freeze guard:
+  Do not enter IP08 until focused tests and fixture dry-run pass and Sellerboard schedules are paused. Do not import any source. Refresh Gold exactly once at IP14 after the Silver verifier passes.

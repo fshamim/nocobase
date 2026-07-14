@@ -1,0 +1,50 @@
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts --run --reporter=verbose
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts',
+  '--run',
+  '--reporter=verbose',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:88265) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase bronze import write path > writes legacy inline CSV files into Bronze without creating Amazon identity
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase bronze import write path > rejects out-of-scope rows before Bronze and records the migration decision summary
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase bronze import write path > imports only retained order rows through canonical supplier identity without going partial
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase bronze import write path > keeps invalid source rows in bronze instead of rejecting the whole import
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase bronze import write path > runs active Google Sheets sources through the safe Bronze pipeline
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase bronze import write path > does not duplicate identical bronze rows for audit re-runs
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > keeps ClickUp status authority when later generic supplier-order data is imported
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > does not let OrderDetails replace the Purchase Orders supplier
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > maps a supplier order to its exact SKU when the company-ASIN family has a newer SKU
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > reconciles existing unmapped supplier-order lines idempotently
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > resolves a reviewed supplier-SKU alias from first-class source fields without creating a product
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > returns named reasons for multi-account ambiguity and missing current catalog
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > analyzes mixed CSV bundles before import
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > analyzes semicolon Sellerboard history files for the history adapter
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > analyzes semicolon Sellerboard COGS files for the COGS importer
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > imports one-time semicolon Sellerboard history rows with strict day-first dates
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > imports one-time semicolon Sellerboard history rows with month-first dates
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > keeps the current partial month and six complete prior Sellerboard months only
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > rejects Sellerboard history dates after the import source version
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > rejects non-slash dates in Sellerboard history files
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > imports CSV bundles without storing uploaded content in source connection config and skips unchanged re-uploads
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > imports only changed files from CSV bundle re-uploads
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > rejects CSV bundle adapter mismatches before writing import rows
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > preserves distinct import-run audit trails while normalized records are idempotently updated
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > writes skipped daily snapshot runs when there is no newer source version
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > reports partial Sellerboard status when some report URLs fail but available reports normalize
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts > Ecobase current Amazon operations CSV import > records Sellerboard and Amazon SP-API live-source credential blockers
+
+ Test Files  1 passed (1)
+      Tests  27 passed (27)
+   Start at  04:25:40
+   Duration  612ms (transform 357ms, setup 49ms, collect 402ms, tests 45ms, environment 0ms, prepare 39ms)
+
+Done in 2.25s.

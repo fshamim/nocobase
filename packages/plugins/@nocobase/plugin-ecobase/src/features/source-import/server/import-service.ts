@@ -32,6 +32,7 @@ import { decideCompanyScope } from './source-scope-policy';
 import { EcobaseDataWarningService } from '../../../server/services/data-warning-service';
 import type { EcobaseDataWarning } from '../../../server/services/data-warning-service';
 import { EcobaseInventoryPlanningService } from '../../inventory-planning/server/inventory-planning-service';
+import { EcobaseCompanyProductFamilyService } from '../../inventory-planning/server/company-product-family-service';
 import {
   EcobaseOrderReceiptReconciliationService,
   receiptReconciliationOrderIdsForRefresh,
@@ -1216,6 +1217,7 @@ export class EcobaseImportService {
     const fileSummaries = stream.fileSummaries;
     let goldRefresh: AutomaticGoldRefreshResult | null = null;
     let medallionNormalization: NormalizePendingResult | null = null;
+    let familyReconciliation: unknown = null;
 
     if (!errorMessage && rowCount > 0) {
       try {
@@ -1234,6 +1236,7 @@ export class EcobaseImportService {
 
     if (!errorMessage && normalizedCount > 0) {
       try {
+        familyReconciliation = await new EcobaseCompanyProductFamilyService(this.db).reconcileAllFamilies(companyId);
         await new EcobasePlanningProductService(this.db).syncFromSilverCompanyProducts();
         if (supplierOrderTouched) {
           await supplierOrderService.reconcileAfterImport(importRunId);
@@ -1285,6 +1288,7 @@ export class EcobaseImportService {
         summary: {
           files: fileSummaries,
           medallionNormalization,
+          familyReconciliation,
           goldRefresh,
           migration: {
             profileVersion: FOUR_COMPANY_MIGRATION_PROFILE.profileVersion,

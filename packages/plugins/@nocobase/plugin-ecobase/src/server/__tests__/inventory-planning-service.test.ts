@@ -154,7 +154,7 @@ async function createSilverOrderRecord(db: MemoryDatabase, values: Record<string
     canonicalStatus: values.status,
     lifecycleStatus: values.status,
     statusSource: values.statusSource,
-    authorityStatus: values.authorityStatus,
+    authorityStatus: values.authorityStatus ?? 'alternate_authoritative',
     authoritySource: values.authoritySource,
     authorityTaskRef: values.authorityTaskRef,
     authorityAsOf: values.authorityAsOf,
@@ -213,6 +213,9 @@ async function createSilverOrderLineRecord(db: MemoryDatabase, values: Record<st
     unitCost: values.unitCost,
     expectedDeliveryDate: values.expectedDeliveryDate,
     expectedSellableDate: values.expectedSellableDate,
+    sourceAsin: asin,
+    sourceSupplierSku: sku,
+    productMappingStatus: 'resolved',
     amazonReceiptStatus: values.amazonReceiptStatus,
     amazonReceiptObservedQty: values.amazonReceiptObservedQty,
     amazonReceiptBaselineAt: values.amazonReceiptBaselineAt,
@@ -361,7 +364,7 @@ describe('EcobaseInventoryPlanningService', () => {
       commandCenterPane: 'supplyAction',
       dataQualityStatus: 'partial',
     });
-    expect(materialize({ daysOfCover: 30.01 }).commandCenterPane).toBe('watch');
+    expect(materialize({ daysOfCover: 30.01 }).commandCenterPane).toBe('dataReadiness');
     expect(materialize({ daysOfCover: 30.01 }).stuckClassification).toBe('over_30_doc_watch');
     expect(materialize({ daysOfCover: 60, lastMonthQty: 5, sixMonthAverageQty: 10 }).stuckClassification).toBe(
       'declining_velocity_watch',
@@ -389,10 +392,10 @@ describe('EcobaseInventoryPlanningService', () => {
         daysOfCover: undefined,
         pipelineStock: 10,
       }),
-    ).toMatchObject({ commandCenterPane: 'watch', stuckClassification: 'no_sell_through_with_stock' });
+    ).toMatchObject({ commandCenterPane: 'dataReadiness', stuckClassification: 'no_sell_through_with_stock' });
     expect(
       materialize({ salesVelocity: undefined, salesVelocityStatus: 'missing', daysOfCover: undefined }),
-    ).toMatchObject({ commandCenterPane: 'watch', stuckClassification: 'insufficient_velocity_data' });
+    ).toMatchObject({ commandCenterPane: 'dataReadiness', stuckClassification: 'insufficient_velocity_data' });
     expect(materialize({ familyRole: 'member', actionStatus: 'family_member_no_reorder' }).commandCenterPane).toBe(
       'watch',
     );
@@ -412,6 +415,57 @@ describe('EcobaseInventoryPlanningService', () => {
       stuck: true,
       stuckClassification: 'pipeline_stalled',
       supplierOrderState: 'purchased_pipeline',
+    });
+  });
+
+  it('keeps untiered current-operational targets visible without history enrichment', () => {
+    const service = new EcobaseInventoryPlanningService(new MemoryDatabase({ historyLoaded: false })) as unknown as {
+      finalizeGoldContract: (row: Record<string, unknown>, calculationDate: string) => Record<string, unknown>;
+    };
+    const materialize = (values: Record<string, unknown>) =>
+      service.finalizeGoldContract(
+        {
+          productStatus: 'Active',
+          familyRole: 'target',
+          tier: undefined,
+          salesVelocity: 2,
+          salesVelocityBasis: 'inventory_snapshot_fallback',
+          salesVelocityStatus: 'fallback_positive',
+          currentPlanningStock: 20,
+          daysOfCover: 10,
+          targetCoverDays: 45,
+          actionStatus: 'overdue',
+          supplierOrderState: 'no_open_order',
+          inventoryAsOfDate: '2026-07-10',
+          supplierAvailability: 'unavailable_no_evidence',
+          leadTimeAvailability: 'resolved_default_30d',
+          unitCostAvailability: 'unavailable_no_evidence',
+          profitAvailability: 'unavailable_no_history',
+          ...values,
+        },
+        '2026-07-10',
+      );
+
+    expect(materialize({})).toMatchObject({
+      commandCenterPane: 'supplyAction',
+      planningEligibilityStatus: 'eligible',
+    });
+    expect(materialize({ actionStatus: 'sufficient_stock', currentPlanningStock: 180, daysOfCover: 90 })).toMatchObject(
+      {
+        commandCenterPane: 'healthyInventory',
+        planningEligibilityStatus: 'eligible',
+      },
+    );
+    expect(
+      materialize({
+        actionStatus: 'missing_velocity',
+        salesVelocity: undefined,
+        salesVelocityStatus: 'missing',
+        daysOfCover: undefined,
+      }),
+    ).toMatchObject({
+      commandCenterPane: 'dataReadiness',
+      planningEligibilityStatus: 'needs_data_readiness',
     });
   });
 
@@ -441,9 +495,10 @@ describe('EcobaseInventoryPlanningService', () => {
       daysOfCover: null,
       estimatedProfitRisk: null,
       moneyRiskStatus: 'unknown_missing_inputs',
-      commandCenterPane: 'watch',
+      commandCenterPane: 'dataReadiness',
     });
     expect(commandCenter.panes.supplyAction.total).toBe(0);
+    expect(commandCenter.panes.dataReadiness.total).toBe(1);
     expect(commandCenter.summaryCards.find((card) => card.key === 'moneyAtRisk')).toMatchObject({ unknownCount: 1 });
   });
 
@@ -878,7 +933,12 @@ describe('EcobaseInventoryPlanningService', () => {
       profit: 1500,
     });
 
-    await new EcobaseInventoryPlanningService(db).refreshReadModel({
+    const service = new EcobaseInventoryPlanningService(db);
+    await service.refreshReadModel({
+      company: 'Current Only Inc',
+      calculationDate: '2026-07-13',
+    });
+    const commandCenter = await service.commandCenter({
       company: 'Current Only Inc',
       calculationDate: '2026-07-13',
     });
@@ -901,7 +961,16 @@ describe('EcobaseInventoryPlanningService', () => {
       salesVelocityStatus: 'fallback_positive',
       profitAvailability: 'unavailable_no_history',
       evidence: { historyLoadStatus: 'not_loaded', historicalFactCount: 0 },
+      commandCenterPane: 'supplyAction',
     });
+    expect(commandCenter.metadata).toMatchObject({
+      planningMode: 'current_operational',
+      historyReadiness: {
+        status: 'not_loaded',
+        affectedRowCount: 1,
+      },
+    });
+    expect(commandCenter.panes.missingSupplier.total).toBe(1);
   });
 
   it('baselines rule changes and emits a lost tier only on the immediate transition', async () => {
@@ -1324,8 +1393,8 @@ describe('EcobaseInventoryPlanningService', () => {
         .all()
         .find((row) => row.sku === primarySku),
     ).toMatchObject({
-      familyPreferredSupplierId: null,
-      familyPreferredSupplierProductId: null,
+      familyPreferredSupplierId: 'supplier-ws',
+      familyPreferredSupplierProductId: `silver-supplier-product:supplier-ws:${asin}:${duplicateSku}`,
     });
   });
 
@@ -1848,13 +1917,13 @@ describe('EcobaseInventoryPlanningService', () => {
       supplierOrderOpenQty: 0,
       supplierOrderState: 'closed_history',
       amazonReceiptStatus: 'completed_by_later_inbound',
-      commandCenterPane: 'watch',
+      commandCenterPane: 'supplyAction',
     });
     expect(row('B000HEALTHY')).toMatchObject({
       openOrderCoverageQty: 0,
       supplierOrderState: 'closed_history',
       amazonReceiptStatus: 'amazon_stock_observed',
-      commandCenterPane: 'healthyInventory',
+      commandCenterPane: 'supplyAction',
     });
     expect(row('B000DIRECT')).toMatchObject({
       openOrderCoverageQty: 10,
@@ -1865,7 +1934,7 @@ describe('EcobaseInventoryPlanningService', () => {
 
     const commandCenter = await service.commandCenter({ calculationDate: '2026-06-07', pageSize: 20 });
     expect(commandCenter.panes.inboundMonitoring.rows.map((item) => item.asin)).toContain('B000PARTIAL');
-    expect(commandCenter.panes.healthyInventory.rows.map((item) => item.asin)).toContain('B000HEALTHY');
+    expect(commandCenter.panes.missingSupplier.rows.map((item) => item.asin)).toContain('B000HEALTHY');
     expect(commandCenter.panes.activeOrders.rows.map((item) => item.asin)).toContain('B000DIRECT');
     const routedIds = Object.values(commandCenter.panes).flatMap((pane) => pane.rows.map((item) => item.id));
     expect(new Set(routedIds).size).toBe(routedIds.length);

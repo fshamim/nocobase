@@ -46,6 +46,7 @@ export default defineCollection({
     { name: 'sourceAsin', type: 'string' },
     { name: 'sourceSupplierSku', type: 'string' },
     { name: 'productMappingStatus', type: 'string', allowNull: false, defaultValue: 'resolved' },
+    { name: 'productMappingEvidenceJson', type: 'jsonb', defaultValue: {} },
     { name: 'orderedQty', type: 'double', allowNull: false },
     { name: 'confirmedQty', type: 'double' },
     { name: 'unitCost', type: 'double' },

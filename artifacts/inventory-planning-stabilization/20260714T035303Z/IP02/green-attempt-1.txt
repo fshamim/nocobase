@@ -1,0 +1,120 @@
+yarn run v1.22.22
+$ nocobase-v1 test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts --run --reporter=verbose
+process.env.TEST_ENV server-side [
+  '--no-node-snapshot',
+  '--max_old_space_size=14096',
+  './node_modules/vitest/vitest.mjs',
+  'packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts',
+  '--run',
+  '--reporter=verbose',
+  '--poolOptions.threads.singleThread=true'
+]
+(node:76059) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts > EcobaseCompanyProductFamilyService > resolves exact SKU before a governed family target and preserves source-SKU evidence
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts > EcobaseCompanyProductFamilyService > excludes missing, multiple, cross-boundary, review-flagged, missing, and stale targets
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts > EcobaseCompanyProductFamilyService > creates one idempotent family per company, account, marketplace, and ASIN
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts > EcobaseCompanyProductFamilyService > reconciles one family per account and marketplace without crossing boundaries
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts > EcobaseCompanyProductFamilyService > persists an operator target and rejects a listing outside the family boundary
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts > EcobaseCompanyProductFamilyService > selects the highest-stock initial target once and only recommends later changes
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts > EcobaseCompanyProductFamilyService > selects a zero-stock singleton when current stock evidence is present
+ × packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts > EcobaseCompanyProductFamilyService > does not turn a missing sellable-stock value into zero-stock evidence
+   → expected { …(9) } to match object { …(3) }
+(10 matching properties omitted from actual)
+ × packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts > EcobaseCompanyProductFamilyService > excludes inactive listings and sends an exact active-stock tie to review
+   → expected { …(9) } to match object { …(3) }
+(10 matching properties omitted from actual)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts > EcobaseCompanyProductFamilyService > preserves a valid operator target during automatic reconciliation
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts > EcobaseCompanyProductFamilyService > keeps the same ASIN in separate accounts on separate family boundaries
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts > EcobaseCompanyProductFamilyService > selects the latest valid supplier order and preserves source SKU evidence
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts > EcobaseCompanyProductFamilyService > preserves an operator supplier and marks conflicting or companyless evidence for review
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts > EcobaseCompanyProductFamilyService > rejects an operator supplier outside the family company boundary
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts > EcobaseCompanyProductFamilyService > audits an operator target and prevents automatic reruns from overwriting it
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts > EcobaseCompanyProductFamilyService > persists an operator preferred supplier and prevents automatic overwrite
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts > EcobaseCompanyProductFamilyService > does not turn a missing sellable-stock value into zero-stock evidence
+AssertionError: expected { …(9) } to match object { …(3) }
+(10 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "replenishmentTargetCompanyProductId": undefined,
+    "targetReviewRequired": true,
+    "targetSelectionEvidenceJson": Object {
+      "reviewReason": "missing_current_stock_evidence",
+    },
+  }
+
+ ❯ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts:431:5
+    429|     });
+    430| 
+    431|     await expect(service.reconcileFamily(String(family.id))).resolves.…
+       |     ^
+    432|       replenishmentTargetCompanyProductId: undefined,
+    433|       targetReviewRequired: true,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts > EcobaseCompanyProductFamilyService > excludes inactive listings and sends an exact active-stock tie to review
+AssertionError: expected { …(9) } to match object { …(3) }
+(10 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  Object {
+-   "replenishmentTargetCompanyProductId": undefined,
+    "targetReviewRequired": true,
+    "targetSelectionEvidenceJson": Object {
+      "reviewReason": "ambiguous_target_stock_tie",
+    },
+  }
+
+ ❯ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts:474:5
+    472|     }
+    473| 
+    474|     await expect(tieService.reconcileFamily(String(tieFamily.id))).res…
+       |     ^
+    475|       replenishmentTargetCompanyProductId: undefined,
+    476|       targetReviewRequired: true,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 14 passed (16)
+   Start at  04:09:22
+   Duration  225ms (transform 52ms, setup 48ms, collect 44ms, tests 15ms, environment 0ms, prepare 41ms)
+
+/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/execa/lib/error.js:60
+		error = new Error(message);
+		        ^
+
+Error: Command failed with exit code 1: /Users/fshamim/dotfiles/.nvm/versions/node/v24.14.0/bin/node --no-node-snapshot --max_old_space_size=14096 ./node_modules/vitest/vitest.mjs packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts --run --reporter=verbose --poolOptions.threads.singleThread=true
+    at makeError (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/execa/lib/error.js:60:11)
+    at handlePromise (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/execa/index.js:118:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async Command.<anonymous> (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/cli-v1/src/commands/test.js:203:9) {
+  shortMessage: 'Command failed with exit code 1: /Users/fshamim/dotfiles/.nvm/versions/node/v24.14.0/bin/node --no-node-snapshot --max_old_space_size=14096 ./node_modules/vitest/vitest.mjs packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts --run --reporter=verbose --poolOptions.threads.singleThread=true',
+  command: '/Users/fshamim/dotfiles/.nvm/versions/node/v24.14.0/bin/node --no-node-snapshot --max_old_space_size=14096 ./node_modules/vitest/vitest.mjs packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts --run --reporter=verbose --poolOptions.threads.singleThread=true',
+  escapedCommand: '"/Users/fshamim/dotfiles/.nvm/versions/node/v24.14.0/bin/node" --no-node-snapshot "--max_old_space_size=14096" "./node_modules/vitest/vitest.mjs" "packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts" --run "--reporter=verbose" "--poolOptions.threads.singleThread=true"',
+  exitCode: 1,
+  signal: undefined,
+  signalDescription: undefined,
+  stdout: undefined,
+  stderr: undefined,
+  failed: true,
+  timedOut: false,
+  isCanceled: false,
+  killed: false
+}
+
+Node.js v24.14.0
+error Command failed with exit code 1.
+info Visit https://yarnpkg.com/en/docs/cli/run for documentation about this command.

@@ -1100,10 +1100,22 @@ export class EcobaseSupplierOrderService {
     let ambiguous = 0;
     let missing = 0;
     let skipped = 0;
+    const byMethod: Record<string, number> = {};
+    const byReason: Record<string, number> = {};
+    const markUnresolved = async (line: PlainRecord, reason: string, evidence: PlainRecord = {}) => {
+      const lineId = asString(line.id);
+      if (!lineId) throw new Error('Ecobase supplier-order reconciliation failed: Silver line is missing id.');
+      await lineRepo.update({
+        filterByTk: lineId,
+        values: {
+          productMappingStatus: 'unresolved',
+          productAnalysisStatus: 'reconciliation_unresolved',
+          productMappingEvidenceJson: { reason, importRunId, ...evidence },
+        },
+      });
+    };
 
     for (const line of lines) {
-      if (asString(line.companyProductId) && asString(line.supplierProductId)) continue;
-
       const orderId = asString(line.orderId);
       const order = orderId
         ? toPlainRecord(await this.db.getRepository(ECOBASE_COLLECTIONS.silverOrders).findOne({ filterByTk: orderId }))
@@ -1118,43 +1130,90 @@ export class EcobaseSupplierOrderService {
       const companyName = asString(company.name);
       if (!companyName || !supplierId) {
         skipped += 1;
+        byReason.order_context_missing = (byReason.order_context_missing ?? 0) + 1;
+        await markUnresolved(line, 'order_context_missing', { orderId, companyId, supplierId });
         continue;
       }
 
-      const sourceLineKey = asString(line.sourceLineKey);
-      const orderRef = asString(order.orderRef);
-      const sourceIdentity = this.sourceLineProductIdentity(sourceLineKey, orderRef);
+      const sourceIdentity = this.sourceLineProductIdentity(line);
       let companyProductId = asString(line.companyProductId);
+      const existingSupplierProductId = asString(line.supplierProductId);
+      if (companyProductId && existingSupplierProductId && line.productMappingStatus === 'resolved') {
+        const [companyProductValue, supplierProductValue] = await Promise.all([
+          this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).findOne({ filterByTk: companyProductId }),
+          this.db
+            .getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts)
+            .findOne({ filterByTk: existingSupplierProductId }),
+        ]);
+        const companyProduct = toPlainRecord(companyProductValue);
+        const supplierProduct = toPlainRecord(supplierProductValue);
+        if (
+          asString(supplierProduct.supplierId) === supplierId &&
+          asString(supplierProduct.productId) === asString(companyProduct.productId)
+        ) {
+          continue;
+        }
+      }
+
+      let method = 'existing_company_product';
       if (!companyProductId) {
         if (!sourceIdentity) {
-          skipped += 1;
+          missing += 1;
+          byReason.source_identity_missing = (byReason.source_identity_missing ?? 0) + 1;
+          await markUnresolved(line, 'source_identity_missing', { orderId, supplierId });
           continue;
         }
         const resolved = await this.resolvePlanningProduct({ company: companyName, ...sourceIdentity });
         if (!resolved.planningProductId) {
+          const reason = resolved.resolutionEvidence?.exclusionReason ?? 'product_resolution_missing';
+          byReason[reason] = (byReason[reason] ?? 0) + 1;
+          await markUnresolved(line, reason, { orderId, supplierId, ...sourceIdentity });
           if (resolved.warning?.code === 'planning_product_mapping_ambiguous') ambiguous += 1;
           else missing += 1;
           continue;
         }
         companyProductId = resolved.planningProductId;
+        method = resolved.resolutionEvidence?.resolution ?? 'exact';
       }
+      byMethod[method] = (byMethod[method] ?? 0) + 1;
 
-      const supplierProductId = await this.ensureSupplierProductAssociation({
-        companyProductId,
-        company: companyName,
-        supplierId,
-        supplierSku: sourceIdentity?.sku,
-        unitCost: asNumber(line.unitCost),
-        lastUsedAt: asString(order.orderDate),
-      });
-      await lineRepo.update({
-        filterByTk: asString(line.id),
-        values: { companyProductId, supplierProductId, productAnalysisStatus: 'imported' },
+      const lineId = asString(line.id);
+      if (!lineId) throw new Error('Ecobase supplier-order reconciliation failed: Silver line is missing id.');
+      await this.transaction(async (transaction) => {
+        const supplierProductId = await this.ensureSupplierProductAssociation({
+          companyProductId,
+          company: companyName,
+          supplierId,
+          supplierSku: sourceIdentity?.sku,
+          unitCost: asNumber(line.unitCost),
+          lastUsedAt: asString(order.orderDate),
+          transaction,
+        });
+        await lineRepo.update({
+          filterByTk: lineId,
+          values: {
+            companyProductId,
+            supplierProductId,
+            productMappingStatus: 'resolved',
+            productAnalysisStatus: 'reconciliation_resolved',
+            productMappingEvidenceJson: {
+              method,
+              sourceAsin: sourceIdentity?.asin,
+              sourceSupplierSku: sourceIdentity?.sku,
+              orderId,
+              supplierId,
+              supplierProductId,
+              importRunId,
+              reconciledAt: new Date().toISOString(),
+            },
+          },
+          transaction,
+        } as never);
       });
       repaired += 1;
     }
 
-    return { importRunId, repaired, ambiguous, missing, skipped };
+    return { importRunId, repaired, ambiguous, missing, skipped, resolutionCounts: { byMethod, byReason } };
   }
 
   async updateOrderOperatorFields(params: UpdateSupplierOrderOperatorFieldsParams) {
@@ -2254,13 +2313,16 @@ export class EcobaseSupplierOrderService {
     planningProductId: string,
     expectedCompany: string | undefined,
     errorPrefix: string,
+    transaction?: unknown,
   ): Promise<PlainRecord> {
     if (planningProductId.startsWith('fallback:')) {
       throw new Error(`${errorPrefix}: planning product must be selected from a persisted planning-product record.`);
     }
 
     const companyProduct = toPlainRecord(
-      await this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).findOne({ filterByTk: planningProductId }),
+      await this.db
+        .getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts)
+        .findOne({ filterByTk: planningProductId, transaction } as never),
     );
     if (!asString(companyProduct.id)) {
       throw new Error(`${errorPrefix}: planning product "${planningProductId}" was not found.`);
@@ -2268,10 +2330,10 @@ export class EcobaseSupplierOrderService {
     const [company, product] = await Promise.all([
       this.db
         .getRepository(ECOBASE_COLLECTIONS.silverCompanies)
-        .findOne({ filterByTk: asString(companyProduct.companyId) }),
+        .findOne({ filterByTk: asString(companyProduct.companyId), transaction } as never),
       this.db
         .getRepository(ECOBASE_COLLECTIONS.silverProducts)
-        .findOne({ filterByTk: asString(companyProduct.productId) }),
+        .findOne({ filterByTk: asString(companyProduct.productId), transaction } as never),
     ]);
     const companyPlain = toPlainRecord(company);
     const productPlain = toPlainRecord(product);
@@ -2293,11 +2355,10 @@ export class EcobaseSupplierOrderService {
     return undefined;
   }
 
-  private sourceLineProductIdentity(sourceLineKey?: string, orderRef?: string) {
-    if (!sourceLineKey || !orderRef || !sourceLineKey.startsWith(`${orderRef}:`)) return undefined;
-    const [asin, ...skuParts] = sourceLineKey.slice(orderRef.length + 1).split(':');
-    const sku = skuParts.join(':');
-    return asin && sku ? { asin, sku } : undefined;
+  private sourceLineProductIdentity(line: PlainRecord) {
+    const asin = asString(line.sourceAsin);
+    if (!asin) return undefined;
+    return { asin, sku: asString(line.sourceSupplierSku) };
   }
 
   private async ensureSupplierProductAssociation(params: {
@@ -2308,11 +2369,13 @@ export class EcobaseSupplierOrderService {
     unitCost?: number;
     leadTimeDays?: number;
     lastUsedAt?: string;
+    transaction?: unknown;
   }) {
     const companyProduct = await this.ensurePlanningProduct(
       params.companyProductId,
       params.company,
       'Ecobase supplier-order import failed',
+      params.transaction,
     );
     const productId = asString(companyProduct.productId);
     if (!productId) {
@@ -2323,7 +2386,10 @@ export class EcobaseSupplierOrderService {
 
     const supplierProductRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts);
     let supplierProduct = toPlainRecord(
-      await supplierProductRepo.findOne({ filter: { supplierId: params.supplierId, productId } }),
+      await supplierProductRepo.findOne({
+        filter: { supplierId: params.supplierId, productId },
+        transaction: params.transaction,
+      } as never),
     );
     if (!asString(supplierProduct.id)) {
       supplierProduct = toPlainRecord(
@@ -2337,7 +2403,8 @@ export class EcobaseSupplierOrderService {
             leadTimeDays: params.leadTimeDays,
             analysisStatus: 'imported',
           },
-        }),
+          transaction: params.transaction,
+        } as never),
       );
     }
     const supplierProductId = asString(supplierProduct.id);
@@ -2346,12 +2413,15 @@ export class EcobaseSupplierOrderService {
         `Ecobase supplier-order import failed: supplier product for company product "${params.companyProductId}" was saved without an id.`,
       );
     }
-    await new EcobaseMedallionIdentityService(this.db).upsertCompanyProductSupplier({
-      companyProductId: params.companyProductId,
-      supplierProductId,
-      role: 'candidate',
-      lastUsedAt: params.lastUsedAt,
-    });
+    await new EcobaseMedallionIdentityService(this.db).upsertCompanyProductSupplier(
+      {
+        companyProductId: params.companyProductId,
+        supplierProductId,
+        role: 'candidate',
+        lastUsedAt: params.lastUsedAt,
+      },
+      params.transaction,
+    );
     return supplierProductId;
   }
 
@@ -2406,6 +2476,7 @@ export class EcobaseSupplierOrderService {
         }: ${resolution.exclusionReason}.`,
         payload: { company: params.company, asin: params.asin, sku: params.sku, resolution },
       } as SupplierOrderImportWarning,
+      resolutionEvidence: resolution,
     };
   }
 
@@ -2669,5 +2740,10 @@ export class EcobaseSupplierOrderService {
     );
     if (silverOrder) return silverOrder;
     return null;
+  }
+
+  private transaction<T>(run: (transaction?: unknown) => Promise<T>) {
+    if (typeof this.db.sequelize?.transaction === 'function') return this.db.sequelize.transaction(run);
+    return run();
   }
 }

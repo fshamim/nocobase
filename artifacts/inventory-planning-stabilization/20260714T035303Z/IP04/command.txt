@@ -1,0 +1,16 @@
+Task: IP04 — Replace hashed-key product repair with first-class source fields
+
+Red:
+  yarn test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts --run --reporter=verbose
+  Result: hashed sourceLineKey still controlled mapping; reviewed alias and named resolution-count assertions failed.
+
+Green:
+  yarn test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts --run --reporter=verbose
+  Result: 27 passed.
+  yarn test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts --run --reporter=verbose
+  Result: 39 passed.
+  yarn test packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts --run --reporter=dot
+  Result: 17 passed.
+
+Lint:
+  yarn eslint --fix packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/company-product-family-service.ts packages/plugins/@nocobase/plugin-ecobase/src/features/supplier-management/server/supplier-order-service.ts packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/csv-import.test.ts

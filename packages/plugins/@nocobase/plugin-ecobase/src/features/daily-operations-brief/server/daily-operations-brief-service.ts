@@ -717,6 +717,7 @@ function inventoryCommandCenterEvidence(commandCenter: PlainRecord, maxItems: nu
       : [],
     riskBars: toPlainRecord(commandCenter.riskBars),
     panes: {
+      dataReadiness: pane('dataReadiness'),
       supplyAction: pane('supplyAction'),
       missingSupplier: pane('missingSupplier'),
       activeOrders: pane('activeOrders'),

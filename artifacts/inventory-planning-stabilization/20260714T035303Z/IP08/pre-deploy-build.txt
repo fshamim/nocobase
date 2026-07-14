@@ -1,0 +1,111 @@
+yarn run v1.22.22
+$ nocobase-v1 build @nocobase/plugin-ecobase
+(node:1777) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+$ tsup
+[@nocobase/build]: plugins source layer 1/1 (1 packages)
+@nocobase/plugin-ecobase: plugins/@nocobase/plugin-ecobase build start
+@nocobase/plugin-ecobase: build plugin client
+asset [1m[32m645.8db1925b11a3b238.js[39m[22m 90.8 KiB [1m[32m[emitted][39m[22m [1m[32m[immutable][39m[22m
+asset [1m[32m754.739ff4cac5cd48ec.js[39m[22m 43.5 KiB [1m[32m[emitted][39m[22m [1m[32m[immutable][39m[22m
+asset [1m[32m419.fe9d95156ce776e5.js[39m[22m 28.8 KiB [1m[32m[emitted][39m[22m [1m[32m[immutable][39m[22m
+asset [1m[32m413.8b75ccad6947b5d3.js[39m[22m 28.6 KiB [1m[32m[emitted][39m[22m [1m[32m[immutable][39m[22m
+asset [1m[32m318.54efbe16c4e762d4.js[39m[22m 26.4 KiB [1m[32m[emitted][39m[22m [1m[32m[immutable][39m[22m
+asset [1m[32m243.42b55c2d87d4d7cf.js[39m[22m 19.8 KiB [1m[32m[emitted][39m[22m [1m[32m[immutable][39m[22m
+asset [1m[32mindex.js[39m[22m 19.4 KiB [1m[32m[emitted][39m[22m (name: main)
+asset [1m[32m312.91a2b3cd47baa812.js[39m[22m 19 KiB [1m[32m[emitted][39m[22m [1m[32m[immutable][39m[22m
+asset [1m[32m954.1cabaef5b5479549.js[39m[22m 14 KiB [1m[32m[emitted][39m[22m [1m[32m[immutable][39m[22m
+asset [1m[32m921.fd71d6a71c11c668.js[39m[22m 13.6 KiB [1m[32m[emitted][39m[22m [1m[32m[immutable][39m[22m
+asset [1m[32m919.926d5e717d76b646.js[39m[22m 9.23 KiB [1m[32m[emitted][39m[22m [1m[32m[immutable][39m[22m
+asset [1m[32m902.3ac1ffae3865c635.js[39m[22m 2.22 KiB [1m[32m[emitted][39m[22m [1m[32m[immutable][39m[22m
+runtime modules 7.82 KiB 10 modules
+orphan modules 107 KiB [1m[33m[orphan][39m[22m 6 modules
+built modules 638 KiB [1m[33m[built][39m[22m
+  modules by path [1m./src/[39m[22m 637 KiB
+    modules by path [1m./src/features/[39m[22m 545 KiB 9 modules
+    modules by path [1m./src/client/[39m[22m 91.6 KiB
+      [1m./src/client/pages/PlanningSettingsPage.tsx[39m[22m 30.8 KiB [1m[33m[built][39m[22m [1m[33m[code generated][39m[22m
+      [1m./src/client/formula-help.tsx[39m[22m 60.5 KiB [1m[33m[built][39m[22m [1m[33m[code generated][39m[22m
+      [1m./src/client/locale.ts[39m[22m 251 bytes [1m[33m[built][39m[22m [1m[33m[code generated][39m[22m
+  + 7 modules
+[1m./src/client/index.tsx + 3 modules[39m[22m 36 KiB [1m[33m[code generated][39m[22m
+[1m./src/features/order-planning/client/OrderPlanningPage.tsx + 1 modules[39m[22m 71.1 KiB [1m[33m[code generated][39m[22m
+Rspack 1.7.8 compiled [1m[32msuccessfully[39m[22m in 127 ms
+@nocobase/plugin-ecobase: skip plugin client-v2 build, root entry not found
+@nocobase/plugin-ecobase: build plugin server source
+@nocobase/plugin-ecobase: delete server files
+@nocobase/plugin-ecobase: build plugin server dependencies
+@nocobase/plugin-ecobase: These packages zod will be bundled to dist/node_modules. These packages @nocobase/ai, @nocobase/server, @nocobase/database, sequelize, @nocobase/client, antd, react, dayjs will be exclude. For more information, please refer to: https://docs.nocobase.com/development/others/deps.
+@nocobase/plugin-ecobase: write external version
+[@nocobase/build]: plugins declaration layer 1/1 (1 packages)
+@nocobase/plugin-ecobase: build declaration
+/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/build/lib/buildDeclaration.js:115
+    throw new Error(`Failed to build declarations for ${cwd} 
+          ^
+
+Error: Failed to build declarations for /Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/plugins/@nocobase/plugin-ecobase 
+[96mpackages/plugins/@nocobase/plugin-ecobase/src/features/daily-operations-brief/server/daily-operations-brief-service.ts[0m:[93m719[0m:[93m5[0m - [91merror[0m[90m TS2741: [0mProperty 'dataReadiness' is missing in type '{ supplyAction: { rows: Record<string, unknown>[]; }; missingSupplier: { rows: Record<string, unknown>[]; }; activeOrders: { rows: Record<string, unknown>[]; }; stuckInventory: { rows: Record<string, unknown>[]; }; duplicateProducts: { rows: Record<string, unknown>[]; }; inboundMonitoring: { rows: Record<string, unk...' but required in type 'Record<InventoryCommandCenterPane, PlainRecord>'.
+
+[7m719[0m     panes: {
+[7m   [0m [91m    ~~~~~[0m
+
+  [96mpackages/plugins/@nocobase/plugin-ecobase/src/features/daily-operations-brief/server/daily-operations-brief-service.ts[0m:[93m273[0m:[93m3[0m
+    [7m273[0m   panes: Record<InventoryCommandCenterPane, PlainRecord>;
+    [7m   [0m [96m  ~~~~~[0m
+    The expected type comes from property 'panes' which is declared here on type 'InventoryCommandCenterEvidence'
+[96mpackages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/silver-integrity-verifier.ts[0m:[93m133[0m:[93m51[0m - [91merror[0m[90m TS2345: [0mArgument of type 'string' is not assignable to parameter of type '"ECOFISSION_LLC" | "RETAIL_HEAVEN_INC" | "MUXTEX_INC" | "STOP_SHOP_LLC"'.
+
+[7m133[0m       if (!companyKey || !expectedCompanyKeys.has(companyKey)) {
+[7m   [0m [91m                                                  ~~~~~~~~~~[0m
+[96mpackages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/adapters/amazon-operations-csv-adapter.ts[0m:[93m426[0m:[93m13[0m - [91merror[0m[90m TS2322: [0mType 'string' is not assignable to type '"ECOFISSION_LLC" | "RETAIL_HEAVEN_INC" | "MUXTEX_INC" | "STOP_SHOP_LLC"'.
+
+[7m426[0m             companyKey: value.companyKey,
+[7m   [0m [91m            ~~~~~~~~~~[0m
+
+  [96mpackages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/order-migration-retention.ts[0m:[93m15[0m:[93m3[0m
+    [7m15[0m   companyKey: FourCompanyKey;
+    [7m  [0m [96m  ~~~~~~~~~~[0m
+    The expected type comes from property 'companyKey' which is declared here on type 'OrderMigrationRetentionInput'
+[96mpackages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/import-preflight.ts[0m:[93m454[0m:[93m72[0m - [91merror[0m[90m TS2339: [0mProperty 'join' does not exist on type 'unknown'.
+
+[7m454[0m         } because it references multiple orders (${ambiguous.orderRefs.join(', ')}).`,
+[7m   [0m [91m                                                                       ~~~~[0m
+
+    at buildDeclaration (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/build/lib/buildDeclaration.js:115:11)
+    at buildPackageDeclarationLifecycle (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/build/lib/build.js:325:5)
+    at /Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/build/lib/build.js:194:9
+    at /Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/build/lib/utils/utils.js:157:7
+    at async Promise.all (index 0)
+    at runWithConcurrency (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/build/lib/utils/utils.js:160:3)
+    at /Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/build/lib/build.js:193:7
+    at runProfiledStage (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/build/lib/utils/utils.js:141:3)
+    at buildPackages (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/build/lib/build.js:188:3)
+    at build (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/build/lib/build.js:116:5)
+
+Node.js v24.14.0
+/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/execa/lib/error.js:60
+		error = new Error(message);
+		        ^
+
+Error: Command failed with exit code 1: nocobase-build @nocobase/plugin-ecobase    
+    at makeError (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/execa/lib/error.js:60:11)
+    at handlePromise (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/execa/index.js:118:26)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async Command.<anonymous> (/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/core/cli-v1/src/commands/build.js:45:7) {
+  shortMessage: 'Command failed with exit code 1: nocobase-build @nocobase/plugin-ecobase    ',
+  command: 'nocobase-build @nocobase/plugin-ecobase    ',
+  escapedCommand: 'nocobase-build "@nocobase/plugin-ecobase" "" "" "" ""',
+  exitCode: 1,
+  signal: undefined,
+  signalDescription: undefined,
+  stdout: undefined,
+  stderr: undefined,
+  failed: true,
+  timedOut: false,
+  isCanceled: false,
+  killed: false
+}
+
+Node.js v24.14.0
+error Command failed with exit code 1.
+info Visit https://yarnpkg.com/en/docs/cli/run for documentation about this command.

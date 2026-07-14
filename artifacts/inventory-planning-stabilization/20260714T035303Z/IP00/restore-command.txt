@@ -1,0 +1,5 @@
+Rollback only after an explicit stabilization failure decision:
+
+ssh eco 'docker exec -i ecobase-staging-2ndggj-postgres-1 sh -lc '\''pg_restore --clean --if-exists --no-owner --no-acl -U "$POSTGRES_USER" -d "$POSTGRES_DB"'\'' < /var/backups/ecobase-staging/inventory-planning-stabilization/20260714T035303Z-699386fc4e87aafc182adc4112e203e1936f8c16.dump'
+
+Then redeploy SHA 699386fc4e87aafc182adc4112e203e1936f8c16 and rerun the read-only validation SQL. Do not execute this command during normal stabilization.

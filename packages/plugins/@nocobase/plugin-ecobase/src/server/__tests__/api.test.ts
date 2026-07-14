@@ -286,6 +286,22 @@ describe('Ecobase inventory-planning public API seam', () => {
     ).rejects.toThrow('Ecobase budget optimizer requires a budget greater than zero.');
   });
 
+  it('exposes the read-only Silver integrity verifier as an independent maintenance action', async () => {
+    const context = createActionContext(new MemoryDatabase(), {});
+    const next = vi.fn();
+
+    await createEcobaseInventoryPlanningActions().verifySilverIntegrity(context, next);
+
+    expect(context.body).toMatchObject({
+      data: {
+        ok: false,
+        counts: { technical_blocker: expect.any(Number) },
+        examined: { companies: 0, companyProducts: 0, families: 0, orderLines: 0 },
+      },
+    });
+    expect(next).toHaveBeenCalledOnce();
+  });
+
   it('requires complete, reasoned, operator-authenticated family overrides', async () => {
     const actions = createEcobaseInventoryPlanningActions();
     await expect(

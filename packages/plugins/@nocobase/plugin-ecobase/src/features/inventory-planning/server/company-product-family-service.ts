@@ -9,6 +9,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
+import { FOUR_COMPANY_MIGRATION_PROFILE } from '../../source-import/server/four-company-migration-profile';
 import type { EcobaseDatabase } from '../../source-import/server/import-service';
 
 type PlainRecord = Record<string, unknown>;
@@ -25,7 +26,7 @@ export type SupplierSelectionSource = 'latest_valid_order' | 'operator';
 
 export type CompanyProductResolution = {
   companyProductId?: string;
-  resolution?: 'exact' | 'family_target';
+  resolution?: 'exact' | 'reviewed_alias' | 'family_target';
   sourceSku?: string;
   boundary?: FamilyIdentity;
   exclusionReason?:
@@ -62,6 +63,12 @@ function numberValue(value: unknown) {
   return Number.isFinite(number) ? number : 0;
 }
 
+function presentNumber(value: unknown) {
+  if (value === null || value === undefined || value === '') return undefined;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : undefined;
+}
+
 function recordValue(value: unknown): PlainRecord {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as PlainRecord) : {};
 }
@@ -79,6 +86,29 @@ function normalizeIdentity(identity: FamilyIdentity): FamilyIdentity {
     canonicalAsin: requiredString(identity.canonicalAsin, 'canonicalAsin').toUpperCase(),
   };
 }
+
+function operationalValue(value: unknown) {
+  return String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_|_$/g, '');
+}
+
+const ACCEPTED_ORDER_AUTHORITIES = new Set(['clickup_authoritative', 'alternate_authoritative']);
+const ACCEPTED_SUPPLIER_ORDER_STATUSES = new Set([
+  'supplier_contacted',
+  'supplier_confirmed',
+  'approval_pending',
+  'payment_pending',
+  'paid',
+  'supplier_preparing',
+  'shipped_inbound',
+  'reached_fba',
+  'completed',
+  'blocked',
+]);
+const INVALID_ORDER_INTENTS = new Set(['draft', 'analysis', 'analysis_only']);
 
 export class EcobaseCompanyProductFamilyService {
   constructor(private db: EcobaseDatabase) {}
@@ -134,6 +164,29 @@ export class EcobaseCompanyProductFamilyService {
         return { companyProductId: idOf(scopedExactRelations[0], 'id'), resolution: 'exact', sourceSku };
       }
       if (exactRelations.length > 0) return { sourceSku, exclusionReason: 'exact_match_ambiguous' };
+
+      const reviewedAlias = FOUR_COMPANY_MIGRATION_PROFILE.listingSkuAliasDecisions.find(
+        (decision) => decision.asin === asin && decision.sourceSupplierSku.toLowerCase() === sourceSku.toLowerCase(),
+      );
+      if (reviewedAlias) {
+        const aliasRelations = asinRelations.filter((relation) => {
+          const product = productsById.get(idOf(relation, 'productId'));
+          return (
+            String(product?.sku ?? '')
+              .trim()
+              .toLowerCase() === reviewedAlias.amazonListingSku.toLowerCase()
+          );
+        });
+        const scopedAliasRelations = this.scopeRelations(aliasRelations, accounts.map(toPlainRecord), params);
+        if (scopedAliasRelations.length === 1) {
+          return {
+            companyProductId: idOf(scopedAliasRelations[0], 'id'),
+            resolution: 'reviewed_alias',
+            sourceSku,
+          };
+        }
+        if (aliasRelations.length > 0) return { sourceSku, exclusionReason: 'exact_match_ambiguous' };
+      }
     }
 
     const scopedRelations = this.scopeRelations(asinRelations, accounts.map(toPlainRecord), params);
@@ -358,10 +411,12 @@ export class EcobaseCompanyProductFamilyService {
       }),
     );
     const families: PlainRecord[] = [];
+    let createdFamilyCount = 0;
+    let linkedCompanyProductCount = 0;
     for (const [key, identity] of identities) {
-      const family =
-        existingFamilies.get(key) ??
-        toPlainRecord(
+      let family = existingFamilies.get(key);
+      if (!family) {
+        family = toPlainRecord(
           await familyRepository.create({
             values: {
               id: randomUUID(),
@@ -371,6 +426,8 @@ export class EcobaseCompanyProductFamilyService {
             },
           }),
         );
+        createdFamilyCount += 1;
+      }
       const familyId = idOf(family, 'id') as string;
       for (const companyProduct of companyProductsByIdentity.get(key) ?? []) {
         if (idOf(companyProduct, 'companyProductFamilyId') === familyId) continue;
@@ -378,11 +435,16 @@ export class EcobaseCompanyProductFamilyService {
           filterByTk: idOf(companyProduct, 'id') as string,
           values: { companyProductFamilyId: familyId },
         });
+        linkedCompanyProductCount += 1;
       }
       families.push(await this.reconcileFamily(familyId));
     }
     return {
+      examinedCompanyProductCount: companyProducts.length,
       familyCount: families.length,
+      createdFamilyCount,
+      linkedCompanyProductCount,
+      targetSelectedCount: families.filter((family) => idOf(family, 'replenishmentTargetCompanyProductId')).length,
       targetReviewCount: families.filter((family) => family.targetReviewRequired === true).length,
       supplierReviewCount: families.filter((family) => family.supplierReviewRequired === true).length,
       families,
@@ -404,7 +466,15 @@ export class EcobaseCompanyProductFamilyService {
 
     const target = await this.targetRecommendation(members);
     const persistedTargetId = idOf(family, 'replenishmentTargetCompanyProductId');
-    if (!persistedTargetId && target.recommended) {
+    const validOperatorTarget =
+      family.targetSelectionSource === 'operator' &&
+      Boolean(persistedTargetId && target.candidateIds.includes(persistedTargetId));
+    if (validOperatorTarget) {
+      if (family.targetReviewRequired === true) {
+        await this.updateFamily(familyId, { targetReviewRequired: false });
+        family = await this.getFamily(familyId);
+      }
+    } else if (!persistedTargetId && target.recommended) {
       family = await this.setReplenishmentTarget({
         familyId,
         companyProductId: idOf(target.recommended, 'companyProductId') as string,
@@ -443,29 +513,32 @@ export class EcobaseCompanyProductFamilyService {
 
   private async targetRecommendation(members: PlainRecord[]) {
     const scores: PlainRecord[] = [];
+    let eligibleListingCount = 0;
     for (const member of members) {
       const companyProductId = idOf(member, 'id');
       const lifecycleStatus = String(member.lifecycleStatus ?? '')
         .trim()
         .toLowerCase();
-      if (!companyProductId || ['inactive', 'duplicate', 'excluded', 'discontinued'].includes(lifecycleStatus))
-        continue;
+      if (!companyProductId || !['active', 'live'].includes(lifecycleStatus)) continue;
+      eligibleListingCount += 1;
       const snapshots = (
         await this.db
           .getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots)
           .find({ filter: { companyProductId }, limit: 10000 })
       )
         .map(toPlainRecord)
-        .sort((left, right) => String(right.snapshotDate ?? '').localeCompare(String(left.snapshotDate ?? '')));
+        .filter((snapshot) => String(snapshot.snapshotDate ?? '').trim().length > 0)
+        .sort((left, right) => String(right.snapshotDate).localeCompare(String(left.snapshotDate)));
       const snapshot = snapshots[0];
-      if (!snapshot) continue;
-      const sellableStock = numberValue(snapshot.sellableStock);
+      const sellableStock = presentNumber(snapshot?.sellableStock);
+      if (!snapshot || sellableStock === undefined) continue;
       const planningStock =
         sellableStock +
         numberValue(snapshot.reserved) +
         numberValue(snapshot.inbound) +
         numberValue(snapshot.ordered) +
-        numberValue(snapshot.prepStock);
+        numberValue(snapshot.prepStock) +
+        numberValue(snapshot.awdStock);
       scores.push({
         companyProductId,
         sku: member.sku,
@@ -488,16 +561,17 @@ export class EcobaseCompanyProductFamilyService {
         numberValue(first.planningStock) === numberValue(second.planningStock) &&
         numberValue(first.sellableStock) === numberValue(second.sellableStock),
     );
-    const recommended = first && numberValue(first.planningStock) > 0 && !tied ? first : undefined;
+    const recommended = first && !tied ? first : undefined;
     return {
       recommended,
+      candidateIds: scores.map((candidate) => idOf(candidate, 'companyProductId') as string),
       reviewReason: !scores.length
-        ? 'missing_current_stock_evidence'
+        ? eligibleListingCount > 0
+          ? 'missing_current_stock_evidence'
+          : 'no_eligible_current_listing'
         : tied
           ? 'ambiguous_target_stock_tie'
-          : recommended
-            ? undefined
-            : 'no_positive_current_stock',
+          : undefined,
       evidence: {
         selectionRule: 'highest_planning_stock_then_sellable',
         candidates: scores,
@@ -543,13 +617,49 @@ export class EcobaseCompanyProductFamilyService {
           supplierId,
           matchType: companyProductId === targetId ? 'exact_target_sku' : 'family_projected',
         };
+        let reviewReason: string | undefined;
         if (idOf(order, 'companyId') !== companyId) {
-          reviewEvidence.push({ ...evidence, reviewReason: 'companyless_supplier_order_evidence' });
+          reviewReason = 'companyless_supplier_order_evidence';
+        } else if (!ACCEPTED_ORDER_AUTHORITIES.has(operationalValue(order.authorityStatus))) {
+          reviewReason = 'supplier_order_authority_unresolved';
+        } else if (
+          INVALID_ORDER_INTENTS.has(operationalValue(order.orderIntent)) ||
+          !ACCEPTED_SUPPLIER_ORDER_STATUSES.has(operationalValue(order.canonicalStatus ?? order.lifecycleStatus))
+        ) {
+          reviewReason = 'supplier_order_lifecycle_invalid';
         } else if (!dateSortValue(order.orderDate)) {
-          reviewEvidence.push({ ...evidence, reviewReason: 'supplier_order_date_missing' });
+          reviewReason = 'supplier_order_date_missing';
+        } else if (line.productMappingStatus !== 'resolved') {
+          reviewReason = 'supplier_order_product_mapping_unresolved';
+        } else if (numberValue(line.orderedQty) <= 0) {
+          reviewReason = 'supplier_order_quantity_nonpositive';
         } else {
-          validEvidence.push(evidence);
+          const supplier = await this.db
+            .getRepository(ECOBASE_COLLECTIONS.silverSuppliers)
+            .findOne({ filterByTk: supplierId });
+          if (!supplier) {
+            reviewReason = 'supplier_order_supplier_missing';
+          } else {
+            const supplierProductId = idOf(line, 'supplierProductId');
+            const supplierProduct = supplierProductId
+              ? toPlainRecord(
+                  await this.db
+                    .getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts)
+                    .findOne({ filterByTk: supplierProductId }),
+                )
+              : {};
+            if (!idOf(supplierProduct, 'id')) {
+              reviewReason = 'supplier_order_supplier_product_missing';
+            } else if (
+              idOf(supplierProduct, 'supplierId') !== supplierId ||
+              idOf(supplierProduct, 'productId') !== idOf(memberById.get(companyProductId) ?? {}, 'productId')
+            ) {
+              reviewReason = 'supplier_order_supplier_product_mismatch';
+            }
+          }
         }
+        if (reviewReason) reviewEvidence.push({ ...evidence, reviewReason });
+        else validEvidence.push(evidence);
       }
     }
 
@@ -576,21 +686,35 @@ export class EcobaseCompanyProductFamilyService {
     }
 
     const supplierConflict = Boolean(operatorSelected && latest && idOf(latest, 'supplierId') !== selectedSupplierId);
-    if (latestReview || supplierConflict || (!latest && !selectedSupplierId)) {
+    const invalidAutomaticSelection = Boolean(!operatorSelected && !latest && selectedSupplierId);
+    if (invalidAutomaticSelection) {
+      await this.updateFamily(familyId, {
+        preferredSupplierId: null,
+        preferredSupplierProductId: null,
+        supplierSelectionSource: null,
+      });
+      currentFamily = await this.getFamily(familyId);
+    }
+    const invalidEvidenceWithoutValidEvidence = Boolean(!latest && latestReview);
+    if (
+      invalidEvidenceWithoutValidEvidence ||
+      supplierConflict ||
+      invalidAutomaticSelection ||
+      (!latest && !selectedSupplierId)
+    ) {
       await this.updateFamily(familyId, {
         supplierReviewRequired: true,
         supplierSelectionEvidenceJson: {
           ...recordValue(currentFamily.supplierSelectionEvidenceJson),
           ...(latest ?? latestReview ?? {}),
-          ...(latestReview ?? {}),
           recommendedSupplierId: idOf(latest ?? {}, 'supplierId'),
-          reviewReason:
-            latestReview?.reviewReason ??
-            (supplierConflict ? 'operator_supplier_differs_from_latest_order' : 'missing_valid_supplier_order'),
+          reviewReason: supplierConflict
+            ? 'operator_supplier_differs_from_latest_order'
+            : latestReview?.reviewReason ?? 'missing_valid_supplier_order',
           reconciledAt: new Date().toISOString(),
         },
       });
-    } else if (operatorSelected && family.supplierReviewRequired === true) {
+    } else if (currentFamily.supplierReviewRequired === true) {
       await this.updateFamily(familyId, { supplierReviewRequired: false });
     }
   }

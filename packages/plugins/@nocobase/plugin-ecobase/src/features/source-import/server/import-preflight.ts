@@ -451,7 +451,9 @@ export function preflightImportFiles(files: CsvSourceFile[], options?: ImportPre
         row: Number(ambiguous.lineNumber) || undefined,
         message: `Ecobase import preflight discarded ClickUp task ${
           ambiguous.taskId
-        } because it references multiple orders (${ambiguous.orderRefs.join(', ')}).`,
+        } because it references multiple orders (${
+          Array.isArray(ambiguous.orderRefs) ? ambiguous.orderRefs.join(', ') : ''
+        }).`,
       });
     }
     for (const conflict of clickup.companyConflicts) {

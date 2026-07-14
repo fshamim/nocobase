@@ -1,0 +1,40 @@
+{
+  "gitSha": "699386fc4e87aafc182adc4112e203e1936f8c16",
+  "branch": "ecobase/staging",
+  "stagingUrl": "https://ecobase-staging.178-104-193-132.sslip.io",
+  "stagingDatabaseIdentifier": "ecobase-staging-2ndggj-postgres-1/nocobase",
+  "taskId": "IP00",
+  "startedAt": "2026-07-14T03:53:03Z",
+  "finishedAt": "2026-07-14T03:59:07Z",
+  "exitStatus": 0,
+  "backup": {
+    "path": "/var/backups/ecobase-staging/inventory-planning-stabilization/20260714T035303Z-699386fc4e87aafc182adc4112e203e1936f8c16.dump",
+    "bytes": 3980101,
+    "sha256": "043235c657b0561c163dd46cf782039635d0213de3f8d54a931b4ee99c4e3bfa",
+    "pgRestoreListValidated": true,
+    "restoreCommandDocumented": true
+  },
+  "assertions": {
+    "targetIsStaging": true,
+    "targetIsNotProduction": true,
+    "branchIsEcobaseStaging": true,
+    "backupExists": true,
+    "backupIsNonempty": true,
+    "baselineJsonValid": true,
+    "fourCanonicalCompanies": true,
+    "crossCompanyAccountDefectsZero": true,
+    "etcAcceptedListingPresent": true,
+    "etcForbiddenListingAbsent": true,
+    "sroAcceptedExactRefsPresent": true,
+    "sroRejectedExactRefsAbsent": true,
+    "clickupCommentsPreserved": true,
+    "clickupAttributionUsersPreserved": true,
+    "clickupAttributionUsersCredentialFree": true,
+    "noResetRun": true,
+    "noSeedRun": true,
+    "noSourceImportRunByStabilization": true,
+    "noHistoryImportRun": true,
+    "ip08BlockedUntilSchedulesPaused": true,
+    "goldRefreshLimitedToOnePostVerifierRun": true
+  }
+}
