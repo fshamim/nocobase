@@ -5,5 +5,13 @@
   "ignoredNonCurrentRows": 8118,
   "duplicates": 0,
   "prohibitedProjectedPayloads": 0,
-  "idempotencyEvidence": "same source rows converged without duplicate fact keys"
+  "idempotencyRerun": {
+    "sourceRows": 59217,
+    "beforeFacts": 51099,
+    "afterFacts": 51099,
+    "netNewFacts": 0,
+    "successfulRuns": 4,
+    "warnings": 0,
+    "errors": 0
+  }
 }

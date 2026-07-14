@@ -1,0 +1,48 @@
+{
+  "status": "pass",
+  "startedAt": "2026-07-14T19:05:26.852Z",
+  "finishedAt": "2026-07-14T19:36:21.824Z",
+  "beforeFacts": 51099,
+  "afterFacts": 51099,
+  "netNewFacts": 0,
+  "duplicateFactKeys": 0,
+  "catalogCountsPreserved": {
+    "products": 1857,
+    "companyProducts": 2136,
+    "families": 1780
+  },
+  "runs": [
+    {
+      "company": "Ecofission LLC",
+      "importRunId": "6d6dfc40-d842-4f65-a50d-a83b8115b905",
+      "status": "success",
+      "rows": 24438,
+      "warnings": 0,
+      "errors": 0
+    },
+    {
+      "company": "Muxtex INC",
+      "importRunId": "a6212c85-bb1e-4332-b6cf-c7b93c16de0e",
+      "status": "success",
+      "rows": 11353,
+      "warnings": 0,
+      "errors": 0
+    },
+    {
+      "company": "Retail Heaven Inc",
+      "importRunId": "ef5dd6d0-a284-450c-9c99-c7803f2a1af2",
+      "status": "success",
+      "rows": 8526,
+      "warnings": 0,
+      "errors": 0
+    },
+    {
+      "company": "Stop Shop LLC",
+      "importRunId": "3e76467b-a646-40e7-b4a0-5b217313cf98",
+      "status": "success",
+      "rows": 14900,
+      "warnings": 0,
+      "errors": 0
+    }
+  ]
+}
