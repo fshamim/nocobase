@@ -273,7 +273,7 @@ export class EcobaseSupplierEvidenceApplyService {
             normalizedName: normalizeSupplierName(displayName),
             lastSeenAt: new Date().toISOString(),
             payload: {
-              ruleVersion: 'supplier-evidence-v1',
+              ruleVersion: 'supplier-evidence-v2',
               sourceFileSha256: master.sourceFileSha256,
               sourceRowNumber: master.sourceRowNumber,
             },

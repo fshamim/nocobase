@@ -27,6 +27,7 @@ const detailHeader =
   'Order ID,Timestamp,Company,SR ID,Supplier,ASIN,SKU,Qty,PPU,AM Status,COO status,PO Status,Shipment';
 const trackerHeader = 'SR ID,Supplier Name,ASIN,Status,Active Status,Username,pass,PR Portal Link';
 const currentHeader = 'SR ID,Supplier Name,ASIN,Current Status,Status,Username,pass,PR Portal Link';
+const supplierIdsHeader = 'SR ID,Supplier Name';
 
 function snapshot(): SupplierEvidenceSnapshot {
   return {
@@ -102,10 +103,14 @@ function snapshot(): SupplierEvidenceSnapshot {
   };
 }
 
-function preview(overrides: { purchaseOrders?: string[]; orderDetails?: string[] } = {}) {
+function preview(overrides: { purchaseOrders?: string[]; orderDetails?: string[]; supplierIds?: string[] } = {}) {
   return previewSupplierEvidenceBackfill({
     snapshot: snapshot(),
     files: {
+      supplierIds: {
+        name: 'Supplier IDs.csv',
+        content: [supplierIdsHeader, ...(overrides.supplierIds ?? [])].join('\n'),
+      },
       supplierTracker: {
         name: 'Supplier Analysis Tracker.csv',
         content: [
@@ -190,6 +195,38 @@ describe('supplier evidence backfill dry-run', () => {
     expect(serialized).not.toContain('super-secret');
     expect(serialized).not.toContain('private.invalid');
     expect(result.candidateSupplierRefCount).toBe(1);
+  });
+
+  it('uses an unambiguous Supplier IDs row to establish an otherwise missing exact SR ID', () => {
+    const result = preview({
+      supplierIds: ['SRO-404,Missing Supplier'],
+      purchaseOrders: ['01/07/2026 10:00:00,PO-1,SRO-404,Missing Supplier,Ecofission LLC,Approved,Completed,Completed'],
+      orderDetails: [
+        'PO-1,01/07/2026 10:00:00,Ecofission LLC,SRO-404,Missing Supplier,B000000001,SKU-1,10,4,Cleared,,,Yes',
+      ],
+    });
+
+    expect(result.historicalEvidence).toMatchObject({ masterResolvedFamilies: 1, masterMissingFamilies: 0 });
+    expect(result.supplierIdentityEvidence).toMatchObject({
+      usableRefCount: 1,
+      conflictingRefCount: 0,
+      historicalFamiliesResolvedBySupplierIds: 1,
+    });
+    expect(result.selectedSourceDistribution).toMatchObject({ historical_order_evidence: 1 });
+  });
+
+  it('does not establish a Supplier ID with conflicting normalized names', () => {
+    const result = preview({
+      supplierIds: ['SRO-404,First Supplier', 'SRO-404,Different Supplier'],
+      purchaseOrders: ['01/07/2026 10:00:00,PO-1,SRO-404,First Supplier,Ecofission LLC,Approved,Completed,Completed'],
+      orderDetails: [
+        'PO-1,01/07/2026 10:00:00,Ecofission LLC,SRO-404,First Supplier,B000000002,SKU-2A,10,4,Cleared,,,Yes',
+      ],
+    });
+
+    expect(result.historicalEvidence).toMatchObject({ masterResolvedFamilies: 0, masterMissingFamilies: 1 });
+    expect(result.supplierIdentityEvidence).toMatchObject({ usableRefCount: 0, conflictingRefCount: 1 });
+    expect(result.unresolvedReasonDistribution).toMatchObject({ supplier_ids_name_conflict: 1 });
   });
 
   it('is deterministic and does not merge different exact SR IDs with similar supplier names', () => {

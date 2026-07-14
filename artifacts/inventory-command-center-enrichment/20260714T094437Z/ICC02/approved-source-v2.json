@@ -1,0 +1,23 @@
+{
+  "approvedAt": "2026-07-14T20:34:00+05:00",
+  "approvedBy": "user",
+  "orderDetails": {
+    "sha256": "4d2f39e2f003de36551c8f3f10afba30af06b23d89be440735ffc54159920a45",
+    "rowCount": 6489
+  },
+  "purchaseOrders": {
+    "sha256": "6e0362d2e2cebc346f3dfdb4fff89330bd8f911ccd03d7fdb9254a546bca2075",
+    "rowCount": 4310
+  },
+  "supplierIds": {
+    "sha256": "e1708c82a2aa4da9cf1ecba4e873f80b1125861128fdc810fe24c920cc9e2d94",
+    "rowCount": 2136,
+    "nonEmptyRowCount": 2135
+  },
+  "supplierIdsAssessment": {
+    "usableExactRefs": 1789,
+    "conflictingNameRefsQuarantined": 66,
+    "historicalFamiliesResolved": 13,
+    "remainingHistoricalMissingMasterFamilies": 0
+  }
+}

@@ -1,0 +1,152 @@
+{
+  "mode": "dry-run",
+  "version": "supplier-evidence-v2",
+  "input": {
+    "orderDetails": {
+      "fileName": "Ecofission-Order Management - OrderDetails.csv",
+      "sha256": "4d2f39e2f003de36551c8f3f10afba30af06b23d89be440735ffc54159920a45",
+      "rowCount": 6489,
+      "nonEmptyRowCount": 6489
+    },
+    "purchaseOrders": {
+      "fileName": "Ecofission-Order Management - Purchase Orders.csv",
+      "sha256": "6e0362d2e2cebc346f3dfdb4fff89330bd8f911ccd03d7fdb9254a546bca2075",
+      "rowCount": 4310,
+      "nonEmptyRowCount": 4310
+    },
+    "supplier2026": {
+      "fileName": "Supplier Analysis Tracker - Supplier 2026.csv",
+      "sha256": "d2fab46cfbb17a9ecb2d3695652c5751a7752367783c57a2a7b44dd90cc1cb5c",
+      "rowCount": 528,
+      "nonEmptyRowCount": 528
+    },
+    "supplierIds": {
+      "fileName": "Ecofission-Order Management - Supplier IDs.csv",
+      "sha256": "e1708c82a2aa4da9cf1ecba4e873f80b1125861128fdc810fe24c920cc9e2d94",
+      "rowCount": 2136,
+      "nonEmptyRowCount": 2135
+    },
+    "supplierTracker": {
+      "fileName": "Supplier Analysis Tracker - Supplier Analysis Tracker.csv",
+      "sha256": "d09f10e4d5c86c1c173d37ac22e19aed7f1fbe1045e5e926d94214523c3098e8",
+      "rowCount": 1659,
+      "nonEmptyRowCount": 1659
+    }
+  },
+  "baseline": {
+    "familyCount": 1780,
+    "existingPreferredSupplierCount": 110
+  },
+  "supplierIdentityEvidence": {
+    "sourceRowCount": 2135,
+    "usableRefCount": 1789,
+    "conflictingRefCount": 66,
+    "historicalFamiliesResolvedBySupplierIds": 13
+  },
+  "historicalEvidence": {
+    "acceptedDetailRows": 2798,
+    "candidateFamilies": 929,
+    "masterResolvedFamilies": 929,
+    "masterMissingFamilies": 0,
+    "multiSupplierFamilies": 17,
+    "latestDateTieFamilies": 0,
+    "headerDetailSupplierMismatches": 4,
+    "multiBoundaryAmbiguousRows": 86,
+    "confirmedRejectedRows": 0,
+    "byCompany": {
+      "Ecofission LLC": 210,
+      "Muxtex INC": 309,
+      "Retail Heaven Inc": 160,
+      "Stop Shop LLC": 250
+    },
+    "byMatchType": {
+      "exact_member_sku": 710,
+      "unique_family_asin": 219
+    },
+    "byLatestEvidenceYear": {
+      "2023": 29,
+      "2024": 122,
+      "2025": 330,
+      "2026": 448
+    }
+  },
+  "candidateSourceDistribution": {
+    "historical_order_evidence": 929,
+    "supplier_2026_approved_active": 1,
+    "supplier_2026_approved_unknown": 1,
+    "supplier_tracker_active_workflow": 19
+  },
+  "familySelectionProjection": {
+    "existingPreferredFamilies": 110,
+    "protectedHigherAuthorityFamilies": 110,
+    "historicalExistingPreferredOverlap": 94,
+    "historicalIncrementalCandidates": 835,
+    "historicalIncrementalAutoApplicable": 835,
+    "historicalIncrementalMissingMaster": 0,
+    "lowerAuthorityIncrementalSelections": 6,
+    "projectedPreferredFamilies": 951,
+    "projectedUnresolvedFamilies": 829
+  },
+  "selectedSourceDistribution": {
+    "historical_order_evidence": 835,
+    "latest_valid_order": 110,
+    "supplier_2026_approved_active": 1,
+    "supplier_2026_approved_unknown": 1,
+    "supplier_tracker_active_workflow": 4,
+    "unresolved": 829
+  },
+  "unresolvedReasonDistribution": {
+    "no_deterministic_evidence": 829
+  },
+  "candidateSupplierRefCount": 72,
+  "exclusionReasonDistribution": {
+    "accepted_historical_order_evidence": 2798,
+    "company_out_of_scope": 1857,
+    "header_detail_supplier_mismatch": 4,
+    "multi_account_boundary_ambiguous": 86,
+    "not_current_family": 101,
+    "order_detail_not_actual": 581,
+    "product_identity_missing": 1,
+    "purchase_order_header_missing": 736,
+    "purchase_order_header_not_actual": 321,
+    "supplier_ref_missing": 4
+  },
+  "redactedReviews": [],
+  "sroAssertions": {
+    "SRO-12939": {
+      "disposition": "accept",
+      "masterRows": 2,
+      "detailRows": 3,
+      "selected": false,
+      "passed": true
+    },
+    "SRO-1293": {
+      "disposition": "reject",
+      "masterRows": 1,
+      "detailRows": 0,
+      "selected": false,
+      "passed": true
+    },
+    "SRO-12572": {
+      "disposition": "accept",
+      "masterRows": 2,
+      "detailRows": 29,
+      "selected": true,
+      "passed": true
+    },
+    "SRO-1257": {
+      "disposition": "reject",
+      "masterRows": 1,
+      "detailRows": 0,
+      "selected": false,
+      "passed": true
+    }
+  },
+  "security": {
+    "prohibitedFieldCount": 0,
+    "droppedFieldCount": 340236,
+    "rawRowsPersisted": false
+  },
+  "stagingWrites": 0,
+  "decisionDigest": "5d6697620092b55791ec63e83a7b050bd133520fd663504102f297abee9f59d5"
+}

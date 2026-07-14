@@ -75,6 +75,10 @@ class MemoryDatabase implements EcobaseDatabase {
 }
 
 const files: SupplierEvidenceFiles = {
+  supplierIds: {
+    name: 'Supplier IDs.csv',
+    content: ['SR ID,Supplier Name', 'SRO-12939,Display Name ID'].join('\n'),
+  },
   supplierTracker: {
     name: 'Supplier Analysis Tracker.csv',
     content: [
@@ -196,7 +200,7 @@ describe('supplier evidence apply service', () => {
       supplierSelectionSource: 'historical_order_evidence',
       supplierReviewRequired: false,
       supplierSelectionEvidenceJson: {
-        ruleVersion: 'supplier-evidence-v1',
+        ruleVersion: 'supplier-evidence-v2',
         supplierExternalRef: 'SRO-12939',
         sourceRowNumber: 2,
         headerRowNumber: 2,

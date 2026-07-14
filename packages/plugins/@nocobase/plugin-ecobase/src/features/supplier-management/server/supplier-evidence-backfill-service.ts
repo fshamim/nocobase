@@ -16,6 +16,10 @@
  */
 
 import { createHash } from 'node:crypto';
+import {
+  normalizeExternalSupplierCode,
+  normalizeSupplierName,
+} from '../../semantic-model/server/medallion-identity-service';
 import { parseCsv, type CsvSourceFile } from '../../source-import/server/adapters/csv-utils';
 import { FOUR_COMPANY_MIGRATION_PROFILE } from '../../source-import/server/four-company-migration-profile';
 import {
@@ -24,7 +28,7 @@ import {
   type MigrationDataset,
 } from '../../source-import/server/source-record-projection';
 
-const PREVIEW_VERSION = 'supplier-evidence-v1';
+const PREVIEW_VERSION = 'supplier-evidence-v2';
 const CANONICAL_COMPANIES = new Set(FOUR_COMPANY_MIGRATION_PROFILE.canonicalCompanies.map((item) => item.name));
 const REJECTED_REFS = new Set(
   FOUR_COMPANY_MIGRATION_PROFILE.supplierExternalRefDecisions
@@ -112,6 +116,7 @@ export type SupplierEvidenceSnapshot = {
 };
 
 export type SupplierEvidenceFiles = {
+  supplierIds: CsvSourceFile;
   supplierTracker: CsvSourceFile;
   supplier2026: CsvSourceFile;
   purchaseOrders: CsvSourceFile;
@@ -317,23 +322,50 @@ export function buildSupplierEvidenceBackfillPlan(params: {
   files: SupplierEvidenceFiles;
 }) {
   const indexes = familyIndexes(params.snapshot);
+  const supplierIds = projectedRows('supplier_ids', params.files.supplierIds);
   const tracker = projectedRows('supplier_tracker', params.files.supplierTracker);
   const current = projectedRows('supplier_2026', params.files.supplier2026);
   const headers = projectedRows('purchase_orders', params.files.purchaseOrders);
   const details = projectedRows('order_details', params.files.orderDetails);
-  const forbiddenPaths = [tracker, current, headers, details].flatMap((source) => source.forbiddenPaths);
+  const forbiddenPaths = [supplierIds, tracker, current, headers, details].flatMap((source) => source.forbiddenPaths);
   if (forbiddenPaths.length) {
     throw new Error(
       `Supplier evidence dry-run blocked: projected evidence contains prohibited material at ${forbiddenPaths[0]}.`,
     );
   }
 
-  const masterRefs = new Set(
+  const baseMasterRefs = new Set(
     [...tracker.rows, ...current.rows]
       .map(({ payload }) => normalizeSupplierEvidenceRef(payload.supplierExternalRef))
       .filter((value): value is string => Boolean(value)),
   );
-  const masterByRef = new Map<string, SupplierEvidenceMaster>();
+  const supplierIdRowsByRef = new Map<string, ProjectedRow[]>();
+  for (const row of supplierIds.rows) {
+    const supplierRef = normalizeSupplierEvidenceRef(
+      normalizeExternalSupplierCode(text(row.payload.supplierExternalRef)),
+    );
+    if (!supplierRef || REJECTED_REFS.has(supplierRef) || !text(row.payload.supplierName)) continue;
+    supplierIdRowsByRef.set(supplierRef, [...(supplierIdRowsByRef.get(supplierRef) ?? []), row]);
+  }
+  const conflictingSupplierIdRefs = new Set<string>();
+  const supplierIdMasters = new Map<string, SupplierEvidenceMaster>();
+  for (const [supplierRef, rows] of supplierIdRowsByRef) {
+    const normalizedNames = new Set(
+      rows.map((row) => normalizeSupplierName(text(row.payload.supplierName))).filter(Boolean),
+    );
+    if (normalizedNames.size !== 1) {
+      conflictingSupplierIdRefs.add(supplierRef);
+      continue;
+    }
+    const row = rows[0];
+    supplierIdMasters.set(supplierRef, {
+      displayName: text(row.payload.supplierName),
+      sourceFileName: params.files.supplierIds.name,
+      sourceFileSha256: hash(params.files.supplierIds.content),
+      sourceRowNumber: row.rowNumber,
+    });
+  }
+  const masterByRef = new Map(supplierIdMasters);
   for (const [file, rows] of [
     [params.files.supplierTracker, tracker.rows],
     [params.files.supplier2026, current.rows],
@@ -351,6 +383,10 @@ export function buildSupplierEvidenceBackfillPlan(params: {
       });
     }
   }
+  const masterRefs = new Set(masterByRef.keys());
+  const supplementalSupplierIdRefs = new Set(
+    [...supplierIdMasters.keys()].filter((supplierRef) => !baseMasterRefs.has(supplierRef)),
+  );
   const latestHeaderByOrder = new Map<string, ProjectedRow>();
   for (const header of headers.rows) {
     const company = text(header.payload.company);
@@ -492,7 +528,10 @@ export function buildSupplierEvidenceBackfillPlan(params: {
     const history = historicalChoices.get(family.id);
     let reason = 'no_deterministic_evidence';
     if (history && !history.supplierRef) reason = 'historical_latest_supplier_tie';
-    else if (history?.supplierRef && !masterRefs.has(history.supplierRef)) reason = 'supplier_ref_absent_from_masters';
+    else if (history?.supplierRef && conflictingSupplierIdRefs.has(history.supplierRef)) {
+      reason = 'supplier_ids_name_conflict';
+    } else if (history?.supplierRef && !masterRefs.has(history.supplierRef))
+      reason = 'supplier_ref_absent_from_masters';
     else if (
       [approvedActive, approvedUnknown, trackerActive].some((candidates) => (candidates.get(family.id)?.size ?? 0) > 1)
     ) {
@@ -677,6 +716,14 @@ export function buildSupplierEvidenceBackfillPlan(params: {
       familyCount: params.snapshot.families.length,
       existingPreferredSupplierCount: params.snapshot.families.filter((family) => family.preferredSupplierId).length,
     },
+    supplierIdentityEvidence: {
+      sourceRowCount: supplierIds.rowCount,
+      usableRefCount: supplierIdMasters.size,
+      conflictingRefCount: conflictingSupplierIdRefs.size,
+      historicalFamiliesResolvedBySupplierIds: [...historicalChoices.values()].filter(
+        (choice) => choice.supplierRef && supplementalSupplierIdRefs.has(choice.supplierRef),
+      ).length,
+    },
     historicalEvidence: {
       acceptedDetailRows: reasonCounts.accepted_historical_order_evidence ?? 0,
       candidateFamilies: historicalChoices.size,
@@ -734,7 +781,11 @@ export function buildSupplierEvidenceBackfillPlan(params: {
     security: {
       prohibitedFieldCount: 0,
       droppedFieldCount:
-        tracker.droppedFieldCount + current.droppedFieldCount + headers.droppedFieldCount + details.droppedFieldCount,
+        supplierIds.droppedFieldCount +
+        tracker.droppedFieldCount +
+        current.droppedFieldCount +
+        headers.droppedFieldCount +
+        details.droppedFieldCount,
       rawRowsPersisted: false,
     },
     stagingWrites: 0,

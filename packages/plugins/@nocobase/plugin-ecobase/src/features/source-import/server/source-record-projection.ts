@@ -20,6 +20,7 @@ export type MigrationDataset =
   | 'order_details'
   | 'supplier_tracker'
   | 'supplier_2026'
+  | 'supplier_ids'
   | 'clickup_order_evidence';
 
 export interface SourceRecordProjection {
@@ -191,6 +192,10 @@ const FIELD_PROJECTIONS: Record<Exclude<MigrationDataset, 'clickup_order_evidenc
     packSize: ['Pack Size', 'Case Pack'],
     approvalStatus: ['Status'],
     currentStatus: ['Current Status'],
+  },
+  supplier_ids: {
+    supplierExternalRef: ['SR ID', 'SR ID '],
+    supplierName: ['Supplier Name', 'Supplier', 'Supplier '],
   },
 };
 

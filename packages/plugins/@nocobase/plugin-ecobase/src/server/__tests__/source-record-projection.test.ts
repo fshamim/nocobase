@@ -157,6 +157,20 @@ describe('source record projection', () => {
     expect(findForbiddenSourceMaterial(credentialComment)).toEqual([]);
   });
 
+  it('projects only the exact supplier identity fields from Supplier IDs', () => {
+    expect(
+      projectSourceRecord('supplier_ids', {
+        'SR ID': 'SRO-404',
+        'Supplier Name': 'Missing Supplier',
+        Username: 'discard',
+        Password: 'discard',
+      }),
+    ).toMatchObject({
+      payload: { supplierExternalRef: 'SRO-404', supplierName: 'Missing Supplier' },
+      droppedFieldCount: 2,
+    });
+  });
+
   it('rejects unsafe values and nested objects even under allowlisted keys', () => {
     const result = projectSourceRecord('supplier_tracker', {
       'SR ID': 'SRO-1',

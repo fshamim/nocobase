@@ -1,0 +1,12 @@
+{
+  "status": "pass",
+  "approvedSourceVersion": "v2",
+  "projectedPreferredFamilies": 951,
+  "projectedUnresolvedFamilies": 829,
+  "historicalMasterMissingFamilies": 0,
+  "supplierIdsHistoricalFamiliesResolved": 13,
+  "supplierIdsConflictingRefsQuarantined": 66,
+  "prohibitedFieldCount": 0,
+  "rawRowsPersisted": false,
+  "stagingWrites": 0
+}

@@ -24,6 +24,7 @@ function sourceFile(root: string, relativePath: string) {
 
 function sourceFiles(dataRoot: string): SupplierEvidenceFiles {
   return {
+    supplierIds: sourceFile(dataRoot, 'supplier-management-sheets/Ecofission-Order Management - Supplier IDs.csv'),
     supplierTracker: sourceFile(
       dataRoot,
       'supplier-management-sheets/Supplier Analysis Tracker - Supplier Analysis Tracker.csv',

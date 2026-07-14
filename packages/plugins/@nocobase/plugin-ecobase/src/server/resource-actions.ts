@@ -165,6 +165,7 @@ function getSupplierEvidenceFiles(values: Record<string, unknown>): SupplierEvid
     return matches[0];
   };
   return {
+    supplierIds: required('Supplier IDs', (name) => name.includes('Supplier IDs')),
     supplierTracker: required(
       'Supplier Analysis Tracker',
       (name) => name.includes('Supplier Analysis Tracker') && !name.includes('Supplier 2026'),
