@@ -1428,6 +1428,11 @@ describe('EcobaseInventoryPlanningService', () => {
       expect.objectContaining({
         sku: primarySku,
         familyRole: 'target',
+        familyOnHandStock: 11,
+        familyFuturePositionStock: 18,
+        familyDaysOfCover: 5.5,
+        familyPositionDaysOfCover: 9,
+        familyTrustedSupplierOrderCoverageQty: 0,
         supplierOrderRef: 'EF91125A',
         familyMembers: expect.arrayContaining([
           expect.objectContaining({ sku: primarySku, familyRole: 'target' }),
@@ -1706,7 +1711,8 @@ describe('EcobaseInventoryPlanningService', () => {
       });
     }
 
-    await new EcobaseInventoryPlanningService(db).refreshReadModel({ company, calculationDate: '2026-07-10' });
+    const service = new EcobaseInventoryPlanningService(db);
+    await service.refreshReadModel({ company, calculationDate: '2026-07-10' });
     const rows = await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).find({});
     const row = (sku: string) => rows.find((candidate) => candidate.sku === sku);
 
@@ -1737,6 +1743,15 @@ describe('EcobaseInventoryPlanningService', () => {
       expectedArrivalStatus: 'unknown',
       pipelineHealthStatus: 'unknown_timing',
       stockoutGapDays: null,
+    });
+
+    const commandCenter = await service.commandCenter({ calculationDate: '2026-07-10', pageSize: 100 });
+    expect(commandCenter.panes.activeOrders.rows.find((candidate) => candidate.sku === 'ON-TRACK')).toMatchObject({
+      onHandStock: 10,
+      futurePositionStock: 110,
+      daysOfCover: 10,
+      positionDaysOfCover: 110,
+      trustedSupplierOrderCoverageQty: 50,
     });
   });
 

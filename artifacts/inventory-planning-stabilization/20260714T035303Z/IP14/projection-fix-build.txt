@@ -1,0 +1,42 @@
+yarn run v1.22.22
+$ nocobase-v1 build @nocobase/plugin-ecobase
+(node:93182) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+$ tsup
+[@nocobase/build]: plugins source layer 1/1 (1 packages)
+@nocobase/plugin-ecobase: plugins/@nocobase/plugin-ecobase build start
+@nocobase/plugin-ecobase: build plugin client
+asset [1m[32m645.95605ece93ec2bd9.js[39m[22m 94 KiB [1m[32m[emitted][39m[22m [1m[32m[immutable][39m[22m
+asset [1m[32m754.739ff4cac5cd48ec.js[39m[22m 43.5 KiB [1m[32m[emitted][39m[22m [1m[32m[immutable][39m[22m
+asset [1m[32m419.fe9d95156ce776e5.js[39m[22m 28.8 KiB [1m[32m[emitted][39m[22m [1m[32m[immutable][39m[22m
+asset [1m[32m413.8b75ccad6947b5d3.js[39m[22m 28.6 KiB [1m[32m[emitted][39m[22m [1m[32m[immutable][39m[22m
+asset [1m[32m318.54efbe16c4e762d4.js[39m[22m 26.4 KiB [1m[32m[emitted][39m[22m [1m[32m[immutable][39m[22m
+asset [1m[32m243.42b55c2d87d4d7cf.js[39m[22m 19.8 KiB [1m[32m[emitted][39m[22m [1m[32m[immutable][39m[22m
+asset [1m[32mindex.js[39m[22m 19.4 KiB [1m[32m[emitted][39m[22m (name: main)
+asset [1m[32m312.91a2b3cd47baa812.js[39m[22m 19 KiB [1m[32m[emitted][39m[22m [1m[32m[immutable][39m[22m
+asset [1m[32m954.1cabaef5b5479549.js[39m[22m 14 KiB [1m[32m[emitted][39m[22m [1m[32m[immutable][39m[22m
+asset [1m[32m921.fd71d6a71c11c668.js[39m[22m 13.6 KiB [1m[32m[emitted][39m[22m [1m[32m[immutable][39m[22m
+asset [1m[32m919.926d5e717d76b646.js[39m[22m 9.23 KiB [1m[32m[emitted][39m[22m [1m[32m[immutable][39m[22m
+asset [1m[32m902.3ac1ffae3865c635.js[39m[22m 2.22 KiB [1m[32m[emitted][39m[22m [1m[32m[immutable][39m[22m
+runtime modules 7.82 KiB 10 modules
+orphan modules 107 KiB [1m[33m[orphan][39m[22m 6 modules
+built modules 646 KiB [1m[33m[built][39m[22m
+  modules by path [1m./src/[39m[22m 644 KiB
+    modules by path [1m./src/features/[39m[22m 552 KiB 9 modules
+    modules by path [1m./src/client/[39m[22m 91.6 KiB
+      [1m./src/client/pages/PlanningSettingsPage.tsx[39m[22m 30.8 KiB [1m[33m[built][39m[22m [1m[33m[code generated][39m[22m
+      [1m./src/client/formula-help.tsx[39m[22m 60.5 KiB [1m[33m[built][39m[22m [1m[33m[code generated][39m[22m
+      [1m./src/client/locale.ts[39m[22m 251 bytes [1m[33m[built][39m[22m [1m[33m[code generated][39m[22m
+  + 7 modules
+[1m./src/client/index.tsx + 3 modules[39m[22m 36 KiB [1m[33m[code generated][39m[22m
+[1m./src/features/order-planning/client/OrderPlanningPage.tsx + 1 modules[39m[22m 71.1 KiB [1m[33m[code generated][39m[22m
+Rspack 1.7.8 compiled [1m[32msuccessfully[39m[22m in 86 ms
+@nocobase/plugin-ecobase: skip plugin client-v2 build, root entry not found
+@nocobase/plugin-ecobase: build plugin server source
+@nocobase/plugin-ecobase: delete server files
+@nocobase/plugin-ecobase: build plugin server dependencies
+@nocobase/plugin-ecobase: These packages zod will be bundled to dist/node_modules. These packages @nocobase/ai, @nocobase/server, @nocobase/database, sequelize, @nocobase/client, antd, react, dayjs will be exclude. For more information, please refer to: https://docs.nocobase.com/development/others/deps.
+@nocobase/plugin-ecobase: write external version
+[@nocobase/build]: plugins declaration layer 1/1 (1 packages)
+@nocobase/plugin-ecobase: build declaration
+Done in 8.77s.
