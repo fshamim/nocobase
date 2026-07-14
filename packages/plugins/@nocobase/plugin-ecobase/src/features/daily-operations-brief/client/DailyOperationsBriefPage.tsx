@@ -340,6 +340,12 @@ export default function DailyOperationsBriefPage() {
     sumField(inventoryRisks, 'estimatedProfitRisk'),
   );
   const inventoryMoneyAtRiskUnknownCount = numberOr(summaryCounts.moneyAtRiskUnknownCount, 0);
+  const inventoryMoneyAtRiskText =
+    inventoryMoneyAtRiskUnknownCount > 0 && inventoryMoneyAtRisk === 0
+      ? `${t('Unknown')} (${inventoryMoneyAtRiskUnknownCount} ${t('rows')})`
+      : `${formatMoney(inventoryMoneyAtRisk)}${
+          inventoryMoneyAtRiskUnknownCount > 0 ? ` (${inventoryMoneyAtRiskUnknownCount} ${t('unknown')})` : ''
+        }`;
   const orderMoneyAtRisk = sumField(orderPlanningRisks, 'moneyAtRisk');
   const urgentInventoryCount = numberOr(summaryCounts.supplyActionCount, inventoryRisks.length);
   const statusCheckCount = countBy(orderPlanningRisks, (item) => Boolean(item.statusCheckRequired));
@@ -369,7 +375,7 @@ export default function DailyOperationsBriefPage() {
     .filter((row) => priorityKpis.includes(row.key) && (row.value !== null || row.previousValue !== null))
     .map((row) =>
       row.key === 'inventoryMoneyAtRisk'
-        ? { ...row, value: snapshotInventoryMoneyAtRisk }
+        ? { ...row, value: snapshotInventoryMoneyAtRisk, displayValue: inventoryMoneyAtRiskText }
         : row.key === 'urgentInventorySkuCount'
           ? { ...row, value: snapshotUrgentInventoryCount }
           : row,
@@ -431,9 +437,8 @@ export default function DailyOperationsBriefPage() {
   const managementActionDescription = (
     <span>
       {t('Earliest OOS')}: <strong>{snapshotEarliestOos ?? '—'}</strong> · {t('Inventory risk')}:{' '}
-      <strong>{formatMoney(snapshotInventoryMoneyAtRisk)}</strong>
-      {inventoryMoneyAtRiskUnknownCount > 0 ? ` (${inventoryMoneyAtRiskUnknownCount} ${t('unknown')})` : ''} ·{' '}
-      {t('Order risk')}: <strong>{formatMoney(snapshotOrderMoneyAtRisk)}</strong> · {brief.focusReason ?? ''}
+      <strong>{inventoryMoneyAtRiskText}</strong> · {t('Order risk')}:{' '}
+      <strong>{formatMoney(snapshotOrderMoneyAtRisk)}</strong> · {brief.focusReason ?? ''}
     </span>
   );
 
@@ -535,7 +540,7 @@ export default function DailyOperationsBriefPage() {
                         key: 'value',
                         render: (_, row) => (
                           <Typography.Text strong type={row.tone === 'error' ? 'danger' : undefined}>
-                            {formatKpiValue(row.value, row.unit)}
+                            {row.displayValue ?? formatKpiValue(row.value, row.unit)}
                           </Typography.Text>
                         ),
                       },
