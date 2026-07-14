@@ -1,0 +1,9 @@
+{
+  "status": "pass",
+  "tests": "2/2",
+  "digestGuard": true,
+  "confirmationGuard": true,
+  "atomicWhenDatabaseTransactionAvailable": true,
+  "idempotent": true,
+  "fabricatedSupplierProducts": 0
+}

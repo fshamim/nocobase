@@ -1,0 +1,6 @@
+git rev-parse HEAD
+ssh eco '<inspect staging app and database identity>'
+ssh eco '<pg_dump staging nocobase database to /root/ecobase-staging-backups/ecobase-staging-pre-supplier-evidence-20260714T094437Z.sql.gz>'
+ssh eco '<gzip -t and sha256sum backup>'
+ssh eco '<read-only staging baseline SQL>'
+ssh eco '<set only Sellerboard schedule.enabled=false and verify all four disabled>'

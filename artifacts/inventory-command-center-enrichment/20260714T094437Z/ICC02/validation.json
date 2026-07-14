@@ -1,0 +1,53 @@
+{
+  "status": "pass",
+  "sourceHashesMatchAudit": true,
+  "nonEmptyOrderDetailCountClosure": {
+    "expected": 6466,
+    "actual": 6466,
+    "rawEmptyRows": 7
+  },
+  "familySelectionCountClosure": {
+    "expected": 1780,
+    "actual": 1780
+  },
+  "auditSignalComparison": {
+    "acceptedHistoricalDetailRows": 2786,
+    "historicalCandidateFamilies": 933,
+    "headerDetailSupplierMismatches": 4,
+    "multiBoundaryAmbiguousRows": 85,
+    "missingMasterFamilies": 13,
+    "multiSupplierFamilies": 16,
+    "multiSupplierAuditValue": 15,
+    "multiSupplierDifferenceExplanation": "One additional family is resolved after stripping a Unicode direction mark from an otherwise valid ASIN; it creates no latest-date supplier tie."
+  },
+  "deterministicSecondPreview": true,
+  "decisionDigest": "bfbe72e4851f388794546c4c91c71bd283a9428905c41abdd2d1caacebbb64d4",
+  "focusedTests": {
+    "supplierEvidenceBackfill": "3/3 passed",
+    "sourceRecordProjection": "8/8 passed"
+  },
+  "eslint": "passed",
+  "pluginBuild": "passed",
+  "security": {
+    "prohibitedFieldCount": 0,
+    "rawRowsPersisted": false,
+    "redactedReviewSamplesOnly": true
+  },
+  "stagingAfterDryRun": {
+    "families": 1780,
+    "preferredSuppliers": 110,
+    "suppliers": 624,
+    "supplierProducts": 110,
+    "companyProductSupplierLinks": 110,
+    "orders": 44,
+    "orderLines": 156,
+    "goldInventoryRows": 2136,
+    "goldLastRefreshedAt": "2026-07-14T06:27:12.537+00:00",
+    "latestImportStartedAt": "2026-07-14T01:56:00.057+00:00",
+    "sellerboardSchedulesEnabled": 0
+  },
+  "supplierEvidenceBusinessWrites": 0,
+  "goldRefreshes": 0,
+  "databaseReset": false,
+  "seedRun": false
+}

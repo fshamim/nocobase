@@ -42,6 +42,7 @@ import { EcobaseImportService } from '../features/source-import/server/import-se
 import { EcobaseClickupOrderStatusService } from '../features/source-import/server/clickup-order-status-service';
 import { EcobaseOrderDetailsRelationshipVerifier } from '../features/source-import/server/order-details-relationship-verifier';
 import { EcobaseSellerboardCogsService } from '../features/source-import/server/sellerboard-cogs-service';
+import { EcobaseSellerboardHistoryApplyService } from '../features/source-import/server/sellerboard-history-apply-service';
 import {
   EcobaseInventoryPlanningService,
   type InventoryCommandCenterPane,
@@ -71,6 +72,8 @@ import { EcobaseSourceConnectionService } from '../features/source-import/server
 import { EcobaseSupplierManagementService } from '../features/supplier-management/server/supplier-management-service';
 import { EcobaseSupplierOrderService } from '../features/supplier-management/server/supplier-order-service';
 import { EcobaseSupplierResolutionRepairService } from '../features/supplier-management/server/supplier-resolution-repair-service';
+import { EcobaseSupplierEvidenceApplyService } from '../features/supplier-management/server/supplier-evidence-apply-service';
+import type { SupplierEvidenceFiles } from '../features/supplier-management/server/supplier-evidence-backfill-service';
 
 function getValues(params: unknown): Record<string, unknown> {
   if (typeof params !== 'object' || params === null) {
@@ -150,6 +153,26 @@ function getCsvFiles(values: Record<string, unknown>): CsvSourceFile[] {
     }
     return [csvFile];
   });
+}
+
+function getSupplierEvidenceFiles(values: Record<string, unknown>): SupplierEvidenceFiles {
+  const files = getCsvFiles(values);
+  const required = (description: string, match: (name: string) => boolean) => {
+    const matches = files.filter((file) => match(file.name));
+    if (matches.length !== 1) {
+      throw new Error(`Supplier evidence operation requires exactly one ${description} CSV; found ${matches.length}.`);
+    }
+    return matches[0];
+  };
+  return {
+    supplierTracker: required(
+      'Supplier Analysis Tracker',
+      (name) => name.includes('Supplier Analysis Tracker') && !name.includes('Supplier 2026'),
+    ),
+    supplier2026: required('Supplier 2026', (name) => name.includes('Supplier 2026')),
+    purchaseOrders: required('Purchase Orders', (name) => name.includes('Purchase Orders')),
+    orderDetails: required('OrderDetails', (name) => name.includes('OrderDetails')),
+  };
 }
 
 function compactInventoryPlanningRow(row: Record<string, unknown>) {
@@ -1141,6 +1164,40 @@ export function createEcobaseInventoryPlanningActions() {
       };
       await next();
     },
+    previewAutomaticTargetCorrections: async (ctx, next) => {
+      ctx.body = { data: await new EcobaseCompanyProductFamilyService(ctx.db).previewAutomaticTargetCorrections() };
+      await next();
+    },
+    applyAutomaticTargetCorrections: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const decisionDigest = getOptionalString(values, 'decisionDigest');
+      const confirmation = getOptionalString(values, 'confirmation');
+      if (!decisionDigest || !confirmation) {
+        ctx.throw(400, 'Ecobase target correction requires decisionDigest and confirmation.');
+        return;
+      }
+      try {
+        ctx.body = {
+          data: await new EcobaseCompanyProductFamilyService(ctx.db).applyAutomaticTargetCorrections({
+            decisionDigest,
+            confirmation,
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase target correction failed.');
+        return;
+      }
+      await next();
+    },
+    verifyAutomaticTargetCorrections: async (ctx, next) => {
+      try {
+        ctx.body = { data: await new EcobaseCompanyProductFamilyService(ctx.db).verifyAutomaticTargetCorrections() };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase target correction verification failed.');
+        return;
+      }
+      await next();
+    },
     verifySilverIntegrity: async (ctx, next) => {
       ctx.body = { data: await new EcobaseSilverIntegrityVerifier(ctx.db).verify() };
       await next();
@@ -1901,6 +1958,66 @@ export function createEcobaseSupplierManagementActions() {
       }
       await next();
     },
+    previewSupplierEvidenceBackfill: async (ctx, next) => {
+      requireRepairAdministrator(ctx);
+      try {
+        ctx.body = {
+          data: await new EcobaseSupplierEvidenceApplyService(ctx.db).preview(
+            getSupplierEvidenceFiles(getValues(ctx.action.params)),
+          ),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier evidence preview failed.');
+        return;
+      }
+      await next();
+    },
+    applySupplierEvidenceBackfill: async (ctx, next) => {
+      requireRepairAdministrator(ctx);
+      const values = getValues(ctx.action.params);
+      const decisionDigest = getOptionalString(values, 'decisionDigest');
+      const confirmation = getOptionalString(values, 'confirmation');
+      if (!decisionDigest || !confirmation) {
+        ctx.throw(400, 'Ecobase supplier evidence apply requires decisionDigest and confirmation.');
+        return;
+      }
+      try {
+        ctx.body = {
+          data: await new EcobaseSupplierEvidenceApplyService(ctx.db).apply({
+            files: getSupplierEvidenceFiles(values),
+            decisionDigest,
+            confirmation,
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier evidence apply failed.');
+        return;
+      }
+      await next();
+    },
+    verifySupplierEvidenceBackfillIdempotency: async (ctx, next) => {
+      requireRepairAdministrator(ctx);
+      const values = getValues(ctx.action.params);
+      const decisionDigest = getOptionalString(values, 'decisionDigest');
+      const confirmation = getOptionalString(values, 'confirmation');
+      if (!decisionDigest || !confirmation) {
+        ctx.throw(400, 'Ecobase supplier evidence verification requires decisionDigest and confirmation.');
+        return;
+      }
+      try {
+        ctx.body = {
+          data: await new EcobaseSupplierEvidenceApplyService(ctx.db).verifyIdempotency({
+            files: getSupplierEvidenceFiles(values),
+            decisionDigest,
+            confirmation,
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier evidence verification failed.');
+        return;
+      }
+      await next();
+    },
     refreshAttentionRows: async (ctx, next) => {
       const values = getValues(ctx.action.params);
       const service = new EcobaseSupplierManagementService(ctx.db);
@@ -2491,6 +2608,147 @@ export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
         };
       } catch (error) {
         ctx.throw(400, error instanceof Error ? error.message : 'Ecobase CSV bundle import failed.');
+        return;
+      }
+      await next();
+    },
+    previewSellerboardHistoryBackfill: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const sourceVersion = getOptionalString(values, 'sourceVersion');
+      if (!sourceVersion) {
+        ctx.throw(400, 'Ecobase Sellerboard history preview requires sourceVersion.');
+        return;
+      }
+      try {
+        ctx.body = {
+          data: await new EcobaseSellerboardHistoryApplyService(ctx.db, registry).preview(
+            getCsvFiles(values),
+            sourceVersion,
+          ),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase Sellerboard history preview failed.');
+        return;
+      }
+      await next();
+    },
+    applySellerboardHistoryBackfill: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const sourceVersion = getOptionalString(values, 'sourceVersion');
+      const decisionDigest = getOptionalString(values, 'decisionDigest');
+      const confirmation = getOptionalString(values, 'confirmation');
+      if (!sourceVersion || !decisionDigest || !confirmation) {
+        ctx.throw(400, 'Ecobase Sellerboard history apply requires sourceVersion, decisionDigest, and confirmation.');
+        return;
+      }
+      try {
+        ctx.body = {
+          data: await new EcobaseSellerboardHistoryApplyService(ctx.db, registry).apply({
+            files: getCsvFiles(values),
+            sourceVersion,
+            decisionDigest,
+            confirmation,
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase Sellerboard history apply failed.');
+        return;
+      }
+      await next();
+    },
+    verifySellerboardHistoryBackfillIdempotency: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const sourceVersion = getOptionalString(values, 'sourceVersion');
+      const decisionDigest = getOptionalString(values, 'decisionDigest');
+      const confirmation = getOptionalString(values, 'confirmation');
+      if (!sourceVersion || !decisionDigest || !confirmation) {
+        ctx.throw(
+          400,
+          'Ecobase Sellerboard history verification requires sourceVersion, decisionDigest, and confirmation.',
+        );
+        return;
+      }
+      try {
+        ctx.body = {
+          data: await new EcobaseSellerboardHistoryApplyService(ctx.db, registry).verifyIdempotency({
+            files: getCsvFiles(values),
+            sourceVersion,
+            decisionDigest,
+            confirmation,
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase Sellerboard history verification failed.');
+        return;
+      }
+      await next();
+    },
+    previewSellerboardCogs: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const files = getCsvFiles(values);
+      if (files.length === 0) {
+        ctx.throw(400, 'Ecobase Sellerboard COGS preview requires at least one file.');
+        return;
+      }
+      try {
+        ctx.body = {
+          data: await new EcobaseSellerboardCogsService(ctx.db).previewCsvFiles({
+            files,
+            defaultCompany: getOptionalString(values, 'defaultCompany'),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase Sellerboard COGS preview failed.');
+        return;
+      }
+      await next();
+    },
+    applySellerboardCogsBackfill: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const files = getCsvFiles(values);
+      const decisionDigest = getOptionalString(values, 'decisionDigest');
+      const confirmation = getOptionalString(values, 'confirmation');
+      if (!files.length || !decisionDigest || !confirmation) {
+        ctx.throw(400, 'Ecobase Sellerboard COGS backfill requires files, decisionDigest, and confirmation.');
+        return;
+      }
+      try {
+        ctx.body = {
+          data: await new EcobaseSellerboardCogsService(ctx.db).applyBackfill({
+            files,
+            decisionDigest,
+            confirmation,
+            defaultCompany: getOptionalString(values, 'defaultCompany'),
+            importedAt: getOptionalString(values, 'importedAt'),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase Sellerboard COGS backfill failed.');
+        return;
+      }
+      await next();
+    },
+    verifySellerboardCogsBackfillIdempotency: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const files = getCsvFiles(values);
+      const decisionDigest = getOptionalString(values, 'decisionDigest');
+      const confirmation = getOptionalString(values, 'confirmation');
+      if (!files.length || !decisionDigest || !confirmation) {
+        ctx.throw(400, 'Ecobase Sellerboard COGS verification requires files, decisionDigest, and confirmation.');
+        return;
+      }
+      try {
+        ctx.body = {
+          data: await new EcobaseSellerboardCogsService(ctx.db).verifyBackfillIdempotency({
+            files,
+            decisionDigest,
+            confirmation,
+            defaultCompany: getOptionalString(values, 'defaultCompany'),
+            importedAt: getOptionalString(values, 'importedAt'),
+          }),
+        };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase Sellerboard COGS verification failed.');
         return;
       }
       await next();

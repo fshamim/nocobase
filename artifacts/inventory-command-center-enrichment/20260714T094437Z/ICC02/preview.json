@@ -1,0 +1,206 @@
+{
+  "mode": "dry-run",
+  "version": "supplier-evidence-v1",
+  "input": {
+    "orderDetails": {
+      "fileName": "Ecofission-Order Management - OrderDetails.csv",
+      "sha256": "560771d12e0d508c0a06b8b6a199475a6c4d6af34a998032b6914da4ec28529a",
+      "rowCount": 6473,
+      "nonEmptyRowCount": 6466
+    },
+    "purchaseOrders": {
+      "fileName": "Ecofission-Order Management - Purchase Orders.csv",
+      "sha256": "3a02973d39965667598e0743d88dca775830d7ed9235895f4c2403cf60a43fc9",
+      "rowCount": 4300,
+      "nonEmptyRowCount": 4300
+    },
+    "supplier2026": {
+      "fileName": "Supplier Analysis Tracker - Supplier 2026.csv",
+      "sha256": "d2fab46cfbb17a9ecb2d3695652c5751a7752367783c57a2a7b44dd90cc1cb5c",
+      "rowCount": 528,
+      "nonEmptyRowCount": 528
+    },
+    "supplierTracker": {
+      "fileName": "Supplier Analysis Tracker - Supplier Analysis Tracker.csv",
+      "sha256": "d09f10e4d5c86c1c173d37ac22e19aed7f1fbe1045e5e926d94214523c3098e8",
+      "rowCount": 1659,
+      "nonEmptyRowCount": 1659
+    }
+  },
+  "baseline": {
+    "familyCount": 1780,
+    "existingPreferredSupplierCount": 110
+  },
+  "historicalEvidence": {
+    "acceptedDetailRows": 2786,
+    "candidateFamilies": 933,
+    "masterResolvedFamilies": 920,
+    "masterMissingFamilies": 13,
+    "multiSupplierFamilies": 16,
+    "latestDateTieFamilies": 0,
+    "headerDetailSupplierMismatches": 4,
+    "multiBoundaryAmbiguousRows": 85,
+    "confirmedRejectedRows": 0,
+    "byCompany": {
+      "Ecofission LLC": 210,
+      "Muxtex INC": 314,
+      "Retail Heaven Inc": 159,
+      "Stop Shop LLC": 250
+    },
+    "byMatchType": {
+      "exact_member_sku": 714,
+      "unique_family_asin": 219
+    },
+    "byLatestEvidenceYear": {
+      "2023": 29,
+      "2024": 122,
+      "2025": 331,
+      "2026": 451
+    }
+  },
+  "candidateSourceDistribution": {
+    "historical_order_evidence": 933,
+    "supplier_2026_approved_active": 1,
+    "supplier_2026_approved_unknown": 1,
+    "supplier_tracker_active_workflow": 19
+  },
+  "familySelectionProjection": {
+    "existingPreferredFamilies": 110,
+    "historicalExistingPreferredOverlap": 95,
+    "historicalIncrementalCandidates": 838,
+    "historicalIncrementalAutoApplicable": 825,
+    "historicalIncrementalMissingMaster": 13,
+    "lowerAuthorityIncrementalSelections": 6,
+    "projectedPreferredFamilies": 941,
+    "projectedUnresolvedFamilies": 839
+  },
+  "selectedSourceDistribution": {
+    "historical_order_evidence": 825,
+    "latest_valid_order": 110,
+    "supplier_2026_approved_active": 1,
+    "supplier_2026_approved_unknown": 1,
+    "supplier_tracker_active_workflow": 4,
+    "unresolved": 839
+  },
+  "unresolvedReasonDistribution": {
+    "no_deterministic_evidence": 826,
+    "supplier_ref_absent_from_masters": 13
+  },
+  "candidateSupplierRefCount": 73,
+  "exclusionReasonDistribution": {
+    "accepted_historical_order_evidence": 2786,
+    "company_out_of_scope": 1858,
+    "header_detail_supplier_mismatch": 4,
+    "multi_account_boundary_ambiguous": 85,
+    "not_current_family": 101,
+    "order_detail_not_actual": 582,
+    "product_identity_missing": 1,
+    "purchase_order_header_missing": 730,
+    "purchase_order_header_not_actual": 315,
+    "supplier_ref_missing": 4
+  },
+  "redactedReviews": [
+    {
+      "reason": "supplier_ref_absent_from_masters",
+      "familyKeyHash": "1174c351043c83df",
+      "supplierRefHash": "e957d951d580e0b7"
+    },
+    {
+      "reason": "supplier_ref_absent_from_masters",
+      "familyKeyHash": "1562fc6606ee6db9",
+      "supplierRefHash": "aac064aa31a168ff"
+    },
+    {
+      "reason": "supplier_ref_absent_from_masters",
+      "familyKeyHash": "1ae92d5e447b05f5",
+      "supplierRefHash": "b2c81c7b8243e7f5"
+    },
+    {
+      "reason": "supplier_ref_absent_from_masters",
+      "familyKeyHash": "2a0f3cf94fdf05a5",
+      "supplierRefHash": "dfa8c708ba270e77"
+    },
+    {
+      "reason": "supplier_ref_absent_from_masters",
+      "familyKeyHash": "4c98aad6750807f8",
+      "supplierRefHash": "e957d951d580e0b7"
+    },
+    {
+      "reason": "supplier_ref_absent_from_masters",
+      "familyKeyHash": "51e0551dad8f97d6",
+      "supplierRefHash": "f7f8f10d4b84510c"
+    },
+    {
+      "reason": "supplier_ref_absent_from_masters",
+      "familyKeyHash": "7891e9de27d2688e",
+      "supplierRefHash": "e02be952a39392ae"
+    },
+    {
+      "reason": "supplier_ref_absent_from_masters",
+      "familyKeyHash": "a1e301298b5d5b76",
+      "supplierRefHash": "f7f8f10d4b84510c"
+    },
+    {
+      "reason": "supplier_ref_absent_from_masters",
+      "familyKeyHash": "bd5a1e38a196f930",
+      "supplierRefHash": "31a5a0ec60c7fdd3"
+    },
+    {
+      "reason": "supplier_ref_absent_from_masters",
+      "familyKeyHash": "c9e1758b445b3190",
+      "supplierRefHash": "aac064aa31a168ff"
+    },
+    {
+      "reason": "supplier_ref_absent_from_masters",
+      "familyKeyHash": "e64f1f1cc9d2b5af",
+      "supplierRefHash": "31a5a0ec60c7fdd3"
+    },
+    {
+      "reason": "supplier_ref_absent_from_masters",
+      "familyKeyHash": "eaeb1fefe5d71716",
+      "supplierRefHash": "e957d951d580e0b7"
+    },
+    {
+      "reason": "supplier_ref_absent_from_masters",
+      "familyKeyHash": "f98c450e63376669",
+      "supplierRefHash": "f7f8f10d4b84510c"
+    }
+  ],
+  "sroAssertions": {
+    "SRO-12939": {
+      "disposition": "accept",
+      "masterRows": 2,
+      "detailRows": 3,
+      "selected": false,
+      "passed": true
+    },
+    "SRO-1293": {
+      "disposition": "reject",
+      "masterRows": 1,
+      "detailRows": 0,
+      "selected": false,
+      "passed": true
+    },
+    "SRO-12572": {
+      "disposition": "accept",
+      "masterRows": 2,
+      "detailRows": 29,
+      "selected": true,
+      "passed": true
+    },
+    "SRO-1257": {
+      "disposition": "reject",
+      "masterRows": 1,
+      "detailRows": 0,
+      "selected": false,
+      "passed": true
+    }
+  },
+  "security": {
+    "prohibitedFieldCount": 0,
+    "droppedFieldCount": 339433,
+    "rawRowsPersisted": false
+  },
+  "stagingWrites": 0,
+  "decisionDigest": "bfbe72e4851f388794546c4c91c71bd283a9428905c41abdd2d1caacebbb64d4"
+}

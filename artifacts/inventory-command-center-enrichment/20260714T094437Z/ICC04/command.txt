@@ -1,0 +1,1 @@
+yarn vitest run packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/supplier-evidence-apply-service.test.ts

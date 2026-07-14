@@ -1,0 +1,11 @@
+BEGIN
+UPDATE 4
+DO
+COMMIT
+              name               | enabled
+---------------------------------+---------
+ Ecofission LLC Sellerboard      | false
+ Sellerboard - Muxtex INC        | false
+ Sellerboard - Retail Heaven Inc | false
+ Sellerboard - Stop Shop LLC     | false
+(4 rows)

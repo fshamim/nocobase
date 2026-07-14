@@ -1,0 +1,13 @@
+{
+  "environmentConfirmed": "staging",
+  "productionTouched": false,
+  "runtimeShaMatchesBranch": true,
+  "backupExists": true,
+  "backupNonzero": true,
+  "backupGzipVerified": true,
+  "baselineMatchesKnownState": true,
+  "sellerboardSchedulesEnabledAfter": 0,
+  "automaticGoldRefreshTriggered": false,
+  "databaseReset": false,
+  "seedRun": false
+}

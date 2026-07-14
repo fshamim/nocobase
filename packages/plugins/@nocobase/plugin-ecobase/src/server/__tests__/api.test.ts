@@ -3615,14 +3615,22 @@ describe('Ecobase Silver Data operator API', () => {
     const actions = createEcobaseSupplierManagementActions();
     const memberPreview = createActionContext(db, {}, undefined, ['member']);
     const memberApply = createActionContext(db, {}, undefined, ['member']);
+    const memberEvidence = createActionContext(db, {}, undefined, ['member']);
 
     await expect(actions.previewSupplierResolutionRepair(memberPreview, vi.fn())).rejects.toMatchObject({
       status: 403,
     });
     await expect(actions.applySupplierResolutionRepair(memberApply, vi.fn())).rejects.toMatchObject({ status: 403 });
+    await expect(actions.previewSupplierEvidenceBackfill(memberEvidence, vi.fn())).rejects.toMatchObject({
+      status: 403,
+    });
 
     const adminPreview = createActionContext(db, {}, undefined, ['admin']);
+    const adminEvidence = createActionContext(db, {}, undefined, ['admin']);
     await expect(actions.previewSupplierResolutionRepair(adminPreview, vi.fn())).rejects.toMatchObject({ status: 400 });
+    await expect(actions.previewSupplierEvidenceBackfill(adminEvidence, vi.fn())).rejects.toMatchObject({
+      status: 400,
+    });
   });
 
   it('rejects read-only updates and links drawer comments to the selected entity', async () => {

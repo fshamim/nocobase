@@ -1,0 +1,4 @@
+runtime_sha=ec09bbbfb8fb3939cd2c180cfd0eac3a2f0baa72
+container=/ecobase-staging-2ndggj-app-1 image=sha256:b801e53c50fa3420bd30fa9067f2b6a6721febdded2d3ad1ff05221b466db518 started=2026-07-14T07:36:28.165252709Z status=running restarts=0
+database=ecobase-staging-2ndggj-postgres-1/nocobase
+staging_url=https://ecobase-staging.178-104-193-132.sslip.io

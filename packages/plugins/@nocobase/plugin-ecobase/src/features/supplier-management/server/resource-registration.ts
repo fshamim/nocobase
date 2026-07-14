@@ -44,6 +44,9 @@ export function createSupplierManagementResourceRegistration(): EcobaseFeatureRe
         actions: [
           'previewSupplierResolutionRepair',
           'applySupplierResolutionRepair',
+          'previewSupplierEvidenceBackfill',
+          'applySupplierEvidenceBackfill',
+          'verifySupplierEvidenceBackfillIdempotency',
           'refreshAttentionRows',
           'rows',
           'summary',

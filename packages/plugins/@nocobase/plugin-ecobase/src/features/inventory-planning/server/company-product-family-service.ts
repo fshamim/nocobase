@@ -7,7 +7,7 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import { FOUR_COMPANY_MIGRATION_PROFILE } from '../../source-import/server/four-company-migration-profile';
 import type { EcobaseDatabase } from '../../source-import/server/import-service';
@@ -22,7 +22,13 @@ export type FamilyIdentity = {
 };
 
 export type FamilySelectionSource = 'automatic' | 'operator';
-export type SupplierSelectionSource = 'latest_valid_order' | 'operator';
+export type SupplierSelectionSource =
+  | 'operator'
+  | 'latest_valid_order'
+  | 'historical_order_evidence'
+  | 'supplier_2026_approved_active'
+  | 'supplier_2026_approved_unknown'
+  | 'supplier_tracker_active_workflow';
 
 export type CompanyProductResolution = {
   companyProductId?: string;
@@ -109,6 +115,14 @@ const ACCEPTED_SUPPLIER_ORDER_STATUSES = new Set([
   'blocked',
 ]);
 const INVALID_ORDER_INTENTS = new Set(['draft', 'analysis', 'analysis_only']);
+const SUPPLIER_SOURCE_PRECEDENCE: Record<SupplierSelectionSource, number> = {
+  operator: 5,
+  latest_valid_order: 4,
+  historical_order_evidence: 3,
+  supplier_2026_approved_active: 2,
+  supplier_2026_approved_unknown: 1,
+  supplier_tracker_active_workflow: 1,
+};
 
 export class EcobaseCompanyProductFamilyService {
   constructor(private db: EcobaseDatabase) {}
@@ -302,9 +316,15 @@ export class EcobaseCompanyProductFamilyService {
     actorUserId?: string;
     reason?: string;
     evidence?: PlainRecord;
+    replaceAutomatic?: boolean;
   }) {
     const family = await this.getFamily(params.familyId);
-    if (params.source === 'automatic' && idOf(family, 'replenishmentTargetCompanyProductId')) return family;
+    if (
+      params.source === 'automatic' &&
+      idOf(family, 'replenishmentTargetCompanyProductId') &&
+      !params.replaceAutomatic
+    )
+      return family;
     const companyProductId = requiredString(params.companyProductId, 'companyProductId');
     const members = await this.listMembers(params.familyId);
     if (!members.some((member) => idOf(member, 'id') === companyProductId)) {
@@ -337,7 +357,10 @@ export class EcobaseCompanyProductFamilyService {
     evidence?: PlainRecord;
   }) {
     const family = await this.getFamily(params.familyId);
-    if (params.source === 'latest_valid_order' && family.supplierSelectionSource === 'operator') return family;
+    const currentSource = family.supplierSelectionSource as SupplierSelectionSource | undefined;
+    if (currentSource && SUPPLIER_SOURCE_PRECEDENCE[currentSource] > SUPPLIER_SOURCE_PRECEDENCE[params.source]) {
+      return family;
+    }
     const supplierId = requiredString(params.supplierId, 'supplierId');
     const supplierProductId = params.supplierProductId
       ? requiredString(params.supplierProductId, 'supplierProductId')
@@ -502,6 +525,66 @@ export class EcobaseCompanyProductFamilyService {
     return this.getFamily(familyId);
   }
 
+  async previewAutomaticTargetCorrections() {
+    const plan = await this.automaticTargetCorrectionPlan();
+    const report = {
+      mode: 'dry-run',
+      ruleVersion: 'highest-current-planning-stock-v1',
+      familyCount: plan.familyCount,
+      operatorPreservedCount: plan.operatorPreservedCount,
+      alreadyCorrectCount: plan.alreadyCorrectCount,
+      reviewRequiredCount: plan.reviewRequiredCount,
+      correctionCount: plan.corrections.length,
+      corrections: plan.corrections.map(({ familyId, currentCompanyProductId, recommendedCompanyProductId }) => ({
+        familyId,
+        currentCompanyProductId,
+        recommendedCompanyProductId,
+      })),
+      stagingWrites: 0,
+    };
+    return {
+      ...report,
+      decisionDigest: createHash('sha256').update(JSON.stringify(report)).digest('hex'),
+    };
+  }
+
+  async applyAutomaticTargetCorrections(params: { decisionDigest: string; confirmation: string }) {
+    const preview = await this.previewAutomaticTargetCorrections();
+    if (params.decisionDigest !== preview.decisionDigest) {
+      throw new Error(
+        `EcoBase target correction blocked: decision digest changed (expected ${preview.decisionDigest}, received ${params.decisionDigest}).`,
+      );
+    }
+    const expectedConfirmation = `APPLY_FAMILY_TARGETS_${preview.decisionDigest.slice(0, 12).toUpperCase()}`;
+    if (params.confirmation !== expectedConfirmation) {
+      throw new Error(`EcoBase target correction blocked: confirmation must equal ${expectedConfirmation}.`);
+    }
+    const plan = await this.automaticTargetCorrectionPlan();
+    for (const correction of plan.corrections) {
+      await this.setReplenishmentTarget({
+        familyId: correction.familyId,
+        companyProductId: correction.recommendedCompanyProductId,
+        source: 'automatic',
+        replaceAutomatic: true,
+        evidence: correction.evidence,
+      });
+    }
+    return {
+      decisionDigest: preview.decisionDigest,
+      changedCount: plan.corrections.length,
+      operatorPreservedCount: plan.operatorPreservedCount,
+      goldRefreshCount: 0,
+    };
+  }
+
+  async verifyAutomaticTargetCorrections() {
+    const preview = await this.previewAutomaticTargetCorrections();
+    if (preview.correctionCount !== 0) {
+      throw new Error(`EcoBase target correction verification failed: ${preview.correctionCount} corrections remain.`);
+    }
+    return { idempotent: true, correctionCount: 0, decisionDigest: preview.decisionDigest };
+  }
+
   async setReviewRequired(familyId: string, review: { target?: boolean; supplier?: boolean }) {
     await this.getFamily(familyId);
     await this.updateFamily(familyId, {
@@ -509,6 +592,59 @@ export class EcobaseCompanyProductFamilyService {
       ...(typeof review.supplier === 'boolean' ? { supplierReviewRequired: review.supplier } : {}),
     });
     return this.getFamily(familyId);
+  }
+
+  private async automaticTargetCorrectionPlan() {
+    const families = (
+      await this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductFamilies).find({ limit: 100000 })
+    ).map(toPlainRecord);
+    const corrections: Array<{
+      familyId: string;
+      currentCompanyProductId?: string;
+      recommendedCompanyProductId: string;
+      evidence: PlainRecord;
+    }> = [];
+    let operatorPreservedCount = 0;
+    let alreadyCorrectCount = 0;
+    let reviewRequiredCount = 0;
+    for (const family of families) {
+      const familyId = idOf(family, 'id');
+      if (!familyId) continue;
+      if (family.targetSelectionSource === 'operator') {
+        operatorPreservedCount += 1;
+        continue;
+      }
+      const recommendation = await this.targetRecommendation(await this.listMembers(familyId));
+      const recommendedCompanyProductId = idOf(recommendation.recommended ?? {}, 'companyProductId');
+      const currentCompanyProductId = idOf(family, 'replenishmentTargetCompanyProductId');
+      if (!recommendedCompanyProductId) {
+        reviewRequiredCount += 1;
+        continue;
+      }
+      if (recommendedCompanyProductId === currentCompanyProductId) {
+        alreadyCorrectCount += 1;
+        continue;
+      }
+      corrections.push({
+        familyId,
+        currentCompanyProductId,
+        recommendedCompanyProductId,
+        evidence: {
+          ...recommendation.evidence,
+          selectionRule: 'highest_current_planning_stock',
+          ruleVersion: 'highest-current-planning-stock-v1',
+          previousCompanyProductId: currentCompanyProductId,
+        },
+      });
+    }
+    corrections.sort((left, right) => left.familyId.localeCompare(right.familyId));
+    return {
+      familyCount: families.length,
+      operatorPreservedCount,
+      alreadyCorrectCount,
+      reviewRequiredCount,
+      corrections,
+    };
   }
 
   private async targetRecommendation(members: PlainRecord[]) {
@@ -686,7 +822,9 @@ export class EcobaseCompanyProductFamilyService {
     }
 
     const supplierConflict = Boolean(operatorSelected && latest && idOf(latest, 'supplierId') !== selectedSupplierId);
-    const invalidAutomaticSelection = Boolean(!operatorSelected && !latest && selectedSupplierId);
+    const invalidAutomaticSelection = Boolean(
+      family.supplierSelectionSource === 'latest_valid_order' && !latest && selectedSupplierId,
+    );
     if (invalidAutomaticSelection) {
       await this.updateFamily(familyId, {
         preferredSupplierId: null,

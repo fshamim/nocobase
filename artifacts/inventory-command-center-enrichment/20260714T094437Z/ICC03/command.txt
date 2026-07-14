@@ -1,0 +1,1 @@
+yarn vitest run packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/company-product-family-service.test.ts

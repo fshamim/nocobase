@@ -1,0 +1,69 @@
+{
+  "counts": {
+    "orders": 44,
+    "families": 1780,
+    "products": 1857,
+    "companies": 4,
+    "suppliers": 624,
+    "orderLines": 156,
+    "familyTargets": 1618,
+    "targetReviews": 162,
+    "amazonAccounts": 6,
+    "clickupComments": 553,
+    "companyProducts": 2136,
+    "supplierReviews": 1670,
+    "supplierProducts": 110,
+    "goldInventoryRows": 2136,
+    "listingDailyFacts": 0,
+    "clickupMappedUsers": 5,
+    "preferredSuppliers": 110,
+    "resolvedOrderLines": 154,
+    "ambiguousOrderLines": 2,
+    "supplierExternalRefs": 624,
+    "sellerboardProductCosts": 0,
+    "companyProductSupplierLinks": 110
+  },
+  "database": "ecobase-staging-2ndggj-postgres-1/nocobase",
+  "environment": "staging",
+  "historyByCompany": {
+    "Muxtex INC": {
+      "facts": 0,
+      "lastDate": null,
+      "firstDate": null
+    },
+    "Stop Shop LLC": {
+      "facts": 0,
+      "lastDate": null,
+      "firstDate": null
+    },
+    "Ecofission LLC": {
+      "facts": 0,
+      "lastDate": null,
+      "firstDate": null
+    },
+    "Retail Heaven Inc": {
+      "facts": 0,
+      "lastDate": null,
+      "firstDate": null
+    }
+  },
+  "goldLastRefreshedAt": "2026-07-14T06:27:12.537+00:00",
+  "goldPaneDistribution": {
+    "watch": 356,
+    "activeOrders": 109,
+    "supplyAction": 164,
+    "dataReadiness": 1453,
+    "healthyInventory": 54
+  },
+  "sellerboardSchedules": {
+    "Sellerboard - Muxtex INC": true,
+    "Ecofission LLC Sellerboard": true,
+    "Sellerboard - Stop Shop LLC": true,
+    "Sellerboard - Retail Heaven Inc": true
+  },
+  "latestImportStartedAt": "2026-07-14T01:56:00.057+00:00",
+  "familyPreferredSourceDistribution": {
+    "none": 1670,
+    "latest_valid_order": 110
+  }
+}

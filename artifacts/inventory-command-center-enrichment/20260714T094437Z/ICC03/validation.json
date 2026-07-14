@@ -1,0 +1,7 @@
+{
+  "status": "pass",
+  "tests": "22/22",
+  "operatorPreserved": true,
+  "currentOrderSupersedesHistory": true,
+  "historySurvivesNoCurrentOrder": true
+}

@@ -10,6 +10,7 @@
 export interface CsvParseResult {
   headers: string[];
   rows: Record<string, string>[];
+  rawRowCount: number;
 }
 
 export interface CsvSourceFile {
@@ -77,7 +78,7 @@ export function parseDelimitedCsv(content: string, delimiter: ',' | ';'): CsvPar
       }, {}),
     );
 
-  return { headers, rows };
+  return { headers, rows, rawRowCount: dataRows.length };
 }
 
 export function parseCsv(content: string): CsvParseResult {

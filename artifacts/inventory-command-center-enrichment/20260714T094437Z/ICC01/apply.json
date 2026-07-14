@@ -1,0 +1,12 @@
+{
+  "backup": {
+    "path": "/root/ecobase-staging-backups/ecobase-staging-pre-supplier-evidence-20260714T094437Z.sql.gz",
+    "bytes": 4933960,
+    "sha256": "32ba7dc3eb2be1690eda6993f6924043c7ab322a5da1539301782593c7fdb247"
+  },
+  "restoreCommand": "gzip -dc /root/ecobase-staging-backups/ecobase-staging-pre-supplier-evidence-20260714T094437Z.sql.gz | docker exec -i ecobase-staging-2ndggj-postgres-1 psql -v ON_ERROR_STOP=1 -U nocobase -d nocobase",
+  "sellerboardSchedulesPaused": 4,
+  "supplierEvidenceBusinessWrites": 0,
+  "databaseReset": false,
+  "seedRun": false
+}

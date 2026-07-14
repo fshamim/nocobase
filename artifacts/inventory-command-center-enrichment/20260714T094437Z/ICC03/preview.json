@@ -1,0 +1,12 @@
+{
+  "sources": [
+    "operator",
+    "latest_valid_order",
+    "historical_order_evidence",
+    "supplier_2026_approved_active",
+    "supplier_2026_approved_unknown",
+    "supplier_tracker_active_workflow"
+  ],
+  "precedenceEnforced": true,
+  "stagingWrites": 0
+}

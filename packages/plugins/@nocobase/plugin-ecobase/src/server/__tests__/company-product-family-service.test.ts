@@ -908,4 +908,116 @@ describe('EcobaseCompanyProductFamilyService', () => {
       supplierSelectionEvidenceJson: { reason: 'Primary supplier confirmed by operator.' },
     });
   });
+
+  it('preserves family-level historical evidence without a product offer or current order', async () => {
+    const db = new MemoryDatabase();
+    await seed(db);
+    const service = new EcobaseCompanyProductFamilyService(db);
+    const family = await service.ensureFamily(identity);
+    await service.setPreferredSupplierOffer({
+      familyId: String(family.id),
+      supplierId: 'supplier-1',
+      source: 'historical_order_evidence',
+      evidence: { ruleVersion: 'supplier-evidence-v1', supplierExternalRef: 'SRO-1' },
+    });
+
+    const reconciled = await service.reconcileFamily(String(family.id));
+    const lowerAuthorityAttempt = await service.setPreferredSupplierOffer({
+      familyId: String(family.id),
+      supplierId: 'supplier-2',
+      source: 'supplier_2026_approved_active',
+    });
+
+    expect(reconciled).toMatchObject({
+      preferredSupplierId: 'supplier-1',
+      preferredSupplierProductId: undefined,
+      supplierSelectionSource: 'historical_order_evidence',
+      supplierReviewRequired: false,
+    });
+    expect(lowerAuthorityAttempt).toMatchObject({
+      preferredSupplierId: 'supplier-1',
+      supplierSelectionSource: 'historical_order_evidence',
+    });
+  });
+
+  it('allows a valid current order to supersede historical supplier evidence', async () => {
+    const db = new MemoryDatabase();
+    await seed(db);
+    const service = new EcobaseCompanyProductFamilyService(db);
+    const family = await service.ensureFamily(identity);
+    await service.setPreferredSupplierOffer({
+      familyId: String(family.id),
+      supplierId: 'supplier-1',
+      source: 'historical_order_evidence',
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+      values: {
+        id: 'order-current-over-history',
+        companyId: 'company-1',
+        supplierId: 'supplier-2',
+        orderRef: 'EF-CURRENT',
+        orderDate: '2026-07-14',
+        canonicalStatus: 'paid',
+        authorityStatus: 'clickup_authoritative',
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+      values: {
+        id: 'line-current-over-history',
+        orderId: 'order-current-over-history',
+        companyProductId: 'company-product-b',
+        supplierProductId: 'supplier-product-b',
+        orderedQty: 1,
+        productMappingStatus: 'resolved',
+      },
+    });
+
+    await expect(service.reconcileFamily(String(family.id))).resolves.toMatchObject({
+      preferredSupplierId: 'supplier-2',
+      preferredSupplierProductId: 'supplier-product-b',
+      supplierSelectionSource: 'latest_valid_order',
+    });
+  });
+
+  it('corrects an automatic target to the clear highest current planning stock and then converges', async () => {
+    const db = new MemoryDatabase();
+    await seed(db);
+    const service = new EcobaseCompanyProductFamilyService(db);
+    const family = await service.ensureFamily(identity);
+    await service.setReplenishmentTarget({
+      familyId: String(family.id),
+      companyProductId: 'company-product-a',
+      source: 'automatic',
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).create({
+      values: { id: 'snapshot-a', companyProductId: 'company-product-a', snapshotDate: '2026-07-14', sellableStock: 1 },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).create({
+      values: {
+        id: 'snapshot-b',
+        companyProductId: 'company-product-b',
+        snapshotDate: '2026-07-14',
+        sellableStock: 10,
+        reserved: 2,
+      },
+    });
+
+    const preview = await service.previewAutomaticTargetCorrections();
+    expect(preview).toMatchObject({ correctionCount: 1, operatorPreservedCount: 0, stagingWrites: 0 });
+    await expect(
+      service.applyAutomaticTargetCorrections({
+        decisionDigest: preview.decisionDigest,
+        confirmation: `APPLY_FAMILY_TARGETS_${preview.decisionDigest.slice(0, 12).toUpperCase()}`,
+      }),
+    ).resolves.toMatchObject({ changedCount: 1, goldRefreshCount: 0 });
+    await expect(service.getFamily(String(family.id))).resolves.toMatchObject({
+      replenishmentTargetCompanyProductId: 'company-product-b',
+      targetSelectionSource: 'automatic',
+      targetSelectionEvidenceJson: { ruleVersion: 'highest-current-planning-stock-v1' },
+    });
+    await expect(service.verifyAutomaticTargetCorrections()).resolves.toMatchObject({
+      idempotent: true,
+      correctionCount: 0,
+    });
+  });
 });

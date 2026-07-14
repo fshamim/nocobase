@@ -1,0 +1,9 @@
+{
+  "status": "not_run",
+  "reason": "Supplier evidence apply is blocked until the family-level dry-run distribution is reviewed.",
+  "supplierEvidenceBusinessWrites": 0,
+  "historicalOrdersCreated": 0,
+  "goldRefreshes": 0,
+  "databaseReset": false,
+  "seedRun": false
+}

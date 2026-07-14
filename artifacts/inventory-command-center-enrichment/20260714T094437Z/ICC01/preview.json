@@ -1,0 +1,8 @@
+{
+  "environment": "staging",
+  "productionTouched": false,
+  "deployedSha": "ec09bbbfb8fb3939cd2c180cfd0eac3a2f0baa72",
+  "database": "ecobase-staging-2ndggj-postgres-1/nocobase",
+  "backupRequired": true,
+  "scheduledSellerboardSourcesEnabledBefore": 4
+}

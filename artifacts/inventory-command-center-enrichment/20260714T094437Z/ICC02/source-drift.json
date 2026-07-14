@@ -1,0 +1,41 @@
+{
+  "status": "blocked",
+  "detectedAt": "2026-07-14T19:15:00Z",
+  "reason": "The local Purchase Orders and OrderDetails source files changed after the accepted dry-run was produced.",
+  "reviewed": {
+    "orderDetails": {
+      "sha256": "560771d12e0d508c0a06b8b6a199475a6c4d6af34a998032b6914da4ec28529a",
+      "rowCount": 6473,
+      "nonEmptyRowCount": 6466
+    },
+    "purchaseOrders": {
+      "sha256": "3a02973d39965667598e0743d88dca775830d7ed9235895f4c2403cf60a43fc9",
+      "rowCount": 4300,
+      "nonEmptyRowCount": 4300
+    }
+  },
+  "current": {
+    "orderDetails": {
+      "sha256": "4d2f39e2f003de36551c8f3f10afba30af06b23d89be440735ffc54159920a45",
+      "rowCount": 6489,
+      "nonEmptyRowCount": 6489
+    },
+    "purchaseOrders": {
+      "sha256": "6e0362d2e2cebc346f3dfdb4fff89330bd8f911ccd03d7fdb9254a546bca2075",
+      "rowCount": 4310,
+      "nonEmptyRowCount": 4310
+    }
+  },
+  "currentDryRun": {
+    "acceptedHistoricalDetailRows": 2798,
+    "historicalCandidateFamilies": 929,
+    "historicalIncrementalAutoApplicable": 822,
+    "lowerAuthorityIncrementalSelections": 6,
+    "projectedPreferredFamilies": 938,
+    "projectedUnresolvedFamilies": 842,
+    "missingMasterFamilies": 13,
+    "latestDateTieFamilies": 0,
+    "decisionDigest": "2909fcddeaee1c327a1facef87b0270717f2902be3fa130bfab98bc060d6bca4"
+  },
+  "supplierEvidenceBusinessWrites": 0
+}

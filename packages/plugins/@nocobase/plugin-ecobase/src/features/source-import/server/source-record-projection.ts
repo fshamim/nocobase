@@ -134,6 +134,7 @@ const FIELD_PROJECTIONS: Record<Exclude<MigrationDataset, 'clickup_order_evidenc
     title: ['Title'],
     unitCost: ['COGS', 'Cost', 'Unit Cost'],
     currency: ['Currency'],
+    hideStatus: ['Hide'],
   },
   purchase_orders: {
     occurredAt: ['Timestamp'],
@@ -160,6 +161,8 @@ const FIELD_PROJECTIONS: Record<Exclude<MigrationDataset, 'clickup_order_evidenc
     leadTimeDays: ['Lead time(day)', 'Lead Time', 'Lead Time Days'],
     expectedDeliveryDate: ['Expected Sellable Date', 'ETA on Amazon', 'Arrival to Amazon'],
     status: ['Order status', 'Order Status', 'Status'],
+    amazonStatus: ['AM Status'],
+    cooStatus: ['COO status'],
   },
   supplier_tracker: {
     supplierExternalRef: ['SR ID', 'SR ID '],
@@ -172,6 +175,8 @@ const FIELD_PROJECTIONS: Record<Exclude<MigrationDataset, 'clickup_order_evidenc
     leadTimeDays: ['Lead time(day)', 'Lead Time', 'Lead Time Days'],
     minimumOrderQuantity: ['MOQ'],
     packSize: ['Pack Size', 'Case Pack'],
+    workflowStatus: ['Status'],
+    activeStatus: ['Active Status'],
   },
   supplier_2026: {
     supplierExternalRef: ['SR ID', 'SR ID '],
@@ -184,6 +189,8 @@ const FIELD_PROJECTIONS: Record<Exclude<MigrationDataset, 'clickup_order_evidenc
     leadTimeDays: ['Lead time(day)', 'Lead Time', 'Lead Time Days'],
     minimumOrderQuantity: ['MOQ'],
     packSize: ['Pack Size', 'Case Pack'],
+    approvalStatus: ['Status'],
+    currentStatus: ['Current Status'],
   },
 };
 
