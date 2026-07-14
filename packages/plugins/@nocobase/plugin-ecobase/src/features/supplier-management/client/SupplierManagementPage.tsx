@@ -512,7 +512,7 @@ export default function SupplierManagementPage() {
           <Card>
             <Statistic
               title={t('Money at risk')}
-              value={Number(summary.moneyAtRisk ?? 0)}
+              value={summary.moneyAtRisk ?? '—'}
               formatter={formatCurrency as any}
             />
           </Card>
