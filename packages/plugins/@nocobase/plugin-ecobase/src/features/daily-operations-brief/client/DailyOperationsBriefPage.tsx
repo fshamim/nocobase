@@ -144,6 +144,7 @@ function normalizeBrief(narrative: PlainRecord | null, evidence: PlainRecord | n
   const pack = evidence?.evidencePack ?? {};
   return {
     reportRunId: narrative?.reportRunId ?? evidence?.reportRunId,
+    status: narrative?.status ?? evidence?.status,
     bodyMarkdown: narrative?.bodyMarkdown,
     bodyHtml: narrative?.bodyHtml,
     focus: narrative?.focus ?? evidence?.focus ?? pack.focus,
@@ -587,6 +588,11 @@ export default function DailyOperationsBriefPage() {
                   <pre style={{ whiteSpace: 'pre-wrap', maxHeight: 520, overflow: 'auto' }}>{brief.bodyMarkdown}</pre>
                 ) : null}
               </Card>
+            ) : String(brief.status ?? '').startsWith('blocked_') ? (
+              <Alert
+                type="warning"
+                message={t('AI narrative unavailable; the authoritative decision queue remains available below.')}
+              />
             ) : (
               <Alert type="info" message={t('Generating today’s AI action brief from the gold planning data…')} />
             )}
