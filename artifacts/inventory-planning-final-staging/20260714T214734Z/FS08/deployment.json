@@ -1,21 +1,21 @@
 {
   "container": "/ecobase-staging-2ndggj-app-1",
   "configuredImage": "ecobase/nocobase:staging-git",
-  "imageDigest": "sha256:aedbedf0eeb6e10c26738ead89e336beaa2c91f2e486df77779ff80678705048",
-  "startedAt": "2026-07-14T23:07:23.030370144Z",
+  "imageDigest": "sha256:9d734387b1e7db2b913fc892de799e4f2b4004679e781fc127d9b647b6ff917c",
+  "startedAt": "2026-07-14T23:35:06.669766688Z",
   "status": "running",
   "restartCount": 0,
   "stagingUrl": "https://ecobase-staging.178-104-193-132.sslip.io",
   "requestedUrl": "https://ecobase.ecofission.com/",
   "requestedUrlObservation": "resolves to a parked domain; tested the established staging URL",
   "deployedBranch": "ecobase/staging",
-  "deployedHeadSha": "60194d9b87602676ed48929f64159a9a7fc14f9e",
-  "stabilizationCodeSha": "7a0e216ec24e12e42f3775922ca5afeb898c61d5",
+  "deployedHeadSha": "14b92faea20eb15f84354108dcc108561683b3c4",
+  "stabilizationCodeSha": "7a0e216ec2499203448dff643ef10c0a58937ed8",
+  "uiEvidenceCodeSha": "5fc937d09d",
   "deploymentRun": {
-    "id": 29374733536,
-    "url": "https://github.com/fshamim/nocobase/actions/runs/29374733536",
+    "id": 29376124462,
+    "url": "https://github.com/fshamim/nocobase/actions/runs/29376124462",
     "conclusion": "success"
   },
-  "executableCommitAfterEvidenceRedaction": "5fc937d09d",
-  "shaReconciliation": "GitHub run 29374733536 deployed 60194d9b8760. Commit 5fc937d09d has the same executable source; only the evidence JSON was rewritten to remove prohibited actor-email fields."
+  "shaReconciliation": "14b92faea2 is an empty redeploy commit over sanitized branch head 6fd5dd2ddb; executable application source is 5fc937d09d plus stabilization commit 7a0e216ec2."
 }

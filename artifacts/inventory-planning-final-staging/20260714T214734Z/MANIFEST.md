@@ -1,10 +1,10 @@
 # Evidence manifest
 
-Generated: 2026-07-14T23:24:00Z
+Generated: 2026-07-14T23:37:00Z
 
 | SHA-256 | File |
 |---|---|
-| `bf1fb734d951da3ff2c54000136f04764382d09b2fd9e585ed29bafa168a1ed4` | `FINAL-SUMMARY.md` |
+| `9df0203f80d8a6fea37441ca23d883f71f91830abf76502010a409652437a9ed` | `FINAL-SUMMARY.md` |
 | `97bc4d0e84a54d8b0010c00f2d223db8147e7df6a50093a48bacb58c058a1408` | `FS00/backup.json` |
 | `ad64cc1310b5e2c67f7b12b565d75f8cd120fb29bec92b636cda0ea51ab7865b` | `FS00/baseline.json` |
 | `6b938e6ed1b65161b0b1260e066b5d148b4906265c71876e9ac48b2134bd2fec` | `FS00/command-center-summary.json` |
@@ -45,10 +45,11 @@ Generated: 2026-07-14T23:24:00Z
 | `709d1b4b7c8e31be9c5f943c5ade3e64a98306427782b829625b723e56a22637` | `FS07/ui-followup.log` |
 | `1ccfa4df182f9a2f489bc8d288ce683a1edcfb562a6b08a2930465d85373e9f7` | `FS08/active-order-drawer.png` |
 | `0176526d24e78007b3f2bb0c081c91244cb47bcb994e24af3293e91884c10989` | `FS08/command-center-final.json` |
-| `9e548893a3e49f2f904f8e0618417c1c6d2708116816f253069c1ec15aa4ea6b` | `FS08/commands.txt` |
-| `567d13ce15b9c75292d39e6ff60028c044256819e1e4c4b0b3eaae9ff7fa4008` | `FS08/deployment.json` |
+| `ea79724274e43ff1ec6e4794234d982f1f4235cc4aeee391ce2a08996b31c415` | `FS08/commands.txt` |
+| `020349e5a3160df76b724f5757666a8a00ccaca3550d7968e404dae93bf0597f` | `FS08/deployment.json` |
 | `c6f855f714a0828107744168f4122c9f59c393f66094dbdd7ce1bc8a2f3be8dd` | `FS08/final-counts.json` |
 | `96b6fdec86501f7ba9f7f266b674252d8b4f2095bcc3b58ed8b1084f63c7fc55` | `FS08/no-reimport-proof.json` |
+| `c19dde408b08e0e37ed723b434d9b50709a75023a4f34c61e43c9479c427dab6` | `FS08/post-redeploy-verification.json` |
 | `07f55facd8130efc984e999b1d01ca50f4228d7df9f2f37347db42a577335b20` | `FS08/result.json` |
 | `a1a79726cd315feb2a6cb0424cdb62ea0b3b79fdf090cdfd46e8c7fed130ebf1` | `FS08/security.json` |
 | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` | `FS08/server-errors.log` |

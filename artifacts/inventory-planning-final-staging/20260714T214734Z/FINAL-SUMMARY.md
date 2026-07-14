@@ -10,10 +10,10 @@ The requested `https://ecobase.ecofission.com/` resolves to a parked domain. Val
 
 - Branch: `ecobase/staging`
 - Stabilization code: `7a0e216ec24e12e42f3775922ca5afeb898c61d5`
-- Deployment-run head: `60194d9b87602676ed48929f64159a9a7fc14f9e`
-- Redacted executable commit: `5fc937d09d` (same executable source; evidence-only actor-email removal)
-- Deployment run: `29374733536` — success
-- Container start: `2026-07-14T23:07:23.030370144Z`
+- Final deployment head: `14b92faea20eb15f84354108dcc108561683b3c4`
+- Executable UI/evidence code: `5fc937d09d`
+- Deployment run: `29376124462` — success
+- Container start: `2026-07-14T23:35:06.669766688Z`
 - Runtime errors after readiness: 0
 
 ## Changes applied
