@@ -1,0 +1,19 @@
+{
+  "httpStatus": 200,
+  "data": {
+    "data": {
+      "importRunId": "ip08-staging-repair-idempotence-20260714",
+      "repaired": 0,
+      "ambiguous": 1,
+      "missing": 1,
+      "skipped": 0,
+      "resolutionCounts": {
+        "byMethod": {},
+        "byReason": {
+          "boundary_ambiguous": 1,
+          "product_not_found": 1
+        }
+      }
+    }
+  }
+}

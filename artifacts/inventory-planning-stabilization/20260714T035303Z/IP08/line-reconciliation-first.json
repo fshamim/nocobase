@@ -1,0 +1,23 @@
+{
+  "httpStatus": 200,
+  "data": {
+    "data": {
+      "importRunId": "ip08-staging-repair-20260714",
+      "repaired": 154,
+      "ambiguous": 1,
+      "missing": 1,
+      "skipped": 0,
+      "resolutionCounts": {
+        "byMethod": {
+          "family_target": 25,
+          "exact": 128,
+          "reviewed_alias": 1
+        },
+        "byReason": {
+          "boundary_ambiguous": 1,
+          "product_not_found": 1
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,75 @@
+{
+  "httpStatus": 200,
+  "data": {
+    "data": {
+      "ok": false,
+      "counts": {
+        "technical_blocker": 4,
+        "business_ambiguity": 2,
+        "expected_current_only_gap": 1
+      },
+      "examined": {
+        "companies": 4,
+        "companyProducts": 2136,
+        "families": 1780,
+        "orderLines": 156
+      },
+      "issues": [
+        {
+          "classification": "business_ambiguity",
+          "code": "order_line_business_ambiguity",
+          "entityType": "silverOrderLine",
+          "entityId": "1d874d9e-68b3-4231-a9c4-91d7da9dbbc2",
+          "message": "Order line remains unresolved for approved business reason boundary_ambiguous.",
+          "evidence": {
+            "reason": "boundary_ambiguous"
+          }
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "supplier_sku_amazon_product_duplicate",
+          "entityType": "silverOrderLine",
+          "entityId": "63317613-c868-4fe2-8482-5eba7f92790a",
+          "message": "Supplier SKU was materialized as a duplicate Amazon product."
+        },
+        {
+          "classification": "business_ambiguity",
+          "code": "order_line_business_ambiguity",
+          "entityType": "silverOrderLine",
+          "entityId": "68cc4c30-b986-47f4-a710-2d8ad68e2a55",
+          "message": "Order line remains unresolved for approved business reason product_not_found.",
+          "evidence": {
+            "reason": "product_not_found"
+          }
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "supplier_sku_amazon_product_duplicate",
+          "entityType": "silverOrderLine",
+          "entityId": "917b957c-dfcd-40e8-8492-bab840315f76",
+          "message": "Supplier SKU was materialized as a duplicate Amazon product."
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "supplier_sku_amazon_product_duplicate",
+          "entityType": "silverOrderLine",
+          "entityId": "9a5830ad-5c73-45c8-8107-54da3e53f4b8",
+          "message": "Supplier SKU was materialized as a duplicate Amazon product."
+        },
+        {
+          "classification": "technical_blocker",
+          "code": "supplier_sku_amazon_product_duplicate",
+          "entityType": "silverOrderLine",
+          "entityId": "e9b530dc-69e2-48fd-9d4a-f074f03bff92",
+          "message": "Supplier SKU was materialized as a duplicate Amazon product."
+        },
+        {
+          "classification": "expected_current_only_gap",
+          "code": "sellerboard_history_not_loaded",
+          "entityType": "silverListingDailyFact",
+          "message": "Sellerboard history is intentionally absent from the current-only source state."
+        }
+      ]
+    }
+  }
+}

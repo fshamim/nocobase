@@ -410,12 +410,22 @@ export class EcobaseSilverIntegrityVerifier {
         sourceAsin &&
         sourceSupplierSku &&
         sourceSupplierSku !== text(canonicalProduct?.sku) &&
-        products.some(
-          (product) =>
-            text(product.id) !== text(canonicalProduct?.id) &&
-            text(product.asin)?.toUpperCase() === sourceAsin &&
-            text(product.sku) === sourceSupplierSku,
-        )
+        products.some((product) => {
+          if (
+            text(product.id) === text(canonicalProduct?.id) ||
+            text(product.asin)?.toUpperCase() !== sourceAsin ||
+            text(product.sku) !== sourceSupplierSku
+          ) {
+            return false;
+          }
+          const duplicateListings = companyProducts.filter(
+            (candidate) => text(candidate.productId) === text(product.id),
+          );
+          return (
+            duplicateListings.length === 0 ||
+            duplicateListings.some((candidate) => text(candidate.companyId) === text(order.companyId))
+          );
+        })
       ) {
         issues.push(
           issue(
