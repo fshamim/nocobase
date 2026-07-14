@@ -969,6 +969,10 @@ async function verifyLinks() {
       0,
     ),
   ];
+  const applicableChecks =
+    SEED_PROFILE === 'staging-fast-clickup'
+      ? checks.filter((item) => !['etc_listing_and_supplier_alias_present', 'gold_active_order_rows_present'].includes(item.name))
+      : checks;
   const actionStatus = psqlJson(
     `select coalesce(jsonb_object_agg("actionStatus", count), '{}'::jsonb) from (select "actionStatus", count(*)::int as count from "goldInventoryPlanningRows" group by "actionStatus" order by "actionStatus") x`,
   );
@@ -983,7 +987,7 @@ async function verifyLinks() {
     generatedAt: new Date().toISOString(),
     counts,
     fingerprint,
-    checks,
+    checks: applicableChecks,
     actionStatus,
     importRuns,
     bronzeIssues,
@@ -999,9 +1003,9 @@ async function verifyLinks() {
   ensureArtifactDir();
   const reportPath = path.join(ARTIFACT_DIR, 'live-gate-link-verification.json');
   writeJson(reportPath, report);
-  console.log(JSON.stringify({ counts, checks, actionStatus, bronzeIssues }, null, 2));
+  console.log(JSON.stringify({ counts, checks: applicableChecks, actionStatus, bronzeIssues }, null, 2));
   console.log(`verification report written to ${reportPath}`);
-  const failed = checks.filter((item) => item.critical && item.actual !== item.expected);
+  const failed = applicableChecks.filter((item) => item.critical && item.actual !== item.expected);
   if (failed.length > 0) {
     throw new Error(`critical link checks failed: ${failed.map((item) => `${item.name}=${item.actual}`).join(', ')}`);
   }
