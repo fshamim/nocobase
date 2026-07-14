@@ -99,25 +99,46 @@ export class EcobaseSellerboardHistoryApplyService {
     const factRepository = this.db.getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts);
     const beforeCount = (await factRepository.find({ limit: 1000000 })).length;
     const runs = [];
+    const importService = new EcobaseImportService(this.db, this.registry);
+    const previewByFileName = new Map(preview.fileSummaries.map((summary) => [summary.fileName, summary]));
     for (const file of [...params.files].sort((left, right) => left.name.localeCompare(right.name))) {
       const company = sellerboardHistoryCompany(file.name);
       if (!company) throw new Error(`Sellerboard history apply could not infer company from ${file.name}.`);
       const sourceConnectionId = sellerboardHistorySourceConnectionId({ company, companies, sourceConnections });
-      const run = await new EcobaseImportService(this.db, this.registry).runCsvBundleImport({
+      const summary = previewByFileName.get(file.name);
+      if (!summary) throw new Error(`Sellerboard history apply found no preview summary for ${file.name}.`);
+      const run = await importService.runAdapterImport({
         sourceConnectionId,
         adapterName: 'sellerboard-history-csv',
         sourceIdentifier: 'sellerboard-history-backfill',
         sourceVersion: params.sourceVersion,
-        defaultCompany: company,
-        files: [file],
+        preserveAuditRun: true,
         skipGoldRefresh: true,
+        runtimeConfig: {
+          files: [{ ...file, expectedRowCount: summary.normalizedRowCount }],
+          expectedRowCounts: { [file.name]: summary.normalizedRowCount },
+          defaultCompany: company,
+        },
+        summary: {
+          historyBackfill: {
+            fileName: file.name,
+            sha256: summary.sha256,
+            normalizedRowCount: summary.normalizedRowCount,
+            decisionDigest: preview.decisionDigest,
+          },
+        },
       });
+      const runRecord = toPlainRecord(run);
+      const status = text(runRecord.status);
+      if (!['success', 'partial'].includes(status ?? '')) {
+        throw new Error(`Sellerboard history apply failed for ${company}: import ended ${status ?? 'unknown'}.`);
+      }
       runs.push({
         company,
         fileName: file.name,
-        importRunId: text(toPlainRecord(run).id),
-        status: text(toPlainRecord(run).status),
-        normalizedCount: Number(toPlainRecord(run).normalizedCount ?? 0),
+        importRunId: text(runRecord.id),
+        status,
+        normalizedCount: Number(runRecord.normalizedCount ?? 0),
       });
     }
     const afterCount = (await factRepository.find({ limit: 1000000 })).length;
