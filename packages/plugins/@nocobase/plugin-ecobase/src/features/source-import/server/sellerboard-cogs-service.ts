@@ -8,6 +8,7 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto';
+import { EcobaseCompanyProductFamilyService } from '../../inventory-planning/server/company-product-family-service';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import type { CsvSourceFile } from './adapters/csv-utils';
 import { parseDelimitedCsv } from './adapters/csv-utils';
@@ -226,8 +227,15 @@ export class EcobaseSellerboardCogsService {
     const companyById = new Map(companies.map((row) => [String(row.id), normalizeCompany(row.name)]));
     const productById = new Map(products.map((row) => [String(row.id), row]));
     const companyProductById = new Map(companyProducts.map((row) => [String(row.id), row]));
+    const targetCorrections = await new EcobaseCompanyProductFamilyService(this.db).previewAutomaticTargetCorrections();
+    const recommendedTargetByFamilyId = new Map(
+      targetCorrections.corrections.map((correction) => [correction.familyId, correction.recommendedCompanyProductId]),
+    );
     const targets = families.flatMap((family) => {
-      const companyProduct = companyProductById.get(String(family.replenishmentTargetCompanyProductId ?? ''));
+      const recommendedTargetId = recommendedTargetByFamilyId.get(String(family.id ?? ''));
+      const companyProduct = companyProductById.get(
+        recommendedTargetId ?? String(family.replenishmentTargetCompanyProductId ?? ''),
+      );
       const product = productById.get(String(companyProduct?.productId ?? ''));
       const company = companyById.get(String(family.companyId ?? ''));
       return company && product ? [{ company, asin: normalizeAsin(product.asin), sku: normalizeSku(product.sku) }] : [];
