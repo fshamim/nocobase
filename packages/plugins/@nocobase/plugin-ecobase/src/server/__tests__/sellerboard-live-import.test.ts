@@ -187,6 +187,43 @@ describe('Sellerboard live URL import', () => {
     ]);
   });
 
+  it('uses the source company relation when Sellerboard rows omit company', async () => {
+    const { db, service } = createService('ASIN,SKU,FBA/FBM Stock,"ROI, %"\nB000TEST,S-1,12,45');
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
+      values: { id: 'company-1', name: 'Ecofission LLC', companyKey: 'ECOFISSION_LLC' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
+      filterByTk: 'sellerboard-source-1',
+      values: {
+        companyId: 'company-1',
+        config: {
+          reportUrls: [
+            { name: 'Stock Daily Data', category: 'stock_daily', url: 'https://sellerboard.test/report.csv' },
+          ],
+          requireFreshData: false,
+        },
+      },
+    });
+
+    const run = await service.runAdapterImport({
+      sourceConnectionId: 'sellerboard-source-1',
+      adapterName: 'sellerboard-api',
+      sourceIdentifier: 'manual-stock-check',
+      sourceVersion: '2026-06-05',
+      preserveAuditRun: true,
+    });
+
+    expect(run).toMatchObject({
+      status: 'success',
+      rowCount: 1,
+      normalizedCount: 3,
+      summary: { migration: { discardedCount: 0 } },
+    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toEqual([
+      expect.objectContaining({ payload: expect.objectContaining({ company: 'Ecofission LLC' }) }),
+    ]);
+  });
+
   it('parses Sellerboard live report slash dates as month-first', async () => {
     vi.stubGlobal(
       'fetch',

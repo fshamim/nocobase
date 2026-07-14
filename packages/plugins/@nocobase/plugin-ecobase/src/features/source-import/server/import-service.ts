@@ -1109,6 +1109,21 @@ export class EcobaseImportService {
     const adapter = this.registry.get(params.adapterName);
     validateSourceConnectionForAdapter(sourceConnection, adapter);
 
+    const adapterConfig = mergeConfig(sourceConnection, params.runtimeConfig);
+    const companyId = getString(sourceConnection, 'companyId');
+    if (companyId && !getString(adapterConfig, 'defaultCompany')) {
+      const company = await this.db
+        .getRepository(ECOBASE_COLLECTIONS.silverCompanies)
+        .findOne({ filterByTk: companyId });
+      const companyName = getString(company, 'name');
+      if (!companyName) {
+        throw new Error(
+          `Ecobase import failed: source connection "${params.sourceConnectionId}" references missing company "${companyId}".`,
+        );
+      }
+      adapterConfig.defaultCompany = companyName;
+    }
+
     await this.cleanupExpiredBronzeRecords(params.startedAt ?? new Date());
     const startedAt = params.queuedImportRun?.startedAt ?? params.startedAt ?? new Date();
     const sourceIdentifier = params.sourceIdentifier ?? adapter.metadata.name;
@@ -1163,7 +1178,6 @@ export class EcobaseImportService {
 
     const supplierOrderService = new EcobaseSupplierOrderService(this.db);
     const bronzeService = new EcobaseBronzeImportService(this.db);
-    const adapterConfig = mergeConfig(sourceConnection, params.runtimeConfig);
     const bronzeContext = {
       importRunId,
       sourceConnectionId: params.sourceConnectionId,
