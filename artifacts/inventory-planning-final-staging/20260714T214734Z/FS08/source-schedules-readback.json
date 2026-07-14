@@ -1,0 +1,11 @@
+{
+  "goldRefresh": "manual only during stabilization",
+  "sellerboard": {
+    "Muxtex INC": false,
+    "Stop Shop LLC": false,
+    "Ecofission LLC": false,
+    "Retail Heaven Inc": false
+  },
+  "connectionsActive": 4,
+  "enabledSellerboardSchedules": 0
+}

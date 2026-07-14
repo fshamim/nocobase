@@ -1,0 +1,120 @@
+173-Over 30 Doc
+174-
+175-0
+176-
+177:Families needing supply action — no active order
+178-
+179-Column/status guide
+180-
+181-142 rows
+182-
+183-Money at risk
+184-
+185:One row per product family. Family stock and velocity drive the reorder; expand a row to inspect each listing.
+186-
+187-Family / ASINTarget SKUSupplierFamily stockVelocity / DOCTier / priorityAction summary
+188-
+189-B00OGXRQWW
+--
+229-Overdue
+230-
+231-Overdue
+232-
+233:152 units to order
+234-
+235-Est. COGS US$4,142
+236-
+237-US$1,867
+--
+279-Overdue
+280-
+281-Overdue
+282-
+283:382 units to order
+284-
+285-Est. COGS US$1,761
+286-
+287-US$930
+--
+329-Overdue
+330-
+331-Overdue
+332-
+333:88 units to order
+334-
+335-Est. COGS US$2,957
+336-
+337-US$783
+--
+379-Overdue
+380-
+381-Overdue
+382-
+383:162 units to order
+384-
+385-Est. COGS US$2,027
+386-
+387-US$754
+--
+429-Overdue
+430-
+431-Overdue
+432-
+433:0 units to order
+434-
+435-Est. COGS US$0
+436-
+437-US$651
+--
+479-Overdue
+480-
+481-Overdue
+482-
+483:253 units to order
+484-
+485-Est. COGS US$2,234
+486-
+487-US$605
+--
+529-Overdue
+530-
+531-Overdue
+532-
+533:57 units to order
+534-
+535-Est. COGS US$693
+536-
+537-US$479
+--
+579-Overdue
+580-
+581-Overdue
+582-
+583:0 units to order
+584-
+585-Est. COGS US$0
+586-
+587-US$443
+--
+629-Overdue
+630-
+631-Overdue
+632-
+633:21 units to order
+634-
+635-Est. COGS US$630
+636-
+637-US$423
+--
+679-Overdue
+680-
+681-Overdue
+682-
+683:8 units to order
+684-
+685-Est. COGS US$1,568
+686-
+687-US$412
+--
+729-Overdue
+730-

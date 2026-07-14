@@ -1,0 +1,2 @@
+2026-07-14T22:41:00Z exit=0 POST ecobasePlanningSettings:save enableCurrentOrderCycleSelection=true allowDefaultExpectedArrival=true receivingBufferDays=3 defaultExpectedArrivalLeadTimeDays=30
+2026-07-14T22:43:00Z exit=0 read back status-source distributions and operator override rows

@@ -1,0 +1,151 @@
+1439-Families missing supplier — stockout risk
+1440-
+1441-Column/status guide
+1442-
+1443-11 rows
+1444-
+1445-Money at risk
+1446-
+1447:Families with current order cycles — pipeline monitoring
+1448-
+1449-Column/status guide
+1450-
+1451-109 rows
+1452-
+1453-Stockout gap
+1454-
+1455:One row per family with one current order reference. Older cycles are excluded from coverage and shown as evidence.
+1456-
+1457-Family / ASINTarget SKUSupplierFamily stockVelocity / DOCTier / priorityAction summary
+1458-
+1459-B004BDTCNS
+1460-
+1461-Stop Shop LLC
+1462-
+1463-2 listings · amazon.com
+--
+4287-Receipt evidence review
+4288-
+4289-Off-Track
+4290-
+4291-Shipped Inbound
+4292-
+4293-Amazon receipt evidence review
+4294-
+4295:Current order reference MX51926B
+4296-
+4297-12 current-cycle units
+4298-
+4299-Expected arrival 2026-06-25 · Stale
+4300-
+4301-Planning default lead time + receiving buffer
+4302-
+4303-169 day buffer
+--
+4635-Receipt evidence review
+4636-
+4637-Off-Track
+4638-
+4639-Shipped Inbound
+4640-
+4641-Amazon receipt evidence review
+4642-
+4643:Current order reference MX51926B
+4644-
+4645-18 current-cycle units
+4646-
+4647-Expected arrival 2026-06-25 · Stale
+4648-
+4649-Planning default lead time + receiving buffer
+4650-
+4651-—
+--
+5051-Receipt evidence review
+5052-
+5053-Off-Track
+5054-
+5055-Shipped Inbound
+5056-
+5057-Amazon receipt evidence review
+5058-
+5059:Current order reference MX51926B
+5060-
+5061-12 current-cycle units
+5062-
+5063-Expected arrival 2026-06-25 · Stale
+5064-
+5065-Planning default lead time + receiving buffer
+5066-
+5067-—
+--
+7073-Receipt evidence review
+7074-
+7075-Off-Track
+7076-
+7077-Shipped Inbound
+7078-
+7079-Amazon receipt evidence review
+7080-
+7081:Current order reference MX51926B
+7082-
+7083-24 current-cycle units
+7084-
+7085-Expected arrival 2026-06-25 · Stale
+7086-
+7087-Planning default lead time + receiving buffer
+7088-
+7089-—
+--
+7479-This pane answers: which product families already have an order, and will that order be sellable before family stock runs out?
+7480-
+7481-Open order cover only counts bought pipeline units. Placed-not-purchased rows do not reduce Suggested qty.
+7482-
+7483-Follow-up due today is not based on a fixed no-activity-days rule. It means the row has a bought order and needs a fresh status note today.
+7484-
+7485-Inbound: 0
+7486-
+7487:Families with current order cycles — pipeline monitoring · B0CC35LX15 · Muxtex INC
+7488-
+7489-How does this work?
+7490-
+7491-Close
+7492-
+7493:Current order-cycle follow-up
+7494-
+7495-shipped_inbound
+7496-
+7497-Late
+7498-
+7499-Amazon receipt evidence review
+7500-
+7501:Current order reference MX51926B
+7502-
+7503-24 current-cycle units · Expected arrival 19 days overdue (2026-06-25) · Gap — days
+7504-
+7505:Arrival evidence Planning default lead time + receiving buffer · Stale
+7506-
+7507-Update status / comment
+7508-
+7509-Review order lines
+7510-
+7511-Edit active line
+7512-
+7513-Actionmissing_velocity
+--
+7593-Manage supplier order
+7594-
+7595-Order lines and product order history
+7596-
+7597-StatusOrder referenceLine productOrderedReceivedExpected deliveryExpected sellableObservedSourceActions
+7598-
+7599-shipped_inbound
+7600-
+7601:Current cycle
+7602-
+7603-MX51926B
+7604-
+7605-B0CC35LX15
+7606-
+7607-CRT51126
+7608-
+7609-240——2026-05-23imported

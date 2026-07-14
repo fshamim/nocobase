@@ -1,0 +1,60 @@
+{
+  "generatedAt": "2026-07-14T23:15:33.304Z",
+  "metadata": {
+    "company": null,
+    "calculationDate": "2026-07-14",
+    "latestDataAsOf": "2026-07-14",
+    "planningMode": "history_enriched",
+    "historyReadiness": {
+      "status": "loaded",
+      "affectedRowCount": 0,
+      "totalRowCount": 2136,
+      "fields": [
+        "tier",
+        "profitPerUnit",
+        "sixMonthMargin",
+        "lastMonthQty",
+        "sixMonthAverageQty",
+        "sixMonthWorstQty",
+        "sixMonthBestQty"
+      ]
+    },
+    "historyWindow": {
+      "label": "6 months",
+      "fields": ["lastMonthQty", "sixMonthAverageQty", "sixMonthWorstQty", "sixMonthBestQty", "sixMonthMargin"]
+    },
+    "targetCoverDays": 45
+  },
+  "panes": {
+    "supplyAction": {
+      "total": 142
+    },
+    "missingSupplier": {
+      "total": 11
+    },
+    "activeOrders": {
+      "total": 109
+    },
+    "inboundMonitoring": {
+      "total": 0
+    },
+    "healthyInventory": {
+      "total": 12
+    },
+    "stuckInventory": {
+      "total": 109
+    },
+    "dataReadiness": {
+      "total": 1397
+    },
+    "duplicateProducts": {
+      "total": 0
+    }
+  },
+  "checks": {
+    "loadedActivePageRows": 25,
+    "loadedPageRowsWithKnownArrival": 25,
+    "loadedPageRowsWithReceiptReview": 2,
+    "loadedPageRowsWithCycleReview": 10
+  }
+}

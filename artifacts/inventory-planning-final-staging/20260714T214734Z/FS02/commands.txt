@@ -1,0 +1,5 @@
+2026-07-14T22:35:00Z exit=0 POST ecobaseInventoryPlanning:backfillReceipts dryRun=true batchSize=200 evaluatedAt=2026-07-14T22:40:00Z
+2026-07-14T22:40:15Z exit=0 pg_dump --format=custom staging -> /root/backups/ecobase-inventory-stabilization-20260714T224015Z.dump
+2026-07-14T22:41:00Z exit=0 POST ecobaseInventoryPlanning:backfillReceipts dryRun=false batchSize=200 evaluatedAt=2026-07-14T22:40:00Z
+2026-07-14T22:41:30Z exit=0 repeat receipt reconciliation apply for idempotency
+2026-07-14T23:17:00Z exit=0 read back 74 ClickUp inbound/direct-ship lines with decision reasons

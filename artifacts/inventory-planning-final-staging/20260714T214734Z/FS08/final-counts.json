@@ -1,0 +1,14 @@
+{
+  "silverOrders": 44,
+  "silverProducts": 1857,
+  "silverCompanies": 4,
+  "orphanOrderLines": 0,
+  "silverOrderLines": 156,
+  "goldOrderPlanningRows": 44,
+  "silverCompanyProducts": 2136,
+  "silverListingDailyFacts": 51099,
+  "duplicateGoldNaturalKeys": 0,
+  "silverInventorySnapshots": 2136,
+  "goldInventoryPlanningRows": 2136,
+  "silverCompanyProductFamilies": 1780
+}

@@ -1,0 +1,16 @@
+{
+  "url": "https://ecobase-staging.178-104-193-132.sslip.io/admin/ecobase/inventory-planning",
+  "testedAt": "2026-07-14T23:15:00Z",
+  "result": "pass",
+  "checks": [
+    "Inventory Planning renders",
+    "active current-order pane shows 109 family rows",
+    "current order reference shown",
+    "current-cycle quantity shown",
+    "older-cycle exclusion count shown where applicable",
+    "expected-arrival source and freshness shown",
+    "receipt evidence review shown",
+    "drawer shows current order-cycle coverage and line-level current-cycle label",
+    "no blank/error page"
+  ]
+}

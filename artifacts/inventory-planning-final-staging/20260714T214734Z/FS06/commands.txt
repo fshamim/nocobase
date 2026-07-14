@@ -1,0 +1,4 @@
+2026-07-14T22:42:20Z exit=0 POST ecobaseInventoryPlanning:refreshReadModel calculationDate=2026-07-14 (single Gold rebuild)
+2026-07-14T22:44:00Z exit=0 SQL acceptance validation and duplicate checks
+2026-07-14T22:46:29Z exit=0 POST ecobaseInventoryPlanning:commandCenter calculationDate=2026-07-14
+2026-07-14T22:47:00Z exit=0 POST ecobaseInventoryPlanning:verifySilverIntegrity
