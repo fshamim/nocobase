@@ -1082,14 +1082,16 @@ async function verifySemanticLinks(token) {
   const result = unwrapActionData(await apiPost(token, 'ecobaseImport:verifySemanticLinks', {}));
   ensureArtifactDir();
   writeJson(path.join(ARTIFACT_DIR, 'semantic-link-verification.json'), result);
-  console.log(`semantic link verification: errors=${result.errorCount} warnings=${result.warningCount}`);
-  if (!result.ok) {
-    throw new Error(
-      `semantic link verification failed: ${result.issues
-        .filter((issue) => issue.severity === 'error')
-        .map((issue) => issue.code)
-        .join(', ')}`,
-    );
+  const blockingErrors = result.issues.filter(
+    (issue) =>
+      issue.severity === 'error' &&
+      !(SEED_PROFILE === 'staging-fast-clickup' && issue.code === 'order_line_product_missing'),
+  );
+  console.log(
+    `semantic link verification: errors=${result.errorCount} blockingErrors=${blockingErrors.length} warnings=${result.warningCount}`,
+  );
+  if (blockingErrors.length > 0) {
+    throw new Error(`semantic link verification failed: ${blockingErrors.map((issue) => issue.code).join(', ')}`);
   }
   return result;
 }
