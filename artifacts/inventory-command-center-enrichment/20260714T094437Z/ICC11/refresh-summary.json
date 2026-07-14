@@ -1,0 +1,37 @@
+{
+  "calculationDate": "2026-07-14",
+  "inventory": { "rowCount": 2136, "created": 0, "updated": 2136, "lastRefreshedAt": "2026-07-14T18:42:14.397Z" },
+  "orders": { "rowCount": 44, "lastRefreshedAt": "2026-07-14T18:41:58.630Z" },
+  "suppliers": {
+    "rowCount": 652,
+    "summary": {
+      "totalSuppliers": 652,
+      "contactToday": 0,
+      "overdueFollowUps": 0,
+      "staleOrderSuppliers": 18,
+      "leadTimeIssueSuppliers": 0,
+      "waitingApprovalSuppliers": 606,
+      "moneyAtRisk": 18005.940000000002
+    }
+  },
+  "managementKpiFacts": {
+    "factCount": 57,
+    "metrics": {
+      "inventoryMoneyAtRisk": 5,
+      "urgentInventorySkuCount": 5,
+      "overdueInventorySkuCount": 5,
+      "aTierInventoryRiskCount": 5,
+      "next7DayOosSkuCount": 5,
+      "missingLeadTimeCount": 5,
+      "staleLeadTimeCount": 5,
+      "orderMoneyAtRisk": 5,
+      "ordersNeedingCheck": 5,
+      "staleOrderCount": 5,
+      "openOrderActionCount": 5,
+      "supplierAttentionMoneyAtRisk": 1,
+      "supplierAttentionCount": 1
+    },
+    "skippedMetrics": []
+  },
+  "receiptReconciliation": null
+}

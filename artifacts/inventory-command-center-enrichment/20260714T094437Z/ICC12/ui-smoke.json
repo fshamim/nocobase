@@ -1,0 +1,17 @@
+{
+  "status": "pass",
+  "browser": "agent-browser",
+  "pages": [
+    "/admin/ecobase/inventory-planning",
+    "/admin/ecobase/supplier-management",
+    "/admin/ecobase/silver-data",
+    "/admin/ecobase/import-status"
+  ],
+  "observed": {
+    "inventoryPlanning": "supplier names, unit cost, historical velocity, target and action fields rendered",
+    "supplierManagement": "652-supplier current Gold refresh rendered with lifecycle and risk",
+    "semanticModel": "products and four companies rendered",
+    "importStatus": "four Sellerboard history runs rendered success with zero warnings/errors"
+  },
+  "consoleErrors": 0
+}

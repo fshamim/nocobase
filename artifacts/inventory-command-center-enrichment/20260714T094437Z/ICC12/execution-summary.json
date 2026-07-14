@@ -1,0 +1,11 @@
+{
+  "status": "pass",
+  "stagingUrl": "https://ecobase-staging.178-104-193-132.sslip.io",
+  "codeSha": "91d59b090e78fd4b43faea7aa2333699a6e56628",
+  "backup": "/root/ICC.before-enrichment.dump",
+  "supplierDecisionDigest": "5d6697620092b55791ec63e83a7b050bd133520fd663504102f297abee9f59d5",
+  "cogsDecisionDigest": "fd3ab59943ab233eae8d78d55110acb1208a3ecd26eca09e8c3ac25a83043faf",
+  "historyDecisionDigest": "85f02237472568e056a673bb42935f5178555424001ed2f3762f4db95f60de35",
+  "targetDecisionDigest": "9079a9b8bd6d1115533cc6d9f98a66d4417e3d208f815388f1eb353ab51c9740",
+  "blockers": []
+}

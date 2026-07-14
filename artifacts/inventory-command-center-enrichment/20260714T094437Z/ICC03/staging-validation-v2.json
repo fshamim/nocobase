@@ -1,0 +1,10 @@
+{
+  "status": "pass",
+  "suppliers": 652,
+  "externalRefs": 652,
+  "supplierAccounts": 728,
+  "supplierProducts": 110,
+  "companyProductSupplierLinks": 123,
+  "fabricatedSupplierProducts": 0,
+  "orphanPreferredSuppliers": 0
+}

@@ -1,0 +1,109 @@
+{
+  "first": {
+    "decisionDigest": "fd3ab59943ab233eae8d78d55110acb1208a3ecd26eca09e8c3ac25a83043faf",
+    "beforeCount": 1618,
+    "afterCount": 1618,
+    "createdCount": 0,
+    "goldRefreshCount": 0,
+    "rowCount": 4358,
+    "importedCount": 1618,
+    "skippedCount": 2736,
+    "hiddenSkippedCount": 17,
+    "droppedFieldCount": 46008,
+    "fileSummaries": {
+      "Fissionem_Cost_of_Goods_Sold_(2026_07_04_04_50_18_570).csv": {
+        "rowCount": 1115,
+        "importedCount": 434,
+        "skippedCount": 680,
+        "hiddenSkippedCount": 8,
+        "droppedFieldCount": 11688
+      },
+      "Muxtex_Cost_of_Goods_Sold_(2026_07_04_08_59_22_030).csv": {
+        "rowCount": 1448,
+        "importedCount": 509,
+        "skippedCount": 938,
+        "hiddenSkippedCount": 3,
+        "droppedFieldCount": 15362
+      },
+      "Retail_Heaven_Inc_Cost_of_Goods_Sold_(2026_07_04_08_57_41_530).csv": {
+        "rowCount": 930,
+        "importedCount": 348,
+        "skippedCount": 581,
+        "hiddenSkippedCount": 6,
+        "droppedFieldCount": 9885
+      },
+      "Stop_Shop_Llc_Cost_of_Goods_Sold_(2026_07_04_09_01_50_733).csv": {
+        "rowCount": 865,
+        "importedCount": 327,
+        "skippedCount": 537,
+        "hiddenSkippedCount": 0,
+        "droppedFieldCount": 9073
+      }
+    },
+    "migration": {
+      "profileVersion": "2026-07-13.1",
+      "asOfDate": "2026-07-14",
+      "acceptedCount": 1618,
+      "discardedCount": 2736,
+      "reviewCount": 0,
+      "reasons": {
+        "missing_identity_or_cost": 2719,
+        "hidden_source_row": 17
+      }
+    }
+  },
+  "second": {
+    "decisionDigest": "fd3ab59943ab233eae8d78d55110acb1208a3ecd26eca09e8c3ac25a83043faf",
+    "beforeCount": 1618,
+    "afterCount": 1618,
+    "createdCount": 0,
+    "goldRefreshCount": 0,
+    "rowCount": 4358,
+    "importedCount": 1618,
+    "skippedCount": 2736,
+    "hiddenSkippedCount": 17,
+    "droppedFieldCount": 46008,
+    "fileSummaries": {
+      "Fissionem_Cost_of_Goods_Sold_(2026_07_04_04_50_18_570).csv": {
+        "rowCount": 1115,
+        "importedCount": 434,
+        "skippedCount": 680,
+        "hiddenSkippedCount": 8,
+        "droppedFieldCount": 11688
+      },
+      "Muxtex_Cost_of_Goods_Sold_(2026_07_04_08_59_22_030).csv": {
+        "rowCount": 1448,
+        "importedCount": 509,
+        "skippedCount": 938,
+        "hiddenSkippedCount": 3,
+        "droppedFieldCount": 15362
+      },
+      "Retail_Heaven_Inc_Cost_of_Goods_Sold_(2026_07_04_08_57_41_530).csv": {
+        "rowCount": 930,
+        "importedCount": 348,
+        "skippedCount": 581,
+        "hiddenSkippedCount": 6,
+        "droppedFieldCount": 9885
+      },
+      "Stop_Shop_Llc_Cost_of_Goods_Sold_(2026_07_04_09_01_50_733).csv": {
+        "rowCount": 865,
+        "importedCount": 327,
+        "skippedCount": 537,
+        "hiddenSkippedCount": 0,
+        "droppedFieldCount": 9073
+      }
+    },
+    "migration": {
+      "profileVersion": "2026-07-13.1",
+      "asOfDate": "2026-07-14",
+      "acceptedCount": 1618,
+      "discardedCount": 2736,
+      "reviewCount": 0,
+      "reasons": {
+        "missing_identity_or_cost": 2719,
+        "hidden_source_row": 17
+      }
+    }
+  },
+  "idempotent": true
+}

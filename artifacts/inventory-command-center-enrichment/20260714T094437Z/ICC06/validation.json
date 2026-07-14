@@ -1,0 +1,10 @@
+{
+  "status": "pass",
+  "persistedRows": 1618,
+  "hiddenRowsSkipped": 17,
+  "duplicates": 0,
+  "prohibitedPayloads": 0,
+  "nonEmptyRawPayloads": 0,
+  "idempotent": true,
+  "goldRefreshCount": 0
+}

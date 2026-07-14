@@ -1,0 +1,16 @@
+{
+  "status": "success",
+  "sourceRows": 59217,
+  "successfulRuns": [
+    { "company": "Ecofission LLC", "rows": 24438, "normalized": 24438, "warnings": 0, "errors": 0 },
+    { "company": "Muxtex INC", "rows": 11353, "normalized": 11353, "warnings": 0, "errors": 0 },
+    { "company": "Retail Heaven Inc", "rows": 8526, "normalized": 8526, "warnings": 0, "errors": 0 },
+    { "company": "Stop Shop LLC", "rows": 14900, "normalized": 14900, "warnings": 0, "errors": 0 }
+  ],
+  "currentListingFacts": 51099,
+  "ignoredNonCurrentRows": 8118,
+  "catalogCountsPreserved": true,
+  "duplicateFacts": 0,
+  "orphanFacts": 0,
+  "goldRefreshCount": 0
+}

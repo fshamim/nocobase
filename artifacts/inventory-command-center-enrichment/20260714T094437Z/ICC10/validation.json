@@ -1,0 +1,127 @@
+{
+  "capturedAt": "2026-07-14T18:51:42.128484+00:00",
+  "baseline": {
+    "companies": 4,
+    "products": 1857,
+    "companyProducts": 2136,
+    "families": 1780,
+    "amazonAccounts": 6,
+    "inventorySnapshots": 2136,
+    "orders": 44
+  },
+  "supplierEvidence": {
+    "preferredFamilies": 951,
+    "unresolvedFamilies": 829,
+    "suppliers": 652,
+    "externalRefs": 652,
+    "supplierAccounts": 728,
+    "supplierProducts": 110,
+    "companyProductSupplierLinks": 123,
+    "orphanPreferredSuppliers": 0,
+    "selectionSources": {
+      "historical_order_evidence": 835,
+      "latest_valid_order": 110,
+      "supplier_2026_approved_active": 1,
+      "supplier_2026_approved_unknown": 1,
+      "supplier_tracker_active_workflow": 4,
+      "unresolved": 829
+    }
+  },
+  "cogs": {
+    "rows": 1618,
+    "duplicates": 0,
+    "prohibitedPayloads": 0,
+    "nonEmptyRawPayloads": 0
+  },
+  "history": {
+    "sourceRows": 59217,
+    "facts": 51099,
+    "trafficSnapshots": 51099,
+    "normalizedCurrentRows": 51099,
+    "ignoredNonCurrentRows": 8118,
+    "duplicateFacts": 0,
+    "orphanFacts": 0,
+    "prohibitedProjectedPayloads": 0,
+    "coverage": [
+      {
+        "company": "Ecofission LLC",
+        "rows": 17951,
+        "min_date": "2026-01-01",
+        "max_date": "2026-07-03"
+      },
+      {
+        "company": "Muxtex INC",
+        "rows": 11341,
+        "min_date": "2026-01-01",
+        "max_date": "2026-07-03"
+      },
+      {
+        "company": "Retail Heaven Inc",
+        "rows": 8101,
+        "min_date": "2026-01-01",
+        "max_date": "2026-07-03"
+      },
+      {
+        "company": "Stop Shop LLC",
+        "rows": 13706,
+        "min_date": "2026-01-01",
+        "max_date": "2026-07-03"
+      }
+    ],
+    "successfulRuns": [
+      {
+        "company": "Ecofission LLC",
+        "status": "success",
+        "source_rows": 24438,
+        "normalized_rows": 24438,
+        "warnings": 0,
+        "errors": 0
+      },
+      {
+        "company": "Muxtex INC",
+        "status": "success",
+        "source_rows": 11353,
+        "normalized_rows": 11353,
+        "warnings": 0,
+        "errors": 0
+      },
+      {
+        "company": "Retail Heaven Inc",
+        "status": "success",
+        "source_rows": 8526,
+        "normalized_rows": 8526,
+        "warnings": 0,
+        "errors": 0
+      },
+      {
+        "company": "Stop Shop LLC",
+        "status": "success",
+        "source_rows": 14900,
+        "normalized_rows": 14900,
+        "warnings": 0,
+        "errors": 0
+      }
+    ]
+  },
+  "targets": {
+    "familyCount": 1780,
+    "targeted": 1618,
+    "reviewRequired": 162
+  },
+  "gold": {
+    "calculationDate": "2026-07-14",
+    "inventoryRows": 2136,
+    "orderRows": 44,
+    "supplierRowsCurrent": 652,
+    "managementKpiFacts": 57,
+    "rowsWithUnitCost": 1336,
+    "rowsWithPreferredSupplier": 1264,
+    "rowsUsingHistoricalVelocity": 616,
+    "duplicateInventoryRows": 0
+  },
+  "security": {
+    "sellerboardSchedulesEnabled": 0,
+    "prohibitedHistoryPayloads": 0,
+    "prohibitedCogsPayloads": 0
+  }
+}

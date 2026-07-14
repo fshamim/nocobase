@@ -1,0 +1,9 @@
+{
+  "status": "pass",
+  "dateCoverage": "2026-01-01..2026-07-03",
+  "currentListingFacts": 51099,
+  "ignoredNonCurrentRows": 8118,
+  "duplicates": 0,
+  "prohibitedProjectedPayloads": 0,
+  "idempotencyEvidence": "same source rows converged without duplicate fact keys"
+}

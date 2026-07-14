@@ -1,0 +1,14 @@
+{
+  "status": "pass",
+  "reason": "history evidence must not create current catalog identity",
+  "removedHistoryOnlyCompanyProducts": 422,
+  "removedHistoryOnlyProducts": 52,
+  "removedHistoryOnlyFamilies": 270,
+  "removedHistoryOnlyAmazonAccounts": 6,
+  "rowsMarkedIgnoredNotCurrent": 8118,
+  "datesCorrectedFromNormalizedObservedAt": 3165,
+  "finalProducts": 1857,
+  "finalCompanyProducts": 2136,
+  "finalFamilies": 1780,
+  "finalFacts": 51099
+}

@@ -1,0 +1,12 @@
+{
+  "mode": "dry-run",
+  "ruleVersion": "highest-current-planning-stock-v1",
+  "familyCount": 1780,
+  "operatorPreservedCount": 0,
+  "alreadyCorrectCount": 1618,
+  "reviewRequiredCount": 162,
+  "correctionCount": 0,
+  "corrections": [],
+  "stagingWrites": 0,
+  "decisionDigest": "9079a9b8bd6d1115533cc6d9f98a66d4417e3d208f815388f1eb353ab51c9740"
+}

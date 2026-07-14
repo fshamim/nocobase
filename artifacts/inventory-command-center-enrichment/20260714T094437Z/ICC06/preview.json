@@ -1,0 +1,73 @@
+{
+  "mode": "dry-run",
+  "input": {
+    "Fissionem_Cost_of_Goods_Sold_(2026_07_04_04_50_18_570).csv": {
+      "sha256": "d3d21bc437efdecee1d216b701252618bca6b15242ac5ea530acfb14dc8ce234",
+      "rowCount": 1115
+    },
+    "Muxtex_Cost_of_Goods_Sold_(2026_07_04_08_59_22_030).csv": {
+      "sha256": "ef23db33e62c6e0be292aa378ff626aa83b0df18bf112bf6b2b7a739f6c37f24",
+      "rowCount": 1448
+    },
+    "Retail_Heaven_Inc_Cost_of_Goods_Sold_(2026_07_04_08_57_41_530).csv": {
+      "sha256": "e5bb2786e8bd05b7d878292819fdd06e119d69e3009db1bb2833a3492883ae53",
+      "rowCount": 930
+    },
+    "Stop_Shop_Llc_Cost_of_Goods_Sold_(2026_07_04_09_01_50_733).csv": {
+      "sha256": "f4f4bdd81741c541cea8ca6816810ddf098f2bfe1073832c8149f61f057d1cda",
+      "rowCount": 865
+    }
+  },
+  "targetCount": 1618,
+  "validPositiveCostRows": 1635,
+  "importableCostRows": 1618,
+  "hiddenSkippedCount": 17,
+  "invalidSkippedCount": 2719,
+  "resolutionCounts": {
+    "exact": 822,
+    "asin_unique": 28,
+    "asin_same_cost": 3,
+    "ambiguous": 11,
+    "missing": 754
+  },
+  "acceptedResolutionCounts": {
+    "exact": 822,
+    "asin_unique": 26,
+    "asin_same_cost": 3,
+    "ambiguous": 11,
+    "missing": 756
+  },
+  "hiddenOnlyFallbackCount": 2,
+  "fileSummaries": {
+    "Fissionem_Cost_of_Goods_Sold_(2026_07_04_04_50_18_570).csv": {
+      "rowCount": 1115,
+      "importedCount": 434,
+      "skippedCount": 680,
+      "hiddenSkippedCount": 8,
+      "droppedFieldCount": 11688
+    },
+    "Muxtex_Cost_of_Goods_Sold_(2026_07_04_08_59_22_030).csv": {
+      "rowCount": 1448,
+      "importedCount": 509,
+      "skippedCount": 938,
+      "hiddenSkippedCount": 3,
+      "droppedFieldCount": 15362
+    },
+    "Retail_Heaven_Inc_Cost_of_Goods_Sold_(2026_07_04_08_57_41_530).csv": {
+      "rowCount": 930,
+      "importedCount": 348,
+      "skippedCount": 581,
+      "hiddenSkippedCount": 6,
+      "droppedFieldCount": 9885
+    },
+    "Stop_Shop_Llc_Cost_of_Goods_Sold_(2026_07_04_09_01_50_733).csv": {
+      "rowCount": 865,
+      "importedCount": 327,
+      "skippedCount": 537,
+      "hiddenSkippedCount": 0,
+      "droppedFieldCount": 9073
+    }
+  },
+  "stagingWrites": 0,
+  "decisionDigest": "fd3ab59943ab233eae8d78d55110acb1208a3ecd26eca09e8c3ac25a83043faf"
+}

@@ -1,0 +1,12 @@
+{
+  "status": "pass",
+  "anonymousEndpoints": {
+    "ecobaseImport:status": 401,
+    "bronzeSourceRecords:list": 401,
+    "silverNormalizationLinks:list": 401,
+    "ecobaseSellerboardProductCosts:list": 401
+  },
+  "sellerboardSchedulesEnabled": 0,
+  "prohibitedHistoryPayloads": 0,
+  "prohibitedCogsPayloads": 0
+}

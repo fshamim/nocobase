@@ -1,0 +1,14 @@
+{
+  "status": "pass",
+  "preferredFamilies": 951,
+  "unresolvedFamilies": 829,
+  "selectionSources": {
+    "historical_order_evidence": 835,
+    "latest_valid_order": 110,
+    "supplier_2026_approved_active": 1,
+    "supplier_2026_approved_unknown": 1,
+    "supplier_tracker_active_workflow": 4,
+    "unresolved": 829
+  },
+  "idempotent": true
+}

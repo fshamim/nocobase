@@ -1,0 +1,9 @@
+{
+  "status": "pass",
+  "unsafeFallbacks": 0,
+  "ambiguousCandidates": 11,
+  "missingCandidates": 754,
+  "acceptedResolutionAmbiguous": 11,
+  "acceptedResolutionMissing": 756,
+  "policy": "remain_unknown_or_review_required"
+}

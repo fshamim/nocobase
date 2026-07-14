@@ -1,0 +1,12 @@
+{
+  "status": "pass",
+  "acceptedRefreshDate": "2026-07-14",
+  "acceptedInventoryRows": 2136,
+  "acceptedOrderRows": 44,
+  "acceptedSupplierRows": 652,
+  "acceptedManagementKpiFacts": 57,
+  "failedAttemptBeforeAcceptedRefresh": {
+    "error": "invalid evidence_backfilled supplier lifecycle status",
+    "resolution": "new evidence-only suppliers now use the supported new lifecycle state"
+  }
+}
