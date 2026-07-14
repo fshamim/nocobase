@@ -189,7 +189,7 @@ describe('supplier evidence apply service', () => {
       createdSupplierAccountCount: 0,
       createdCandidateLinkCount: 0,
     });
-    expect(supplier).toMatchObject({ displayName: 'Display Name Current' });
+    expect(supplier).toMatchObject({ displayName: 'Display Name Current', approvalStatus: 'new' });
     expect(reference).toMatchObject({
       supplierId: supplier.id,
       normalizedExternalSupplierCode: 'SRO-12939',

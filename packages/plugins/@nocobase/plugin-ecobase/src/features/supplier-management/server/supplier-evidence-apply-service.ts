@@ -253,7 +253,7 @@ export class EcobaseSupplierEvidenceApplyService {
             id: supplierId,
             normalizedName: normalizeSupplierName(displayName),
             displayName,
-            approvalStatus: 'evidence_backfilled',
+            approvalStatus: 'new',
             analysisStatus: 'historical_order_evidence',
           },
         },
