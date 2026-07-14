@@ -59,7 +59,7 @@ type RepositoryFindParams = {
 
 type RepositoryCreateParams = { values: Record<string, unknown> };
 type RepositoryUpdateParams = { filterByTk?: string | number | null; filter?: Filter; values: Record<string, unknown> };
-type RepositoryDestroyParams = { filter?: Filter; filterByTk?: string | number };
+type RepositoryDestroyParams = { filter?: Filter; filterByTk?: string | number; where?: Filter };
 
 type ImportFileSummary = {
   rowCount: number;
