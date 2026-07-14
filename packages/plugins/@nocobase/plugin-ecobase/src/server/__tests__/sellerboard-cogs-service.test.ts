@@ -113,7 +113,8 @@ describe('Sellerboard COGS maintenance', () => {
       validPositiveCostRows: 5,
       importableCostRows: 4,
       hiddenSkippedCount: 1,
-      resolutionCounts: { exact: 1, asin_unique: 1, ambiguous: 1, missing: 1 },
+      resolutionCounts: { exact: 1, asin_unique: 2, ambiguous: 1, missing: 0 },
+      acceptedResolutionCounts: { exact: 1, asin_unique: 1, ambiguous: 1, missing: 1 },
       hiddenOnlyFallbackCount: 1,
       stagingWrites: 0,
     });

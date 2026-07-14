@@ -8,7 +8,6 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto';
-import { EcobaseCompanyProductFamilyService } from '../../inventory-planning/server/company-product-family-service';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import type { CsvSourceFile } from './adapters/csv-utils';
 import { parseDelimitedCsv } from './adapters/csv-utils';
@@ -227,36 +226,30 @@ export class EcobaseSellerboardCogsService {
     const companyById = new Map(companies.map((row) => [String(row.id), normalizeCompany(row.name)]));
     const productById = new Map(products.map((row) => [String(row.id), row]));
     const companyProductById = new Map(companyProducts.map((row) => [String(row.id), row]));
-    const targetCorrections = await new EcobaseCompanyProductFamilyService(this.db).previewAutomaticTargetCorrections();
-    const recommendedTargetByFamilyId = new Map(
-      targetCorrections.corrections.map((correction) => [correction.familyId, correction.recommendedCompanyProductId]),
-    );
     const targets = families.flatMap((family) => {
-      const recommendedTargetId = recommendedTargetByFamilyId.get(String(family.id ?? ''));
-      const companyProduct = companyProductById.get(
-        recommendedTargetId ?? String(family.replenishmentTargetCompanyProductId ?? ''),
-      );
+      const companyProduct = companyProductById.get(String(family.replenishmentTargetCompanyProductId ?? ''));
       const product = productById.get(String(companyProduct?.productId ?? ''));
       const company = companyById.get(String(family.companyId ?? ''));
       return company && product ? [{ company, asin: normalizeAsin(product.asin), sku: normalizeSku(product.sku) }] : [];
     });
     const resolver = new SellerboardCogsResolver(parsed.costs);
     const resolverIncludingHidden = new SellerboardCogsResolver([...parsed.costs, ...parsed.hiddenCosts]);
-    const resolutionCounts: Record<SellerboardCostStatus, number> = {
+    const emptyResolutionCounts = (): Record<SellerboardCostStatus, number> => ({
       exact: 0,
       asin_unique: 0,
       asin_same_cost: 0,
       ambiguous: 0,
       missing: 0,
-    };
+    });
+    const resolutionCounts = emptyResolutionCounts();
+    const acceptedResolutionCounts = emptyResolutionCounts();
     let hiddenOnlyFallbackCount = 0;
     for (const target of targets) {
-      const resolution = resolver.resolve(target);
-      resolutionCounts[resolution.unitCostStatus] += 1;
-      if (
-        resolution.unitCostStatus === 'missing' &&
-        resolverIncludingHidden.resolve(target).unitCostStatus !== 'missing'
-      ) {
+      const acceptedResolution = resolver.resolve(target);
+      const sourceResolution = resolverIncludingHidden.resolve(target);
+      acceptedResolutionCounts[acceptedResolution.unitCostStatus] += 1;
+      resolutionCounts[sourceResolution.unitCostStatus] += 1;
+      if (acceptedResolution.unitCostStatus === 'missing' && sourceResolution.unitCostStatus !== 'missing') {
         hiddenOnlyFallbackCount += 1;
       }
     }
@@ -280,6 +273,7 @@ export class EcobaseSellerboardCogsService {
       hiddenSkippedCount: parsed.hiddenSkippedCount,
       invalidSkippedCount: parsed.skippedCount,
       resolutionCounts,
+      acceptedResolutionCounts,
       hiddenOnlyFallbackCount,
       fileSummaries: parsed.fileSummaries,
       stagingWrites: 0,
