@@ -846,7 +846,7 @@ export function approvedAmazonIdentitySource(input: {
   adapterName?: string;
 }) {
   if (input.sourceType !== 'sellerboard') return false;
-  if (input.adapterName === 'sellerboard-history-csv') return input.sourceDataset === 'sellerboard_daily_facts';
+  if (input.adapterName === 'sellerboard-history-csv') return false;
   return (
     input.adapterName === 'sellerboard-api' &&
     ['amazon_listing_inventory', 'sellerboard_daily_facts'].includes(input.sourceDataset)

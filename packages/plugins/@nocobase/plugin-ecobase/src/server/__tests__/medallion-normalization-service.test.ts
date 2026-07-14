@@ -71,7 +71,9 @@ async function seedBronze(db: FakeDatabase, payload: Record<string, unknown>, ov
     await db.getRepository(ECOBASE_COLLECTIONS.importRuns).create({
       values: {
         id: importRunId,
-        adapterName: sourceType === 'sellerboard' ? 'sellerboard-api' : 'google-sheets-migration-csv',
+        adapterName: String(
+          overrides.adapterName ?? (sourceType === 'sellerboard' ? 'sellerboard-api' : 'google-sheets-migration-csv'),
+        ),
       },
     });
   }
@@ -130,7 +132,7 @@ describe('EcobaseMedallionNormalizationService', () => {
         adapterName: 'sellerboard-history-csv',
         sourceDataset: 'sellerboard_daily_facts',
       }),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       approvedAmazonIdentitySource({
         sourceType: 'sellerboard',
@@ -177,6 +179,50 @@ describe('EcobaseMedallionNormalizationService', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).rows[0].normalizationStatus).toBe('normalized');
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverNormalizationLinks).rows.length).toBeGreaterThan(0);
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverNormalizationLinks).rows[0].relation).toBe('created_from');
+  });
+
+  it('keeps Sellerboard history facts on existing listings without creating catalog identity', async () => {
+    const db = new FakeDatabase();
+    const service = new EcobaseMedallionNormalizationService(db);
+    await seedBronze(db, {
+      Company: 'Ecofission LLC',
+      ASIN: 'B00CURRENT',
+      SKU: 'CURRENT-SKU',
+      Marketplace: 'Amazon.com',
+      'FBA/FBM Stock': '1',
+    });
+    await service.normalizePending();
+    await seedBronze(
+      db,
+      {
+        Company: 'Ecofission LLC',
+        ASIN: 'B00CURRENT',
+        SKU: 'CURRENT-SKU',
+        Marketplace: 'Amazon.com',
+        period: '2026-07-01',
+        SalesOrganic: '10',
+      },
+      { sourceDataset: 'sellerboard_daily_facts', adapterName: 'sellerboard-history-csv' },
+    );
+    await seedBronze(
+      db,
+      {
+        Company: 'Ecofission LLC',
+        ASIN: 'B00HISTORY',
+        SKU: 'HISTORY-ONLY',
+        Marketplace: 'Amazon.com',
+        period: '2026-07-01',
+        SalesOrganic: '10',
+      },
+      { sourceDataset: 'sellerboard_daily_facts', adapterName: 'sellerboard-history-csv' },
+    );
+
+    const result = await service.normalizePending();
+
+    expect(result.failed).toBe(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).rows).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).rows).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts).rows).toHaveLength(1);
   });
 
   it('normalizes Sellerboard history units and sales as channel totals', async () => {
