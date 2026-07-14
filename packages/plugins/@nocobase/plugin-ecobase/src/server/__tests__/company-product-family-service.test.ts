@@ -979,6 +979,21 @@ describe('EcobaseCompanyProductFamilyService', () => {
     });
   });
 
+  it('trusts explicit family membership for alternate child ASINs', async () => {
+    const db = new MemoryDatabase();
+    await seed(db);
+    const service = new EcobaseCompanyProductFamilyService(db);
+    const family = await service.ensureFamily(identity);
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).update({
+      filterByTk: 'company-product-other-asin',
+      values: { companyProductFamilyId: family.id },
+    });
+
+    await expect(service.listMembers(String(family.id))).resolves.toEqual([
+      expect.objectContaining({ id: 'company-product-other-asin', asin: 'B000OTHER' }),
+    ]);
+  });
+
   it('corrects an automatic target to the clear highest current planning stock and then converges', async () => {
     const db = new MemoryDatabase();
     await seed(db);

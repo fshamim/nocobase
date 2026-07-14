@@ -285,7 +285,8 @@ export class EcobaseCompanyProductFamilyService {
     const family = await this.getFamily(familyId);
     const repository = this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts);
     const linkedCompanyProducts = await repository.find({ filter: { companyProductFamilyId: familyId }, limit: 10000 });
-    const companyProducts = linkedCompanyProducts.length
+    const hasLinkedCompanyProducts = linkedCompanyProducts.length > 0;
+    const companyProducts = hasLinkedCompanyProducts
       ? linkedCompanyProducts
       : await repository.find({
           filter: {
@@ -303,7 +304,11 @@ export class EcobaseCompanyProductFamilyService {
         .getRepository(ECOBASE_COLLECTIONS.silverProducts)
         .findOne({ filterByTk: productId });
       const product = toPlainRecord(productValue);
-      if (requiredString(product.asin, 'product.asin').toUpperCase() !== family.canonicalAsin) continue;
+      if (
+        !hasLinkedCompanyProducts &&
+        requiredString(product.asin, 'product.asin').toUpperCase() !== family.canonicalAsin
+      )
+        continue;
       members.push({ ...companyProduct, asin: product.asin, sku: product.sku });
     }
     return members;
