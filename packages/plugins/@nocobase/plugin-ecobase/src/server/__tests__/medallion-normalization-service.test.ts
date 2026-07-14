@@ -199,10 +199,14 @@ describe('EcobaseMedallionNormalizationService', () => {
         ASIN: 'B00CURRENT',
         SKU: 'CURRENT-SKU',
         Marketplace: 'Amazon.com',
-        period: '2026-07-01',
+        period: '06/12/2026',
         SalesOrganic: '10',
       },
-      { sourceDataset: 'sellerboard_daily_facts', adapterName: 'sellerboard-history-csv' },
+      {
+        sourceDataset: 'sellerboard_daily_facts',
+        adapterName: 'sellerboard-history-csv',
+        observedAt: '2026-06-12T00:00:00.000Z',
+      },
     );
     await seedBronze(
       db,
@@ -222,7 +226,9 @@ describe('EcobaseMedallionNormalizationService', () => {
     expect(result.failed).toBe(0);
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).rows).toHaveLength(1);
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).rows).toHaveLength(1);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts).rows).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts).rows).toEqual([
+      expect.objectContaining({ snapshotDate: '2026-06-12' }),
+    ]);
   });
 
   it('normalizes Sellerboard history units and sales as channel totals', async () => {

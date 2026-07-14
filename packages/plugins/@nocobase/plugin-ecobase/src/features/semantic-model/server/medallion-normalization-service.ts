@@ -131,11 +131,14 @@ export class EcobaseMedallionNormalizationService {
           ? await this.repo(ECOBASE_COLLECTIONS.importRuns).findOne({ filterByTk: bronze.importRunId as string })
           : null),
     );
+    const adapterName = textValue(importRun.adapterName);
     const createsAmazonIdentity = approvedAmazonIdentitySource({
       sourceType: textValue(bronze.sourceType),
       sourceDataset,
-      adapterName: textValue(importRun.adapterName),
+      adapterName,
     });
+    const isSellerboardHistory =
+      adapterName === 'sellerboard-history-csv' && sourceDataset === 'sellerboard_daily_facts';
     if (orderShape && !safeProjectedDataset && orderRowExclusionReason(orderShape, row)) return entities;
     if (
       !safeProjectedDataset &&
@@ -162,9 +165,11 @@ export class EcobaseMedallionNormalizationService {
       row.string('listingSku', 'sourceSupplierSku', 'SKU') ??
       (orderRef ? row.string('UPC') : undefined);
     const snapshotDate = dateOnly(
-      createsAmazonIdentity
-        ? row.string('period') ?? textValue(bronze.observedAt)
-        : row.string('occurredAt', 'period', 'orderDate', 'Timestamp', 'Date', 'Order Date') ??
+      isSellerboardHistory
+        ? textValue(bronze.observedAt)
+        : createsAmazonIdentity
+          ? row.string('period') ?? textValue(bronze.observedAt)
+          : row.string('occurredAt', 'period', 'orderDate', 'Timestamp', 'Date', 'Order Date') ??
             textValue(bronze.observedAt),
     );
     const marketplace = row.string('marketplace', 'account', 'Marketplace', 'Market ', 'Amazon Account');
