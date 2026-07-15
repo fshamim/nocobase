@@ -1,0 +1,45 @@
+yarn run v1.22.22
+$ /Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/.bin/vitest run packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-receipt-reconciliation-service.test.ts --no-file-parallelism --maxWorkers=1
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:70745) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-receipt-reconciliation-service.test.ts  (12 tests) 8ms
+
+ Test Files  1 passed (1)
+      Tests  12 passed (12)
+   Start at  06:26:30
+   Duration  452ms (transform 76ms, setup 144ms, collect 37ms, tests 8ms, environment 157ms, prepare 36ms)
+
+Done in 1.23s.
+yarn run v1.22.22
+$ /Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/.bin/vitest run packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-lifecycle.test.ts --no-file-parallelism --maxWorkers=1
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:70851) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-lifecycle.test.ts  (18 tests) 3ms
+
+ Test Files  1 passed (1)
+      Tests  18 passed (18)
+   Start at  06:26:31
+   Duration  430ms (transform 62ms, setup 142ms, collect 20ms, tests 3ms, environment 159ms, prepare 37ms)
+
+Done in 1.23s.
+yarn run v1.22.22
+$ /Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/.bin/vitest run packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts --no-file-parallelism --maxWorkers=1
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:70856) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts  (33 tests) 44ms
+
+ Test Files  1 passed (1)
+      Tests  33 passed (33)
+   Start at  06:26:32
+   Duration  856ms (transform 392ms, setup 140ms, collect 404ms, tests 44ms, environment 160ms, prepare 36ms)
+
+Done in 1.60s.

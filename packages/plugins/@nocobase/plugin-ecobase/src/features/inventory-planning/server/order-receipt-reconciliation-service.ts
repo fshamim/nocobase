@@ -176,11 +176,19 @@ export class EcobaseOrderReceiptReconciliationService {
       nextCursor: nextCursor ?? null,
       complete: remaining.length <= batchSize,
     };
-    if (input.dryRun !== false || orderIds.length === 0) return { ...preview, reconciliation: null };
-    return {
-      ...preview,
-      reconciliation: await this.reconcileAffectedOrders({ orderIds, evaluatedAt: input.evaluatedAt }),
-    };
+    if (input.dryRun !== false || orderIds.length === 0) {
+      return { ...preview, outcomeCounts: { pending_evaluation: orderIds.length }, reconciliation: null };
+    }
+    const reconciliation = await this.reconcileAffectedOrders({ orderIds, evaluatedAt: input.evaluatedAt });
+    const assessedOrders = await Promise.all(
+      orderIds.map((orderId) => this.findOne(ECOBASE_COLLECTIONS.silverOrders, orderId)),
+    );
+    const outcomeCounts = assessedOrders.reduce<Record<string, number>>((counts, order) => {
+      const status = text(order?.amazonReceiptStatus) ?? 'unresolved';
+      counts[status] = (counts[status] ?? 0) + 1;
+      return counts;
+    }, {});
+    return { ...preview, dryRun: false, outcomeCounts, reconciliation };
   }
 
   async setOperatorOverride(input: SetReceiptOverrideInput) {

@@ -1,0 +1,20 @@
+yarn run v1.22.22
+$ /Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/.bin/eslint packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/order-receipt-reconciliation-service.ts packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-receipt-reconciliation-service.test.ts
+
+/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/order-receipt-reconciliation-service.ts
+  167:69  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  312:7   warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  325:28  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  403:15  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  424:21  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  425:20  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  549:26  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  632:20  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+
+/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-receipt-reconciliation-service.test.ts
+   69:12  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  318:5   warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+
+✖ 10 problems (0 errors, 10 warnings)
+
+Done in 1.59s.

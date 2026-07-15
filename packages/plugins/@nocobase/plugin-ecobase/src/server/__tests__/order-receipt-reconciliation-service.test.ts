@@ -152,6 +152,33 @@ describe('EcobaseOrderReceiptReconciliationService', () => {
     ).toEqual(['direct', 'inbound']);
   });
 
+  it('previews and applies historical receipt backfill in bounded cursor batches with outcome counts', async () => {
+    const db = fixture();
+    const service = new EcobaseOrderReceiptReconciliationService(db);
+
+    await expect(service.backfillHistoricalReceipts({ batchSize: 1 })).resolves.toMatchObject({
+      dryRun: true,
+      totalCandidates: 1,
+      batchSize: 1,
+      orderIds: ['order-1'],
+      nextCursor: 'order-1',
+      complete: true,
+      outcomeCounts: { pending_evaluation: 1 },
+      reconciliation: null,
+    });
+    await expect(
+      service.backfillHistoricalReceipts({
+        batchSize: 1,
+        dryRun: false,
+        evaluatedAt: '2026-07-12T12:00:00.000Z',
+      }),
+    ).resolves.toMatchObject({
+      dryRun: false,
+      outcomeCounts: { partially_observed: 1 },
+      reconciliation: { processedOrders: 1, errors: [] },
+    });
+  });
+
   it('limits automatic refreshes to changed orders and already assessed open receipt states', () => {
     expect(
       receiptReconciliationOrderIdsForRefresh(
