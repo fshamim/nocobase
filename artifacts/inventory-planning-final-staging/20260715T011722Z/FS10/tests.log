@@ -1,0 +1,75 @@
+yarn run v1.22.22
+$ /Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/.bin/vitest run packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts --no-file-parallelism --maxWorkers=1
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:77531) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts  (33 tests) 41ms
+
+ Test Files  1 passed (1)
+      Tests  33 passed (33)
+   Start at  06:28:55
+   Duration  842ms (transform 392ms, setup 142ms, collect 404ms, tests 41ms, environment 148ms, prepare 35ms)
+
+Done in 1.55s.
+yarn run v1.22.22
+$ /Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/.bin/vitest run packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-receipt-evidence.test.ts --no-file-parallelism --maxWorkers=1
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:77588) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-receipt-evidence.test.ts  (5 tests) 2ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  06:28:57
+   Duration  406ms (transform 54ms, setup 138ms, collect 11ms, tests 2ms, environment 154ms, prepare 35ms)
+
+Done in 1.14s.
+yarn run v1.22.22
+$ /Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/.bin/vitest run packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-receipt-allocation.test.ts --no-file-parallelism --maxWorkers=1
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:77645) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-receipt-allocation.test.ts  (3 tests) 2ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  06:28:58
+   Duration  401ms (transform 51ms, setup 137ms, collect 8ms, tests 2ms, environment 154ms, prepare 34ms)
+
+Done in 1.16s.
+yarn run v1.22.22
+$ /Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/.bin/vitest run packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-receipt-reconciliation-service.test.ts --no-file-parallelism --maxWorkers=1
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:77702) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-receipt-reconciliation-service.test.ts  (12 tests) 7ms
+
+ Test Files  1 passed (1)
+      Tests  12 passed (12)
+   Start at  06:29:00
+   Duration  451ms (transform 76ms, setup 144ms, collect 37ms, tests 7ms, environment 158ms, prepare 36ms)
+
+Done in 1.23s.
+yarn run v1.22.22
+$ /Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/.bin/vitest run packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-lifecycle.test.ts --no-file-parallelism --maxWorkers=1
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:77807) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-lifecycle.test.ts  (18 tests) 3ms
+
+ Test Files  1 passed (1)
+      Tests  18 passed (18)
+   Start at  06:29:01
+   Duration  432ms (transform 60ms, setup 146ms, collect 19ms, tests 3ms, environment 159ms, prepare 35ms)
+
+Done in 1.16s.

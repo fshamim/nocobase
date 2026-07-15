@@ -1,0 +1,15 @@
+yarn run v1.22.22
+$ /Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/.bin/vitest run packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/planning-settings-service.test.ts --no-file-parallelism --maxWorkers=1
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:77813) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/planning-settings-service.test.ts  (4 tests) 6ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  06:29:02
+   Duration  756ms (transform 338ms, setup 144ms, collect 344ms, tests 6ms, environment 158ms, prepare 34ms)
+
+Done in 1.48s.

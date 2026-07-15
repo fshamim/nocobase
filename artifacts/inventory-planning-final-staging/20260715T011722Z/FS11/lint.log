@@ -1,0 +1,3 @@
+yarn run v1.22.22
+$ /Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/.bin/eslint packages/plugins/@nocobase/plugin-ecobase/src/client/pages/PlanningSettingsPage.tsx packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/planning-settings-service.test.ts
+Done in 1.63s.

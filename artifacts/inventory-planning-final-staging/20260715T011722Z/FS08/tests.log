@@ -1,0 +1,30 @@
+yarn run v1.22.22
+$ /Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/.bin/vitest run packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-cycle-selection.test.ts --no-file-parallelism --maxWorkers=1
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:77309) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-cycle-selection.test.ts  (7 tests) 3ms
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  06:28:51
+   Duration  412ms (transform 52ms, setup 146ms, collect 10ms, tests 3ms, environment 153ms, prepare 34ms)
+
+Done in 1.19s.
+yarn run v1.22.22
+$ /Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/.bin/vitest run packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts --no-file-parallelism --maxWorkers=1
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:77367) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts  (33 tests) 41ms
+
+ Test Files  1 passed (1)
+      Tests  33 passed (33)
+   Start at  06:28:52
+   Duration  828ms (transform 380ms, setup 144ms, collect 393ms, tests 41ms, environment 151ms, prepare 33ms)
+
+Done in 1.57s.

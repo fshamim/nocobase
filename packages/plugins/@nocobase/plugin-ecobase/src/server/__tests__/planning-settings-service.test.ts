@@ -191,6 +191,8 @@ describe('EcobasePlanningSettingsService', () => {
       profitTierBThreshold: 200,
       profitTierCThreshold: 10,
       supplierOrderPurchasedPipelineStatuses: ['paid', 'custom-paid'],
+      receivingBufferDays: 4,
+      defaultExpectedArrivalLeadTimeDays: 35,
       enableCurrentOrderCycleSelection: true,
       allowDefaultExpectedArrival: true,
     });
@@ -203,6 +205,8 @@ describe('EcobasePlanningSettingsService', () => {
       profitTierBThreshold: 200,
       profitTierCThreshold: 10,
       supplierOrderPurchasedPipelineStatuses: ['paid', 'custom_paid'],
+      receivingBufferDays: 4,
+      defaultExpectedArrivalLeadTimeDays: 35,
       enableCurrentOrderCycleSelection: true,
       allowDefaultExpectedArrival: true,
     });

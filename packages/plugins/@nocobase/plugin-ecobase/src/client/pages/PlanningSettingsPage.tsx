@@ -8,7 +8,7 @@
  */
 
 import { useAPIClient } from '@nocobase/client';
-import { Alert, Button, Card, Col, InputNumber, Row, Select, Space, Table, Typography } from 'antd';
+import { Alert, Button, Card, Col, InputNumber, Row, Select, Space, Switch, Table, Typography } from 'antd';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useT } from '../locale';
 
@@ -19,8 +19,11 @@ type PlanningSettingKey =
   | 'targetCoverDays'
   | 'orderSoonWindowDays'
   | 'leadTimeFreshnessDays'
-  | 'purchasedPipelineGraceDays';
+  | 'purchasedPipelineGraceDays'
+  | 'receivingBufferDays'
+  | 'defaultExpectedArrivalLeadTimeDays';
 
+type PlanningFeatureFlagKey = 'enableCurrentOrderCycleSelection' | 'allowDefaultExpectedArrival';
 type ProfitTierSettingKey = 'profitTierAThreshold' | 'profitTierBThreshold' | 'profitTierCThreshold';
 type NumberSettingKey = PlanningSettingKey | ProfitTierSettingKey;
 
@@ -35,7 +38,11 @@ const SETTING_KEYS: PlanningSettingKey[] = [
   'orderSoonWindowDays',
   'leadTimeFreshnessDays',
   'purchasedPipelineGraceDays',
+  'receivingBufferDays',
+  'defaultExpectedArrivalLeadTimeDays',
 ];
+
+const FEATURE_FLAG_KEYS: PlanningFeatureFlagKey[] = ['enableCurrentOrderCycleSelection', 'allowDefaultExpectedArrival'];
 
 const PROFIT_TIER_KEYS: ProfitTierSettingKey[] = [
   'profitTierAThreshold',
@@ -86,6 +93,19 @@ const SETTING_HELP: Record<NumberSettingKey, { label: string; meaning: string; e
       'If this is 3, an order expected 2 days ago still reduces suggested quantity; one expected 5 days ago does not.',
     usedBy: 'Reliable open-order coverage and suggested quantity.',
   },
+  receivingBufferDays: {
+    label: 'FBA receiving buffer days',
+    meaning: 'Expected Amazon receiving time added after supplier lead time; it never closes an order.',
+    example: 'Order date + 30-day lead time + 3-day receiving buffer produces the expected arrival date.',
+    usedBy: 'Expected-arrival projection and pipeline timing.',
+  },
+  defaultExpectedArrivalLeadTimeDays: {
+    label: 'Default expected-arrival lead time days',
+    meaning:
+      'Lead time used only when no order-line or family supplier lead-time evidence exists and the flag is enabled.',
+    example: 'With 30 days and a 3-day receiving buffer, an order dated July 1 projects August 3.',
+    usedBy: 'Flagged default expected-arrival projection.',
+  },
   profitTierAThreshold: {
     label: 'Profit tier A threshold',
     meaning: 'Minimum profit score for Tier A. Profit score is Profit per unit × recommended best quantity.',
@@ -103,6 +123,17 @@ const SETTING_HELP: Record<NumberSettingKey, { label: string; meaning: string; e
     meaning: 'Minimum score above which a product becomes Tier C. Scores at or below this are unclassified.',
     example: 'Default C = 0 means any positive score below B is Tier C.',
     usedBy: 'Tier and risk classification.',
+  },
+};
+
+const FEATURE_FLAG_HELP: Record<PlanningFeatureFlagKey, { label: string; meaning: string }> = {
+  enableCurrentOrderCycleSelection: {
+    label: 'Enable current family order-cycle selection',
+    meaning: 'Count only the selected current open order cycle per family; older open cycles stay visible for review.',
+  },
+  allowDefaultExpectedArrival: {
+    label: 'Allow default expected-arrival lead time',
+    meaning: 'Use the configured default lead time only when explicit supplier lead-time evidence is absent.',
   },
 };
 
@@ -217,6 +248,7 @@ export default function PlanningSettingsPage() {
     try {
       const payload = {
         ...Object.fromEntries(NUMBER_SETTING_KEYS.map((key) => [key, settingValue(settings, key)])),
+        ...Object.fromEntries(FEATURE_FLAG_KEYS.map((key) => [key, settings[key] === true])),
         ...Object.fromEntries(STATUS_BUCKET_KEYS.map((key) => [key, statusList(settings, key)])),
       };
       const response = await api.request({
@@ -300,6 +332,23 @@ export default function PlanningSettingsPage() {
               </Col>
             ))}
           </Row>
+        </Card>
+
+        <Card title={t('Stabilization feature flags')}>
+          <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+            {FEATURE_FLAG_KEYS.map((key) => (
+              <Space key={key} align="start">
+                <Switch
+                  checked={settings[key] === true}
+                  onChange={(checked) => setSettings({ ...settings, [key]: checked })}
+                />
+                <Space direction="vertical" size={0}>
+                  <Typography.Text strong>{t(FEATURE_FLAG_HELP[key].label)}</Typography.Text>
+                  <Typography.Text type="secondary">{t(FEATURE_FLAG_HELP[key].meaning)}</Typography.Text>
+                </Space>
+              </Space>
+            ))}
+          </Space>
         </Card>
 
         <Card title={t('Profit tier thresholds')}>
