@@ -46,6 +46,13 @@ function normalized(value: unknown) {
     .trim();
 }
 
+export function isApprovedOrderLineBusinessAmbiguity(line: PlainRecord) {
+  const reason = text(toPlainRecord(line.productMappingEvidenceJson).reason);
+  return (
+    text(line.productMappingStatus) === 'unresolved' && Boolean(reason && APPROVED_BUSINESS_AMBIGUITIES.has(reason))
+  );
+}
+
 function byId(rows: PlainRecord[]) {
   return new Map(rows.map((row) => [text(row.id), row]));
 }
@@ -321,7 +328,7 @@ export class EcobaseSilverIntegrityVerifier {
       }
       if (mappingStatus === 'unresolved') {
         const reason = text(evidence.reason);
-        if (reason && APPROVED_BUSINESS_AMBIGUITIES.has(reason)) {
+        if (isApprovedOrderLineBusinessAmbiguity(line)) {
           issues.push(
             issue(
               'business_ambiguity',

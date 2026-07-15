@@ -9,6 +9,7 @@
 
 import { resolveCanonicalCompany } from '../../../server/company-identity';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
+import { isApprovedOrderLineBusinessAmbiguity } from '../../inventory-planning/server/silver-integrity-verifier';
 import { canonicalOrderLifecycleStatus, resolveOrderLifecycle } from '../../order-planning/server/order-lifecycle';
 import type { EcobaseDatabase } from '../../source-import/server/import-service';
 import { toPlainRecord } from '../../source-import/server/import-service';
@@ -183,7 +184,9 @@ export function evaluateSemanticLinkSnapshot(snapshot: SemanticLinkSnapshot) {
     if (!order) issue('error', 'order_line_order_missing', [line], 'Order line has no order.');
     if (!companyProduct || !supplierProduct) {
       issue(
-        text(line.productAnalysisStatus) === 'mapping_missing' ? 'warning' : 'error',
+        text(line.productAnalysisStatus) === 'mapping_missing' || isApprovedOrderLineBusinessAmbiguity(line)
+          ? 'warning'
+          : 'error',
         'order_line_product_missing',
         [line],
         'Order line is missing company/supplier product identity.',

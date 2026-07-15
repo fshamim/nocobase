@@ -254,6 +254,28 @@ describe('semantic link verification', () => {
     expect(evaluateSemanticLinkSnapshot(snapshot).ok).toBe(false);
   });
 
+  it.each(['product_not_found', 'boundary_ambiguous'])(
+    'keeps an explicitly classified unresolved order line as a warning: %s',
+    (reason) => {
+      const snapshot = baseline();
+      snapshot.orderLines[0] = {
+        id: 'line-1',
+        orderId: 'order-1',
+        companyProductId: null,
+        supplierProductId: null,
+        productMappingStatus: 'unresolved',
+        productMappingEvidenceJson: { reason },
+      };
+
+      const result = evaluateSemanticLinkSnapshot(snapshot);
+
+      expect(result).toMatchObject({ ok: true, errorCount: 0, warningCount: 1 });
+      expect(result.issues).toContainEqual(
+        expect.objectContaining({ severity: 'warning', code: 'order_line_product_missing' }),
+      );
+    },
+  );
+
   it('keeps ClickUp refs without accepted Purchase Orders headers as warnings', () => {
     const snapshot = baseline();
     (snapshot.importRuns[1].summary as any).clickup.unmatchedRefCount = 1;
