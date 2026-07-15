@@ -84,6 +84,13 @@ function getValues(params: unknown): Record<string, unknown> {
   return typeof values === 'object' && values !== null ? (values as Record<string, unknown>) : record;
 }
 
+function goldRefreshRequired(data: unknown) {
+  return {
+    ...(typeof data === 'object' && data !== null && !Array.isArray(data) ? data : { result: data }),
+    goldRefreshRequired: true,
+  };
+}
+
 function getOptionalString(values: Record<string, unknown>, key: string): string | undefined {
   const value = values[key];
   return typeof value === 'string' && value.length > 0 ? value : undefined;
@@ -877,12 +884,11 @@ export function createEcobaseMedallionWorkflowActions() {
       const values = getValues(ctx.action.params);
       const service = new EcobaseMedallionWorkflowService(ctx.db);
       try {
-        ctx.body = {
-          data: await service.approveAndExecute(
-            getOptionalString(values, 'approvalId') ?? '',
-            getOptionalString(values, 'approvedByUserId') ?? getActorId(ctx) ?? '',
-          ),
-        };
+        const data = await service.approveAndExecute(
+          getOptionalString(values, 'approvalId') ?? '',
+          getOptionalString(values, 'approvedByUserId') ?? getActorId(ctx) ?? '',
+        );
+        ctx.body = { data: goldRefreshRequired(data) };
       } catch (error) {
         ctx.throw(400, error instanceof Error ? error.message : 'Ecobase medallion approval execution failed.');
         return;
@@ -1038,8 +1044,7 @@ export function createEcobaseOrderPlanningActions() {
           actorUserId: getActorId(ctx),
           clearStatusOverride: getOptionalBoolean(values, 'clearStatusOverride'),
         });
-        await new EcobaseInventoryPlanningService(ctx.db).refreshReadModel({ company: data.order.companyName });
-        ctx.body = { data };
+        ctx.body = { data: goldRefreshRequired(data) };
       } catch (error) {
         ctx.throw(400, error instanceof Error ? error.message : 'Ecobase Order Planning order update failed.');
         return;
@@ -1060,8 +1065,7 @@ export function createEcobaseOrderPlanningActions() {
           commentBody: getOptionalString(values, 'commentBody'),
           actorUserId: getActorId(ctx),
         });
-        await new EcobaseInventoryPlanningService(ctx.db).refreshReadModel({ company: data.order.companyName });
-        ctx.body = { data };
+        ctx.body = { data: goldRefreshRequired(data) };
       } catch (error) {
         ctx.throw(400, error instanceof Error ? error.message : 'Ecobase Order Planning line update failed.');
         return;
@@ -1236,12 +1240,11 @@ export function createEcobaseInventoryPlanningActions() {
         return;
       }
       try {
-        ctx.body = {
-          data: await new EcobaseCompanyProductFamilyService(ctx.db).applyAutomaticTargetCorrections({
-            decisionDigest,
-            confirmation,
-          }),
-        };
+        const data = await new EcobaseCompanyProductFamilyService(ctx.db).applyAutomaticTargetCorrections({
+          decisionDigest,
+          confirmation,
+        });
+        ctx.body = { data: goldRefreshRequired(data) };
       } catch (error) {
         ctx.throw(400, error instanceof Error ? error.message : 'Ecobase target correction failed.');
         return;
@@ -1297,16 +1300,15 @@ export function createEcobaseInventoryPlanningActions() {
         ctx.throw(400, 'Ecobase receipt override requires lineId and reason.');
         return;
       }
-      ctx.body = {
-        data: await new EcobaseOrderReceiptReconciliationService(ctx.db).setOperatorOverride({
-          lineId,
-          status: getOptionalString(values, 'status') as AmazonReceiptStatus | undefined,
-          reason,
-          actorUserId: requireReceiptOverrideActor(ctx),
-          clear: getOptionalBoolean(values, 'clear'),
-          evaluatedAt: getOptionalString(values, 'evaluatedAt'),
-        }),
-      };
+      const data = await new EcobaseOrderReceiptReconciliationService(ctx.db).setOperatorOverride({
+        lineId,
+        status: getOptionalString(values, 'status') as AmazonReceiptStatus | undefined,
+        reason,
+        actorUserId: requireReceiptOverrideActor(ctx),
+        clear: getOptionalBoolean(values, 'clear'),
+        evaluatedAt: getOptionalString(values, 'evaluatedAt'),
+      });
+      ctx.body = { data: goldRefreshRequired(data) };
       await next();
     },
     updateProductPlanningFields: async (ctx, next) => {
@@ -1327,11 +1329,7 @@ export function createEcobaseInventoryPlanningActions() {
           reason: getOptionalString(values, 'reason'),
           actorUserId,
         });
-        const refresh = await service.refreshReadModel({
-          company: getOptionalString(values, 'company'),
-          calculationDate: getOptionalString(values, 'calculationDate'),
-        });
-        ctx.body = { data: { companyProduct, refresh } };
+        ctx.body = { data: goldRefreshRequired({ companyProduct }) };
       } catch (error) {
         ctx.throw(400, error instanceof Error ? error.message : 'Ecobase product planning update failed.');
         return;
@@ -1355,10 +1353,7 @@ export function createEcobaseInventoryPlanningActions() {
         actorUserId,
         reason,
       });
-      const refresh = await new EcobaseInventoryPlanningService(ctx.db).refreshReadModel(
-        inventoryPlanningQuery(values),
-      );
-      ctx.body = { data: { family, refresh } };
+      ctx.body = { data: goldRefreshRequired({ family }) };
       await next();
     },
     setFamilyPreferredSupplier: async (ctx, next) => {
@@ -1379,10 +1374,7 @@ export function createEcobaseInventoryPlanningActions() {
         actorUserId,
         reason,
       });
-      const refresh = await new EcobaseInventoryPlanningService(ctx.db).refreshReadModel(
-        inventoryPlanningQuery(values),
-      );
-      ctx.body = { data: { family, refresh } };
+      ctx.body = { data: goldRefreshRequired({ family }) };
       await next();
     },
     workspace: async (ctx, next) => {
@@ -1475,8 +1467,7 @@ export function createEcobasePlanningSettingsActions() {
           ...values,
           updatedBy: getActorId(ctx),
         });
-        await new EcobaseInventoryPlanningService(ctx.db).refreshReadModel();
-        ctx.body = { data };
+        ctx.body = { data: goldRefreshRequired(data) };
       } catch (error) {
         ctx.throw(400, error instanceof Error ? error.message : 'EcoBase planning settings could not be saved.');
       }
@@ -1484,8 +1475,7 @@ export function createEcobasePlanningSettingsActions() {
     },
     reset: async (ctx, next) => {
       const data = await new EcobasePlanningSettingsService(ctx.db).resetSettings();
-      await new EcobaseInventoryPlanningService(ctx.db).refreshReadModel();
-      ctx.body = { data };
+      ctx.body = { data: goldRefreshRequired(data) };
       await next();
     },
   };
@@ -1660,8 +1650,7 @@ export function createEcobaseSupplierOrderActions() {
           notes: getOptionalString(values, 'notes'),
           actor: getActorId(ctx),
         });
-        await new EcobaseInventoryPlanningService(ctx.db).refreshReadModel({ company });
-        ctx.body = { data };
+        ctx.body = { data: goldRefreshRequired(data) };
       } catch (error) {
         ctx.throw(400, error instanceof Error ? error.message : 'Ecobase planned order create failed.');
         return;
@@ -1693,9 +1682,7 @@ export function createEcobaseSupplierOrderActions() {
           notes: getOptionalString(values, 'notes'),
           actor: getActorId(ctx),
         });
-        const company = getOptionalString(values, 'company');
-        if (company) await new EcobaseInventoryPlanningService(ctx.db).refreshReadModel({ company });
-        ctx.body = { data };
+        ctx.body = { data: goldRefreshRequired(data) };
       } catch (error) {
         ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier-order line create failed.');
         return;
@@ -1895,8 +1882,7 @@ export function createEcobaseSupplierOrderActions() {
           blockedReason: getOptionalString(values, 'blockedReason'),
           actor: getActorId(ctx),
         });
-        await new EcobaseInventoryPlanningService(ctx.db).refreshReadModel({ company });
-        ctx.body = { data };
+        ctx.body = { data: goldRefreshRequired(data) };
       } catch (error) {
         ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier-order update failed.');
         return;
@@ -1926,8 +1912,7 @@ export function createEcobaseSupplierOrderActions() {
           notes: getOptionalString(values, 'notes'),
           actor: getActorId(ctx),
         });
-        await new EcobaseInventoryPlanningService(ctx.db).refreshReadModel({ company });
-        ctx.body = { data };
+        ctx.body = { data: goldRefreshRequired(data) };
       } catch (error) {
         ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier lead-time update failed.');
         return;
@@ -1958,8 +1943,7 @@ export function createEcobaseSupplierOrderActions() {
           notes: getOptionalString(values, 'notes'),
           actor: getActorId(ctx),
         });
-        await new EcobaseInventoryPlanningService(ctx.db).refreshReadModel({ company });
-        ctx.body = { data };
+        ctx.body = { data: goldRefreshRequired(data) };
       } catch (error) {
         ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier-order line update failed.');
         return;
@@ -1978,8 +1962,7 @@ export function createEcobaseSupplierOrderActions() {
       const service = new EcobaseSupplierOrderService(ctx.db);
       try {
         const data = await service.deleteLineOperatorFields({ supplierOrderLineId, company });
-        await new EcobaseInventoryPlanningService(ctx.db).refreshReadModel({ company });
-        ctx.body = { data };
+        ctx.body = { data: goldRefreshRequired(data) };
       } catch (error) {
         ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier-order line delete failed.');
         return;
@@ -2481,7 +2464,6 @@ export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
         sourceVersion: getOptionalString(values, 'sourceVersion'),
         idempotencyKey: getOptionalString(values, 'idempotencyKey'),
         preserveAuditRun: true,
-        skipGoldRefresh: values.skipGoldRefresh === true,
       });
       ctx.body = { data: importRun };
       await next();
@@ -2599,7 +2581,6 @@ export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
         const pipeline = await service.runMedallionPipeline({
           sourceConnectionId: getOptionalString(values, 'sourceConnectionId'),
           sourceVersion: getOptionalString(values, 'sourceVersion'),
-          goldCalculationDate: getOptionalString(values, 'goldCalculationDate'),
         });
         ctx.body = { data: pipeline };
       } catch (error) {
@@ -2699,7 +2680,6 @@ export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
             sourceVersion: getOptionalString(values, 'sourceVersion'),
             defaultCompany: getOptionalString(values, 'defaultCompany'),
             files: getCsvFiles(values),
-            skipGoldRefresh: values.skipGoldRefresh === true,
           }),
         };
       } catch (error) {
@@ -2901,7 +2881,6 @@ export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
             sourceIdentifier: getOptionalString(values, 'sourceIdentifier'),
             importedAt: getOptionalString(values, 'importedAt'),
             snapshotDate: getOptionalString(values, 'snapshotDate'),
-            skipGoldRefresh: values.skipGoldRefresh === true,
             forceReconcile: values.forceReconcile === true,
             overrideOperatorStatus: values.overrideOperatorStatus === true,
           }),

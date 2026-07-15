@@ -202,7 +202,6 @@ describe('Ecobase bronze import write path', () => {
       sourceIdentifier: 'bronze-master-stock',
       sourceVersion: '2026-06-22',
       preserveAuditRun: true,
-      skipGoldRefresh: true,
     });
 
     const bronzeFiles = db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceFiles).all();
@@ -227,7 +226,7 @@ describe('Ecobase bronze import write path', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).all()).toHaveLength(0);
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverNormalizationLinks).all().length).toBeGreaterThan(0);
     expect(db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).all()).toHaveLength(0);
-    expect(run.summary.goldRefresh).toBeNull();
+    expect(run.summary.goldRefreshRequired).toBe(true);
   });
 
   it('rejects out-of-scope rows before Bronze and records the migration decision summary', async () => {
@@ -263,7 +262,6 @@ describe('Ecobase bronze import write path', () => {
       sourceVersion: '2026-07-13T00:00:00.000Z',
       startedAt: new Date('2026-08-13T00:00:00.000Z'),
       preserveAuditRun: true,
-      skipGoldRefresh: true,
     });
 
     const bronzeRecords = db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all();
@@ -341,7 +339,6 @@ describe('Ecobase bronze import write path', () => {
       sourceIdentifier: 'retained-order-import',
       sourceVersion: '2026-07-13T00:00:00.000Z',
       preserveAuditRun: true,
-      skipGoldRefresh: true,
     });
 
     expect(run).toMatchObject({ status: 'success', errorCount: 0, warningCount: 4 });
@@ -370,7 +367,6 @@ describe('Ecobase bronze import write path', () => {
       sourceIdentifier: 'retained-order-import-repeat',
       sourceVersion: '2026-07-13T00:00:00.000Z',
       preserveAuditRun: true,
-      skipGoldRefresh: true,
     });
 
     expect(repeatedRun).toMatchObject({ status: 'success', errorCount: 0 });
@@ -443,7 +439,7 @@ describe('Ecobase bronze import write path', () => {
     expect(result.failures).toEqual([]);
     expect(result.imports).toHaveLength(2);
     expect(result.normalization.failed).toBe(0);
-    expect(result.goldRefresh).toMatchObject({ calculationDate: expect.any(String) });
+    expect(result.goldRefreshRequired).toBe(true);
     expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toHaveLength(1);
     expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toEqual(
       expect.arrayContaining([expect.objectContaining({ normalizationStatus: 'normalized' })]),
@@ -1332,7 +1328,6 @@ describe('Ecobase current Amazon operations CSV import', () => {
       sourceIdentifier: 'manual-buybox-bundle',
       sourceVersion: '2025-07-01',
       files: [{ name: 'Buybox.csv', content: buyboxCsv }],
-      skipGoldRefresh: true,
     });
     const second = await service.runCsvBundleImport({
       sourceConnectionId: 'source-1',
@@ -1343,7 +1338,7 @@ describe('Ecobase current Amazon operations CSV import', () => {
     });
 
     expect(first).toMatchObject({ status: 'success', rowCount: 1, normalizedCount: 1, warningCount: 0 });
-    expect(first.summary.goldRefresh).toBeNull();
+    expect(first.summary.goldRefreshRequired).toBe(true);
     expect(second).toMatchObject({ status: 'skipped', rowCount: 0, normalizedCount: 0, warningCount: 1 });
     expect(sourceConnection.config).toEqual({});
     expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toHaveLength(1);

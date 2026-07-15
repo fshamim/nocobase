@@ -247,8 +247,6 @@ export interface RunNoopImportParams {
   skipExistingNormalizedKinds?: string[];
   runtimeConfig?: Record<string, unknown>;
   summary?: Record<string, unknown>;
-  skipGoldRefresh?: boolean;
-  goldCalculationDate?: string;
 }
 
 type QueuedImportRun = {
@@ -270,7 +268,6 @@ export interface RunCsvBundleImportParams {
   sourceVersion?: string;
   defaultCompany?: string;
   files: CsvSourceFile[];
-  skipGoldRefresh?: boolean;
 }
 
 export interface ImportClickupOrderStatusesParams {
@@ -280,7 +277,6 @@ export interface ImportClickupOrderStatusesParams {
   dryRun?: boolean;
   importedAt?: string;
   snapshotDate?: string;
-  skipGoldRefresh?: boolean;
   forceReconcile?: boolean;
   overrideOperatorStatus?: boolean;
 }
@@ -293,7 +289,6 @@ export interface RunScheduledSellerboardImportsParams {
 export interface RunMedallionPipelineParams {
   sourceConnectionId?: string;
   sourceVersion?: string;
-  goldCalculationDate?: string;
 }
 
 export interface AutomaticGoldRefreshResult {
@@ -309,7 +304,7 @@ export interface RunMedallionPipelineResult {
   imports: Record<string, unknown>[];
   normalization: NormalizePendingResult;
   failures: string[];
-  goldRefresh: AutomaticGoldRefreshResult | null;
+  goldRefreshRequired: boolean;
 }
 
 export interface SourceStatusView {
@@ -814,13 +809,7 @@ export class EcobaseImportService {
         result.companyConflictCount +
         result.ambiguousMultiRefTaskCount;
       const errorCount = result.blockingIssueCount;
-      const affectedOrderIds = result.proposedUpdates
-        .map((update) => getString(update, 'supplierOrderId'))
-        .filter((id): id is string => Boolean(id));
-      const goldRefresh =
-        !params.skipGoldRefresh && errorCount === 0
-          ? await this.refreshGoldReadModels(sourceVersion, affectedOrderIds)
-          : null;
+      const goldRefreshRequired = errorCount === 0 && result.updatedOrderCount > 0;
       await importRunRepo.update({
         filterByTk: importRunId,
         values: {
@@ -843,7 +832,7 @@ export class EcobaseImportService {
               ...sourceRetention,
               reviewCount: 0,
             },
-            goldRefresh,
+            goldRefreshRequired,
           },
         },
       });
@@ -963,7 +952,6 @@ export class EcobaseImportService {
       sourceIdentifier,
       sourceVersion,
       preserveAuditRun: true,
-      skipGoldRefresh: params.skipGoldRefresh,
       runtimeConfig: {
         files: changedFiles.map((file) => ({
           ...file,
@@ -1076,7 +1064,6 @@ export class EcobaseImportService {
             sourceIdentifier: adapterName === 'sellerboard-api' ? 'sellerboard-scheduled' : 'medallion-pipeline',
             sourceVersion,
             preserveAuditRun: true,
-            skipGoldRefresh: true,
           }),
         );
       } catch (error) {
@@ -1089,10 +1076,8 @@ export class EcobaseImportService {
     const normalization = await new EcobaseMedallionNormalizationService(this.db).normalizePending({
       sourceConnectionId: params.sourceConnectionId,
     });
-    const goldRefresh = sourceConnections.some(shouldRefreshGoldAfterImport)
-      ? await this.refreshGoldReadModels(params.goldCalculationDate ?? sourceVersion)
-      : null;
-    return { imports, normalization, failures, goldRefresh };
+    const goldRefreshRequired = sourceConnections.some(shouldRefreshGoldAfterImport);
+    return { imports, normalization, failures, goldRefreshRequired };
   }
 
   async runAdapterImport(params: RunAdapterImportParams) {
@@ -1216,7 +1201,6 @@ export class EcobaseImportService {
     } = stream;
     let { errorCount, statusMessage } = stream;
     const fileSummaries = stream.fileSummaries;
-    let goldRefresh: AutomaticGoldRefreshResult | null = null;
     let medallionNormalization: NormalizePendingResult | null = null;
     let familyReconciliation: unknown = null;
 
@@ -1257,22 +1241,10 @@ export class EcobaseImportService {
       }
     }
 
-    if (
+    const goldRefreshRequired =
       !errorMessage &&
-      !params.skipGoldRefresh &&
       shouldRefreshGoldAfterImport(sourceConnection) &&
-      (normalizedCount > 0 || (medallionNormalization?.normalized ?? 0) > 0)
-    ) {
-      try {
-        goldRefresh = await this.refreshGoldReadModels(params.goldCalculationDate);
-      } catch (error) {
-        statusMessage =
-          error instanceof Error
-            ? `Ecobase import completed with a gold refresh warning: ${error.message}`
-            : 'Ecobase import completed with a gold refresh warning: refresh threw a non-Error value.';
-        errorCount += 1;
-      }
-    }
+      (normalizedCount > 0 || (medallionNormalization?.normalized ?? 0) > 0);
 
     const finishedAt = new Date();
     const status = this.getFinalStatus(errorMessage, errorCount, normalizedCount, finalStatusOverride);
@@ -1290,7 +1262,7 @@ export class EcobaseImportService {
           files: fileSummaries,
           medallionNormalization,
           familyReconciliation,
-          goldRefresh,
+          goldRefreshRequired,
           migration: {
             profileVersion: FOUR_COMPANY_MIGRATION_PROFILE.profileVersion,
             asOfDate: sourceVersion.slice(0, 10),

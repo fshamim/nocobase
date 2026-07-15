@@ -359,7 +359,11 @@ describe('Ecobase inventory-planning public API seam', () => {
     const db = new MemoryDatabase();
     const actions = createEcobaseInventoryPlanningActions();
     const goldRows = db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows);
+    await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).create({
+      values: { id: 'run-1', status: 'published', publishedAt: '2026-07-05T08:00:00.000Z' },
+    });
     const baseRow = {
+      refreshRunId: 'run-1',
       company: 'ACME',
       calculationDate: '2026-07-05',
       lastRefreshedAt: '2026-07-05T08:00:00.000Z',
@@ -2117,7 +2121,7 @@ describe('Ecobase import public API seam', () => {
         rowCount: 2,
         summary: {
           clickup: { dryRun: false, matchedOrderCount: 1, updatedOrderCount: 1 },
-          goldRefresh: { calculationDate: '2026-07-06' },
+          goldRefreshRequired: true,
         },
       },
     });
@@ -2149,7 +2153,6 @@ describe('Ecobase import public API seam', () => {
       dryRun: false,
       importedAt: '2026-07-07T00:00:00.000Z',
       sourceConnectionId: clickupSourceId,
-      skipGoldRefresh: true,
     });
     await actions.importClickupOrderStatuses(unchangedContext, vi.fn());
     expect(unchangedContext.body).toMatchObject({

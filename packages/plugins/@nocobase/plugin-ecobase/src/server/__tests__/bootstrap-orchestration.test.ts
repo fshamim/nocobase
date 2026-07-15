@@ -104,7 +104,8 @@ describe('live-gate import orchestration', () => {
     expect(importData.indexOf("'Order management ordered bundle'")).toBeLessThan(
       importData.indexOf("'ClickUp order status'"),
     );
-    expect(importData.match(/skipGoldRefresh: true/g)).toHaveLength(7);
+    expect(importData).not.toContain('skipGoldRefresh');
+    expect(importData).toContain("confirmation: 'REBUILD GOLD'");
     expect(script).toContain("check('phase_a_gold_inventory_rows_before_rebuild'");
     expect(script).toContain('ECOBASE_PREFLIGHT_SOURCE_EXPORT');
     expect(script).toContain('phase_a_products_without_approved_sellerboard_authority');

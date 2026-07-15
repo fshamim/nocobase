@@ -514,7 +514,6 @@ async function importData() {
         sourceIdentifier: `sellerboard-api-bootstrap-${companyKey(company)}`,
         sourceVersion: BOOTSTRAP_SOURCE_VERSION,
         idempotencyKey: `${source.id}:sellerboard-api-bootstrap:${BOOTSTRAP_SOURCE_VERSION}`,
-        skipGoldRefresh: true,
       });
     }
   });
@@ -535,7 +534,6 @@ async function importData() {
           sourceVersion: BOOTSTRAP_SOURCE_VERSION,
           defaultCompany: company,
           files: [csvFile(filePath)],
-          skipGoldRefresh: true,
         },
       );
     }
@@ -565,7 +563,6 @@ async function importData() {
       sourceIdentifier: `supplier-management-${path.basename(historicalSupplierFile)}`,
       sourceVersion: BOOTSTRAP_SOURCE_VERSION,
       files: [csvFile(historicalSupplierFile)],
-      skipGoldRefresh: true,
     }),
   );
   if (seedPhaseEnabled('suppliers')) await runStage(6, 'Supplier Management current 2026 tracker', () =>
@@ -575,7 +572,6 @@ async function importData() {
       sourceIdentifier: `supplier-management-${path.basename(currentSupplierFile)}`,
       sourceVersion: BOOTSTRAP_SOURCE_VERSION,
       files: [csvFile(currentSupplierFile)],
-      skipGoldRefresh: true,
     }),
   );
 
@@ -586,7 +582,6 @@ async function importData() {
       sourceIdentifier: 'order-management-bundle',
       sourceVersion: BOOTSTRAP_SOURCE_VERSION,
       files: orderFiles().map(csvFile),
-      skipGoldRefresh: true,
     });
   });
 
@@ -597,7 +592,6 @@ async function importData() {
       sourceIdentifier: 'order-management-product-reconciliation-v3',
       sourceVersion: BOOTSTRAP_SOURCE_VERSION,
       files: orderFiles().map(csvFile),
-      skipGoldRefresh: true,
     });
     await verifyOrderDetailsRelationships(token, 'after-product-reconciliation', { strict: false });
   });
@@ -609,7 +603,6 @@ async function importData() {
       importedAt: `${BOOTSTRAP_SOURCE_VERSION}T00:00:00.000Z`,
       snapshotDate: BOOTSTRAP_SOURCE_VERSION,
       dryRun: false,
-      skipGoldRefresh: true,
       files: clickupFiles().map(csvFile),
     });
     const clickup = run?.summary?.clickup ?? {};
@@ -647,6 +640,7 @@ async function importData() {
   if (seedPhaseEnabled('gold') && !SEED_SKIP_GOLD) await runStage(11, 'Phase B final gold read-model refresh', () =>
     runImport(token, 'Gold read models', 'ecobaseImport:refreshGoldReadModels', {
       calculationDate: BOOTSTRAP_SOURCE_VERSION,
+      confirmation: 'REBUILD GOLD',
     }),
   );
   if (seedPhaseEnabled('gold') && !SEED_SKIP_GOLD) {

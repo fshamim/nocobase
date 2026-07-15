@@ -113,7 +113,6 @@ export class EcobaseSellerboardHistoryApplyService {
         sourceIdentifier: 'sellerboard-history-backfill',
         sourceVersion: params.sourceVersion,
         preserveAuditRun: true,
-        skipGoldRefresh: true,
         runtimeConfig: {
           files: [{ ...file, expectedRowCount: summary.normalizedRowCount }],
           expectedRowCounts: { [file.name]: summary.normalizedRowCount },
@@ -148,7 +147,7 @@ export class EcobaseSellerboardHistoryApplyService {
       afterFactCount: afterCount,
       createdFactCount: afterCount - beforeCount,
       runs,
-      goldRefreshCount: 0,
+      goldRefreshRequired: afterCount > beforeCount,
     };
   }
 
