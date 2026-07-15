@@ -136,6 +136,28 @@ class MemoryDatabase implements EcobaseDatabase {
 }
 
 async function createRecord(db: MemoryDatabase, collection: string, values: Record<string, unknown>) {
+  if (collection === ECOBASE_COLLECTIONS.goldInventoryPlanningRows && !values.refreshRunId) {
+    const calculationDate = String(values.calculationDate ?? '2026-07-15');
+    const runId = `test-published-gold:${calculationDate}`;
+    const runs = db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns);
+    const existingRun = await runs.findOne({ filterByTk: runId });
+    if (!existingRun) {
+      for (const published of await runs.find({ filter: { status: 'published' } })) {
+        await runs.update({ filterByTk: published.id as string, values: { status: 'succeeded' } });
+      }
+      await runs.create({
+        values: {
+          id: runId,
+          idempotencyKey: runId,
+          requestDigest: runId,
+          calculationDate,
+          status: 'published',
+          publishedAt: `${calculationDate}T00:00:00.000Z`,
+        },
+      });
+    }
+    values.refreshRunId = runId;
+  }
   await db.getRepository(collection).create({ values });
 }
 
@@ -648,7 +670,7 @@ describe('EcobaseInventoryPlanningService', () => {
     const [goldRow] = await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).find({});
 
     expect(goldRow).toMatchObject({
-      naturalKey: '2026-07-10:ACME:company-product-missing-stock',
+      naturalKey: expect.stringMatching(/:2026-07-10:ACME:company-product-missing-stock$/),
       planningProductId: 'company-product-missing-stock',
       company: 'ACME',
       asin: 'B000NOSTOCK',
@@ -729,27 +751,42 @@ describe('EcobaseInventoryPlanningService', () => {
     ).rejects.toThrow('Ecobase budget optimizer requires a budget greater than zero.');
   });
 
-  it('reads only the latest materialized gold refresh cohort', async () => {
+  it('reads only the explicitly published Gold refresh run', async () => {
     const db = new MemoryDatabase();
+    await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns, {
+      id: 'stale-run',
+      idempotencyKey: 'stale-run',
+      requestDigest: 'stale-run',
+      calculationDate: '2026-06-26',
+      status: 'succeeded',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns, {
+      id: 'current-run',
+      idempotencyKey: 'current-run',
+      requestDigest: 'current-run',
+      calculationDate: '2026-06-26',
+      status: 'published',
+      publishedAt: '2026-06-27T00:00:00.000Z',
+    });
     await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
       id: 'stale-gold-row',
+      refreshRunId: 'stale-run',
       calculationDate: '2026-06-26',
       company: 'Ecofission LLC',
       asin: 'B000STALE',
       sku: 'STALE-SKU',
       tier: 'A',
       estimatedProfitRisk: 999,
-      lastRefreshedAt: '2026-06-26T00:00:00.000Z',
     });
     await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
       id: 'current-gold-row',
+      refreshRunId: 'current-run',
       calculationDate: '2026-06-26',
       company: 'Ecofission LLC',
       asin: 'B000CURRENT',
       sku: 'CURRENT-SKU',
       tier: 'A',
       estimatedProfitRisk: 1,
-      lastRefreshedAt: '2026-06-27T00:00:00.000Z',
     });
 
     const rows = await new EcobaseInventoryPlanningService(db).listRows({ calculationDate: '2026-06-26' });
@@ -1705,33 +1742,6 @@ describe('EcobaseInventoryPlanningService', () => {
     });
   });
 
-  it('bypasses UUID auto-fill when clearing optional Gold supplier references', async () => {
-    const calls: unknown[][] = [];
-    const db = {
-      getRepository: () => {
-        throw new Error('repository should not be used by the direct optional-reference cleanup');
-      },
-      getCollection: () => ({ getTableNameWithSchema: () => 'goldInventoryPlanningRows' }),
-      sequelize: {
-        getQueryInterface: () => ({
-          bulkUpdate: async (...args: unknown[]) => calls.push(args),
-        }),
-      },
-    } as unknown as EcobaseDatabase;
-    const service = new EcobaseInventoryPlanningService(db) as unknown as {
-      clearMissingGoldSupplierReferences: (id: string, row: Record<string, unknown>) => Promise<void>;
-    };
-
-    await service.clearMissingGoldSupplierReferences('gold-row-1', {});
-    expect(calls).toEqual([
-      [
-        'goldInventoryPlanningRows',
-        { familyPreferredSupplierId: null, familyPreferredSupplierProductId: null },
-        { id: 'gold-row-1' },
-      ],
-    ]);
-  });
-
   it('preserves family stuck evidence while active-order precedence owns the action pane', () => {
     const service = new EcobaseInventoryPlanningService(new MemoryDatabase()) as unknown as {
       applyFamilyRollups: (rows: Record<string, unknown>[], calculationDate: string) => Record<string, unknown>[];
@@ -2037,6 +2047,10 @@ describe('EcobaseInventoryPlanningService', () => {
     });
 
     const service = new EcobaseInventoryPlanningService(db);
+    await service.refreshReadModel({
+      calculationDate: '2026-07-14',
+      idempotencyKey: 'before-expected-date-override',
+    });
     const [stale] = await service.listRows({ company, calculationDate: '2026-07-14' });
     await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).update({
       filterByTk: lineId,
@@ -2045,6 +2059,10 @@ describe('EcobaseInventoryPlanningService', () => {
         expectedDateOverrideAt: '2026-07-14T00:00:00.000Z',
         expectedDateOverrideReason: 'Supplier confirmed revised timing.',
       },
+    });
+    await service.refreshReadModel({
+      calculationDate: '2026-07-14',
+      idempotencyKey: 'after-expected-date-override',
     });
     const [fresh] = await service.listRows({ company, calculationDate: '2026-07-14' });
 

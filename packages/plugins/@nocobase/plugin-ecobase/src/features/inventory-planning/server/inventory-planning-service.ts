@@ -37,9 +37,9 @@ import {
 } from './profit-tier';
 import { summarizeHistoricalProductFacts } from './historical-product-metrics';
 import { latestPreferredInventorySnapshot } from './order-receipt-evidence';
-import { EcobaseCompanyProductFamilyService } from './company-product-family-service';
 import { selectCurrentFamilyOrderCycle, type FamilyOrderCycleSelection } from './order-cycle-selection';
 import { evaluatePlanningReadiness } from './planning-readiness';
+import { EcobaseGoldRefreshRunService } from './gold-refresh-run-service';
 
 const GOLD_SOURCE_RECORD_LIMIT = 100000;
 const TIER_RULE_VERSION = 'rolling_30d_min_4_v1';
@@ -69,6 +69,12 @@ export interface InventoryPlanningQuery {
   targetCoverDays?: number;
   purchasedPipelineGraceDays?: number;
   limit?: number;
+}
+
+export interface InventoryPlanningRefreshQuery extends InventoryPlanningQuery {
+  idempotencyKey?: string;
+  requestedByUserId?: string;
+  publish?: boolean;
 }
 
 export interface InventoryPlanningRowWorkspaceQuery {
@@ -121,6 +127,10 @@ export interface InventoryPlanningCommandCenterQuery extends InventoryPlanningQu
 }
 
 type PlainRecord = Record<string, unknown>;
+type GoldTransactionRepository = {
+  find(params: { filter: PlainRecord; limit?: number; transaction?: unknown }): Promise<unknown[]>;
+  create(params: { values: PlainRecord; transaction?: unknown }): Promise<unknown>;
+};
 
 const COMMAND_CENTER_PANES: InventoryCommandCenterPane[] = [
   'supplyAction',
@@ -1067,9 +1077,7 @@ export class EcobaseInventoryPlanningService {
   }
 
   async listRows(query: InventoryPlanningQuery = {}) {
-    const goldRows = await this.readGoldRows(query);
-    if (goldRows.length > 0) return goldRows;
-    return this.calculateRows(query);
+    return this.readGoldRows(query);
   }
 
   async workspace(query: InventoryPlanningQuery = {}) {
@@ -2359,35 +2367,21 @@ export class EcobaseInventoryPlanningService {
   }
 
   private async readGoldRows(query: InventoryPlanningQuery = {}) {
-    const repository = this.db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows);
+    const publishedRun = await new EcobaseGoldRefreshRunService(this.db).getPublishedRun();
+    const refreshRunId = asString(publishedRun?.id);
+    const publishedDate = asString(publishedRun?.calculationDate);
     const requestedDate = query.calculationDate ? isoDate(query.calculationDate) : undefined;
-    const companyFilter = query.company ? { company: query.company } : {};
-    const readForDate = async (calculationDate: string) => {
-      const records = (
-        await repository.find({
-          filter: { ...companyFilter, calculationDate },
-          sort: ['-estimatedProfitRisk'],
-        })
-      ).map(toPlainRecord);
-      const latestRefresh = records
-        .map((record) => asString(record.lastRefreshedAt))
-        .filter((value): value is string => Boolean(value))
-        .sort()
-        .at(-1);
-      return latestRefresh ? records.filter((record) => asString(record.lastRefreshedAt) === latestRefresh) : records;
-    };
+    if (!refreshRunId || (requestedDate && requestedDate !== publishedDate)) return [];
 
-    let rows = requestedDate ? await readForDate(requestedDate) : [];
-    if (rows.length === 0 && !requestedDate) {
-      const latest = await repository.findOne({
-        filter: companyFilter,
-        sort: ['-calculationDate'],
-      });
-      const latestDate = asString(toPlainRecord(latest).calculationDate);
-      if (latestDate) {
-        rows = await readForDate(latestDate);
-      }
-    }
+    const rows = (
+      await this.db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).find({
+        filter: {
+          refreshRunId,
+          ...(query.company ? { company: query.company } : {}),
+        },
+        sort: ['-estimatedProfitRisk'],
+      })
+    ).map(toPlainRecord);
     return this.sortPlanningRows(rows).slice(0, query.limit ?? rows.length);
   }
 
@@ -3183,97 +3177,108 @@ export class EcobaseInventoryPlanningService {
     };
   }
 
-  async refreshReadModel(query: InventoryPlanningQuery = {}) {
+  async refreshReadModel(query: InventoryPlanningRefreshQuery = {}) {
     const calculationDate = isoDate(query.calculationDate ?? new Date());
-    const familyReconciliation = await new EcobaseCompanyProductFamilyService(this.db).reconcileAllFamilies();
-    const rows = await this.calculateRows({
-      ...query,
+    const runService = new EcobaseGoldRefreshRunService(this.db);
+    const request = {
       calculationDate,
+      company: query.company ?? null,
+      leadTimeFreshnessDays: query.leadTimeFreshnessDays ?? null,
+      safetyBufferDays: query.safetyBufferDays ?? null,
+      orderSoonWindowDays: query.orderSoonWindowDays ?? null,
+      reorderCycleDays: query.reorderCycleDays ?? null,
+      targetCoverDays: query.targetCoverDays ?? null,
+      purchasedPipelineGraceDays: query.purchasedPipelineGraceDays ?? null,
       limit: query.limit ?? GOLD_SOURCE_RECORD_LIMIT,
-    });
-    const repository = this.db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows);
-    const previousRows = (await repository.find({ limit: 10000 })).map(toPlainRecord);
-    const refreshedAt = new Date().toISOString();
-    let created = 0;
-    let updated = 0;
-    const naturalKeys = new Set<string>();
-
-    for (const row of rows) {
-      const planningProductId = asString(row.planningProductId);
-      const company = asString(row.company);
-      if (!planningProductId || !company || (!asString(row.asin) && !asString(row.sku))) {
-        throw new Error(
-          'Ecobase inventory-planning refresh failed: planningProductId, company, and ASIN or SKU are required.',
-        );
-      }
-      const naturalKey = `${calculationDate}:${company}:${planningProductId}`;
-      if (naturalKeys.has(naturalKey)) {
-        throw new Error(`Ecobase inventory-planning refresh failed: duplicate natural key "${naturalKey}".`);
-      }
-      naturalKeys.add(naturalKey);
-      const id = stableUuid(naturalKey);
-      if (!isUuidValue(id)) {
-        throw new Error(`Ecobase inventory-planning refresh failed: "${naturalKey}" did not produce a stable UUID.`);
-      }
-      const values: PlainRecord = {
-        id,
-        naturalKey,
-        lastRefreshedAt: refreshedAt,
-      };
-      for (const field of INVENTORY_PLANNING_ROW_FIELDS) {
-        const value = field === 'calculationDate' ? calculationDate : row[field] ?? null;
-        if (typeof value === 'number' && !Number.isFinite(value)) {
-          throw new Error(`Ecobase inventory-planning refresh failed: ${naturalKey}.${field} must be finite.`);
-        }
-        values[field] = value;
-      }
-      values.supplierName = asString(row.supplierName) ?? 'Unknown supplier';
-      const previousSnapshot = this.previousTierSnapshotForRow(row, previousRows, calculationDate);
-      const sameTierRule =
-        Boolean(previousSnapshot) && asString(previousSnapshot?.tierRuleVersion) === asString(row.tierRuleVersion);
-      const previousTier = sameTierRule && isProfitTier(previousSnapshot?.tier) ? previousSnapshot.tier : undefined;
-      values.previousTier = previousTier ?? null;
-      values.tierMovement = sameTierRule ? profitTierMovement(row.tier, previousSnapshot?.tier) ?? null : null;
-      const existing =
-        (await repository.findOne({ filter: { naturalKey } })) ??
-        (await repository.findOne({ filter: { calculationDate, company, planningProductId } })) ??
-        (await repository.findOne({ filter: { calculationDate, company, companyProductId: planningProductId } }));
-      if (existing) {
-        const existingId = toPlainRecord(existing).id;
-        if (typeof existingId !== 'string' && typeof existingId !== 'number') {
-          throw new Error(`Ecobase inventory-planning refresh failed: row ${naturalKey} is missing id.`);
-        }
-        await repository.update({ filterByTk: existingId, values });
-        await this.clearMissingGoldSupplierReferences(id, row);
-        updated += 1;
-      } else {
-        const createdRow = toPlainRecord(await repository.create({ values }));
-        await this.clearMissingGoldSupplierReferences(createdRow.id, row);
-        created += 1;
-      }
-    }
-
-    return {
-      calculationDate,
-      rowCount: rows.length,
-      created,
-      updated,
-      lastRefreshedAt: refreshedAt,
-      familyReconciliation,
     };
+
+    return runService.execute({
+      calculationDate,
+      idempotencyKey: query.idempotencyKey,
+      requestedByUserId: query.requestedByUserId,
+      publish: query.publish,
+      request,
+      materialize: async ({ runId, transaction, previousPublishedRunId }) => {
+        const rows = await this.calculateRows({
+          ...query,
+          company: undefined,
+          calculationDate,
+          limit: query.limit ?? GOLD_SOURCE_RECORD_LIMIT,
+        });
+        const repository = this.db.getRepository(
+          ECOBASE_COLLECTIONS.goldInventoryPlanningRows,
+        ) as GoldTransactionRepository;
+        const previousRows = previousPublishedRunId
+          ? (
+              await repository.find({
+                filter: { refreshRunId: previousPublishedRunId },
+                limit: GOLD_SOURCE_RECORD_LIMIT,
+                transaction,
+              })
+            ).map(toPlainRecord)
+          : [];
+        const refreshedAt = new Date().toISOString();
+        const naturalKeys = new Set<string>();
+
+        for (const row of rows) {
+          const planningProductId = asString(row.planningProductId);
+          const company = asString(row.company);
+          if (!planningProductId || !company || (!asString(row.asin) && !asString(row.sku))) {
+            throw new Error(
+              'Ecobase inventory-planning refresh failed: planningProductId, company, and ASIN or SKU are required.',
+            );
+          }
+          const naturalKey = `${runId}:${calculationDate}:${company}:${planningProductId}`;
+          if (naturalKeys.has(naturalKey)) {
+            throw new Error(`Ecobase inventory-planning refresh failed: duplicate natural key "${naturalKey}".`);
+          }
+          naturalKeys.add(naturalKey);
+          const id = stableUuid(naturalKey);
+          if (!isUuidValue(id)) {
+            throw new Error(
+              `Ecobase inventory-planning refresh failed: "${naturalKey}" did not produce a stable UUID.`,
+            );
+          }
+          const values: PlainRecord = {
+            id,
+            naturalKey,
+            refreshRunId: runId,
+            lastRefreshedAt: refreshedAt,
+          };
+          for (const field of INVENTORY_PLANNING_ROW_FIELDS) {
+            const value = field === 'calculationDate' ? calculationDate : row[field] ?? null;
+            if (typeof value === 'number' && !Number.isFinite(value)) {
+              throw new Error(`Ecobase inventory-planning refresh failed: ${naturalKey}.${field} must be finite.`);
+            }
+            values[field] = value;
+          }
+          values.supplierName = asString(row.supplierName) ?? 'Unknown supplier';
+          const previousSnapshot = this.previousTierSnapshotForRow(row, previousRows, calculationDate);
+          const sameTierRule =
+            Boolean(previousSnapshot) && asString(previousSnapshot?.tierRuleVersion) === asString(row.tierRuleVersion);
+          const previousTier = sameTierRule && isProfitTier(previousSnapshot?.tier) ? previousSnapshot.tier : undefined;
+          values.previousTier = previousTier ?? null;
+          values.tierMovement = sameTierRule ? profitTierMovement(row.tier, previousSnapshot?.tier) ?? null : null;
+          await repository.create({ values, transaction });
+        }
+
+        return {
+          calculationDate,
+          rowCount: rows.length,
+          created: rows.length,
+          updated: 0,
+          lastRefreshedAt: refreshedAt,
+        };
+      },
+    });
   }
 
-  private async clearMissingGoldSupplierReferences(id: unknown, row: PlainRecord) {
-    const values: PlainRecord = {};
-    if (!asString(row.familyPreferredSupplierId)) values.familyPreferredSupplierId = null;
-    if (!asString(row.familyPreferredSupplierProductId)) values.familyPreferredSupplierProductId = null;
-    if (Object.keys(values).length === 0 || (typeof id !== 'string' && typeof id !== 'number')) return;
-    const queryInterface = this.db.sequelize?.getQueryInterface?.();
-    const collection = (this.db as EcobaseDatabase & { getCollection?: (name: string) => any }).getCollection?.(
-      ECOBASE_COLLECTIONS.goldInventoryPlanningRows,
-    );
-    if (!queryInterface || !collection) return;
-    await queryInterface.bulkUpdate(collection.getTableNameWithSchema(), values, { id });
+  async verifyRefreshRun(runId: string) {
+    return new EcobaseGoldRefreshRunService(this.db).verify(runId);
+  }
+
+  async publishRefreshRun(runId: string) {
+    return new EcobaseGoldRefreshRunService(this.db).publish(runId);
   }
 
   private previousTierSnapshotForRow(row: PlainRecord, previousRows: PlainRecord[], calculationDate: string) {

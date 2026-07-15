@@ -320,7 +320,7 @@ describe('EcobaseCompanyProductFamilyService', () => {
     );
   });
 
-  it('reconciles family prerequisites automatically before a Gold refresh', async () => {
+  it('does not mutate Silver family prerequisites during a Gold refresh', async () => {
     const db = new MemoryDatabase();
     await seed(db);
     await db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).create({
@@ -331,20 +331,13 @@ describe('EcobaseCompanyProductFamilyService', () => {
         sellableStock: 0,
       },
     });
+    const before = structuredClone(
+      await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).find({ sort: ['id'] }),
+    );
 
-    const result = await new EcobaseInventoryPlanningService(db).refreshReadModel({ calculationDate: '2026-07-01' });
-    const companyProduct = await db
-      .getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts)
-      .findOne({ filterByTk: 'company-product-other-asin' });
+    await new EcobaseInventoryPlanningService(db).refreshReadModel({ calculationDate: '2026-07-01' });
 
-    expect(result).toMatchObject({
-      familyReconciliation: {
-        examinedCompanyProductCount: 4,
-        createdFamilyCount: 3,
-        linkedCompanyProductCount: 4,
-      },
-    });
-    expect(companyProduct?.companyProductFamilyId).toEqual(expect.any(String));
+    expect(await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).find({ sort: ['id'] })).toEqual(before);
   });
 
   it('persists an operator target and rejects a listing outside the family boundary', async () => {

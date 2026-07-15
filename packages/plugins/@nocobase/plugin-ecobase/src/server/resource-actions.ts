@@ -254,17 +254,20 @@ function requireProductPlanningOverrideActor(ctx: {
   return actorUserId;
 }
 
-function requireMigrationMaintenanceAdministrator(ctx: {
-  state?: Record<string, unknown>;
-  throw: (status: number, message: string) => never;
-}) {
+function requireMaintenanceAdministrator(
+  ctx: {
+    state?: Record<string, unknown>;
+    throw: (status: number, message: string) => never;
+  },
+  operation: string,
+) {
   const roles = Array.isArray(ctx.state?.currentRoles)
     ? (ctx.state.currentRoles as unknown[]).filter((role): role is string => typeof role === 'string')
     : typeof ctx.state?.currentRole === 'string'
       ? [ctx.state.currentRole]
       : [];
   if (!roles.some((role) => ['root', 'admin'].includes(role))) {
-    ctx.throw(403, 'Ecobase migration maintenance requires the root or admin role.');
+    ctx.throw(403, `Ecobase ${operation} requires the root or admin role.`);
   }
 }
 
@@ -1172,8 +1175,43 @@ export function createEcobaseInventoryPlanningActions() {
       await next();
     },
     refreshReadModel: async (ctx, next) => {
+      requireMaintenanceAdministrator(ctx, 'Gold maintenance');
+      const values = getValues(ctx.action.params);
+      const idempotencyKey = getOptionalString(values, 'idempotencyKey');
+      if (!idempotencyKey || getOptionalString(values, 'confirmation') !== 'REBUILD GOLD') {
+        ctx.throw(400, 'Ecobase Gold rebuild requires idempotencyKey and confirmation "REBUILD GOLD".');
+        return;
+      }
       const service = new EcobaseInventoryPlanningService(ctx.db);
-      ctx.body = { data: await service.refreshReadModel(inventoryPlanningQuery(getValues(ctx.action.params))) };
+      ctx.body = {
+        data: await service.refreshReadModel({
+          ...inventoryPlanningQuery(values),
+          idempotencyKey,
+          requestedByUserId: getActorId(ctx),
+          publish: false,
+        }),
+      };
+      await next();
+    },
+    verifyRefreshRun: async (ctx, next) => {
+      requireMaintenanceAdministrator(ctx, 'Gold maintenance');
+      const runId = getOptionalString(getValues(ctx.action.params), 'runId');
+      if (!runId) {
+        ctx.throw(400, 'Ecobase Gold refresh verification requires runId.');
+        return;
+      }
+      ctx.body = { data: await new EcobaseInventoryPlanningService(ctx.db).verifyRefreshRun(runId) };
+      await next();
+    },
+    publishRefreshRun: async (ctx, next) => {
+      requireMaintenanceAdministrator(ctx, 'Gold maintenance');
+      const values = getValues(ctx.action.params);
+      const runId = getOptionalString(values, 'runId');
+      if (!runId || getOptionalString(values, 'confirmation') !== 'PUBLISH GOLD') {
+        ctx.throw(400, 'Ecobase Gold publication requires runId and confirmation "PUBLISH GOLD".');
+        return;
+      }
+      ctx.body = { data: await new EcobaseInventoryPlanningService(ctx.db).publishRefreshRun(runId) };
       await next();
     },
     reconcileFamilies: async (ctx, next) => {
@@ -2589,7 +2627,7 @@ export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
       await next();
     },
     deactivateMigrationSources: async (ctx, next) => {
-      requireMigrationMaintenanceAdministrator(ctx);
+      requireMaintenanceAdministrator(ctx, 'migration maintenance');
       try {
         ctx.body = { data: await new EcobaseImportService(ctx.db, registry).deactivateMigrationSources() };
       } catch (error) {
@@ -2599,7 +2637,7 @@ export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
       await next();
     },
     purgeExpiredBronze: async (ctx, next) => {
-      requireMigrationMaintenanceAdministrator(ctx);
+      requireMaintenanceAdministrator(ctx, 'migration maintenance');
       const before = getOptionalString(getValues(ctx.action.params), 'before');
       if (!before) {
         ctx.throw(400, 'Ecobase Bronze purge requires before.');
@@ -2614,7 +2652,12 @@ export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
       await next();
     },
     refreshGoldReadModels: async (ctx, next) => {
+      requireMaintenanceAdministrator(ctx, 'Gold maintenance');
       const values = getValues(ctx.action.params);
+      if (getOptionalString(values, 'confirmation') !== 'REBUILD GOLD') {
+        ctx.throw(400, 'Ecobase Gold rebuild requires confirmation "REBUILD GOLD".');
+        return;
+      }
       try {
         ctx.body = {
           data: await new EcobaseImportService(ctx.db, registry).refreshGoldReadModels(

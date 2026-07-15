@@ -88,7 +88,13 @@ class MemoryDatabase implements EcobaseDatabase {
 }
 
 async function createRecord(db: MemoryDatabase, collection: string, values: Record<string, unknown>) {
-  await db.getRepository(collection).create({ values });
+  const repository = db.getRepository(collection);
+  const id = values.id;
+  if ((typeof id === 'string' || typeof id === 'number') && (await repository.findOne({ filterByTk: id }))) {
+    await repository.update({ filterByTk: id, values });
+    return;
+  }
+  await repository.create({ values });
 }
 
 async function createSilverPlanningProductFixture(db: MemoryDatabase, values: Record<string, unknown>) {
@@ -248,7 +254,9 @@ describe('EcobasePlanningSettingsService', () => {
       profit: 400,
     });
 
-    const [row] = await new EcobaseInventoryPlanningService(db).listRows({
+    const inventory = new EcobaseInventoryPlanningService(db);
+    await inventory.refreshReadModel({ calculationDate: '2026-06-07' });
+    const [row] = await inventory.listRows({
       company: 'Ecofission LLC',
       calculationDate: '2026-06-07',
     });
@@ -293,7 +301,9 @@ describe('EcobasePlanningSettingsService', () => {
       receivedQty: 0,
     });
 
-    const [row] = await new EcobaseInventoryPlanningService(db).listRows({
+    const inventory = new EcobaseInventoryPlanningService(db);
+    await inventory.refreshReadModel({ calculationDate: '2026-06-07' });
+    const [row] = await inventory.listRows({
       company: 'Ecofission LLC',
       calculationDate: '2026-06-07',
     });

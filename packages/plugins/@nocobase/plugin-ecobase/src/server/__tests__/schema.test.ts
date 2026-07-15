@@ -9,6 +9,8 @@
 
 import { describe, expect, it } from 'vitest';
 import bronzeSourceRecords from '../collections/bronze-source-records';
+import goldInventoryPlanningRefreshRuns from '../collections/gold-inventory-planning-refresh-runs';
+import goldInventoryPlanningRows from '../collections/gold-inventory-planning-rows';
 import importRuns from '../collections/import-runs';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import reportItems from '../collections/report-items';
@@ -57,6 +59,23 @@ describe('Ecobase plugin-owned schema', () => {
     expect(field(importRuns, 'idempotencyKey')).toMatchObject({ type: 'string', unique: true });
     expect(field(importRuns, 'summary')).toMatchObject({ type: 'jsonb' });
     expect(field(bronzeSourceRecords, 'retentionUntil')).toMatchObject({ type: 'datetimeTz' });
+  });
+
+  it('binds Gold rows to explicit refresh runs', () => {
+    expect(field(goldInventoryPlanningRefreshRuns, 'idempotencyKey')).toMatchObject({
+      type: 'string',
+      unique: true,
+      allowNull: false,
+    });
+    expect(field(goldInventoryPlanningRefreshRuns, 'status')).toMatchObject({
+      type: 'string',
+      allowNull: false,
+    });
+    expect(field(goldInventoryPlanningRows, 'refreshRun')).toMatchObject({
+      type: 'belongsTo',
+      target: ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns,
+      foreignKey: 'refreshRunId',
+    });
   });
 
   it('keeps unresolved order-line source identity nullable and explicit', () => {

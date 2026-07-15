@@ -217,6 +217,14 @@ export default defineCollection({
       defaultValue: {},
     },
     {
+      name: 'refreshRun',
+      type: 'belongsTo',
+      target: ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns,
+      foreignKey: 'refreshRunId',
+      targetKey: 'id',
+      onDelete: 'RESTRICT',
+    },
+    {
       name: 'calculationDate',
       type: 'dateOnly',
       interface: 'date',

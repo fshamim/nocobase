@@ -57,6 +57,7 @@ export const ECOBASE_COLLECTIONS = {
   silverListingDailyFacts: 'silverListingDailyFacts',
   silverTrafficSnapshots: 'silverTrafficSnapshots',
   goldTargetEvaluations: 'goldTargetEvaluations',
+  goldInventoryPlanningRefreshRuns: 'goldInventoryPlanningRefreshRuns',
   goldInventoryPlanningRows: 'goldInventoryPlanningRows',
   goldOrderPlanningRows: 'goldOrderPlanningRows',
   goldSupplierAttentionRows: 'goldSupplierAttentionRows',

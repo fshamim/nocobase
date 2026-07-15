@@ -252,9 +252,7 @@ export default function PlanningSettingsPage() {
         data: { ...payload, id: settings.id },
       });
       setSettings(unwrapData(response));
-      setNotice(
-        t('Planning settings saved. Refresh Inventory Planning rows to rebuild saved gold rows with these rules.'),
-      );
+      setNotice(t('Planning settings saved. They apply to the next administrator-built and published Gold run.'));
     } catch (err) {
       setError(err as Error);
     } finally {

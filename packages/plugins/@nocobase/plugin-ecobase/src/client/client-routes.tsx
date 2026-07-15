@@ -23,6 +23,7 @@ const ImportStatusPage = lazy(() => import('../features/source-import/client/Imp
 const InventoryPlanningPage = lazy(() => import('../features/inventory-planning/client/InventoryPlanningPage'));
 const OrderPlanningPage = lazy(() => import('../features/order-planning/client/OrderPlanningPage'));
 const PlanningSettingsPage = lazy(() => import('./pages/PlanningSettingsPage'));
+const GoldMaintenancePage = lazy(() => import('./pages/GoldMaintenancePage'));
 const SellerboardSourcesPage = lazy(() => import('../features/source-import/client/SellerboardSourcesPage'));
 const SilverDataPage = lazy(() => import('../features/semantic-model/client/SilverDataPage'));
 const SupplierManagementPage = lazy(() => import('../features/supplier-management/client/SupplierManagementPage'));
@@ -204,6 +205,13 @@ export const ecobasePluginSettings = [
     title: 'EcoBase planning settings',
     icon: 'ControlOutlined',
     Component: PlanningSettingsPage,
+    aclSnippet: 'pm.ecobase',
+  },
+  {
+    key: 'ecobase-gold-maintenance',
+    title: 'EcoBase Gold maintenance',
+    icon: 'DatabaseOutlined',
+    Component: GoldMaintenancePage,
     aclSnippet: 'pm.ecobase',
   },
 ];
