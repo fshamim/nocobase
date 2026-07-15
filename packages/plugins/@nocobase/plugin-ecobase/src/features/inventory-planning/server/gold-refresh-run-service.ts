@@ -83,6 +83,46 @@ function integer(value: unknown) {
   return Number.isSafeInteger(number) && number >= 0 ? number : undefined;
 }
 
+function finiteNumber(value: unknown) {
+  if (value === null || value === undefined || value === '') return undefined;
+  const number = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(number) ? number : undefined;
+}
+
+function obeysStockConservationContract(row: PlainRecord) {
+  const values = [
+    row.onHandSellableStock,
+    row.amazonPipelineStock,
+    row.supplierPipelineStock,
+    row.inventoryPositionStock,
+    row.futurePositionStock,
+    row.familyOnHandSellableStock,
+    row.familyAmazonPipelineStock,
+    row.familySupplierPipelineStock,
+    row.familyInventoryPositionStock,
+    row.familyFuturePositionStock,
+  ].map(finiteNumber);
+  if (values.some((value) => value === undefined)) return false;
+  const [
+    onHand,
+    amazon,
+    supplier,
+    inventory,
+    future,
+    familyOnHand,
+    familyAmazon,
+    familySupplier,
+    familyInventory,
+    familyFuture,
+  ] = values as number[];
+  return (
+    Math.abs(inventory - (onHand + amazon)) <= 0.000001 &&
+    Math.abs(future - (inventory + supplier)) <= 0.000001 &&
+    Math.abs(familyInventory - (familyOnHand + familyAmazon)) <= 0.000001 &&
+    Math.abs(familyFuture - (familyInventory + familySupplier)) <= 0.000001
+  );
+}
+
 function requestDigest(request: PlainRecord) {
   const normalized = Object.fromEntries(Object.entries(request).sort(([left], [right]) => left.localeCompare(right)));
   return createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
@@ -305,6 +345,14 @@ export class EcobaseGoldRefreshRunService {
     ) {
       throw new Error(
         `Ecobase Gold refresh run "${runId}" verification failed: expected ${expectedRowCount} rows, stored ${rows.length}, unique natural keys ${uniqueNaturalKeyCount}.`,
+      );
+    }
+    const stockContractViolation = rows.find((row) => !obeysStockConservationContract(row));
+    if (stockContractViolation) {
+      throw new Error(
+        `Ecobase Gold refresh run "${runId}" verification failed: row "${String(
+          stockContractViolation.id,
+        )}" violates the stock conservation contract.`,
       );
     }
     return {

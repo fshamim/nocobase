@@ -71,6 +71,21 @@ class MemoryDatabase implements EcobaseDatabase {
   }
 }
 
+function validStockContract() {
+  return {
+    onHandSellableStock: 10,
+    amazonPipelineStock: 5,
+    supplierPipelineStock: 20,
+    inventoryPositionStock: 15,
+    futurePositionStock: 35,
+    familyOnHandSellableStock: 10,
+    familyAmazonPipelineStock: 5,
+    familySupplierPipelineStock: 20,
+    familyInventoryPositionStock: 15,
+    familyFuturePositionStock: 35,
+  };
+}
+
 async function buildRun(
   db: MemoryDatabase,
   params: { date: string; key: string; publish?: boolean; rowIds?: string[] },
@@ -93,6 +108,7 @@ async function buildRun(
             asin: rowId,
             calculationDate: params.date,
             actionStatus: 'watch',
+            ...validStockContract(),
           },
         });
       }
@@ -142,6 +158,7 @@ describe('Gold refresh publication control', () => {
               company: 'ACME',
               asin: 'B000ROW',
               calculationDate: '2026-07-15',
+              ...validStockContract(),
             },
           });
           return {
@@ -182,6 +199,42 @@ describe('Gold refresh publication control', () => {
     await expect(new EcobaseGoldRefreshRunService(db).publish(String(failed?.id))).rejects.toThrow(
       'with status "failed" cannot be published',
     );
+  });
+
+  it('rejects stock-contract violations before publication', async () => {
+    const db = new MemoryDatabase();
+
+    await expect(
+      new EcobaseGoldRefreshRunService(db).execute({
+        calculationDate: '2026-07-15',
+        idempotencyKey: 'invalid-stock-contract',
+        request: { calculationDate: '2026-07-15' },
+        materialize: async ({ runId }) => {
+          await db.gold.create({
+            values: {
+              id: `${runId}:row`,
+              refreshRunId: runId,
+              naturalKey: `${runId}:row`,
+              planningProductId: 'row',
+              company: 'ACME',
+              calculationDate: '2026-07-15',
+              ...validStockContract(),
+              inventoryPositionStock: 35,
+            },
+          });
+          return {
+            calculationDate: '2026-07-15',
+            rowCount: 1,
+            created: 1,
+            updated: 0,
+            lastRefreshedAt: '2026-07-15T00:00:00.000Z',
+          };
+        },
+      }),
+    ).rejects.toThrow('stock conservation contract');
+    expect(db.runs.rows.find((run) => run.idempotencyKey === 'invalid-stock-contract')).toMatchObject({
+      status: 'failed',
+    });
   });
 
   it('switches the published pointer to one verified successful run', async () => {
