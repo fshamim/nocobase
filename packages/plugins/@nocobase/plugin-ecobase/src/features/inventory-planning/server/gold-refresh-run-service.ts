@@ -89,37 +89,31 @@ function finiteNumber(value: unknown) {
   return Number.isFinite(number) ? number : undefined;
 }
 
-function obeysStockConservationContract(row: PlainRecord) {
-  const values = [
-    row.onHandSellableStock,
-    row.amazonPipelineStock,
-    row.supplierPipelineStock,
-    row.inventoryPositionStock,
-    row.futurePositionStock,
-    row.familyOnHandSellableStock,
-    row.familyAmazonPipelineStock,
-    row.familySupplierPipelineStock,
-    row.familyInventoryPositionStock,
-    row.familyFuturePositionStock,
-  ].map(finiteNumber);
-  if (values.some((value) => value === undefined)) return false;
-  const [
-    onHand,
-    amazon,
-    supplier,
-    inventory,
-    future,
-    familyOnHand,
-    familyAmazon,
-    familySupplier,
-    familyInventory,
-    familyFuture,
-  ] = values as number[];
+function obeysPositionContract(values: unknown[]) {
+  const [onHand, amazon, supplier, inventory, future] = values.map(finiteNumber);
+  if ([onHand, amazon, supplier, inventory, future].every((value) => value === undefined)) return true;
+  if ([onHand, amazon, supplier, inventory, future].some((value) => value === undefined)) return false;
   return (
-    Math.abs(inventory - (onHand + amazon)) <= 0.000001 &&
-    Math.abs(future - (inventory + supplier)) <= 0.000001 &&
-    Math.abs(familyInventory - (familyOnHand + familyAmazon)) <= 0.000001 &&
-    Math.abs(familyFuture - (familyInventory + familySupplier)) <= 0.000001
+    Math.abs(inventory! - (onHand! + amazon!)) <= 0.000001 && Math.abs(future! - (inventory! + supplier!)) <= 0.000001
+  );
+}
+
+function obeysStockConservationContract(row: PlainRecord) {
+  return (
+    obeysPositionContract([
+      row.onHandSellableStock,
+      row.amazonPipelineStock,
+      row.supplierPipelineStock,
+      row.inventoryPositionStock,
+      row.futurePositionStock,
+    ]) &&
+    obeysPositionContract([
+      row.familyOnHandSellableStock,
+      row.familyAmazonPipelineStock,
+      row.familySupplierPipelineStock,
+      row.familyInventoryPositionStock,
+      row.familyFuturePositionStock,
+    ])
   );
 }
 
