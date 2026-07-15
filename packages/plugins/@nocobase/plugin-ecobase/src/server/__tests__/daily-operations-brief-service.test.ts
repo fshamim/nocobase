@@ -79,12 +79,29 @@ function service(db = new MemoryDatabase()) {
   return { db, brief: new EcobaseDailyOperationsBriefService(db) };
 }
 
+async function ensurePublishedRefreshRun(db: MemoryDatabase, calculationDate: string) {
+  const id = `gold-refresh:${calculationDate}`;
+  const repository = db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns);
+  if (!(await repository.findOne({ filterByTk: id }))) {
+    await repository.create({
+      values: {
+        id,
+        calculationDate,
+        status: 'published',
+        publishedAt: `${calculationDate}T08:00:00.000Z`,
+      },
+    });
+  }
+  return id;
+}
+
 async function seedProduct(db: MemoryDatabase, values: Record<string, unknown> = {}) {
   const id = String(values.id ?? 'product-1');
   const company = String(values.company ?? 'ACME');
   const asin = String(values.canonicalAsin ?? 'B00FOCUS');
   const sku = typeof values.sku === 'string' ? values.sku : undefined;
   const title = String(values.title ?? 'Focus product');
+  const refreshRunId = await ensurePublishedRefreshRun(db, '2026-06-10');
   await db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
     values: { id: `company:${company}`, name: company, companyKey: company.toLowerCase() },
   });
@@ -105,12 +122,15 @@ async function seedProduct(db: MemoryDatabase, values: Record<string, unknown> =
       sku,
       title,
       calculationDate: '2026-06-10',
+      refreshRunId,
       actionStatus: 'watch',
     },
   });
 }
 
 async function seedGoldInventoryRow(db: MemoryDatabase, values: Record<string, unknown>) {
+  const calculationDate = String(values.calculationDate ?? '2026-06-10');
+  const refreshRunId = await ensurePublishedRefreshRun(db, calculationDate);
   await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).create({
     values: {
       id: values.id,
@@ -121,7 +141,8 @@ async function seedGoldInventoryRow(db: MemoryDatabase, values: Record<string, u
       sku: values.sku,
       title: values.title ?? values.asin,
       tier: values.tier ?? 'A',
-      calculationDate: values.calculationDate ?? '2026-06-10',
+      calculationDate,
+      refreshRunId,
       lastRefreshedAt: values.lastRefreshedAt ?? '2026-06-10T08:00:00.000Z',
       actionStatus: values.actionStatus ?? 'watch',
       productStatus: values.productStatus ?? 'active',
@@ -144,6 +165,7 @@ async function seedGoldInventoryRow(db: MemoryDatabase, values: Record<string, u
       moneyRiskStatus: values.moneyRiskStatus ?? 'resolved_zero',
       moneyRiskInputs: values.moneyRiskInputs ?? {},
       salesVelocity: values.salesVelocity ?? 1,
+      profitPerUnit: values.profitPerUnit ?? 1,
       leadTimeFreshness: values.leadTimeFreshness ?? 'fresh',
       leadTimeDays: values.leadTimeDays ?? 14,
       suggestedReorderQty: values.suggestedReorderQty ?? 10,
@@ -349,9 +371,10 @@ describe('EcobaseDailyOperationsBriefService broader evidence focus', () => {
       activeOrderCount: 1,
       activeOrderOffTrackCount: 1,
       dataReadinessCount: 1,
-      historyReadinessAffectedCount: 4,
+      historyReadinessAffectedCount: 3,
       moneyAtRiskKnownTotal: 0,
-      moneyAtRiskUnknownCount: 3,
+      moneyAtRiskUnknownCount: 2,
+      moneyAtRiskDenominatorCount: 2,
     });
     expect(evidence.dataWarnings).toEqual(
       expect.arrayContaining([
@@ -361,11 +384,11 @@ describe('EcobaseDailyOperationsBriefService broader evidence focus', () => {
     );
     expect(snapshot).toMatchObject({
       inventoryMoneyAtRisk: null,
-      inventoryMoneyAtRiskUnknownCount: 3,
+      inventoryMoneyAtRiskUnknownCount: 2,
       todayActionCount: 2,
       snapshotPayload: {
         metricSources: expect.objectContaining({
-          inventoryRows: 4,
+          inventoryRows: 3,
           supplyActionRows: 1,
           activeOrderRows: 1,
           dataReadinessRows: 1,
@@ -409,12 +432,13 @@ describe('EcobaseDailyOperationsBriefService broader evidence focus', () => {
       });
     }
     await seedGoldInventoryRow(db, {
-      id: 'gold-duplicate-risk',
-      asin: 'B00DUPLICATE',
+      id: 'gold-family-member-risk',
+      asin: 'B00FAMILYMEMBER',
       actionStatus: 'overdue',
-      commandCenterPane: 'duplicateProducts',
-      commandCenterPaneReason: 'duplicate_company_asin_sku',
-      planningEligibilityStatus: 'ineligible_duplicate',
+      familyRole: 'member',
+      commandCenterPane: 'dataReadiness',
+      commandCenterPaneReason: 'family_member_nested_under_target',
+      planningEligibilityStatus: 'ineligible_family_member',
       estimatedProfitRisk: 999,
       moneyRiskStatus: 'resolved_positive',
     });
@@ -441,6 +465,18 @@ describe('EcobaseDailyOperationsBriefService broader evidence focus', () => {
     expect(evidence.inventoryCommandCenter.alerts.activeOrdersUnknownTiming).toEqual([
       expect.objectContaining({ asin: 'B00ACTIVE0', expectedArrivalStatus: 'unknown' }),
     ]);
+
+    const snapshot = await new EcobaseDailyManagementSnapshotService(db).upsertFromEvidence({
+      date: '2026-06-10',
+      company: 'ACME',
+      reportRunId: '22222222-2222-4222-8222-222222222222',
+      evidencePack: evidence,
+    });
+    expect(snapshot).toMatchObject({
+      inventoryMoneyAtRisk: 1280,
+      inventoryMoneyAtRiskUnknownCount: 1,
+      snapshotPayload: { metricSources: expect.objectContaining({ inventoryRows: 117 }) },
+    });
   });
 
   it('chooses Buy Box focus from a deterministic win-rate drop', async () => {
@@ -716,7 +752,7 @@ describe('EcobaseDailyOperationsBriefService broader evidence focus', () => {
     expect(evidence.buyBoxRisks).toHaveLength(1);
   });
 
-  it('marks new products without baseline as watch-list evidence instead of off-track focus', async () => {
+  it('keeps new products without baseline as low-confidence trend evidence and routes planning review to data readiness', async () => {
     const { db, brief } = service();
     await seedProduct(db, { id: 'product-new', canonicalAsin: 'B00NEW' });
     await db.getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts).create({
@@ -740,7 +776,7 @@ describe('EcobaseDailyOperationsBriefService broader evidence focus', () => {
       maxItems: 10,
     });
 
-    expect(evidence.focus).toBe('no_major_exception');
+    expect(evidence.focus).toBe('source_quality');
     expect(evidence.performanceTrends).toEqual([
       expect.objectContaining({
         asin: 'B00NEW',

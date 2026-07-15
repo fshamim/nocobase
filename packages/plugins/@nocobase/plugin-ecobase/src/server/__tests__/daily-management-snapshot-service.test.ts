@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { describe, expect, it } from 'vitest';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
@@ -86,6 +95,8 @@ describe('EcobaseDailyManagementSnapshotService', () => {
         tier: 'A',
         estimatedOosDate: '2026-06-04',
         estimatedProfitRisk: 500,
+        salesVelocity: 2,
+        profitPerUnit: 5,
         leadTimeFreshness: 'missing',
         supplierOrderState: 'placed_not_purchased',
       },
@@ -101,6 +112,8 @@ describe('EcobaseDailyManagementSnapshotService', () => {
         tier: 'B',
         estimatedOosDate: '2026-06-12',
         estimatedProfitRisk: 300,
+        salesVelocity: 2,
+        profitPerUnit: 5,
         leadTimeFreshness: 'fresh',
         supplierOrderState: 'purchased_pipeline',
       },

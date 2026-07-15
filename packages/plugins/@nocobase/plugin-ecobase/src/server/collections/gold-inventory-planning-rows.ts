@@ -83,6 +83,13 @@ export default defineCollection({
       targetKey: 'id',
       onDelete: 'SET NULL',
     },
+    {
+      name: 'familyAmazonAccountId',
+      type: 'uuid',
+      interface: 'input',
+      uiSchema: { title: 'Family Amazon Account' },
+      index: true,
+    },
     { name: 'familyMarketplace', type: 'string', interface: 'input', uiSchema: { title: 'Family Marketplace' } },
     { name: 'familyCanonicalAsin', type: 'string', interface: 'input', uiSchema: { title: 'Family ASIN' } },
     { name: 'familyRole', type: 'string', interface: 'input', uiSchema: { title: 'Family Role' }, index: true },

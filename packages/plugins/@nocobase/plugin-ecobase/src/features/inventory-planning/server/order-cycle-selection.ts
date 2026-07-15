@@ -32,7 +32,7 @@ export interface FamilyOrderCycleSelection {
   selectedOrderRef?: string;
   selectedLineIds: string[];
   selectedOpenQty: number;
-  selectedCoverageState?: 'purchased_pipeline' | 'placed_not_purchased';
+  selectedCoverageState?: 'purchased_pipeline' | 'placed_not_purchased' | 'closed';
   excludedCycles: FamilyOrderCycleDecision[];
   reviewRequired: boolean;
 }

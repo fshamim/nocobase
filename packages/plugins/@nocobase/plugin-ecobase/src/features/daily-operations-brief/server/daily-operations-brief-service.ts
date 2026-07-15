@@ -720,14 +720,14 @@ function inventoryCommandCenterEvidence(commandCenter: PlainRecord, maxItems: nu
       : [],
     riskBars: toPlainRecord(commandCenter.riskBars),
     panes: {
-      dataReadiness: pane('dataReadiness'),
       supplyAction: pane('supplyAction'),
       missingSupplier: pane('missingSupplier'),
       activeOrders: pane('activeOrders'),
-      stuckInventory: pane('stuckInventory'),
-      duplicateProducts: pane('duplicateProducts'),
       inboundMonitoring: pane('inboundMonitoring'),
       healthyInventory: pane('healthyInventory'),
+      stuckInventory: pane('stuckInventory'),
+      dataReadiness: pane('dataReadiness'),
+      excludedProducts: pane('excludedProducts'),
     },
     alerts: commandCenterAlerts(commandCenter, maxItems),
   };
@@ -827,7 +827,7 @@ export class EcobaseDailyOperationsBriefService {
       'healthyInventory',
       'stuckInventory',
       'dataReadiness',
-      'duplicateProducts',
+      'excludedProducts',
     ];
     let result: PlainRecord | undefined;
     const fullPanes: PlainRecord = {};
@@ -884,6 +884,11 @@ export class EcobaseDailyOperationsBriefService {
     const inventoryPlanning = new EcobaseInventoryPlanningService(this.db);
     const commandCenterRaw = await this.fullInventoryCommandCenter(inventoryPlanning, params);
     const inventoryCommandCenter = inventoryCommandCenterEvidence(commandCenterRaw, params.maxItems);
+    const moneyAtRiskCard = (
+      Array.isArray(commandCenterRaw.summaryCards)
+        ? (commandCenterRaw.summaryCards as PlainRecord[]).map(toPlainRecord)
+        : []
+    ).find((card) => asString(card.key) === 'moneyAtRisk');
     const rows = await this.goldInventoryRows(params.company, params.date);
     const sortedRows = rows.map(toPlainRecord).sort((left, right) => {
       const priority = safeNumber(left.digestPriority) - safeNumber(right.digestPriority);
@@ -896,9 +901,6 @@ export class EcobaseDailyOperationsBriefService {
       ...commandPaneRows(commandCenterRaw, 'supplyAction'),
       ...commandPaneRows(commandCenterRaw, 'missingSupplier'),
     ];
-    const planningRows = rows.filter(
-      (row) => asString(row.commandCenterPane) !== 'duplicateProducts' && asString(row.familyRole) !== 'member',
-    );
     const cappedRiskRows = riskRows.slice(0, params.maxItems);
     const omissions = this.buildOmissions({ riskRows, cappedRiskRows, sourceStatus, params });
     const inventoryRisks = this.buildInventoryRisks(cappedRiskRows, params.date);
@@ -983,7 +985,6 @@ export class EcobaseDailyOperationsBriefService {
         dataReadinessCount: commandPaneRows(commandCenterRaw, 'dataReadiness').length,
         historyReadinessAffectedCount:
           asNumber(toPlainRecord(toPlainRecord(commandCenterRaw.metadata).historyReadiness).affectedRowCount) ?? 0,
-        duplicateProductCount: commandPaneRows(commandCenterRaw, 'duplicateProducts').length,
         includedCommandCenterAlertItemCount: Object.values(inventoryCommandCenter.alerts).reduce(
           (total, items) => total + items.length,
           0,
@@ -998,10 +999,9 @@ export class EcobaseDailyOperationsBriefService {
           (row) => asString(row.recommendedEscalation) === 'follow_up_order',
         ).length,
         stuckInventoryReviewCount: commandPaneRows(commandCenterRaw, 'stuckInventory').length,
-        moneyAtRiskKnownTotal:
-          Math.round(planningRows.reduce((total, row) => total + (asNumber(row.estimatedProfitRisk) ?? 0), 0) * 100) /
-          100,
-        moneyAtRiskUnknownCount: planningRows.filter((row) => asNumber(row.estimatedProfitRisk) === undefined).length,
+        moneyAtRiskKnownTotal: asNumber(moneyAtRiskCard?.value) ?? 0,
+        moneyAtRiskUnknownCount: asNumber(moneyAtRiskCard?.unknownCount) ?? 0,
+        moneyAtRiskDenominatorCount: asNumber(moneyAtRiskCard?.denominatorCount) ?? 0,
         supplierOrderContextCount: supplierOrderContext.length,
         orderPlanningRiskCount: orderPlanningRisks.length,
         taskRiskCount: okrAccountabilityRisks.filter(
@@ -1028,7 +1028,7 @@ export class EcobaseDailyOperationsBriefService {
       assumptions: [
         'This slice prepares deterministic evidence for inventory, order planning, supplier-order, performance, Buy Box, OKR/accountability, task, and source-quality exceptions.',
         'Purchased or inbound supplier orders count as trusted coverage; draft, approval pending, payment pending, blocked, cancelled, and completed orders are evidence but not safe coverage.',
-        'Money at Risk is projected from non-duplicate Gold planning rows as uncovered stockout days × trusted daily velocity × profit per unit; missing inputs remain unknown.',
+        'Money at Risk uses applicable family action rows only: uncovered stockout days × positive trusted daily velocity × positive profit per unit; missing inputs remain unknown.',
         'Source credentials, raw URLs with tokens, OAuth tokens, and secret references are excluded from the evidence pack.',
       ],
     };

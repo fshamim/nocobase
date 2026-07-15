@@ -630,7 +630,9 @@ describe('Ecobase inventory-planning public API seam', () => {
     expect(data.macroRisk.map((item: Record<string, unknown>) => item.label)).toContain('Stuck current stock');
     expect(data.summaryCards.find((card: Record<string, unknown>) => card.key === 'moneyAtRisk')).toMatchObject({
       value: 600,
-      unknownCount: 2,
+      knownCount: 3,
+      unknownCount: 1,
+      denominatorCount: 4,
     });
     expect(data.panes.dataReadiness).toMatchObject({
       total: 1,

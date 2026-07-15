@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { createHash } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import type { EcobaseDatabase } from '../../source-import/server/import-service';
@@ -923,7 +932,7 @@ export class EcobaseManagementKpiFactsService {
     const facts = [] as PlainRecord[];
     for (const [scope, groupRows] of this.scopedGroups(rows, company)) {
       const supplyActionRows = groupRows.filter((row) => asString(row.commandCenterPane) === 'supplyAction');
-      const planningRows = groupRows.filter((row) => asString(row.commandCenterPane) !== 'duplicateProducts');
+      const planningRows = groupRows.filter((row) => asString(row.familyRole) !== 'member');
       const companyName = scope === 'all' ? undefined : scope;
       const common = {
         metricDate: date,

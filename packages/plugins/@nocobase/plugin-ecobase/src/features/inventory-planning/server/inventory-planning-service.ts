@@ -79,6 +79,8 @@ export interface InventoryPlanningRefreshQuery extends InventoryPlanningQuery {
 
 export interface InventoryPlanningRowWorkspaceQuery {
   company?: string;
+  familyId?: string;
+  currentOrderId?: string;
   planningProductId?: string;
   companyProductId?: string;
   asin?: string;
@@ -109,8 +111,7 @@ export type InventoryCommandCenterPane =
   | 'healthyInventory'
   | 'stuckInventory'
   | 'dataReadiness'
-  | 'excludedProducts'
-  | 'duplicateProducts';
+  | 'excludedProducts';
 
 export interface InventoryPlanningCommandCenterQuery extends InventoryPlanningQuery {
   pane?: InventoryCommandCenterPane;
@@ -127,6 +128,19 @@ export interface InventoryPlanningCommandCenterQuery extends InventoryPlanningQu
 }
 
 type PlainRecord = Record<string, unknown>;
+type FamilyActionProjection = {
+  rows: PlainRecord[];
+  evidenceRowsByFamily: Map<string, PlainRecord[]>;
+  metadata: {
+    scope: 'family_action';
+    rowUnit: 'family';
+    calculationDate: string | null;
+    publishedRunId: string | null;
+    denominatorCount: number;
+    hiddenEvidenceRowCount: number;
+    moneyRiskDenominatorCount: number;
+  };
+};
 type GoldTransactionRepository = {
   find(params: { filter: PlainRecord; limit?: number; transaction?: unknown }): Promise<unknown[]>;
   create(params: { values: PlainRecord; transaction?: unknown }): Promise<unknown>;
@@ -141,13 +155,13 @@ const COMMAND_CENTER_PANES: InventoryCommandCenterPane[] = [
   'stuckInventory',
   'dataReadiness',
   'excludedProducts',
-  'duplicateProducts',
 ];
 
 const COMMAND_CENTER_SORT_KEYS = new Set([
   'actionStatus',
   'amazonReceiptObservedAt',
   'asin',
+  'company',
   'daysOfCover',
   'daysUntilOos',
   'daysUntilSafeReorder',
@@ -156,16 +170,17 @@ const COMMAND_CENTER_SORT_KEYS = new Set([
   'inventoryPositionStock',
   'familyCurrentPlanningStock',
   'familyInventoryPositionStock',
+  'familyCanonicalAsin',
   'familyDaysOfCover',
   'familyStuckAffectedValue',
   'expectedArrivalDate',
+  'inventoryAsOfDate',
   'sku',
   'stockoutGapDays',
   'suggestedReorderQty',
   'supplierName',
   'tier',
   'title',
-  'duplicatePrimarySku',
 ]);
 
 export type SupplierOrderStatusRules = {
@@ -206,6 +221,86 @@ function asBoolean(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined;
 }
 
+function familyActionKey(row: PlainRecord) {
+  return (
+    asString(row.companyProductFamilyId) ??
+    [row.company, row.familyAmazonAccountId, row.familyMarketplace, row.familyCanonicalAsin ?? row.asin, row.id]
+      .map((value) => String(value ?? ''))
+      .join(':')
+  );
+}
+
+function buildFamilyActionProjection(
+  rows: PlainRecord[],
+  publishedRun: PlainRecord | undefined,
+): FamilyActionProjection {
+  const selectedByFamily = new Map<string, PlainRecord>();
+  const evidenceRowsByFamily = new Map<string, PlainRecord[]>();
+  const roleRank = (row: PlainRecord) => {
+    if (row.familyRole === 'target') return 3;
+    if (row.familyRole === 'review') return 2;
+    if (row.familyRole === 'unassigned') return 1;
+    return 0;
+  };
+
+  for (const row of rows) {
+    const key = familyActionKey(row);
+    evidenceRowsByFamily.set(key, [...(evidenceRowsByFamily.get(key) ?? []), row]);
+    if (asString(row.familyRole) === 'member') continue;
+    const selected = selectedByFamily.get(key);
+    if (!selected || roleRank(row) > roleRank(selected)) selectedByFamily.set(key, row);
+  }
+
+  const actionRows = [...selectedByFamily.values()].map((row) =>
+    commandCenterPane(row.commandCenterPane)
+      ? row
+      : {
+          ...row,
+          commandCenterPane:
+            asString(row.planningEligibilityStatus) === 'ineligible_inactive' ? 'excludedProducts' : 'dataReadiness',
+          commandCenterPaneReason: 'family_action_projection_requires_review',
+        },
+  );
+  const moneyRiskDenominatorCount = actionRows.filter((row) =>
+    ['supplyAction', 'activeOrders', 'inboundMonitoring'].includes(asString(row.commandCenterPane) ?? ''),
+  ).length;
+  return {
+    rows: actionRows,
+    evidenceRowsByFamily,
+    metadata: {
+      scope: 'family_action',
+      rowUnit: 'family',
+      calculationDate: asString(publishedRun?.calculationDate) ?? asString(actionRows[0]?.calculationDate) ?? null,
+      publishedRunId: asString(publishedRun?.id) ?? asString(actionRows[0]?.refreshRunId) ?? null,
+      denominatorCount: actionRows.length,
+      hiddenEvidenceRowCount: Math.max(rows.length - actionRows.length, 0),
+      moneyRiskDenominatorCount,
+    },
+  };
+}
+
+function familyActionMoneyRisk(rows: PlainRecord[]) {
+  const denominatorRows = rows.filter((row) =>
+    ['supplyAction', 'activeOrders', 'inboundMonitoring'].includes(asString(row.commandCenterPane) ?? ''),
+  );
+  const knownValues = denominatorRows
+    .map((row) => {
+      const velocity = asNumber(row.familySalesVelocity) ?? asNumber(row.salesVelocity);
+      const profitPerUnit = asNumber(row.profitPerUnit);
+      const risk = asNumber(row.estimatedProfitRisk);
+      return typeof velocity === 'number' && velocity > 0 && typeof profitPerUnit === 'number' && profitPerUnit > 0
+        ? risk
+        : undefined;
+    })
+    .filter((value): value is number => typeof value === 'number');
+  return {
+    value: Math.round(knownValues.reduce((total, value) => total + value, 0) * 100) / 100,
+    unknownCount: denominatorRows.length - knownValues.length,
+    denominatorCount: denominatorRows.length,
+    knownCount: knownValues.length,
+  };
+}
+
 function asPositiveInteger(value: unknown, fallback: number, max: number) {
   const parsed = asNumber(value);
   if (typeof parsed !== 'number') return fallback;
@@ -240,6 +335,29 @@ function stockoutGapDays(row: PlainRecord) {
   const estimatedOosDate = operationalEstimatedOosDate(row);
   const expectedArrivalDate = optionalIsoDate(asString(row.expectedArrivalDate) ?? '');
   return estimatedOosDate && expectedArrivalDate ? diffDays(expectedArrivalDate, estimatedOosDate) : undefined;
+}
+
+function inboundMonitoringEvidence(row: PlainRecord) {
+  if (asString(row.commandCenterPane) !== 'inboundMonitoring') return {};
+  const authorityEvidence = toPlainRecord(row.supplierOrderAuthorityEvidence);
+  const statusEvidence = asString(toPlainRecord(authorityEvidence.clickupStatusEvidence).clickupStatus);
+  return {
+    matchState: statusEvidence === 'inbound-monitoring' ? 'exact_order_reference' : 'review_required',
+    matchedOrderReference: asString(row.supplierOrderRef),
+    statusEvidence,
+    statusAsOf: asString(row.supplierOrderAuthorityAsOf),
+    dateEvidence: asString(row.expectedArrivalDate),
+    dateConfidence: asString(row.expectedArrivalConfidence),
+    stockEvidence: {
+      onHandSellableStock:
+        asNumber(row.onHandSellableStock) ?? asNumber(row.onHandStock) ?? asNumber(row.sellableStock),
+      amazonPipelineStock: asNumber(row.amazonPipelineStock) ?? asNumber(row.pipelineStock),
+      inventoryAsOfDate: asString(row.inventoryAsOfDate),
+      receiptStatus: asString(row.amazonReceiptStatus),
+      receiptObservedAt: asString(row.amazonReceiptObservedAt),
+    },
+    reviewState: asString(row.dataQualityStatus) ?? 'unknown',
+  };
 }
 
 export function calculateInventoryMoneyRisk(row: PlainRecord) {
@@ -780,6 +898,7 @@ function isUuidValue(value: unknown) {
 }
 
 function inventoryRowMatchesLine(query: InventoryPlanningRowWorkspaceQuery, line: PlainRecord) {
+  if (asString(query.familyId)) return true;
   const rowPlanningProductId = asString(query.planningProductId);
   const linePlanningProductId = asString(line.planningProductId);
   const rowAsin = asString(query.asin)?.toUpperCase();
@@ -1120,8 +1239,11 @@ export class EcobaseInventoryPlanningService {
       );
     }
 
-    const rows = await this.readGoldRows({ ...query, limit: undefined });
-    const calculationDate = asString(rows[0]?.calculationDate) ?? isoDate(query.calculationDate ?? new Date());
+    const allRows = await this.readGoldRows({ ...query, limit: undefined });
+    const publishedRun = await new EcobaseGoldRefreshRunService(this.db).getPublishedRun();
+    const projection = buildFamilyActionProjection(allRows, publishedRun);
+    const rows = projection.rows;
+    const calculationDate = projection.metadata.calculationDate ?? isoDate(query.calculationDate ?? new Date());
     const targetCoverDays = asNumber(rows[0]?.targetCoverDays);
     const historyNotLoadedCount = rows.filter(
       (row) => asString(toPlainRecord(row.evidence).historyLoadStatus) === 'not_loaded',
@@ -1134,10 +1256,16 @@ export class EcobaseInventoryPlanningService {
           : historyNotLoadedCount > 0
             ? 'partial'
             : 'loaded';
-    const selectedRow = this.findCommandCenterSelectedRow(rows, query);
+    const selectedEvidenceRow = this.findCommandCenterSelectedRow(allRows, query);
+    const selectedRow =
+      this.findCommandCenterSelectedRow(rows, query) ??
+      (selectedEvidenceRow
+        ? rows.find((row) => familyActionKey(row) === familyActionKey(selectedEvidenceRow))
+        : undefined);
     return {
       generatedAt: new Date().toISOString(),
       metadata: {
+        ...projection.metadata,
         company: query.company ?? null,
         calculationDate,
         latestDataAsOf: this.latestCommandCenterTimestamp(rows),
@@ -1166,21 +1294,37 @@ export class EcobaseInventoryPlanningService {
       macroRisk: this.commandCenterMacroRisk(rows),
       riskBars: this.commandCenterRiskBars(rows),
       panes: {
-        supplyAction: this.commandCenterPanePayload('supplyAction', rows, query),
-        missingSupplier: this.commandCenterPanePayload('missingSupplier', rows, query),
-        activeOrders: this.commandCenterPanePayload('activeOrders', rows, query),
-        inboundMonitoring: this.commandCenterPanePayload('inboundMonitoring', rows, query),
-        healthyInventory: this.commandCenterPanePayload('healthyInventory', rows, query),
-        stuckInventory: this.commandCenterPanePayload('stuckInventory', rows, query),
-        dataReadiness: this.commandCenterPanePayload('dataReadiness', rows, query),
-        excludedProducts: this.commandCenterPanePayload('excludedProducts', rows, query),
-        duplicateProducts: this.commandCenterPanePayload('duplicateProducts', rows, query),
+        supplyAction: this.commandCenterPanePayload('supplyAction', rows, projection.evidenceRowsByFamily, query),
+        missingSupplier: this.commandCenterPanePayload('missingSupplier', rows, projection.evidenceRowsByFamily, query),
+        activeOrders: this.commandCenterPanePayload('activeOrders', rows, projection.evidenceRowsByFamily, query),
+        inboundMonitoring: this.commandCenterPanePayload(
+          'inboundMonitoring',
+          rows,
+          projection.evidenceRowsByFamily,
+          query,
+        ),
+        healthyInventory: this.commandCenterPanePayload(
+          'healthyInventory',
+          rows,
+          projection.evidenceRowsByFamily,
+          query,
+        ),
+        stuckInventory: this.commandCenterPanePayload('stuckInventory', rows, projection.evidenceRowsByFamily, query),
+        dataReadiness: this.commandCenterPanePayload('dataReadiness', rows, projection.evidenceRowsByFamily, query),
+        excludedProducts: this.commandCenterPanePayload(
+          'excludedProducts',
+          rows,
+          projection.evidenceRowsByFamily,
+          query,
+        ),
       },
       selectedRow: selectedRow
         ? {
             row: this.commandCenterDrawerRow(selectedRow),
             workspace: await this.rowWorkspace({
               company: asString(selectedRow.company),
+              familyId: asString(selectedRow.companyProductFamilyId),
+              currentOrderId: asString(selectedRow.supplierOrderId),
               planningProductId: asString(selectedRow.planningProductId),
               companyProductId: asString(selectedRow.companyProductId),
               asin: asString(selectedRow.asin),
@@ -1197,6 +1341,7 @@ export class EcobaseInventoryPlanningService {
     const empty = {
       suppliers: [],
       supplierOrders: [],
+      currentOrder: null,
       orderLineHistory: [],
       orderActivities: [],
       productTasks: [],
@@ -1219,6 +1364,9 @@ export class EcobaseInventoryPlanningService {
             .find({ filter: { companyId }, sort: ['-orderDate'], limit: 5000 })
         ).map(toPlainRecord)
       : [];
+    const currentOrder = query.currentOrderId
+      ? companyOrderRows.find((order) => asString(order.id) === query.currentOrderId)
+      : undefined;
     const supplierAccountRows = companyId
       ? (
           await this.db
@@ -1278,8 +1426,14 @@ export class EcobaseInventoryPlanningService {
         ).getTime();
         return rightDate - leftDate;
       });
-    const firstProductOrder = toPlainRecord(orderLineHistory[0]?.order);
+    const currentSupplierOrder = query.currentOrderId
+      ? supplierOrders.find((order) => asString(order.id) === query.currentOrderId)
+      : undefined;
+    const firstProductOrder = toPlainRecord(
+      currentSupplierOrder ?? currentOrder ?? toPlainRecord(orderLineHistory[0]?.order),
+    );
     const productOrderIds = new Set(orderLineHistory.map((line) => String(line.supplierOrderId)));
+    if (query.currentOrderId) productOrderIds.add(query.currentOrderId);
     const activities = await this.withActivityAuthors(
       productOrderIds.size > 0
         ? (
@@ -1327,6 +1481,7 @@ export class EcobaseInventoryPlanningService {
     return {
       suppliers,
       supplierOrders,
+      currentOrder: currentSupplierOrder ?? currentOrder ?? null,
       orderLineHistory,
       orderActivities: activities.filter(
         (activity) =>
@@ -1436,8 +1591,8 @@ export class EcobaseInventoryPlanningService {
       const current = latestFactDateByCompanyId.get(companyId);
       if (!current || snapshotDate > current) latestFactDateByCompanyId.set(companyId, snapshotDate);
     }
-    const ordersById = new Map(
-      orders.map((order) => {
+    const ordersById = new Map<string | undefined, PlainRecord>(
+      orders.map((order): [string | undefined, PlainRecord] => {
         const rawStatus = normalizeSupplierOrderStatus(
           asString(order.canonicalStatus) ?? asString(order.lifecycleStatus) ?? asString(order.lifecyclePhase),
         );
@@ -1791,6 +1946,7 @@ export class EcobaseInventoryPlanningService {
         planningProductId: companyProductId,
         companyProductId,
         companyProductFamilyId,
+        familyAmazonAccountId: asString(family.amazonAccountId),
         familyMarketplace: asString(family.marketplace),
         familyCanonicalAsin: asString(family.canonicalAsin),
         replenishmentTargetCompanyProductId: asString(family.replenishmentTargetCompanyProductId),
@@ -2441,7 +2597,7 @@ export class EcobaseInventoryPlanningService {
   }
 
   private commandCenterSummaryCards(rows: PlainRecord[]) {
-    const knownRiskRows = rows.filter((row) => typeof asNumber(row.estimatedProfitRisk) === 'number');
+    const moneyRisk = familyActionMoneyRisk(rows);
     const supplyRows = this.commandCenterRowsForPane('supplyAction', rows);
     const missingSupplierRows = this.commandCenterRowsForPane('missingSupplier', rows);
     const activeOrderRows = this.commandCenterRowsForPane('activeOrders', rows);
@@ -2453,7 +2609,6 @@ export class EcobaseInventoryPlanningService {
       ['late', 'placed_not_purchased'].includes(asString(row.pipelineHealthStatus) ?? ''),
     );
     const followUpRows = activeOrderRows.filter((row) => asString(row.recommendedEscalation) === 'follow_up_order');
-    const profitRisk = knownRiskRows.reduce((total, row) => total + (asNumber(row.estimatedProfitRisk) as number), 0);
     return [
       {
         key: 'urgentStockoutRisk',
@@ -2464,9 +2619,11 @@ export class EcobaseInventoryPlanningService {
       {
         key: 'moneyAtRisk',
         label: 'Money at risk',
-        description: 'A/B/C tier profit exposure',
-        value: Math.round(profitRisk * 100) / 100,
-        unknownCount: rows.length - knownRiskRows.length,
+        description: 'Applicable family-action profit exposure',
+        value: moneyRisk.value,
+        unknownCount: moneyRisk.unknownCount,
+        denominatorCount: moneyRisk.denominatorCount,
+        knownCount: moneyRisk.knownCount,
         format: 'currency',
       },
       {
@@ -2501,15 +2658,7 @@ export class EcobaseInventoryPlanningService {
     const missingSupplierRows = this.commandCenterRowsForPane('missingSupplier', rows);
     const activeOrderRows = this.commandCenterRowsForPane('activeOrders', rows);
     const stuckRows = this.commandCenterRowsForPane('stuckInventory', rows);
-    const risk = (items: PlainRecord[]) => {
-      const known = items
-        .map((row) => asNumber(row.estimatedProfitRisk))
-        .filter((value): value is number => value !== undefined);
-      return {
-        value: Math.round(known.reduce((total, value) => total + value, 0) * 100) / 100,
-        unknownCount: items.length - known.length,
-      };
-    };
+    const risk = (items: PlainRecord[]) => familyActionMoneyRisk(items);
     const activeLateRows = activeOrderRows.filter((row) =>
       ['late', 'placed_not_purchased'].includes(asString(row.pipelineHealthStatus) ?? ''),
     );
@@ -2561,6 +2710,7 @@ export class EcobaseInventoryPlanningService {
   private commandCenterPanePayload(
     pane: InventoryCommandCenterPane,
     rows: PlainRecord[],
+    evidenceRowsByFamily: Map<string, PlainRecord[]>,
     query: InventoryPlanningCommandCenterQuery,
   ) {
     const page = asPositiveInteger(query.pane === pane ? query.page : undefined, 1, 10000);
@@ -2579,18 +2729,48 @@ export class EcobaseInventoryPlanningService {
       page,
       pageSize,
       total: filteredRows.length,
+      metrics: this.commandCenterPaneMetrics(filteredRows),
       sortBy: sortBy ?? this.defaultCommandCenterSort(pane),
       sortDirection,
-      rows: visibleRows.map((row) => {
-        const familyId = asString(row.companyProductFamilyId);
-        return {
-          ...this.compactCommandCenterRow(row),
-          familyMembers: rows
-            .filter((member) => familyId && asString(member.companyProductFamilyId) === familyId)
-            .map((member) => this.compactCommandCenterRow(member)),
-        };
-      }),
+      rows: visibleRows.map((row) => ({
+        ...this.compactCommandCenterRow(row),
+        familyMembers: (evidenceRowsByFamily.get(familyActionKey(row)) ?? []).map((member) =>
+          this.compactCommandCenterRow(member),
+        ),
+      })),
     };
+  }
+
+  private commandCenterPaneMetrics(rows: PlainRecord[]) {
+    const value = (row: PlainRecord, familyField: string, listingField: string) =>
+      asNumber(row[familyField]) ?? asNumber(row[listingField]);
+    const sumTile = (label: string, familyField: string, listingField: string, format = 'number') => {
+      const values = rows.map((row) => value(row, familyField, listingField));
+      const known = values.filter((item): item is number => typeof item === 'number');
+      return {
+        label,
+        value: known.length > 0 || rows.length === 0 ? known.reduce((total, item) => total + item, 0) : null,
+        unknownCount: values.length - known.length,
+        format,
+      };
+    };
+    const stockoutDays = rows.map((row) => asNumber(row.daysUntilOos));
+    const knownStockoutDays = stockoutDays.filter((item): item is number => typeof item === 'number');
+    return [
+      { label: 'Product count', value: rows.length, unknownCount: 0, format: 'number' },
+      sumTile('Current Sellable', 'familyOnHandSellableStock', 'onHandSellableStock'),
+      sumTile('Amazon Pipeline', 'familyAmazonPipelineStock', 'amazonPipelineStock'),
+      sumTile('Supplier Pipeline', 'familySupplierPipelineStock', 'supplierPipelineStock'),
+      sumTile('Inventory Position', 'familyInventoryPositionStock', 'inventoryPositionStock'),
+      sumTile('Estimated Reorder', 'familySuggestedReorderQty', 'suggestedReorderQty'),
+      sumTile('Value', 'familyEstimatedOrderCost', 'estimatedOrderCost', 'currency'),
+      {
+        label: 'Days until Stockout',
+        value: knownStockoutDays.length > 0 ? Math.min(...knownStockoutDays) : null,
+        unknownCount: stockoutDays.length - knownStockoutDays.length,
+        format: 'days',
+      },
+    ];
   }
 
   private commandCenterRowsForPane(pane: InventoryCommandCenterPane, rows: PlainRecord[]) {
@@ -2623,7 +2803,20 @@ export class EcobaseInventoryPlanningService {
     }
     const search = asString(filters.search)?.toLowerCase();
     if (search) {
-      const text = [row.asin, row.sku, row.title, row.supplierName]
+      const cycleEvidence = toPlainRecord(toPlainRecord(row.evidence).orderCycle);
+      const text = [
+        row.company,
+        row.asin,
+        row.familyCanonicalAsin,
+        row.sku,
+        row.title,
+        row.supplierName,
+        row.supplierOrderRef,
+        row.supplierOrderId,
+        row.supplierOrderAuthorityTaskRef,
+        cycleEvidence.selectedOrderRef,
+        cycleEvidence.orderRef,
+      ]
         .map((value) => String(value ?? '').toLowerCase())
         .join(' ');
       if (!text.includes(search)) return false;
@@ -2635,7 +2828,6 @@ export class EcobaseInventoryPlanningService {
     if (pane === 'activeOrders' || pane === 'inboundMonitoring') return 'stockoutGapDays';
     if (pane === 'healthyInventory') return 'daysOfCover';
     if (pane === 'stuckInventory') return 'familyStuckAffectedValue';
-    if (pane === 'duplicateProducts') return 'inventoryPositionStock';
     return 'estimatedProfitRisk';
   }
 
@@ -2687,6 +2879,7 @@ export class EcobaseInventoryPlanningService {
       planningProductId: asString(row.planningProductId),
       companyProductId: asString(row.companyProductId),
       companyProductFamilyId: asString(row.companyProductFamilyId),
+      familyAmazonAccountId: asString(row.familyAmazonAccountId),
       familyMarketplace: asString(row.familyMarketplace),
       familyCanonicalAsin: asString(row.familyCanonicalAsin),
       familyRole: asString(row.familyRole),
@@ -2736,10 +2929,6 @@ export class EcobaseInventoryPlanningService {
       sku: asString(row.sku),
       title: asString(row.title),
       productStatus: asString(row.productStatus),
-      duplicatePrimarySku: asString(toPlainRecord(toPlainRecord(row.evidence).duplicateSkuGroup).primarySku),
-      duplicatePrimaryCompanyProductId: asString(
-        toPlainRecord(toPlainRecord(row.evidence).duplicateSkuGroup).primaryCompanyProductId,
-      ),
       tier: asString(row.tier),
       tierScore: asNumber(row.tierScore),
       recentUnits30: asNumber(row.recentUnits30),
@@ -2783,6 +2972,7 @@ export class EcobaseInventoryPlanningService {
       operationalIssues: Array.isArray(row.operationalIssues) ? row.operationalIssues : [],
       inventoryAsOfDate: asString(row.inventoryAsOfDate),
       sourceFreshnessStatus: asString(row.sourceFreshnessStatus),
+      inboundMonitoringEvidence: inboundMonitoringEvidence(row),
       commandCenterPane: asString(row.commandCenterPane),
       commandCenterPaneReason: asString(row.commandCenterPaneReason),
       estimatedOrderCost: asNumber(row.estimatedOrderCost),
@@ -2859,6 +3049,62 @@ export class EcobaseInventoryPlanningService {
       sixMonthWorstQty: asNumber(row.sixMonthWorstQty),
       sixMonthBestQty: asNumber(row.sixMonthBestQty),
       sixMonthMargin: asNumber(row.sixMonthMargin),
+      familyMetrics: {
+        familyId: asString(row.companyProductFamilyId),
+        company: asString(row.company),
+        amazonAccountId: asString(row.familyAmazonAccountId),
+        marketplace: asString(row.familyMarketplace),
+        asin: asString(row.familyCanonicalAsin) ?? asString(row.asin),
+        onHandSellableStock: asNumber(row.familyOnHandSellableStock) ?? asNumber(row.onHandSellableStock),
+        reservedStock: asNumber(row.familyReservedStock) ?? asNumber(row.reservedStock),
+        amazonPipelineStock: asNumber(row.familyAmazonPipelineStock) ?? asNumber(row.amazonPipelineStock),
+        supplierPipelineStock: asNumber(row.familySupplierPipelineStock) ?? asNumber(row.supplierPipelineStock),
+        inventoryPositionStock: asNumber(row.familyInventoryPositionStock) ?? asNumber(row.inventoryPositionStock),
+        futurePositionStock: asNumber(row.familyFuturePositionStock) ?? asNumber(row.futurePositionStock),
+        daysOfCover: asNumber(row.familyDaysOfCover) ?? asNumber(row.daysOfCover),
+        targetCompanyProductId: asString(row.replenishmentTargetCompanyProductId),
+        targetSku: asString(row.replenishmentTargetSku) ?? asString(row.sku),
+      },
+      targetListingMetrics: {
+        companyProductId: asString(row.companyProductId),
+        sku: asString(row.sku),
+        listingStatus: asString(row.productStatus),
+        onHandSellableStock: asNumber(row.onHandSellableStock),
+        reservedStock: asNumber(row.reservedStock),
+        amazonPipelineStock: asNumber(row.amazonPipelineStock),
+        supplierPipelineStock: asNumber(row.supplierPipelineStock),
+        inventoryPositionStock: asNumber(row.inventoryPositionStock),
+        futurePositionStock: asNumber(row.futurePositionStock),
+        daysOfCover: asNumber(row.daysOfCover),
+      },
+      familySupplier: {
+        supplierId: asString(row.familyPreferredSupplierId),
+        supplierName: asString(row.familyPreferredSupplierName),
+        supplierProductId: asString(row.familyPreferredSupplierProductId),
+        leadTimeDays: asNumber(row.familyLeadTimeDays),
+        unitCost: asNumber(row.familyUnitCost),
+      },
+      targetOffer: {
+        supplierId: asString(row.supplierId),
+        supplierName: asString(row.supplierName),
+        supplierProductId: asString(toPlainRecord(row.evidence).supplierProductId),
+        availability: asString(row.supplierAvailability),
+        leadTimeDays: asNumber(row.leadTimeDays),
+        unitCost: asNumber(row.unitCost),
+      },
+      currentCycle: {
+        orderId: asString(row.supplierOrderId),
+        orderRef: asString(row.supplierOrderRef),
+        canonicalStatus: asString(row.supplierOrderStatus),
+        expectedArrivalDate: asString(row.expectedArrivalDate),
+        receiptStatus: asString(row.amazonReceiptStatus),
+      },
+      readiness: {
+        category: asString(row.planningEligibilityStatus),
+        primaryIssue: Array.isArray(row.dataQualityIssues) ? row.dataQualityIssues[0] : undefined,
+        primaryAction: asString(row.actionStatus),
+        issueCodes: Array.isArray(row.readinessReasonCodes) ? row.readinessReasonCodes : [],
+      },
       evidence: toPlainRecord(row.evidence),
     };
   }
@@ -2900,8 +3146,11 @@ export class EcobaseInventoryPlanningService {
   }
 
   async digestPreview(query: InventoryPlanningQuery = {}) {
-    const rows = await this.listRows({ ...query, limit: undefined });
-    const tieredRows = rows.filter((row) => isProfitTier(row.tier));
+    const allRows = await this.listRows({ ...query, limit: undefined });
+    const publishedRun = await new EcobaseGoldRefreshRunService(this.db).getPublishedRun();
+    const projection = buildFamilyActionProjection(allRows, publishedRun);
+    const rows = projection.rows;
+    const moneyRisk = familyActionMoneyRisk(rows);
     const digestRows = rows.filter(isDigestCandidateRow);
     const urgentRows = await this.withLatestSupplierOrderActivity(
       this.sortDigestRows(digestRows.filter(isUrgentDigestRow)),
@@ -2911,6 +3160,7 @@ export class EcobaseInventoryPlanningService {
     return {
       generatedAt: new Date().toISOString(),
       company: query.company ?? null,
+      metadata: projection.metadata,
       summary: {
         overdue: digestRows.filter((row) => row.actionStatus === 'overdue').length,
         orderToday: digestRows.filter((row) => row.actionStatus === 'order_today').length,
@@ -2922,6 +3172,10 @@ export class EcobaseInventoryPlanningService {
         closedOrderHistoryOnly: urgentRows.filter((row) => row.supplierOrderState === 'closed_history').length,
         placedNotPurchased: urgentRows.filter((row) => row.supplierOrderState === 'placed_not_purchased').length,
         purchasedPipelineExcluded: digestRows.filter((row) => row.supplierOrderState === 'purchased_pipeline').length,
+        moneyAtRiskKnownTotal: moneyRisk.value,
+        moneyAtRiskKnownCount: moneyRisk.knownCount,
+        moneyAtRiskUnknownCount: moneyRisk.unknownCount,
+        moneyAtRiskDenominatorCount: moneyRisk.denominatorCount,
       },
       sections: {
         orderNow: urgentRows,
@@ -3578,6 +3832,7 @@ export class EcobaseInventoryPlanningService {
 
   private async findOrderLinesByProduct(params: {
     company?: string;
+    familyId?: string;
     asin?: string;
     sku?: string;
   }): Promise<PlainRecord[]> {
@@ -3586,7 +3841,7 @@ export class EcobaseInventoryPlanningService {
       : params.sku
         ? { sku: params.sku }
         : undefined;
-    if (!productFilter) return [];
+    if (!params.familyId && !productFilter) return [];
 
     const [company] = params.company
       ? (
@@ -3596,19 +3851,41 @@ export class EcobaseInventoryPlanningService {
         ).map(toPlainRecord)
       : [];
     const companyId = asString(company?.id);
-    const products = (
-      await this.db.getRepository(ECOBASE_COLLECTIONS.silverProducts).find({ filter: productFilter, limit: 5000 })
-    ).map(toPlainRecord);
-    const productIds = products.map((product) => asString(product.id)).filter((id): id is string => Boolean(id));
-    if (productIds.length === 0) return [];
-
-    const companyProductFilter: PlainRecord = { productId: { $in: productIds.map(asRecordIdFilterValue) } };
-    if (companyId) companyProductFilter.companyId = companyId;
-    const companyProducts = (
-      await this.db
-        .getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts)
-        .find({ filter: companyProductFilter, limit: 10000 })
-    ).map(toPlainRecord);
+    let companyProducts: PlainRecord[];
+    let products: PlainRecord[];
+    if (params.familyId) {
+      const companyProductFilter: PlainRecord = { companyProductFamilyId: params.familyId };
+      if (companyId) companyProductFilter.companyId = companyId;
+      companyProducts = (
+        await this.db
+          .getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts)
+          .find({ filter: companyProductFilter, limit: 10000 })
+      ).map(toPlainRecord);
+      const productIds = companyProducts
+        .map((companyProduct) => asString(companyProduct.productId))
+        .filter((id): id is string => Boolean(id));
+      products = productIds.length
+        ? (
+            await this.db.getRepository(ECOBASE_COLLECTIONS.silverProducts).find({
+              filter: { id: { $in: productIds.map(asRecordIdFilterValue) } },
+              limit: productIds.length,
+            })
+          ).map(toPlainRecord)
+        : [];
+    } else {
+      products = (
+        await this.db.getRepository(ECOBASE_COLLECTIONS.silverProducts).find({ filter: productFilter, limit: 5000 })
+      ).map(toPlainRecord);
+      const productIds = products.map((product) => asString(product.id)).filter((id): id is string => Boolean(id));
+      if (productIds.length === 0) return [];
+      const companyProductFilter: PlainRecord = { productId: { $in: productIds.map(asRecordIdFilterValue) } };
+      if (companyId) companyProductFilter.companyId = companyId;
+      companyProducts = (
+        await this.db
+          .getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts)
+          .find({ filter: companyProductFilter, limit: 10000 })
+      ).map(toPlainRecord);
+    }
     const companyProductIds = companyProducts
       .map((companyProduct) => asString(companyProduct.id))
       .filter((id): id is string => Boolean(id));

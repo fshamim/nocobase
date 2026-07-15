@@ -19,8 +19,10 @@ import {
   Descriptions,
   Divider,
   Drawer,
+  Grid,
   Input,
   InputNumber,
+  Modal,
   Popconfirm,
   Row,
   Select,
@@ -59,8 +61,7 @@ type CommandCenterPaneKey =
   | 'healthyInventory'
   | 'stuckInventory'
   | 'dataReadiness'
-  | 'excludedProducts'
-  | 'duplicateProducts';
+  | 'excludedProducts';
 
 interface DigestPreview {
   summary: PlainRecord;
@@ -753,6 +754,7 @@ export default function InventoryPlanningPage() {
   const t = useT();
   const api = useAPIClient();
   const { message } = App.useApp();
+  const screens = Grid.useBreakpoint();
   const [company, setCompany] = useState('');
   const [calculationDate, setCalculationDate] = useState('');
   const [actionStatus, setActionStatus] = useState<string | undefined>();
@@ -802,6 +804,11 @@ export default function InventoryPlanningPage() {
   const [budgetLoading, setBudgetLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [targetUpdatingFamilyId, setTargetUpdatingFamilyId] = useState<string>();
+  const [pendingFamilyTarget, setPendingFamilyTarget] = useState<{
+    row: PlainRecord;
+    companyProductId: string;
+  } | null>(null);
+  const [familyTargetReason, setFamilyTargetReason] = useState('');
   const [error, setError] = useState<Error | null>(null);
   const sortedOrderActivities = useMemo(
     () =>
@@ -902,9 +909,13 @@ export default function InventoryPlanningPage() {
   ]);
 
   const updateFamilyTarget = useCallback(
-    async (row: PlainRecord, companyProductId: string) => {
+    async (row: PlainRecord, companyProductId: string, reason: string) => {
       const familyId = String(row.companyProductFamilyId ?? '');
-      if (!familyId || !companyProductId || companyProductId === row.replenishmentTargetCompanyProductId) return;
+      if (!familyId || !companyProductId || companyProductId === row.replenishmentTargetCompanyProductId) return false;
+      if (!reason.trim()) {
+        message.error(t('A reason is required to change the replenishment target.'));
+        return false;
+      }
       setTargetUpdatingFamilyId(familyId);
       try {
         await api.request({
@@ -913,14 +924,17 @@ export default function InventoryPlanningPage() {
           data: {
             familyId,
             companyProductId,
+            reason: reason.trim(),
             company: company.trim() || undefined,
             calculationDate: calculationDate.trim() || undefined,
           },
         });
         message.success(t('Replenishment target updated.'));
         await loadPlanning();
+        return true;
       } catch (err) {
         message.error(err instanceof Error ? err.message : t('Replenishment target could not be updated.'));
+        return false;
       } finally {
         setTargetUpdatingFamilyId(undefined);
       }
@@ -1051,17 +1065,15 @@ export default function InventoryPlanningPage() {
   const commandMacroRisk = unwrapRows(commandCenter.macroRisk);
   const commandRiskBars = unwrapData(commandCenter.riskBars);
   const commandCalculationDate = String(commandMetadata.calculationDate ?? relativeBaseDate);
-  const commandTargetCoverDays = finiteNumber(commandMetadata.targetCoverDays) ?? targetCoverDays;
   const commandPaneTitles: Record<CommandCenterPaneKey, string> = {
-    supplyAction: t('Families needing supply action — no active order'),
-    missingSupplier: t('Families missing supplier — stockout risk'),
-    activeOrders: t('Families with current order cycles — pipeline monitoring'),
-    inboundMonitoring: t('Inbound Monitoring — awaiting Amazon stock'),
-    healthyInventory: t('Healthy inventory — current coverage sufficient'),
-    stuckInventory: t('Stuck & excess inventory'),
-    dataReadiness: t('Data readiness — operational inputs needed'),
-    excludedProducts: t('Excluded products'),
-    duplicateProducts: t('Duplicate SKU review'),
+    supplyAction: t('Needs Order'),
+    missingSupplier: t('Missing Supplier'),
+    activeOrders: t('Active Orders'),
+    inboundMonitoring: t('Inbound Monitoring'),
+    healthyInventory: t('Healthy Inventory'),
+    stuckInventory: t('Stuck Inventory'),
+    dataReadiness: t('Data Readiness'),
+    excludedProducts: t('Excluded'),
   };
   const commandPaneDescriptions: Record<CommandCenterPaneKey, string> = {
     supplyAction: t(
@@ -1086,9 +1098,6 @@ export default function InventoryPlanningPage() {
       'Current inventory is retained here when velocity, family target, or another required operational input is not ready.',
     ),
     excludedProducts: t('Products intentionally excluded from replenishment remain visible here for review.'),
-    duplicateProducts: t(
-      'Same company + ASIN rows with different SKUs. Review and resolve before using them for planning.',
-    ),
   };
   const commandPaneSortOptions: Record<CommandCenterPaneKey, { value: string; label: string }[]> = {
     supplyAction: [
@@ -1132,11 +1141,6 @@ export default function InventoryPlanningPage() {
       { value: 'asin', label: t('ASIN') },
       { value: 'actionStatus', label: t('Status') },
     ],
-    duplicateProducts: [
-      { value: 'inventoryPositionStock', label: t('Inventory position') },
-      { value: 'asin', label: t('ASIN') },
-      { value: 'duplicatePrimarySku', label: t('Primary SKU') },
-    ],
   };
   const commandPaneHelpGroups: Record<CommandCenterPaneKey, FormulaHelpGroupKey> = {
     supplyAction: 'inventorySupplyAction',
@@ -1147,7 +1151,6 @@ export default function InventoryPlanningPage() {
     stuckInventory: 'inventoryStuckInventory',
     dataReadiness: 'inventoryDrawer',
     excludedProducts: 'inventoryDrawer',
-    duplicateProducts: 'inventoryDrawer',
   };
   const renderRiskBars = (items: PlainRecord[]) => (
     <Space direction="vertical" size={6} style={{ width: '100%' }}>
@@ -1167,6 +1170,32 @@ export default function InventoryPlanningPage() {
         );
       })}
     </Space>
+  );
+  const renderPaneMetrics = (metrics: PlainRecord[]) => (
+    <Row gutter={[8, 8]} style={{ marginBottom: 12 }}>
+      {metrics.map((metric) => {
+        const value = finiteNumber(metric.value);
+        const unknownCount = finiteNumber(metric.unknownCount) ?? 0;
+        return (
+          <Col xs={12} sm={8} md={6} xl={3} key={String(metric.label)}>
+            <Card size="small">
+              <Statistic
+                title={t(String(metric.label))}
+                value={value ?? '—'}
+                precision={metric.format === 'currency' && typeof value === 'number' ? 2 : 0}
+                prefix={metric.format === 'currency' && typeof value === 'number' ? '$' : undefined}
+                suffix={metric.format === 'days' && typeof value === 'number' ? t('days') : undefined}
+              />
+              {unknownCount > 0 ? (
+                <Typography.Text type="warning">
+                  {formatNumber(unknownCount)} {t('unknown')}
+                </Typography.Text>
+              ) : null}
+            </Card>
+          </Col>
+        );
+      })}
+    </Row>
   );
   const coverageColumnTitle = (
     <Tooltip
@@ -1194,7 +1223,7 @@ export default function InventoryPlanningPage() {
     const salesVelocity = finiteNumber(row.salesVelocity);
     const date = formatDate(row.estimatedOosDate);
     const daysOfCover = finiteNumber(row.daysOfCover);
-    const targetCover = finiteNumber(commandTargetCoverDays);
+    const targetCover = finiteNumber(targetCoverDays);
     const shortfall =
       typeof daysOfCover === 'number' && typeof targetCover === 'number' ? targetCover - daysOfCover : undefined;
     const shortfallLabel =
@@ -1521,7 +1550,10 @@ export default function InventoryPlanningPage() {
           value={row.replenishmentTargetCompanyProductId}
           loading={targetUpdatingFamilyId === familyId}
           disabled={!familyId || members.length < 2 || targetUpdatingFamilyId === familyId}
-          onChange={(companyProductId) => void updateFamilyTarget(row, companyProductId)}
+          onChange={(companyProductId) => {
+            setFamilyTargetReason('');
+            setPendingFamilyTarget({ row, companyProductId });
+          }}
           style={{ minWidth: 170 }}
           options={members.map((member) => ({
             value: String(member.companyProductId),
@@ -1556,10 +1588,6 @@ export default function InventoryPlanningPage() {
       <Typography.Text type="secondary">
         {t('Position')} {formatNumber(row.familyPositionDaysOfCover)} {t('days')} · {t('OOS')}{' '}
         {formatDate(row.familyPositionEstimatedOosDate)}
-      </Typography.Text>
-      <Typography.Text type="secondary">
-        {t('Velocity basis')} {t(formatStatusLabel(row.salesVelocityBasis ?? 'unavailable'))} ·{' '}
-        {t(formatStatusLabel(row.salesVelocityStatus ?? 'missing'))}
       </Typography.Text>
     </Space>
   );
@@ -1599,23 +1627,31 @@ export default function InventoryPlanningPage() {
       );
     }
     if (pane === 'inboundMonitoring') {
-      const sourceStatus = asPlainRecord(
-        asPlainRecord(row.supplierOrderAuthorityEvidence).clickupStatusEvidence,
-      ).clickupStatus;
+      const evidence = asPlainRecord(row.inboundMonitoringEvidence);
+      const stockEvidence = asPlainRecord(evidence.stockEvidence);
       return (
         <Space direction="vertical" size={0}>
           <Tag color={row.amazonReceiptStatus === 'partially_observed' ? 'gold' : 'processing'}>
             {t(formatStatusLabel(row.amazonReceiptStatus ?? 'awaiting_amazon_stock'))}
           </Tag>
-          <Typography.Text strong>{row.supplierOrderRef ?? '—'}</Typography.Text>
+          <Typography.Text strong>
+            {t('Matched order')} {evidence.matchedOrderReference ?? row.supplierOrderRef ?? '—'}
+          </Typography.Text>
           <Typography.Text type="secondary">
-            {t('Source')} {sourceStatus ?? 'inbound-monitoring'} · {t('Expected')} {formatDate(row.expectedArrivalDate)}
+            {t('Status evidence')} {t(formatStatusLabel(evidence.statusEvidence ?? 'unknown'))} ·{' '}
+            {formatDate(evidence.statusAsOf)}
+          </Typography.Text>
+          <Typography.Text type="secondary">
+            {t('Date evidence')} {formatDate(evidence.dateEvidence)} ·{' '}
+            {t(formatStatusLabel(evidence.dateConfidence ?? 'unknown'))}
           </Typography.Text>
           <Typography.Text>
-            {t('Open coverage')} {formatNumber(row.openOrderCoverageQty)} · {t('Observed')}{' '}
-            {formatDate(row.amazonReceiptObservedAt)}
+            {t('Stock evidence')} {formatNumber(stockEvidence.amazonPipelineStock)} {t('Amazon pipeline')} ·{' '}
+            {formatDate(stockEvidence.inventoryAsOfDate)}
           </Typography.Text>
-          {row.dataQualityStatus === 'blocked' ? <Tag color="red">{t('Evidence warning')}</Tag> : null}
+          <Tag color={evidence.reviewState === 'ready' ? 'green' : 'gold'}>
+            {t('Review state')} {t(formatStatusLabel(evidence.reviewState ?? 'unknown'))}
+          </Tag>
         </Space>
       );
     }
@@ -1668,9 +1704,6 @@ export default function InventoryPlanningPage() {
           <Typography.Text type="secondary">
             {t('Expected arrival')} {formatDate(row.expectedArrivalDate)} ·{' '}
             {t(formatStatusLabel(row.expectedArrivalFreshness))}
-          </Typography.Text>
-          <Typography.Text type="secondary">
-            {t(formatExpectedArrivalSource(row.expectedArrivalSource))}
           </Typography.Text>
           {excludedCycles.map((excludedCycle) => (
             <Typography.Text key={String(excludedCycle.orderId)} type="secondary">
@@ -1746,10 +1779,6 @@ export default function InventoryPlanningPage() {
             {t('Current')} {formatNumber(row.daysOfCover)} {t('days')} · {t('Position')}{' '}
             {formatNumber(row.positionDaysOfCover)} {t('days')}
           </Typography.Text>
-          <Typography.Text type="secondary">
-            {t(formatStatusLabel(row.salesVelocityBasis ?? 'unavailable'))} ·{' '}
-            {t(formatStatusLabel(row.salesVelocityStatus ?? 'missing'))}
-          </Typography.Text>
         </Space>
       ),
     },
@@ -1777,128 +1806,42 @@ export default function InventoryPlanningPage() {
       onRow={(member) => ({ onClick: () => openRow(member, undefined, activeCommandPane) })}
     />
   );
-  const commandPaneColumns = (pane: CommandCenterPaneKey) => {
-    if (pane !== 'duplicateProducts') return familyParentColumns(pane);
-    if (pane === 'duplicateProducts') {
-      return [
-        {
-          title: String(t('Status')),
-          dataIndex: 'productStatus',
-          render: (value: string) => <Tag color="purple">{t(formatStatusLabel(value ?? 'duplicate'))}</Tag>,
-        },
-        { title: String(t('Duplicate SKU')), key: 'product', render: renderCommandProductCell },
-        {
-          title: String(t('Primary row')),
-          key: 'primary',
-          render: (_value: any, row: PlainRecord) => (
-            <Space direction="vertical" size={0}>
-              <Typography.Text strong>{row.duplicatePrimarySku ?? '—'}</Typography.Text>
-              <Typography.Text type="secondary">{t('Preferred because it has more stock/evidence')}</Typography.Text>
-            </Space>
-          ),
-        },
-        { title: String(t('Inventory position')), key: 'currentStock', render: renderCurrentStockCell },
-        {
-          title: String(t('Order evidence')),
-          key: 'orderEvidence',
-          render: (_value: any, row: PlainRecord) => (
-            <Space direction="vertical" size={0}>
-              <Typography.Text>{row.supplierOrderRef ?? '—'}</Typography.Text>
-              <Typography.Text type="secondary">{row.supplierName ?? t('Supplier missing')}</Typography.Text>
-            </Space>
-          ),
-        },
-      ];
-    }
-    if (pane === 'activeOrders') {
-      return [
-        { title: String(t('Risk')), key: 'risk', render: renderActiveRiskCell },
-        { title: String(t('Product')), key: 'product', width: 180, render: renderCommandProductCell },
-        { title: String(t('Tier')), dataIndex: 'tier', render: renderCommandTierCell },
-        {
-          title: String(t('Order')),
-          key: 'order',
-          render: (_value: any, row: PlainRecord) => (
-            <Space direction="vertical" size={0}>
-              <Typography.Text strong>{row.supplierOrderRef ?? '—'}</Typography.Text>
-              <Typography.Text type="secondary">
-                {formatNumber(row.supplierOrderReferenceOpenQty ?? row.openOrderCoverageQty)} {t('units')} ·{' '}
-                {row.supplierName ?? t('Supplier missing')}
-              </Typography.Text>
-              <Tag color={freshnessColor(row.leadTimeFreshness)} style={{ marginInlineEnd: 0 }}>
-                {leadTimeFreshnessText(row)}
-              </Tag>
-              <Typography.Text type="secondary">{formatCurrency(activeOrderCost(row))}</Typography.Text>
-            </Space>
-          ),
-        },
-        { title: coverageColumnTitle, key: 'coverage', render: renderCoverageCell },
-        { title: String(t('Expected arrival')), dataIndex: 'expectedArrivalDate', render: renderRelativeDateCell },
-        { title: String(t('Gap')), key: 'gap', render: renderPipelineGapCell },
-        {
-          title: String(t('Last Activity')),
-          key: 'heldUpAt',
-          width: 240,
-          render: renderHeldUpAtCell,
-        },
-        { title: String(t('Money at risk')), dataIndex: 'estimatedProfitRisk', render: renderMoneyCell },
-      ];
-    }
-    if (pane === 'stuckInventory') {
-      return [
-        { title: String(t('Risk')), key: 'risk', render: renderStuckRiskCell },
-        { title: String(t('Product')), key: 'product', render: renderCommandProductCell },
-        { title: String(t('Tier')), dataIndex: 'tier', render: renderCommandTierCell },
-        { title: String(t('DOC')), key: 'doc', render: renderDocCell },
-        { title: String(t('Sell-through evidence')), key: 'sellThrough', render: renderSellThroughEvidenceCell },
-        {
-          title: String(t('Stock')),
-          key: 'stock',
-          render: renderCurrentStockCell,
-        },
-        {
-          title: String(t('Capital / risk')),
-          dataIndex: 'estimatedProfitRisk',
-          render: (_value: number, row: PlainRecord) => (
-            <Space direction="vertical" size={0}>
-              <Typography.Text strong style={{ color: MONEY_AT_RISK_COLOR }}>
-                {formatCurrency(row.estimatedProfitRisk)}
-              </Typography.Text>
-              <Typography.Text type="secondary">
-                {t('Sellable stock')} {formatNumber(row.onHandSellableStock)}
-              </Typography.Text>
-            </Space>
-          ),
-        },
-      ];
-    }
-    return [
-      {
-        title: String(t('Risk')),
-        dataIndex: 'actionStatus',
-        render: (value: string) => (
-          <Tag color={pane === 'missingSupplier' ? 'red' : actionColor(value)}>
-            {t(pane === 'missingSupplier' ? 'Supplier missing' : formatStatusLabel(value ?? 'watch'))}
-          </Tag>
-        ),
-      },
-      { title: String(t('Product')), key: 'product', render: renderCommandProductCell },
-      {
-        title: String(t('Tier')),
-        dataIndex: 'tier',
-        render: renderCommandTierCell,
-      },
-      { title: String(t('Inventory position')), key: 'currentStock', render: renderCurrentStockCell },
-      { title: coverageColumnTitle, key: 'coverage', render: renderCoverageCell },
-      { title: String(t('Order by')), key: 'orderBy', render: renderOrderByCell },
-      {
-        title: `${t('Suggested qty / COGS / margin')} (${formatNumber(commandTargetCoverDays)}d)`,
-        key: 'suggestedQty',
-        render: renderSuggestedQtyCell,
-      },
-      { title: String(t('Money at risk')), dataIndex: 'estimatedProfitRisk', render: renderMoneyCell },
-    ];
-  };
+  const renderMobileFamilyCard = (pane: CommandCenterPaneKey, row: PlainRecord) => (
+    <Card
+      key={String(row.companyProductFamilyId ?? row.id ?? row.asin ?? row.sku)}
+      size="small"
+      hoverable
+      onClick={() => openRow(row, undefined, pane)}
+    >
+      <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+        <Row gutter={[8, 8]}>
+          <Col span={12}>{renderFamilyIdentityCell(undefined, row)}</Col>
+          <Col span={12}>{renderFamilyTargetCell(undefined, row)}</Col>
+        </Row>
+        {renderFamilyStockCell(undefined, row)}
+        <Row gutter={[8, 8]}>
+          <Col span={12}>{renderFamilySupplierCell(undefined, row)}</Col>
+          <Col span={12}>{renderFamilyVelocityCell(undefined, row)}</Col>
+        </Row>
+        {renderFamilyActionCell(pane, row)}
+        {familyMembers(row).length > 0 ? (
+          <div onClick={(event) => event.stopPropagation()}>
+            <Collapse
+              ghost
+              items={[
+                {
+                  key: 'listings',
+                  label: `${formatNumber(familyMembers(row).length)} ${t('listings')}`,
+                  children: renderFamilyMembers(row),
+                },
+              ]}
+            />
+          </div>
+        ) : null}
+      </Space>
+    </Card>
+  );
+  const commandPaneColumns = (pane: CommandCenterPaneKey) => familyParentColumns(pane);
   const renderCommandPane = (pane: CommandCenterPaneKey) => {
     const paneData = unwrapData(commandPanes[pane]);
     const rowsForPane = unwrapRows(paneData.rows);
@@ -1949,29 +1892,56 @@ export default function InventoryPlanningPage() {
             children: (
               <>
                 <Typography.Paragraph type="secondary">{commandPaneDescriptions[pane]}</Typography.Paragraph>
-                <Table<PlainRecord>
-                  size="small"
-                  loading={loading}
-                  rowKey={(row) => String(row.companyProductFamilyId ?? row.id ?? row.asin ?? row.sku)}
-                  dataSource={rowsForPane}
-                  columns={commandPaneColumns(pane)}
-                  pagination={{
-                    current: Number(paneData.page ?? 1),
-                    pageSize: Number(paneData.pageSize ?? limit),
-                    total: Number(paneData.total ?? rowsForPane.length),
-                    showSizeChanger: false,
-                    onChange: (page) => {
-                      setOpenCommandPane(pane);
-                      setActiveCommandPane(pane);
-                      setCommandCenterPage(page);
-                    },
-                  }}
-                  expandable={{
-                    expandedRowRender: renderFamilyMembers,
-                    rowExpandable: (row) => familyMembers(row).length > 0,
-                  }}
-                  onRow={(row) => ({ onClick: () => openRow(row, undefined, pane) })}
-                />
+                {renderPaneMetrics(unwrapRows(paneData.metrics))}
+                {screens.md ? (
+                  <Table<PlainRecord>
+                    size="small"
+                    loading={loading}
+                    rowKey={(row) => String(row.companyProductFamilyId ?? row.id ?? row.asin ?? row.sku)}
+                    dataSource={rowsForPane}
+                    columns={commandPaneColumns(pane)}
+                    pagination={{
+                      current: Number(paneData.page ?? 1),
+                      pageSize: Number(paneData.pageSize ?? limit),
+                      total: Number(paneData.total ?? rowsForPane.length),
+                      showSizeChanger: false,
+                      onChange: (page) => {
+                        setOpenCommandPane(pane);
+                        setActiveCommandPane(pane);
+                        setCommandCenterPage(page);
+                      },
+                    }}
+                    expandable={{
+                      expandedRowRender: renderFamilyMembers,
+                      rowExpandable: (row) => familyMembers(row).length > 0,
+                    }}
+                    onRow={(row) => ({ onClick: () => openRow(row, undefined, pane) })}
+                  />
+                ) : (
+                  <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                    {rowsForPane.map((row) => renderMobileFamilyCard(pane, row))}
+                    <Space style={{ justifyContent: 'space-between', width: '100%' }}>
+                      <Button
+                        disabled={Number(paneData.page ?? 1) <= 1}
+                        onClick={() => setCommandCenterPage(Number(paneData.page ?? 1) - 1)}
+                      >
+                        {t('Previous')}
+                      </Button>
+                      <Typography.Text type="secondary">
+                        {t('Page')} {formatNumber(paneData.page ?? 1)}
+                      </Typography.Text>
+                      <Button
+                        disabled={
+                          Number(paneData.page ?? 1) * Number(paneData.pageSize ?? limit) >=
+                          Number(paneData.total ?? rowsForPane.length)
+                        }
+                        onClick={() => setCommandCenterPage(Number(paneData.page ?? 1) + 1)}
+                      >
+                        {t('Next')}
+                      </Button>
+                    </Space>
+                  </Space>
+                )}
               </>
             ),
           },
@@ -2108,6 +2078,8 @@ export default function InventoryPlanningPage() {
         method: 'post',
         data: {
           company: row.company,
+          familyId: row.companyProductFamilyId,
+          currentOrderId: row.supplierOrderId,
           planningProductId: row.planningProductId,
           companyProductId: row.companyProductId,
           asin: row.asin,
@@ -2148,7 +2120,6 @@ export default function InventoryPlanningPage() {
     stuckInventory: ['product-tasks-targets', 'history'],
     dataReadiness: ['history'],
     excludedProducts: ['history'],
-    duplicateProducts: ['history'],
   };
 
   const openRow = (row: PlainRecord, initialPanels?: string[], pane?: CommandCenterPaneKey) => {
@@ -2924,8 +2895,9 @@ export default function InventoryPlanningPage() {
           {commandSummaryCards.map((card: PlainRecord) => {
             const isCurrency = String(card.format) === 'currency';
             const unknownCount = finiteNumber(card.unknownCount) ?? 0;
-            const totalRowCount = finiteNumber(commandHistoryReadiness.totalRowCount) ?? 0;
-            const allUnknown = unknownCount > 0 && unknownCount === totalRowCount;
+            const denominatorCount =
+              finiteNumber(card.denominatorCount) ?? finiteNumber(commandHistoryReadiness.totalRowCount) ?? 0;
+            const allUnknown = unknownCount > 0 && unknownCount === denominatorCount;
             return (
               <Col xs={24} sm={12} lg={4} key={String(card.key)}>
                 <Card>
@@ -2941,7 +2913,7 @@ export default function InventoryPlanningPage() {
                   ) : null}
                   {unknownCount > 0 ? (
                     <Typography.Text type="warning" style={{ display: 'block' }}>
-                      {formatNumber(unknownCount)} {t('rows unknown')}
+                      {formatNumber(unknownCount)} {t('family actions unknown')}
                     </Typography.Text>
                   ) : null}
                 </Card>
@@ -3054,6 +3026,18 @@ export default function InventoryPlanningPage() {
         {selectedRow ? (
           <Space direction="vertical" size="large" style={{ width: '100%' }}>
             {renderDrawerModeSummary()}
+            <Card title={t('Family action and target listing scopes')} size="small">
+              <Descriptions bordered column={1} size="small">
+                <Descriptions.Item label={t('Family action scope')}>
+                  {selectedRow.company ?? '—'} · {selectedRow.familyAmazonAccountId ?? t('Account unknown')} ·{' '}
+                  {selectedRow.familyMarketplace ?? t('Marketplace unknown')} ·{' '}
+                  {selectedRow.familyCanonicalAsin ?? selectedRow.asin ?? '—'}
+                </Descriptions.Item>
+                <Descriptions.Item label={t('Target listing scope')}>
+                  {selectedRow.sku ?? '—'} · {selectedRow.companyProductId ?? '—'}
+                </Descriptions.Item>
+              </Descriptions>
+            </Card>
             {productPlanningValues ? (
               <Card title={t('Product manager')} size="small">
                 <Row gutter={[12, 12]}>
@@ -3185,7 +3169,7 @@ export default function InventoryPlanningPage() {
                 </Space>
               </Descriptions.Item>
               <Descriptions.Item label={t('Company')}>{selectedRow.company ?? '—'}</Descriptions.Item>
-              <Descriptions.Item label={t('ASIN / SKU')}>
+              <Descriptions.Item label={t('Target listing ASIN / SKU')}>
                 {selectedRow.asin ?? '—'} / {selectedRow.sku ?? '—'}
               </Descriptions.Item>
               {selectedRow.supplierSource === 'duplicate_sku_order_history' ? (
@@ -3197,7 +3181,11 @@ export default function InventoryPlanningPage() {
                 {formatStatusLabel(selectedRow.sourceFreshnessStatus ?? 'unknown')} ·{' '}
                 {formatDate(selectedRow.inventoryAsOfDate)}
               </Descriptions.Item>
-              <Descriptions.Item label={t('Supplier')}>
+              <Descriptions.Item label={t('Family supplier')}>
+                {selectedRow.familyPreferredSupplierName ?? '—'} · {formatNumber(selectedRow.familyLeadTimeDays)}{' '}
+                {t('days')}
+              </Descriptions.Item>
+              <Descriptions.Item label={t('Target listing offer')}>
                 {selectedRow.supplierName ?? '—'} · {formatStatusLabel(selectedRow.supplierAvailability ?? 'unknown')} ·{' '}
                 {selectedRow.supplierSource ?? '—'}
               </Descriptions.Item>
@@ -3220,7 +3208,7 @@ export default function InventoryPlanningPage() {
               <Descriptions.Item
                 label={columnHelp(
                   t('Suggested quantity'),
-                  t('Formula: velocity × target cover days − stock − reliable open-order coverage.'),
+                  t('Formula: velocity × target cover days − on-hand sellable − Amazon pipeline − supplier pipeline.'),
                 )}
               >
                 {formatNumber(selectedRow.suggestedReorderQty)}
@@ -3339,11 +3327,6 @@ export default function InventoryPlanningPage() {
                                 render: formatDate,
                               },
                               { title: String(t('Observed')), dataIndex: 'observedAt', render: formatDate },
-                              {
-                                title: String(t('Source')),
-                                dataIndex: 'sourceStage',
-                                render: (value: string) => value || '—',
-                              },
                               {
                                 title: String(t('Actions')),
                                 key: 'actions',
@@ -3974,6 +3957,40 @@ export default function InventoryPlanningPage() {
           </Space>
         ) : null}
       </Drawer>
+      <Modal
+        open={!!pendingFamilyTarget}
+        title={t('Change replenishment target')}
+        okText={t('Confirm target change')}
+        confirmLoading={!!targetUpdatingFamilyId}
+        okButtonProps={{ disabled: !familyTargetReason.trim() }}
+        onCancel={() => {
+          setPendingFamilyTarget(null);
+          setFamilyTargetReason('');
+        }}
+        onOk={async () => {
+          if (!pendingFamilyTarget) return;
+          const saved = await updateFamilyTarget(
+            pendingFamilyTarget.row,
+            pendingFamilyTarget.companyProductId,
+            familyTargetReason,
+          );
+          if (saved) {
+            setPendingFamilyTarget(null);
+            setFamilyTargetReason('');
+          }
+        }}
+      >
+        <Typography.Paragraph type="secondary">
+          {t('State why this listing should become the family replenishment target. The change is audited.')}
+        </Typography.Paragraph>
+        <Input.TextArea
+          autoFocus
+          rows={3}
+          value={familyTargetReason}
+          onChange={(event) => setFamilyTargetReason(event.target.value)}
+          placeholder={t('Required reason')}
+        />
+      </Modal>
     </div>
   );
 }

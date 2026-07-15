@@ -29,8 +29,8 @@ import {
 } from '../../source-import/server/source-record-projection';
 
 const PREVIEW_VERSION = 'supplier-evidence-v2';
-const CANONICAL_COMPANIES = new Set(FOUR_COMPANY_MIGRATION_PROFILE.canonicalCompanies.map((item) => item.name));
-const REJECTED_REFS = new Set(
+const CANONICAL_COMPANIES = new Set<string>(FOUR_COMPANY_MIGRATION_PROFILE.canonicalCompanies.map((item) => item.name));
+const REJECTED_REFS = new Set<string>(
   FOUR_COMPANY_MIGRATION_PROFILE.supplierExternalRefDecisions
     .filter((item) => item.disposition === 'reject')
     .map((item) => item.externalRef),
@@ -657,7 +657,7 @@ export function buildSupplierEvidenceBackfillPlan(params: {
     const spec = lowerSourceSpecs[source];
     const familyAsin = normalizedAsin(family.asin);
     const sourceRow = spec.rows.find(({ payload }) => {
-      const sourceAsins =
+      const sourceAsins: string[] =
         String(payload.sourceAsin ?? '')
           .toUpperCase()
           .match(/B[A-Z0-9]{9}/g) ?? [];

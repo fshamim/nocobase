@@ -89,6 +89,15 @@ describe('mutation and full Gold refresh isolation', () => {
     await createEcobaseInventoryPlanningActions().setFamilyTarget(familyContext, vi.fn());
     expect(familyContext.body).toMatchObject({ data: { goldRefreshRequired: true } });
     expect(refresh).not.toHaveBeenCalled();
+    await expect(
+      createEcobaseInventoryPlanningActions().setFamilyTarget(
+        context({ familyId: 'family-1', companyProductId: 'company-product-1' }),
+        vi.fn(),
+      ),
+    ).rejects.toMatchObject({
+      status: 400,
+      message: 'Ecobase family target selection requires familyId, companyProductId, and reason.',
+    });
 
     vi.spyOn(EcobaseSupplierOrderService.prototype, 'updateOrderOperatorFields').mockResolvedValue({
       id: 'supplier-order-1',

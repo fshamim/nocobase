@@ -396,6 +396,24 @@ function evidenceRiskRows(pack?: DailyEvidencePack) {
   return Array.isArray(pack?.inventoryRisks) ? pack.inventoryRisks.map((item) => item as PlainRecord) : [];
 }
 
+function evidenceInventoryRows(pack?: DailyEvidencePack) {
+  const panes = toPlainRecord(pack?.inventoryCommandCenter?.panes);
+  return Object.values(panes).flatMap((pane) => {
+    const rows = toPlainRecord(pane).rows;
+    return Array.isArray(rows) ? rows.map(toPlainRecord) : [];
+  });
+}
+
+function familyActionRows(rows: PlainRecord[]) {
+  const selected = new Map<string, PlainRecord>();
+  for (const row of rows) {
+    if (asString(row.familyRole) === 'member') continue;
+    const key = asString(row.companyProductFamilyId) ?? asString(row.id) ?? JSON.stringify(row);
+    if (!selected.has(key) || row.familyRole === 'target') selected.set(key, row);
+  }
+  return [...selected.values()];
+}
+
 function evidenceOrderRows(pack?: DailyEvidencePack) {
   return Array.isArray(pack?.orderPlanningRisks) ? pack.orderPlanningRisks.map((item) => item as PlainRecord) : [];
 }
@@ -587,10 +605,15 @@ export class EcobaseDailyManagementSnapshotService {
     const dataReadinessRows = inventoryRows.filter((row) => asString(row.commandCenterPane) === 'dataReadiness');
     const activeOrderRows = inventoryRows.filter((row) => asString(row.commandCenterPane) === 'activeOrders');
     const stuckInventoryRows = inventoryRows.filter((row) => asString(row.commandCenterPane) === 'stuckInventory');
-    const planningRows = inventoryRows.filter(
-      (row) => asString(row.commandCenterPane) !== 'duplicateProducts' && asString(row.familyRole) !== 'member',
+    const moneyRiskRows = inventoryRows.filter((row) =>
+      ['supplyAction', 'activeOrders', 'inboundMonitoring'].includes(asString(row.commandCenterPane) ?? ''),
     );
-    const knownMoneyRiskRows = planningRows.filter((row) => asNumber(row.estimatedProfitRisk) !== undefined);
+    const knownMoneyRiskRows = moneyRiskRows.filter(
+      (row) =>
+        (asNumber(row.familySalesVelocity) ?? asNumber(row.salesVelocity) ?? 0) > 0 &&
+        (asNumber(row.profitPerUnit) ?? 0) > 0 &&
+        asNumber(row.estimatedProfitRisk) !== undefined,
+    );
     const sevenDaysOut = dateAdd(params.snapshotDate, 7);
     const staleOrders = orderRows.filter(
       (row) =>
@@ -629,7 +652,7 @@ export class EcobaseDailyManagementSnapshotService {
       reportRunId: params.reportRunId,
       generatedAt: new Date().toISOString(),
       inventoryMoneyAtRisk: knownMoneyRiskRows.length ? sum(knownMoneyRiskRows, 'estimatedProfitRisk') : null,
-      inventoryMoneyAtRiskUnknownCount: planningRows.length - knownMoneyRiskRows.length,
+      inventoryMoneyAtRiskUnknownCount: moneyRiskRows.length - knownMoneyRiskRows.length,
       urgentInventorySkuCount: supplyActionRows.length,
       overdueInventorySkuCount: count(supplyActionRows, (row) => asString(row.actionStatus) === 'overdue'),
       aTierInventoryRiskCount: count(supplyActionRows, (row) => asString(row.tier) === 'A'),
@@ -683,9 +706,11 @@ export class EcobaseDailyManagementSnapshotService {
       .map(toPlainRecord)
       .filter((row) => matchesCompany(row, company));
     const datedRows = rows.filter((row) => dateOnly(row.calculationDate) === date);
-    if (datedRows.length > 0) return datedRows;
-    const evidenceRows = evidenceRiskRows(evidencePack);
-    return evidenceRows.length > 0 ? evidenceRows : rows;
+    if (datedRows.length > 0) return familyActionRows(datedRows);
+    const evidenceRows = evidenceInventoryRows(evidencePack);
+    if (evidenceRows.length > 0) return familyActionRows(evidenceRows);
+    const riskRows = evidenceRiskRows(evidencePack);
+    return riskRows.length > 0 ? familyActionRows(riskRows) : familyActionRows(rows);
   }
 
   private async currentOrderRows(company?: string, evidencePack?: DailyEvidencePack) {

@@ -721,7 +721,302 @@ describe('EcobaseInventoryPlanningService', () => {
     expect(goldRow.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     expect(commandCenter.panes.supplyAction.total).toBe(0);
     expect(commandCenter.panes.dataReadiness.total).toBe(1);
-    expect(commandCenter.summaryCards.find((card) => card.key === 'moneyAtRisk')).toMatchObject({ unknownCount: 1 });
+    expect(commandCenter.summaryCards.find((card) => card.key === 'moneyAtRisk')).toMatchObject({
+      unknownCount: 0,
+      denominatorCount: 0,
+    });
+  });
+
+  it('projects exactly one operator action per family across panes, totals, digest, search, and nested evidence', async () => {
+    const db = new MemoryDatabase({ historyLoaded: false });
+    const common = {
+      company: 'ACME',
+      calculationDate: '2026-07-15',
+      familyAmazonAccountId: '11111111-1111-4111-8111-111111111111',
+      familyMarketplace: 'Amazon.com',
+      productStatus: 'Active',
+      planningEligibilityStatus: 'eligible',
+      salesVelocity: 2,
+      familySalesVelocity: 2,
+      profitPerUnit: 5,
+      moneyRiskStatus: 'resolved_positive',
+    };
+    await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
+      ...common,
+      id: 'family-one-target',
+      companyProductId: 'cp-family-one-target',
+      companyProductFamilyId: 'family-one',
+      familyCanonicalAsin: 'B00FAMILYONE',
+      familyRole: 'target',
+      asin: 'B00FAMILYONE',
+      sku: 'TARGET-ONE',
+      actionStatus: 'overdue',
+      commandCenterPane: 'supplyAction',
+      supplierAvailability: 'resolved_silver_link',
+      estimatedProfitRisk: 100,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
+      ...common,
+      id: 'family-one-member',
+      companyProductId: 'cp-family-one-member',
+      companyProductFamilyId: 'family-one',
+      familyCanonicalAsin: 'B00FAMILYONE',
+      familyRole: 'member',
+      asin: 'B00FAMILYONE',
+      sku: 'MEMBER-ONE',
+      actionStatus: 'family_member_no_reorder',
+      commandCenterPane: 'watch',
+      estimatedProfitRisk: 999,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
+      ...common,
+      id: 'family-two-target',
+      companyProductId: 'cp-family-two-target',
+      companyProductFamilyId: 'family-two',
+      familyCanonicalAsin: 'B00FAMILYTWO',
+      familyRole: 'target',
+      asin: 'B00FAMILYTWO',
+      sku: 'TARGET-TWO',
+      actionStatus: 'already_ordered',
+      commandCenterPane: 'activeOrders',
+      supplierOrderState: 'purchased_pipeline',
+      supplierOrderId: 'order-current',
+      supplierOrderRef: 'PO-CURRENT-42',
+      supplierOrderStatus: 'paid',
+      estimatedProfitRisk: 200,
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
+      ...common,
+      id: 'family-three-review',
+      companyProductId: 'cp-family-three-review',
+      companyProductFamilyId: 'family-three',
+      familyCanonicalAsin: 'B00FAMILYTHREE',
+      familyRole: 'review',
+      asin: 'B00FAMILYTHREE',
+      sku: 'REVIEW-THREE',
+      actionStatus: 'missing_velocity',
+      commandCenterPane: 'dataReadiness',
+      planningEligibilityStatus: 'needs_data_readiness',
+      estimatedProfitRisk: null,
+      salesVelocity: null,
+      familySalesVelocity: null,
+      profitPerUnit: null,
+      moneyRiskStatus: 'unknown_missing_inputs',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
+      ...common,
+      id: 'family-four-inactive',
+      companyProductId: 'cp-family-four-inactive',
+      companyProductFamilyId: 'family-four',
+      familyCanonicalAsin: 'B00FAMILYFOUR',
+      familyRole: 'target',
+      asin: 'B00FAMILYFOUR',
+      sku: 'INACTIVE-FOUR',
+      productStatus: 'Inactive',
+      actionStatus: 'sufficient_stock',
+      commandCenterPane: 'watch',
+      planningEligibilityStatus: 'ineligible_inactive',
+      estimatedProfitRisk: 0,
+    });
+
+    const service = new EcobaseInventoryPlanningService(db);
+    const commandCenter = await service.commandCenter({
+      company: 'ACME',
+      calculationDate: '2026-07-15',
+      pageSize: 100,
+    });
+    const projectedRows = Object.values(commandCenter.panes).flatMap((pane) => pane.rows);
+    const moneyRisk = commandCenter.summaryCards.find((card) => card.key === 'moneyAtRisk');
+
+    expect(commandCenter.metadata).toMatchObject({
+      scope: 'family_action',
+      rowUnit: 'family',
+      calculationDate: '2026-07-15',
+      publishedRunId: 'test-published-gold:2026-07-15',
+      denominatorCount: 4,
+      hiddenEvidenceRowCount: 1,
+      moneyRiskDenominatorCount: 2,
+    });
+    expect(projectedRows).toHaveLength(4);
+    expect(Object.values(commandCenter.panes).reduce((total, pane) => total + pane.total, 0)).toBe(4);
+    expect(new Set(projectedRows.map((row) => row.companyProductFamilyId)).size).toBe(4);
+    expect(commandCenter.panes.excludedProducts.rows).toEqual([
+      expect.objectContaining({
+        companyProductFamilyId: 'family-four',
+        commandCenterPaneReason: 'family_action_projection_requires_review',
+      }),
+    ]);
+    expect(commandCenter.panes.supplyAction.rows[0]).toMatchObject({
+      companyProductId: 'cp-family-one-target',
+      familyMembers: expect.arrayContaining([
+        expect.objectContaining({ companyProductId: 'cp-family-one-target' }),
+        expect.objectContaining({ companyProductId: 'cp-family-one-member' }),
+      ]),
+      familyMetrics: expect.objectContaining({
+        familyId: 'family-one',
+        company: 'ACME',
+        amazonAccountId: '11111111-1111-4111-8111-111111111111',
+        marketplace: 'Amazon.com',
+        asin: 'B00FAMILYONE',
+      }),
+      targetListingMetrics: expect.objectContaining({ companyProductId: 'cp-family-one-target', sku: 'TARGET-ONE' }),
+      familySupplier: expect.any(Object),
+      targetOffer: expect.any(Object),
+      currentCycle: expect.any(Object),
+      readiness: expect.any(Object),
+    });
+    expect(moneyRisk).toMatchObject({ value: 300, knownCount: 2, unknownCount: 0, denominatorCount: 2 });
+
+    const searched = await service.commandCenter({
+      company: 'ACME',
+      calculationDate: '2026-07-15',
+      pane: 'activeOrders',
+      sortBy: 'company',
+      filters: { search: 'PO-CURRENT-42' },
+    });
+    expect(searched.panes.activeOrders.rows).toEqual([
+      expect.objectContaining({ companyProductFamilyId: 'family-two', supplierOrderRef: 'PO-CURRENT-42' }),
+    ]);
+
+    const digest = await service.digestPreview({ company: 'ACME', calculationDate: '2026-07-15' });
+    expect(digest.metadata).toMatchObject({ scope: 'family_action', denominatorCount: 4, hiddenEvidenceRowCount: 1 });
+    expect(digest.summary).toMatchObject({
+      moneyAtRiskKnownTotal: 300,
+      moneyAtRiskKnownCount: 2,
+      moneyAtRiskUnknownCount: 0,
+      moneyAtRiskDenominatorCount: 2,
+    });
+    expect(
+      Object.values(digest.sections)
+        .flat()
+        .some((row) => row.companyProductId === 'cp-family-one-member'),
+    ).toBe(false);
+  });
+
+  it('propagates an audited target change through rebuilt Gold, command-center selection, and digest scope', async () => {
+    const db = new MemoryDatabase({ historyLoaded: false });
+    await createRecord(db, ECOBASE_COLLECTIONS.silverCompanies, { id: 'company-target-change', name: 'ACME' });
+    await createRecord(db, ECOBASE_COLLECTIONS.silverCompanyProductFamilies, {
+      id: 'family-target-change',
+      companyId: 'company-target-change',
+      canonicalAsin: 'B00TARGETCHANGE',
+      targetSelectionStatus: 'selected',
+      replenishmentTargetCompanyProductId: 'cp-target-a',
+    });
+    for (const suffix of ['a', 'b']) {
+      await createRecord(db, ECOBASE_COLLECTIONS.silverProducts, {
+        id: `product-target-${suffix}`,
+        asin: 'B00TARGETCHANGE',
+        sku: `TARGET-${suffix.toUpperCase()}`,
+      });
+      await createRecord(db, ECOBASE_COLLECTIONS.silverCompanyProducts, {
+        id: `cp-target-${suffix}`,
+        companyId: 'company-target-change',
+        productId: `product-target-${suffix}`,
+        companyProductFamilyId: 'family-target-change',
+        lifecycleStatus: 'active',
+      });
+    }
+
+    await new EcobaseCompanyProductFamilyService(db).setReplenishmentTarget({
+      familyId: 'family-target-change',
+      companyProductId: 'cp-target-b',
+      source: 'operator',
+      actorUserId: 'operator-1',
+      reason: 'Listing B is the reviewed replenishment target.',
+    });
+    const service = new EcobaseInventoryPlanningService(db);
+    await service.refreshReadModel({ company: 'ACME', calculationDate: '2026-07-16' });
+
+    const goldRows = await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).find({
+      filter: { calculationDate: '2026-07-16' },
+    });
+    expect(goldRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ companyProductId: 'cp-target-a', familyRole: 'member' }),
+        expect.objectContaining({ companyProductId: 'cp-target-b', familyRole: 'target' }),
+      ]),
+    );
+    const commandCenter = await service.commandCenter({
+      company: 'ACME',
+      calculationDate: '2026-07-16',
+      companyProductId: 'cp-target-b',
+    });
+    expect(Object.values(commandCenter.panes).flatMap((pane) => pane.rows)).toEqual([
+      expect.objectContaining({
+        companyProductId: 'cp-target-b',
+        replenishmentTargetCompanyProductId: 'cp-target-b',
+      }),
+    ]);
+    expect(commandCenter.selectedRow).toMatchObject({ row: { companyProductId: 'cp-target-b' } });
+    expect(await service.digestPreview({ company: 'ACME', calculationDate: '2026-07-16' })).toMatchObject({
+      metadata: { denominatorCount: 1, hiddenEvidenceRowCount: 1 },
+    });
+  });
+
+  it('loads the current order and full family order-line history in the row workspace', async () => {
+    const db = new MemoryDatabase();
+    await createRecord(db, ECOBASE_COLLECTIONS.silverCompanies, { id: 'company-family-history', name: 'ACME' });
+    await createRecord(db, ECOBASE_COLLECTIONS.silverSuppliers, {
+      id: 'supplier-family-history',
+      companyId: 'company-family-history',
+      displayName: 'Family Supplier',
+    });
+    for (const [suffix, orderId, orderRef] of [
+      ['target', 'order-current', 'PO-CURRENT'],
+      ['member', 'order-older', 'PO-OLDER'],
+    ]) {
+      const productId = `product-${suffix}`;
+      const companyProductId = `company-product-${suffix}`;
+      await createRecord(db, ECOBASE_COLLECTIONS.silverProducts, {
+        id: productId,
+        asin: 'B00FAMILYHISTORY',
+        sku: `SKU-${suffix.toUpperCase()}`,
+      });
+      await createRecord(db, ECOBASE_COLLECTIONS.silverCompanyProducts, {
+        id: companyProductId,
+        companyId: 'company-family-history',
+        productId,
+        companyProductFamilyId: 'family-history',
+      });
+      await createRecord(db, ECOBASE_COLLECTIONS.silverSupplierProducts, {
+        id: `supplier-product-${suffix}`,
+        supplierId: 'supplier-family-history',
+        productId,
+        unitCost: 5,
+      });
+      await createRecord(db, ECOBASE_COLLECTIONS.silverOrders, {
+        id: orderId,
+        companyId: 'company-family-history',
+        supplierId: 'supplier-family-history',
+        orderRef,
+        canonicalStatus: suffix === 'target' ? 'paid' : 'completed',
+        orderDate: suffix === 'target' ? '2026-07-10' : '2026-06-10',
+      });
+      await createRecord(db, ECOBASE_COLLECTIONS.silverOrderLines, {
+        id: `line-${suffix}`,
+        orderId,
+        companyProductId,
+        supplierProductId: `supplier-product-${suffix}`,
+        orderedQty: 10,
+      });
+    }
+
+    const workspace = await new EcobaseInventoryPlanningService(db).rowWorkspace({
+      company: 'ACME',
+      familyId: 'family-history',
+      currentOrderId: 'order-current',
+      planningProductId: 'company-product-target',
+      asin: 'B00FAMILYHISTORY',
+      sku: 'SKU-TARGET',
+    });
+
+    expect(workspace.currentOrder).toMatchObject({ id: 'order-current', externalOrderRef: 'PO-CURRENT' });
+    expect(workspace.orderLineHistory.map((line) => line.supplierOrderId)).toEqual(['order-current', 'order-older']);
+    expect(workspace.orderLineHistory.map((line) => line.companyProductId)).toEqual([
+      'company-product-target',
+      'company-product-member',
+    ]);
   });
 
   it('audits product planning overrides and recalculates excluded products', async () => {
@@ -1734,7 +2029,38 @@ describe('EcobaseInventoryPlanningService', () => {
       pane: 'activeOrders',
     });
 
-    expect(commandCenter.panes.duplicateProducts.total).toBe(0);
+    expect(Object.keys(commandCenter.panes)).toEqual([
+      'supplyAction',
+      'missingSupplier',
+      'activeOrders',
+      'inboundMonitoring',
+      'healthyInventory',
+      'stuckInventory',
+      'dataReadiness',
+      'excludedProducts',
+    ]);
+    expect(commandCenter.panes.activeOrders.metrics.map((metric) => metric.label)).toEqual([
+      'Product count',
+      'Current Sellable',
+      'Amazon Pipeline',
+      'Supplier Pipeline',
+      'Inventory Position',
+      'Estimated Reorder',
+      'Value',
+      'Days until Stockout',
+    ]);
+    expect(commandCenter.panes.activeOrders.metrics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: 'Product count', value: 1 }),
+        expect.objectContaining({ label: 'Current Sellable', value: 11 }),
+        expect.objectContaining({ label: 'Amazon Pipeline', value: 7 }),
+        expect.objectContaining({ label: 'Supplier Pipeline', value: 0 }),
+        expect.objectContaining({ label: 'Inventory Position', value: 18 }),
+        expect.objectContaining({ label: 'Estimated Reorder', value: 72 }),
+        expect.objectContaining({ label: 'Value', value: 23184, format: 'currency' }),
+        expect.objectContaining({ label: 'Days until Stockout', value: 5, format: 'days' }),
+      ]),
+    );
     expect(commandCenter.panes.activeOrders.rows).toEqual([
       expect.objectContaining({
         sku: primarySku,
@@ -2496,6 +2822,21 @@ describe('EcobaseInventoryPlanningService', () => {
 
     const commandCenter = await service.commandCenter({ calculationDate: '2026-06-07', pageSize: 20 });
     expect(commandCenter.panes.inboundMonitoring.rows.map((item) => item.asin)).toContain('B000PARTIAL');
+    expect(commandCenter.panes.inboundMonitoring.rows.find((item) => item.asin === 'B000PARTIAL')).toMatchObject({
+      supplierOrderRef: 'PO-PARTIAL',
+      inboundMonitoringEvidence: {
+        matchState: 'exact_order_reference',
+        matchedOrderReference: 'PO-PARTIAL',
+        statusEvidence: 'inbound-monitoring',
+        stockEvidence: {
+          onHandSellableStock: 0,
+          amazonPipelineStock: 0,
+          inventoryAsOfDate: '2026-06-07',
+          receiptStatus: 'partially_observed',
+          receiptObservedAt: '2026-06-07T00:00:00.000Z',
+        },
+      },
+    });
     expect(commandCenter.panes.missingSupplier.rows.map((item) => item.asin)).toContain('B000HEALTHY');
     expect(commandCenter.panes.activeOrders.rows.map((item) => item.asin)).toContain('B000DIRECT');
     const routedIds = Object.values(commandCenter.panes).flatMap((pane) => pane.rows.map((item) => item.id));
@@ -3250,7 +3591,7 @@ describe('EcobaseInventoryPlanningService', () => {
     );
     expect(dailyBrief.summaryCounts).toMatchObject({
       dataReadinessCount: expect.any(Number),
-      historyReadinessAffectedCount: 10,
+      historyReadinessAffectedCount: 9,
     });
     expect(dailyBrief.dataWarnings).toEqual(
       expect.arrayContaining([expect.objectContaining({ code: 'inventory_history_not_loaded' })]),

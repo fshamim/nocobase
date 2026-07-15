@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { describe, expect, it } from 'vitest';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
@@ -174,11 +183,12 @@ describe('EcobaseManagementKpiFactsService', () => {
         estimatedProfitRisk: 100,
       },
       {
-        id: 'inventory-duplicate',
+        id: 'inventory-family-member',
         calculationDate: '2026-06-14',
         company: 'Ecofission LLC',
+        familyRole: 'member',
         actionStatus: 'overdue',
-        commandCenterPane: 'duplicateProducts',
+        commandCenterPane: 'dataReadiness',
         tier: 'A',
         estimatedProfitRisk: 900,
       },

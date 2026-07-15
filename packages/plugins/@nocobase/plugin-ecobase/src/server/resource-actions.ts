@@ -1424,6 +1424,8 @@ export function createEcobaseInventoryPlanningActions() {
       ctx.body = {
         data: await service.rowWorkspace({
           company: getOptionalString(values, 'company'),
+          familyId: getOptionalString(values, 'familyId'),
+          currentOrderId: getOptionalString(values, 'currentOrderId'),
           planningProductId: getOptionalString(values, 'planningProductId'),
           companyProductId: getOptionalString(values, 'companyProductId'),
           asin: getOptionalString(values, 'asin'),
