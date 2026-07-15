@@ -480,6 +480,21 @@ export default defineCollection({
       uiSchema: { title: 'Current Supplier Order Open Qty' },
     },
     {
+      name: 'supplierOrderCycleSelection',
+      type: 'jsonb',
+      interface: 'json',
+      uiSchema: { title: 'Supplier Order Cycle Selection' },
+      defaultValue: {},
+    },
+    {
+      name: 'supplierOrderCycleReviewRequired',
+      type: 'boolean',
+      interface: 'checkbox',
+      uiSchema: { title: 'Supplier Order Cycle Review Required' },
+      defaultValue: false,
+      index: true,
+    },
+    {
       name: 'supplierOrderPurchasedOpenQty',
       type: 'double',
       interface: 'number',

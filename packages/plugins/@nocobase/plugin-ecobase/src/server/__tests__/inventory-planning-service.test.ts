@@ -1471,6 +1471,22 @@ describe('EcobaseInventoryPlanningService', () => {
       supplierOrderRef: 'EF91125A',
       supplierOrderOpenQty: 7,
       supplierOrderReferenceOpenQty: 7,
+      supplierOrderCycleReviewRequired: true,
+      supplierOrderCycleSelection: {
+        selectedOrderId: 'order-duplicate-sku',
+        selectedOrderRef: 'EF91125A',
+        selectedLineIds: ['line-duplicate-sku'],
+        selectedOpenQty: 7,
+        excludedCycles: [
+          {
+            orderId: 'order-older-family-cycle',
+            orderRef: 'EF51125A',
+            decision: 'review_required',
+            reason: 'later_cycle_exists_without_terminal_receipt_evidence',
+          },
+        ],
+        reviewRequired: true,
+      },
       openOrderCoverageQty: 0,
       unitCost: 322,
       estimatedOrderCost: 23184,

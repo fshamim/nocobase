@@ -23,7 +23,7 @@ export interface FamilyOrderCycleLine {
 export interface FamilyOrderCycleDecision {
   orderId: string;
   orderRef?: string;
-  decision: 'completed_by_later_inbound' | 'review_required';
+  decision: 'review_required';
   reason: string;
 }
 
@@ -45,11 +45,7 @@ function validDate(value: string | undefined) {
   return Number.isFinite(time) ? time : undefined;
 }
 
-export function selectCurrentFamilyOrderCycle(
-  lines: FamilyOrderCycleLine[],
-  calculationDate: string,
-  agingGraceDays = 30,
-): FamilyOrderCycleSelection {
+export function selectCurrentFamilyOrderCycle(lines: FamilyOrderCycleLine[]): FamilyOrderCycleSelection {
   const activeLines = lines.filter(
     (line) =>
       line.openQty > 0 &&
@@ -82,33 +78,18 @@ export function selectCurrentFamilyOrderCycle(
 
   const selectedLines = orderLines(selectedOrderId);
   const selected = selectedLines[0];
-  const selectedHasTrustedArrival =
-    Boolean(validDate(selected.expectedArrivalDate)) && selected.expectedArrivalStatus === 'imported';
   const selectedHasCycleDate =
     validDate(selected.authorityAsOf) !== undefined || validDate(selected.orderDate) !== undefined;
-  const referenceTime = validDate(calculationDate);
   const excludedCycles = orderIds.slice(1).map<FamilyOrderCycleDecision>((orderId) => {
     const older = orderLines(orderId)[0];
-    const expectedArrivalTime = validDate(older.expectedArrivalDate);
-    const elapsed =
-      referenceTime !== undefined &&
-      expectedArrivalTime !== undefined &&
-      referenceTime - expectedArrivalTime >= agingGraceDays * 86_400_000;
     const ambiguousCycleOrder =
       !selectedHasCycleDate ||
       (validDate(older.authorityAsOf) === undefined && validDate(older.orderDate) === undefined);
-    const completed = !ambiguousCycleOrder && (selectedHasTrustedArrival || elapsed);
     return {
       orderId,
       orderRef: older.orderRef,
-      decision: completed ? 'completed_by_later_inbound' : 'review_required',
-      reason: ambiguousCycleOrder
-        ? 'ambiguous_cycle_order'
-        : completed
-          ? selectedHasTrustedArrival
-            ? 'later_cycle_has_trusted_arrival_evidence'
-            : 'older_cycle_arrival_elapsed_before_later_cycle'
-          : 'later_cycle_exists_without_terminal_or_elapsed_arrival_evidence',
+      decision: 'review_required',
+      reason: ambiguousCycleOrder ? 'ambiguous_cycle_order' : 'later_cycle_exists_without_terminal_receipt_evidence',
     };
   });
 

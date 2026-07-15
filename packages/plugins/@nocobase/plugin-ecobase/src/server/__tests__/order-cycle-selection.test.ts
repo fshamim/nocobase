@@ -24,10 +24,10 @@ const cycle = (orderId: string, authorityAsOf: string, values: Record<string, un
 describe('selectCurrentFamilyOrderCycle', () => {
   it('selects only the latest valid purchased cycle', () => {
     expect(
-      selectCurrentFamilyOrderCycle(
-        [cycle('old', '2026-05-01T00:00:00.000Z'), cycle('new', '2026-06-01T00:00:00.000Z')],
-        '2026-07-14',
-      ),
+      selectCurrentFamilyOrderCycle([
+        cycle('old', '2026-05-01T00:00:00.000Z'),
+        cycle('new', '2026-06-01T00:00:00.000Z'),
+      ]),
     ).toMatchObject({
       selectedOrderId: 'new',
       selectedOrderRef: 'NEW',
@@ -38,82 +38,69 @@ describe('selectCurrentFamilyOrderCycle', () => {
     });
   });
 
-  it('closes an older cycle only when the later cycle has trusted arrival evidence', () => {
+  it('never closes an older cycle from a later ETA or elapsed time alone', () => {
     expect(
-      selectCurrentFamilyOrderCycle(
-        [
-          cycle('old', '2026-05-01T00:00:00.000Z'),
-          cycle('new', '2026-06-01T00:00:00.000Z', {
-            expectedArrivalDate: '2026-07-20',
-            expectedArrivalStatus: 'imported',
-          }),
-        ],
-        '2026-07-14',
-      ).excludedCycles,
+      selectCurrentFamilyOrderCycle([
+        cycle('old', '2026-05-01T00:00:00.000Z', {
+          expectedArrivalDate: '2020-01-01',
+          expectedArrivalStatus: 'imported',
+        }),
+        cycle('new', '2026-06-01T00:00:00.000Z', {
+          expectedArrivalDate: '2026-07-20',
+          expectedArrivalStatus: 'imported',
+        }),
+      ]).excludedCycles,
     ).toEqual([
       expect.objectContaining({
         orderId: 'old',
-        decision: 'completed_by_later_inbound',
-        reason: 'later_cycle_has_trusted_arrival_evidence',
+        decision: 'review_required',
+        reason: 'later_cycle_exists_without_terminal_receipt_evidence',
       }),
     ]);
   });
 
   it('excludes terminal receipt cycles from current coverage', () => {
     expect(
-      selectCurrentFamilyOrderCycle(
-        [
-          cycle('old', '2026-06-10T00:00:00.000Z', { amazonReceiptStatus: 'amazon_stock_observed' }),
-          cycle('new', '2026-06-01T00:00:00.000Z'),
-        ],
-        '2026-07-14',
-      ),
+      selectCurrentFamilyOrderCycle([
+        cycle('old', '2026-06-10T00:00:00.000Z', { amazonReceiptStatus: 'amazon_stock_observed' }),
+        cycle('new', '2026-06-01T00:00:00.000Z'),
+      ]),
     ).toMatchObject({ selectedOrderId: 'new', selectedOpenQty: 10, reviewRequired: false });
   });
 
   it('keeps a non-inbound not-applicable cycle in current order coverage', () => {
     expect(
-      selectCurrentFamilyOrderCycle(
-        [cycle('ordered', '2026-06-10T00:00:00.000Z', { amazonReceiptStatus: 'not_applicable' })],
-        '2026-07-14',
-      ),
+      selectCurrentFamilyOrderCycle([
+        cycle('ordered', '2026-06-10T00:00:00.000Z', { amazonReceiptStatus: 'not_applicable' }),
+      ]),
     ).toMatchObject({ selectedOrderId: 'ordered', selectedOpenQty: 10, reviewRequired: false });
   });
 
   it('keeps all lines from the selected current order and sums only their open quantity', () => {
     expect(
-      selectCurrentFamilyOrderCycle(
-        [
-          cycle('old', '2026-05-01T00:00:00.000Z'),
-          cycle('new', '2026-06-01T00:00:00.000Z'),
-          { ...cycle('new', '2026-06-01T00:00:00.000Z'), lineId: 'line-new-2', openQty: 7 },
-        ],
-        '2026-07-14',
-      ),
+      selectCurrentFamilyOrderCycle([
+        cycle('old', '2026-05-01T00:00:00.000Z'),
+        cycle('new', '2026-06-01T00:00:00.000Z'),
+        { ...cycle('new', '2026-06-01T00:00:00.000Z'), lineId: 'line-new-2', openQty: 7 },
+      ]),
     ).toMatchObject({ selectedOrderId: 'new', selectedLineIds: ['line-new', 'line-new-2'], selectedOpenQty: 17 });
   });
 
   it('lets a newer placed-not-purchased recovery cycle replace an older purchased cycle', () => {
     expect(
-      selectCurrentFamilyOrderCycle(
-        [
-          cycle('purchased', '2026-05-01T00:00:00.000Z'),
-          cycle('recovery', '2026-06-01T00:00:00.000Z', { coverageState: 'placed_not_purchased' }),
-        ],
-        '2026-07-14',
-      ),
+      selectCurrentFamilyOrderCycle([
+        cycle('purchased', '2026-05-01T00:00:00.000Z'),
+        cycle('recovery', '2026-06-01T00:00:00.000Z', { coverageState: 'placed_not_purchased' }),
+      ]),
     ).toMatchObject({ selectedOrderId: 'recovery', selectedCoverageState: 'placed_not_purchased' });
   });
 
   it('flags invalid cycle dates for explicit review while keeping a deterministic order-ref tie-break', () => {
     expect(
-      selectCurrentFamilyOrderCycle(
-        [
-          cycle('a', 'invalid', { authorityAsOf: 'invalid', orderDate: 'invalid', orderRef: 'PO-A' }),
-          cycle('b', 'invalid', { authorityAsOf: 'invalid', orderDate: 'invalid', orderRef: 'PO-B' }),
-        ],
-        '2026-07-14',
-      ),
+      selectCurrentFamilyOrderCycle([
+        cycle('a', 'invalid', { authorityAsOf: 'invalid', orderDate: 'invalid', orderRef: 'PO-A' }),
+        cycle('b', 'invalid', { authorityAsOf: 'invalid', orderDate: 'invalid', orderRef: 'PO-B' }),
+      ]),
     ).toMatchObject({
       selectedOrderId: 'b',
       excludedCycles: [{ orderId: 'a', decision: 'review_required', reason: 'ambiguous_cycle_order' }],

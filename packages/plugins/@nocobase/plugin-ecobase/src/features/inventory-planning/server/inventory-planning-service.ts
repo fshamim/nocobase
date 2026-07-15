@@ -928,6 +928,8 @@ const INVENTORY_PLANNING_ROW_FIELDS = [
   'amazonReceiptEvidenceJson',
   'supplierOrderOpenQty',
   'supplierOrderReferenceOpenQty',
+  'supplierOrderCycleSelection',
+  'supplierOrderCycleReviewRequired',
   'supplierOrderPurchasedOpenQty',
   'supplierOrderPlacedNotPurchasedOpenQty',
   'pipelineHealthStatus',
@@ -1396,10 +1398,7 @@ export class EcobaseInventoryPlanningService {
     }
     const cycleSelectionByFamilyId = settings.enableCurrentOrderCycleSelection
       ? new Map<string, FamilyOrderCycleSelection>(
-          [...cycleLinesByFamilyId].map(([familyId, lines]) => [
-            familyId,
-            selectCurrentFamilyOrderCycle(lines, calculationDate, purchasedPipelineGraceDays),
-          ]),
+          [...cycleLinesByFamilyId].map(([familyId, lines]) => [familyId, selectCurrentFamilyOrderCycle(lines)]),
         )
       : new Map<string, FamilyOrderCycleSelection>();
     const latestActivityByOrderId = new Map<string, PlainRecord>();

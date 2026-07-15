@@ -1687,11 +1687,12 @@ export default function InventoryPlanningPage() {
           <Typography.Text type="secondary">
             {t(formatExpectedArrivalSource(row.expectedArrivalSource))}
           </Typography.Text>
-          {excludedCycles.length ? (
-            <Typography.Text type="secondary">
-              {excludedCycles.length} {t('older cycle(s) excluded from coverage')}
+          {excludedCycles.map((excludedCycle) => (
+            <Typography.Text key={String(excludedCycle.orderId)} type="secondary">
+              {excludedCycle.orderRef ?? excludedCycle.orderId ?? '—'} ·{' '}
+              {t(formatStatusLabel(excludedCycle.reason ?? 'review_required'))}
             </Typography.Text>
-          ) : null}
+          ))}
           {receiptEvidence.reason ? (
             <Typography.Text type="secondary">
               {t('Receipt evidence')} {t(formatStatusLabel(receiptEvidence.reason))}
@@ -2470,11 +2471,12 @@ export default function InventoryPlanningPage() {
                 {t('Arrival evidence')} {t(formatExpectedArrivalSource(selectedRow.expectedArrivalSource))} ·{' '}
                 {t(formatStatusLabel(selectedRow.expectedArrivalFreshness))}
               </Typography.Text>
-              {excludedCycles.length ? (
-                <Typography.Text type="secondary">
-                  {excludedCycles.length} {t('older cycle(s) excluded from current coverage')}
+              {excludedCycles.map((excludedCycle) => (
+                <Typography.Text key={String(excludedCycle.orderId)} type="secondary">
+                  {t('Excluded older cycle')} {excludedCycle.orderRef ?? excludedCycle.orderId ?? '—'} ·{' '}
+                  {t(formatStatusLabel(excludedCycle.reason ?? 'review_required'))}
                 </Typography.Text>
-              ) : null}
+              ))}
               {receiptEvidence.reason ? (
                 <Typography.Text type="secondary">
                   {t('Receipt evidence')} {t(formatStatusLabel(receiptEvidence.reason))}
@@ -3109,6 +3111,9 @@ export default function InventoryPlanningPage() {
                                     ? cycleSelection.selectedLineIds.map(String)
                                     : [];
                                   const currentCycle = selectedLineIds.includes(String(line.id));
+                                  const excludedCycle = unwrapRows(cycleSelection.excludedCycles).find(
+                                    (cycle) => String(cycle.orderId) === String(line.supplierOrderId ?? line.order?.id),
+                                  );
                                   return (
                                     <Space direction="vertical" size={0}>
                                       <Tag color={supplierOrderStatusColor(line.order?.status)}>
@@ -3117,6 +3122,11 @@ export default function InventoryPlanningPage() {
                                       <Tag color={currentCycle ? 'blue' : 'default'}>
                                         {t(currentCycle ? 'Current cycle' : 'Older cycle — excluded from coverage')}
                                       </Tag>
+                                      {excludedCycle?.reason ? (
+                                        <Typography.Text type="secondary">
+                                          {t(formatStatusLabel(excludedCycle.reason))}
+                                        </Typography.Text>
+                                      ) : null}
                                     </Space>
                                   );
                                 },
