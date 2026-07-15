@@ -81,3 +81,4 @@ openspec/
 tmp/
 .local/
 .pi-subagents/
+artifacts/
