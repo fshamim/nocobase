@@ -430,8 +430,9 @@ function canChangeActivityComment(activity: PlainRecord) {
 
 function StockStatus({ row, t }: { row: PlainRecord; t: (key: string) => string }) {
   const reserved = Number(row.reservedStock ?? 0);
-  const sellable = Number(row.sellableStock ?? 0);
-  const pipeline = Number(row.pipelineStock ?? 0);
+  const sellable = Number(row.onHandSellableStock ?? row.sellableStock ?? 0);
+  const pipeline = Number(row.amazonPipelineStock ?? row.pipelineStock ?? 0);
+  const supplierPipeline = Number(row.supplierPipelineStock ?? 0);
   const inbound = Number(row.inboundStock ?? 0);
   const ordered = Number(row.orderedStock ?? 0);
   const prep = Number(row.prepStock ?? 0);
@@ -440,19 +441,22 @@ function StockStatus({ row, t }: { row: PlainRecord; t: (key: string) => string 
     <Space direction="vertical" size={4}>
       <Space size={4} wrap>
         <Tag color="blue">
-          {t('Total')} {formatNumber(row.currentPlanningStock)}
+          {t('Inventory position')} {formatNumber(row.inventoryPositionStock)}
         </Tag>
         {row.stuck ? <Tag color="purple">{t('STUCK')}</Tag> : null}
       </Space>
       <Space size={4} wrap>
         <Tag color={sellable > 0 ? 'green' : 'red'}>
-          {t('Sellable')} {formatNumber(sellable)}
-        </Tag>
-        <Tag color={reservedColor}>
-          {t('Reserved')} {formatNumber(reserved)}
+          {t('On hand')} {formatNumber(sellable)}
         </Tag>
         <Tag color={pipeline > 0 ? 'cyan' : 'default'}>
-          {t('Replenishment')} {formatNumber(pipeline)}
+          {t('Amazon pipeline')} {formatNumber(pipeline)}
+        </Tag>
+        <Tag color={supplierPipeline > 0 ? 'blue' : 'default'}>
+          {t('Supplier pipeline')} {formatNumber(supplierPipeline)}
+        </Tag>
+        <Tag color={reservedColor}>
+          {t('Reserved / unavailable')} {formatNumber(reserved)}
         </Tag>
         <Tag color={inbound > 0 ? 'geekblue' : 'default'}>
           {t('Inbound')} {formatNumber(inbound)}
@@ -1110,13 +1114,13 @@ export default function InventoryPlanningPage() {
     ],
     healthyInventory: [
       { value: 'daysOfCover', label: t('Days cover') },
-      { value: 'currentPlanningStock', label: t('Current stock') },
+      { value: 'inventoryPositionStock', label: t('Inventory position') },
       { value: 'amazonReceiptObservedAt', label: t('Receipt observed') },
     ],
     stuckInventory: [
       { value: 'familyStuckAffectedValue', label: t('Affected value') },
       { value: 'familyDaysOfCover', label: t('Family days cover') },
-      { value: 'familyCurrentPlanningStock', label: t('Family stock') },
+      { value: 'familyInventoryPositionStock', label: t('Family inventory position') },
     ],
     dataReadiness: [
       { value: 'company', label: t('Company') },
@@ -1129,7 +1133,7 @@ export default function InventoryPlanningPage() {
       { value: 'actionStatus', label: t('Status') },
     ],
     duplicateProducts: [
-      { value: 'currentPlanningStock', label: t('Planning stock') },
+      { value: 'inventoryPositionStock', label: t('Inventory position') },
       { value: 'asin', label: t('ASIN') },
       { value: 'duplicatePrimarySku', label: t('Primary SKU') },
     ],
@@ -1251,15 +1255,12 @@ export default function InventoryPlanningPage() {
   };
   const renderCurrentStockCell = (_value: any, row: PlainRecord) => (
     <Space direction="vertical" size={4} style={{ minWidth: 210 }}>
-      <Space size={4} wrap>
-        {renderStockBucketTag('Total', 'Total planning stock', row.currentPlanningStock, 'blue')}
-      </Space>
       <Space size={[4, 4]} wrap>
-        {renderStockBucketTag('FBA', 'FBA', row.sellableStock, 'green')}
-        {renderStockBucketTag('RES', 'Reserved', row.reservedStock, 'gold')}
-        {renderStockBucketTag('INB', 'Inbound', row.inboundStock, 'cyan')}
-        {renderStockBucketTag('PRP', 'Prep', row.prepStock, 'magenta')}
-        {renderStockBucketTag('ORD', 'Ordered', row.orderedStock, 'geekblue')}
+        {renderStockBucketTag('Position', 'Inventory position', row.inventoryPositionStock, 'blue')}
+        {renderStockBucketTag('On hand', 'On-hand sellable', row.onHandSellableStock, 'green')}
+        {renderStockBucketTag('Amazon', 'Amazon pipeline', row.amazonPipelineStock, 'cyan')}
+        {renderStockBucketTag('Supplier', 'Supplier pipeline', row.supplierPipelineStock, 'geekblue')}
+        {renderStockBucketTag('Reserved', 'Reserved / unavailable', row.reservedStock, 'gold')}
       </Space>
     </Space>
   );
@@ -1490,12 +1491,11 @@ export default function InventoryPlanningPage() {
   const familyMembers = (row: PlainRecord) => unwrapRows(row.familyMembers);
   const renderFamilyStockCell = (_value: any, row: PlainRecord) =>
     renderCurrentStockCell(undefined, {
-      currentPlanningStock: row.familyCurrentPlanningStock,
-      sellableStock: row.familySellableStock,
+      inventoryPositionStock: row.familyInventoryPositionStock,
+      onHandSellableStock: row.familyOnHandSellableStock,
+      amazonPipelineStock: row.familyAmazonPipelineStock,
+      supplierPipelineStock: row.familySupplierPipelineStock,
       reservedStock: row.familyReservedStock,
-      inboundStock: row.familyInboundStock,
-      prepStock: row.familyPrepStock,
-      orderedStock: row.familyOrderedStock,
     });
   const renderFamilyIdentityCell = (_value: any, row: PlainRecord) => (
     <Space direction="vertical" size={0} style={{ maxWidth: 180 }}>
@@ -1708,7 +1708,7 @@ export default function InventoryPlanningPage() {
     { title: String(t('Family / ASIN')), key: 'family', render: renderFamilyIdentityCell },
     { title: String(t('Target SKU')), key: 'target', render: renderFamilyTargetCell },
     { title: String(t('Supplier')), key: 'supplier', render: renderFamilySupplierCell },
-    { title: String(t('Family stock')), key: 'stock', render: renderFamilyStockCell },
+    { title: String(t('Family inventory position')), key: 'stock', render: renderFamilyStockCell },
     { title: String(t('Velocity / DOC')), key: 'velocity', render: renderFamilyVelocityCell },
     { title: String(t('Tier / priority')), key: 'priority', render: renderFamilyPriorityCell },
     {
@@ -1733,7 +1733,7 @@ export default function InventoryPlanningPage() {
       dataIndex: 'productStatus',
       render: (value: string) => <Tag>{t(formatStatusLabel(value))}</Tag>,
     },
-    { title: String(t('Listing stock')), key: 'stock', render: renderCurrentStockCell },
+    { title: String(t('Listing inventory position')), key: 'stock', render: renderCurrentStockCell },
     {
       title: String(t('Listing velocity / DOC')),
       key: 'velocity',
@@ -1797,7 +1797,7 @@ export default function InventoryPlanningPage() {
             </Space>
           ),
         },
-        { title: String(t('Current stock')), key: 'currentStock', render: renderCurrentStockCell },
+        { title: String(t('Inventory position')), key: 'currentStock', render: renderCurrentStockCell },
         {
           title: String(t('Order evidence')),
           key: 'orderEvidence',
@@ -1865,7 +1865,7 @@ export default function InventoryPlanningPage() {
                 {formatCurrency(row.estimatedProfitRisk)}
               </Typography.Text>
               <Typography.Text type="secondary">
-                {t('Total stock')} {formatNumber(row.currentPlanningStock)}
+                {t('Sellable stock')} {formatNumber(row.onHandSellableStock)}
               </Typography.Text>
             </Space>
           ),
@@ -1888,7 +1888,7 @@ export default function InventoryPlanningPage() {
         dataIndex: 'tier',
         render: renderCommandTierCell,
       },
-      { title: String(t('Current stock')), key: 'currentStock', render: renderCurrentStockCell },
+      { title: String(t('Inventory position')), key: 'currentStock', render: renderCurrentStockCell },
       { title: coverageColumnTitle, key: 'coverage', render: renderCoverageCell },
       { title: String(t('Order by')), key: 'orderBy', render: renderOrderByCell },
       {
@@ -2679,7 +2679,7 @@ export default function InventoryPlanningPage() {
     { title: String(t('SKU')), dataIndex: 'sku', width: 150 },
     { title: String(t('Status')), dataIndex: 'productStatus', width: 130 },
     {
-      title: String(t('Current stock status')),
+      title: String(t('Inventory position')),
       key: 'stockStatus',
       width: 260,
       render: (_value: any, row: PlainRecord) => <StockStatus row={row} t={t} />,

@@ -75,8 +75,9 @@ const SETTING_HELP: Record<NumberSettingKey, { label: string; meaning: string; e
   targetCoverDays: {
     label: 'Target cover days',
     meaning:
-      'How many selling days suggested quantity should cover after subtracting current stock and reliable open orders.',
-    example: 'If velocity is 5/day, target cover 45, stock 60, and open orders 20, suggested quantity is 145.',
+      'How many selling days suggested quantity should cover after subtracting on-hand sellable, Amazon pipeline, and supplier pipeline stock.',
+    example:
+      'If velocity is 5/day, target cover 45, on hand is 40, Amazon pipeline is 20, and supplier pipeline is 20, suggested quantity is 145.',
     usedBy: 'Suggested quantity, gold inventory planning rows, and operator planning drawers.',
   },
   orderSoonWindowDays: {

@@ -101,25 +101,19 @@ const SOURCE_COLORS: Record<FormulaSource, string> = {
 // Add every user-visible EcoBase calculated field here before exposing it in page help.
 const FORMULAS: Record<FormulaKey, FormulaDefinition> = {
   stockParity: {
-    label: 'Current planning stock',
+    label: 'Inventory position',
     source: 'eco_calc',
     equation: [
-      { text: 'sellable', source: 'sellerboard' },
+      { text: 'onHandSellableStock', source: 'sellerboard' },
       ' + ',
-      { text: 'reserved', source: 'sellerboard' },
+      { text: 'amazonPipelineStock', source: 'eco_calc' },
       ' + ',
-      { text: 'inbound', source: 'sellerboard' },
-      ' + ',
-      { text: 'ordered', source: 'sellerboard' },
-      ' + ',
-      { text: 'prep', source: 'csv' },
-      ' + ',
-      { text: 'AWD', source: 'csv' },
+      { text: 'supplierPipelineStock', source: 'eco_calc' },
     ],
-    note: 'This is the Total stock shown in Inventory Planning. Pane bucket tags use the Google Sheets names: FBA, RES, INB, PRP, and ORD.',
+    note: 'Reserved stock is unavailable and excluded. Supplier pipeline is net of units already represented in Amazon inbound, ordered, prep, or AWD buckets.',
   },
   pipelineStock: {
-    label: 'Replenishment stock',
+    label: 'Amazon pipeline stock',
     source: 'eco_calc',
     equation: [
       { text: 'inbound', source: 'sellerboard' },
@@ -130,7 +124,7 @@ const FORMULAS: Record<FormulaKey, FormulaDefinition> = {
       ' + ',
       { text: 'AWD', source: 'csv' },
     ],
-    note: 'Incoming pipeline stock behind the INB, PRP, and ORD bucket tags; it is not sellable stock yet.',
+    note: 'Amazon-side pipeline is unavailable until sellable. Supplier pipeline is shown separately and netted to prevent double counting.',
   },
   salesVelocity: {
     label: 'Sales velocity',
@@ -147,14 +141,14 @@ const FORMULAS: Record<FormulaKey, FormulaDefinition> = {
     note: 'Stock velocity is Sellerboard Stock Daily “Estimated Sales Velocity” when present; otherwise EcoBase uses unit averages.',
   },
   daysOfCover: {
-    label: 'Days of cover',
+    label: 'Current days of cover',
     source: 'eco_derived',
     equation: [
-      { text: 'currentPlanningStock', source: 'eco_calc' },
+      { text: 'onHandSellableStock', source: 'sellerboard' },
       ' / ',
-      { text: 'salesVelocity', source: 'eco_calc' },
+      { text: 'trustedSalesVelocity', source: 'eco_calc' },
     ],
-    note: 'Inputs: currentPlanningStock is sellable + reserved + replenishment; salesVelocity is latest Sellerboard/import velocity. Example: Total 60 units / 5 units per day = 12 days of cover.',
+    note: 'Current OOS timing uses sellable stock only. Future-position cover uses inventoryPositionStock / trustedSalesVelocity; reserved stock never increases either measure.',
   },
   estimatedOosDate: {
     label: 'Estimated OOS date',
@@ -175,7 +169,7 @@ const FORMULAS: Record<FormulaKey, FormulaDefinition> = {
     note: 'Inputs: estimatedOosDate comes from days of cover, leadTimeDays comes from supplier evidence, safetyBuffer comes from Planning Settings. Example: OOS Jul 20 − 10-day lead time − 7-day buffer = order by Jul 3.',
   },
   openOrderCoverage: {
-    label: 'Open order coverage',
+    label: 'Supplier pipeline stock',
     source: 'eco_calc',
     equation: [
       'sum(',
@@ -186,23 +180,25 @@ const FORMULAS: Record<FormulaKey, FormulaDefinition> = {
       { text: 'expectedSellableDate is inside pipeline grace', source: 'operator' },
       ')',
     ],
-    note: 'Inputs: orderedQty − receivedQty from supplier-order lines, a configured purchased-pipeline status such as paid/supplier preparing/shipped, and purchasedPipelineGraceDays from Planning Settings. Placed-not-purchased orders do not count. Older purchased orders are ignored when a newer placed-not-purchased recovery cycle exists. Example: 100 ordered − 40 received, paid, expected sellable 2 days ago with 3-day grace = 60 coverage.',
+    note: 'Purchased open quantity is reduced by Amazon pipeline already represented in inbound, ordered, prep, or AWD buckets. Placed-not-purchased and stale orders do not count.',
   },
   suggestedReorderQty: {
     label: 'Suggested quantity',
     source: 'eco_derived',
     equation: [
       'max(ceil(',
-      { text: 'salesVelocity', source: 'eco_calc' },
+      { text: 'trustedSalesVelocity', source: 'eco_calc' },
       ' × ',
       { text: 'targetCoverDays', source: 'operator' },
       ' - ',
-      { text: 'currentPlanningStock', source: 'eco_calc' },
+      { text: 'onHandSellableStock', source: 'sellerboard' },
       ' - ',
-      { text: 'openOrderCoverage', source: 'eco_calc' },
+      { text: 'amazonPipelineStock', source: 'eco_calc' },
+      ' - ',
+      { text: 'supplierPipelineStock', source: 'eco_calc' },
       '), 0)',
     ],
-    note: 'Inputs: salesVelocity, targetCoverDays, currentPlanningStock, and reliable openOrderCoverage. Example: max(ceil(5 × 45 − 60 − 20), 0) = 145 units. Lead time and safety buffer drive the Order by date, not the quantity; EcoBase uses 30 days when source lead time is unavailable.',
+    note: 'Reserved stock is excluded. Supplier pipeline counts only reliable purchased quantity not already represented in Amazon pipeline.',
   },
   tierScore: {
     label: 'Tier score',
@@ -229,10 +225,10 @@ const FORMULAS: Record<FormulaKey, FormulaDefinition> = {
       ' - ',
       { text: 'daysOfCover', source: 'eco_derived' },
       ' - ',
-      { text: 'trustedOpenOrderQty / salesVelocity', source: 'eco_derived' },
+      { text: '(amazonPipelineStock + supplierPipelineStock) / trustedSalesVelocity', source: 'eco_derived' },
       ')',
     ],
-    note: 'Only purchased-pipeline order quantity contributes trusted coverage. Missing target cover, stock cover, velocity, or profit inputs leave Money at Risk unknown.',
+    note: 'Reserved stock is excluded. Missing target cover, current cover, velocity, or profit inputs leave Money at Risk unknown; active-order timing gaps still use expected arrival versus current OOS.',
   },
   inventoryMoneyAtRisk: {
     label: 'Money at risk',
@@ -409,16 +405,14 @@ const INVENTORY_FIELDS: HelpEntry[] = [
     description: 'Product status from operator BackendSheet status when present, otherwise derived from stock buckets.',
   },
   {
-    label: 'Current stock status',
-    description:
-      'Compact stock summary used by the current panes: Total planning stock plus FBA, RES, INB, PRP, and ORD buckets.',
+    label: 'Inventory position',
+    description: 'Sellable on hand + Amazon pipeline + net supplier pipeline. Reserved stock is excluded.',
     source: 'eco_calc',
   },
   {
-    label: 'Total',
-    description:
-      'Current planning stock: sellable + reserved + replenishment pipeline. Replenishment is inbound + ordered + prep/AWD.',
-    source: 'eco_calc',
+    label: 'On hand',
+    description: 'Sellable units available now. This is the only stock basis for current DOC and OOS timing.',
+    source: 'sellerboard',
   },
   {
     label: 'Sellable',
@@ -427,13 +421,17 @@ const INVENTORY_FIELDS: HelpEntry[] = [
   },
   {
     label: 'Reserved',
-    description:
-      'Units reserved by Amazon or operations. Reserved is visible separately because it is not new replenishment.',
+    description: 'Unavailable units shown as a risk bucket. Reserved never increases DOC or reduces reorder quantity.',
     source: 'sellerboard',
   },
   {
-    label: 'Replenishment',
-    description: 'Inbound + ordered + prep/AWD stock. This is incoming pipeline stock, not sellable stock yet.',
+    label: 'Amazon pipeline',
+    description: 'Inbound + ordered + prep/AWD stock. It is unavailable until sellable.',
+    source: 'eco_calc',
+  },
+  {
+    label: 'Supplier pipeline',
+    description: 'Reliable purchased quantity net of units already represented in Amazon pipeline.',
     source: 'eco_calc',
   },
   {
@@ -468,7 +466,8 @@ const INVENTORY_FIELDS: HelpEntry[] = [
   },
   {
     label: 'Days cover',
-    description: 'How many days current planning stock can cover at the chosen sales velocity.',
+    description:
+      'Current cover is on-hand sellable / trusted velocity; future cover uses inventory position / velocity.',
     source: 'eco_derived',
   },
   {
@@ -484,13 +483,13 @@ const INVENTORY_FIELDS: HelpEntry[] = [
   {
     label: 'Suggested qty',
     description:
-      'Recommended reorder quantity: max(ceil(sales velocity × target cover − current planning stock − reliable open-order coverage), 0).',
+      'max(ceil(trusted velocity × target cover − on-hand sellable − Amazon pipeline − supplier pipeline), 0).',
     source: 'eco_derived',
   },
   {
-    label: 'Open order coverage',
+    label: 'Supplier pipeline',
     description:
-      'Only reliable purchased pipeline counts: open order-line quantity on configured purchased statuses such as paid, supplier preparing, or shipped. Placed-not-purchased orders do not reduce Suggested qty.',
+      'Reliable purchased open quantity net of Amazon pipeline already represented in stock evidence. Placed-not-purchased orders do not reduce Suggested qty.',
     source: 'eco_calc',
   },
   {
@@ -571,7 +570,11 @@ const INVENTORY_TAGS: HelpEntry[] = [
       'Reliable open-order coverage exists, so the operator should monitor the order instead of duplicating it.',
   },
   { label: 'watch', tagColor: 'cyan', description: 'No immediate action, but keep the product under observation.' },
-  { label: 'sufficient_stock', tagColor: 'green', description: 'Current stock and coverage are enough for now.' },
+  {
+    label: 'sufficient_stock',
+    tagColor: 'green',
+    description: 'Sellable stock and inventory-position coverage are enough for now.',
+  },
   {
     label: 'excluded',
     description:
@@ -635,15 +638,14 @@ const INVENTORY_SUPPLY_ACTION_FIELDS: HelpEntry[] = [
   },
   { label: 'Tier', description: 'Profitability tier used to prioritize A/B/C products first.', source: 'eco_derived' },
   {
-    label: 'Current stock',
-    description:
-      'Current planning stock only: Total on the first line, then FBA, RES, INB, PRP, and ORD buckets on the second line.',
+    label: 'Inventory position',
+    description: 'On-hand sellable + Amazon pipeline + net supplier pipeline. Reserved is shown separately.',
     source: 'eco_calc',
   },
   {
-    label: 'Total',
-    description: 'Current planning stock: FBA + reserved + inbound + prep/AWD + ordered.',
-    source: 'eco_calc',
+    label: 'On hand',
+    description: 'FBA/sellable units available now; the current DOC and OOS basis.',
+    source: 'sellerboard',
   },
   { label: 'FBA', description: 'FBA/sellable units currently available to sell.', source: 'sellerboard' },
   { label: 'RES', description: 'Reserved units held by Amazon or operations.', source: 'sellerboard' },
@@ -774,14 +776,15 @@ const INVENTORY_STUCK_FIELDS: HelpEntry[] = [
     source: 'eco_derived',
   },
   {
-    label: 'Stock',
+    label: 'Inventory position',
     description:
-      'Total current planning stock plus the same FBA, RES, INB, PRP, and ORD buckets used in the no-active-order pane.',
+      'Sellable on hand, Amazon pipeline, supplier pipeline, and reserved/unavailable risk are shown separately.',
     source: 'eco_calc',
   },
   {
     label: 'Capital / risk',
-    description: 'Estimated tied-up capital or profit risk plus current planning stock.',
+    description:
+      'Estimated tied-up capital uses sellable affected units only; reserved units remain a separate risk signal.',
     source: 'eco_derived',
   },
 ];

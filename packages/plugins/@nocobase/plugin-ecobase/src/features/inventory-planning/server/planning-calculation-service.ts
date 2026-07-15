@@ -20,7 +20,7 @@ import { addDays, diffDays, isoDate } from './planning-date';
 import { profitTierFor, type ProfitTierThresholds } from './profit-tier';
 import { summarizeHistoricalProductFacts } from './historical-product-metrics';
 
-const RULE_VERSION = 'spreadsheet_parity_v1';
+const RULE_VERSION = 'explicit_inventory_position_v2';
 const ZERO_VELOCITY_DAYS_OF_COVER_SENTINEL = 999;
 
 type PlainRecord = Record<string, unknown>;
@@ -316,8 +316,10 @@ export class EcobasePlanningCalculationService {
         total + (asNumber(record.prepStock) ?? payloadNumber(record, ['Prep Stock', 'Prep Center Stock']) ?? 0),
       0,
     );
-    const pipelineStock = inboundStock + orderedStock + prepStock;
-    const currentStockParity = sellableStock + reservedStock + pipelineStock;
+    const amazonPipelineStock = inboundStock + orderedStock + prepStock;
+    const supplierPipelineStock = 0;
+    const inventoryPositionStock = sellableStock + amazonPipelineStock + supplierPipelineStock;
+    const currentStockParity = sellableStock + reservedStock + amazonPipelineStock;
     const sourceEstimatedVelocity =
       sumFirstNumbers(latestInventoryRows, [
         'salesVelocity',
@@ -342,8 +344,13 @@ export class EcobasePlanningCalculationService {
       DEFAULT_PLANNING_SETTINGS.safetyBufferDays;
     const leadTimeDays = await this.resolveLeadTimeDays(params.product, params.parameterRows);
     const daysOfCover =
-      salesVelocity && salesVelocity > 0 ? currentStockParity / salesVelocity : ZERO_VELOCITY_DAYS_OF_COVER_SENTINEL;
+      salesVelocity && salesVelocity > 0 ? sellableStock / salesVelocity : ZERO_VELOCITY_DAYS_OF_COVER_SENTINEL;
     const oosDate = addDays(params.calculationDate, daysOfCover);
+    const positionDaysOfCover =
+      salesVelocity && salesVelocity > 0
+        ? inventoryPositionStock / salesVelocity
+        : ZERO_VELOCITY_DAYS_OF_COVER_SENTINEL;
+    const positionOosDate = addDays(params.calculationDate, positionDaysOfCover);
     const restockDeadlineParity = typeof leadTimeDays === 'number' ? addDays(oosDate, -leadTimeDays) : undefined;
     const restockDeadlineImproved =
       typeof leadTimeDays === 'number' ? addDays(oosDate, -(leadTimeDays + safetyBufferDays)) : undefined;
@@ -352,7 +359,7 @@ export class EcobasePlanningCalculationService {
       : undefined;
     const daysRemainingInMonth = daysInMonth(params.calculationDate) - dayOfMonth(params.calculationDate);
     const estimatedMonthEndQuantity =
-      typeof salesVelocity === 'number' ? currentStockParity - salesVelocity * daysRemainingInMonth : undefined;
+      typeof salesVelocity === 'number' ? inventoryPositionStock - salesVelocity * daysRemainingInMonth : undefined;
     const restockNeeded =
       typeof estimatedMonthEndQuantity === 'number' && typeof recommendedBestQty === 'number'
         ? estimatedMonthEndQuantity < recommendedBestQty
@@ -430,11 +437,19 @@ export class EcobasePlanningCalculationService {
       sixMonthBestQty: historicalMetrics.sixMonthBestQty,
       sixMonthMargin: historicalMetrics.margin,
       currentStockParity,
+      onHandSellableStock: sellableStock,
       sellableStock,
-      pipelineStock,
+      reservedStock,
+      amazonPipelineStock,
+      pipelineStock: amazonPipelineStock,
+      supplierPipelineStock,
+      inventoryPositionStock,
+      futurePositionStock: inventoryPositionStock,
       salesVelocity,
       daysOfCover,
       oosDate,
+      positionDaysOfCover,
+      positionOosDate,
       leadTimeDays,
       safetyBufferDays,
       restockDeadlineParity,
@@ -462,7 +477,16 @@ export class EcobasePlanningCalculationService {
         factRowCount: params.factRows.length,
         planningParameterCount: params.parameterRows.length,
         targetRowCount: params.targetRows.length,
-        stockBuckets: { sellableStock, reservedStock, inboundStock, orderedStock, prepStock },
+        stockBuckets: {
+          onHandSellableStock: sellableStock,
+          reservedStock,
+          amazonPipelineStock,
+          supplierPipelineStock,
+          inventoryPositionStock,
+          inboundStock,
+          orderedStock,
+          prepStock,
+        },
         velocityCandidates: {
           sevenDayAverage: averageUnitsForWindow(params.factRows, params.calculationDate, 7),
           thirtyDayAverage: averageUnitsForWindow(params.factRows, params.calculationDate, 30),
@@ -515,18 +539,38 @@ export class EcobasePlanningCalculationService {
         profitPerUnit: 1,
         recommendedBestQty: 50,
       }),
-      this.expectEqual('stock-parity', 'Sample calculation current stock parity', 20, sample.currentStockParity, {
-        expectedFormula: 'stock + reserved + inbound + ordered + prepStock',
+      this.expectEqual('stock-parity', 'Sample compatibility stock total', 20, sample.currentStockParity, {
+        expectedFormula: 'sellable + reserved + Amazon pipeline',
         sampleInventoryRows: 1,
       }),
-      this.expectEqual('days-of-cover', 'Sample calculation days of cover', 10, sample.daysOfCover, {
-        currentStockParity: sample.currentStockParity,
+      this.expectEqual(
+        'inventory-position',
+        'Sample inventory position excludes reserved',
+        18,
+        sample.inventoryPositionStock,
+        {
+          expectedFormula: 'on-hand sellable + Amazon pipeline + supplier pipeline',
+          reservedStock: sample.reservedStock,
+        },
+      ),
+      this.expectEqual('days-of-cover', 'Sample current days of cover uses sellable stock', 5, sample.daysOfCover, {
+        onHandSellableStock: sample.onHandSellableStock,
         salesVelocity: sample.salesVelocity,
       }),
       this.expectEqual(
+        'position-days-of-cover',
+        'Sample position cover uses inventory position',
+        9,
+        sample.positionDaysOfCover,
+        {
+          inventoryPositionStock: sample.inventoryPositionStock,
+          salesVelocity: sample.salesVelocity,
+        },
+      ),
+      this.expectEqual(
         'restock-deadline-parity',
         'Sample calculation strict parity restock deadline excludes safety buffer',
-        '2025-07-10',
+        '2025-07-05',
         sample.restockDeadlineParity,
         {
           calculationDate,
@@ -547,7 +591,7 @@ export class EcobasePlanningCalculationService {
       this.expectEqual(
         'estimated-profit-risk',
         'Sample calculation estimated profit risk',
-        70,
+        120,
         sample.estimatedProfitRisk,
         {
           salesVelocity: sample.salesVelocity,

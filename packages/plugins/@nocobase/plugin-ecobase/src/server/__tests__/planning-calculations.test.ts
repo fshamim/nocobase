@@ -142,6 +142,8 @@ async function seedCurrentPlanningData(db: MemoryDatabase) {
       companyProductId,
       snapshotDate: '2026-07-13',
       sellableStock: 100,
+      reserved: 100,
+      inbound: 50,
       salesVelocity: 2,
     },
   });
@@ -209,6 +211,12 @@ describe('Ecobase Silver-backed planning calculations', () => {
       sixMonthMargin: 50,
       leadTimeDays: 10,
       profitPerUnit: 5,
+      currentStockParity: 250,
+      onHandSellableStock: 100,
+      reservedStock: 100,
+      amazonPipelineStock: 50,
+      supplierPipelineStock: 0,
+      inventoryPositionStock: 150,
       calculationStatus: 'calculated',
       dataCompleteness: 'complete',
       evidence: {
@@ -220,6 +228,8 @@ describe('Ecobase Silver-backed planning calculations', () => {
         },
       },
     });
+    expect(result.daysOfCover).toBeCloseTo(100 / (74 / 30));
+    expect(result.positionDaysOfCover).toBeCloseTo(150 / (74 / 30));
   });
 
   it('exposes benchmark validation rows through the public planning action', async () => {
@@ -236,6 +246,8 @@ describe('Ecobase Silver-backed planning calculations', () => {
         rows: expect.arrayContaining([
           expect.objectContaining({ key: 'tier-a', status: 'pass' }),
           expect.objectContaining({ key: 'stock-parity', status: 'pass' }),
+          expect.objectContaining({ key: 'inventory-position', status: 'pass' }),
+          expect.objectContaining({ key: 'position-days-of-cover', status: 'pass' }),
           expect.objectContaining({ key: 'restock-deadline-parity', status: 'pass' }),
           expect.objectContaining({ key: 'off-track', status: 'pass' }),
         ]),

@@ -457,6 +457,7 @@ describe('EcobaseInventoryPlanningService', () => {
   it('materializes exclusive target supply, active-order, stuck, member, and watch boundaries', () => {
     const service = new EcobaseInventoryPlanningService(new MemoryDatabase()) as unknown as {
       finalizeGoldContract: (row: Record<string, unknown>, calculationDate: string) => Record<string, unknown>;
+      commandCenterRiskBars: (rows: Record<string, unknown>[]) => Record<string, Record<string, unknown>[]>;
     };
     const materialize = (values: Record<string, unknown>) =>
       service.finalizeGoldContract(
@@ -469,6 +470,9 @@ describe('EcobaseInventoryPlanningService', () => {
           salesVelocityBasis: 'historical_rolling_30_days',
           salesVelocityStatus: 'trusted_positive',
           currentPlanningStock: 30,
+          onHandStock: 30,
+          onHandSellableStock: 30,
+          sellableStock: 30,
           daysOfCover: 30,
           targetCoverDays: 45,
           supplierOrderState: 'no_open_order',
@@ -501,7 +505,35 @@ describe('EcobaseInventoryPlanningService', () => {
     expect(
       materialize({ daysOfCover: 60.01, familyStuckAction: true, familyStuckClassification: 'over_60_doc' }),
     ).toMatchObject({ commandCenterPane: 'stuckInventory', stuckClassification: 'over_60_doc' });
-    expect(materialize({ currentPlanningStock: 0, daysOfCover: 0 }).stuck).toBe(false);
+    expect(
+      service.commandCenterRiskBars([
+        materialize({ daysOfCover: 61 }),
+        materialize({ daysOfCover: 45 }),
+        materialize({ daysOfCover: 45, lastMonthQty: 5, sixMonthAverageQty: 10 }),
+      ]).stuckInventory,
+    ).toEqual([
+      { key: 'over_60_doc', count: 1 },
+      { key: 'over_30_doc_watch', count: 1 },
+      { key: 'declining_velocity_watch', count: 1 },
+    ]);
+    expect(
+      materialize({
+        currentPlanningStock: 0,
+        onHandStock: 0,
+        onHandSellableStock: 0,
+        sellableStock: 0,
+        daysOfCover: 0,
+      }).stuck,
+    ).toBe(false);
+    expect(
+      materialize({
+        onHandStock: 0,
+        onHandSellableStock: 0,
+        sellableStock: 0,
+        reservedStock: 10,
+        expectedArrivalDate: '2026-07-01',
+      }).stuckClassification,
+    ).toBe('reserved_stalled');
     expect(
       materialize({
         salesVelocity: 0,
@@ -584,6 +616,7 @@ describe('EcobaseInventoryPlanningService', () => {
       targetCoverDays: 45,
       inventoryAsOfDate: '2026-07-10',
       onHandStock: 10,
+      onHandSellableStock: 10,
       currentPlanningStock: 10,
       supplierOrderState: 'no_open_order',
     }));
@@ -1770,6 +1803,8 @@ describe('EcobaseInventoryPlanningService', () => {
           companyProductId: 'target-product',
           sku: 'TARGET',
           currentPlanningStock: 61,
+          onHandStock: 61,
+          onHandSellableStock: 61,
           sellableStock: 61,
           salesVelocity: 1,
           salesVelocityStatus: 'trusted_positive',
@@ -1785,6 +1820,9 @@ describe('EcobaseInventoryPlanningService', () => {
           companyProductId: 'member-product',
           sku: 'MEMBER',
           currentPlanningStock: 10,
+          onHandStock: 0,
+          onHandSellableStock: 0,
+          sellableStock: 0,
           reservedStock: 10,
           salesVelocity: 0,
           salesVelocityStatus: 'trusted_zero',
@@ -1801,9 +1839,9 @@ describe('EcobaseInventoryPlanningService', () => {
       expect.objectContaining({
         companyProductId: 'target-product',
         familyStuckAction: true,
-        familyStuckAffectedMemberCount: 2,
-        familyStuckAffectedUnits: 71,
-        familyStuckAffectedValue: 152,
+        familyStuckAffectedMemberCount: 1,
+        familyStuckAffectedUnits: 61,
+        familyStuckAffectedValue: 122,
         familyStuckActiveOrderCount: 1,
         supplierOrderState: 'purchased_pipeline',
         recommendedEscalation: 'review_stuck_inventory',
@@ -1813,7 +1851,7 @@ describe('EcobaseInventoryPlanningService', () => {
       familyStuck: true,
       familyStuckAction: false,
       commandCenterPane: 'watch',
-      stuckClassification: 'no_sell_through_with_stock',
+      stuckClassification: 'none',
     });
   });
 
@@ -1913,9 +1951,34 @@ describe('EcobaseInventoryPlanningService', () => {
     const db = new MemoryDatabase();
     const company = 'Ecofission LLC';
     for (const scenario of [
-      { sku: 'ON-TRACK', asin: 'B00ONTRACK', orderDate: '2026-07-01', expectedSellableDate: '2026-07-15' },
-      { sku: 'OFF-TRACK', asin: 'B00OFFTRACK', orderDate: '2026-07-01', expectedSellableDate: '2026-07-25' },
-      { sku: 'UNKNOWN', asin: 'B00UNKNOWNPOS', orderDate: 'not-a-date', expectedSellableDate: undefined },
+      {
+        sku: 'ON-TRACK',
+        asin: 'B00ONTRACK',
+        orderDate: '2026-07-01',
+        expectedSellableDate: '2026-07-15',
+        reserved: 100,
+      },
+      {
+        sku: 'NO-RESERVED',
+        asin: 'B00NORESERVED',
+        orderDate: '2026-07-01',
+        expectedSellableDate: '2026-07-15',
+        reserved: 0,
+      },
+      {
+        sku: 'OFF-TRACK',
+        asin: 'B00OFFTRACK',
+        orderDate: '2026-07-01',
+        expectedSellableDate: '2026-07-25',
+        reserved: 100,
+      },
+      {
+        sku: 'UNKNOWN',
+        asin: 'B00UNKNOWNPOS',
+        orderDate: 'not-a-date',
+        expectedSellableDate: undefined,
+        reserved: 100,
+      },
     ]) {
       const orderId = `order-position-${scenario.sku}`;
       const supplierId = `supplier-position-${scenario.sku}`;
@@ -1954,7 +2017,7 @@ describe('EcobaseInventoryPlanningService', () => {
         companyProductId,
         snapshotDate: '2026-07-10',
         sellableStock: 10,
-        reserved: 100,
+        reserved: scenario.reserved,
         inbound: 50,
         ordered: 0,
         prepStock: 0,
@@ -1963,7 +2026,7 @@ describe('EcobaseInventoryPlanningService', () => {
     }
 
     const service = new EcobaseInventoryPlanningService(db);
-    await service.refreshReadModel({ company, calculationDate: '2026-07-10' });
+    await service.refreshReadModel({ company, calculationDate: '2026-07-10', targetCoverDays: 200 });
     const rows = await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).find({});
     const row = (sku: string) => rows.find((candidate) => candidate.sku === sku);
 
@@ -1973,15 +2036,31 @@ describe('EcobaseInventoryPlanningService', () => {
       pipelineStock: 50,
       currentPlanningStock: 160,
       onHandStock: 10,
+      onHandSellableStock: 10,
+      amazonPipelineStock: 50,
+      supplierPipelineStock: 50,
+      inventoryPositionStock: 110,
       daysOfCover: 10,
       estimatedOosDate: '2026-07-20',
       trustedSupplierOrderCoverageQty: 50,
-      futurePositionStock: 210,
-      positionDaysOfCover: 210,
-      positionEstimatedOosDate: '2027-02-05',
+      futurePositionStock: 110,
+      positionDaysOfCover: 110,
+      positionEstimatedOosDate: '2026-10-28',
+      suggestedReorderQty: 90,
       expectedArrivalDate: '2026-07-15',
       pipelineHealthStatus: 'on_track',
       stockoutGapDays: -5,
+    });
+    expect(row('NO-RESERVED')).toMatchObject({
+      reservedStock: 0,
+      currentPlanningStock: 60,
+      onHandSellableStock: 10,
+      amazonPipelineStock: 50,
+      supplierPipelineStock: 50,
+      inventoryPositionStock: 110,
+      futurePositionStock: 110,
+      daysOfCover: 10,
+      suggestedReorderQty: 90,
     });
     expect(row('OFF-TRACK')).toMatchObject({
       estimatedOosDate: '2026-07-20',
@@ -1999,9 +2078,13 @@ describe('EcobaseInventoryPlanningService', () => {
     const commandCenter = await service.commandCenter({ calculationDate: '2026-07-10', pageSize: 100 });
     expect(commandCenter.panes.activeOrders.rows.find((candidate) => candidate.sku === 'ON-TRACK')).toMatchObject({
       onHandStock: 10,
-      futurePositionStock: 210,
+      onHandSellableStock: 10,
+      amazonPipelineStock: 50,
+      supplierPipelineStock: 50,
+      inventoryPositionStock: 110,
+      futurePositionStock: 110,
       daysOfCover: 10,
-      positionDaysOfCover: 210,
+      positionDaysOfCover: 110,
       trustedSupplierOrderCoverageQty: 50,
     });
   });
@@ -3137,7 +3220,7 @@ describe('EcobaseInventoryPlanningService', () => {
           companyProductId: 'cp-shared-a',
           salesVelocityBasis: 'inventory_snapshot_fallback',
           daysOfCover: 2.5,
-          positionDaysOfCover: 27.5,
+          positionDaysOfCover: 17.5,
         }),
         expect.objectContaining({ companyProductId: 'cp-missing-velocity', commandCenterPane: 'dataReadiness' }),
         expect.objectContaining({ companyProductId: 'cp-on-track', commandCenterPane: 'activeOrders' }),

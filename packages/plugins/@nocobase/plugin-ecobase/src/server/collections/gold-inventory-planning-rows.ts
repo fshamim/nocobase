@@ -100,6 +100,30 @@ export default defineCollection({
     { name: 'familyCurrentPlanningStock', type: 'double', interface: 'number', uiSchema: { title: 'Family Stock' } },
     { name: 'familyOnHandStock', type: 'double', interface: 'number', uiSchema: { title: 'Family On Hand' } },
     {
+      name: 'familyOnHandSellableStock',
+      type: 'double',
+      interface: 'number',
+      uiSchema: { title: 'Family On-Hand Sellable Stock' },
+    },
+    {
+      name: 'familyAmazonPipelineStock',
+      type: 'double',
+      interface: 'number',
+      uiSchema: { title: 'Family Amazon Pipeline Stock' },
+    },
+    {
+      name: 'familySupplierPipelineStock',
+      type: 'double',
+      interface: 'number',
+      uiSchema: { title: 'Family Supplier Pipeline Stock' },
+    },
+    {
+      name: 'familyInventoryPositionStock',
+      type: 'double',
+      interface: 'number',
+      uiSchema: { title: 'Family Inventory Position Stock' },
+    },
+    {
       name: 'familyFuturePositionStock',
       type: 'double',
       interface: 'number',
@@ -377,6 +401,30 @@ export default defineCollection({
       uiSchema: { title: 'Current Planning Stock' },
     },
     { name: 'onHandStock', type: 'double', interface: 'number', uiSchema: { title: 'On-Hand Stock' } },
+    {
+      name: 'onHandSellableStock',
+      type: 'double',
+      interface: 'number',
+      uiSchema: { title: 'On-Hand Sellable Stock' },
+    },
+    {
+      name: 'amazonPipelineStock',
+      type: 'double',
+      interface: 'number',
+      uiSchema: { title: 'Amazon Pipeline Stock' },
+    },
+    {
+      name: 'supplierPipelineStock',
+      type: 'double',
+      interface: 'number',
+      uiSchema: { title: 'Supplier Pipeline Stock' },
+    },
+    {
+      name: 'inventoryPositionStock',
+      type: 'double',
+      interface: 'number',
+      uiSchema: { title: 'Inventory Position Stock' },
+    },
     {
       name: 'futurePositionStock',
       type: 'double',
