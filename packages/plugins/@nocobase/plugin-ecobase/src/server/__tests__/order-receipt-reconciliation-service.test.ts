@@ -236,6 +236,68 @@ describe('EcobaseOrderReceiptReconciliationService', () => {
     expect(second).toMatchObject({ updatedOrders: 0, updatedLines: 0, unchangedLines: 2 });
   });
 
+  it('closes a multi-family order only after every material line has terminal receipt evidence', async () => {
+    const db = fixture();
+    db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[0].orderedQty = 5;
+    db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows.push({
+      id: 'line-2',
+      orderId: 'order-1',
+      companyProductId: 'product-2',
+      orderedQty: 5,
+    });
+    db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).rows.push({
+      id: 'product-2',
+      companyId: 'company-1',
+      amazonAccountId: 'account-1',
+      companyProductFamilyId: 'family-2',
+    });
+    db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductFamilies).rows.push({
+      id: 'family-2',
+      companyId: 'company-1',
+      amazonAccountId: 'account-1',
+      marketplace: 'Amazon.com',
+      replenishmentTargetCompanyProductId: 'product-2',
+    });
+    db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).rows.push(
+      {
+        id: 'snapshot-3',
+        companyProductId: 'product-2',
+        sourceConnectionId: 'source-1',
+        snapshotDate: '2026-07-10',
+        sellableStock: 2,
+        reserved: 0,
+        inbound: 0,
+        awdStock: 0,
+      },
+      {
+        id: 'snapshot-4',
+        companyProductId: 'product-2',
+        sourceConnectionId: 'source-1',
+        snapshotDate: '2026-07-12',
+        sellableStock: 2,
+        reserved: 0,
+        inbound: 0,
+        awdStock: 0,
+      },
+    );
+    const service = new EcobaseOrderReceiptReconciliationService(db);
+
+    await service.reconcileAffectedOrders({ orderIds: ['order-1'], evaluatedAt: '2026-07-12T12:00:00.000Z' });
+
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[0]).toMatchObject({
+      amazonReceiptStatus: 'partially_observed',
+    });
+
+    db
+      .getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots)
+      .rows.find((row) => row.id === 'snapshot-4')!.sellableStock = 7;
+    await service.reconcileAffectedOrders({ orderIds: ['order-1'], evaluatedAt: '2026-07-12T12:00:00.000Z' });
+
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[0]).toMatchObject({
+      amazonReceiptStatus: 'amazon_stock_observed',
+    });
+  });
+
   it('completes only an older cycle after a later cycle has trusted Sellerboard arrival evidence', async () => {
     const db = fixture();
     db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows.push({

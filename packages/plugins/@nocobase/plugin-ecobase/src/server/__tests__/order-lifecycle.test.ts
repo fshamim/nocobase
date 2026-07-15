@@ -54,17 +54,16 @@ describe('resolveOrderLifecycle', () => {
     });
   });
 
-  it('treats older Google-Sheet-completed orders as COMPLETE when a later same-product order exists', () => {
+  it('keeps ambiguous Google-Sheet-completed orders in review without trusted terminal evidence', () => {
     expect(
       resolveOrderLifecycle({
         sourceOrderStatus: 'Completed',
         paymentStatus: 'Completed',
-        hasLaterSameProductOrder: true,
       }),
-    ).toMatchObject({ canonicalStatus: 'COMPLETE', statusSource: 'source_history', statusCheckRequired: false });
+    ).toMatchObject({ canonicalStatus: 'ORDERED', statusSource: 'payment_evidence', statusCheckRequired: true });
   });
 
-  it('treats older uploaded invoices as complete even when line status is stale', () => {
+  it('treats explicit rejected source status as complete even when invoice status is stale', () => {
     expect(
       resolveOrderLifecycle({
         sourceOrderStatus: 'Rejected',
@@ -73,62 +72,66 @@ describe('resolveOrderLifecycle', () => {
       }),
     ).toMatchObject({
       canonicalStatus: 'COMPLETE',
-      statusSource: 'historical_invoice_evidence',
+      statusSource: 'source_closed',
       statusCheckRequired: false,
     });
   });
 
-  it('treats completed invoice plus a later same-product order as complete', () => {
+  it('does not treat a recent completed invoice as terminal receipt evidence', () => {
     expect(
       resolveOrderLifecycle({
-        sourceOrderStatus: 'Rejected',
+        sourceOrderStatus: 'Completed',
         invoiceStatus: 'Completed',
-        hasLaterSameProductOrder: true,
       }),
-    ).toMatchObject({ canonicalStatus: 'COMPLETE', statusSource: 'source_history', statusCheckRequired: false });
+    ).toMatchObject({ canonicalStatus: 'ORDERED', statusSource: 'source_status_review', statusCheckRequired: true });
   });
 
-  it('closes old rejected fallback rows instead of keeping them at risk', () => {
+  it('closes rejected source rows without runtime-clock classification', () => {
     expect(resolveOrderLifecycle({ sourceOrderStatus: 'Rejected', orderDate: '2025-09-08' })).toMatchObject({
-      canonicalStatus: 'COMPLETE',
-      statusSource: 'historical_source_closed',
-      statusCheckRequired: false,
-    });
-  });
-
-  it('closes recent cancelled rows instead of leaving fallback money at risk', () => {
-    expect(resolveOrderLifecycle({ sourceOrderStatus: 'Cancelled', orderDate: '2026-06-10' })).toMatchObject({
       canonicalStatus: 'COMPLETE',
       statusSource: 'source_closed',
       statusCheckRequired: false,
     });
   });
 
-  it('closes recent ambiguous rows when a later same-product order exists', () => {
+  it('closes recent cancelled rows instead of leaving fallback money at risk', () => {
     expect(
       resolveOrderLifecycle({
-        sourceOrderStatus: 'OOS',
-        orderDate: '2026-05-21',
-        hasLaterSameProductOrder: true,
+        sourceOrderStatus: 'Cancelled',
+        orderDate: '2026-06-10',
+        amazonReceiptStatus: 'amazon_stock_observed',
       }),
     ).toMatchObject({
       canonicalStatus: 'COMPLETE',
-      statusSource: 'successor_order_evidence',
+      statusSource: 'source_closed',
       statusCheckRequired: false,
     });
   });
 
-  it('closes old ambiguous rows when a later same-product order exists', () => {
+  it('preserves an explicit canonical COMPLETE state', () => {
     expect(
       resolveOrderLifecycle({
-        sourceOrderStatus: 'In Progress',
-        orderDate: '2025-11-12',
-        hasLaterSameProductOrder: true,
+        canonicalStatus: 'COMPLETE',
+        lifecycleStatus: 'Completed',
+        statusSource: 'stored',
       }),
     ).toMatchObject({
       canonicalStatus: 'COMPLETE',
-      statusSource: 'historical_successor_evidence',
+      statusSource: 'stored',
       statusCheckRequired: false,
+    });
+  });
+
+  it('keeps ambiguous rows in review without trusted terminal evidence', () => {
+    expect(
+      resolveOrderLifecycle({
+        sourceOrderStatus: 'OOS',
+        orderDate: '2026-05-21',
+      }),
+    ).toMatchObject({
+      canonicalStatus: 'IN-PROGRESS',
+      statusSource: 'fallback',
+      statusCheckRequired: true,
     });
   });
 
@@ -149,6 +152,13 @@ describe('resolveOrderLifecycle', () => {
     ).toMatchObject({ canonicalStatus: 'COMPLETE', statusSource: 'historical_age_evidence' });
   });
 
+  it('does not apply age-based completion without an explicit calculation date', () => {
+    expect(resolveOrderLifecycle({ sourceOrderStatus: 'In Progress', orderDate: '2015-01-01' })).toMatchObject({
+      canonicalStatus: 'IN-PROGRESS',
+      statusSource: 'fallback',
+    });
+  });
+
   it('lets operator-selected lifecycle status override source evidence', () => {
     expect(
       resolveOrderLifecycle({
@@ -156,6 +166,7 @@ describe('resolveOrderLifecycle', () => {
         statusSource: 'operator',
         sourceOrderStatus: 'Completed',
         paymentStatus: 'Completed',
+        amazonReceiptStatus: 'amazon_stock_observed',
       }),
     ).toMatchObject({ canonicalStatus: 'INBOUND MONITORING', statusSource: 'operator' });
   });
@@ -174,9 +185,26 @@ describe('resolveOrderLifecycle', () => {
         canonicalStatus: 'shipped_inbound',
         statusSource: 'clickup_csv',
         sourceOrderStatus: 'Completed',
+        orderDate: '2024-01-01',
+        calculationDate: '2026-07-14',
         sellableStock: 1,
       }),
     ).toMatchObject({ canonicalStatus: 'SHIPPED TO FBA', statusSource: 'clickup_csv', statusCheckRequired: false });
+  });
+
+  it('does not treat non-inbound not-applicable receipt state as completion evidence', () => {
+    expect(
+      resolveOrderLifecycle({
+        canonicalStatus: 'supplier_preparing',
+        lifecycleStatus: 'supplier-preparing',
+        statusSource: 'clickup_csv',
+        amazonReceiptStatus: 'not_applicable',
+      }),
+    ).toMatchObject({
+      canonicalStatus: 'PREP IN-PROGRESS',
+      statusSource: 'clickup_csv',
+      statusCheckRequired: false,
+    });
   });
 
   it('lets terminal Amazon receipt evidence close a current ClickUp inbound workflow', () => {
@@ -194,19 +222,19 @@ describe('resolveOrderLifecycle', () => {
     });
   });
 
-  it('does not let ClickUp workflow status bypass trusted successor completion', () => {
+  it('lets trusted successor receipt evidence close a current ClickUp workflow', () => {
     expect(
       resolveOrderLifecycle({
         canonicalStatus: 'shipped_inbound',
         lifecycleStatus: 'inbound-monitoring',
         statusSource: 'clickup_csv',
-        hasLaterSameProductOrder: true,
+        amazonReceiptStatus: 'completed_by_later_inbound',
         orderDate: '2026-05-01',
         calculationDate: '2026-07-14',
       }),
     ).toMatchObject({
       canonicalStatus: 'COMPLETE',
-      statusSource: 'successor_order_evidence',
+      statusSource: 'successor_receipt_evidence',
       statusCheckRequired: false,
     });
   });

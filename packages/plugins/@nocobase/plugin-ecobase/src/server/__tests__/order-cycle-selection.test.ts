@@ -71,6 +71,15 @@ describe('selectCurrentFamilyOrderCycle', () => {
     ).toMatchObject({ selectedOrderId: 'new', selectedOpenQty: 10, reviewRequired: false });
   });
 
+  it('keeps a non-inbound not-applicable cycle in current order coverage', () => {
+    expect(
+      selectCurrentFamilyOrderCycle(
+        [cycle('ordered', '2026-06-10T00:00:00.000Z', { amazonReceiptStatus: 'not_applicable' })],
+        '2026-07-14',
+      ),
+    ).toMatchObject({ selectedOrderId: 'ordered', selectedOpenQty: 10, reviewRequired: false });
+  });
+
   it('keeps all lines from the selected current order and sums only their open quantity', () => {
     expect(
       selectCurrentFamilyOrderCycle(

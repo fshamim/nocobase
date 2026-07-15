@@ -666,6 +666,7 @@ export class EcobaseImportService {
       : null;
     const inventoryService = new EcobaseInventoryPlanningService(this.db);
     const orderWorkspace = await new EcobaseOrderPlanningService(this.db).refreshReadModel({
+      calculationDate,
       limit: AUTOMATIC_GOLD_REFRESH_LIMIT,
     });
     const inventory = await inventoryService.refreshReadModel({

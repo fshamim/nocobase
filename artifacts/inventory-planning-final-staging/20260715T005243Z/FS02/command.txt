@@ -1,0 +1,29 @@
+# Baseline
+cd /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+git rev-parse HEAD
+# 236bb2becc4acbf7fcb5beaa859e9030332205b0
+
+# Focused tests (run one file per process because this repository's combined invocation is not reliable)
+for f in order-lifecycle order-planning-service order-cycle-selection inventory-planning-service order-receipt-reconciliation-service medallion-normalization-service semantic-link-verifier; do
+  yarn vitest run "packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/$f.test.ts" --no-file-parallelism --maxWorkers=1 || exit 1
+done
+yarn vitest run packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/import-service.test.ts --no-file-parallelism --maxWorkers=1
+
+# Lint
+yarn eslint \
+  packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/order-cycle-selection.ts \
+  packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/inventory-planning-service.ts \
+  packages/plugins/@nocobase/plugin-ecobase/src/features/order-planning/server/order-lifecycle.ts \
+  packages/plugins/@nocobase/plugin-ecobase/src/features/order-planning/server/order-planning-service.ts \
+  packages/plugins/@nocobase/plugin-ecobase/src/features/semantic-model/server/medallion-normalization-service.ts \
+  packages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/import-service.ts \
+  packages/plugins/@nocobase/plugin-ecobase/src/server/resource-actions.ts \
+  packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-cycle-selection.test.ts \
+  packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts \
+  packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-lifecycle.test.ts \
+  packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts \
+  packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-receipt-reconciliation-service.test.ts
+git diff --check
+
+# Build
+yarn nocobase-v1 build @nocobase/plugin-ecobase --no-dts

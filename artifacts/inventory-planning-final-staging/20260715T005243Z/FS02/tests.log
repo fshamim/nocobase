@@ -1,0 +1,128 @@
+=== order-lifecycle ===
+yarn run v1.22.22
+$ /Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/.bin/vitest run packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-lifecycle.test.ts --no-file-parallelism --maxWorkers=1
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:16814) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-lifecycle.test.ts  (18 tests) 3ms
+
+ Test Files  1 passed (1)
+      Tests  18 passed (18)
+   Start at  05:56:27
+   Duration  450ms (transform 64ms, setup 151ms, collect 22ms, tests 3ms, environment 167ms, prepare 37ms)
+
+Done in 1.26s.
+=== order-planning-service ===
+yarn run v1.22.22
+$ /Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/.bin/vitest run packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts --no-file-parallelism --maxWorkers=1
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:16823) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts  (23 tests) 15ms
+
+ Test Files  1 passed (1)
+      Tests  23 passed (23)
+   Start at  05:56:28
+   Duration  789ms (transform 347ms, setup 153ms, collect 353ms, tests 15ms, environment 158ms, prepare 37ms)
+
+Done in 1.52s.
+=== order-cycle-selection ===
+yarn run v1.22.22
+$ /Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/.bin/vitest run packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-cycle-selection.test.ts --no-file-parallelism --maxWorkers=1
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:16874) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-cycle-selection.test.ts  (7 tests) 3ms
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  05:56:30
+   Duration  435ms (transform 55ms, setup 148ms, collect 10ms, tests 3ms, environment 165ms, prepare 38ms)
+
+Done in 1.18s.
+=== inventory-planning-service ===
+yarn run v1.22.22
+$ /Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/.bin/vitest run packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts --no-file-parallelism --maxWorkers=1
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:16962) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts  (33 tests) 44ms
+
+ Test Files  1 passed (1)
+      Tests  33 passed (33)
+   Start at  05:56:31
+   Duration  880ms (transform 397ms, setup 148ms, collect 412ms, tests 44ms, environment 159ms, prepare 38ms)
+
+Done in 1.60s.
+=== order-receipt-reconciliation-service ===
+yarn run v1.22.22
+$ /Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/.bin/vitest run packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-receipt-reconciliation-service.test.ts --no-file-parallelism --maxWorkers=1
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:16971) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-receipt-reconciliation-service.test.ts  (11 tests) 8ms
+
+ Test Files  1 passed (1)
+      Tests  11 passed (11)
+   Start at  05:56:33
+   Duration  459ms (transform 78ms, setup 149ms, collect 38ms, tests 8ms, environment 158ms, prepare 36ms)
+
+Done in 1.17s.
+=== medallion-normalization-service ===
+yarn run v1.22.22
+$ /Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/.bin/vitest run packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts --no-file-parallelism --maxWorkers=1
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:16999) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/medallion-normalization-service.test.ts  (40 tests) 22ms
+
+ Test Files  1 passed (1)
+      Tests  40 passed (40)
+   Start at  05:56:34
+   Duration  834ms (transform 383ms, setup 147ms, collect 395ms, tests 22ms, environment 162ms, prepare 35ms)
+
+Done in 1.58s.
+=== semantic-link-verifier ===
+yarn run v1.22.22
+$ /Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/.bin/vitest run packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/semantic-link-verifier.test.ts --no-file-parallelism --maxWorkers=1
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:17130) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/semantic-link-verifier.test.ts  (29 tests) 7ms
+
+ Test Files  1 passed (1)
+      Tests  29 passed (29)
+   Start at  05:56:36
+   Duration  809ms (transform 353ms, setup 161ms, collect 358ms, tests 7ms, environment 168ms, prepare 37ms)
+
+Done in 1.60s.
+=== import-service ===
+yarn run v1.22.22
+$ /Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/.bin/vitest run packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/import-service.test.ts --no-file-parallelism --maxWorkers=1
+
+ RUN  v1.5.2 /Users/fshamim/Documents/dev/ecofission-bi/nocobase
+
+(node:19018) [DEP0180] DeprecationWarning: fs.Stats constructor is deprecated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ ✓ packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/import-service.test.ts  (10 tests) 8ms
+
+ Test Files  1 passed (1)
+      Tests  10 passed (10)
+   Start at  05:57:50
+   Duration  767ms (transform 346ms, setup 140ms, collect 355ms, tests 8ms, environment 157ms, prepare 38ms)
+
+Done in 1.50s.

@@ -32,6 +32,7 @@ type RiskSource = 'gold' | 'silver_estimate' | 'missing';
 export interface OrderPlanningListFilters {
   companyId?: string;
   company?: string;
+  calculationDate?: string;
   supplierId?: string;
   status?: string;
   search?: string;
@@ -290,10 +291,6 @@ function validDate(year: number, month: number, day: number) {
   return parsed.toISOString().slice(0, 10);
 }
 
-function today() {
-  return new Date().toISOString().slice(0, 10);
-}
-
 function diffDays(left: string, right: string) {
   const leftTime = new Date(`${left}T00:00:00.000Z`).getTime();
   const rightTime = new Date(`${right}T00:00:00.000Z`).getTime();
@@ -365,22 +362,6 @@ function bestTier(rows: PlainRecord[]) {
     .map((row) => text(row.tier) ?? text(row.profitTier))
     .filter(isProfitTier)
     .sort((left, right) => tierRank(left) - tierRank(right))[0];
-}
-
-function productKey(companyId: string, line: OrderPlanningLine) {
-  const asin = text(line.asin)?.toUpperCase();
-  if (asin) return `${companyId}::ASIN::${asin}`;
-  const sku = text(line.sku)?.toUpperCase();
-  return sku ? `${companyId}::SKU::${sku}` : undefined;
-}
-
-function orderSequenceValue(order: PlainRecord) {
-  return [
-    minDate([dateOnly(order.orderDate), orderReferenceDate(order.orderRef)]) ?? '',
-    dateTime(order.createdAt) ?? '',
-    text(order.orderRef) ?? '',
-    text(order.id) ?? '',
-  ].join('|');
 }
 
 function isClosedStatus(order: { currentStatus?: string; lifecycleStatus?: unknown; lifecyclePhase?: unknown }) {
@@ -625,6 +606,10 @@ export class EcobaseOrderPlanningService {
   }
 
   private async deriveOrderRows(filters: OrderPlanningListFilters = {}): Promise<OrderPlanningWorkspace> {
+    const requestedCalculationDate = dateOnly(filters.calculationDate);
+    if (filters.calculationDate && !requestedCalculationDate) {
+      throw new Error('Ecobase Order Planning refresh requires calculationDate as YYYY-MM-DD.');
+    }
     const companies = await this.loadCompanies();
     const selectedCompany = this.resolveCompany(companies, filters);
     const selectedCompanies = selectedCompany ? [selectedCompany] : companies;
@@ -684,6 +669,7 @@ export class EcobaseOrderPlanningService {
         .flatMap((company) => [text(company.name), text(company.companyKey), text(company.id)])
         .filter((companyName): companyName is string => Boolean(companyName)),
     );
+    const calculationDate = requestedCalculationDate ?? goldRows.latestCalculationDate;
     const rowsByOrderRef = this.groupGoldByOrderRef(goldRows.rows);
     const linesByOrderId = new Map<string, PlainRecord[]>();
     for (const line of lines) {
@@ -693,19 +679,14 @@ export class EcobaseOrderPlanningService {
     }
 
     const detailLinesByOrderId = new Map<string, OrderPlanningLine[]>();
-    const productKeysByOrderId = new Map<string, Set<string>>();
     for (const order of orders) {
       const id = text(order.id) ?? '';
-      const companyId = text(order.companyId) ?? '';
       const orderLines = linesByOrderId.get(id) ?? [];
-      const detailLines = orderLines.map((line) => this.decorateLine(line, companyProducts, products));
-      detailLinesByOrderId.set(id, detailLines);
-      productKeysByOrderId.set(
+      detailLinesByOrderId.set(
         id,
-        new Set(detailLines.map((line) => productKey(companyId, line)).filter((key): key is string => Boolean(key))),
+        orderLines.map((line) => this.decorateLine(line, companyProducts, products)),
       );
     }
-    const hasLaterSameProductByOrderId = this.findOrdersWithLaterProductOrder(orders, productKeysByOrderId);
     const rows = orders.map((order) => {
       const id = text(order.id) ?? '';
       const companyId = text(order.companyId) ?? '';
@@ -722,7 +703,7 @@ export class EcobaseOrderPlanningService {
         comments: comments.filter((comment) => this.commentBelongsToOrder(comment, id, orderLines)),
         invoices: invoicesByOrderId.get(id) ?? [],
         goldRows: rowsByOrderRef.get(goldOrderKey(companyName, text(order.orderRef))) ?? [],
-        hasLaterSameProductOrder: hasLaterSameProductByOrderId.has(id),
+        calculationDate,
       });
     });
 
@@ -998,7 +979,7 @@ export class EcobaseOrderPlanningService {
     comments: PlainRecord[];
     invoices: PlainRecord[];
     goldRows: PlainRecord[];
-    hasLaterSameProductOrder: boolean;
+    calculationDate?: string;
   }): OrderPlanningRow {
     const orderRef = text(params.order.orderRef) ?? text(params.order.id) ?? '';
     const orderDate = minDate([dateOnly(params.order.orderDate), orderReferenceDate(orderRef)]);
@@ -1047,6 +1028,7 @@ export class EcobaseOrderPlanningService {
       paymentStatus: text(evidence.paymentStatus),
       invoiceStatus,
       orderDate,
+      calculationDate: params.calculationDate,
       poApproval: text(evidence.poApproval),
       prepStatus: text(evidence.prepStatus),
       orStatus: text(evidence.orStatus),
@@ -1054,7 +1036,7 @@ export class EcobaseOrderPlanningService {
       dateOfPayment: text(evidence.dateOfPayment) ?? joinedText(params.invoices.map((invoice) => invoice.paidAt)),
       trackingId: text(evidence.trackingId) ?? text(params.order.trackingId),
       shippingCarrier: text(evidence.shippingCarrier),
-      hasLaterSameProductOrder: params.hasLaterSameProductOrder,
+      amazonReceiptStatus: text(params.order.amazonReceiptStatus),
       inboundStock: positiveGoldNumber(params.goldRows, 'inboundStock'),
       reservedStock: positiveGoldNumber(params.goldRows, 'reservedStock'),
       sellableStock: positiveGoldNumber(params.goldRows, 'sellableStock'),
@@ -1115,8 +1097,12 @@ export class EcobaseOrderPlanningService {
       moneyAtRisk,
       riskSource,
       earliestOosDate,
-      daysUntilOos: earliestOosDate ? diffDays(earliestOosDate, today()) : undefined,
-      daysSinceLastActivity: lastActivityAt ? Math.max(0, diffDays(today(), lastActivityAt)) : undefined,
+      daysUntilOos:
+        earliestOosDate && params.calculationDate ? diffDays(earliestOosDate, params.calculationDate) : undefined,
+      daysSinceLastActivity:
+        lastActivityAt && params.calculationDate
+          ? Math.max(0, diffDays(params.calculationDate, lastActivityAt))
+          : undefined,
       latestComment,
       remarks: text(params.order.remarks),
       searchText,
@@ -1156,24 +1142,6 @@ export class EcobaseOrderPlanningService {
       expectedSellableDate: dateOnly(line.expectedSellableDate),
       priority: text(line.priority),
     };
-  }
-
-  private findOrdersWithLaterProductOrder(orders: PlainRecord[], productKeysByOrderId: Map<string, Set<string>>) {
-    const laterOrderIds = new Set<string>();
-    for (const order of orders) {
-      const orderId = text(order.id) ?? '';
-      const keys = productKeysByOrderId.get(orderId) ?? new Set<string>();
-      if (!orderId || !keys.size) continue;
-      const sequence = orderSequenceValue(order);
-      const hasLater = orders.some((candidate) => {
-        const candidateId = text(candidate.id) ?? '';
-        if (!candidateId || candidateId === orderId || orderSequenceValue(candidate) <= sequence) return false;
-        const candidateKeys = productKeysByOrderId.get(candidateId) ?? new Set<string>();
-        return [...keys].some((key) => candidateKeys.has(key));
-      });
-      if (hasLater) laterOrderIds.add(orderId);
-    }
-    return laterOrderIds;
   }
 
   private compareOrderPriority(left: OrderPlanningRow, right: OrderPlanningRow) {

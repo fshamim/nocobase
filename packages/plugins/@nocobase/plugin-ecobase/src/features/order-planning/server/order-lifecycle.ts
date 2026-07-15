@@ -44,7 +44,6 @@ export interface ResolveOrderLifecycleParams {
   calculationDate?: string;
   trackingId?: string;
   shippingCarrier?: string;
-  hasLaterSameProductOrder?: boolean;
   inboundStock?: number;
   reservedStock?: number;
   sellableStock?: number;
@@ -54,9 +53,10 @@ export interface ResolveOrderLifecycleParams {
 
 export function resolveOrderLifecycle(params: ResolveOrderLifecycleParams): OrderLifecycleResolution {
   const operatorStatus = operatorOverrideStatus(params);
+  const explicitCanonical = canonicalOrderLifecycleStatus(params.canonicalStatus);
   const importedCanonical =
     lifecycleStatusForOperationalStatus(params.lifecycleStatus) ??
-    canonicalOrderLifecycleStatus(params.canonicalStatus) ??
+    explicitCanonical ??
     importedLifecycleAlias(params.canonicalStatus);
   const sourceStatus = params.sourceOrderStatus ?? params.lifecycleStatus ?? params.lifecyclePhase;
   const sourceCompleted = hasAny(sourceStatus, ['complete', 'completed']);
@@ -67,32 +67,23 @@ export function resolveOrderLifecycle(params: ResolveOrderLifecycleParams): Orde
     return resolved(operatorStatus, 'operator', false, evidence);
   }
 
-  if (['amazon_stock_observed', 'completed_by_later_inbound'].includes(params.amazonReceiptStatus ?? '')) {
-    return resolved('COMPLETE', 'amazon_receipt', false, evidence);
-  }
-
-  if (
-    params.hasLaterSameProductOrder &&
-    (sourceCompleted || hasPaidEvidence(params) || hasClearInvoiceEvidence(params))
-  ) {
-    return resolved('COMPLETE', 'source_history', false, evidence);
-  }
-
-  if (historical && (hasPaidEvidence(params) || hasClearInvoiceEvidence(params))) {
-    return resolved('COMPLETE', 'historical_invoice_evidence', false, evidence);
+  if (explicitCanonical === 'COMPLETE') {
+    return resolved('COMPLETE', params.statusSource ?? 'explicit_status', false, evidence);
   }
 
   if (hasClosedSourceEvidence(sourceStatus)) {
     return resolved('COMPLETE', historical ? 'historical_source_closed' : 'source_closed', false, evidence);
   }
 
-  if (params.hasLaterSameProductOrder) {
-    return resolved(
-      'COMPLETE',
-      historical ? 'historical_successor_evidence' : 'successor_order_evidence',
-      false,
-      evidence,
-    );
+  if (params.amazonReceiptStatus === 'completed_by_later_inbound') {
+    return resolved('COMPLETE', 'successor_receipt_evidence', false, evidence);
+  }
+  if (params.amazonReceiptStatus === 'amazon_stock_observed') {
+    return resolved('COMPLETE', 'amazon_receipt', false, evidence);
+  }
+
+  if (historical && (hasPaidEvidence(params) || hasClearInvoiceEvidence(params))) {
+    return resolved('COMPLETE', 'historical_invoice_evidence', false, evidence);
   }
 
   if (historical && hasHistoricalAgingStatus(sourceStatus)) {
@@ -221,7 +212,6 @@ function evidenceFor(params: ResolveOrderLifecycleParams, sourceOrderStatus?: st
     orderDate: params.orderDate,
     trackingId: params.trackingId,
     shippingCarrier: params.shippingCarrier,
-    hasLaterSameProductOrder: params.hasLaterSameProductOrder,
     inboundStock: params.inboundStock,
     reservedStock: params.reservedStock,
     sellableStock: params.sellableStock,
@@ -289,11 +279,9 @@ function positive(value: unknown) {
 }
 
 function isOlderThanDays(value: unknown, days: number, calculationDate?: string) {
-  if (typeof value !== 'string' || !value.trim()) return false;
+  if (typeof value !== 'string' || !value.trim() || !calculationDate) return false;
   const time = new Date(`${value.slice(0, 10)}T00:00:00.000Z`).getTime();
-  const referenceTime = new Date(
-    `${calculationDate?.slice(0, 10) ?? new Date().toISOString().slice(0, 10)}T00:00:00.000Z`,
-  ).getTime();
+  const referenceTime = new Date(`${calculationDate.slice(0, 10)}T00:00:00.000Z`).getTime();
   if (!Number.isFinite(time) || !Number.isFinite(referenceTime)) return false;
   return referenceTime - time >= days * 86_400_000;
 }

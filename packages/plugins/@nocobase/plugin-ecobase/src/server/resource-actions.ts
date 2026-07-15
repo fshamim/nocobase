@@ -963,6 +963,7 @@ export function createEcobaseOrderPlanningActions() {
         data: await service.listOrders({
           companyId: getOptionalString(values, 'companyId'),
           company: getOptionalString(values, 'company'),
+          calculationDate: getOptionalString(values, 'calculationDate'),
           supplierId: getOptionalString(values, 'supplierId'),
           status: getOptionalString(values, 'status'),
           search: getOptionalString(values, 'search'),
@@ -981,6 +982,7 @@ export function createEcobaseOrderPlanningActions() {
         data: await service.refreshReadModel({
           companyId: getOptionalString(values, 'companyId'),
           company: getOptionalString(values, 'company'),
+          calculationDate: getOptionalString(values, 'calculationDate'),
           limit: getOptionalNumber(values, 'limit'),
         }),
       };

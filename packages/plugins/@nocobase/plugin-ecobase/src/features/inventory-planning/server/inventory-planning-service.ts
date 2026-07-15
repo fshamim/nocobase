@@ -588,7 +588,7 @@ function summarizeSupplierOrderState(
     const receiptStatus = asString(order.amazonReceiptStatus) ?? asString(line.amazonReceiptStatus);
     if (
       openQty <= 0 ||
-      ['amazon_stock_observed', 'completed_by_later_inbound', 'not_applicable'].includes(receiptStatus ?? '') ||
+      ['amazon_stock_observed', 'completed_by_later_inbound'].includes(receiptStatus ?? '') ||
       !isPlacedNotPurchasedSupplierOrderStatus(status, rules)
     ) {
       continue;
@@ -605,7 +605,7 @@ function summarizeSupplierOrderState(
     const receiptStatus = asString(order.amazonReceiptStatus) ?? asString(line.amazonReceiptStatus);
     if (
       openQty <= 0 ||
-      ['amazon_stock_observed', 'completed_by_later_inbound', 'not_applicable'].includes(receiptStatus ?? '') ||
+      ['amazon_stock_observed', 'completed_by_later_inbound'].includes(receiptStatus ?? '') ||
       !isActivePurchasedPipelineStatus(status, rules)
     ) {
       continue;

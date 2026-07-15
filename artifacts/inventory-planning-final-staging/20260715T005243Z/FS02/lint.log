@@ -1,0 +1,13 @@
+yarn run v1.22.22
+$ /Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/.bin/eslint packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/order-cycle-selection.ts packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/inventory-planning-service.ts packages/plugins/@nocobase/plugin-ecobase/src/features/order-planning/server/order-lifecycle.ts packages/plugins/@nocobase/plugin-ecobase/src/features/order-planning/server/order-planning-service.ts packages/plugins/@nocobase/plugin-ecobase/src/features/semantic-model/server/medallion-normalization-service.ts packages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/import-service.ts packages/plugins/@nocobase/plugin-ecobase/src/server/resource-actions.ts packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-cycle-selection.test.ts packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-lifecycle.test.ts packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-receipt-reconciliation-service.test.ts
+
+/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-receipt-reconciliation-service.test.ts
+   69:12  warning  Forbidden non-null assertion                                                                                                                                                                                                                                 @typescript-eslint/no-non-null-assertion
+  291:5   warning  Forbidden non-null assertion                                                                                                                                                                                                                                 @typescript-eslint/no-non-null-assertion
+  291:7   error    Replace `.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).rows.find(⏎······(row)·=>·row.id·===·'snapshot-4',⏎····` with `⏎······.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots)⏎······.rows.find((row)·=>·row.id·===·'snapshot-4'`  prettier/prettier
+
+✖ 3 problems (1 error, 2 warnings)
+  1 error and 0 warnings potentially fixable with the `--fix` option.
+
+error Command failed with exit code 1.
+info Visit https://yarnpkg.com/en/docs/cli/run for documentation about this command.

@@ -522,6 +522,8 @@ export class EcobaseMedallionNormalizationService {
         orStatus: row.string('OR Status'),
         remarks: row.string('Remarks'),
         dateOfPayment: row.string('Date of Payment'),
+        orderDate: textValue(existingOrder.orderDate) ?? snapshotDate,
+        calculationDate: snapshotDate,
         trackingId: row.string('Tracking ID', 'Tracking #'),
         shippingCarrier: row.string('Shipping Carrier', 'Carrier'),
       });

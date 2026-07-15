@@ -37,7 +37,7 @@ export interface FamilyOrderCycleSelection {
   reviewRequired: boolean;
 }
 
-const TERMINAL_RECEIPT_STATUSES = new Set(['amazon_stock_observed', 'completed_by_later_inbound', 'not_applicable']);
+const TERMINAL_RECEIPT_STATUSES = new Set(['amazon_stock_observed', 'completed_by_later_inbound']);
 
 function validDate(value: string | undefined) {
   if (!value) return undefined;

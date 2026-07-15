@@ -1358,6 +1358,7 @@ describe('EcobaseInventoryPlanningService', () => {
       orderedQty: 7,
       receivedQty: 0,
       unitCost: 322,
+      amazonReceiptStatus: 'not_applicable',
     });
     await createSilverOrderRecord(db, {
       id: 'order-older-family-cycle',

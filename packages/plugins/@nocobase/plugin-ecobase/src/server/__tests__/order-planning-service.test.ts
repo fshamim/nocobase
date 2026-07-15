@@ -420,7 +420,7 @@ describe('EcobaseOrderPlanningService', () => {
     });
   });
 
-  it('closes older Google Sheets completed cycles when a later same-product order exists', async () => {
+  it('keeps an ambiguous Google Sheets completed order in review when only one product has a successor', async () => {
     const db = new FakeDatabase();
     await seed(db);
     await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).update({
@@ -439,9 +439,10 @@ describe('EcobaseOrderPlanningService', () => {
     const result = await new EcobaseOrderPlanningService(db).listOrders({ companyId: 'company-1', hideClosed: false });
 
     expect(result.rows.find((row) => row.id === 'order-1')).toMatchObject({
-      currentStatus: 'COMPLETE',
-      statusSource: 'source_history',
-      moneyAtRisk: 0,
+      currentStatus: 'ORDERED',
+      statusSource: 'source_status_review',
+      statusCheckRequired: true,
+      moneyAtRisk: 350,
     });
   });
 
@@ -470,9 +471,43 @@ describe('EcobaseOrderPlanningService', () => {
 
     expect(result.rows.find((row) => row.id === 'order-1')).toMatchObject({
       currentStatus: 'COMPLETE',
-      statusSource: 'historical_invoice_evidence',
+      statusSource: 'historical_source_closed',
       moneyAtRisk: 0,
       statusEvidence: expect.objectContaining({ invoiceStatus: 'Uploaded' }),
+    });
+  });
+
+  it('rejects an invalid explicit calculation date instead of using a different reference date', async () => {
+    const db = new FakeDatabase();
+    await seed(db);
+
+    await expect(
+      new EcobaseOrderPlanningService(db).refreshReadModel({
+        companyId: 'company-1',
+        calculationDate: 'not-a-date',
+      }),
+    ).rejects.toThrow('Ecobase Order Planning refresh requires calculationDate as YYYY-MM-DD.');
+  });
+
+  it('uses the explicit calculation date for repeatable historical classification', async () => {
+    const db = new FakeDatabase();
+    await seed(db);
+
+    const current = await new EcobaseOrderPlanningService(db).refreshReadModel({
+      companyId: 'company-1',
+      calculationDate: '2026-07-01',
+    });
+    const historical = await new EcobaseOrderPlanningService(db).refreshReadModel({
+      companyId: 'company-1',
+      calculationDate: '2026-12-01',
+    });
+
+    expect(current.rows.find((row) => row.id === 'order-1')).toMatchObject({
+      currentStatus: 'IN-PROGRESS',
+    });
+    expect(historical.rows.find((row) => row.id === 'order-1')).toMatchObject({
+      currentStatus: 'COMPLETE',
+      statusSource: 'historical_age_evidence',
     });
   });
 
@@ -617,6 +652,96 @@ describe('EcobaseOrderPlanningService', () => {
       operationalStatus: 'inbound-monitoring',
       currentStatus: 'INBOUND MONITORING',
       clickupStatus: 'inbound-monitoring',
+    });
+  });
+
+  it('closes a current ClickUp order from aggregate terminal receipt evidence', async () => {
+    const db = new FakeDatabase();
+    await seed(db);
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).update({
+      filterByTk: 'order-1',
+      values: {
+        canonicalStatus: 'shipped_inbound',
+        lifecycleStatus: 'inbound-monitoring',
+        statusSource: 'clickup_csv',
+        amazonReceiptStatus: 'amazon_stock_observed',
+        statusEvidenceJson: {
+          clickupStatusImport: { clickupStatus: 'inbound-monitoring', mappedStatus: 'shipped_inbound' },
+        },
+      },
+    });
+
+    const result = await new EcobaseOrderPlanningService(db).refreshReadModel({ companyId: 'company-1' });
+
+    expect(result.rows.find((row) => row.id === 'order-1')).toMatchObject({
+      currentStatus: 'COMPLETE',
+      statusSource: 'amazon_receipt',
+      statusCheckRequired: false,
+      moneyAtRisk: 0,
+    });
+  });
+
+  it('does not complete a current ClickUp order from later-order existence alone', async () => {
+    const db = new FakeDatabase();
+    await seed(db);
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).update({
+      filterByTk: 'order-1',
+      values: {
+        canonicalStatus: 'shipped_inbound',
+        lifecycleStatus: 'inbound-monitoring',
+        statusSource: 'clickup_csv',
+        statusEvidenceJson: {
+          clickupStatusImport: { clickupStatus: 'inbound-monitoring', mappedStatus: 'shipped_inbound' },
+        },
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).update({
+      filterByTk: 'order-2',
+      values: { orderDate: '2026-06-25' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).update({
+      filterByTk: 'line-3',
+      values: { companyProductId: 'company-product-1' },
+    });
+
+    const result = await new EcobaseOrderPlanningService(db).refreshReadModel({ companyId: 'company-1' });
+
+    expect(result.rows.find((row) => row.id === 'order-1')).toMatchObject({
+      currentStatus: 'INBOUND MONITORING',
+      statusSource: 'clickup_csv',
+      statusCheckRequired: false,
+    });
+  });
+
+  it('does not close a multi-product ClickUp order when only one product has a successor', async () => {
+    const db = new FakeDatabase();
+    await seed(db);
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).update({
+      filterByTk: 'order-1',
+      values: {
+        canonicalStatus: 'shipped_inbound',
+        lifecycleStatus: 'inbound-monitoring',
+        statusSource: 'clickup_csv',
+        statusEvidenceJson: {
+          paymentStatus: 'Completed',
+          clickupStatusImport: { clickupStatus: 'inbound-monitoring', mappedStatus: 'shipped_inbound' },
+        },
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).update({
+      filterByTk: 'order-2',
+      values: { orderDate: '2026-06-25' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).update({
+      filterByTk: 'line-3',
+      values: { companyProductId: 'company-product-1' },
+    });
+
+    const result = await new EcobaseOrderPlanningService(db).refreshReadModel({ companyId: 'company-1' });
+
+    expect(result.rows.find((row) => row.id === 'order-1')).toMatchObject({
+      currentStatus: 'INBOUND MONITORING',
+      statusSource: 'clickup_csv',
     });
   });
 
