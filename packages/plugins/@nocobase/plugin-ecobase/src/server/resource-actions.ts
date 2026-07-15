@@ -1017,6 +1017,7 @@ export function createEcobaseOrderPlanningActions() {
             values: getOptionalRecord(values, 'fields') ?? values,
             commentBody: getOptionalString(values, 'commentBody'),
             actorUserId: getActorId(ctx),
+            clearStatusOverride: getOptionalBoolean(values, 'clearStatusOverride'),
           }),
         };
       } catch (error) {

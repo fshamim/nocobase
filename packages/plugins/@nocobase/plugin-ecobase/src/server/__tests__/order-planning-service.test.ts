@@ -623,6 +623,79 @@ describe('EcobaseOrderPlanningService', () => {
     });
   });
 
+  it('keeps an operator status authoritative across later read-model refreshes', async () => {
+    const db = new FakeDatabase();
+    await seed(db);
+    const service = new EcobaseOrderPlanningService(db);
+
+    await service.updateOrder({
+      orderId: 'order-1',
+      values: { lifecycleStatus: 'hold' },
+      actorUserId: 'user-1',
+    });
+    const refreshed = await service.refreshReadModel({ companyId: 'company-1' });
+
+    expect(refreshed.rows.find((row) => row.id === 'order-1')).toMatchObject({
+      operationalStatus: 'hold',
+      currentStatus: 'IN-PROGRESS',
+      statusSource: 'operator',
+    });
+  });
+
+  it('clears an operator status only through the explicit audited action', async () => {
+    const db = new FakeDatabase();
+    await seed(db);
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).update({
+      filterByTk: 'order-1',
+      values: {
+        lifecycleStatus: 'inbound-monitoring',
+        canonicalStatus: 'shipped_inbound',
+        statusSource: 'clickup_csv',
+        statusEvidenceJson: {
+          clickupStatusImport: { clickupStatus: 'inbound-monitoring', mappedStatus: 'shipped_inbound' },
+        },
+      },
+    });
+    const service = new EcobaseOrderPlanningService(db);
+    await service.updateOrder({
+      orderId: 'order-1',
+      values: { lifecycleStatus: 'hold' },
+      actorUserId: 'user-1',
+    });
+
+    const detail = await service.updateOrder({
+      orderId: 'order-1',
+      values: {},
+      actorUserId: 'user-2',
+      clearStatusOverride: true,
+    });
+
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows.find((row) => row.id === 'order-1')).toMatchObject({
+      lifecycleStatus: 'inbound-monitoring',
+      canonicalStatus: 'shipped_inbound',
+      statusSource: 'clickup_csv',
+      statusCheckRequired: false,
+      operatorStatusOverrideAt: null,
+      operatorStatusOverrideByUserId: null,
+      statusEvidenceJson: {
+        operatorOperationalStatus: null,
+        operatorStatusOverrideHistory: [{ status: 'hold', clearedByUserId: 'user-2' }],
+        clickupStatusDiscrepancy: null,
+      },
+    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).rows.at(-1)).toMatchObject({
+      body: 'Operator status override cleared; restored ClickUp status inbound-monitoring.',
+    });
+    expect(detail.order).toMatchObject({
+      operationalStatus: 'inbound-monitoring',
+      currentStatus: 'INBOUND MONITORING',
+      statusSource: 'clickup_csv',
+    });
+    await expect(service.updateOrder({ orderId: 'order-1', values: {}, clearStatusOverride: true })).rejects.toThrow(
+      'has no operator status override to clear',
+    );
+  });
+
   it('keeps exact ClickUp status in the Gold read model', async () => {
     const db = new FakeDatabase();
     await seed(db);

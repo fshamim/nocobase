@@ -146,6 +146,7 @@ export interface UpdateOrderPlanningOrderParams {
   values?: PlainRecord;
   commentBody?: string;
   actorUserId?: string;
+  clearStatusOverride?: boolean;
 }
 
 export interface UpdateOrderPlanningLineParams {
@@ -325,6 +326,10 @@ function statusEvidence(order: PlainRecord): PlainRecord {
 
 function clickupOperationalStatus(order: PlainRecord) {
   return text(recordValue(statusEvidence(order).clickupStatusImport).clickupStatus);
+}
+
+function clickupMappedStatus(order: PlainRecord) {
+  return text(recordValue(statusEvidence(order).clickupStatusImport).mappedStatus);
 }
 
 function operatorOperationalStatus(order: PlainRecord) {
@@ -830,6 +835,9 @@ export class EcobaseOrderPlanningService {
   async updateOrder(params: UpdateOrderPlanningOrderParams): Promise<OrderPlanningDetail> {
     const order = await this.requireRecord(ECOBASE_COLLECTIONS.silverOrders, params.orderId, 'order');
     const requestedStatus = params.values?.lifecycleStatus ?? params.values?.canonicalStatus;
+    if (params.clearStatusOverride && requestedStatus !== undefined) {
+      throw new Error('Ecobase Order Planning update failed: clearStatusOverride cannot include a status edit.');
+    }
     const values = cleanEditableValues(params.values ?? {}, ORDER_EDITABLE_FIELDS);
     const previousStatus = displayOperationalStatus(order, currentStatus(order)) ?? 'unknown';
     const nextStatus =
@@ -840,7 +848,40 @@ export class EcobaseOrderPlanningService {
         (normalizeOrderOperationalStatus(nextStatus) !== normalizeOrderOperationalStatus(previousStatus) ||
           nextCanonicalStatus !== currentStatus(order)),
     );
-    if (statusChanged && nextStatus) {
+    let clearedStatus: string | undefined;
+    if (params.clearStatusOverride) {
+      if (text(order.statusSource) !== 'operator' && !text(order.operatorStatusOverrideAt)) {
+        throw new Error('Ecobase Order Planning update failed: the order has no operator status override to clear.');
+      }
+      const now = new Date().toISOString();
+      const evidence = statusEvidence(order);
+      const clickupStatus = clickupOperationalStatus(order);
+      const previousOverride = recordValue(evidence.operatorOperationalStatus);
+      const history = Array.isArray(evidence.operatorStatusOverrideHistory)
+        ? evidence.operatorStatusOverrideHistory
+        : [];
+      values.lifecycleStatus = clickupStatus ?? null;
+      values.canonicalStatus = clickupMappedStatus(order) ?? null;
+      values.statusSource = clickupStatus ? 'clickup_csv' : null;
+      values.statusCheckRequired = !clickupStatus;
+      values.operatorStatusOverrideAt = null;
+      values.operatorStatusOverrideByUserId = null;
+      values.statusEvidenceJson = {
+        ...evidence,
+        operatorOperationalStatus: null,
+        operatorStatusOverrideHistory: [
+          ...history,
+          {
+            ...previousOverride,
+            status: text(previousOverride.status) ?? previousStatus,
+            clearedAt: now,
+            clearedByUserId: params.actorUserId,
+          },
+        ],
+        clickupStatusDiscrepancy: null,
+      };
+      clearedStatus = clickupStatus;
+    } else if (statusChanged && nextStatus) {
       const now = new Date().toISOString();
       const clickupStatus = clickupOperationalStatus(order);
       const statusDiscrepancy = Boolean(
@@ -862,7 +903,14 @@ export class EcobaseOrderPlanningService {
       await this.repo(ECOBASE_COLLECTIONS.silverOrders).update({ filterByTk: params.orderId, values });
     }
     const commentBody =
-      params.commentBody ?? (statusChanged ? `Status changed from ${previousStatus} to ${nextStatus}.` : undefined);
+      params.commentBody ??
+      (params.clearStatusOverride
+        ? `Operator status override cleared; ${
+            clearedStatus ? `restored ClickUp status ${clearedStatus}` : 'status requires review'
+          }.`
+        : statusChanged
+          ? `Status changed from ${previousStatus} to ${nextStatus}.`
+          : undefined);
     if (commentBody) {
       await this.createComment({
         entityType: 'order',

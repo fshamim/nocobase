@@ -391,6 +391,18 @@ export default function OrderPlanningPage() {
     await loadWorkspace();
   };
 
+  const clearStatusOverride = async () => {
+    if (!selectedOrderId) return;
+    await api.request({
+      url: 'ecobaseOrderPlanning:updateOrder',
+      method: 'post',
+      data: { orderId: selectedOrderId, fields: {}, clearStatusOverride: true },
+    });
+    message.success(t('Operator status override cleared'));
+    await loadDetail(selectedOrderId);
+    await loadWorkspace();
+  };
+
   const saveLine = async () => {
     if (!selectedLine || !selectedOrderId) return;
     const values = await lineForm.validateFields();
@@ -923,9 +935,21 @@ export default function OrderPlanningPage() {
                       </Form.Item>
                     </Col>
                   </Row>
-                  <Button type="primary" loading={detailLoading} onClick={() => void saveOrder()}>
-                    {t('Save order')}
-                  </Button>
+                  <Space>
+                    <Button type="primary" loading={detailLoading} onClick={() => void saveOrder()}>
+                      {t('Save order')}
+                    </Button>
+                    {detail.order.statusSource === 'operator' ? (
+                      <Popconfirm
+                        title={t('Clear operator status override and restore source-derived status?')}
+                        onConfirm={() => void clearStatusOverride()}
+                      >
+                        <Button danger loading={detailLoading}>
+                          {t('Clear status override')}
+                        </Button>
+                      </Popconfirm>
+                    ) : null}
+                  </Space>
                 </Form>
               </Collapse.Panel>
 
