@@ -25,12 +25,12 @@ import {
 } from '../resource-actions';
 import { EcobasePlanningSettingsService } from '../services/planning-settings-service';
 
-function context(values: Record<string, unknown>) {
+function context(values: Record<string, unknown>, role = 'operator') {
   return {
     action: { params: { values } },
     body: undefined as unknown,
     db: {},
-    state: { currentRole: 'operator', currentRoles: ['operator'], currentUser: { id: 'operator-1' } },
+    state: { currentRole: role, currentRoles: [role], currentUser: { id: `${role}-1` } },
     throw(status: number, message: string): never {
       throw Object.assign(new Error(message), { status });
     },
@@ -118,13 +118,13 @@ describe('mutation and full Gold refresh isolation', () => {
     vi.spyOn(EcobaseCompanyProductFamilyService.prototype, 'applyAutomaticTargetCorrections').mockResolvedValue({
       changedCount: 1,
     } as never);
-    const correctionContext = context({ decisionDigest: 'digest', confirmation: 'APPLY' });
+    const correctionContext = context({ decisionDigest: 'digest', confirmation: 'APPLY' }, 'admin');
     await createEcobaseInventoryPlanningActions().applyAutomaticTargetCorrections(correctionContext, vi.fn());
     expect(correctionContext.body).toMatchObject({ data: { goldRefreshRequired: true } });
     expect(refresh).not.toHaveBeenCalled();
 
     vi.spyOn(EcobasePlanningSettingsService.prototype, 'saveSettings').mockResolvedValue({ id: 'settings-1' } as never);
-    const settingsContext = context({ targetCoverDays: 90 });
+    const settingsContext = context({ targetCoverDays: 90 }, 'admin');
     await createEcobasePlanningSettingsActions().save(settingsContext, vi.fn());
     expect(settingsContext.body).toMatchObject({ data: { goldRefreshRequired: true } });
     expect(refresh).not.toHaveBeenCalled();

@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { describe, expect, it } from 'vitest';
 import { createDailyOperationsBriefResourceRegistration } from '../../features/daily-operations-brief/server/resource-registration';
 import { createInventoryPlanningResourceRegistration } from '../../features/inventory-planning/server/resource-registration';
@@ -10,7 +19,7 @@ import { registerEcobaseResources } from '../resource-registration';
 
 function registerAll() {
   const resources: { name: string; actions: Record<string, unknown> }[] = [];
-  const acl: { resource: string; actions: string[]; role: 'loggedIn' }[] = [];
+  const acl: { resource: string; actions: string[]; role: unknown }[] = [];
   registerEcobaseResources(
     {
       resourceManager: { define: (definition) => resources.push(definition) },
@@ -35,7 +44,7 @@ describe('Ecobase resource registration', () => {
     expect(names).toEqual([
       'ecobaseImport',
       'ecobaseInventoryPlanning',
-      'ecobasePlanningSettings',
+      'ecobasePlanningConfiguration',
       'ecobaseOrderPlanning',
       'ecobaseSupplierOrders',
       'ecobaseSupplierManagement',
@@ -47,13 +56,23 @@ describe('Ecobase resource registration', () => {
     expect(names).not.toContain('ecobaseAccuracy');
     expect(names).not.toContain('ecobaseDashboard');
 
-    const inventoryGrant = acl.find((grant) => grant.resource === 'ecobaseInventoryPlanning');
-    expect(inventoryGrant?.actions).toEqual(
-      expect.arrayContaining(['filters', 'refreshReadModel', 'workspace', 'rows', 'digestPreview', 'rowWorkspace', 'optimizeBudget']),
+    const inventoryActions = acl
+      .filter((grant) => grant.resource === 'ecobaseInventoryPlanning')
+      .flatMap((grant) => grant.actions);
+    expect(inventoryActions).toEqual(
+      expect.arrayContaining([
+        'filters',
+        'refreshReadModel',
+        'workspace',
+        'rows',
+        'digestPreview',
+        'rowWorkspace',
+        'optimizeBudget',
+      ]),
     );
     for (const resource of resources) {
-      const grant = acl.find((entry) => entry.resource === resource.name);
-      expect(grant?.actions.sort()).toEqual(Object.keys(resource.actions).sort());
+      const grantedActions = acl.filter((entry) => entry.resource === resource.name).flatMap((entry) => entry.actions);
+      expect(grantedActions.sort()).toEqual(Object.keys(resource.actions).sort());
     }
   });
 });

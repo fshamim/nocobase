@@ -12,19 +12,33 @@ import {
   createEcobaseInventoryPlanningActions,
   createEcobasePlanningSettingsActions,
 } from '../../../server/resource-actions';
-import { LOGGED_IN, type EcobaseFeatureResourceRegistration } from '../../../server/resource-registration';
+import {
+  ADMIN,
+  LOGGED_IN,
+  OPERATOR,
+  type EcobaseFeatureResourceRegistration,
+} from '../../../server/resource-registration';
 
 export function createInventoryPlanningResourceRegistration(): EcobaseFeatureResourceRegistration {
   return {
     resources: [
       { name: 'ecobaseInventoryPlanning', actions: createEcobaseInventoryPlanningActions() },
-      { name: 'ecobasePlanningSettings', actions: createEcobasePlanningSettingsActions() },
+      { name: 'ecobasePlanningConfiguration', actions: createEcobasePlanningSettingsActions() },
     ],
     acl: [
       {
         resource: 'ecobaseInventoryPlanning',
+        actions: ['filters', 'workspace', 'commandCenter', 'rows', 'digestPreview', 'rowWorkspace', 'optimizeBudget'],
+        role: LOGGED_IN,
+      },
+      {
+        resource: 'ecobaseInventoryPlanning',
+        actions: ['setReceiptOverride', 'updateProductPlanningFields', 'setFamilyTarget', 'setFamilyPreferredSupplier'],
+        role: OPERATOR,
+      },
+      {
+        resource: 'ecobaseInventoryPlanning',
         actions: [
-          'filters',
           'refreshReadModel',
           'verifyRefreshRun',
           'publishRefreshRun',
@@ -35,20 +49,11 @@ export function createInventoryPlanningResourceRegistration(): EcobaseFeatureRes
           'verifySilverIntegrity',
           'reconcileReceipts',
           'backfillReceipts',
-          'setReceiptOverride',
-          'updateProductPlanningFields',
-          'setFamilyTarget',
-          'setFamilyPreferredSupplier',
-          'workspace',
-          'commandCenter',
-          'rows',
-          'digestPreview',
-          'rowWorkspace',
-          'optimizeBudget',
         ],
-        role: LOGGED_IN,
+        role: ADMIN,
       },
-      { resource: 'ecobasePlanningSettings', actions: ['get', 'save', 'reset'], role: LOGGED_IN },
+      { resource: 'ecobasePlanningConfiguration', actions: ['get'], role: LOGGED_IN },
+      { resource: 'ecobasePlanningConfiguration', actions: ['save', 'reset'], role: ADMIN },
       { resource: ECOBASE_COLLECTIONS.planningSettings, actions: ['list', 'get'], role: LOGGED_IN },
     ],
   };

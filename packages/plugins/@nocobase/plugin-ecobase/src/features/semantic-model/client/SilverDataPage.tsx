@@ -1,7 +1,17 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useAPIClient } from '@nocobase/client';
 import { App, AutoComplete, Button, Card, Drawer, Form, Input, Space, Table, Tag, Typography } from 'antd';
 import { useT } from '../../../client/locale';
+import { useEcobaseRoleCapabilities } from '../../../client/role-boundary';
 import type { ColumnsType } from 'antd/es/table';
 
 type SilverEntityType =
@@ -151,6 +161,7 @@ function focusLabel(type: SilverEntityType, row: Record<string, unknown>) {
 export default function SilverDataPage() {
   const t = useT();
   const api = useAPIClient();
+  const { canOperate, canAdminister } = useEcobaseRoleCapabilities();
   const { message } = App.useApp();
   const [lookupText, setLookupText] = useState<Partial<Record<SilverEntityType, string>>>({});
   const [lookupResults, setLookupResults] = useState<Partial<Record<SilverEntityType, SearchResult[]>>>({});
@@ -404,7 +415,7 @@ export default function SilverDataPage() {
         onClose={() => setDrawer(null)}
         width={720}
         extra={
-          drawer?.editableFields.length ? (
+          canAdminister && drawer?.editableFields.length ? (
             <Button type="primary" onClick={saveDrawer} loading={drawerLoading}>
               {t('Save')}
             </Button>
@@ -414,7 +425,7 @@ export default function SilverDataPage() {
         {drawer ? (
           <Space direction="vertical" size="large" style={{ width: '100%' }}>
             <Typography.Text type="secondary">{`${fieldLabel(drawer.type)} · ${shortRef(drawer.id)}`}</Typography.Text>
-            <Form form={form} layout="vertical" disabled={!drawer.editableFields.length}>
+            <Form form={form} layout="vertical" disabled={!canAdminister || !drawer.editableFields.length}>
               {drawerFields(drawer).map((field) => (
                 <Form.Item key={field} name={field} label={fieldLabel(field)}>
                   {drawer.editableFields.includes(field) ? <Input.TextArea autoSize /> : <Input disabled />}
@@ -430,12 +441,14 @@ export default function SilverDataPage() {
                     <Typography.Text type="secondary">{display(comment.commentType)}</Typography.Text>
                   </Card>
                 ))}
+                {canOperate ? (
                 <Form form={commentForm} layout="vertical">
                   <Form.Item name="body" rules={[{ required: true, message: t('Comment is required') }]}>
                     <Input.TextArea placeholder={t('Add a linked comment')} autoSize />
                   </Form.Item>
                   <Button onClick={addComment}>{t('Add comment')}</Button>
                 </Form>
+                ) : null}
               </Space>
             </Card>
           </Space>

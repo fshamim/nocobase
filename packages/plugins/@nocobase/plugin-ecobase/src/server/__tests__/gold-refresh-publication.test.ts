@@ -229,7 +229,7 @@ describe('Gold refresh publication control', () => {
     };
 
     await expect(action(ctx as never, next)).rejects.toThrow(
-      '403:Ecobase Gold maintenance requires the root or admin role.',
+      '403:Ecobase refreshReadModel requires the admin or root role.',
     );
     expect(next).not.toHaveBeenCalled();
 

@@ -220,7 +220,7 @@ export default function PlanningSettingsPage() {
     setError(null);
     setNotice(undefined);
     try {
-      const response = await api.request({ url: 'ecobasePlanningSettings:get', method: 'post', data: {} });
+      const response = await api.request({ url: 'ecobasePlanningConfiguration:get', method: 'post', data: {} });
       const data = unwrapData(response);
       setSettings(data.settings ?? {});
       setDefaults(data.defaults ?? {});
@@ -248,7 +248,7 @@ export default function PlanningSettingsPage() {
         ...Object.fromEntries(STATUS_BUCKET_KEYS.map((key) => [key, statusList(settings, key)])),
       };
       const response = await api.request({
-        url: 'ecobasePlanningSettings:save',
+        url: 'ecobasePlanningConfiguration:save',
         method: 'post',
         data: { ...payload, id: settings.id },
       });
@@ -266,7 +266,7 @@ export default function PlanningSettingsPage() {
     setError(null);
     setNotice(undefined);
     try {
-      const response = await api.request({ url: 'ecobasePlanningSettings:reset', method: 'post', data: {} });
+      const response = await api.request({ url: 'ecobasePlanningConfiguration:reset', method: 'post', data: {} });
       setSettings(unwrapData(response));
       setNotice(t('Planning settings reset to defaults.'));
     } catch (err) {

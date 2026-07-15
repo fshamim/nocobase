@@ -11,6 +11,7 @@ import React, { useMemo, useState } from 'react';
 import { Icon, lazy } from '@nocobase/client';
 import { Button, Layout, Menu, Space, Typography } from 'antd';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { useEcobaseRoleCapabilities } from './role-boundary';
 
 const DailyOperationsBriefPage = lazy(
   () => import('../features/daily-operations-brief/client/DailyOperationsBriefPage'),
@@ -37,6 +38,7 @@ const ecobaseWorkspacePages = [
     icon: 'DashboardOutlined',
     path: `${ECOBASE_WORKSPACE_ROOT}/daily-operations-brief`,
     Component: DailyOperationsBriefPage,
+    access: 'operator' as const,
   },
   {
     key: 'silver-data',
@@ -72,6 +74,7 @@ const ecobaseWorkspacePages = [
     icon: 'ControlOutlined',
     path: `${ECOBASE_WORKSPACE_ROOT}/planning-settings`,
     Component: PlanningSettingsPage,
+    access: 'admin' as const,
   },
   {
     key: 'import-status',
@@ -79,33 +82,34 @@ const ecobaseWorkspacePages = [
     icon: 'CloudUploadOutlined',
     path: `${ECOBASE_WORKSPACE_ROOT}/import-status`,
     Component: ImportStatusPage,
+    access: 'admin' as const,
   },
 ];
-
-const defaultEcobaseWorkspacePage = ecobaseWorkspacePages[0];
 
 const EcobaseWorkspacePage = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const matchedPage = ecobaseWorkspacePages.find(
+  const { canOperate, canAdminister } = useEcobaseRoleCapabilities();
+  const visiblePages = ecobaseWorkspacePages.filter(
+    (page) => !('access' in page) || (page.access === 'operator' ? canOperate : canAdminister),
+  );
+  const matchedPage = visiblePages.find(
     (page) => location.pathname === page.path || location.pathname.startsWith(`${page.path}/`),
   );
   const activePage =
     matchedPage ??
-    ([ECOBASE_WORKSPACE_ROOT, `${ECOBASE_WORKSPACE_ROOT}/`].includes(location.pathname)
-      ? defaultEcobaseWorkspacePage
-      : undefined);
+    ([ECOBASE_WORKSPACE_ROOT, `${ECOBASE_WORKSPACE_ROOT}/`].includes(location.pathname) ? visiblePages[0] : undefined);
   const ActivePageComponent = activePage?.Component;
   const [navCollapsed, setNavCollapsed] = useState(false);
   const menuItems = useMemo(
     () =>
-      ecobaseWorkspacePages.map((page) => ({
+      visiblePages.map((page) => ({
         key: page.key,
         label: page.label,
         title: page.label,
         icon: <Icon type={page.icon} />,
       })),
-    [],
+    [visiblePages],
   );
 
   return (
@@ -146,7 +150,7 @@ const EcobaseWorkspacePage = () => {
           inlineCollapsed={navCollapsed}
           items={menuItems}
           onClick={({ key }) => {
-            const targetPage = ecobaseWorkspacePages.find((page) => page.key === key);
+            const targetPage = visiblePages.find((page) => page.key === key);
             if (!targetPage) {
               throw new Error(`Unknown EcoBase workspace page key: ${String(key)}`);
             }
@@ -158,7 +162,7 @@ const EcobaseWorkspacePage = () => {
         {ActivePageComponent ? (
           <ActivePageComponent />
         ) : (
-          <Typography.Text type="secondary">Unknown Ecobase page.</Typography.Text>
+          <Typography.Text type="secondary">This EcoBase page is unavailable for the current role.</Typography.Text>
         )}
       </Layout.Content>
     </Layout>

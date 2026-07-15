@@ -23,6 +23,7 @@ import type { CsvSourceFile } from '../features/source-import/server/adapters/cs
 import { ECOBASE_COLLECTIONS } from './collections/names';
 import { createEcobaseAiTools } from './ecobase-ai-tools';
 import { registerEcobaseResources } from './resource-registration';
+import { guardEcobaseActions, requireEcobaseRole } from './role-boundary';
 import { EcobaseAccountabilityService } from './services/accountability-service';
 import { EcobaseAccuracyHarnessService } from './services/accuracy-harness-service';
 import { EcobaseAiRetrievalService } from './services/ai-retrieval-service';
@@ -214,14 +215,7 @@ function requireReceiptOverrideActor(ctx: {
   state?: Record<string, unknown>;
   throw: (status: number, message: string) => never;
 }) {
-  const roles = Array.isArray(ctx.state?.currentRoles)
-    ? (ctx.state?.currentRoles as unknown[]).filter((role): role is string => typeof role === 'string')
-    : typeof ctx.state?.currentRole === 'string'
-      ? [ctx.state.currentRole]
-      : [];
-  if (!roles.some((role) => ['root', 'admin', 'operator'].includes(role))) {
-    ctx.throw(403, 'Ecobase receipt overrides require an operator or administrator role.');
-  }
+  requireEcobaseRole(ctx, 'operator', 'receipt overrides');
   const actorUserId = getActorId(ctx);
   if (!actorUserId) ctx.throw(401, 'Ecobase receipt overrides require an authenticated user.');
   return actorUserId;
@@ -231,14 +225,7 @@ function requireFamilyOverrideActor(ctx: {
   state?: Record<string, unknown>;
   throw: (status: number, message: string) => never;
 }) {
-  const roles = Array.isArray(ctx.state?.currentRoles)
-    ? (ctx.state?.currentRoles as unknown[]).filter((role): role is string => typeof role === 'string')
-    : typeof ctx.state?.currentRole === 'string'
-      ? [ctx.state.currentRole]
-      : [];
-  if (!roles.some((role) => ['root', 'admin', 'operator'].includes(role))) {
-    ctx.throw(403, 'Ecobase family overrides require an operator or administrator role.');
-  }
+  requireEcobaseRole(ctx, 'operator', 'family overrides');
   const actorUserId = getActorId(ctx);
   if (!actorUserId) ctx.throw(401, 'Ecobase family overrides require an authenticated user.');
   return actorUserId;
@@ -248,14 +235,7 @@ function requireProductPlanningOverrideActor(ctx: {
   state?: Record<string, unknown>;
   throw: (status: number, message: string) => never;
 }) {
-  const roles = Array.isArray(ctx.state?.currentRoles)
-    ? (ctx.state?.currentRoles as unknown[]).filter((role): role is string => typeof role === 'string')
-    : typeof ctx.state?.currentRole === 'string'
-      ? [ctx.state.currentRole]
-      : [];
-  if (!roles.some((role) => ['root', 'admin', 'operator'].includes(role))) {
-    ctx.throw(403, 'Ecobase product planning overrides require an operator or administrator role.');
-  }
+  requireEcobaseRole(ctx, 'operator', 'product planning overrides');
   const actorUserId = getActorId(ctx);
   if (!actorUserId) ctx.throw(401, 'Ecobase product planning overrides require an authenticated user.');
   return actorUserId;
@@ -268,14 +248,7 @@ function requireMaintenanceAdministrator(
   },
   operation: string,
 ) {
-  const roles = Array.isArray(ctx.state?.currentRoles)
-    ? (ctx.state.currentRoles as unknown[]).filter((role): role is string => typeof role === 'string')
-    : typeof ctx.state?.currentRole === 'string'
-      ? [ctx.state.currentRole]
-      : [];
-  if (!roles.some((role) => ['root', 'admin'].includes(role))) {
-    ctx.throw(403, `Ecobase ${operation} requires the root or admin role.`);
-  }
+  requireEcobaseRole(ctx, 'admin', operation);
 }
 
 function getActorId(ctx: { state?: Record<string, unknown> }) {
@@ -416,7 +389,8 @@ export function createEcobaseAiActions() {
 }
 
 export function createEcobaseReportActions(app?: { pm?: { get?: (name: string) => unknown } }) {
-  return {
+  return guardEcobaseActions(
+    {
     generatePreview: async (ctx, next) => {
       const values = getValues(ctx.action.params);
       const frequency = getOptionalString(values, 'frequency');
@@ -620,7 +594,18 @@ export function createEcobaseReportActions(app?: { pm?: { get?: (name: string) =
       }
       await next();
     },
-  };
+    },
+    {
+      generatePreview: 'operator',
+      generateDailyOperationsBriefEvidence: 'operator',
+      generateDailyOperationsBrief: 'operator',
+      backfillManagementKpiFacts: 'admin',
+      saveDailyBriefPromptSettings: 'admin',
+      resetDailyBriefPromptSettings: 'admin',
+      markDailyOperationsBriefSent: 'admin',
+      markDailyOperationsBriefFailed: 'admin',
+    },
+  );
 }
 
 export function createEcobaseDashboardActions() {
@@ -695,7 +680,8 @@ export function createEcobaseOperatorWorkspaceActions() {
 }
 
 export function createEcobaseSilverDataActions() {
-  return {
+  return guardEcobaseActions(
+    {
     search: async (ctx, next) => {
       const values = getValues(ctx.action.params);
       const service = new EcobaseSilverDataService(ctx.db);
@@ -786,7 +772,12 @@ export function createEcobaseSilverDataActions() {
       }
       await next();
     },
-  };
+    },
+    {
+      updateRecord: 'admin',
+      addComment: 'operator',
+    },
+  );
 }
 
 function getSilverFocus(values: Record<string, unknown>) {
@@ -805,7 +796,8 @@ function requiredSilverFocus(values: Record<string, unknown>, actionName: string
 }
 
 export function createEcobaseMedallionWorkflowActions() {
-  return {
+  return guardEcobaseActions(
+    {
     createComment: async (ctx, next) => {
       const values = getValues(ctx.action.params);
       const service = new EcobaseMedallionWorkflowService(ctx.db);
@@ -821,7 +813,9 @@ export function createEcobaseMedallionWorkflowActions() {
             body: getOptionalString(values, 'body') ?? '',
             followUpAt: getOptionalString(values, 'followUpAt'),
             contextSnapshotJson: getOptionalRecord(values, 'contextSnapshotJson'),
-            workflowAction: getOptionalRecord(values, 'workflowAction') as unknown as WorkflowActionParams | undefined,
+              workflowAction: getOptionalRecord(values, 'workflowAction') as unknown as
+                | WorkflowActionParams
+                | undefined,
           }),
         };
       } catch (error) {
@@ -929,7 +923,16 @@ export function createEcobaseMedallionWorkflowActions() {
       }
       await next();
     },
-  };
+    },
+    {
+      createComment: 'operator',
+      createTask: 'operator',
+      proposeAction: 'operator',
+      approveAndExecute: 'operator',
+      rejectApproval: 'operator',
+      setActionPolicy: 'admin',
+    },
+  );
 }
 
 export function createEcobaseComparisonActions() {
@@ -975,7 +978,8 @@ export function createEcobaseComparisonActions() {
 }
 
 export function createEcobaseOrderPlanningActions() {
-  return {
+  return guardEcobaseActions(
+    {
     filters: async (ctx, next) => {
       const values = getValues(ctx.action.params);
       const service = new EcobaseOrderPlanningService(ctx.db);
@@ -1136,7 +1140,16 @@ export function createEcobaseOrderPlanningActions() {
       }
       await next();
     },
-  };
+    },
+    {
+      refreshReadModel: 'admin',
+      updateOrder: 'operator',
+      updateLine: 'operator',
+      addComment: 'operator',
+      updateInvoice: 'operator',
+      deleteComment: 'operator',
+    },
+  );
 }
 
 function inventoryPlanningQuery(values: Record<string, unknown>) {
@@ -1172,7 +1185,8 @@ function inventoryPlanningCommandCenterQuery(values: Record<string, unknown>): I
 }
 
 export function createEcobaseInventoryPlanningActions() {
-  return {
+  return guardEcobaseActions(
+    {
     filters: async (ctx, next) => {
       const service = new EcobaseInventoryPlanningService(ctx.db);
       ctx.body = { data: await service.filterOptions() };
@@ -1453,11 +1467,29 @@ export function createEcobaseInventoryPlanningActions() {
       };
       await next();
     },
-  };
+    },
+    {
+      refreshReadModel: 'admin',
+      verifyRefreshRun: 'admin',
+      publishRefreshRun: 'admin',
+      reconcileFamilies: 'admin',
+      previewAutomaticTargetCorrections: 'admin',
+      applyAutomaticTargetCorrections: 'admin',
+      verifyAutomaticTargetCorrections: 'admin',
+      verifySilverIntegrity: 'admin',
+      reconcileReceipts: 'admin',
+      backfillReceipts: 'admin',
+      setReceiptOverride: 'operator',
+      updateProductPlanningFields: 'operator',
+      setFamilyTarget: 'operator',
+      setFamilyPreferredSupplier: 'operator',
+    },
+  );
 }
 
 export function createEcobasePlanningSettingsActions() {
-  return {
+  return guardEcobaseActions(
+    {
     get: async (ctx, next) => {
       ctx.body = { data: await new EcobasePlanningSettingsService(ctx.db).getActiveSettings() };
       await next();
@@ -1480,7 +1512,9 @@ export function createEcobasePlanningSettingsActions() {
       ctx.body = { data: goldRefreshRequired(data) };
       await next();
     },
-  };
+    },
+    { save: 'admin', reset: 'admin' },
+  );
 }
 
 export function createEcobasePlanningActions() {
@@ -1604,7 +1638,8 @@ export function createEcobaseAlertActions() {
 }
 
 export function createEcobaseSupplierOrderActions() {
-  return {
+  return guardEcobaseActions(
+    {
     workspace: async (ctx, next) => {
       const values = getValues(ctx.action.params);
       const service = new EcobaseSupplierOrderService(ctx.db);
@@ -1784,7 +1819,8 @@ export function createEcobaseSupplierOrderActions() {
             notes: getOptionalString(values, 'notes'),
             nextFollowUpAt: getOptionalString(values, 'nextFollowUpAt'),
             leadTimeDays: getOptionalNumber(values, 'leadTimeDays'),
-            contactEstablished: typeof values.contactEstablished === 'boolean' ? values.contactEstablished : undefined,
+              contactEstablished:
+                typeof values.contactEstablished === 'boolean' ? values.contactEstablished : undefined,
             source: getOptionalString(values, 'source'),
             actor: getActorId(ctx),
             actorUserId: getActorId(ctx),
@@ -1971,17 +2007,28 @@ export function createEcobaseSupplierOrderActions() {
       }
       await next();
     },
-  };
+    },
+    {
+      reconcileImportedLines: 'admin',
+      createPlannedOrder: 'operator',
+      createOrderLine: 'operator',
+      createMedallionDraftOrder: 'operator',
+      addMedallionOrderLine: 'operator',
+      updateOrderOperatorFields: 'operator',
+      updateLineOperatorFields: 'operator',
+      deleteLineOperatorFields: 'operator',
+      updateSupplierLeadTime: 'operator',
+      recordActivity: 'operator',
+      updateActivityComment: 'operator',
+      deleteActivityComment: 'operator',
+    },
+  );
 }
 
 export function createEcobaseSupplierManagementActions() {
-  const requireRepairAdministrator = (ctx: any) => {
-    const roles = new Set([ctx.state?.currentRole, ...(ctx.state?.currentRoles ?? [])].filter(Boolean));
-    if (!roles.has('root') && !roles.has('admin')) {
-      ctx.throw(403, 'Ecobase supplier repair requires the root or admin role.');
-    }
-  };
-  return {
+  const requireRepairAdministrator = (ctx: any) => requireEcobaseRole(ctx, 'admin', 'supplier repair');
+  return guardEcobaseActions(
+    {
     previewSupplierResolutionRepair: async (ctx, next) => {
       requireRepairAdministrator(ctx);
       const values = getValues(ctx.action.params);
@@ -2244,7 +2291,8 @@ export function createEcobaseSupplierManagementActions() {
             notes: getOptionalString(values, 'notes'),
             nextFollowUpAt: getOptionalString(values, 'nextFollowUpAt'),
             leadTimeDays: getOptionalNumber(values, 'leadTimeDays'),
-            contactEstablished: typeof values.contactEstablished === 'boolean' ? values.contactEstablished : undefined,
+              contactEstablished:
+                typeof values.contactEstablished === 'boolean' ? values.contactEstablished : undefined,
             source: getOptionalString(values, 'source'),
             actor: getActorId(ctx),
           }),
@@ -2413,7 +2461,26 @@ export function createEcobaseSupplierManagementActions() {
       };
       await next();
     },
-  };
+    },
+    {
+      previewSupplierResolutionRepair: 'admin',
+      applySupplierResolutionRepair: 'admin',
+      previewSupplierEvidenceBackfill: 'admin',
+      applySupplierEvidenceBackfill: 'admin',
+      verifySupplierEvidenceBackfillIdempotency: 'admin',
+      refreshAttentionRows: 'admin',
+      createSupplier: 'operator',
+      updateSupplierProfile: 'operator',
+      createSupplierOrder: 'operator',
+      recordActivity: 'operator',
+      updateProductLeadTime: 'operator',
+      updateSupplierLifecycle: 'operator',
+      recordComment: 'operator',
+      deleteComment: 'operator',
+      updateSupplierAccount: 'operator',
+      upsertSupplierProduct: 'operator',
+    },
+  );
 }
 
 export function createEcobaseAccountabilityActions() {
@@ -2448,7 +2515,8 @@ export function createEcobaseAccountabilityActions() {
 }
 
 export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
-  return {
+  return guardEcobaseActions(
+    {
     run: async (ctx, next) => {
       const values = getValues(ctx.action.params);
       const sourceConnectionId = getOptionalString(values, 'sourceConnectionId');
@@ -2936,5 +3004,34 @@ export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
       }
       await next();
     },
-  };
+    },
+    {
+      run: 'admin',
+      runDailySnapshot: 'admin',
+      forceRefresh: 'admin',
+      runScheduledSellerboard: 'admin',
+      runNoop: 'admin',
+      normalizeBronzeToSilver: 'admin',
+      runMedallionPipeline: 'admin',
+      verifySemanticLinks: 'admin',
+      verifyOrderDetailsRelationships: 'admin',
+      deactivateMigrationSources: 'admin',
+      purgeExpiredBronze: 'admin',
+      refreshGoldReadModels: 'admin',
+      analyzeCsvBundle: 'admin',
+      runCsvBundle: 'admin',
+      previewSellerboardHistoryBackfill: 'admin',
+      applySellerboardHistoryBackfill: 'admin',
+      verifySellerboardHistoryBackfillIdempotency: 'admin',
+      previewSellerboardCogs: 'admin',
+      applySellerboardCogsBackfill: 'admin',
+      verifySellerboardCogsBackfillIdempotency: 'admin',
+      importSellerboardCogs: 'admin',
+      ensureClickupAttributionUsers: 'admin',
+      importClickupOrderStatuses: 'admin',
+      saveCsvSourceConnection: 'admin',
+      saveSellerboardSource: 'admin',
+      deleteSellerboardSource: 'admin',
+    },
+  );
 }

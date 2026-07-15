@@ -91,6 +91,7 @@ function createActionContext(db: EcobaseDatabase, values: Record<string, unknown
   return {
     action: { params: { values } },
     db,
+    state: { currentRole: 'operator', currentRoles: ['operator'], currentUser: { id: 'operator-1' } },
     body: undefined as unknown,
     throw(status: number, message: string) {
       const error = new Error(message) as Error & { status?: number };

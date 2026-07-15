@@ -13,6 +13,7 @@ import dayjs from 'dayjs';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FormulaHelp } from '../../../client/formula-help';
 import { useT } from '../../../client/locale';
+import { useEcobaseRoleCapabilities } from '../../../client/role-boundary';
 
 type PlainRecord = Record<string, any>;
 type CompanyOption = { label: string; value: string; timezone?: string };
@@ -157,6 +158,7 @@ function normalizeBrief(narrative: PlainRecord | null, evidence: PlainRecord | n
 export default function DailyOperationsBriefPage() {
   const t = useT();
   const api = useAPIClient();
+  const { canAdminister } = useEcobaseRoleCapabilities();
   const [date, setDate] = useState(todayIsoDate());
   const [company, setCompany] = useState<string | undefined>();
   const [trendPeriod, setTrendPeriod] = useState<TrendPeriod>('7d');
@@ -474,9 +476,11 @@ export default function DailyOperationsBriefPage() {
             <Button type="primary" onClick={() => generateNarrative(true)} loading={loading === 'narrative'}>
               {t('Regenerate AI brief')}
             </Button>
+            {canAdminister ? (
             <Button danger onClick={refreshDataAndBrief} loading={loading === 'refresh'}>
               {t('Refresh data + brief')}
             </Button>
+            ) : null}
           </Space>
           <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
             {t(

@@ -154,7 +154,10 @@ function createActionContext(
   return {
     action: { params: { values } },
     db,
-    state: { ...(currentUser ? { currentUser } : {}), ...(currentRoles ? { currentRoles } : {}) },
+    state: {
+      currentUser: currentUser ?? { id: 1 },
+      currentRoles: currentRoles ?? ['admin'],
+    },
     body: undefined,
     throw(status: number, message: string) {
       const error = new Error(message) as Error & { status?: number };
@@ -317,7 +320,7 @@ describe('Ecobase inventory-planning public API seam', () => {
         ),
         vi.fn(),
       ),
-    ).rejects.toThrow('Ecobase family overrides require an operator or administrator role.');
+    ).rejects.toThrow('Ecobase setFamilyPreferredSupplier requires the operator, admin, or root role.');
   });
 
   it('restricts product planning overrides to authenticated operator/admin roles', async () => {
@@ -332,7 +335,7 @@ describe('Ecobase inventory-planning public API seam', () => {
         createActionContext(new MemoryDatabase(), values, { id: 1 }, ['viewer']),
         vi.fn(),
       ),
-    ).rejects.toThrow('Ecobase product planning overrides require an operator or administrator role.');
+    ).rejects.toThrow('Ecobase updateProductPlanningFields requires the operator, admin, or root role.');
     await expect(
       actions.updateProductPlanningFields(
         createActionContext(new MemoryDatabase(), values, { id: 1 }, ['operator']),
@@ -346,7 +349,7 @@ describe('Ecobase inventory-planning public API seam', () => {
     const values = { lineId: 'line-1', status: 'review_required', reason: 'Manual evidence review.' };
     await expect(
       actions.setReceiptOverride(createActionContext(new MemoryDatabase(), values, { id: 1 }, ['viewer']), vi.fn()),
-    ).rejects.toThrow('require an operator or administrator role');
+    ).rejects.toThrow('Ecobase setReceiptOverride requires the operator, admin, or root role.');
     await expect(
       actions.setReceiptOverride(createActionContext(new MemoryDatabase(), values, { id: 1 }, ['admin']), vi.fn()),
     ).rejects.toThrow('could not find Silver order line line-1');

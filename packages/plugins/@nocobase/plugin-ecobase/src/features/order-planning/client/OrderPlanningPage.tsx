@@ -35,6 +35,7 @@ import {
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FormulaHelp } from '../../../client/formula-help';
 import { useT } from '../../../client/locale';
+import { useEcobaseRoleCapabilities } from '../../../client/role-boundary';
 import {
   isAfterOrderedLifecycleStatus,
   isBeforeOrderedLifecycleStatus,
@@ -250,6 +251,7 @@ export default function OrderPlanningPage() {
   const api = useAPIClient();
   const { message } = App.useApp();
   const t = useT();
+  const { canOperate, canAdminister } = useEcobaseRoleCapabilities();
   const [rows, setRows] = useState<PlainRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -620,6 +622,8 @@ export default function OrderPlanningPage() {
     { title: String(t('Delivery')), dataIndex: 'expectedDeliveryDate', width: 120, render: formatDate },
     { title: String(t('Sellable')), dataIndex: 'expectedSellableDate', width: 120, render: formatDate },
     { title: String(t('Priority')), dataIndex: 'priority', width: 100, render: (value: string) => value || '—' },
+    ...(canOperate
+      ? [
     {
       title: String(t('Edit')),
       key: 'edit',
@@ -630,6 +634,8 @@ export default function OrderPlanningPage() {
         </Button>
       ),
     },
+        ]
+      : []),
   ];
 
   const invoiceColumns = [
@@ -639,7 +645,8 @@ export default function OrderPlanningPage() {
       title: String(t('Status')),
       dataIndex: 'status',
       width: 190,
-      render: (value: string, row: PlainRecord) => (
+      render: (value: string, row: PlainRecord) =>
+        canOperate ? (
         <Select
           size="small"
           value={value}
@@ -647,6 +654,8 @@ export default function OrderPlanningPage() {
           options={selectOptions(INVOICE_STATUS_OPTIONS, value)}
           onChange={(status) => void updateInvoiceStatus(row.id, status)}
         />
+        ) : (
+          value || '—'
       ),
     },
     {
@@ -744,9 +753,11 @@ export default function OrderPlanningPage() {
           <Button loading={loading} onClick={() => void loadWorkspace()}>
             {t('Reload')}
           </Button>
+          {canAdminister ? (
           <Button loading={loading} onClick={() => void refreshGoldRows()}>
             {t('Rebuild gold rows')}
           </Button>
+          ) : null}
         </Space>
       </Card>
 
@@ -905,6 +916,7 @@ export default function OrderPlanningPage() {
                 )}
               </Collapse.Panel>
 
+              {canOperate ? (
               <Collapse.Panel header={t('Edit order')} key="edit-order">
                 <Form form={orderForm} layout="vertical">
                   <Row gutter={12}>
@@ -966,8 +978,11 @@ export default function OrderPlanningPage() {
                   </Space>
                 </Form>
               </Collapse.Panel>
+              ) : null}
 
               <Collapse.Panel header={t('Comments')} key="comments">
+                {canOperate ? (
+                  <>
                 <Form form={commentForm} layout="vertical">
                   <Form.Item
                     name="body"
@@ -979,6 +994,8 @@ export default function OrderPlanningPage() {
                   <Button onClick={() => void addComment()}>{t('Add comment')}</Button>
                 </Form>
                 <Divider />
+                  </>
+                ) : null}
                 <Table<PlainRecord>
                   size="small"
                   rowKey="id"
@@ -1006,6 +1023,8 @@ export default function OrderPlanningPage() {
                     },
                     { title: String(t('Type')), dataIndex: 'commentType', width: 120 },
                     { title: String(t('Comment')), dataIndex: 'body' },
+                    ...(canOperate
+                      ? [
                     {
                       title: String(t('Actions')),
                       key: 'actions',
@@ -1023,6 +1042,8 @@ export default function OrderPlanningPage() {
                         </Popconfirm>
                       ),
                     },
+                        ]
+                      : []),
                   ]}
                 />
               </Collapse.Panel>

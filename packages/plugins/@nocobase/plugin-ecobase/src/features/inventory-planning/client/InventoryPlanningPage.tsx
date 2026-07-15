@@ -37,6 +37,7 @@ import dayjs from 'dayjs';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FormulaHelp, type FormulaHelpGroupKey } from '../../../client/formula-help';
 import { useT } from '../../../client/locale';
+import { useEcobaseRoleCapabilities } from '../../../client/role-boundary';
 
 type PlainRecord = Record<string, any>;
 
@@ -753,6 +754,7 @@ function FilterControl({ title, help, children }: { title: string; help: string;
 export default function InventoryPlanningPage() {
   const t = useT();
   const api = useAPIClient();
+  const { canOperate, canAdminister } = useEcobaseRoleCapabilities();
   const { message } = App.useApp();
   const screens = Grid.useBreakpoint();
   const [company, setCompany] = useState('');
@@ -821,7 +823,7 @@ export default function InventoryPlanningPage() {
   );
 
   const loadPlanningSettings = useCallback(async () => {
-    const response = await api.request({ url: 'ecobasePlanningSettings:get', method: 'post', data: {} });
+    const response = await api.request({ url: 'ecobasePlanningConfiguration:get', method: 'post', data: {} });
     const data = unwrapData(response);
     const settings = data.settings ?? {};
     setLeadTimeFreshnessDays(Number(settings.leadTimeFreshnessDays ?? 60));
@@ -1544,6 +1546,7 @@ export default function InventoryPlanningPage() {
           <Tag color="blue">{t('Target')}</Tag>
           <Typography.Text strong>{row.replenishmentTargetSku ?? row.sku ?? '—'}</Typography.Text>
         </Space>
+        {canOperate ? (
         <Select
           size="small"
           aria-label={t('Change replenishment target')}
@@ -1560,6 +1563,7 @@ export default function InventoryPlanningPage() {
             label: `${member.sku ?? member.asin ?? '—'}${member.familyRole === 'target' ? ` · ${t('Target')}` : ''}`,
           }))}
         />
+        ) : null}
       </Space>
     );
   };
@@ -2417,9 +2421,11 @@ export default function InventoryPlanningPage() {
             <Typography.Text>
               {t('This product has stockout risk and positive velocity, but no verified supplier link.')}
             </Typography.Text>
+            {canOperate ? (
             <Button type="primary" onClick={() => setManagePanels(['lead-time'])}>
               {t('Fix supplier / lead time')}
             </Button>
+            ) : null}
           </Space>
         </Card>
       );
@@ -2444,9 +2450,11 @@ export default function InventoryPlanningPage() {
               </Typography.Text>
             </Space>
             <Space size="small" wrap>
+              {canOperate ? (
               <Button type="primary" onClick={() => setManagePanels(['order-status'])}>
                 {t('Update status / comment')}
               </Button>
+              ) : null}
               <Button onClick={() => setManagePanels(['history'])}>{t('Review receipt evidence')}</Button>
             </Space>
           </Space>
@@ -2531,11 +2539,15 @@ export default function InventoryPlanningPage() {
               ) : null}
             </Space>
             <Space size="small" wrap>
+              {canOperate ? (
+                <>
               <Button type="primary" onClick={() => setManagePanels(['order-status'])}>
                 {t('Update status / comment')}
               </Button>
-              <Button onClick={() => setManagePanels(['history'])}>{t('Review order lines')}</Button>
               <Button onClick={() => setManagePanels(['edit-line'])}>{t('Edit active line')}</Button>
+                </>
+              ) : null}
+              <Button onClick={() => setManagePanels(['history'])}>{t('Review order lines')}</Button>
             </Space>
           </Space>
         </Card>
@@ -2558,9 +2570,11 @@ export default function InventoryPlanningPage() {
               <StockStatus row={selectedRow} t={t} />
             </Space>
             <Space size="small" wrap>
+              {canOperate ? (
               <Button type="primary" onClick={() => setManagePanels(['product-tasks-targets'])}>
                 {t('Create review task')}
               </Button>
+              ) : null}
               <Button onClick={() => setManagePanels(['history'])}>{t('Review sell-through/order history')}</Button>
             </Space>
           </Space>
@@ -2578,6 +2592,7 @@ export default function InventoryPlanningPage() {
               {formatNumber(selectedRow.salesVelocity)}
             </Typography.Text>
           </Space>
+          {canOperate ? (
           <Space size="small" wrap>
             <Button type="primary" onClick={() => setManagePanels(['draft'])}>
               {t('Create PO draft')}
@@ -2585,6 +2600,7 @@ export default function InventoryPlanningPage() {
             <Button onClick={() => setManagePanels(['add'])}>{t('Add to existing PO')}</Button>
             <Button onClick={() => setManagePanels(['lead-time'])}>{t('Fix supplier / lead time')}</Button>
           </Space>
+          ) : null}
         </Space>
       </Card>
     );
@@ -2848,10 +2864,12 @@ export default function InventoryPlanningPage() {
                 <Typography.Text type="secondary">
                   {t('Data as of')} {formatDate(commandMetadata.latestDataAsOf)} · {t('Last 6 months sales history')}
                 </Typography.Text>
+                {canAdminister ? (
                 <Button href="/admin/ecobase/planning-settings">
                   {t('Rules & thresholds')} · {t('Target cover')} {formatNumber(commandMetadata.targetCoverDays)}{' '}
                   {t('days')}
                 </Button>
+                ) : null}
                 <Button type="primary" loading={loading} onClick={loadPlanning}>
                   {t('Refresh planning')}
                 </Button>
@@ -3038,7 +3056,7 @@ export default function InventoryPlanningPage() {
                 </Descriptions.Item>
               </Descriptions>
             </Card>
-            {productPlanningValues ? (
+            {canOperate && productPlanningValues ? (
               <Card title={t('Product manager')} size="small">
                 <Row gutter={[12, 12]}>
                   <Col xs={24} md={8}>
@@ -3327,6 +3345,8 @@ export default function InventoryPlanningPage() {
                                 render: formatDate,
                               },
                               { title: String(t('Observed')), dataIndex: 'observedAt', render: formatDate },
+                              ...(canOperate
+                                ? [
                               {
                                 title: String(t('Actions')),
                                 key: 'actions',
@@ -3351,6 +3371,8 @@ export default function InventoryPlanningPage() {
                                   </Space>
                                 ),
                               },
+                                  ]
+                                : []),
                             ]}
                           />
                           <Space direction="vertical" size={8} style={{ width: '100%' }}>
@@ -3363,7 +3385,7 @@ export default function InventoryPlanningPage() {
                                     activity.actorDisplayName ?? activity.actor ?? t('Unknown user'),
                                   );
                                   const deleted = Boolean(activity.deletedAt);
-                                  const editable = canChangeActivityComment(activity);
+                                  const editable = canOperate && canChangeActivityComment(activity);
                                   const editing = activityCommentEdit?.id === activityId;
                                   return (
                                     <div
@@ -3948,8 +3970,12 @@ export default function InventoryPlanningPage() {
                         </Row>
                       ),
                     },
-                  ].filter((item) =>
-                    selectedCommandPane ? drawerPanelKeysByPane[selectedCommandPane].includes(String(item.key)) : true,
+                  ]
+                    .filter((item) => canOperate || item.key === 'history')
+                    .filter((item) =>
+                      selectedCommandPane
+                        ? drawerPanelKeysByPane[selectedCommandPane].includes(String(item.key))
+                        : true,
                   )}
                 />
               </>
@@ -3958,7 +3984,7 @@ export default function InventoryPlanningPage() {
         ) : null}
       </Drawer>
       <Modal
-        open={!!pendingFamilyTarget}
+        open={canOperate && !!pendingFamilyTarget}
         title={t('Change replenishment target')}
         okText={t('Confirm target change')}
         confirmLoading={!!targetUpdatingFamilyId}

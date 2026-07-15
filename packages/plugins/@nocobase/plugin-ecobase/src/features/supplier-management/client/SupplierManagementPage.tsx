@@ -32,6 +32,7 @@ import dayjs from 'dayjs';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FormulaHelp } from '../../../client/formula-help';
 import { useT } from '../../../client/locale';
+import { useEcobaseRoleCapabilities } from '../../../client/role-boundary';
 import { orderLifecycleStatusColor } from '../../order-planning/order-lifecycle-status';
 
 type PlainRecord = Record<string, any>;
@@ -122,6 +123,7 @@ function orderStatusColor(value?: string) {
 export default function SupplierManagementPage() {
   const api = useAPIClient();
   const t = useT();
+  const { canOperate, canAdminister } = useEcobaseRoleCapabilities();
   const { message } = App.useApp();
   const [calculationDate, setCalculationDate] = useState(todayIso());
   const [company, setCompany] = useState('');
@@ -470,12 +472,16 @@ export default function SupplierManagementPage() {
             <Button onClick={loadDigest} loading={loading}>
               {t('Load digest')}
             </Button>
+            {canAdminister ? (
             <Button onClick={refreshDigest} loading={loading}>
               {t('Refresh digest')}
             </Button>
+            ) : null}
+            {canOperate ? (
             <Button type="primary" onClick={() => setCreateOpen(true)}>
               {t('Add supplier')}
             </Button>
+            ) : null}
           </Space>
         </Space>
       </Card>
@@ -583,6 +589,8 @@ export default function SupplierManagementPage() {
               </Descriptions.Item>
             </Descriptions>
 
+            {canOperate ? (
+              <>
             <Card title={t('Quick log status / follow-up')} size="small">
               <Row gutter={[12, 12]}>
                 <Col xs={24} md={8}>
@@ -675,7 +683,9 @@ export default function SupplierManagementPage() {
                     <Input
                       placeholder={t('Account name')}
                       value={accountDraft.accountName}
-                      onChange={(event) => setAccountDraft((draft) => ({ ...draft, accountName: event.target.value }))}
+                          onChange={(event) =>
+                            setAccountDraft((draft) => ({ ...draft, accountName: event.target.value }))
+                          }
                     />
                     <Space.Compact style={{ width: '100%' }}>
                       <Select
@@ -687,7 +697,9 @@ export default function SupplierManagementPage() {
                       <Input
                         placeholder={t('Portal URL or payment note')}
                         value={accountDraft.portalUrl}
-                        onChange={(event) => setAccountDraft((draft) => ({ ...draft, portalUrl: event.target.value }))}
+                            onChange={(event) =>
+                              setAccountDraft((draft) => ({ ...draft, portalUrl: event.target.value }))
+                            }
                       />
                     </Space.Compact>
                     <Button loading={saving} onClick={saveAccount}>
@@ -697,6 +709,8 @@ export default function SupplierManagementPage() {
                 </Card>
               </Col>
             </Row>
+              </>
+            ) : null}
 
             <Card title={t('Supplier products')} size="small">
               <Table
@@ -774,15 +788,24 @@ export default function SupplierManagementPage() {
                   },
                   { title: String(t('Comment')), dataIndex: 'body' },
                   { title: String(t('Follow-up')), dataIndex: 'followUpAt', width: 130, render: formatDate },
+                  ...(canOperate
+                    ? [
                   {
                     title: String(t('Action')),
                     width: 90,
                     render: (_: any, row: PlainRecord) => (
-                      <Button size="small" danger loading={saving} onClick={() => void deleteComment(String(row.id))}>
+                            <Button
+                              size="small"
+                              danger
+                              loading={saving}
+                              onClick={() => void deleteComment(String(row.id))}
+                            >
                         {t('Delete')}
                       </Button>
                     ),
                   },
+                      ]
+                    : []),
                 ]}
               />
             </Card>
@@ -876,7 +899,7 @@ export default function SupplierManagementPage() {
       </Drawer>
 
       <Modal
-        open={createOpen}
+        open={canOperate && createOpen}
         title={t('Add supplier')}
         onCancel={() => setCreateOpen(false)}
         onOk={createSupplier}

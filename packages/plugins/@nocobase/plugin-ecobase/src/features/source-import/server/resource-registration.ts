@@ -10,7 +10,7 @@
 import type { SourceAdapterRegistry } from './adapters';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import { createEcobaseImportActions } from '../../../server/resource-actions';
-import { LOGGED_IN, type EcobaseFeatureResourceRegistration } from '../../../server/resource-registration';
+import { ADMIN, LOGGED_IN, type EcobaseFeatureResourceRegistration } from '../../../server/resource-registration';
 
 export function createSourceImportResourceRegistration(
   registry: SourceAdapterRegistry,
@@ -18,6 +18,7 @@ export function createSourceImportResourceRegistration(
   return {
     resources: [{ name: 'ecobaseImport', actions: createEcobaseImportActions(registry) }],
     acl: [
+      { resource: 'ecobaseImport', actions: ['status', 'adapters', 'listSellerboardSources'], role: LOGGED_IN },
       {
         resource: 'ecobaseImport',
         actions: [
@@ -26,8 +27,6 @@ export function createSourceImportResourceRegistration(
           'forceRefresh',
           'runScheduledSellerboard',
           'runNoop',
-          'status',
-          'adapters',
           'normalizeBronzeToSilver',
           'runMedallionPipeline',
           'verifySemanticLinks',
@@ -47,11 +46,10 @@ export function createSourceImportResourceRegistration(
           'ensureClickupAttributionUsers',
           'importClickupOrderStatuses',
           'saveCsvSourceConnection',
-          'listSellerboardSources',
           'saveSellerboardSource',
           'deleteSellerboardSource',
         ],
-        role: LOGGED_IN,
+        role: ADMIN,
       },
       { resource: ECOBASE_COLLECTIONS.silverCompanies, actions: ['list', 'get'], role: LOGGED_IN },
       { resource: ECOBASE_COLLECTIONS.silverAmazonAccounts, actions: ['list', 'get'], role: LOGGED_IN },

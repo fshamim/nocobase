@@ -11,7 +11,12 @@ import {
   createEcobaseSupplierManagementActions,
   createEcobaseSupplierOrderActions,
 } from '../../../server/resource-actions';
-import { LOGGED_IN, type EcobaseFeatureResourceRegistration } from '../../../server/resource-registration';
+import {
+  ADMIN,
+  LOGGED_IN,
+  OPERATOR,
+  type EcobaseFeatureResourceRegistration,
+} from '../../../server/resource-registration';
 
 export function createSupplierManagementResourceRegistration(): EcobaseFeatureResourceRegistration {
   return {
@@ -20,12 +25,10 @@ export function createSupplierManagementResourceRegistration(): EcobaseFeatureRe
       { name: 'ecobaseSupplierManagement', actions: createEcobaseSupplierManagementActions() },
     ],
     acl: [
+      { resource: 'ecobaseSupplierOrders', actions: ['workspace', 'getCoverage'], role: LOGGED_IN },
       {
         resource: 'ecobaseSupplierOrders',
         actions: [
-          'workspace',
-          'getCoverage',
-          'reconcileImportedLines',
           'createPlannedOrder',
           'createOrderLine',
           'createMedallionDraftOrder',
@@ -38,21 +41,17 @@ export function createSupplierManagementResourceRegistration(): EcobaseFeatureRe
           'updateActivityComment',
           'deleteActivityComment',
         ],
+        role: OPERATOR,
+      },
+      { resource: 'ecobaseSupplierOrders', actions: ['reconcileImportedLines'], role: ADMIN },
+      {
+        resource: 'ecobaseSupplierManagement',
+        actions: ['rows', 'summary', 'digest', 'detail', 'supplierOptions', 'productOptions', 'orderOptions'],
         role: LOGGED_IN,
       },
       {
         resource: 'ecobaseSupplierManagement',
         actions: [
-          'previewSupplierResolutionRepair',
-          'applySupplierResolutionRepair',
-          'previewSupplierEvidenceBackfill',
-          'applySupplierEvidenceBackfill',
-          'verifySupplierEvidenceBackfillIdempotency',
-          'refreshAttentionRows',
-          'rows',
-          'summary',
-          'digest',
-          'detail',
           'createSupplier',
           'updateSupplierProfile',
           'createSupplierOrder',
@@ -63,11 +62,20 @@ export function createSupplierManagementResourceRegistration(): EcobaseFeatureRe
           'deleteComment',
           'updateSupplierAccount',
           'upsertSupplierProduct',
-          'supplierOptions',
-          'productOptions',
-          'orderOptions',
         ],
-        role: LOGGED_IN,
+        role: OPERATOR,
+      },
+      {
+        resource: 'ecobaseSupplierManagement',
+        actions: [
+          'previewSupplierResolutionRepair',
+          'applySupplierResolutionRepair',
+          'previewSupplierEvidenceBackfill',
+          'applySupplierEvidenceBackfill',
+          'verifySupplierEvidenceBackfillIdempotency',
+          'refreshAttentionRows',
+        ],
+        role: ADMIN,
       },
     ],
   };
