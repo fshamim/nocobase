@@ -571,6 +571,27 @@ export default defineCollection({
       uiSchema: { title: 'Data Quality Issues' },
       defaultValue: [],
     },
+    {
+      name: 'readinessDomains',
+      type: 'jsonb',
+      interface: 'json',
+      uiSchema: { title: 'Readiness Domains' },
+      defaultValue: {},
+    },
+    {
+      name: 'readinessReasonCodes',
+      type: 'jsonb',
+      interface: 'json',
+      uiSchema: { title: 'Readiness Reason Codes' },
+      defaultValue: [],
+    },
+    {
+      name: 'operationalIssues',
+      type: 'jsonb',
+      interface: 'json',
+      uiSchema: { title: 'Operational Issues' },
+      defaultValue: [],
+    },
     { name: 'inventoryAsOfDate', type: 'dateOnly', interface: 'date', uiSchema: { title: 'Inventory As Of' } },
     {
       name: 'sourceFreshnessStatus',

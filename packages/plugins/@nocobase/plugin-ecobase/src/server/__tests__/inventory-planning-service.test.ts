@@ -469,7 +469,7 @@ describe('EcobaseInventoryPlanningService', () => {
     });
     expect(materialize({ unitCostAvailability: 'unavailable_no_evidence', unitCost: undefined })).toMatchObject({
       commandCenterPane: 'supplyAction',
-      dataQualityStatus: 'partial',
+      dataQualityStatus: 'blocked',
     });
     expect(materialize({ daysOfCover: 30.01 }).commandCenterPane).toBe('supplyAction');
     expect(materialize({ daysOfCover: 30.01 }).stuckClassification).toBe('over_30_doc_watch');
@@ -499,7 +499,7 @@ describe('EcobaseInventoryPlanningService', () => {
         daysOfCover: undefined,
         pipelineStock: 10,
       }),
-    ).toMatchObject({ commandCenterPane: 'dataReadiness', stuckClassification: 'no_sell_through_with_stock' });
+    ).toMatchObject({ commandCenterPane: 'watch', stuckClassification: 'no_sell_through_with_stock' });
     expect(
       materialize({ salesVelocity: undefined, salesVelocityStatus: 'missing', daysOfCover: undefined }),
     ).toMatchObject({ commandCenterPane: 'dataReadiness', stuckClassification: 'insufficient_velocity_data' });
@@ -606,12 +606,12 @@ describe('EcobaseInventoryPlanningService', () => {
 
     expect(materialize({})).toMatchObject({
       commandCenterPane: 'supplyAction',
-      planningEligibilityStatus: 'eligible',
+      planningEligibilityStatus: 'needs_data_readiness',
     });
     expect(materialize({ actionStatus: 'sufficient_stock', currentPlanningStock: 180, daysOfCover: 90 })).toMatchObject(
       {
         commandCenterPane: 'healthyInventory',
-        planningEligibilityStatus: 'eligible',
+        planningEligibilityStatus: 'needs_data_readiness',
       },
     );
     expect(
@@ -1966,9 +1966,9 @@ describe('EcobaseInventoryPlanningService', () => {
       daysOfCover: 10,
       estimatedOosDate: '2026-07-20',
       trustedSupplierOrderCoverageQty: 50,
-      futurePositionStock: 110,
-      positionDaysOfCover: 110,
-      positionEstimatedOosDate: '2026-10-28',
+      futurePositionStock: 210,
+      positionDaysOfCover: 210,
+      positionEstimatedOosDate: '2027-02-05',
       expectedArrivalDate: '2026-07-15',
       pipelineHealthStatus: 'on_track',
       stockoutGapDays: -5,
@@ -1989,9 +1989,9 @@ describe('EcobaseInventoryPlanningService', () => {
     const commandCenter = await service.commandCenter({ calculationDate: '2026-07-10', pageSize: 100 });
     expect(commandCenter.panes.activeOrders.rows.find((candidate) => candidate.sku === 'ON-TRACK')).toMatchObject({
       onHandStock: 10,
-      futurePositionStock: 110,
+      futurePositionStock: 210,
       daysOfCover: 10,
-      positionDaysOfCover: 110,
+      positionDaysOfCover: 210,
       trustedSupplierOrderCoverageQty: 50,
     });
   });
@@ -2180,8 +2180,8 @@ describe('EcobaseInventoryPlanningService', () => {
       expectedArrivalFreshness: 'fresh',
       pipelineHealthStatus: 'on_track',
       commandCenterPane: 'activeOrders',
-      planningEligibilityStatus: 'eligible',
-      dataQualityStatus: 'partial',
+      planningEligibilityStatus: 'needs_data_readiness',
+      dataQualityStatus: 'blocked',
       supplierOrderAuthorityStatus: 'clickup_authoritative',
       supplierOrderAuthoritySource: 'clickup_csv',
       supplierOrderAuthorityTaskRef: 'task-derived-eta',
@@ -2201,7 +2201,7 @@ describe('EcobaseInventoryPlanningService', () => {
       expectedArrivalFreshness: 'unknown',
       pipelineHealthStatus: 'unknown_timing',
       commandCenterPane: 'activeOrders',
-      dataQualityStatus: 'partial',
+      dataQualityStatus: 'blocked',
     });
     expect(row('STALE-ETA')).toMatchObject({
       supplierOrderState: 'purchased_pipeline',
@@ -3119,7 +3119,7 @@ describe('EcobaseInventoryPlanningService', () => {
           companyProductId: 'cp-shared-a',
           salesVelocityBasis: 'inventory_snapshot_fallback',
           daysOfCover: 2.5,
-          positionDaysOfCover: 17.5,
+          positionDaysOfCover: 27.5,
         }),
         expect.objectContaining({ companyProductId: 'cp-missing-velocity', commandCenterPane: 'dataReadiness' }),
         expect.objectContaining({ companyProductId: 'cp-on-track', commandCenterPane: 'activeOrders' }),

@@ -39,6 +39,7 @@ import { summarizeHistoricalProductFacts } from './historical-product-metrics';
 import { latestPreferredInventorySnapshot } from './order-receipt-evidence';
 import { EcobaseCompanyProductFamilyService } from './company-product-family-service';
 import { selectCurrentFamilyOrderCycle, type FamilyOrderCycleSelection } from './order-cycle-selection';
+import { evaluatePlanningReadiness } from './planning-readiness';
 
 const GOLD_SOURCE_RECORD_LIMIT = 100000;
 const TIER_RULE_VERSION = 'rolling_30d_min_4_v1';
@@ -981,6 +982,9 @@ const INVENTORY_PLANNING_ROW_FIELDS = [
   'planningEligibilityReason',
   'dataQualityStatus',
   'dataQualityIssues',
+  'readinessDomains',
+  'readinessReasonCodes',
+  'operationalIssues',
   'inventoryAsOfDate',
   'sourceFreshnessStatus',
   'latestSupplierOrderActivityType',
@@ -1650,8 +1654,8 @@ export class EcobaseInventoryPlanningService {
             : Math.max((asNumber(openOrder.supplierOrderPurchasedOpenQty) ?? 0) - stockBuckets.pipelineStock, 0)
           : undefined;
       const futurePositionStock =
-        typeof onHandStock === 'number' && typeof stockBuckets.pipelineStock === 'number'
-          ? onHandStock + stockBuckets.pipelineStock + (trustedSupplierOrderCoverageQty ?? 0)
+        typeof stockBuckets.currentPlanningStock === 'number'
+          ? stockBuckets.currentPlanningStock + (trustedSupplierOrderCoverageQty ?? 0)
           : undefined;
       const estimatedOosDate =
         salesVelocity > 0 && typeof onHandStock === 'number'
@@ -1671,7 +1675,7 @@ export class EcobaseInventoryPlanningService {
           ? this.suggestedReorderQuantity({
               salesVelocity,
               targetCoverDays,
-              currentPlanningStock: onHandStock + stockBuckets.pipelineStock,
+              currentPlanningStock: stockBuckets.currentPlanningStock,
               openOrderCoverageQty: trustedSupplierOrderCoverageQty ?? 0,
             })
           : undefined;
@@ -1924,6 +1928,29 @@ export class EcobaseInventoryPlanningService {
     const newerIndependentCondition = Boolean(
       receiptObservedDate && inventoryAsOfDate && inventoryAsOfDate > receiptObservedDate,
     );
+    const inventoryAgeDays = inventoryAsOfDate ? diffDays(calculationDate, inventoryAsOfDate) : undefined;
+    const sourceFreshnessStatus =
+      typeof inventoryAgeDays !== 'number'
+        ? 'unknown'
+        : inventoryAgeDays < 0
+          ? 'invalid_future'
+          : inventoryAgeDays <= 1
+            ? 'fresh'
+            : 'stale';
+    const readiness = evaluatePlanningReadiness({
+      familyRole,
+      inventoryFreshnessStatus: sourceFreshnessStatus,
+      salesVelocityStatus: asString(row.salesVelocityStatus),
+      supplierAvailability: asString(row.supplierAvailability),
+      leadTimeAvailability: asString(row.leadTimeAvailability),
+      unitCostAvailability: asString(row.unitCostAvailability),
+      profitAvailability: asString(row.profitAvailability),
+      activeOrder,
+      expectedArrivalStatus: asString(row.expectedArrivalStatus),
+      expectedArrivalConfidence: asString(row.expectedArrivalConfidence),
+      expectedArrivalFreshness: asString(row.expectedArrivalFreshness),
+      orderCycleReviewRequired: asBoolean(row.supplierOrderCycleReviewRequired) === true,
+    });
     const inboundMonitoring =
       activeOrder &&
       exactSourceStatus === 'inbound-monitoring' &&
@@ -1947,7 +1974,7 @@ export class EcobaseInventoryPlanningService {
       !stockoutSoon;
     const currentStuckInventory = stuckInventory && (!fullyObserved || newerIndependentCondition);
     const currentSupplyAction = supplyAction;
-    const dataReadiness = planningTarget && live && !excluded;
+    const dataReadiness = planningTarget && live && !excluded && readiness.status !== 'ready';
     const commandCenterPane = excluded
       ? 'excludedProducts'
       : inboundMonitoring
@@ -1965,36 +1992,18 @@ export class EcobaseInventoryPlanningService {
                   : 'watch';
     const planningEligibilityStatus = excluded
       ? 'ineligible_excluded'
-      : commandCenterPane === 'dataReadiness'
-        ? 'needs_data_readiness'
-        : commandCenterPane !== 'watch'
-          ? 'eligible'
-          : familyRole === 'member'
-            ? 'ineligible_family_member'
-            : !live
-              ? 'ineligible_inactive'
+      : familyRole === 'member'
+        ? 'ineligible_family_member'
+        : !live
+          ? 'ineligible_inactive'
+          : readiness.status === 'blocked' || commandCenterPane === 'dataReadiness'
+            ? 'needs_data_readiness'
+            : commandCenterPane !== 'watch'
+              ? 'eligible'
               : !tiered
                 ? 'ineligible_unclassified_tier'
                 : 'eligible_watch';
-    const inventoryAgeDays = inventoryAsOfDate ? diffDays(calculationDate, inventoryAsOfDate) : undefined;
-    const sourceFreshnessStatus =
-      typeof inventoryAgeDays !== 'number'
-        ? 'unknown'
-        : inventoryAgeDays < 0
-          ? 'invalid_future'
-          : inventoryAgeDays <= 1
-            ? 'fresh'
-            : 'stale';
-    const dataQualityIssues = [
-      familyRole === 'unassigned' ? 'family_missing' : undefined,
-      asString(row.salesVelocityStatus) === 'missing' ? 'velocity_missing' : undefined,
-      sourceFreshnessStatus === 'fresh' ? undefined : `inventory_${sourceFreshnessStatus}`,
-      asString(row.supplierAvailability)?.startsWith('resolved_') ? undefined : 'supplier_unavailable',
-      asString(row.leadTimeAvailability)?.startsWith('resolved_') ? undefined : 'lead_time_unavailable',
-      asString(row.unitCostAvailability)?.startsWith('resolved_') ? undefined : 'unit_cost_unavailable',
-      asString(row.profitAvailability)?.startsWith('resolved_') ? undefined : 'profit_unavailable',
-      activeOrder && asString(row.expectedArrivalStatus) === 'unknown' ? 'expected_arrival_unknown' : undefined,
-      asBoolean(row.supplierOrderCycleReviewRequired) === true ? 'order_cycle_review_required' : undefined,
+    const operationalIssues = [
       [
         'reserved_stalled',
         'pipeline_stalled',
@@ -2004,19 +2013,16 @@ export class EcobaseInventoryPlanningService {
       ].includes(stuck)
         ? stuck
         : undefined,
+      asBoolean(row.supplierOrderStale) === true ? 'supplier_order_stale' : undefined,
     ].filter((issue): issue is string => Boolean(issue));
-    const dataQualityStatus = dataQualityIssues.includes('velocity_missing')
-      ? 'blocked'
-      : dataQualityIssues.length > 0
-        ? 'partial'
-        : 'ready';
     const moneyRisk = calculateInventoryMoneyRisk(row);
+    const pipelineHealth = pipelineHealthStatus(row, calculationDate);
 
     return {
       ...row,
       stuck: stuckInventory,
       stuckClassification: stuck,
-      pipelineHealthStatus: pipelineHealthStatus(row, calculationDate),
+      pipelineHealthStatus: pipelineHealth,
       stockoutGapDays: stockoutGapDays(row),
       daysUntilOos: daysUntilDate(operationalEstimatedOosDate(row), calculationDate),
       commandCenterPane,
@@ -2031,8 +2037,11 @@ export class EcobaseInventoryPlanningService {
         planningEligibilityStatus === 'eligible' ? `verified_${commandCenterPane}` : planningEligibilityStatus,
       ...moneyRisk,
       sourceFreshnessStatus,
-      dataQualityStatus,
-      dataQualityIssues,
+      dataQualityStatus: readiness.status,
+      dataQualityIssues: readiness.reasonCodes,
+      readinessDomains: readiness.domains,
+      readinessReasonCodes: readiness.reasonCodes,
+      operationalIssues,
       recommendedEscalation: recommendedInventoryAction({ ...row, stuckClassification: stuck }),
     };
   }
@@ -2740,6 +2749,9 @@ export class EcobaseInventoryPlanningService {
       planningEligibilityReason: asString(row.planningEligibilityReason),
       dataQualityStatus: asString(row.dataQualityStatus),
       dataQualityIssues: Array.isArray(row.dataQualityIssues) ? row.dataQualityIssues : [],
+      readinessDomains: toPlainRecord(row.readinessDomains),
+      readinessReasonCodes: Array.isArray(row.readinessReasonCodes) ? row.readinessReasonCodes : [],
+      operationalIssues: Array.isArray(row.operationalIssues) ? row.operationalIssues : [],
       inventoryAsOfDate: asString(row.inventoryAsOfDate),
       sourceFreshnessStatus: asString(row.sourceFreshnessStatus),
       commandCenterPane: asString(row.commandCenterPane),
