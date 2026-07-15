@@ -1844,9 +1844,10 @@ export class EcobaseInventoryPlanningService {
       const supplierPipelineStock = trustedSupplierOrderCoverageQty;
       const inventoryPositionStock =
         typeof stockBuckets.onHandSellableStock === 'number' && typeof stockBuckets.amazonPipelineStock === 'number'
-          ? stockBuckets.onHandSellableStock + stockBuckets.amazonPipelineStock + (supplierPipelineStock ?? 0)
+          ? stockBuckets.onHandSellableStock + stockBuckets.amazonPipelineStock
           : undefined;
-      const futurePositionStock = inventoryPositionStock;
+      const futurePositionStock =
+        typeof inventoryPositionStock === 'number' ? inventoryPositionStock + (supplierPipelineStock ?? 0) : undefined;
       const estimatedOosDate =
         salesVelocity > 0 && typeof onHandStock === 'number'
           ? addDays(calculationDate, Math.floor(onHandStock / salesVelocity))
@@ -1861,8 +1862,8 @@ export class EcobaseInventoryPlanningService {
           : undefined;
       const daysUntilSafeReorder = latestSafeReorderDate ? diffDays(latestSafeReorderDate, calculationDate) : undefined;
       const suggestedReorderQty =
-        typeof inventoryPositionStock === 'number'
-          ? this.suggestedReorderQuantity({ salesVelocity, targetCoverDays, inventoryPositionStock })
+        typeof futurePositionStock === 'number'
+          ? this.suggestedReorderQuantity({ salesVelocity, targetCoverDays, futurePositionStock })
           : undefined;
       const supplierUnitCost = asNumber(supplierProduct.unitCost);
       const cogs = sellerboardCostResolver.resolve({ company: companyName, asin, sku, suggestedReorderQty });
@@ -2324,9 +2325,8 @@ export class EcobaseInventoryPlanningService {
       );
       const familyOnHandStock = stock.familyOnHandSellableStock;
       const familySupplierPipelineStock = familyTrustedSupplierOrderCoverageQty;
-      const familyInventoryPositionStock =
-        familyOnHandStock + stock.familyAmazonPipelineStock + familySupplierPipelineStock;
-      const familyFuturePositionStock = familyInventoryPositionStock;
+      const familyInventoryPositionStock = familyOnHandStock + stock.familyAmazonPipelineStock;
+      const familyFuturePositionStock = familyInventoryPositionStock + familySupplierPipelineStock;
       const familyDaysOfCover =
         typeof familySalesVelocity === 'number' && familySalesVelocity > 0
           ? familyOnHandStock / familySalesVelocity
@@ -2345,7 +2345,7 @@ export class EcobaseInventoryPlanningService {
         ? this.suggestedReorderQuantity({
             salesVelocity: familySalesVelocity,
             targetCoverDays: asNumber(target.targetCoverDays) ?? 0,
-            inventoryPositionStock: familyInventoryPositionStock,
+            futurePositionStock: familyFuturePositionStock,
           })
         : undefined;
       const familyUnitCost =
@@ -4000,11 +4000,11 @@ export class EcobaseInventoryPlanningService {
   private suggestedReorderQuantity(params: {
     salesVelocity?: number;
     targetCoverDays: number;
-    inventoryPositionStock: number;
+    futurePositionStock: number;
   }) {
     if (!params.salesVelocity || params.salesVelocity <= 0) return 0;
     const neededUnits = params.salesVelocity * params.targetCoverDays;
-    return Math.max(Math.ceil(neededUnits - params.inventoryPositionStock), 0);
+    return Math.max(Math.ceil(neededUnits - params.futurePositionStock), 0);
   }
 
   private actionStatus(params: {

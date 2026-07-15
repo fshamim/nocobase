@@ -2365,7 +2365,7 @@ describe('EcobaseInventoryPlanningService', () => {
       onHandSellableStock: 10,
       amazonPipelineStock: 50,
       supplierPipelineStock: 50,
-      inventoryPositionStock: 110,
+      inventoryPositionStock: 60,
       daysOfCover: 10,
       estimatedOosDate: '2026-07-20',
       trustedSupplierOrderCoverageQty: 50,
@@ -2383,7 +2383,7 @@ describe('EcobaseInventoryPlanningService', () => {
       onHandSellableStock: 10,
       amazonPipelineStock: 50,
       supplierPipelineStock: 50,
-      inventoryPositionStock: 110,
+      inventoryPositionStock: 60,
       futurePositionStock: 110,
       daysOfCover: 10,
       suggestedReorderQty: 90,
@@ -2407,11 +2407,45 @@ describe('EcobaseInventoryPlanningService', () => {
       onHandSellableStock: 10,
       amazonPipelineStock: 50,
       supplierPipelineStock: 50,
-      inventoryPositionStock: 110,
+      inventoryPositionStock: 60,
       futurePositionStock: 110,
       daysOfCover: 10,
       positionDaysOfCover: 110,
       trustedSupplierOrderCoverageQty: 50,
+    });
+  });
+
+  it('separates family inventory position from supplier pipeline future position', () => {
+    const service = new EcobaseInventoryPlanningService(new MemoryDatabase()) as unknown as {
+      applyFamilyRollups: (rows: Record<string, unknown>[], calculationDate: string) => Record<string, unknown>[];
+    };
+
+    const [row] = service.applyFamilyRollups(
+      [
+        {
+          companyProductFamilyId: 'family-position',
+          replenishmentTargetCompanyProductId: 'target-position',
+          companyProductId: 'target-position',
+          familyRole: 'target',
+          onHandSellableStock: 10,
+          amazonPipelineStock: 5,
+          supplierOrderPurchasedOpenQty: 25,
+          supplierOrderStale: false,
+          salesVelocity: 1,
+          targetCoverDays: 45,
+        },
+      ],
+      '2026-07-10',
+    );
+
+    expect(row).toMatchObject({
+      familyOnHandSellableStock: 10,
+      familyAmazonPipelineStock: 5,
+      familySupplierPipelineStock: 20,
+      familyInventoryPositionStock: 15,
+      familyFuturePositionStock: 35,
+      familyPositionDaysOfCover: 35,
+      familySuggestedReorderQty: 10,
     });
   });
 
