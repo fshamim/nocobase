@@ -1,1 +1,1 @@
-PASS
+BLOCKED: the required inbound-routing fixture gate is not separately evidenced; a live zero-row inbound pane is insufficient proof.

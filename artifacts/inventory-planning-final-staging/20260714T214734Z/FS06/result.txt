@@ -1,1 +1,1 @@
-PASS
+BLOCKED: an exact approved lifecycle digest was not applied and rerun idempotently before the Gold refresh.

@@ -1,1 +1,1 @@
-PASS
+BLOCKED: one-current-cycle aggregation lacks the complete required ambiguity, timestamp, and multi-family fixture proof.

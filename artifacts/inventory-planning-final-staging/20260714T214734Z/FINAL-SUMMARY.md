@@ -2,9 +2,12 @@
 
 ## Verdict
 
-**GO for staging use. HOLD for production.** Production was not touched. No source import or staging reset was run.
+**INCOMPLETE — not a staging go-live sign-off.** Production was not touched. No source import or staging reset was run.
 
-The requested `https://ecobase.ecofission.com/` resolves to a parked domain. Validation used the established staging application at `https://ecobase-staging.178-104-193-132.sslip.io/`.
+- Production: `https://ecobase.178-104-193-132.sslip.io/` — not accessed.
+- Staging: `https://ecobase-staging.178-104-193-132.sslip.io/` — validation target.
+
+This run contains valid baseline and repair evidence, but it does not complete the authoritative FS00–FS23 task plan. Only FS00 and FS01 have sufficient evidence to retain `PASS`; FS02–FS08 are partial, and FS09–FS23 are not completed by this run.
 
 ## Deployment identity
 

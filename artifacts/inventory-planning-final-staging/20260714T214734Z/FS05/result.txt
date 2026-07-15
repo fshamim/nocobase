@@ -1,1 +1,1 @@
-PASS
+BLOCKED: the required lifecycle-reconcile preview digest and preservation checks were not produced before apply.

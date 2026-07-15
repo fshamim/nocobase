@@ -1,1 +1,1 @@
-PASS
+BLOCKED: order-state contract and all required deterministic lifecycle cases are not fully documented and evidenced.

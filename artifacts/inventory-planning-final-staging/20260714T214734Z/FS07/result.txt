@@ -1,1 +1,1 @@
-PASS
+BLOCKED: receipt backfill used batchSize 200 instead of the required maximum 100 and lacks the complete post-batch gate.

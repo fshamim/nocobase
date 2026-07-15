@@ -1,1 +1,1 @@
-PASS
+BLOCKED: required operator override, hold, clear, and refresh-preservation paths are not fully evidenced on staging.

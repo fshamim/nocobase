@@ -1,10 +1,10 @@
 # Evidence manifest
 
-Generated: 2026-07-14T23:40:00Z
+Generated: 2026-07-15T00:00:00Z
 
 | SHA-256 | File |
 |---|---|
-| `9df0203f80d8a6fea37441ca23d883f71f91830abf76502010a409652437a9ed` | `FINAL-SUMMARY.md` |
+| `98e7b8b4268d21d92811fa37ef514fb87a0f524c940a6ab3b9295b3ad72b01cb` | `FINAL-SUMMARY.md` |
 | `97bc4d0e84a54d8b0010c00f2d223db8147e7df6a50093a48bacb58c058a1408` | `FS00/backup.json` |
 | `ad64cc1310b5e2c67f7b12b565d75f8cd120fb29bec92b636cda0ea51ab7865b` | `FS00/baseline.json` |
 | `6b938e6ed1b65161b0b1260e066b5d148b4906265c71876e9ac48b2134bd2fec` | `FS00/command-center-summary.json` |
@@ -25,39 +25,39 @@ Generated: 2026-07-14T23:40:00Z
 | `687975e10cd4f4066ce8798120e040ee7695eced2cb2f578238876106c8fa3fa` | `FS02/receipt-before.json` |
 | `f2a5a0fa3299e10423ff214cf2125578ee84e4f732983cfd6876245fb3225f0a` | `FS02/receipt-dry-run.json` |
 | `5921b1c1d1271426347bd676f664a557c373ff12390331a09f74f9f628b3ded9` | `FS02/receipt-idempotency.json` |
-| `c26de83abdc9496cd1301470918ec39ecca1cf389ef0ae1c6504da1800d1c431` | `FS02/result.txt` |
+| `611fb432148cd250abc452147fae8c128f13a1df1693d4eb66534bc1d05d1948` | `FS02/result.txt` |
 | `01ea4d5f4bd5bc6655372cb6c37d94e9e38f973d556f479bf918d3b3c9bb6547` | `FS03/commands.txt` |
 | `e73cfaa7224d9589b77fd56cab7765f7a5c64c84da42871840ed8d1e78492d42` | `FS03/operator-protection-readback.json` |
-| `c26de83abdc9496cd1301470918ec39ecca1cf389ef0ae1c6504da1800d1c431` | `FS03/result.txt` |
+| `3e7258a4752aae9e8e3bec0998e3cf8fc31b7c43100742751f9e627bcf8d87ba` | `FS03/result.txt` |
 | `4cb30d2512763b0b2a32275e95828e496e2187a0a02a1d5c5a219c94410c674e` | `FS03/settings-apply.json` |
 | `3e1438af4ea1dd3a114c1aeeb9f011112f0af9dee9d0b0505d40ca8c6ec48d37` | `FS04/commands.txt` |
 | `05733e58dfa10371b1291daff7be49a24dc5c423bff4eb1e5eef62a74422274e` | `FS04/cycle-apply-readback.json` |
 | `8ff59dcef29d0f28f937bdc460402485393f27fd97026b27be459bc57a738f88` | `FS04/cycle-dry-run.json` |
-| `c26de83abdc9496cd1301470918ec39ecca1cf389ef0ae1c6504da1800d1c431` | `FS04/result.txt` |
+| `7e15caffab5f620c06ca8368d99ad852a82873b783ee51af28776c1be9553be4` | `FS04/result.txt` |
 | `2f0caec62b9e2a9c4cf532f13e5444dc3617445379d5d61b3c8c5cafe9df4f06` | `FS05/commands.txt` |
 | `5e1dd836a72cc67ec64847d233c561e005a21f61cd9e2767952d80c711443fbd` | `FS05/expected-arrival-readback.json` |
-| `c26de83abdc9496cd1301470918ec39ecca1cf389ef0ae1c6504da1800d1c431` | `FS05/result.txt` |
+| `b4c8c70391eab63b7601cc48919eff4a901646c207a02661fbcf9dcf48e32a47` | `FS05/result.txt` |
 | `5bdc524c51588723afa1d921d796990b6b816296646a4519348a938c1d10fef2` | `FS06/command-center.json` |
 | `9f7ece42393d8fad8597731cb4b69376ed2dc81a93c8842707f4b9d875a61705` | `FS06/commands.txt` |
 | `33ebabe1a5d0c54628b2216edb62c4ae2c30831e8d86b22ec3af9cac6e369e17` | `FS06/refresh.json` |
-| `c26de83abdc9496cd1301470918ec39ecca1cf389ef0ae1c6504da1800d1c431` | `FS06/result.txt` |
+| `bc992398cd73c27937bc9a79de15689b38e1ed5c4d103c259e4209fc29ffec2b` | `FS06/result.txt` |
 | `d348bf7b5d1228d226a587b606102ba162d10a7acdd1093572de62368aeed777` | `FS06/schedules.json` |
 | `14f584e726a59c59cc2dddacfb4d8e625cd96d750583a31cffde226cbabecbcc` | `FS06/semantic-verifier.json` |
 | `113249c733aa23f8b504dbd0e04ab8e851bc5bbdb0d189320830bbc16b521466` | `FS06/validation.json` |
 | `cf90c39ce6179b2c1546616cc553be14401ac15838233c63e6dd0fd669495e65` | `FS07/commands.txt` |
 | `a65c57220702577bee261c8ba8c8088e17c2317c871880b488bcb51ca536eed3` | `FS07/lint-build.log` |
-| `c26de83abdc9496cd1301470918ec39ecca1cf389ef0ae1c6504da1800d1c431` | `FS07/result.txt` |
+| `23308f7c60a2027c0503d63e06da293623df74a61c4a0c12eb53451e9f49e2dd` | `FS07/result.txt` |
 | `3844e996156dbdca482101c5b9c68fc34ab306fb4d03a4107ac085d0343b87d6` | `FS07/tests.log` |
 | `709d1b4b7c8e31be9c5f943c5ade3e64a98306427782b829625b723e56a22637` | `FS07/ui-followup.log` |
 | `1ccfa4df182f9a2f489bc8d288ce683a1edcfb562a6b08a2930465d85373e9f7` | `FS08/active-order-drawer.png` |
 | `0176526d24e78007b3f2bb0c081c91244cb47bcb994e24af3293e91884c10989` | `FS08/command-center-final.json` |
 | `ea79724274e43ff1ec6e4794234d982f1f4235cc4aeee391ce2a08996b31c415` | `FS08/commands.txt` |
-| `020349e5a3160df76b724f5757666a8a00ccaca3550d7968e404dae93bf0597f` | `FS08/deployment.json` |
+| `28f2e46cfb89069e2c62c706980bf8d338e8c5e4597cf79f6d01c3904f5e7798` | `FS08/deployment.json` |
 | `c6f855f714a0828107744168f4122c9f59c393f66094dbdd7ce1bc8a2f3be8dd` | `FS08/final-counts.json` |
 | `96b6fdec86501f7ba9f7f266b674252d8b4f2095bcc3b58ed8b1084f63c7fc55` | `FS08/no-reimport-proof.json` |
 | `c19dde408b08e0e37ed723b434d9b50709a75023a4f34c61e43c9479c427dab6` | `FS08/post-redeploy-verification.json` |
 | `07f55facd8130efc984e999b1d01ca50f4228d7df9f2f37347db42a577335b20` | `FS08/result.json` |
-| `c26de83abdc9496cd1301470918ec39ecca1cf389ef0ae1c6504da1800d1c431` | `FS08/result.txt` |
+| `93d29a91f06a580b0d6477a6c10378ebe5d5bfbada6529725966cc8202f61b6d` | `FS08/result.txt` |
 | `a1a79726cd315feb2a6cb0424cdb62ea0b3b79fdf090cdfd46e8c7fed130ebf1` | `FS08/security.json` |
 | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` | `FS08/server-errors.log` |
 | `bcb975d3868d3ef5b6bff7d08877f0ec54b8eaf9c0160cbdf68de828cb2ba3a1` | `FS08/source-schedules-readback.json` |
@@ -66,3 +66,4 @@ Generated: 2026-07-14T23:40:00Z
 | `ea67b660823d341f88de4047481a4bc0cf2bda6d7fb0617285337cc377d66642` | `FS08/supply-pane-smoke.txt` |
 | `3b2ead84216aedb95bae5ef6ac448fe7b16d5a148e3d657b39a8887e9c54e476` | `FS08/supply-pane.png` |
 | `2685f9b1029e1a4fff63de41387a29fbea67e6e4e3c6a641ac6228dc8606665f` | `FS08/ui-text-smoke.txt` |
+| `1c30c29d02ac5ee12ffb27d2ec6fde0048d39651931d4c719751386ac3290556` | `PLAN-STATUS.md` |
