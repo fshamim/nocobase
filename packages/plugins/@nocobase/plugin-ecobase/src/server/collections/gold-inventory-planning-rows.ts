@@ -402,6 +402,14 @@ export default defineCollection({
       index: true,
     },
     {
+      name: 'supplierOrderStale',
+      type: 'boolean',
+      interface: 'checkbox',
+      uiSchema: { title: 'Supplier Order Stale' },
+      defaultValue: false,
+      index: true,
+    },
+    {
       name: 'supplierOrderId',
       type: 'string',
       interface: 'input',

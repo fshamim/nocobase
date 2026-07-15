@@ -676,6 +676,48 @@ describe('Ecobase current Amazon operations CSV import', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductSuppliers).all()).toEqual([
       expect.objectContaining({ companyProductId: 'company-product-old', role: 'candidate' }),
     ]);
+
+    const importedLine = db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).all()[0];
+    await supplierOrderService.updateLineOperatorFields({
+      supplierOrderLineId: String(importedLine.id),
+      company: 'Muxtex INC',
+      expectedSellableDate: '2026-07-20',
+      notes: 'Supplier confirmed the operator date.',
+      actor: 'user-1',
+    });
+    await supplierOrderService.applyImportRecord(
+      {
+        kind: 'supplier_order',
+        data: {
+          company: 'Muxtex INC',
+          supplierName: 'Franklin Electric',
+          sourceSystem: 'test',
+          sourceConnectionId: 'source-1',
+          externalOrderRef: 'MX61726D',
+          sourceStage: 'order_detail',
+          status: 'shipped_inbound',
+          orderDate: '2026-06-16',
+          lines: [
+            {
+              sourceOrderLineRef: 'MX61726D:B00D3QAK4Y:2801054915',
+              asin: 'B00D3QAK4Y',
+              sku: '2801054915',
+              orderedQty: 7,
+              expectedSellableDate: '2026-08-01',
+            },
+          ],
+        },
+      },
+      'import-run-source-date-change',
+    );
+
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).all()[0]).toMatchObject({
+      expectedSellableDate: '2026-07-20',
+      sourceExpectedSellableDate: '2026-08-01',
+      expectedDateOverrideReason: 'Supplier confirmed the operator date.',
+      expectedDateOverrideByUserId: 'user-1',
+      expectedDateOverrideAt: expect.any(String),
+    });
   });
 
   it('reconciles existing unmapped supplier-order lines idempotently', async () => {

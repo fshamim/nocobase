@@ -176,8 +176,8 @@ describe('EcobasePlanningSettingsService', () => {
 
     expect(result.settings).toMatchObject({
       ...DEFAULT_PLANNING_SETTINGS,
+      fbaReceivingBufferDays: 7,
       enableCurrentOrderCycleSelection: false,
-      allowDefaultExpectedArrival: false,
     });
   });
 
@@ -191,10 +191,8 @@ describe('EcobasePlanningSettingsService', () => {
       profitTierBThreshold: 200,
       profitTierCThreshold: 10,
       supplierOrderPurchasedPipelineStatuses: ['paid', 'custom-paid'],
-      receivingBufferDays: 4,
-      defaultExpectedArrivalLeadTimeDays: 35,
+      fbaReceivingBufferDays: 4,
       enableCurrentOrderCycleSelection: true,
-      allowDefaultExpectedArrival: true,
     });
 
     expect(saved).toMatchObject({
@@ -205,10 +203,8 @@ describe('EcobasePlanningSettingsService', () => {
       profitTierBThreshold: 200,
       profitTierCThreshold: 10,
       supplierOrderPurchasedPipelineStatuses: ['paid', 'custom_paid'],
-      receivingBufferDays: 4,
-      defaultExpectedArrivalLeadTimeDays: 35,
+      fbaReceivingBufferDays: 4,
       enableCurrentOrderCycleSelection: true,
-      allowDefaultExpectedArrival: true,
     });
     await expect(service.saveSettings({ safetyBufferDays: -1 })).rejects.toThrow(
       'EcoBase planning settings require Safety buffer days to be a zero-or-positive whole number.',

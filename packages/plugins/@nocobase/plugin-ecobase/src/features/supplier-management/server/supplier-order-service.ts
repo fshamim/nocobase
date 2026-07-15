@@ -657,12 +657,19 @@ export class EcobaseSupplierOrderService {
       toPlainRecord,
     );
     const companyId = asString(companies.find((company) => asString(company.name) === filters.company)?.id);
+    const goldInventoryRepository = this.db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows);
+    const latestGoldInventoryRow = toPlainRecord(
+      await goldInventoryRepository.findOne({ filter: { company: filters.company }, sort: ['-calculationDate'] }),
+    );
+    const latestGoldCalculationDate = asString(latestGoldInventoryRow.calculationDate);
     const planningProducts: PlainRecord[] = (
-      await this.db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).find({
-        filter: { company: filters.company },
-        sort: ['company', 'asin'],
-        limit,
-      })
+      latestGoldCalculationDate
+        ? await goldInventoryRepository.find({
+            filter: { company: filters.company, calculationDate: latestGoldCalculationDate },
+            sort: ['company', 'asin'],
+            limit,
+          })
+        : []
     )
       .map(toPlainRecord)
       .map((row) => ({
@@ -1326,6 +1333,10 @@ export class EcobaseSupplierOrderService {
         'Ecobase supplier-order line update failed: planningProductId, externalOrderRef, orderedQty, receivedQty, unitCost, expectedDeliveryDate, expectedSellableDate, or notes is required.',
       );
     }
+    const changesExpectedDate = Boolean(params.expectedDeliveryDate || params.expectedSellableDate);
+    if (changesExpectedDate && !asString(params.notes)) {
+      throw new Error('Ecobase supplier-order line update failed: notes are required for expected-date overrides.');
+    }
 
     const lineRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines);
     const readModel = await silverSupplierOrderReadModel(this.db, { company: params.company, limit: 10000 });
@@ -1417,7 +1428,12 @@ export class EcobaseSupplierOrderService {
     }
     if (params.expectedSellableDate) {
       values.expectedSellableDate = requireIsoDate(params.expectedSellableDate, 'expectedSellableDate');
-      values.prepInstruction = `manual_expected_sellable:${params.actor ?? 'operator'}`;
+    }
+    if (changesExpectedDate) {
+      values.expectedDateOverrideReason = asString(params.notes);
+      values.expectedDateOverrideAt = editedAt;
+      values.expectedDateOverrideByUserId = params.actor;
+      values.prepInstruction = `manual_expected_date:${params.actor ?? 'operator'}`;
     }
     if (params.notes) {
       const currentInstruction = asString(values.prepInstruction);
@@ -2131,6 +2147,8 @@ export class EcobaseSupplierOrderService {
       asString(sourceLine.id) && asString(productLine.id) !== asString(sourceLine.id)
         ? asString(productLine.id)
         : undefined;
+    const sourceExpectedDeliveryDate = params.line.expectedDeliveryDate ?? asString(params.order.expectedDeliveryDate);
+    const expectedDateOverridden = Boolean(asString(existing.expectedDateOverrideAt));
     const baseValues: PlainRecord = {
       orderId,
       sourceLineKey,
@@ -2138,13 +2156,17 @@ export class EcobaseSupplierOrderService {
       supplierProductId,
       orderedQty: params.line.orderedQty,
       confirmedQty: params.line.receivedQty ?? 0,
-      expectedDeliveryDate: params.line.expectedDeliveryDate ?? asString(params.order.expectedDeliveryDate),
-      expectedSellableDate: params.line.expectedSellableDate,
+      expectedDeliveryDate: expectedDateOverridden ? existing.expectedDeliveryDate : sourceExpectedDeliveryDate,
+      expectedSellableDate: expectedDateOverridden ? existing.expectedSellableDate : params.line.expectedSellableDate,
       unitCost: params.line.unitCost,
       productAnalysisStatus: resolved.planningProductId ? 'imported' : 'mapping_missing',
       priority: params.sourceStage,
       prepInstruction: resolved.warning?.message,
     };
+    if (sourceExpectedDeliveryDate) baseValues.sourceExpectedDeliveryDate = sourceExpectedDeliveryDate;
+    if (params.line.expectedSellableDate) {
+      baseValues.sourceExpectedSellableDate = params.line.expectedSellableDate;
+    }
 
     let persisted: unknown;
     if (lineId) {
@@ -2232,12 +2254,9 @@ export class EcobaseSupplierOrderService {
     const company = asString(line.company) ?? asString(order.company);
     const prepBufferDays = await this.getPrepBufferDays(company);
     const existingSource = asString(line.expectedSellableDateSource);
-    const existingOperatorEditAt = asString(line.lastOperatorEditAt);
+    const existingOperatorEditAt = asString(line.expectedDateOverrideAt) ?? asString(line.lastOperatorEditAt);
     const prepInstruction = asString(line.prepInstruction);
-    if (
-      (existingSource === 'manual' && existingOperatorEditAt) ||
-      prepInstruction?.startsWith('manual_expected_sellable:')
-    ) {
+    if (existingOperatorEditAt || prepInstruction?.startsWith('manual_expected_sellable:')) {
       return { values: {}, warning: undefined };
     }
 

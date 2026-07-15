@@ -237,6 +237,23 @@ function requireFamilyOverrideActor(ctx: {
   return actorUserId;
 }
 
+function requireProductPlanningOverrideActor(ctx: {
+  state?: Record<string, unknown>;
+  throw: (status: number, message: string) => never;
+}) {
+  const roles = Array.isArray(ctx.state?.currentRoles)
+    ? (ctx.state?.currentRoles as unknown[]).filter((role): role is string => typeof role === 'string')
+    : typeof ctx.state?.currentRole === 'string'
+      ? [ctx.state.currentRole]
+      : [];
+  if (!roles.some((role) => ['root', 'admin', 'operator'].includes(role))) {
+    ctx.throw(403, 'Ecobase product planning overrides require an operator or administrator role.');
+  }
+  const actorUserId = getActorId(ctx);
+  if (!actorUserId) ctx.throw(401, 'Ecobase product planning overrides require an authenticated user.');
+  return actorUserId;
+}
+
 function requireMigrationMaintenanceAdministrator(ctx: {
   state?: Record<string, unknown>;
   throw: (status: number, message: string) => never;
@@ -1011,15 +1028,15 @@ export function createEcobaseOrderPlanningActions() {
         return;
       }
       try {
-        ctx.body = {
-          data: await new EcobaseOrderPlanningService(ctx.db).updateOrder({
-            orderId,
-            values: getOptionalRecord(values, 'fields') ?? values,
-            commentBody: getOptionalString(values, 'commentBody'),
-            actorUserId: getActorId(ctx),
-            clearStatusOverride: getOptionalBoolean(values, 'clearStatusOverride'),
-          }),
-        };
+        const data = await new EcobaseOrderPlanningService(ctx.db).updateOrder({
+          orderId,
+          values: getOptionalRecord(values, 'fields') ?? values,
+          commentBody: getOptionalString(values, 'commentBody'),
+          actorUserId: getActorId(ctx),
+          clearStatusOverride: getOptionalBoolean(values, 'clearStatusOverride'),
+        });
+        await new EcobaseInventoryPlanningService(ctx.db).refreshReadModel({ company: data.order.companyName });
+        ctx.body = { data };
       } catch (error) {
         ctx.throw(400, error instanceof Error ? error.message : 'Ecobase Order Planning order update failed.');
         return;
@@ -1034,14 +1051,14 @@ export function createEcobaseOrderPlanningActions() {
         return;
       }
       try {
-        ctx.body = {
-          data: await new EcobaseOrderPlanningService(ctx.db).updateLine({
-            orderLineId,
-            values: getOptionalRecord(values, 'fields') ?? values,
-            commentBody: getOptionalString(values, 'commentBody'),
-            actorUserId: getActorId(ctx),
-          }),
-        };
+        const data = await new EcobaseOrderPlanningService(ctx.db).updateLine({
+          orderLineId,
+          values: getOptionalRecord(values, 'fields') ?? values,
+          commentBody: getOptionalString(values, 'commentBody'),
+          actorUserId: getActorId(ctx),
+        });
+        await new EcobaseInventoryPlanningService(ctx.db).refreshReadModel({ company: data.order.companyName });
+        ctx.body = { data };
       } catch (error) {
         ctx.throw(400, error instanceof Error ? error.message : 'Ecobase Order Planning line update failed.');
         return;
@@ -1254,6 +1271,35 @@ export function createEcobaseInventoryPlanningActions() {
       };
       await next();
     },
+    updateProductPlanningFields: async (ctx, next) => {
+      const values = getValues(ctx.action.params);
+      const companyProductId = getOptionalString(values, 'companyProductId');
+      if (!companyProductId) {
+        ctx.throw(400, 'Ecobase product planning update requires companyProductId.');
+        return;
+      }
+      const actorUserId = requireProductPlanningOverrideActor(ctx);
+      try {
+        const service = new EcobaseInventoryPlanningService(ctx.db);
+        const companyProduct = await service.updateProductPlanningFields({
+          companyProductId,
+          planningExcluded: getOptionalBoolean(values, 'planningExcluded'),
+          reorderCycleDays: getOptionalNumber(values, 'reorderCycleDays'),
+          targetCoverDays: getOptionalNumber(values, 'targetCoverDays'),
+          reason: getOptionalString(values, 'reason'),
+          actorUserId,
+        });
+        const refresh = await service.refreshReadModel({
+          company: getOptionalString(values, 'company'),
+          calculationDate: getOptionalString(values, 'calculationDate'),
+        });
+        ctx.body = { data: { companyProduct, refresh } };
+      } catch (error) {
+        ctx.throw(400, error instanceof Error ? error.message : 'Ecobase product planning update failed.');
+        return;
+      }
+      await next();
+    },
     setFamilyTarget: async (ctx, next) => {
       const values = getValues(ctx.action.params);
       const familyId = getOptionalString(values, 'familyId');
@@ -1387,19 +1433,21 @@ export function createEcobasePlanningSettingsActions() {
     save: async (ctx, next) => {
       const values = getValues(ctx.action.params);
       try {
-        ctx.body = {
-          data: await new EcobasePlanningSettingsService(ctx.db).saveSettings({
-            ...values,
-            updatedBy: getActorId(ctx),
-          }),
-        };
+        const data = await new EcobasePlanningSettingsService(ctx.db).saveSettings({
+          ...values,
+          updatedBy: getActorId(ctx),
+        });
+        await new EcobaseInventoryPlanningService(ctx.db).refreshReadModel();
+        ctx.body = { data };
       } catch (error) {
         ctx.throw(400, error instanceof Error ? error.message : 'EcoBase planning settings could not be saved.');
       }
       await next();
     },
     reset: async (ctx, next) => {
-      ctx.body = { data: await new EcobasePlanningSettingsService(ctx.db).resetSettings() };
+      const data = await new EcobasePlanningSettingsService(ctx.db).resetSettings();
+      await new EcobaseInventoryPlanningService(ctx.db).refreshReadModel();
+      ctx.body = { data };
       await next();
     },
   };
@@ -1562,20 +1610,20 @@ export function createEcobaseSupplierOrderActions() {
 
       const service = new EcobaseSupplierOrderService(ctx.db);
       try {
-        ctx.body = {
-          data: await service.createPlannedOrder({
-            company,
-            planningProductId,
-            supplierId: getOptionalString(values, 'supplierId'),
-            orderedQty,
-            unitCost: getOptionalNumber(values, 'unitCost'),
-            expectedDeliveryDate: getOptionalString(values, 'expectedDeliveryDate'),
-            expectedSellableDate: getOptionalString(values, 'expectedSellableDate'),
-            externalOrderRef: getOptionalString(values, 'externalOrderRef'),
-            notes: getOptionalString(values, 'notes'),
-            actor: getActorId(ctx),
-          }),
-        };
+        const data = await service.createPlannedOrder({
+          company,
+          planningProductId,
+          supplierId: getOptionalString(values, 'supplierId'),
+          orderedQty,
+          unitCost: getOptionalNumber(values, 'unitCost'),
+          expectedDeliveryDate: getOptionalString(values, 'expectedDeliveryDate'),
+          expectedSellableDate: getOptionalString(values, 'expectedSellableDate'),
+          externalOrderRef: getOptionalString(values, 'externalOrderRef'),
+          notes: getOptionalString(values, 'notes'),
+          actor: getActorId(ctx),
+        });
+        await new EcobaseInventoryPlanningService(ctx.db).refreshReadModel({ company });
+        ctx.body = { data };
       } catch (error) {
         ctx.throw(400, error instanceof Error ? error.message : 'Ecobase planned order create failed.');
         return;
@@ -1597,18 +1645,19 @@ export function createEcobaseSupplierOrderActions() {
 
       const service = new EcobaseSupplierOrderService(ctx.db);
       try {
-        ctx.body = {
-          data: await service.createOrderLine({
-            supplierOrderId,
-            planningProductId,
-            orderedQty,
-            unitCost: getOptionalNumber(values, 'unitCost'),
-            expectedDeliveryDate: getOptionalString(values, 'expectedDeliveryDate'),
-            expectedSellableDate: getOptionalString(values, 'expectedSellableDate'),
-            notes: getOptionalString(values, 'notes'),
-            actor: getActorId(ctx),
-          }),
-        };
+        const data = await service.createOrderLine({
+          supplierOrderId,
+          planningProductId,
+          orderedQty,
+          unitCost: getOptionalNumber(values, 'unitCost'),
+          expectedDeliveryDate: getOptionalString(values, 'expectedDeliveryDate'),
+          expectedSellableDate: getOptionalString(values, 'expectedSellableDate'),
+          notes: getOptionalString(values, 'notes'),
+          actor: getActorId(ctx),
+        });
+        const company = getOptionalString(values, 'company');
+        if (company) await new EcobaseInventoryPlanningService(ctx.db).refreshReadModel({ company });
+        ctx.body = { data };
       } catch (error) {
         ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier-order line create failed.');
         return;
@@ -1793,23 +1842,23 @@ export function createEcobaseSupplierOrderActions() {
 
       const service = new EcobaseSupplierOrderService(ctx.db);
       try {
-        ctx.body = {
-          data: await service.updateOrderOperatorFields({
-            supplierOrderId,
-            company,
-            supplierId: getOptionalString(values, 'supplierId'),
-            externalOrderRef: getOptionalString(values, 'externalOrderRef'),
-            orderDate: getOptionalString(values, 'orderDate'),
-            status: getOptionalString(values, 'status'),
-            expectedDeliveryDate: getOptionalString(values, 'expectedDeliveryDate'),
-            approvalStatus: getOptionalString(values, 'approvalStatus'),
-            paymentStatus: getOptionalString(values, 'paymentStatus'),
-            shippingCarrier: getOptionalString(values, 'shippingCarrier'),
-            trackingId: getOptionalString(values, 'trackingId'),
-            blockedReason: getOptionalString(values, 'blockedReason'),
-            actor: getActorId(ctx),
-          }),
-        };
+        const data = await service.updateOrderOperatorFields({
+          supplierOrderId,
+          company,
+          supplierId: getOptionalString(values, 'supplierId'),
+          externalOrderRef: getOptionalString(values, 'externalOrderRef'),
+          orderDate: getOptionalString(values, 'orderDate'),
+          status: getOptionalString(values, 'status'),
+          expectedDeliveryDate: getOptionalString(values, 'expectedDeliveryDate'),
+          approvalStatus: getOptionalString(values, 'approvalStatus'),
+          paymentStatus: getOptionalString(values, 'paymentStatus'),
+          shippingCarrier: getOptionalString(values, 'shippingCarrier'),
+          trackingId: getOptionalString(values, 'trackingId'),
+          blockedReason: getOptionalString(values, 'blockedReason'),
+          actor: getActorId(ctx),
+        });
+        await new EcobaseInventoryPlanningService(ctx.db).refreshReadModel({ company });
+        ctx.body = { data };
       } catch (error) {
         ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier-order update failed.');
         return;
@@ -1828,19 +1877,19 @@ export function createEcobaseSupplierOrderActions() {
 
       const service = new EcobaseSupplierOrderService(ctx.db);
       try {
-        ctx.body = {
-          data: await service.updateSupplierLeadTime({
-            company,
-            supplierId,
-            leadTimeDays,
-            planningProductId: getOptionalString(values, 'planningProductId'),
-            asin: getOptionalString(values, 'asin'),
-            sku: getOptionalString(values, 'sku'),
-            confirmedAt: getOptionalString(values, 'confirmedAt'),
-            notes: getOptionalString(values, 'notes'),
-            actor: getActorId(ctx),
-          }),
-        };
+        const data = await service.updateSupplierLeadTime({
+          company,
+          supplierId,
+          leadTimeDays,
+          planningProductId: getOptionalString(values, 'planningProductId'),
+          asin: getOptionalString(values, 'asin'),
+          sku: getOptionalString(values, 'sku'),
+          confirmedAt: getOptionalString(values, 'confirmedAt'),
+          notes: getOptionalString(values, 'notes'),
+          actor: getActorId(ctx),
+        });
+        await new EcobaseInventoryPlanningService(ctx.db).refreshReadModel({ company });
+        ctx.body = { data };
       } catch (error) {
         ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier lead-time update failed.');
         return;
@@ -1858,21 +1907,21 @@ export function createEcobaseSupplierOrderActions() {
 
       const service = new EcobaseSupplierOrderService(ctx.db);
       try {
-        ctx.body = {
-          data: await service.updateLineOperatorFields({
-            supplierOrderLineId,
-            company,
-            planningProductId: getOptionalString(values, 'planningProductId'),
-            externalOrderRef: getOptionalString(values, 'externalOrderRef'),
-            orderedQty: getOptionalNumber(values, 'orderedQty'),
-            receivedQty: getOptionalNumber(values, 'receivedQty'),
-            unitCost: getOptionalNumber(values, 'unitCost'),
-            expectedDeliveryDate: getOptionalString(values, 'expectedDeliveryDate'),
-            expectedSellableDate: getOptionalString(values, 'expectedSellableDate'),
-            notes: getOptionalString(values, 'notes'),
-            actor: getActorId(ctx),
-          }),
-        };
+        const data = await service.updateLineOperatorFields({
+          supplierOrderLineId,
+          company,
+          planningProductId: getOptionalString(values, 'planningProductId'),
+          externalOrderRef: getOptionalString(values, 'externalOrderRef'),
+          orderedQty: getOptionalNumber(values, 'orderedQty'),
+          receivedQty: getOptionalNumber(values, 'receivedQty'),
+          unitCost: getOptionalNumber(values, 'unitCost'),
+          expectedDeliveryDate: getOptionalString(values, 'expectedDeliveryDate'),
+          expectedSellableDate: getOptionalString(values, 'expectedSellableDate'),
+          notes: getOptionalString(values, 'notes'),
+          actor: getActorId(ctx),
+        });
+        await new EcobaseInventoryPlanningService(ctx.db).refreshReadModel({ company });
+        ctx.body = { data };
       } catch (error) {
         ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier-order line update failed.');
         return;
@@ -1890,9 +1939,9 @@ export function createEcobaseSupplierOrderActions() {
 
       const service = new EcobaseSupplierOrderService(ctx.db);
       try {
-        ctx.body = {
-          data: await service.deleteLineOperatorFields({ supplierOrderLineId, company }),
-        };
+        const data = await service.deleteLineOperatorFields({ supplierOrderLineId, company });
+        await new EcobaseInventoryPlanningService(ctx.db).refreshReadModel({ company });
+        ctx.body = { data };
       } catch (error) {
         ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier-order line delete failed.');
         return;

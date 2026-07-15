@@ -85,6 +85,15 @@ export interface InventoryBudgetOptimizationQuery extends InventoryPlanningQuery
   horizonDays?: number;
 }
 
+export interface UpdateProductPlanningFieldsParams {
+  companyProductId: string;
+  planningExcluded?: boolean;
+  reorderCycleDays?: number;
+  targetCoverDays?: number;
+  reason?: string;
+  actorUserId?: string;
+}
+
 export type InventoryCommandCenterPane =
   | 'supplyAction'
   | 'missingSupplier'
@@ -93,6 +102,7 @@ export type InventoryCommandCenterPane =
   | 'healthyInventory'
   | 'stuckInventory'
   | 'dataReadiness'
+  | 'excludedProducts'
   | 'duplicateProducts';
 
 export interface InventoryPlanningCommandCenterQuery extends InventoryPlanningQuery {
@@ -119,6 +129,7 @@ const COMMAND_CENTER_PANES: InventoryCommandCenterPane[] = [
   'healthyInventory',
   'stuckInventory',
   'dataReadiness',
+  'excludedProducts',
   'duplicateProducts',
 ];
 
@@ -512,21 +523,48 @@ export function expectedArrivalEvidence(
   line: PlainRecord,
   order: PlainRecord,
   calculationDate: string | undefined,
-  receivingBufferDays: number,
+  fbaReceivingBufferDays: number,
 ) {
+  const operatorOverrideAt = asString(line.expectedDateOverrideAt);
+  const operatorDateOverride = Boolean(
+    operatorOverrideAt || asString(line.prepInstruction)?.startsWith('manual_expected_date:'),
+  );
+  const operatorSellableDate = operatorDateOverride ? validExpectedDate(line.expectedSellableDate) : undefined;
+  const operatorDeliveryDate = operatorDateOverride ? validExpectedDate(line.expectedDeliveryDate) : undefined;
+  const operatorDate =
+    operatorSellableDate ?? (operatorDeliveryDate ? addDays(operatorDeliveryDate, fbaReceivingBufferDays) : undefined);
+  if (operatorDate) {
+    return {
+      expectedArrivalDate: operatorDate,
+      expectedArrivalStatus: 'operator',
+      expectedArrivalSource: operatorSellableDate
+        ? 'operator.expected_sellable_date'
+        : 'operator.expected_delivery_date+planning_settings.fba_receiving_buffer',
+      expectedArrivalAsOf: validExpectedDate(operatorOverrideAt?.slice(0, 10)) ?? calculationDate,
+      expectedArrivalConfidence: 'authoritative',
+      expectedArrivalFreshness:
+        calculationDate && operatorDate < calculationDate ? 'stale' : calculationDate ? 'fresh' : 'unknown',
+    };
+  }
   const imported = [
-    { date: line.expectedArrivalDate, source: line.expectedArrivalSource },
-    { date: line.expectedSellableDate, source: 'silver_order_line.expectedSellableDate' },
-    { date: line.expectedDeliveryDate, source: 'silver_order_line.expectedDeliveryDate' },
-    { date: order.expectedArrivalDate, source: order.expectedArrivalSource },
-    { date: order.expectedDeliveryDate, source: 'silver_order.expectedDeliveryDate' },
+    { date: line.expectedSellableDate, source: 'silver_order_line.expectedSellableDate', addReceivingBuffer: false },
+    { date: line.expectedArrivalDate, source: line.expectedArrivalSource, addReceivingBuffer: false },
+    { date: order.expectedArrivalDate, source: order.expectedArrivalSource, addReceivingBuffer: false },
+    { date: line.expectedDeliveryDate, source: 'silver_order_line.expectedDeliveryDate', addReceivingBuffer: true },
+    { date: order.expectedDeliveryDate, source: 'silver_order.expectedDeliveryDate', addReceivingBuffer: true },
   ].find((candidate) => validExpectedDate(candidate.date));
-  const importedDate = validExpectedDate(imported?.date);
+  const importedRawDate = validExpectedDate(imported?.date);
+  const importedDate =
+    importedRawDate && imported?.addReceivingBuffer
+      ? addDays(importedRawDate, fbaReceivingBufferDays)
+      : importedRawDate;
   if (importedDate) {
     return {
       expectedArrivalDate: importedDate,
       expectedArrivalStatus: 'imported',
-      expectedArrivalSource: asString(imported?.source) ?? 'silver_order',
+      expectedArrivalSource: `${asString(imported?.source) ?? 'silver_order'}${
+        imported?.addReceivingBuffer ? '+planning_settings.fba_receiving_buffer' : ''
+      }`,
       expectedArrivalAsOf:
         validExpectedDate(line.expectedArrivalAsOf) ??
         validExpectedDate(order.expectedArrivalAsOf) ??
@@ -539,13 +577,13 @@ export function expectedArrivalEvidence(
   const orderDate = validExpectedDate(order.orderDate);
   const leadTimeDays = asNumber(line.leadTimeDays);
   if (orderDate && typeof leadTimeDays === 'number' && leadTimeDays >= 0) {
-    const expectedArrivalDate = addDays(orderDate, leadTimeDays + receivingBufferDays);
+    const expectedArrivalDate = addDays(orderDate, leadTimeDays + fbaReceivingBufferDays);
     return {
       expectedArrivalDate,
       expectedArrivalStatus: 'derived',
       expectedArrivalSource: `${
         asString(line.leadTimeSource) ?? 'silver_order_line.lead_time'
-      }+silver_order.order_date+planning_settings.receiving_buffer`,
+      }+silver_order.order_date+planning_settings.fba_receiving_buffer`,
       expectedArrivalAsOf: calculationDate,
       expectedArrivalConfidence: 'estimated',
       expectedArrivalFreshness:
@@ -565,7 +603,7 @@ function summarizeSupplierOrderState(
   lines: PlainRecord[],
   supplierOrderById: Map<string, PlainRecord>,
   calculationDate: string | undefined,
-  receivingBufferDays: number,
+  fbaReceivingBufferDays: number,
   rules: SupplierOrderStatusRules,
 ) {
   let purchasedOpenQty = 0;
@@ -575,7 +613,7 @@ function summarizeSupplierOrderState(
   let historySelected: { line: PlainRecord; order: PlainRecord; sortValue: string } | undefined;
   const resolvedLines = lines.map((line) => {
     const order = supplierOrderById.get(asString(line.supplierOrderId) ?? '');
-    return order ? { ...line, ...expectedArrivalEvidence(line, order, calculationDate, receivingBufferDays) } : line;
+    return order ? { ...line, ...expectedArrivalEvidence(line, order, calculationDate, fbaReceivingBufferDays) } : line;
   });
 
   for (const line of resolvedLines) {
@@ -914,6 +952,7 @@ const INVENTORY_PLANNING_ROW_FIELDS = [
   'openOrderCoverageQty',
   'trustedSupplierOrderCoverageQty',
   'supplierOrderState',
+  'supplierOrderStale',
   'supplierOrderId',
   'supplierOrderStatus',
   'supplierOrderRef',
@@ -980,6 +1019,48 @@ const INVENTORY_PLANNING_ROW_FIELDS = [
 
 export class EcobaseInventoryPlanningService {
   constructor(private db: EcobaseDatabase) {}
+
+  async updateProductPlanningFields(params: UpdateProductPlanningFieldsParams) {
+    const companyProductId = asString(params.companyProductId);
+    const reason = asString(params.reason);
+    if (!companyProductId) throw new Error('Ecobase product planning update failed: companyProductId is required.');
+    if (
+      params.planningExcluded === undefined &&
+      params.reorderCycleDays === undefined &&
+      params.targetCoverDays === undefined
+    ) {
+      throw new Error('Ecobase product planning update failed: at least one planning field is required.');
+    }
+    if (!reason) throw new Error('Ecobase product planning update failed: reason is required.');
+    for (const [name, value] of [
+      ['reorderCycleDays', params.reorderCycleDays],
+      ['targetCoverDays', params.targetCoverDays],
+    ] as const) {
+      if (value !== undefined && (!Number.isInteger(value) || value <= 0)) {
+        throw new Error(`Ecobase product planning update failed: ${name} must be a positive integer.`);
+      }
+    }
+    const repository = this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts);
+    const existing = await repository.findOne({ filterByTk: companyProductId });
+    if (!existing)
+      throw new Error(`Ecobase product planning update failed: company product "${companyProductId}" was not found.`);
+    const now = new Date().toISOString();
+    const values: PlainRecord = {
+      planningOverrideReason: reason,
+      planningOverrideAt: now,
+      planningOverrideByUserId: params.actorUserId,
+    };
+    if (params.planningExcluded !== undefined) {
+      values.planningExcluded = params.planningExcluded;
+      values.excludedReason = params.planningExcluded ? reason : null;
+      values.excludedAt = params.planningExcluded ? now : null;
+      values.excludedByUserId = params.planningExcluded ? params.actorUserId : null;
+    }
+    if (params.reorderCycleDays !== undefined) values.reorderCycleDays = params.reorderCycleDays;
+    if (params.targetCoverDays !== undefined) values.targetCoverDays = params.targetCoverDays;
+    await repository.update({ filterByTk: companyProductId, values });
+    return { ...toPlainRecord(existing), ...values };
+  }
 
   async listRows(query: InventoryPlanningQuery = {}) {
     const goldRows = await this.readGoldRows(query);
@@ -1059,6 +1140,7 @@ export class EcobaseInventoryPlanningService {
         healthyInventory: this.commandCenterPanePayload('healthyInventory', rows, query),
         stuckInventory: this.commandCenterPanePayload('stuckInventory', rows, query),
         dataReadiness: this.commandCenterPanePayload('dataReadiness', rows, query),
+        excludedProducts: this.commandCenterPanePayload('excludedProducts', rows, query),
         duplicateProducts: this.commandCenterPanePayload('duplicateProducts', rows, query),
       },
       selectedRow: selectedRow
@@ -1240,12 +1322,12 @@ export class EcobaseInventoryPlanningService {
     const calculationDate = isoDate(query.calculationDate ?? new Date());
     const settings = await new EcobasePlanningSettingsService(this.db).getResolvedSettings(query);
     const safetyBufferDays = settings.safetyBufferDays;
-    const reorderCycleDays = settings.reorderCycleDays;
+    const defaultReorderCycleDays = settings.reorderCycleDays;
     const orderSoonWindowDays = settings.orderSoonWindowDays;
-    const targetCoverDays = settings.targetCoverDays;
+    const defaultTargetCoverDays = settings.targetCoverDays;
     const leadTimeFreshnessDays = settings.leadTimeFreshnessDays;
     const purchasedPipelineGraceDays = settings.purchasedPipelineGraceDays;
-    const receivingBufferDays = settings.receivingBufferDays;
+    const fbaReceivingBufferDays = settings.fbaReceivingBufferDays;
     const profitTierThresholds: ProfitTierThresholds = settings;
     const statusRules = supplierOrderStatusRules(settings);
     const sellerboardSourceConnectionIds = await this.sellerboardSourceConnectionIds();
@@ -1349,10 +1431,7 @@ export class EcobaseInventoryPlanningService {
         const familyLeadTimeDays = asNumber(
           supplierProductsById.get(asString(family?.preferredSupplierProductId))?.leadTimeDays,
         );
-        const leadTimeDays =
-          exactLeadTimeDays ??
-          familyLeadTimeDays ??
-          (settings.allowDefaultExpectedArrival ? settings.defaultExpectedArrivalLeadTimeDays : undefined);
+        const leadTimeDays = exactLeadTimeDays ?? familyLeadTimeDays;
         return {
           ...line,
           supplierOrderId: asString(line.orderId),
@@ -1363,9 +1442,7 @@ export class EcobaseInventoryPlanningService {
               ? 'silver_order_line.supplier_product_lead_time'
               : familyLeadTimeDays !== undefined
                 ? 'silver_family.preferred_supplier_product_lead_time'
-                : leadTimeDays !== undefined
-                  ? 'planning_settings.default_expected_arrival_lead_time'
-                  : undefined,
+                : undefined,
         };
       });
     const linesByCompanyProduct = this.groupBy(normalizedOrderLines, 'companyProductId');
@@ -1381,7 +1458,7 @@ export class EcobaseInventoryPlanningService {
         : isPlacedNotPurchasedSupplierOrderStatus(status, statusRules)
           ? 'placed_not_purchased'
           : 'closed';
-      const arrival = expectedArrivalEvidence(line, order, calculationDate, receivingBufferDays);
+      const arrival = expectedArrivalEvidence(line, order, calculationDate, fbaReceivingBufferDays);
       const cycleLine = {
         lineId: asString(line.id) ?? `${orderId}:${asString(line.companyProductId) ?? ''}`,
         orderId,
@@ -1426,6 +1503,11 @@ export class EcobaseInventoryPlanningService {
       const product = productsById.get(asString(companyProduct.productId));
       const companyProductId = asString(companyProduct.id);
       if (!companyProductId || !companyName || !product) continue;
+      const reorderCycleDays = asNumber(companyProduct.reorderCycleDays) ?? defaultReorderCycleDays;
+      const targetCoverDays = asNumber(companyProduct.targetCoverDays) ?? defaultTargetCoverDays;
+      const planningExcluded =
+        asBoolean(companyProduct.planningExcluded) === true ||
+        isPlanningExcluded(asString(companyProduct.lifecycleStatus));
       const companyProductFamilyId = asString(companyProduct.companyProductFamilyId);
       const family = familiesById.get(companyProductFamilyId) ?? {};
       const requestedPreferredSupplierId = asString(family.preferredSupplierId);
@@ -1543,7 +1625,7 @@ export class EcobaseInventoryPlanningService {
           productOrderLines,
           ordersById,
           calculationDate,
-          receivingBufferDays,
+          fbaReceivingBufferDays,
           statusRules,
         ),
         supplierOrderCycleSelection: cycleSelection,
@@ -1552,12 +1634,20 @@ export class EcobaseInventoryPlanningService {
       const openOrderCoverageQty =
         (asNumber(openOrder.supplierOrderPurchasedOpenQty) ?? 0) +
         (asNumber(openOrder.supplierOrderPlacedNotPurchasedOpenQty) ?? 0);
+      const expectedArrivalDate = optionalIsoDate(asString(openOrder.expectedArrivalDate) ?? '');
+      const supplierOrderStale = Boolean(
+        openOrder.supplierOrderState === 'purchased_pipeline' &&
+          expectedArrivalDate &&
+          diffDays(calculationDate, expectedArrivalDate) > purchasedPipelineGraceDays,
+      );
       const latestActivity = latestActivityByOrderId.get(asString(openOrder.supplierOrderId) ?? '');
       const latestActivityContext = toPlainRecord(latestActivity?.contextSnapshotJson);
       const onHandStock = stockBuckets.sellableStock;
       const trustedSupplierOrderCoverageQty =
         typeof stockBuckets.pipelineStock === 'number'
-          ? Math.max((asNumber(openOrder.supplierOrderPurchasedOpenQty) ?? 0) - stockBuckets.pipelineStock, 0)
+          ? supplierOrderStale
+            ? 0
+            : Math.max((asNumber(openOrder.supplierOrderPurchasedOpenQty) ?? 0) - stockBuckets.pipelineStock, 0)
           : undefined;
       const futurePositionStock =
         typeof onHandStock === 'number' && typeof stockBuckets.pipelineStock === 'number'
@@ -1610,10 +1700,11 @@ export class EcobaseInventoryPlanningService {
       const productStatus = derivedProductStatus(asString(companyProduct.lifecycleStatus), stockBuckets);
       const daysOfCover =
         salesVelocity > 0 && typeof onHandStock === 'number' ? onHandStock / salesVelocity : undefined;
-      const actionStatus =
-        typeof stockBuckets.currentPlanningStock === 'number'
+      const actionStatus = planningExcluded
+        ? 'excluded'
+        : typeof stockBuckets.currentPlanningStock === 'number'
           ? this.actionStatus({
-              excluded: isPlanningExcluded(asString(companyProduct.lifecycleStatus)),
+              excluded: planningExcluded,
               salesVelocity,
               salesVelocityStatus,
               leadTimeFreshness,
@@ -1687,6 +1778,7 @@ export class EcobaseInventoryPlanningService {
         sku,
         title: asString(product.title),
         productStatus,
+        planningExcluded,
         actionStatus,
         tier,
         tierScore,
@@ -1742,6 +1834,7 @@ export class EcobaseInventoryPlanningService {
             : undefined,
         openOrderCoverageQty,
         ...openOrder,
+        supplierOrderStale,
         latestSupplierOrderActivityType: asString(latestActivity?.commentType),
         latestSupplierOrderActivityAt:
           asString(latestActivity?.occurredAt) ??
@@ -1855,19 +1948,21 @@ export class EcobaseInventoryPlanningService {
     const currentStuckInventory = stuckInventory && (!fullyObserved || newerIndependentCondition);
     const currentSupplyAction = supplyAction;
     const dataReadiness = planningTarget && live && !excluded;
-    const commandCenterPane = inboundMonitoring
-      ? 'inboundMonitoring'
-      : activeOrder
-        ? 'activeOrders'
-        : currentStuckInventory
-          ? 'stuckInventory'
-          : currentSupplyAction
-            ? 'supplyAction'
-            : healthyInventory
-              ? 'healthyInventory'
-              : dataReadiness
-                ? 'dataReadiness'
-                : 'watch';
+    const commandCenterPane = excluded
+      ? 'excludedProducts'
+      : inboundMonitoring
+        ? 'inboundMonitoring'
+        : activeOrder
+          ? 'activeOrders'
+          : currentStuckInventory
+            ? 'stuckInventory'
+            : currentSupplyAction
+              ? 'supplyAction'
+              : healthyInventory
+                ? 'healthyInventory'
+                : dataReadiness
+                  ? 'dataReadiness'
+                  : 'watch';
     const planningEligibilityStatus = excluded
       ? 'ineligible_excluded'
       : commandCenterPane === 'dataReadiness'
@@ -1955,6 +2050,7 @@ export class EcobaseInventoryPlanningService {
     ]);
     const supplierOrderFields = [
       'supplierOrderState',
+      'supplierOrderStale',
       'supplierOrderId',
       'supplierOrderStatus',
       'supplierOrderRef',
@@ -2017,7 +2113,11 @@ export class EcobaseInventoryPlanningService {
         ? velocityValues.reduce((total, value) => total + value, 0)
         : undefined;
       const grossOpenOrderCoverageQty = sum(members, 'openOrderCoverageQty');
-      const grossTrustedSupplierOrderCoverageQty = sum(members, 'supplierOrderPurchasedOpenQty');
+      const grossTrustedSupplierOrderCoverageQty = members.reduce(
+        (total, row) =>
+          total + (asBoolean(row.supplierOrderStale) ? 0 : asNumber(row.supplierOrderPurchasedOpenQty) ?? 0),
+        0,
+      );
       const familyOpenOrderCoverageQty = Math.max(0, grossOpenOrderCoverageQty - stock.familyPipelineStock);
       const familyTrustedSupplierOrderCoverageQty = Math.max(
         0,
@@ -2432,7 +2532,7 @@ export class EcobaseInventoryPlanningService {
     query: InventoryPlanningCommandCenterQuery,
   ) {
     const page = asPositiveInteger(query.pane === pane ? query.page : undefined, 1, 10000);
-    const pageSize = asPositiveInteger(query.pane === pane ? query.pageSize : undefined, 25, 100);
+    const pageSize = asPositiveInteger(query.pane === pane ? query.pageSize : undefined, 50, 100);
     const sortBy = query.pane === pane ? query.sortBy : undefined;
     const sortDirection = query.pane === pane ? query.sortDirection ?? 'desc' : 'desc';
     const filteredRows = this.sortCommandCenterRows(
@@ -3084,13 +3184,27 @@ export class EcobaseInventoryPlanningService {
     const refreshedAt = new Date().toISOString();
     let created = 0;
     let updated = 0;
+    const naturalKeys = new Set<string>();
 
     for (const row of rows) {
-      const planningProductId = asString(row.planningProductId) ?? asString(row.asin) ?? asString(row.sku);
-      if (!planningProductId) continue;
-      const naturalKey = `${calculationDate}:${asString(row.company) ?? 'all'}:${planningProductId}`;
+      const planningProductId = asString(row.planningProductId);
+      const company = asString(row.company);
+      if (!planningProductId || !company || (!asString(row.asin) && !asString(row.sku))) {
+        throw new Error(
+          'Ecobase inventory-planning refresh failed: planningProductId, company, and ASIN or SKU are required.',
+        );
+      }
+      const naturalKey = `${calculationDate}:${company}:${planningProductId}`;
+      if (naturalKeys.has(naturalKey)) {
+        throw new Error(`Ecobase inventory-planning refresh failed: duplicate natural key "${naturalKey}".`);
+      }
+      naturalKeys.add(naturalKey);
+      const id = stableUuid(naturalKey);
+      if (!isUuidValue(id)) {
+        throw new Error(`Ecobase inventory-planning refresh failed: "${naturalKey}" did not produce a stable UUID.`);
+      }
       const values: PlainRecord = {
-        id: stableUuid(naturalKey),
+        id,
         naturalKey,
         lastRefreshedAt: refreshedAt,
       };
@@ -3101,20 +3215,24 @@ export class EcobaseInventoryPlanningService {
         }
         values[field] = value;
       }
+      values.supplierName = asString(row.supplierName) ?? 'Unknown supplier';
       const previousSnapshot = this.previousTierSnapshotForRow(row, previousRows, calculationDate);
       const sameTierRule =
         Boolean(previousSnapshot) && asString(previousSnapshot?.tierRuleVersion) === asString(row.tierRuleVersion);
       const previousTier = sameTierRule && isProfitTier(previousSnapshot?.tier) ? previousSnapshot.tier : undefined;
       values.previousTier = previousTier ?? null;
       values.tierMovement = sameTierRule ? profitTierMovement(row.tier, previousSnapshot?.tier) ?? null : null;
-      const existing = await repository.findOne({ filter: { naturalKey } });
+      const existing =
+        (await repository.findOne({ filter: { naturalKey } })) ??
+        (await repository.findOne({ filter: { calculationDate, company, planningProductId } })) ??
+        (await repository.findOne({ filter: { calculationDate, company, companyProductId: planningProductId } }));
       if (existing) {
         const existingId = toPlainRecord(existing).id;
         if (typeof existingId !== 'string' && typeof existingId !== 'number') {
           throw new Error(`Ecobase inventory-planning refresh failed: row ${naturalKey} is missing id.`);
         }
         await repository.update({ filterByTk: existingId, values });
-        await this.clearMissingGoldSupplierReferences(existingId, row);
+        await this.clearMissingGoldSupplierReferences(id, row);
         updated += 1;
       } else {
         const createdRow = toPlainRecord(await repository.create({ values }));

@@ -16,14 +16,14 @@ type PlainRecord = Record<string, any>;
 
 type PlanningSettingKey =
   | 'safetyBufferDays'
+  | 'reorderCycleDays'
   | 'targetCoverDays'
   | 'orderSoonWindowDays'
   | 'leadTimeFreshnessDays'
   | 'purchasedPipelineGraceDays'
-  | 'receivingBufferDays'
-  | 'defaultExpectedArrivalLeadTimeDays';
+  | 'fbaReceivingBufferDays';
 
-type PlanningFeatureFlagKey = 'enableCurrentOrderCycleSelection' | 'allowDefaultExpectedArrival';
+type PlanningFeatureFlagKey = 'enableCurrentOrderCycleSelection';
 type ProfitTierSettingKey = 'profitTierAThreshold' | 'profitTierBThreshold' | 'profitTierCThreshold';
 type NumberSettingKey = PlanningSettingKey | ProfitTierSettingKey;
 
@@ -34,15 +34,15 @@ type StatusBucketKey =
 
 const SETTING_KEYS: PlanningSettingKey[] = [
   'safetyBufferDays',
+  'reorderCycleDays',
   'targetCoverDays',
   'orderSoonWindowDays',
   'leadTimeFreshnessDays',
   'purchasedPipelineGraceDays',
-  'receivingBufferDays',
-  'defaultExpectedArrivalLeadTimeDays',
+  'fbaReceivingBufferDays',
 ];
 
-const FEATURE_FLAG_KEYS: PlanningFeatureFlagKey[] = ['enableCurrentOrderCycleSelection', 'allowDefaultExpectedArrival'];
+const FEATURE_FLAG_KEYS: PlanningFeatureFlagKey[] = ['enableCurrentOrderCycleSelection'];
 
 const PROFIT_TIER_KEYS: ProfitTierSettingKey[] = [
   'profitTierAThreshold',
@@ -65,6 +65,12 @@ const SETTING_HELP: Record<NumberSettingKey, { label: string; meaning: string; e
     example:
       'If supplier lead time is 10 days, increasing this from 7 to 10 moves the safe reorder date 3 days earlier.',
     usedBy: 'Latest safe reorder date, money at risk, Inventory Planning action status.',
+  },
+  reorderCycleDays: {
+    label: 'Reorder cycle days',
+    meaning: 'Default number of selling days between planned supplier orders when a product has no override.',
+    example: 'With 30 days, suggested quantity includes one 30-day reorder cycle plus target cover and buffers.',
+    usedBy: 'Suggested quantity and product-level planning defaults.',
   },
   targetCoverDays: {
     label: 'Target cover days',
@@ -93,18 +99,11 @@ const SETTING_HELP: Record<NumberSettingKey, { label: string; meaning: string; e
       'If this is 3, an order expected 2 days ago still reduces suggested quantity; one expected 5 days ago does not.',
     usedBy: 'Reliable open-order coverage and suggested quantity.',
   },
-  receivingBufferDays: {
+  fbaReceivingBufferDays: {
     label: 'FBA receiving buffer days',
     meaning: 'Expected Amazon receiving time added after supplier lead time; it never closes an order.',
-    example: 'Order date + 30-day lead time + 3-day receiving buffer produces the expected arrival date.',
+    example: 'Order date + 30-day lead time + 7-day receiving buffer produces the expected arrival date.',
     usedBy: 'Expected-arrival projection and pipeline timing.',
-  },
-  defaultExpectedArrivalLeadTimeDays: {
-    label: 'Default expected-arrival lead time days',
-    meaning:
-      'Lead time used only when no order-line or family supplier lead-time evidence exists and the flag is enabled.',
-    example: 'With 30 days and a 3-day receiving buffer, an order dated July 1 projects August 3.',
-    usedBy: 'Flagged default expected-arrival projection.',
   },
   profitTierAThreshold: {
     label: 'Profit tier A threshold',
@@ -130,10 +129,6 @@ const FEATURE_FLAG_HELP: Record<PlanningFeatureFlagKey, { label: string; meaning
   enableCurrentOrderCycleSelection: {
     label: 'Enable current family order-cycle selection',
     meaning: 'Count only the selected current open order cycle per family; older open cycles stay visible for review.',
-  },
-  allowDefaultExpectedArrival: {
-    label: 'Allow default expected-arrival lead time',
-    meaning: 'Use the configured default lead time only when explicit supplier lead-time evidence is absent.',
   },
 };
 

@@ -320,6 +320,27 @@ describe('Ecobase inventory-planning public API seam', () => {
     ).rejects.toThrow('Ecobase family overrides require an operator or administrator role.');
   });
 
+  it('restricts product planning overrides to authenticated operator/admin roles', async () => {
+    const actions = createEcobaseInventoryPlanningActions();
+    const values = {
+      companyProductId: 'company-product-1',
+      planningExcluded: true,
+      reason: 'Operator approved exclusion.',
+    };
+    await expect(
+      actions.updateProductPlanningFields(
+        createActionContext(new MemoryDatabase(), values, { id: 1 }, ['viewer']),
+        vi.fn(),
+      ),
+    ).rejects.toThrow('Ecobase product planning overrides require an operator or administrator role.');
+    await expect(
+      actions.updateProductPlanningFields(
+        createActionContext(new MemoryDatabase(), values, { id: 1 }, ['operator']),
+        vi.fn(),
+      ),
+    ).rejects.toThrow('Ecobase product planning update failed: company product "company-product-1" was not found.');
+  });
+
   it('restricts receipt overrides to authenticated operator/admin roles', async () => {
     const actions = createEcobaseInventoryPlanningActions();
     const values = { lineId: 'line-1', status: 'review_required', reason: 'Manual evidence review.' };
@@ -846,18 +867,26 @@ describe('Ecobase supplier-order public API seam', () => {
       }),
     });
 
-    const updateLineContext = createActionContext(db, {
-      supplierOrderLineId: 'supplier-order-line-1',
-      company: 'Ecofission LLC',
-      receivedQty: 5,
-      expectedSellableDate: '2025-07-25',
-    });
+    const updateLineContext = createActionContext(
+      db,
+      {
+        supplierOrderLineId: 'supplier-order-line-1',
+        company: 'Ecofission LLC',
+        receivedQty: 5,
+        expectedSellableDate: '2025-07-25',
+        notes: 'Supplier confirmed the sellable date.',
+      },
+      { id: 201 },
+    );
     await actions.updateLineOperatorFields(updateLineContext, vi.fn());
     expect(updateLineContext.body).toMatchObject({
       data: expect.objectContaining({
         confirmedQty: 5,
         receivedQty: 0,
         expectedSellableDate: '2025-07-25',
+        expectedDateOverrideReason: 'Supplier confirmed the sellable date.',
+        expectedDateOverrideByUserId: '201',
+        expectedDateOverrideAt: expect.any(String),
       }),
     });
 
@@ -890,7 +919,18 @@ describe('Ecobase supplier-order public API seam', () => {
         createActionContext(db, {
           supplierOrderLineId: 'supplier-order-line-1',
           company: 'Ecofission LLC',
+          expectedSellableDate: '2025-07-26',
+        }),
+        vi.fn(),
+      ),
+    ).rejects.toThrow('Ecobase supplier-order line update failed: notes are required for expected-date overrides.');
+    await expect(
+      actions.updateLineOperatorFields(
+        createActionContext(db, {
+          supplierOrderLineId: 'supplier-order-line-1',
+          company: 'Ecofission LLC',
           expectedSellableDate: '25/07/2025',
+          notes: 'Supplier confirmation.',
         }),
         vi.fn(),
       ),
@@ -911,6 +951,7 @@ describe('Ecobase supplier-order public API seam', () => {
           supplierOrderLineId: 'supplier-order-line-1',
           company: 'Ecofission LLC',
           expectedSellableDate: '2025-99-99',
+          notes: 'Supplier confirmation.',
         }),
         vi.fn(),
       ),
@@ -932,6 +973,7 @@ describe('Ecobase supplier-order public API seam', () => {
       supplierOrderLineId: 'supplier-order-line-1',
       company: 'Ecofission LLC',
       expectedSellableDate: '2024-02-29',
+      notes: 'Supplier confirmed the leap-day date.',
     });
     await actions.updateLineOperatorFields(leapDateContext, vi.fn());
     expect(leapDateContext.body).toMatchObject({

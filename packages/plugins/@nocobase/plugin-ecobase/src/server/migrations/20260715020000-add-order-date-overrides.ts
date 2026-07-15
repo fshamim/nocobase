@@ -11,22 +11,9 @@ import { Migration } from '@nocobase/server';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 
 const FIELDS = [
-  {
-    name: 'fbaReceivingBufferDays',
-    type: 'integer',
-    interface: 'integer',
-    allowNull: false,
-    defaultValue: 7,
-    uiSchema: { title: 'FBA receiving buffer days' },
-  },
-  {
-    name: 'enableCurrentOrderCycleSelection',
-    type: 'boolean',
-    interface: 'checkbox',
-    allowNull: false,
-    defaultValue: false,
-    uiSchema: { title: 'Enable current order-cycle selection' },
-  },
+  { name: 'expectedDateOverrideReason', type: 'text', interface: 'textarea' },
+  { name: 'expectedDateOverrideAt', type: 'datetimeTz', interface: 'datetime' },
+  { name: 'expectedDateOverrideByUserId', type: 'bigInt', interface: 'integer', autoFill: false },
 ] as const;
 
 export default class extends Migration {
@@ -36,13 +23,13 @@ export default class extends Migration {
 
   async up() {
     const fields = this.db.getRepository('fields');
-    if (!fields) throw new Error('Ecobase inventory stabilization migration failed: fields repository is unavailable.');
+    if (!fields) throw new Error('Ecobase order-date override migration failed: fields repository is unavailable.');
     for (const field of FIELDS) {
       const existing = await fields.findOne({
-        filter: { collectionName: ECOBASE_COLLECTIONS.planningSettings, name: field.name },
+        filter: { collectionName: ECOBASE_COLLECTIONS.silverOrderLines, name: field.name },
       });
       if (!existing) {
-        await fields.create({ values: { collectionName: ECOBASE_COLLECTIONS.planningSettings, ...field } });
+        await fields.create({ values: { collectionName: ECOBASE_COLLECTIONS.silverOrderLines, ...field } });
       }
     }
   }

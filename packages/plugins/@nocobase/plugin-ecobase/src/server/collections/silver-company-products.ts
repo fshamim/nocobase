@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { defineCollection } from '@nocobase/database';
 import { ECOBASE_COLLECTIONS } from './names';
 
@@ -42,6 +51,15 @@ export default defineCollection({
     },
     { name: 'lifecycleStatus', type: 'string', allowNull: false, defaultValue: 'candidate_new_product' },
     { name: 'listingStatus', type: 'string', allowNull: false, defaultValue: 'not_listed' },
+    { name: 'planningExcluded', type: 'boolean', allowNull: false, defaultValue: false },
+    { name: 'reorderCycleDays', type: 'integer' },
+    { name: 'targetCoverDays', type: 'integer' },
+    { name: 'excludedReason', type: 'text' },
+    { name: 'excludedAt', type: 'datetimeTz' },
+    { name: 'excludedByUserId', type: 'bigInt' },
+    { name: 'planningOverrideReason', type: 'text' },
+    { name: 'planningOverrideAt', type: 'datetimeTz' },
+    { name: 'planningOverrideByUserId', type: 'bigInt' },
   ],
   indexes: [
     {

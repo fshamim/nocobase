@@ -65,6 +65,7 @@ export interface OrderPlanningRow {
   nextActionDueAt?: string;
   expectedDeliveryDate?: string;
   trackingId?: string;
+  attachmentReference?: string;
   asinCount: number;
   lineCount: number;
   unresolvedLineCount: number;
@@ -193,6 +194,7 @@ const ORDER_EDITABLE_FIELDS = new Set([
   'nextActionDueAt',
   'expectedDeliveryDate',
   'trackingId',
+  'attachmentReference',
   'remarks',
 ]);
 const LINE_EDITABLE_FIELDS = new Set([
@@ -441,6 +443,7 @@ function goldOrderPlanningRowFromRecord(record: PlainRecord): OrderPlanningRow {
     nextActionDueAt: text(record.nextActionDueAt),
     expectedDeliveryDate: dateOnly(record.expectedDeliveryDate),
     trackingId: text(record.trackingId),
+    attachmentReference: text(record.attachmentReference),
     asinCount: positiveNumber(record.asinCount),
     lineCount: positiveNumber(record.lineCount),
     unresolvedLineCount: positiveNumber(unresolvedMapping.lineCount),
@@ -937,6 +940,21 @@ export class EcobaseOrderPlanningService {
     const orderId = text(line.orderId);
     if (!orderId) throw new Error('Ecobase Order Planning line update failed: orderId is missing on the line.');
     const values = cleanEditableValues(params.values ?? {}, LINE_EDITABLE_FIELDS);
+    const expectedDateChanged = ['expectedDeliveryDate', 'expectedSellableDate'].some(
+      (key) => key in values && text(values[key]) !== text(line[key]),
+    );
+    if (expectedDateChanged) {
+      const reason = text(params.commentBody);
+      if (!reason) {
+        throw new Error(
+          'Ecobase Order Planning line update failed: a comment is required for expected-date overrides.',
+        );
+      }
+      values.expectedDateOverrideReason = reason;
+      values.expectedDateOverrideAt = new Date().toISOString();
+      values.expectedDateOverrideByUserId = params.actorUserId;
+      values.prepInstruction = `manual_expected_date:${params.actorUserId ?? 'operator'}`;
+    }
     if (Object.keys(values).length) {
       await this.repo(ECOBASE_COLLECTIONS.silverOrderLines).update({ filterByTk: params.orderLineId, values });
     }

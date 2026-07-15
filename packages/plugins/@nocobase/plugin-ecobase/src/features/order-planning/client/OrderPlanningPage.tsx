@@ -339,6 +339,7 @@ export default function OrderPlanningPage() {
       nextActionDueAt: detail.order.nextActionDueAt,
       expectedDeliveryDate: detail.order.expectedDeliveryDate,
       trackingId: detail.order.trackingId,
+      attachmentReference: detail.order.attachmentReference,
       remarks: detail.order.remarks,
       commentBody: undefined,
     });
@@ -407,6 +408,13 @@ export default function OrderPlanningPage() {
     if (!selectedLine || !selectedOrderId) return;
     const values = await lineForm.validateFields();
     const { commentBody, ...fields } = values;
+    const expectedDateChanged =
+      fields.expectedDeliveryDate !== selectedLine.expectedDeliveryDate ||
+      fields.expectedSellableDate !== selectedLine.expectedSellableDate;
+    if (expectedDateChanged && !String(commentBody ?? '').trim()) {
+      message.error(t('Explain the expected-date override before saving.'));
+      return;
+    }
     await api.request({
       url: 'ecobaseOrderPlanning:updateLine',
       method: 'post',
@@ -790,6 +798,7 @@ export default function OrderPlanningPage() {
                 )}
               </Descriptions.Item>
               <Descriptions.Item label={t('EcoBase status')}>{selectedOrder.currentStatus || '—'}</Descriptions.Item>
+              <Descriptions.Item label={t('ClickUp status')}>{selectedOrder.clickupStatus || '—'}</Descriptions.Item>
               <Descriptions.Item label={t('Status source')}>{selectedOrder.statusSource || '—'}</Descriptions.Item>
               <Descriptions.Item label={t('Tier')}>{selectedOrder.tier || '—'}</Descriptions.Item>
               <Descriptions.Item label={t('Money at risk')}>{formatMoney(selectedOrder.moneyAtRisk)}</Descriptions.Item>
@@ -865,7 +874,7 @@ export default function OrderPlanningPage() {
                           </Form.Item>
                         </Col>
                         <Col xs={24}>
-                          <Form.Item name="commentBody" label={t('Edit comment')}>
+                          <Form.Item name="commentBody" label={t('Reason / edit comment')}>
                             <Input.TextArea rows={2} />
                           </Form.Item>
                         </Col>
@@ -922,6 +931,11 @@ export default function OrderPlanningPage() {
                     <Col xs={24} md={8}>
                       <Form.Item name="trackingId" label={t('Tracking ID')}>
                         <Input />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={8}>
+                      <Form.Item name="attachmentReference" label={t('Attachment reference')}>
+                        <Input placeholder={t('URL or storage reference')} />
                       </Form.Item>
                     </Col>
                     <Col xs={24}>

@@ -79,6 +79,7 @@ export default defineCollection({
     { name: 'costDifferenceNote', type: 'text' },
     { name: 'shippingCarrier', type: 'string' },
     { name: 'trackingId', type: 'text' },
+    { name: 'attachmentReference', type: 'text' },
     { name: 'remarks', type: 'text' },
   ],
   indexes: [

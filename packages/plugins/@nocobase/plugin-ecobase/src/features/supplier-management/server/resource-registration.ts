@@ -25,6 +25,7 @@ export function createSupplierManagementResourceRegistration(): EcobaseFeatureRe
         actions: [
           'workspace',
           'getCoverage',
+          'reconcileImportedLines',
           'createPlannedOrder',
           'createOrderLine',
           'createMedallionDraftOrder',

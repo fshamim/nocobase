@@ -23,8 +23,7 @@ export type PlanningSettingKey =
   | 'orderSoonWindowDays'
   | 'leadTimeFreshnessDays'
   | 'purchasedPipelineGraceDays'
-  | 'receivingBufferDays'
-  | 'defaultExpectedArrivalLeadTimeDays';
+  | 'fbaReceivingBufferDays';
 
 type ProfitTierSettingKey = keyof ProfitTierThresholds;
 type NumberSettingKey = PlanningSettingKey | ProfitTierSettingKey;
@@ -36,7 +35,7 @@ export type SupplierOrderStatusBucketKey =
 
 export type SupplierOrderStatusBuckets = Record<SupplierOrderStatusBucketKey, string[]>;
 
-export type PlanningFeatureFlagKey = 'enableCurrentOrderCycleSelection' | 'allowDefaultExpectedArrival';
+export type PlanningFeatureFlagKey = 'enableCurrentOrderCycleSelection';
 
 export type EcobasePlanningSettings = Record<NumberSettingKey, number> &
   Record<PlanningFeatureFlagKey, boolean> &
@@ -65,8 +64,7 @@ const SETTING_KEYS: PlanningSettingKey[] = [
   'orderSoonWindowDays',
   'leadTimeFreshnessDays',
   'purchasedPipelineGraceDays',
-  'receivingBufferDays',
-  'defaultExpectedArrivalLeadTimeDays',
+  'fbaReceivingBufferDays',
 ];
 
 const PROFIT_TIER_SETTING_KEYS: ProfitTierSettingKey[] = [
@@ -77,7 +75,7 @@ const PROFIT_TIER_SETTING_KEYS: ProfitTierSettingKey[] = [
 
 const NUMBER_SETTING_KEYS: NumberSettingKey[] = [...SETTING_KEYS, ...PROFIT_TIER_SETTING_KEYS];
 
-const FEATURE_FLAG_KEYS: PlanningFeatureFlagKey[] = ['enableCurrentOrderCycleSelection', 'allowDefaultExpectedArrival'];
+const FEATURE_FLAG_KEYS: PlanningFeatureFlagKey[] = ['enableCurrentOrderCycleSelection'];
 
 const STATUS_BUCKET_KEYS: SupplierOrderStatusBucketKey[] = [
   'supplierOrderPlacedNotPurchasedStatuses',
@@ -92,13 +90,11 @@ export const DEFAULT_PLANNING_SETTINGS: Record<PlanningSettingKey, number> = {
   orderSoonWindowDays: 14,
   leadTimeFreshnessDays: 60,
   purchasedPipelineGraceDays: 3,
-  receivingBufferDays: 3,
-  defaultExpectedArrivalLeadTimeDays: 30,
+  fbaReceivingBufferDays: 7,
 };
 
 export const DEFAULT_PLANNING_FEATURE_FLAGS: Record<PlanningFeatureFlagKey, boolean> = {
   enableCurrentOrderCycleSelection: false,
-  allowDefaultExpectedArrival: false,
 };
 
 export const DEFAULT_SUPPLIER_ORDER_STATUS_BUCKETS: SupplierOrderStatusBuckets = {
@@ -126,8 +122,7 @@ const SETTING_LABELS: Record<NumberSettingKey, string> = {
   orderSoonWindowDays: 'Order-soon window days',
   leadTimeFreshnessDays: 'Lead-time freshness days',
   purchasedPipelineGraceDays: 'Purchased pipeline grace days',
-  receivingBufferDays: 'Receiving buffer days',
-  defaultExpectedArrivalLeadTimeDays: 'Default expected-arrival lead time days',
+  fbaReceivingBufferDays: 'FBA receiving buffer days',
   profitTierAThreshold: 'Profit tier A threshold',
   profitTierBThreshold: 'Profit tier B threshold',
   profitTierCThreshold: 'Profit tier C threshold',
@@ -230,16 +225,12 @@ function normalize(row: PlainRecord): EcobasePlanningSettings {
     purchasedPipelineGraceDays:
       positiveInteger(row.purchasedPipelineGraceDays, 'purchasedPipelineGraceDays') ??
       defaults.purchasedPipelineGraceDays,
-    receivingBufferDays:
-      positiveInteger(row.receivingBufferDays, 'receivingBufferDays') ?? defaults.receivingBufferDays,
-    defaultExpectedArrivalLeadTimeDays:
-      positiveInteger(row.defaultExpectedArrivalLeadTimeDays, 'defaultExpectedArrivalLeadTimeDays') ??
-      defaults.defaultExpectedArrivalLeadTimeDays,
+    fbaReceivingBufferDays:
+      positiveInteger(row.fbaReceivingBufferDays, 'fbaReceivingBufferDays') ?? defaults.fbaReceivingBufferDays,
     enableCurrentOrderCycleSelection: asBoolean(
       row.enableCurrentOrderCycleSelection,
       defaults.enableCurrentOrderCycleSelection,
     ),
-    allowDefaultExpectedArrival: asBoolean(row.allowDefaultExpectedArrival, defaults.allowDefaultExpectedArrival),
     profitTierAThreshold:
       positiveInteger(row.profitTierAThreshold, 'profitTierAThreshold') ?? defaults.profitTierAThreshold,
     profitTierBThreshold:

@@ -278,7 +278,7 @@ describe('EcobaseInventoryPlanningService', () => {
       expectedArrivalEvidence(
         {
           leadTimeDays: 30,
-          leadTimeSource: 'planning_settings.default_expected_arrival_lead_time',
+          leadTimeSource: 'silver_order_line.supplier_product_lead_time',
         },
         { orderDate: '2026-06-01' },
         '2026-07-14',
@@ -288,12 +288,69 @@ describe('EcobaseInventoryPlanningService', () => {
       expectedArrivalDate: '2026-07-04',
       expectedArrivalStatus: 'derived',
       expectedArrivalSource:
-        'planning_settings.default_expected_arrival_lead_time+silver_order.order_date+planning_settings.receiving_buffer',
+        'silver_order_line.supplier_product_lead_time+silver_order.order_date+planning_settings.fba_receiving_buffer',
       expectedArrivalFreshness: 'stale',
     });
     expect(expectedArrivalEvidence({}, { orderDate: '2026-06-01' }, '2026-07-14', 3)).toMatchObject({
       expectedArrivalStatus: 'unknown',
       expectedArrivalSource: 'insufficient_silver_evidence',
+    });
+  });
+
+  it('keeps operator expected dates above imported order timing evidence', () => {
+    expect(
+      expectedArrivalEvidence(
+        {
+          expectedSellableDate: '2026-08-01',
+          expectedArrivalDate: '2026-07-20',
+          expectedDateOverrideAt: '2026-07-14T00:00:00.000Z',
+        },
+        { expectedDeliveryDate: '2026-07-18', orderDate: '2026-06-01' },
+        '2026-07-14',
+        7,
+      ),
+    ).toMatchObject({
+      expectedArrivalDate: '2026-08-01',
+      expectedArrivalStatus: 'operator',
+      expectedArrivalSource: 'operator.expected_sellable_date',
+      expectedArrivalConfidence: 'authoritative',
+    });
+  });
+
+  it('keeps imported expected-sellable evidence above delivery and arrival estimates', () => {
+    expect(
+      expectedArrivalEvidence(
+        {
+          expectedSellableDate: '2026-07-25',
+          expectedDeliveryDate: '2026-07-18',
+          expectedArrivalDate: '2026-07-20',
+        },
+        { expectedDeliveryDate: '2026-07-17', orderDate: '2026-06-01' },
+        '2026-07-14',
+        7,
+      ),
+    ).toMatchObject({
+      expectedArrivalDate: '2026-07-25',
+      expectedArrivalStatus: 'imported',
+      expectedArrivalSource: 'silver_order_line.expectedSellableDate',
+    });
+  });
+
+  it('adds the FBA receiving buffer to an operator expected-delivery date', () => {
+    expect(
+      expectedArrivalEvidence(
+        {
+          expectedDeliveryDate: '2026-07-20',
+          expectedDateOverrideAt: '2026-07-14T00:00:00.000Z',
+        },
+        { orderDate: '2026-06-01' },
+        '2026-07-14',
+        7,
+      ),
+    ).toMatchObject({
+      expectedArrivalDate: '2026-07-27',
+      expectedArrivalStatus: 'operator',
+      expectedArrivalSource: 'operator.expected_delivery_date+planning_settings.fba_receiving_buffer',
     });
   });
 
@@ -591,6 +648,14 @@ describe('EcobaseInventoryPlanningService', () => {
     const [goldRow] = await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).find({});
 
     expect(goldRow).toMatchObject({
+      naturalKey: '2026-07-10:ACME:company-product-missing-stock',
+      planningProductId: 'company-product-missing-stock',
+      company: 'ACME',
+      asin: 'B000NOSTOCK',
+      supplierName: 'Unknown supplier',
+      supplierAvailability: 'unavailable_no_evidence',
+      unitCostAvailability: 'unavailable_no_evidence',
+      profitAvailability: 'unavailable_no_history',
       actionStatus: 'missing_inventory',
       currentPlanningStock: null,
       daysOfCover: null,
@@ -598,9 +663,64 @@ describe('EcobaseInventoryPlanningService', () => {
       moneyRiskStatus: 'unknown_missing_inputs',
       commandCenterPane: 'dataReadiness',
     });
+    expect(goldRow.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     expect(commandCenter.panes.supplyAction.total).toBe(0);
     expect(commandCenter.panes.dataReadiness.total).toBe(1);
     expect(commandCenter.summaryCards.find((card) => card.key === 'moneyAtRisk')).toMatchObject({ unknownCount: 1 });
+  });
+
+  it('audits product planning overrides and recalculates excluded products', async () => {
+    const db = new MemoryDatabase();
+    await createRecord(db, ECOBASE_COLLECTIONS.silverCompanies, { id: 'company-product-manager', name: 'ACME' });
+    await createRecord(db, ECOBASE_COLLECTIONS.silverProducts, {
+      id: 'product-manager-product',
+      asin: 'B00PRODUCTMANAGER',
+      sku: 'PRODUCT-MANAGER',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.silverCompanyProducts, {
+      id: 'company-product-manager',
+      companyId: 'company-product-manager',
+      productId: 'product-manager-product',
+      lifecycleStatus: 'active',
+    });
+    const service = new EcobaseInventoryPlanningService(db);
+
+    await expect(
+      service.updateProductPlanningFields({
+        companyProductId: 'company-product-manager',
+        planningExcluded: true,
+        actorUserId: 'user-1',
+      }),
+    ).rejects.toThrow('Ecobase product planning update failed: reason is required.');
+
+    await service.updateProductPlanningFields({
+      companyProductId: 'company-product-manager',
+      planningExcluded: true,
+      reorderCycleDays: 21,
+      targetCoverDays: 60,
+      reason: 'Seasonal product paused by the operator.',
+      actorUserId: 'user-1',
+    });
+    await service.refreshReadModel({ company: 'ACME', calculationDate: '2026-07-14' });
+
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).all()[0]).toMatchObject({
+      planningExcluded: true,
+      reorderCycleDays: 21,
+      targetCoverDays: 60,
+      excludedReason: 'Seasonal product paused by the operator.',
+      excludedByUserId: 'user-1',
+      excludedAt: expect.any(String),
+      planningOverrideReason: 'Seasonal product paused by the operator.',
+      planningOverrideByUserId: 'user-1',
+      planningOverrideAt: expect.any(String),
+    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).all()[0]).toMatchObject({
+      actionStatus: 'excluded',
+      commandCenterPane: 'excludedProducts',
+      planningExcluded: true,
+      reorderCycleDays: 21,
+      targetCoverDays: 60,
+    });
   });
 
   it('requires a positive optimizer budget', async () => {
@@ -635,6 +755,34 @@ describe('EcobaseInventoryPlanningService', () => {
     const rows = await new EcobaseInventoryPlanningService(db).listRows({ calculationDate: '2026-06-26' });
 
     expect(rows.map((row) => row.asin)).toEqual(['B000CURRENT']);
+  });
+
+  it('serves excluded products as an explicit command-center list', async () => {
+    const db = new MemoryDatabase();
+    await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
+      id: 'excluded-product',
+      naturalKey: '2026-07-14:Ecofission LLC:excluded-product',
+      calculationDate: '2026-07-14',
+      company: 'Ecofission LLC',
+      planningProductId: 'excluded-product',
+      asin: 'B00EXCLUDED',
+      sku: 'EXCLUDED-SKU',
+      actionStatus: 'excluded',
+      commandCenterPane: 'excludedProducts',
+      planningEligibilityStatus: 'ineligible_excluded',
+      lastRefreshedAt: '2026-07-14T00:00:00.000Z',
+    });
+
+    const center = await new EcobaseInventoryPlanningService(db).commandCenter({
+      company: 'Ecofission LLC',
+      calculationDate: '2026-07-14',
+      pane: 'excludedProducts' as never,
+    });
+
+    expect(center.panes.excludedProducts).toMatchObject({
+      total: 1,
+      rows: [expect.objectContaining({ asin: 'B00EXCLUDED', actionStatus: 'excluded' })],
+    });
   });
 
   it('serves inventory planning from gold rows ordered by actionable money at risk', async () => {
@@ -1848,6 +1996,63 @@ describe('EcobaseInventoryPlanningService', () => {
     });
   });
 
+  it('recalculates stale coverage and suggested quantity after an expected-date override', async () => {
+    const db = new MemoryDatabase();
+    const company = 'Ecofission LLC';
+    const orderId = '54444444-4444-4444-8444-444444444444';
+    const lineId = 'line-54444444-4444-4444-8444-444444444444';
+    const asin = 'B00DATEOVERRIDE';
+    const sku = 'DATE-OVERRIDE';
+    const companyProductId = `silver-company-product:${company}:${asin}:${sku}`;
+    await createSilverOrderRecord(db, {
+      id: orderId,
+      company,
+      supplierId: 'supplier-date-override',
+      supplierName: 'Date Override Supplier',
+      externalOrderRef: 'PO-DATE-OVERRIDE',
+      status: 'paid',
+      orderDate: '2026-05-01',
+    });
+    await createSilverOrderLineRecord(db, {
+      id: lineId,
+      company,
+      supplierOrderId: orderId,
+      supplierId: 'supplier-date-override',
+      asin,
+      sku,
+      orderedQty: 10,
+      receivedQty: 0,
+      expectedSellableDate: '2026-06-01',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.silverInventorySnapshots, {
+      id: 'inventory-date-override',
+      companyProductId,
+      snapshotDate: '2026-07-14',
+      sellableStock: 10,
+      reserved: 0,
+      inbound: 0,
+      ordered: 0,
+      prepStock: 0,
+      salesVelocity: 1,
+    });
+
+    const service = new EcobaseInventoryPlanningService(db);
+    const [stale] = await service.listRows({ company, calculationDate: '2026-07-14' });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).update({
+      filterByTk: lineId,
+      values: {
+        expectedSellableDate: '2026-08-01',
+        expectedDateOverrideAt: '2026-07-14T00:00:00.000Z',
+        expectedDateOverrideReason: 'Supplier confirmed revised timing.',
+      },
+    });
+    const [fresh] = await service.listRows({ company, calculationDate: '2026-07-14' });
+
+    expect(stale).toMatchObject({ supplierOrderStale: true, trustedSupplierOrderCoverageQty: 0 });
+    expect(fresh).toMatchObject({ supplierOrderStale: false, trustedSupplierOrderCoverageQty: 10 });
+    expect(stale.suggestedReorderQty).toBe(Number(fresh.suggestedReorderQty) + 10);
+  });
+
   it('classifies derived, unknown, invalid, and stale active-order arrival evidence', async () => {
     const db = new MemoryDatabase();
     const company = 'Ecofission LLC';
@@ -1863,7 +2068,7 @@ describe('EcobaseInventoryPlanningService', () => {
         id: '52222222-2222-4222-8222-222222222222',
         asin: 'B00UNKNOWN',
         sku: 'UNKNOWN-ETA',
-        orderDate: '2026-06-01',
+        orderDate: 'not-a-date',
         expectedSellableDate: 'not-a-date',
       },
       {
@@ -1969,7 +2174,7 @@ describe('EcobaseInventoryPlanningService', () => {
     const row = (sku: string) => commandCenter.panes.activeOrders.rows.find((item) => item.sku === sku);
     expect(row('DERIVED-ETA')).toMatchObject({
       supplierOrderState: 'purchased_pipeline',
-      expectedArrivalDate: '2026-07-04',
+      expectedArrivalDate: '2026-07-08',
       expectedArrivalStatus: 'derived',
       expectedArrivalConfidence: 'estimated',
       expectedArrivalFreshness: 'fresh',

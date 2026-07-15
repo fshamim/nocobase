@@ -567,7 +567,10 @@ describe('EcobaseOrderPlanningService', () => {
 
     const detail = await new EcobaseOrderPlanningService(db).updateOrder({
       orderId: 'order-1',
-      values: { lifecycleStatus: 'INBOUND MONITORING' },
+      values: {
+        lifecycleStatus: 'INBOUND MONITORING',
+        attachmentReference: 's3://ecobase-orders/order-1/proforma-invoice.pdf',
+      },
       actorUserId: 'user-1',
     });
 
@@ -577,6 +580,7 @@ describe('EcobaseOrderPlanningService', () => {
       statusSource: 'operator',
       statusCheckRequired: false,
       operatorStatusOverrideByUserId: 'user-1',
+      attachmentReference: 's3://ecobase-orders/order-1/proforma-invoice.pdf',
     });
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).rows.at(-1)).toMatchObject({
       entityType: 'order',
@@ -870,6 +874,32 @@ describe('EcobaseOrderPlanningService', () => {
     });
     expect(detail.comments).toHaveLength(0);
     expect(detail.order.latestComment).toBeUndefined();
+  });
+
+  it('requires and audits a reason when an operator overrides an expected date', async () => {
+    const db = new FakeDatabase();
+    await seed(db);
+    const service = new EcobaseOrderPlanningService(db);
+
+    await expect(
+      service.updateLine({ orderLineId: 'line-1', values: { expectedSellableDate: '2026-07-20' } }),
+    ).rejects.toThrow('Ecobase Order Planning line update failed: a comment is required for expected-date overrides.');
+
+    await service.updateLine({
+      orderLineId: 'line-1',
+      values: { expectedSellableDate: '2026-07-20' },
+      commentBody: 'Supplier confirmed the sellable date.',
+      actorUserId: 'user-1',
+    });
+
+    expect(
+      db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows.find((row) => row.id === 'line-1'),
+    ).toMatchObject({
+      expectedSellableDate: '2026-07-20',
+      expectedDateOverrideReason: 'Supplier confirmed the sellable date.',
+      expectedDateOverrideByUserId: 'user-1',
+      expectedDateOverrideAt: expect.any(String),
+    });
   });
 
   it('updates line fields and appends comments to silver comments', async () => {

@@ -59,6 +59,7 @@ type CommandCenterPaneKey =
   | 'healthyInventory'
   | 'stuckInventory'
   | 'dataReadiness'
+  | 'excludedProducts'
   | 'duplicateProducts';
 
 interface DigestPreview {
@@ -88,6 +89,14 @@ interface DrawerActionValues {
   leadNotes: string;
 }
 
+interface ProductPlanningValues {
+  planningExcluded: boolean;
+  supplierId?: string;
+  reorderCycleDays?: number;
+  targetCoverDays?: number;
+  reason: string;
+}
+
 interface LineEditValues {
   id: string;
   externalOrderRef: string;
@@ -96,6 +105,8 @@ interface LineEditValues {
   unitCost?: number;
   expectedDeliveryDate?: string;
   expectedSellableDate?: string;
+  originalExpectedDeliveryDate?: string;
+  originalExpectedSellableDate?: string;
   notes: string;
 }
 
@@ -358,9 +369,6 @@ function formatPipelineHealthLabel(value: any) {
 
 function formatExpectedArrivalSource(value: any) {
   const source = String(value ?? '');
-  if (source.startsWith('planning_settings.default_expected_arrival_lead_time')) {
-    return 'Planning default lead time + receiving buffer';
-  }
   if (source.startsWith('silver_family.preferred_supplier_product_lead_time')) {
     return 'Preferred supplier lead time + receiving buffer';
   }
@@ -751,7 +759,7 @@ export default function InventoryPlanningPage() {
   const [targetCoverDays, setTargetCoverDays] = useState(45);
   const [purchasedPipelineGraceDays, setPurchasedPipelineGraceDays] = useState(3);
   const [planningSettingsWarning, setPlanningSettingsWarning] = useState<string | undefined>();
-  const [limit, setLimit] = useState(150);
+  const [limit] = useState(50);
   const [orderNowQuickFilter, setOrderNowQuickFilter] = useState<OrderNowQuickFilter>('all');
   const [orderNowTierFilter, setOrderNowTierFilter] = useState<string[]>([]);
   const [orderNowCompanyFilter, setOrderNowCompanyFilter] = useState<string[]>([]);
@@ -764,10 +772,13 @@ export default function InventoryPlanningPage() {
   const [activeCommandPane, setActiveCommandPane] = useState<CommandCenterPaneKey>('supplyAction');
   const [openCommandPane, setOpenCommandPane] = useState<CommandCenterPaneKey | null>('supplyAction');
   const [commandCenterSearch, setCommandCenterSearch] = useState('');
+  const [commandCenterPage, setCommandCenterPage] = useState(1);
   const [commandCenterSortBy, setCommandCenterSortBy] = useState('estimatedProfitRisk');
   const [selectedCommandPane, setSelectedCommandPane] = useState<CommandCenterPaneKey | null>(null);
   const [selectedRow, setSelectedRow] = useState<PlainRecord | null>(null);
   const [actionValues, setActionValues] = useState<DrawerActionValues | null>(null);
+  const [productPlanningValues, setProductPlanningValues] = useState<ProductPlanningValues | null>(null);
+  const [productPlanningSaving, setProductPlanningSaving] = useState(false);
   const [supplierOptions, setSupplierOptions] = useState<PlainRecord[]>([]);
   const [orderOptions, setOrderOptions] = useState<PlainRecord[]>([]);
   const [orderLineHistory, setOrderLineHistory] = useState<PlainRecord[]>([]);
@@ -833,6 +844,7 @@ export default function InventoryPlanningPage() {
           data: {
             ...payload,
             pane: activeCommandPane,
+            page: commandCenterPage,
             pageSize: limit,
             sortBy: commandCenterSortBy,
             sortDirection: 'desc',
@@ -858,6 +870,7 @@ export default function InventoryPlanningPage() {
             'healthyInventory',
             'stuckInventory',
             'dataReadiness',
+            'excludedProducts',
           ] as CommandCenterPaneKey[]
         ).flatMap((key) => unwrapRows(unwrapData(panes[key]).rows)),
       );
@@ -872,6 +885,7 @@ export default function InventoryPlanningPage() {
     activeCommandPane,
     api,
     calculationDate,
+    commandCenterPage,
     commandCenterSearch,
     commandCenterSortBy,
     company,
@@ -1080,6 +1094,7 @@ export default function InventoryPlanningPage() {
     healthyInventory: t('Healthy inventory — current coverage sufficient'),
     stuckInventory: t('Stuck & excess inventory'),
     dataReadiness: t('Data readiness — operational inputs needed'),
+    excludedProducts: t('Excluded products'),
     duplicateProducts: t('Duplicate SKU review'),
   };
   const commandPaneDescriptions: Record<CommandCenterPaneKey, string> = {
@@ -1104,6 +1119,7 @@ export default function InventoryPlanningPage() {
     dataReadiness: t(
       'Current inventory is retained here when velocity, family target, or another required operational input is not ready.',
     ),
+    excludedProducts: t('Products intentionally excluded from replenishment remain visible here for review.'),
     duplicateProducts: t(
       'Same company + ASIN rows with different SKUs. Review and resolve before using them for planning.',
     ),
@@ -1145,6 +1161,11 @@ export default function InventoryPlanningPage() {
       { value: 'familyCanonicalAsin', label: t('Family ASIN') },
       { value: 'inventoryAsOfDate', label: t('Inventory date') },
     ],
+    excludedProducts: [
+      { value: 'company', label: t('Company') },
+      { value: 'asin', label: t('ASIN') },
+      { value: 'actionStatus', label: t('Status') },
+    ],
     duplicateProducts: [
       { value: 'currentPlanningStock', label: t('Planning stock') },
       { value: 'asin', label: t('ASIN') },
@@ -1159,6 +1180,7 @@ export default function InventoryPlanningPage() {
     healthyInventory: 'inventoryHealthyInventory',
     stuckInventory: 'inventoryStuckInventory',
     dataReadiness: 'inventoryDrawer',
+    excludedProducts: 'inventoryDrawer',
     duplicateProducts: 'inventoryDrawer',
   };
   const renderRiskBars = (items: PlainRecord[]) => (
@@ -1671,6 +1693,7 @@ export default function InventoryPlanningPage() {
         <Space direction="vertical" size={0}>
           {renderActiveRiskCell(undefined, row)}
           {row.supplierOrderCycleReviewRequired ? <Tag color="red">{t('Older order cycle review')}</Tag> : null}
+          {row.supplierOrderStale ? <Tag color="gold">{t('Operator expected date differs from source')}</Tag> : null}
           {row.amazonReceiptStatus === 'review_required' ? (
             <Tag color="red">{t('Amazon receipt evidence review')}</Tag>
           ) : null}
@@ -1926,6 +1949,7 @@ export default function InventoryPlanningPage() {
           setOpenCommandPane(opening ? pane : null);
           if (opening) {
             setActiveCommandPane(pane);
+            setCommandCenterPage(1);
             setCommandCenterSortBy(commandPaneSortOptions[pane][0].value);
           }
         }}
@@ -1952,6 +1976,7 @@ export default function InventoryPlanningPage() {
                   onChange={(value) => {
                     setOpenCommandPane(pane);
                     setActiveCommandPane(pane);
+                    setCommandCenterPage(1);
                     setCommandCenterSortBy(value);
                   }}
                   style={{ width: 180 }}
@@ -1968,7 +1993,17 @@ export default function InventoryPlanningPage() {
                   rowKey={(row) => String(row.companyProductFamilyId ?? row.id ?? row.asin ?? row.sku)}
                   dataSource={rowsForPane}
                   columns={commandPaneColumns(pane)}
-                  pagination={false}
+                  pagination={{
+                    current: Number(paneData.page ?? 1),
+                    pageSize: Number(paneData.pageSize ?? limit),
+                    total: Number(paneData.total ?? rowsForPane.length),
+                    showSizeChanger: false,
+                    onChange: (page) => {
+                      setOpenCommandPane(pane);
+                      setActiveCommandPane(pane);
+                      setCommandCenterPage(page);
+                    },
+                  }}
                   expandable={{
                     expandedRowRender: renderFamilyMembers,
                     rowExpandable: (row) => familyMembers(row).length > 0,
@@ -2014,18 +2049,82 @@ export default function InventoryPlanningPage() {
     setOrderEditValues((current) => (current ? { ...current, [field]: value } : current));
   };
 
+  const saveProductPlanning = async () => {
+    if (!selectedRow || !productPlanningValues) return;
+    const companyProductId = String(selectedRow.companyProductId ?? selectedRow.planningProductId ?? '');
+    if (!companyProductId) {
+      message.error(t('Company product identity is required.'));
+      return;
+    }
+    if (!productPlanningValues.reason.trim()) {
+      message.error(t('Explain the product planning change before saving.'));
+      return;
+    }
+    const currentSupplierId = String(selectedRow.familyPreferredSupplierId ?? selectedRow.supplierId ?? '');
+    const supplierChanged = Boolean(
+      productPlanningValues.supplierId && productPlanningValues.supplierId !== currentSupplierId,
+    );
+    const familyId = String(selectedRow.companyProductFamilyId ?? '');
+    if (supplierChanged && !familyId) {
+      message.error(t('A product family is required before assigning its preferred supplier.'));
+      return;
+    }
+    setProductPlanningSaving(true);
+    try {
+      await api.request({
+        url: 'ecobaseInventoryPlanning:updateProductPlanningFields',
+        method: 'post',
+        data: {
+          companyProductId,
+          planningExcluded: productPlanningValues.planningExcluded,
+          reorderCycleDays: productPlanningValues.reorderCycleDays,
+          targetCoverDays: productPlanningValues.targetCoverDays,
+          reason: productPlanningValues.reason.trim(),
+          company: company.trim() || undefined,
+          calculationDate: calculationDate.trim() || undefined,
+        },
+      });
+      if (supplierChanged) {
+        await api.request({
+          url: 'ecobaseInventoryPlanning:setFamilyPreferredSupplier',
+          method: 'post',
+          data: {
+            familyId,
+            supplierId: productPlanningValues.supplierId,
+            reason: productPlanningValues.reason.trim(),
+            company: company.trim() || undefined,
+            calculationDate: calculationDate.trim() || undefined,
+          },
+        });
+      }
+      message.success(t('Product planning settings updated.'));
+      setSelectedCommandPane(null);
+      setSelectedRow(null);
+      setProductPlanningValues(null);
+      await loadPlanning();
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : t('Product planning settings could not be updated.'));
+    } finally {
+      setProductPlanningSaving(false);
+    }
+  };
+
   const startEditLine = (line: PlainRecord) => {
+    const expectedDeliveryDate =
+      formatDate(line.expectedDeliveryDate) === '—' ? undefined : formatDate(line.expectedDeliveryDate);
+    const expectedSellableDate =
+      formatDate(line.expectedSellableDate) === '—' ? undefined : formatDate(line.expectedSellableDate);
     setLineEditValues({
       id: String(line.id),
       externalOrderRef: String(line.order?.externalOrderRef ?? ''),
       orderedQty: Number(line.orderedQty ?? 1),
       receivedQty: Number(line.receivedQty ?? 0),
       unitCost: line.unitCost === undefined || line.unitCost === null ? undefined : Number(line.unitCost),
-      expectedDeliveryDate:
-        formatDate(line.expectedDeliveryDate) === '—' ? undefined : formatDate(line.expectedDeliveryDate),
-      expectedSellableDate:
-        formatDate(line.expectedArrivalDate) === '—' ? undefined : formatDate(line.expectedArrivalDate),
-      notes: String(line.payload?.notes ?? ''),
+      expectedDeliveryDate,
+      expectedSellableDate,
+      originalExpectedDeliveryDate: expectedDeliveryDate,
+      originalExpectedSellableDate: expectedSellableDate,
+      notes: '',
     });
     setManagePanels((current) => Array.from(new Set([...current, 'edit-line'])));
   };
@@ -2086,6 +2185,7 @@ export default function InventoryPlanningPage() {
     healthyInventory: ['history'],
     stuckInventory: ['product-tasks-targets', 'history'],
     dataReadiness: ['history'],
+    excludedProducts: ['history'],
     duplicateProducts: ['history'],
   };
 
@@ -2093,6 +2193,13 @@ export default function InventoryPlanningPage() {
     setSelectedCommandPane(pane ?? null);
     setSelectedRow(row);
     setActionValues(newActionValues(row));
+    setProductPlanningValues({
+      planningExcluded: row.planningExcluded === true,
+      supplierId: String(row.familyPreferredSupplierId ?? row.supplierId ?? '') || undefined,
+      reorderCycleDays: finiteNumber(row.reorderCycleDays),
+      targetCoverDays: finiteNumber(row.targetCoverDays),
+      reason: '',
+    });
     setSupplierOptions([]);
     setOrderOptions([]);
     setOrderLineHistory([]);
@@ -2149,6 +2256,7 @@ export default function InventoryPlanningPage() {
       method: 'post',
       data: {
         supplierOrderId: actionValues.addSupplierOrderId.trim(),
+        company: selectedRow.company,
         planningProductId: selectedRow.planningProductId,
         orderedQty: actionValues.addQty,
         expectedDeliveryDate: actionValues.addExpectedDeliveryDate,
@@ -2170,6 +2278,12 @@ export default function InventoryPlanningPage() {
       message.error(t('Received quantity must be zero or greater.'));
       return;
     }
+    const deliveryDateChanged = lineEditValues.expectedDeliveryDate !== lineEditValues.originalExpectedDeliveryDate;
+    const sellableDateChanged = lineEditValues.expectedSellableDate !== lineEditValues.originalExpectedSellableDate;
+    if ((deliveryDateChanged || sellableDateChanged) && !lineEditValues.notes.trim()) {
+      message.error(t('Explain the expected-date override before saving.'));
+      return;
+    }
     await api.request({
       url: 'ecobaseSupplierOrders:updateLineOperatorFields',
       method: 'post',
@@ -2180,8 +2294,8 @@ export default function InventoryPlanningPage() {
         orderedQty: lineEditValues.orderedQty,
         receivedQty: lineEditValues.receivedQty,
         unitCost: lineEditValues.unitCost,
-        expectedDeliveryDate: lineEditValues.expectedDeliveryDate,
-        expectedSellableDate: lineEditValues.expectedSellableDate,
+        expectedDeliveryDate: deliveryDateChanged ? lineEditValues.expectedDeliveryDate : undefined,
+        expectedSellableDate: sellableDateChanged ? lineEditValues.expectedSellableDate : undefined,
         notes: lineEditValues.notes.trim() || undefined,
       },
     });
@@ -2753,7 +2867,10 @@ export default function InventoryPlanningPage() {
                 showSearch
                 placeholder={t('All companies')}
                 value={company || undefined}
-                onChange={(value) => setCompany(value ?? '')}
+                onChange={(value) => {
+                  setCompany(value ?? '');
+                  setCommandCenterPage(1);
+                }}
                 style={{ width: '100%', marginTop: 4 }}
                 options={(Array.isArray(filterOptions.companies) ? filterOptions.companies : []).map(
                   (value: string) => ({ value, label: value }),
@@ -2777,6 +2894,19 @@ export default function InventoryPlanningPage() {
                 value={targetCoverDays}
                 onChange={(value) => setTargetCoverDays(Number(value ?? 45))}
                 style={{ width: '100%', marginTop: 4 }}
+              />
+            </Col>
+            <Col xs={24} md={8} xl={6}>
+              <Typography.Text strong>{t('Search products')}</Typography.Text>
+              <Input
+                allowClear
+                value={commandCenterSearch}
+                placeholder={t('ASIN, SKU, title, supplier, or order')}
+                onChange={(event) => {
+                  setCommandCenterSearch(event.target.value);
+                  setCommandCenterPage(1);
+                }}
+                style={{ marginTop: 4 }}
               />
             </Col>
 
@@ -2811,23 +2941,29 @@ export default function InventoryPlanningPage() {
             <Button
               key={category}
               type={tier === category ? 'primary' : 'default'}
-              onClick={() => setTier((current) => (current === category ? undefined : category))}
+              onClick={() => {
+                setTier((current) => (current === category ? undefined : category));
+                setCommandCenterPage(1);
+              }}
             >
               {t(`Category ${category}`)}
             </Button>
           ))}
-          {(['healthyInventory', 'stuckInventory', 'dataReadiness'] as CommandCenterPaneKey[]).map((pane) => (
-            <Button
-              key={pane}
-              onClick={() => {
-                setOpenCommandPane(pane);
-                setActiveCommandPane(pane);
-                setCommandCenterSortBy(commandPaneSortOptions[pane][0].value);
-              }}
-            >
-              {commandPaneTitles[pane]}
-            </Button>
-          ))}
+          {(['healthyInventory', 'stuckInventory', 'dataReadiness', 'excludedProducts'] as CommandCenterPaneKey[]).map(
+            (pane) => (
+              <Button
+                key={pane}
+                onClick={() => {
+                  setOpenCommandPane(pane);
+                  setActiveCommandPane(pane);
+                  setCommandCenterPage(1);
+                  setCommandCenterSortBy(commandPaneSortOptions[pane][0].value);
+                }}
+              >
+                {commandPaneTitles[pane]}
+              </Button>
+            ),
+          )}
         </Space>
 
         <Row gutter={[16, 16]}>
@@ -2908,6 +3044,7 @@ export default function InventoryPlanningPage() {
               'healthyInventory',
               'stuckInventory',
               'dataReadiness',
+              'excludedProducts',
             ] as CommandCenterPaneKey[]
           ).map(renderCommandPane)}
         </Space>
@@ -2926,6 +3063,7 @@ export default function InventoryPlanningPage() {
           setSelectedCommandPane(null);
           setSelectedRow(null);
           setActionValues(null);
+          setProductPlanningValues(null);
           setOrderLineHistory([]);
           setOrderActivities([]);
           setProductTasks([]);
@@ -2943,6 +3081,7 @@ export default function InventoryPlanningPage() {
                   setSelectedCommandPane(null);
                   setSelectedRow(null);
                   setActionValues(null);
+                  setProductPlanningValues(null);
                   setOrderLineHistory([]);
                   setOrderActivities([]);
                   setProductTasks([]);
@@ -2961,6 +3100,92 @@ export default function InventoryPlanningPage() {
         {selectedRow ? (
           <Space direction="vertical" size="large" style={{ width: '100%' }}>
             {renderDrawerModeSummary()}
+            {productPlanningValues ? (
+              <Card title={t('Product manager')} size="small">
+                <Row gutter={[12, 12]}>
+                  <Col xs={24} md={8}>
+                    <Typography.Text strong>{t('Planning inclusion')}</Typography.Text>
+                    <Select
+                      style={{ width: '100%', marginTop: 4 }}
+                      value={productPlanningValues.planningExcluded}
+                      options={[
+                        { value: false, label: t('Included') },
+                        { value: true, label: t('Excluded') },
+                      ]}
+                      onChange={(planningExcluded) =>
+                        setProductPlanningValues((current) => (current ? { ...current, planningExcluded } : current))
+                      }
+                    />
+                  </Col>
+                  <Col xs={24} md={8}>
+                    <Typography.Text strong>{t('Preferred supplier')}</Typography.Text>
+                    <Select
+                      showSearch
+                      optionFilterProp="label"
+                      style={{ width: '100%', marginTop: 4 }}
+                      value={productPlanningValues.supplierId}
+                      options={supplierOptions.map((supplier) => ({
+                        value: String(supplier.id),
+                        label: String(supplier.label ?? supplier.name ?? supplier.id),
+                      }))}
+                      onChange={(supplierId) =>
+                        setProductPlanningValues((current) => (current ? { ...current, supplierId } : current))
+                      }
+                    />
+                  </Col>
+                  <Col xs={24} md={8}>
+                    <Typography.Text strong>{t('Reorder cycle days')}</Typography.Text>
+                    <InputNumber
+                      min={1}
+                      precision={0}
+                      style={{ width: '100%', marginTop: 4 }}
+                      value={productPlanningValues.reorderCycleDays}
+                      onChange={(value) =>
+                        setProductPlanningValues((current) =>
+                          current
+                            ? { ...current, reorderCycleDays: value === null ? undefined : Number(value) }
+                            : current,
+                        )
+                      }
+                    />
+                  </Col>
+                  <Col xs={24} md={8}>
+                    <Typography.Text strong>{t('Target cover days')}</Typography.Text>
+                    <InputNumber
+                      min={1}
+                      precision={0}
+                      style={{ width: '100%', marginTop: 4 }}
+                      value={productPlanningValues.targetCoverDays}
+                      onChange={(value) =>
+                        setProductPlanningValues((current) =>
+                          current
+                            ? { ...current, targetCoverDays: value === null ? undefined : Number(value) }
+                            : current,
+                        )
+                      }
+                    />
+                  </Col>
+                  <Col xs={24}>
+                    <Typography.Text strong>{t('Reason')}</Typography.Text>
+                    <Input.TextArea
+                      rows={2}
+                      style={{ marginTop: 4 }}
+                      value={productPlanningValues.reason}
+                      onChange={(event) =>
+                        setProductPlanningValues((current) =>
+                          current ? { ...current, reason: event.target.value } : current,
+                        )
+                      }
+                    />
+                  </Col>
+                  <Col xs={24}>
+                    <Button type="primary" loading={productPlanningSaving} onClick={() => void saveProductPlanning()}>
+                      {t('Save product planning')}
+                    </Button>
+                  </Col>
+                </Row>
+              </Card>
+            ) : null}
             <Descriptions bordered column={1} size="small">
               <Descriptions.Item label={t('Action')}>
                 <Tag color={actionColor(selectedRow.actionStatus)}>{t(selectedRow.actionStatus ?? 'unknown')}</Tag>
@@ -3385,7 +3610,7 @@ export default function InventoryPlanningPage() {
                             />
                           </Col>
                           <Col xs={24}>
-                            <Typography.Text strong>{t('Notes')}</Typography.Text>
+                            <Typography.Text strong>{t('Reason / notes')}</Typography.Text>
                             <Input.TextArea
                               rows={2}
                               value={lineEditValues.notes}
