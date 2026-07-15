@@ -66,7 +66,9 @@ class Db implements EcobaseDatabase {
   repositories = new Map<string, Repo>();
   getRepository(name: string) {
     if (!this.repositories.has(name)) this.repositories.set(name, new Repo());
-    return this.repositories.get(name)!;
+    const repository = this.repositories.get(name);
+    if (!repository) throw new Error(`Receipt fixture repository ${name} was not registered.`);
+    return repository;
   }
   seed(name: string, rows: Row[]) {
     this.repositories.set(name, new Repo(rows));
@@ -193,9 +195,18 @@ describe('EcobaseOrderReceiptReconciliationService', () => {
     ).toEqual(['changed', 'awaiting', 'partial']);
   });
 
-  it('persists one idempotent receipt transition without changing exact ClickUp status', async () => {
+  it('passes the isolated positive receipt-transition fixture without changing exact ClickUp status', async () => {
     const db = fixture();
     const service = new EcobaseOrderReceiptReconciliationService(db);
+
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[0]).toMatchObject({
+      lifecycleStatus: 'inbound-monitoring',
+      canonicalStatus: 'shipped_inbound',
+    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).rows).toEqual([
+      expect.objectContaining({ snapshotDate: '2026-07-10', sellableStock: 2 }),
+      expect.objectContaining({ snapshotDate: '2026-07-12', sellableStock: 7 }),
+    ]);
 
     const first = await service.reconcileAffectedOrders({
       orderIds: ['order-1'],
@@ -315,9 +326,11 @@ describe('EcobaseOrderReceiptReconciliationService', () => {
       amazonReceiptStatus: 'partially_observed',
     });
 
-    db
+    const latestSnapshot = db
       .getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots)
-      .rows.find((row) => row.id === 'snapshot-4')!.sellableStock = 7;
+      .rows.find((row) => row.id === 'snapshot-4');
+    if (!latestSnapshot) throw new Error('Receipt fixture snapshot snapshot-4 was not registered.');
+    latestSnapshot.sellableStock = 7;
     await service.reconcileAffectedOrders({ orderIds: ['order-1'], evaluatedAt: '2026-07-12T12:00:00.000Z' });
 
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[0]).toMatchObject({

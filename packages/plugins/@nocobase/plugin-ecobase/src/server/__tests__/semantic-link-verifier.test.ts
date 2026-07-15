@@ -285,6 +285,55 @@ describe('semantic link verification', () => {
     expect(evaluateSemanticLinkSnapshot(snapshot)).toMatchObject({ ok: true, errorCount: 0 });
   });
 
+  it('keeps a valid family preferred supplier without a target offer as a readiness warning', () => {
+    const snapshot = baseline();
+    snapshot.products.push({ id: 'product-2', asin: 'B000SEMANTIC', sku: 'SKU-2' });
+    snapshot.companyProducts.push({ id: 'company-product-2', companyId: 'company-1', productId: 'product-2' });
+    snapshot.goldInventory[0] = {
+      ...snapshot.goldInventory[0],
+      companyProductId: 'company-product-2',
+      companyProductFamilyId: 'family-1',
+      familyPreferredSupplierId: 'supplier-1',
+      familyPreferredSupplierProductId: undefined,
+      supplierSource: 'family_preferred_supplier',
+    };
+    snapshot.goldInventory.push({
+      id: 'gold-inventory-family-member',
+      calculationDate: '2026-07-10',
+      company: 'Ecofission LLC',
+      companyProductId: 'company-product-1',
+      companyProductFamilyId: 'family-1',
+    });
+
+    const result = evaluateSemanticLinkSnapshot(snapshot);
+
+    expect(result).toMatchObject({ ok: true, errorCount: 0, warningCount: 1 });
+    expect(result.issues).toContainEqual(
+      expect.objectContaining({ severity: 'warning', code: 'gold_inventory_target_offer_missing' }),
+    );
+  });
+
+  it('keeps a claimed but broken family target offer blocking', () => {
+    const snapshot = baseline();
+    snapshot.products.push({ id: 'product-2', asin: 'B000SEMANTIC', sku: 'SKU-2' });
+    snapshot.companyProducts.push({ id: 'company-product-2', companyId: 'company-1', productId: 'product-2' });
+    snapshot.goldInventory[0] = {
+      ...snapshot.goldInventory[0],
+      companyProductId: 'company-product-2',
+      companyProductFamilyId: 'family-1',
+      familyPreferredSupplierId: 'supplier-1',
+      familyPreferredSupplierProductId: 'missing-supplier-product',
+      supplierSource: 'family_preferred_supplier',
+    };
+
+    const result = evaluateSemanticLinkSnapshot(snapshot);
+
+    expect(result).toMatchObject({ ok: false, errorCount: 1, warningCount: 0 });
+    expect(result.issues).toContainEqual(
+      expect.objectContaining({ severity: 'error', code: 'gold_inventory_supplier_product_unresolved' }),
+    );
+  });
+
   it('accepts persisted family supplier evidence projected from another listing member', () => {
     const snapshot = baseline();
     snapshot.products.push({ id: 'product-2', asin: 'B000SEMANTIC', sku: 'SKU-2' });

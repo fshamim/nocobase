@@ -383,7 +383,8 @@ export function evaluateSemanticLinkSnapshot(snapshot: SemanticLinkSnapshot) {
           .map((row) => text(row.companyProductId))
           .filter(Boolean),
       );
-      const familySupplierProduct = supplierProductById.get(text(gold.familyPreferredSupplierProductId) ?? '');
+      const familySupplierProductId = text(gold.familyPreferredSupplierProductId);
+      const familySupplierProduct = supplierProductById.get(familySupplierProductId ?? '');
       const familyRelationship = snapshot.companyProductSuppliers.find(
         (row) =>
           familyMemberIds.has(text(row.companyProductId)) && text(row.supplierProductId) === id(familySupplierProduct),
@@ -397,11 +398,15 @@ export function evaluateSemanticLinkSnapshot(snapshot: SemanticLinkSnapshot) {
         (!duplicateSupplierProduct || !duplicateRelationship) &&
         !familySupplierEvidence
       ) {
+        const targetOfferMissing =
+          !familySupplierProductId && text(gold.familyPreferredSupplierId) === text(gold.supplierId);
         issue(
-          'error',
-          'gold_inventory_supplier_product_unresolved',
+          targetOfferMissing ? 'warning' : 'error',
+          targetOfferMissing ? 'gold_inventory_target_offer_missing' : 'gold_inventory_supplier_product_unresolved',
           [gold],
-          'Current gold row lacks supplier product evidence.',
+          targetOfferMissing
+            ? 'Family preferred supplier is valid but the target listing has no supplier-product offer.'
+            : 'Current gold row lacks supplier product evidence.',
         );
       }
     }
