@@ -1,0 +1,20 @@
+yarn run v1.22.22
+$ /Users/fshamim/Documents/dev/ecofission-bi/nocobase/node_modules/.bin/eslint packages/plugins/@nocobase/plugin-ecobase/src/client/pages/PlanningSettingsPage.tsx packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/client/InventoryPlanningPage.tsx packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/inventory-planning-service.ts packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/order-cycle-selection.ts packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/order-receipt-reconciliation-service.ts packages/plugins/@nocobase/plugin-ecobase/src/features/order-planning/client/OrderPlanningPage.tsx packages/plugins/@nocobase/plugin-ecobase/src/features/order-planning/server/order-lifecycle.ts packages/plugins/@nocobase/plugin-ecobase/src/features/order-planning/server/order-planning-service.ts packages/plugins/@nocobase/plugin-ecobase/src/features/semantic-model/server/medallion-normalization-service.ts packages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/import-service.ts packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/inventory-planning-service.test.ts packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-cycle-selection.test.ts packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-lifecycle.test.ts packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-planning-service.test.ts packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-receipt-reconciliation-service.test.ts packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/planning-settings-service.test.ts packages/plugins/@nocobase/plugin-ecobase/src/server/collections/gold-inventory-planning-rows.ts packages/plugins/@nocobase/plugin-ecobase/src/server/collections/planning-settings.ts packages/plugins/@nocobase/plugin-ecobase/src/server/migrations/20260714220000-add-inventory-stabilization-flags.ts packages/plugins/@nocobase/plugin-ecobase/src/server/migrations/20260715010000-add-gold-order-cycle-selection.ts packages/plugins/@nocobase/plugin-ecobase/src/server/resource-actions.ts packages/plugins/@nocobase/plugin-ecobase/src/server/services/planning-settings-service.ts
+
+/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/order-receipt-reconciliation-service.ts
+  167:69  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  312:7   warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  325:28  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  403:15  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  424:21  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  425:20  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  549:26  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  632:20  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+
+/Users/fshamim/Documents/dev/ecofission-bi/nocobase/packages/plugins/@nocobase/plugin-ecobase/src/server/__tests__/order-receipt-reconciliation-service.test.ts
+   69:12  warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+  318:5   warning  Forbidden non-null assertion  @typescript-eslint/no-non-null-assertion
+
+✖ 10 problems (0 errors, 10 warnings)
+
+Done in 3.35s.
