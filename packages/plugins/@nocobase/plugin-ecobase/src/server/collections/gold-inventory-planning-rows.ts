@@ -480,6 +480,32 @@ export default defineCollection({
       index: true,
     },
     { name: 'supplierOrderStatus', type: 'string', interface: 'input', uiSchema: { title: 'Supplier Order Status' } },
+    {
+      name: 'supplierOrderOperationalStatus',
+      type: 'string',
+      interface: 'input',
+      uiSchema: { title: 'Supplier Order Operational Status' },
+    },
+    {
+      name: 'supplierOrderWorkflowStage',
+      type: 'string',
+      interface: 'input',
+      uiSchema: { title: 'Supplier Order Workflow Stage' },
+      index: true,
+    },
+    {
+      name: 'supplierOrderSourceMemberSku',
+      type: 'string',
+      interface: 'input',
+      uiSchema: { title: 'Supplier Order Source Member SKU' },
+    },
+    {
+      name: 'supplierOrderLineMappingScope',
+      type: 'string',
+      interface: 'input',
+      uiSchema: { title: 'Supplier Order Line Mapping Scope' },
+      index: true,
+    },
     { name: 'supplierOrderRef', type: 'string', interface: 'input', uiSchema: { title: 'Supplier Order Ref' } },
     {
       name: 'supplierOrderAuthorityStatus',

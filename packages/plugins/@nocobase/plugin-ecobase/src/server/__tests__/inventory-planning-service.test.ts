@@ -182,6 +182,8 @@ async function createSilverOrderRecord(db: MemoryDatabase, values: Record<string
     orderIntent: values.sourceStage ?? 'imported',
     canonicalStatus: values.status,
     lifecycleStatus: values.status,
+    operationalStatus: values.operationalStatus,
+    workflowStage: values.workflowStage,
     statusSource: values.statusSource,
     authorityStatus: values.authorityStatus ?? 'alternate_authoritative',
     authoritySource: values.authoritySource,
@@ -244,6 +246,7 @@ async function createSilverOrderLineRecord(db: MemoryDatabase, values: Record<st
     expectedSellableDate: values.expectedSellableDate,
     sourceAsin: asin,
     sourceSupplierSku: sku,
+    mappingScope: values.mappingScope ?? 'exact_member',
     productMappingStatus: 'resolved',
     amazonReceiptStatus: values.amazonReceiptStatus,
     amazonReceiptObservedQty: values.amazonReceiptObservedQty,
@@ -651,7 +654,7 @@ describe('EcobaseInventoryPlanningService', () => {
           supplierOrderState: 'no_open_order',
           inventoryAsOfDate: '2026-07-10',
           supplierAvailability: 'unavailable_no_evidence',
-          leadTimeAvailability: 'resolved_default_30d',
+          leadTimeAvailability: 'resolved_default_supplier_lead_time',
           unitCostAvailability: 'unavailable_no_evidence',
           profitAvailability: 'unavailable_no_history',
           ...values,
@@ -1758,11 +1761,11 @@ describe('EcobaseInventoryPlanningService', () => {
       supplierAvailability: 'unavailable_no_evidence',
       leadTimeDays: 30,
       leadTimeFreshness: 'default',
-      leadTimeAvailability: 'resolved_default_30d',
+      leadTimeAvailability: 'resolved_default_supplier_lead_time',
       unitCost: 4.5,
       unitCostAvailability: 'resolved_cogs',
       profitAvailability: 'resolved_history',
-      evidence: { leadTime: { days: 30, source: 'system_default_30d' } },
+      evidence: { leadTime: { days: 30, source: 'planning_settings.default_supplier_lead_time_days' } },
     });
     expect(rows.find((row) => row.sku === 'HISTORY-ZERO')).toMatchObject({
       salesVelocity: 0,
@@ -1979,7 +1982,7 @@ describe('EcobaseInventoryPlanningService', () => {
       supplierAvailability: 'resolved_family_preferred_supplier',
       leadTimeDays: 30,
       leadTimeFreshness: 'default',
-      leadTimeAvailability: 'resolved_default_30d',
+      leadTimeAvailability: 'resolved_default_supplier_lead_time',
       supplierSource: 'family_preferred_supplier',
       supplierOrderRef: 'EF91125A',
       supplierOrderOpenQty: 7,
@@ -2196,6 +2199,8 @@ describe('EcobaseInventoryPlanningService', () => {
       supplierName: 'Active Supplier',
       externalOrderRef: 'PO-ACTIVE',
       status: 'ORDERED',
+      operationalStatus: 'ordered',
+      workflowStage: 'in_prep',
       expectedDeliveryDate: '2026-07-15',
     });
     await createSilverOrderLineRecord(db, {
@@ -2255,6 +2260,10 @@ describe('EcobaseInventoryPlanningService', () => {
       commandCenterPane: 'activeOrders',
       supplierOrderState: 'purchased_pipeline',
       supplierOrderStatus: 'paid',
+      supplierOrderOperationalStatus: 'ordered',
+      supplierOrderWorkflowStage: 'in_prep',
+      supplierOrderSourceMemberSku: sku,
+      supplierOrderLineMappingScope: 'exact_member',
       openOrderCoverageQty: 100,
     });
 

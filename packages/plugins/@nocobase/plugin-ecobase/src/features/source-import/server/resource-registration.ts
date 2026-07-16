@@ -43,6 +43,7 @@ export function createSourceImportResourceRegistration(
           'applySellerboardCogsBackfill',
           'verifySellerboardCogsBackfillIdempotency',
           'importSellerboardCogs',
+          'applySupplierOrderImportPreflight',
           'ensureClickupAttributionUsers',
           'importClickupOrderStatuses',
           'saveCsvSourceConnection',

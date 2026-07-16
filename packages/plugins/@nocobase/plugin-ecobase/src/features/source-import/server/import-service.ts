@@ -274,6 +274,7 @@ export interface ImportClickupOrderStatusesParams {
   sourceConnectionId?: string;
   sourceIdentifier?: string;
   files: CsvSourceFile[];
+  orderDetailFiles?: CsvSourceFile[];
   dryRun?: boolean;
   importedAt?: string;
   snapshotDate?: string;
@@ -734,7 +735,9 @@ export class EcobaseImportService {
     const sourceVersion =
       params.snapshotDate ?? params.importedAt?.slice(0, 10) ?? startedAt.toISOString().slice(0, 10);
     const contentHash = createHash('sha256');
-    for (const file of [...params.files].sort((left, right) => left.name.localeCompare(right.name))) {
+    for (const file of [...params.files, ...(params.orderDetailFiles ?? [])].sort((left, right) =>
+      left.name.localeCompare(right.name),
+    )) {
       contentHash.update(file.name).update('\0').update(file.content).update('\0');
     }
     const baseIdempotencyKey = `${params.sourceConnectionId}:${sourceIdentifier}:${contentHash.digest('hex')}`;
@@ -1683,6 +1686,7 @@ export class EcobaseImportService {
     const finishedAt = new Date();
     const skippedRun = await importRunRepo.create({
       values: {
+        id: randomUUID(),
         ...values,
         finishedAt,
         status: 'skipped',

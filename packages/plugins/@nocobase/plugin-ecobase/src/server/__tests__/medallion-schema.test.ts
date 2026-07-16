@@ -236,6 +236,7 @@ describe('Ecobase medallion schema foundation', () => {
       foreignKey: 'orderId',
     });
     expect(field(goldOrderPlanningRows, 'canonicalStatus')).toMatchObject({ type: 'string' });
+    expect(field(goldOrderPlanningRows, 'trackingId')).toMatchObject({ type: 'text' });
     expect(field(goldOrderPlanningRows, 'moneyAtRisk')).toMatchObject({ type: 'double' });
     expect(field(goldReportItems, 'reportRun')).toMatchObject({
       type: 'belongsTo',

@@ -21,6 +21,7 @@ type PlanningSettingKey =
   | 'orderSoonWindowDays'
   | 'leadTimeFreshnessDays'
   | 'purchasedPipelineGraceDays'
+  | 'defaultSupplierLeadTimeDays'
   | 'fbaReceivingBufferDays';
 
 type PlanningFeatureFlagKey = 'enableCurrentOrderCycleSelection';
@@ -39,6 +40,7 @@ const SETTING_KEYS: PlanningSettingKey[] = [
   'orderSoonWindowDays',
   'leadTimeFreshnessDays',
   'purchasedPipelineGraceDays',
+  'defaultSupplierLeadTimeDays',
   'fbaReceivingBufferDays',
 ];
 
@@ -99,6 +101,12 @@ const SETTING_HELP: Record<NumberSettingKey, { label: string; meaning: string; e
     example:
       'If this is 3, an order expected 2 days ago still reduces suggested quantity; one expected 5 days ago does not.',
     usedBy: 'Reliable open-order coverage and suggested quantity.',
+  },
+  defaultSupplierLeadTimeDays: {
+    label: 'Default supplier lead time days',
+    meaning: 'Fallback supplier lead time used only when no trusted supplier-specific lead time exists.',
+    example: 'With 30 days, an order without a supplier lead-time record is projected 30 days to prep.',
+    usedBy: 'Safe reorder date and expected-arrival projection when supplier evidence is missing.',
   },
   fbaReceivingBufferDays: {
     label: 'FBA receiving buffer days',

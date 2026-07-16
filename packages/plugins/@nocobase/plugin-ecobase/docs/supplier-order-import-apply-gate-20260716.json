@@ -1,0 +1,273 @@
+{
+  "preview": {
+    "deterministic": true,
+    "digest": "132d5d5efffcf1e6af8762cea9dfbbb906d451dc3ce2fed318df70416ccc8e54",
+    "asOfDate": "2026-07-16",
+    "sourceFiles": [
+      {
+        "name": "order-managment-sheets/Ecofission-Order Management - OrderDetails.csv",
+        "role": "order_details",
+        "sha256": "4d2f39e2f003de36551c8f3f10afba30af06b23d89be440735ffc54159920a45",
+        "rowCount": 6489
+      },
+      {
+        "name": "order-managment-sheets/Ecofission-Order Management - Purchase Orders.csv",
+        "role": "purchase_orders",
+        "sha256": "6e0362d2e2cebc346f3dfdb4fff89330bd8f911ccd03d7fdb9254a546bca2075",
+        "rowCount": 4310
+      },
+      {
+        "name": "supplier-management-sheets/Ecofission-Order Management - Supplier IDs.csv",
+        "role": "supplier_ids",
+        "sha256": "e1708c82a2aa4da9cf1ecba4e873f80b1125861128fdc810fe24c920cc9e2d94",
+        "rowCount": 2135
+      },
+      {
+        "name": "supplier-management-sheets/Supplier Analysis Tracker - Supplier 2026.csv",
+        "role": "supplier_tracker",
+        "sha256": "d2fab46cfbb17a9ecb2d3695652c5751a7752367783c57a2a7b44dd90cc1cb5c",
+        "rowCount": 528
+      },
+      {
+        "name": "supplier-management-sheets/Supplier Analysis Tracker - Supplier Analysis Tracker.csv",
+        "role": "supplier_tracker",
+        "sha256": "d09f10e4d5c86c1c173d37ac22e19aed7f1fbe1045e5e926d94214523c3098e8",
+        "rowCount": 1659
+      }
+    ],
+    "counts": {
+      "suppliers": 1794,
+      "supplierAccounts": 1451,
+      "supplierProducts": 1156,
+      "orders": 79,
+      "orderLines": 309,
+      "blockedSupplierCodes": 62,
+      "duplicateSupplierNames": 19,
+      "blockedOrderIds": 12,
+      "issues": 2574
+    },
+    "supplierCodeOverrides": [
+      {
+        "acceptedCode": "SRO-12939",
+        "rejectedCode": "SRO-1293",
+        "normalizedName": "DELKO TOOLS"
+      },
+      {
+        "acceptedCode": "SRO-12572",
+        "rejectedCode": "SRO-1257",
+        "normalizedName": "FRANKLIN MACHINE PRODUCTS"
+      }
+    ],
+    "supplierNameOverrides": [
+      {
+        "externalSupplierCode": "SRO-10484",
+        "displayName": "Spicin Foods, Inc.",
+        "sourceNames": ["SPICIN FOODS, INC.", "SPICIN FOODS, INC"],
+        "reason": "po_referenced_identity_resolution"
+      },
+      {
+        "externalSupplierCode": "SRO-12478",
+        "displayName": "Boxer Adhesives",
+        "sourceNames": ["BOXER ADHESIVES", "UNION LABORATORIES / BOXER ADHESIVES"],
+        "reason": "po_referenced_identity_resolution"
+      },
+      {
+        "externalSupplierCode": "SRO-12890",
+        "displayName": "Peppermill Kitchenware Inc.",
+        "sourceNames": ["PEPPERMILL KITCHENWARE INC.", "PEPPERMILL KITCHENWARE INC"],
+        "reason": "po_referenced_identity_resolution"
+      },
+      {
+        "externalSupplierCode": "SRO-1538",
+        "displayName": "BIRCHWOOD LABORATORIES INC",
+        "sourceNames": ["BIRCHWOOD LABORATORIES INC", "BIRCHWOOD LABORATORIES"],
+        "reason": "po_referenced_identity_resolution"
+      },
+      {
+        "externalSupplierCode": "SRO-2873",
+        "displayName": "Clarke Tinwhistles USA",
+        "sourceNames": ["CLARKETINWHISTLE", "CLARKE TINWHISTLES USA"],
+        "reason": "po_referenced_identity_resolution"
+      },
+      {
+        "externalSupplierCode": "SRO-442",
+        "displayName": "Alliance Entertainment",
+        "sourceNames": ["ALLIANCE", "ALLIANCE ENTERTAINMENT"],
+        "reason": "po_referenced_identity_resolution"
+      },
+      {
+        "externalSupplierCode": "SRO-9095",
+        "displayName": "Premierwd",
+        "sourceNames": ["PREMIERWD", "PREMIER WD"],
+        "reason": "po_referenced_identity_resolution"
+      },
+      {
+        "externalSupplierCode": "SRO-9482",
+        "displayName": "Redstone Foods, Inc",
+        "sourceNames": ["REDSTONE FOODS, INC", "RED STONE FOODS"],
+        "reason": "po_referenced_identity_resolution"
+      },
+      {
+        "externalSupplierCode": "SRO-9619",
+        "displayName": "Rio Grande Games",
+        "sourceNames": ["RIOGRANDEGAMES", "RIO GRANDE GAMES"],
+        "reason": "po_referenced_identity_resolution"
+      }
+    ],
+    "reconciliation": {
+      "matchedOrderCount": 2158,
+      "detailsOnlyOrderCount": 235,
+      "purchaseOnlyOrderCount": 24,
+      "supplierMismatchCount": 4,
+      "companyMismatchCount": 3,
+      "retainedOrderCount": 79,
+      "retainedOrderLineCount": 309
+    },
+    "issueReasonCounts": {
+      "cancelled_or_rejected_order": 133,
+      "company_evidence_conflict": 1,
+      "company_out_of_scope": 881,
+      "invalid_asin": 12,
+      "invalid_boolean": 2,
+      "invalid_date": 5,
+      "invalid_email": 4,
+      "invalid_number": 187,
+      "invalid_supplier_code": 36,
+      "missing_supplier_sku_asin_fallback": 2,
+      "orphan_without_operational_evidence": 146,
+      "stale_complete_order": 1050,
+      "stale_unknown_order": 1,
+      "unsupported_order_ref": 114
+    }
+  },
+  "firstApply": {
+    "digest": "132d5d5efffcf1e6af8762cea9dfbbb906d451dc3ce2fed318df70416ccc8e54",
+    "noOp": false,
+    "totalWrites": 1827,
+    "created": 103,
+    "updated": 1724,
+    "deleted": 0,
+    "unchanged": 6376,
+    "unresolvedSupplierProducts": 0,
+    "updatedFields": {
+      "silverSupplierProducts.sourceEvidence": 1360,
+      "silverOrders.statusEvidenceJson": 73,
+      "silverOrders.authorityEvidenceJson": 73,
+      "silverOrders.sourceEvidence": 73,
+      "silverOrders.dailySequenceLetter": 6,
+      "silverOrderLines.productMappingEvidenceJson": 291,
+      "silverOrderLines.sourceEvidence": 291
+    },
+    "byCollection": {
+      "silverCompanies": {
+        "created": 0,
+        "updated": 0,
+        "deleted": 0,
+        "unchanged": 4
+      },
+      "silverSuppliers": {
+        "created": 9,
+        "updated": 0,
+        "deleted": 0,
+        "unchanged": 1785
+      },
+      "silverSupplierExternalRefs": {
+        "created": 9,
+        "updated": 0,
+        "deleted": 0,
+        "unchanged": 1785
+      },
+      "silverSupplierAccounts": {
+        "created": 9,
+        "updated": 0,
+        "deleted": 0,
+        "unchanged": 1442
+      },
+      "silverProducts": {
+        "created": 26,
+        "updated": 0,
+        "deleted": 0,
+        "unchanged": 1360
+      },
+      "silverSupplierProducts": {
+        "created": 26,
+        "updated": 1360,
+        "deleted": 0,
+        "unchanged": 0
+      },
+      "silverOrders": {
+        "created": 6,
+        "updated": 73,
+        "deleted": 0,
+        "unchanged": 0
+      },
+      "silverOrderLines": {
+        "created": 18,
+        "updated": 291,
+        "deleted": 0,
+        "unchanged": 0
+      }
+    }
+  },
+  "secondApply": {
+    "digest": "132d5d5efffcf1e6af8762cea9dfbbb906d451dc3ce2fed318df70416ccc8e54",
+    "noOp": true,
+    "totalWrites": 0,
+    "created": 0,
+    "updated": 0,
+    "deleted": 0,
+    "unchanged": 8203,
+    "unresolvedSupplierProducts": 0,
+    "updatedFields": {},
+    "byCollection": {
+      "silverCompanies": {
+        "created": 0,
+        "updated": 0,
+        "deleted": 0,
+        "unchanged": 4
+      },
+      "silverSuppliers": {
+        "created": 0,
+        "updated": 0,
+        "deleted": 0,
+        "unchanged": 1794
+      },
+      "silverSupplierExternalRefs": {
+        "created": 0,
+        "updated": 0,
+        "deleted": 0,
+        "unchanged": 1794
+      },
+      "silverSupplierAccounts": {
+        "created": 0,
+        "updated": 0,
+        "deleted": 0,
+        "unchanged": 1451
+      },
+      "silverProducts": {
+        "created": 0,
+        "updated": 0,
+        "deleted": 0,
+        "unchanged": 1386
+      },
+      "silverSupplierProducts": {
+        "created": 0,
+        "updated": 0,
+        "deleted": 0,
+        "unchanged": 1386
+      },
+      "silverOrders": {
+        "created": 0,
+        "updated": 0,
+        "deleted": 0,
+        "unchanged": 79
+      },
+      "silverOrderLines": {
+        "created": 0,
+        "updated": 0,
+        "deleted": 0,
+        "unchanged": 309
+      }
+    }
+  }
+}

@@ -44,7 +44,6 @@ import { EcobaseGoldRefreshRunService } from './gold-refresh-run-service';
 const GOLD_SOURCE_RECORD_LIMIT = 100000;
 const TIER_RULE_VERSION = 'rolling_30d_min_4_v1';
 const MINIMUM_TIER_UNITS_30_DAYS = 4;
-const DEFAULT_SUPPLIER_LEAD_TIME_DAYS = 30;
 export type InventoryPlanningActionStatus =
   | 'excluded'
   | 'missing_inventory'
@@ -68,6 +67,7 @@ export interface InventoryPlanningQuery {
   reorderCycleDays?: number;
   targetCoverDays?: number;
   purchasedPipelineGraceDays?: number;
+  defaultSupplierLeadTimeDays?: number;
   limit?: number;
 }
 
@@ -819,6 +819,10 @@ function summarizeSupplierOrderState(
     supplierOrderState: state,
     supplierOrderId: asString(reference?.order.id),
     supplierOrderStatus: reference?.order ? supplierCoverageStatus(reference.order, rules) : undefined,
+    supplierOrderOperationalStatus: asString(reference?.order.operationalStatus),
+    supplierOrderWorkflowStage: asString(reference?.order.workflowStage),
+    supplierOrderSourceMemberSku: asString(reference?.line.sourceSupplierSku),
+    supplierOrderLineMappingScope: asString(reference?.line.mappingScope),
     supplierOrderRef: asString(reference?.order.externalOrderRef) ?? asString(reference?.order.id),
     supplierOrderAuthorityStatus: asString(reference?.order.authorityStatus),
     supplierOrderAuthoritySource: asString(reference?.order.authoritySource) ?? asString(reference?.order.statusSource),
@@ -1106,6 +1110,10 @@ const INVENTORY_PLANNING_ROW_FIELDS = [
   'supplierOrderStale',
   'supplierOrderId',
   'supplierOrderStatus',
+  'supplierOrderOperationalStatus',
+  'supplierOrderWorkflowStage',
+  'supplierOrderSourceMemberSku',
+  'supplierOrderLineMappingScope',
   'supplierOrderRef',
   'supplierOrderAuthorityStatus',
   'supplierOrderAuthoritySource',
@@ -1515,6 +1523,7 @@ export class EcobaseInventoryPlanningService {
     const defaultTargetCoverDays = settings.targetCoverDays;
     const leadTimeFreshnessDays = settings.leadTimeFreshnessDays;
     const purchasedPipelineGraceDays = settings.purchasedPipelineGraceDays;
+    const defaultSupplierLeadTimeDays = settings.defaultSupplierLeadTimeDays;
     const fbaReceivingBufferDays = settings.fbaReceivingBufferDays;
     const profitTierThresholds: ProfitTierThresholds = settings;
     const statusRules = supplierOrderStatusRules(settings);
@@ -1803,14 +1812,14 @@ export class EcobaseInventoryPlanningService {
       });
       const hasOrderCostEvidence = allProductOrderLines.some((line) => typeof asNumber(line.unitCost) === 'number');
       const sourceLeadTimeDays = asNumber(supplierProduct.leadTimeDays);
-      const leadTimeDays = sourceLeadTimeDays ?? DEFAULT_SUPPLIER_LEAD_TIME_DAYS;
+      const leadTimeDays = sourceLeadTimeDays ?? defaultSupplierLeadTimeDays;
       const supplierAvailability = hasSupplier
         ? 'resolved_silver_link'
         : supplierContext || hasOrderSupplierEvidence
           ? 'link_defect'
           : 'unavailable_no_evidence';
       const leadTimeAvailability =
-        typeof sourceLeadTimeDays === 'number' ? 'resolved_silver_link' : 'resolved_default_30d';
+        typeof sourceLeadTimeDays === 'number' ? 'resolved_silver_link' : 'resolved_default_supplier_lead_time';
       const leadTimeFreshness = typeof sourceLeadTimeDays === 'number' ? 'fresh' : 'default';
       const openOrder = {
         ...summarizeSupplierOrderState(
@@ -2056,7 +2065,10 @@ export class EcobaseInventoryPlanningService {
           },
           leadTime: {
             days: leadTimeDays,
-            source: typeof sourceLeadTimeDays === 'number' ? 'silver_supplier_product' : 'system_default_30d',
+            source:
+              typeof sourceLeadTimeDays === 'number'
+                ? 'silver_supplier_product'
+                : 'planning_settings.default_supplier_lead_time_days',
           },
           orderCycle: cycleSelection,
         },
@@ -2251,6 +2263,10 @@ export class EcobaseInventoryPlanningService {
       'supplierOrderStale',
       'supplierOrderId',
       'supplierOrderStatus',
+      'supplierOrderOperationalStatus',
+      'supplierOrderWorkflowStage',
+      'supplierOrderSourceMemberSku',
+      'supplierOrderLineMappingScope',
       'supplierOrderRef',
       'supplierOrderAuthorityStatus',
       'supplierOrderAuthoritySource',
@@ -2351,7 +2367,10 @@ export class EcobaseInventoryPlanningService {
       const familyUnitCost =
         asNumber(target?.familyUnitCost) ?? asNumber(orderSource?.unitCost) ?? asNumber(target?.unitCost);
       const familyLeadTimeDays =
-        asNumber(target?.familyLeadTimeDays) ?? asNumber(orderSource?.leadTimeDays) ?? DEFAULT_SUPPLIER_LEAD_TIME_DAYS;
+        asNumber(target?.familyLeadTimeDays) ??
+        asNumber(orderSource?.leadTimeDays) ??
+        asNumber((target ?? review ?? members[0])?.leadTimeDays) ??
+        DEFAULT_PLANNING_SETTINGS.defaultSupplierLeadTimeDays;
       const latestSafeReorderDate = familyEstimatedOosDate
         ? addDays(familyEstimatedOosDate, -(familyLeadTimeDays + (asNumber(target?.safetyBufferDays) ?? 0)))
         : undefined;
@@ -2504,7 +2523,7 @@ export class EcobaseInventoryPlanningService {
                 leadTimeFreshness: asNumber(target?.familyLeadTimeDays) === undefined ? 'default' : 'fresh',
                 leadTimeAvailability:
                   asNumber(target?.familyLeadTimeDays) === undefined
-                    ? 'resolved_default_30d'
+                    ? 'resolved_default_supplier_lead_time'
                     : 'resolved_family_preferred_supplier',
                 unitCost: familyUnitCost,
                 unitCostSource:

@@ -1623,6 +1623,22 @@ describe('Ecobase import public API seam', () => {
     expect(ambiguous.ambiguousMultiRefTasks).toEqual([
       { taskId: 'task-1', lineNumber: 2, orderRefs: ['EF1001A', 'MX1001A'] },
     ]);
+
+    const compact = parseClickupOrderStatusFiles([
+      {
+        name: 'synthetic-clickup.csv',
+        content: [
+          'Task ID,Task Name,Status,Date Created,Parent ID,List Name',
+          'older,MX12425B - Muxtex INC,complete,1000,null,Prep & Logistics',
+          'newer,MX12425B,complete,2000,blank,Order Management (ORM)',
+          'helper,Shipping Labels Required MX12425B,complete,3000,newer,Prep & Logistics',
+        ].join('\n'),
+      },
+    ]);
+    expect(compact.missingMainTaskRefs).toEqual([]);
+    expect(compact.selectedTasks).toEqual([
+      expect.objectContaining({ ref: 'MX12425B', task: expect.objectContaining({ taskId: 'newer' }) }),
+    ]);
   });
 
   it('discards multi-order ClickUp tasks as warnings instead of import errors', async () => {
@@ -1683,11 +1699,11 @@ describe('Ecobase import public API seam', () => {
       hold: 'blocked',
       'hold/cancelled': 'cancelled',
       'in progress': 'supplier_contacted',
-      'in transit to prep': 'shipped_inbound',
+      'in transit to prep': 'paid',
       'inbound-monitoring': 'shipped_inbound',
       ordered: 'paid',
       'order analysing': 'draft',
-      'prep-in-progress': 'shipped_inbound',
+      'prep-in-progress': 'paid',
       'to do': 'draft',
     });
     expect(canonicalOrderStatusForClickupStatus('unknown')).toBeUndefined();
@@ -1873,11 +1889,11 @@ describe('Ecobase import public API seam', () => {
     await actions.importClickupOrderStatuses(companyConflictContext, vi.fn());
     expect(companyConflictContext.body).toMatchObject({
       data: {
-        selectedRefCount: 1,
-        matchedOrderCount: 1,
+        selectedRefCount: 0,
+        matchedOrderCount: 0,
         companyConflictCount: 1,
-        blockingIssueCount: 0,
-        proposedUpdates: [expect.objectContaining({ supplierOrderId: 'stop-order', company: 'Stop Shop LLC' })],
+        blockingIssueCount: 1,
+        proposedUpdates: [],
       },
     });
   });
@@ -1915,15 +1931,15 @@ describe('Ecobase import public API seam', () => {
 
     expect(context.body).toMatchObject({
       data: {
-        status: 'success',
-        errorCount: 0,
+        status: 'partial',
+        errorCount: 1,
         summary: {
           clickup: {
-            selectedRefCount: 1,
+            selectedRefCount: 0,
             updatedOrderCount: 0,
             conflictingMainTaskCount: 1,
-            blockingIssueCount: 0,
-            proposedUpdates: [expect.objectContaining({ requiresReview: true })],
+            blockingIssueCount: 1,
+            proposedUpdates: [],
           },
         },
       },
@@ -1931,8 +1947,6 @@ describe('Ecobase import public API seam', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).all()[0]).toMatchObject({
       status: 'approval_pending',
       statusSource: 'google_sheets',
-      statusCheckRequired: true,
-      statusEvidenceJson: { clickupStatusConflict: expect.objectContaining({ ref: 'SS7226A' }) },
     });
   });
 
@@ -2026,7 +2040,7 @@ describe('Ecobase import public API seam', () => {
     });
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).all()[0]).toMatchObject({
       canonicalStatus: 'paid',
-      lifecycleStatus: 'ordered',
+      lifecycleStatus: 'ORDERED',
       statusSource: 'clickup_csv',
       operatorStatusOverrideAt: null,
       operatorStatusOverrideByUserId: null,
@@ -2052,7 +2066,13 @@ describe('Ecobase import public API seam', () => {
         canonicalStatus: 'approval_pending',
         lifecycleStatus: 'approval_pending',
         statusSource: 'clickup_csv',
-        statusEvidenceJson: { clickupStatusImport: { taskId: 'older-task', mappedStatus: 'approval_pending' } },
+        statusEvidenceJson: {
+          clickupStatusImport: {
+            taskId: 'older-task',
+            clickupStatus: 'approved-to-order',
+            mappedStatus: 'approval_pending',
+          },
+        },
       },
     });
     const content = [
@@ -2073,9 +2093,20 @@ describe('Ecobase import public API seam', () => {
     });
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).all()[0]).toMatchObject({
       canonicalStatus: 'paid',
-      lifecycleStatus: 'ordered',
+      lifecycleStatus: 'ORDERED',
       statusSource: 'clickup_csv',
-      statusEvidenceJson: { clickupStatusImport: { taskId: 'newer-task', mappedStatus: 'paid' } },
+      statusEvidenceJson: {
+        clickupStatusImport: { taskId: 'newer-task', mappedStatus: 'paid' },
+        statusHistory: [
+          {
+            source: 'clickup_csv',
+            taskId: 'newer-task',
+            previousStatus: 'approved-to-order',
+            nextStatus: 'ordered',
+            observedAt: expect.any(String),
+          },
+        ],
+      },
     });
   });
 
@@ -2132,12 +2163,12 @@ describe('Ecobase import public API seam', () => {
     });
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).all()[0]).toMatchObject({
       canonicalStatus: 'shipped_inbound',
-      lifecycleStatus: 'inbound-monitoring',
+      lifecycleStatus: 'INBOUND MONITORING',
       statusSource: 'clickup_csv',
       authorityStatus: 'clickup_authoritative',
       authoritySource: 'clickup_csv',
       authorityTaskRef: 'task-main',
-      authorityAsOf: '2026-07-01T15:59:59.420Z',
+      authorityAsOf: '2026-07-06T00:00:00.000Z',
       statusEvidenceJson: {
         clickupStatusImport: expect.objectContaining({
           clickupStatus: 'inbound-monitoring',
@@ -2170,6 +2201,114 @@ describe('Ecobase import public API seam', () => {
       canonicalStatus: 'shipped_inbound',
       statusSource: 'clickup_csv',
     });
+  });
+
+  it('creates only deterministic active ClickUp workflow drafts and re-imports idempotently', async () => {
+    const db = new MemoryDatabase();
+    let transactionCount = 0;
+    (
+      db as MemoryDatabase & {
+        sequelize: { transaction: (callback: (transaction: unknown) => Promise<void>) => Promise<void> };
+      }
+    ).sequelize = {
+      transaction: async (callback) => {
+        transactionCount += 1;
+        await callback({});
+      },
+    };
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
+      values: { id: 'stop-company', companyKey: 'STOP_SHOP_LLC', name: 'Stop Shop LLC' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverSupplierExternalRefs).create({
+      values: {
+        id: 'supplier-ref',
+        supplierId: 'supplier-1',
+        normalizedExternalSupplierCode: 'SRO-3000',
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverSupplierAccounts).create({
+      values: { id: 'supplier-account', companyId: 'stop-company', supplierId: 'supplier-1' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductFamilies).create({
+      values: {
+        id: 'family-1',
+        companyId: 'stop-company',
+        canonicalAsin: 'B008BVEKJ2',
+        marketplace: 'amazon.com',
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+      values: { id: 'product-1', asin: 'B008BVEKJ2', sku: '22-3000' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+      values: {
+        id: 'company-product-1',
+        companyId: 'stop-company',
+        companyProductFamilyId: 'family-1',
+        productId: 'product-1',
+      },
+    });
+    const clickupFile = {
+      name: 'clickup.csv',
+      content: [
+        'Task ID,Task Link,Task Name,Status,Date Created,Parent ID,List Name',
+        'draft-task,https://clickup.test/draft,Restock Order SS2626D Stop Shop,in progress,1770383090985,null,Order Management (ORM)',
+        'unlinked-task,https://clickup.test/unlinked,New Order SS7226A Stop Shop,approved-to-order,1782921594245,null,Order Management (ORM)',
+      ].join('\n'),
+    };
+    const detailFile = {
+      name: 'order-details.csv',
+      content: [
+        'Order ID,Timestamp,Company,SR ID,Supplier,ASIN,UPC,SKU,Qty,PPU,Total Cost,Order type',
+        'SS2626D,05/02/2026,Stop Shop LLC,SRO-3000,COLLECTORS ARMOURY,B008BVEKJ2,8435089730005,22-3000,15,4,60,Restock',
+      ].join('\n'),
+    };
+    const service = new EcobaseClickupOrderStatusService(db);
+    const params = {
+      files: [clickupFile],
+      orderDetailFiles: [detailFile],
+      dryRun: false,
+      sourceConnectionId: 'clickup-source',
+      importedAt: '2026-07-16T00:00:00.000Z',
+    };
+
+    const first = await service.importCsvFiles(params);
+
+    expect(first).toMatchObject({
+      workflowDraftCount: 1,
+      workflowDraftLineCount: 1,
+      unmatchedRefs: ['Stop Shop LLC:SS7226A'],
+      workflowDraftExceptions: [{ ref: 'SS7226A', taskId: 'unlinked-task', reason: 'order_details_missing' }],
+    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).all()).toEqual([
+      expect.objectContaining({
+        orderRef: 'SS2626D',
+        recordType: 'workflow_draft',
+        purchaseEvidenceStatus: 'unconfirmed_workflow',
+        operationalStatus: 'in progress',
+        workflowStage: 'pre_purchase',
+        taskRef: 'draft-task',
+        taskLink: 'https://clickup.test/draft',
+      }),
+    ]);
+    expect(transactionCount).toBe(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).all()).toEqual([
+      expect.objectContaining({
+        externalOrderId: 'SS2626D',
+        companyProductFamilyId: 'family-1',
+        companyProductId: 'company-product-1',
+        supplierProductId: null,
+        purchaseEvidenceStatus: 'unconfirmed_workflow',
+      }),
+    ]);
+    const firstOrders = structuredClone(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).all());
+    const firstLines = structuredClone(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).all());
+
+    const second = await service.importCsvFiles(params);
+
+    expect(second).toMatchObject({ workflowDraftCount: 0, workflowDraftLineCount: 0, updatedOrderCount: 0 });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).all()).toEqual(firstOrders);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).all()).toEqual(firstLines);
   });
 
   it('imports ClickUp comments as idempotent supplier-order notes', async () => {
@@ -2286,7 +2425,7 @@ describe('Ecobase import public API seam', () => {
     expect(dryRunContext.body).toMatchObject({
       data: {
         dryRun: true,
-        matchedOrderCount: 2,
+        matchedOrderCount: 3,
         selectedCommentCount: 2,
         proposedCommentCount: 2,
         importedCommentCount: 0,

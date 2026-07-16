@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { defineCollection } from '@nocobase/database';
 import { ECOBASE_COLLECTIONS } from './names';
 
@@ -31,6 +40,9 @@ export default defineCollection({
     { name: 'leadTimeDays', type: 'double' },
     { name: 'prepCapability', type: 'string' },
     { name: 'analysisStatus', type: 'string', allowNull: false, defaultValue: 'not_analyzed' },
+    { name: 'lastPriceUpdateDate', type: 'dateOnly' },
+    { name: 'mapPrice', type: 'double' },
+    { name: 'sourceEvidence', type: 'jsonb', defaultValue: {} },
   ],
   indexes: [
     {

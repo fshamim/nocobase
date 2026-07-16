@@ -1,0 +1,67 @@
+{
+  "database": "nocobase_supplier_order_phase6_complete",
+  "planDigest": "7d6326a5990a17a9896bf69324e687811bba006bf3a6282ea7a4300e2a686c16",
+  "orders": {
+    "count": 79,
+    "missingCompanyOrSupplier": 0,
+    "duplicateCompanyOrderRef": 0,
+    "purchaseEvidence": {
+      "confirmed": 79
+    }
+  },
+  "lines": {
+    "count": 306,
+    "mappingScopes": {
+      "exact_member": 237,
+      "family_only": 69
+    },
+    "missingOrderSupplierOrFamily": 0,
+    "familyOnlyWithMemberOrOffer": 0,
+    "exactMemberMissingOffer": 0,
+    "familyTargetMethods": 0,
+    "crossCompanyLinks": 0,
+    "memberOutsideFamily": 0,
+    "supplierOfferMismatch": 0,
+    "missingSourceEvidence": 0,
+    "duplicateSourceLines": 0
+  },
+  "headerlessOrderOutcomes": {
+    "count": 235,
+    "byReason": {
+      "company_evidence_conflict": 1,
+      "company_out_of_scope": 32,
+      "orphan_without_operational_evidence": 143,
+      "unsupported_order_ref": 59
+    }
+  },
+  "blockedOrderLines": [
+    {
+      "sourceLineKey": "EF42926A:1",
+      "externalOrderId": "EF42926A",
+      "companyKey": "ECOFISSION_LLC",
+      "asin": "B0992V417C",
+      "sourceMarketplace": "amazon.com",
+      "reason": "family_not_found"
+    },
+    {
+      "sourceLineKey": "RH62326A:2",
+      "externalOrderId": "RH62326A",
+      "companyKey": "RETAIL_HEAVEN_INC",
+      "asin": "B00HHCT3NY",
+      "sourceMarketplace": "amazon.com",
+      "reason": "family_not_found"
+    },
+    {
+      "sourceLineKey": "SS7826A:1",
+      "externalOrderId": "SS7826A",
+      "companyKey": "STOP_SHOP_LLC",
+      "asin": "B07RGG7TXX",
+      "sourceMarketplace": "UK",
+      "reason": "family_marketplace_unresolved"
+    }
+  ],
+  "secondApply": {
+    "noOp": true,
+    "totalWrites": 0
+  }
+}

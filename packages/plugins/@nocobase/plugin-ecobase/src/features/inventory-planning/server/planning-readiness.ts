@@ -89,7 +89,7 @@ export function evaluatePlanningReadiness(input: PlanningReadinessInput): Planni
       ],
       [input.supplierAvailability === 'link_defect', 'degraded', 'supplier_link_defect'],
       [!input.leadTimeAvailability, 'unavailable', 'lead_time_unavailable'],
-      [input.leadTimeAvailability === 'resolved_default_30d', 'degraded', 'lead_time_default'],
+      [input.leadTimeAvailability === 'resolved_default_supplier_lead_time', 'degraded', 'lead_time_default'],
       [Boolean(input.leadTimeAvailability?.startsWith('unavailable_')), 'unavailable', 'lead_time_unavailable'],
     ),
     orderTiming: input.activeOrder
