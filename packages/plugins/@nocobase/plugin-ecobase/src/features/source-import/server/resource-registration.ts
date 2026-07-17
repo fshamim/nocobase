@@ -18,7 +18,11 @@ export function createSourceImportResourceRegistration(
   return {
     resources: [{ name: 'ecobaseImport', actions: createEcobaseImportActions(registry) }],
     acl: [
-      { resource: 'ecobaseImport', actions: ['status', 'adapters', 'listSellerboardSources'], role: LOGGED_IN },
+      {
+        resource: 'ecobaseImport',
+        actions: ['status', 'adapters', 'listSellerboardSources', 'protectedCatalogDrift'],
+        role: LOGGED_IN,
+      },
       {
         resource: 'ecobaseImport',
         actions: [
@@ -43,6 +47,7 @@ export function createSourceImportResourceRegistration(
           'applySellerboardCogsBackfill',
           'verifySellerboardCogsBackfillIdempotency',
           'importSellerboardCogs',
+          'previewSupplierOrderImport',
           'applySupplierOrderImportPreflight',
           'ensureClickupAttributionUsers',
           'importClickupOrderStatuses',

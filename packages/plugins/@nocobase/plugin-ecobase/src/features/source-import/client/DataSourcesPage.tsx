@@ -79,8 +79,10 @@ type SourceStatusRow = {
 };
 
 type CompanyOption = { label: string; value: string };
+type SupplierOrderImportMode = 'canonical-rebuild' | 'refresh';
 
 type ImportRunResult = {
+  importMode?: SupplierOrderImportMode;
   id?: string;
   status?: string;
   rowCount?: number;
@@ -146,6 +148,7 @@ function shortChecksum(value: string) {
 
 const CLICKUP_ORDER_STATUS_ADAPTER = 'clickup-order-status-csv';
 const SELLERBOARD_COGS_ADAPTER = 'sellerboard-cogs-csv';
+const SUPPLIER_ORDER_ADAPTER = 'supplier-order-csv';
 
 function groupKey(group: CsvBundleAnalysisGroup) {
   return `${group.adapterName}:${group.sourceType}:${group.domain}`;
@@ -157,6 +160,10 @@ function isClickupOrderStatusGroup(group: CsvBundleAnalysisGroup) {
 
 function isSellerboardCogsGroup(group: CsvBundleAnalysisGroup) {
   return group.adapterName === SELLERBOARD_COGS_ADAPTER;
+}
+
+function isSupplierOrderGroup(group: CsvBundleAnalysisGroup) {
+  return group.adapterName === SUPPLIER_ORDER_ADAPTER;
 }
 
 function csvSourceConnectionName(group: CsvBundleAnalysisGroup) {
@@ -178,11 +185,12 @@ function todayIsoDate() {
 export default function DataSourcesPage() {
   const t = useT();
   const api = useAPIClient();
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const [sourceRows, setSourceRows] = useState<SourceStatusRow[]>([]);
   const [companies, setCompanies] = useState<CompanyOption[]>([]);
   const [company, setCompany] = useState<string | undefined>();
   const [sourceVersion, setSourceVersion] = useState(todayIsoDate());
+  const [supplierOrderImportMode, setSupplierOrderImportMode] = useState<SupplierOrderImportMode>('refresh');
   const [overrideClickupOperatorStatuses, setOverrideClickupOperatorStatuses] = useState(false);
   const [files, setFiles] = useState<UploadedCsvFile[]>([]);
   const [analysis, setAnalysis] = useState<CsvBundleAnalysis | null>(null);
@@ -298,8 +306,9 @@ export default function DataSourcesPage() {
     setLoading('run');
     setError(null);
     try {
+      const supplierOrder = isSupplierOrderGroup(group);
       let sourceConnectionId = selectedConnections[key] ?? sourceOptionsForGroup(group)[0]?.value;
-      if (!sourceConnectionId) {
+      if (!sourceConnectionId && !supplierOrder) {
         message.info(t('Creating a matching source connection for this CSV group'));
         sourceConnectionId = await createSourceConnectionForGroup(group);
       }
@@ -309,7 +318,49 @@ export default function DataSourcesPage() {
       const clickupOrderStatus = isClickupOrderStatusGroup(group);
       const sellerboardCogs = isSellerboardCogsGroup(group);
       let result: ImportRunResult;
-      if (clickupOrderStatus) {
+      if (supplierOrder) {
+        const previewResponse = await api.request({
+          url: 'ecobaseImport:previewSupplierOrderImport',
+          method: 'post',
+          data: { asOfDate: sourceVersion, importMode: supplierOrderImportMode, files: groupFiles },
+        });
+        const preflight = unwrapRecord(previewResponse);
+        if (preflight.ready !== true) {
+          const blockers = Array.isArray(preflight.blockers) ? preflight.blockers.length : 0;
+          throw new Error(`Supplier/order preflight blocked apply with ${blockers} blocker(s).`);
+        }
+        const confirmed = await new Promise<boolean>((resolve) => {
+          modal.confirm({
+            title: t('Apply supplier/order import?'),
+            content:
+              supplierOrderImportMode === 'canonical-rebuild'
+                ? t('Canonical rebuild replaces the importer-owned supplier/order domain with this complete snapshot.')
+                : t('Refresh upserts this snapshot and preserves historical rows that are absent from it.'),
+            okText: t('Apply import'),
+            onOk: () => resolve(true),
+            onCancel: () => resolve(false),
+          });
+        });
+        if (!confirmed) return;
+        const digest = String(preflight.preflightDigest ?? '');
+        const applyResponse = await api.request({
+          url: 'ecobaseImport:applySupplierOrderImportPreflight',
+          method: 'post',
+          data: {
+            preflight,
+            confirmation: `APPLY_SUPPLIER_ORDER_${digest.slice(0, 12).toUpperCase()}`,
+          },
+        });
+        const apply = unwrapRecord(applyResponse);
+        result = {
+          importMode: apply.importMode as SupplierOrderImportMode,
+          status: 'success',
+          rowCount: apply.totalWrites as number | undefined,
+          normalizedCount: apply.created as number | undefined,
+          warningCount: apply.mappingExceptions as number | undefined,
+          errorCount: 0,
+        };
+      } else if (clickupOrderStatus) {
         const response = await api.request({
           url: 'ecobaseImport:importClickupOrderStatuses',
           method: 'post',
@@ -382,6 +433,8 @@ export default function DataSourcesPage() {
       if (result.status === 'pending' && result.id) {
         setRunningGroups((current) => ({ ...current, [key]: result.id as string }));
         message.info(t('CSV import is running in the background. This page will refresh until it completes.'));
+      } else if (supplierOrder) {
+        message.success(t('Supplier/order snapshot imported'));
       } else if (clickupOrderStatus) {
         message.success(t('ClickUp order statuses imported'));
       } else if (sellerboardCogs) {
@@ -533,6 +586,16 @@ export default function DataSourcesPage() {
               value={sourceVersion}
               aria-label={t('Source version')}
               onChange={(event) => setSourceVersion(event.target.value)}
+            />
+            <Select
+              style={{ minWidth: 220 }}
+              value={supplierOrderImportMode}
+              aria-label={t('Supplier/order import mode')}
+              options={[
+                { value: 'refresh', label: t('Supplier/order refresh') },
+                { value: 'canonical-rebuild', label: t('Canonical supplier/order rebuild') },
+              ]}
+              onChange={setSupplierOrderImportMode}
             />
             <Button type="primary" disabled={files.length === 0} loading={loading === 'analyze'} onClick={analyze}>
               {t('Analyze CSV bundle')}

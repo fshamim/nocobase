@@ -36,18 +36,3 @@ export function orderRowExclusionReason(shape: OrderImportShape, row: CsvRowRead
   if (shape === 'order-details' && identity.orderedQty === undefined) return 'missing_ordered_quantity';
   return undefined;
 }
-
-export function orderIdentityKey(row: CsvRowReader) {
-  const identity = orderDetailSourceIdentity(row);
-  return identity.company && identity.orderRef
-    ? `${identity.company.companyKey}:${identity.orderRef.trim().toUpperCase()}`
-    : undefined;
-}
-
-export function orderDetailLineIdentityKey(row: CsvRowReader) {
-  if (orderRowExclusionReason('order-details', row)) return undefined;
-  const identity = orderDetailSourceIdentity(row);
-  return [orderIdentityKey(row), identity.supplierCode, identity.asin, identity.sku?.trim().toUpperCase() ?? ''].join(
-    ':',
-  );
-}

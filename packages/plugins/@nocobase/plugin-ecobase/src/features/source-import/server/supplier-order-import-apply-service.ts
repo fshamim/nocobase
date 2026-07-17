@@ -19,6 +19,7 @@ import {
   prepareSupplierOrderCommentRelink,
   type ExportedSupplierOrderComment,
 } from './supplier-order-import/supplier-order-comment-relink';
+import { normalizeExternalOrderId } from './supplier-order-import/supplier-order-import-plan';
 import type {
   OrderImportPlanRow,
   OrderLineImportPlanRow,
@@ -57,6 +58,7 @@ interface OfferCandidate {
 }
 
 export interface SupplierOrderImportApplyResult {
+  importMode: SupplierOrderImportPreflight['importMode'];
   preflightDigest: string;
   sourcePlanDigest: string;
   commentRelinkDigest: string;
@@ -127,26 +129,32 @@ function compact(values: PlainRecord) {
   return Object.fromEntries(Object.entries(values).filter(([, value]) => value !== undefined));
 }
 
-function protectedRow(collection: string, row: PlainRecord) {
+function protectedRow(_collection: string, row: PlainRecord) {
   const { createdAt: _createdAt, updatedAt: _updatedAt, ...businessFields } = row;
-  if (collection !== ECOBASE_COLLECTIONS.silverCompanyProductFamilies) return businessFields;
-  const {
-    preferredSupplierId: _preferredSupplierId,
-    preferredSupplierProductId: _preferredSupplierProductId,
-    supplierSelectionSource: _supplierSelectionSource,
-    supplierSelectedAt: _supplierSelectedAt,
-    supplierSelectedByUserId: _supplierSelectedByUserId,
-    supplierReviewRequired: _supplierReviewRequired,
-    supplierSelectionEvidenceJson: _supplierSelectionEvidenceJson,
-    ...catalogAndTargetFields
-  } = businessFields;
-  return catalogAndTargetFields;
+  return businessFields;
+}
+
+function sourceEvidence(row: PlainRecord) {
+  return plain(row.sourceEvidence);
+}
+
+function canonicalOrderOwned(row: PlainRecord) {
+  return Boolean(text(sourceEvidence(row).preflightDigest)) || row.statusSource === 'supplier_order_import';
+}
+
+function canonicalOrderLineOwned(row: PlainRecord) {
+  return Boolean(text(sourceEvidence(row).preflightDigest));
 }
 
 function sameValue(existing: unknown, desired: unknown) {
   if (typeof desired === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(desired)) {
-    const existingDate = existing instanceof Date ? existing.toISOString() : String(existing ?? '');
-    return existingDate.slice(0, 10) === desired;
+    const existingDate =
+      existing instanceof Date
+        ? `${existing.getFullYear()}-${String(existing.getMonth() + 1).padStart(2, '0')}-${String(
+            existing.getDate(),
+          ).padStart(2, '0')}`
+        : String(existing ?? '').slice(0, 10);
+    return existingDate === desired;
   }
   return canonical(existing) === canonical(desired);
 }
@@ -218,6 +226,7 @@ export class EcobaseSupplierOrderImportApplyService {
     );
     const totalWrites = totals.created + totals.updated + totals.deleted;
     return {
+      importMode: preflight.importMode,
       preflightDigest: preflight.preflightDigest,
       sourcePlanDigest: preflight.sourcePlanDigest,
       commentRelinkDigest: transactionResult.commentRelinkDigest,
@@ -248,7 +257,7 @@ export class EcobaseSupplierOrderImportApplyService {
         orderRef: order.externalOrderId,
       };
     });
-    const commentRelink = await this.commentRelinkPlan(existingOrders, targetOrders, transaction);
+    const commentRelink = await this.commentRelinkPlan(existingOrders, targetOrders, preflight.importMode, transaction);
     if (!commentRelink.ready) {
       const reasons = Object.entries(
         commentRelink.blockers.reduce<Record<string, number>>((counts, blocker) => {
@@ -275,7 +284,6 @@ export class EcobaseSupplierOrderImportApplyService {
       transaction,
     );
     const linksByLine = await this.resolveLineLinks(plan, companyIds, transaction);
-    await this.clearFamilySupplierSelections(transaction);
     const { supplierProductIds, companyProductSupplierIds, supplierProductByLine } = await this.ensureConfirmedOffers(
       plan,
       preflight.preflightDigest,
@@ -293,37 +301,58 @@ export class EcobaseSupplierOrderImportApplyService {
     );
     await this.relinkComments(commentRelink.comments, transaction);
 
-    await this.deleteExcept(ECOBASE_COLLECTIONS.silverOrderLines, desiredLineIds, transaction);
-    await this.deleteExcept(ECOBASE_COLLECTIONS.silverOrders, new Set(orderIds.values()), transaction);
-    await this.deleteExcept(ECOBASE_COLLECTIONS.silverCompanyProductSuppliers, companyProductSupplierIds, transaction);
-    await this.deleteExcept(ECOBASE_COLLECTIONS.silverSupplierProducts, supplierProductIds, transaction);
-    await this.deleteExcept(ECOBASE_COLLECTIONS.silverSupplierAccounts, desiredAccountIds, transaction);
-    await this.deleteExcept(
-      ECOBASE_COLLECTIONS.silverSupplierExternalRefs,
-      new Set([...identities.values()].map((identity) => identity.externalRefId)),
-      transaction,
-    );
-    await this.assertNoStaleSupplierComments(
-      new Set([...identities.values()].map((identity) => identity.supplierId)),
-      transaction,
-    );
-    await this.deleteExcept(
-      ECOBASE_COLLECTIONS.silverSuppliers,
-      new Set([...identities.values()].map((identity) => identity.supplierId)),
-      transaction,
-    );
+    if (preflight.importMode === 'canonical-rebuild') {
+      await this.deleteExcept(
+        ECOBASE_COLLECTIONS.silverOrderLines,
+        desiredLineIds,
+        transaction,
+        canonicalOrderLineOwned,
+      );
+      await this.deleteExcept(
+        ECOBASE_COLLECTIONS.silverOrders,
+        new Set(orderIds.values()),
+        transaction,
+        canonicalOrderOwned,
+      );
+      await this.deleteExcept(
+        ECOBASE_COLLECTIONS.silverCompanyProductSuppliers,
+        companyProductSupplierIds,
+        transaction,
+      );
+      await this.deleteExcept(ECOBASE_COLLECTIONS.silverSupplierProducts, supplierProductIds, transaction);
+      await this.deleteExcept(ECOBASE_COLLECTIONS.silverSupplierAccounts, desiredAccountIds, transaction);
+      await this.deleteExcept(
+        ECOBASE_COLLECTIONS.silverSupplierExternalRefs,
+        new Set([...identities.values()].map((identity) => identity.externalRefId)),
+        transaction,
+      );
+      await this.assertNoStaleSupplierComments(
+        new Set([...identities.values()].map((identity) => identity.supplierId)),
+        transaction,
+      );
+      await this.deleteExcept(
+        ECOBASE_COLLECTIONS.silverSuppliers,
+        new Set([...identities.values()].map((identity) => identity.supplierId)),
+        transaction,
+      );
 
-    await this.assertCount(ECOBASE_COLLECTIONS.silverSuppliers, plan.suppliers.length, transaction);
-    await this.assertCount(ECOBASE_COLLECTIONS.silverSupplierExternalRefs, plan.suppliers.length, transaction);
-    await this.assertCount(ECOBASE_COLLECTIONS.silverSupplierAccounts, plan.supplierAccounts.length, transaction);
-    await this.assertCount(ECOBASE_COLLECTIONS.silverOrders, plan.orders.length, transaction);
-    await this.assertCount(ECOBASE_COLLECTIONS.silverOrderLines, plan.orderLines.length, transaction);
-    await this.assertCount(ECOBASE_COLLECTIONS.silverSupplierProducts, supplierProductIds.size, transaction);
-    await this.assertCount(
-      ECOBASE_COLLECTIONS.silverCompanyProductSuppliers,
-      companyProductSupplierIds.size,
-      transaction,
-    );
+      await this.assertCount(ECOBASE_COLLECTIONS.silverSuppliers, plan.suppliers.length, transaction);
+      await this.assertCount(ECOBASE_COLLECTIONS.silverSupplierExternalRefs, plan.suppliers.length, transaction);
+      await this.assertCount(ECOBASE_COLLECTIONS.silverSupplierAccounts, plan.supplierAccounts.length, transaction);
+      await this.assertCount(ECOBASE_COLLECTIONS.silverOrders, plan.orders.length, transaction, canonicalOrderOwned);
+      await this.assertCount(
+        ECOBASE_COLLECTIONS.silverOrderLines,
+        plan.orderLines.length,
+        transaction,
+        canonicalOrderLineOwned,
+      );
+      await this.assertCount(ECOBASE_COLLECTIONS.silverSupplierProducts, supplierProductIds.size, transaction);
+      await this.assertCount(
+        ECOBASE_COLLECTIONS.silverCompanyProductSuppliers,
+        companyProductSupplierIds.size,
+        transaction,
+      );
+    }
 
     const protectedAfter = await this.protectedFingerprints(transaction);
     const changedProtectedCollections = PROTECTED_COLLECTIONS.filter(
@@ -497,6 +526,10 @@ export class EcobaseSupplierOrderImportApplyService {
       const key = orderIdentity(companyId, order.externalOrderId);
       const existing = existingOrderByIdentity.get(key) ?? {};
       const id = text(existing.id) ?? stableUuid(`order:${companyId}:${order.externalOrderId}`);
+      const preserveClickupStatus =
+        existing.statusSource === 'clickup_csv' || Boolean(existing.operatorStatusOverrideAt);
+      const preserveDownstreamAuthority =
+        Boolean(text(existing.authoritySource)) && existing.authoritySource !== 'supplier_order_import';
       await this.upsert(
         ECOBASE_COLLECTIONS.silverOrders,
         existing,
@@ -514,21 +547,28 @@ export class EcobaseSupplierOrderImportApplyService {
           dailySequenceLetter: sequences.get(`${order.companyKey}:${order.externalOrderId}`),
           orderIntent: 'source_import',
           lifecyclePhase: order.workflowStage,
-          lifecycleStatus: lifecycleStatusForOperationalStatus(order.operationalStatus),
-          canonicalStatus: order.canonicalStatus,
           sourceOrderStatus: order.sourceOrderStatus,
-          operationalStatus: order.operationalStatus,
-          workflowStage: order.workflowStage,
           orderApproval: order.orderApproval,
           paymentStatus: order.paymentStatus,
           invoiceStatus: order.invoiceStatus,
           prepStatus: order.prepStatus,
-          statusSource: 'supplier_order_import',
-          statusCheckRequired: order.retentionDisposition === 'review',
-          statusEvidenceJson: { preflightDigest, sourceOrderStatus: order.sourceOrderStatus },
-          authorityStatus: 'historical_import',
-          authoritySource: 'supplier_order_import',
-          authorityEvidenceJson: { preflightDigest },
+          ...(preserveClickupStatus
+            ? {}
+            : {
+                lifecycleStatus: lifecycleStatusForOperationalStatus(order.operationalStatus),
+                canonicalStatus: order.canonicalStatus,
+                operationalStatus: order.operationalStatus,
+                workflowStage: order.workflowStage,
+                statusSource: 'supplier_order_import',
+                statusEvidenceJson: { preflightDigest, sourceOrderStatus: order.sourceOrderStatus },
+              }),
+          ...(preserveDownstreamAuthority
+            ? {}
+            : {
+                authorityStatus: 'historical_import',
+                authoritySource: 'supplier_order_import',
+                authorityEvidenceJson: { preflightDigest },
+              }),
           expectedDeliveryDate: order.expectedDeliveryDate,
           expectedCost: order.expectedCost,
           actualCost: order.actualCost,
@@ -617,26 +657,6 @@ export class EcobaseSupplierOrderImportApplyService {
       });
     }
     return links;
-  }
-
-  private async clearFamilySupplierSelections(transaction?: unknown) {
-    for (const family of await this.all(ECOBASE_COLLECTIONS.silverCompanyProductFamilies, transaction)) {
-      await this.upsert(
-        ECOBASE_COLLECTIONS.silverCompanyProductFamilies,
-        family,
-        {
-          id: family.id,
-          preferredSupplierId: null,
-          preferredSupplierProductId: null,
-          supplierSelectionSource: null,
-          supplierSelectedAt: null,
-          supplierSelectedByUserId: null,
-          supplierReviewRequired: false,
-          supplierSelectionEvidenceJson: {},
-        },
-        transaction,
-      );
-    }
   }
 
   private async ensureConfirmedOffers(
@@ -853,27 +873,47 @@ export class EcobaseSupplierOrderImportApplyService {
   private async commentRelinkPlan(
     existingOrders: PlainRecord[],
     targetOrders: Array<{ id: string; companyId: string; orderRef: string }>,
+    importMode: SupplierOrderImportPreflight['importMode'],
     transaction?: unknown,
   ) {
     const orderById = new Map(existingOrders.map((order) => [text(order.id), order]));
+    const targetByIdentity = new Map(
+      targetOrders.map((order) => [`${order.companyId}:${normalizeExternalOrderId(order.orderRef)}`, order]),
+    );
+    const relinkOrderIds = new Set(
+      existingOrders.flatMap((order) => {
+        const id = text(order.id);
+        const companyId = text(order.companyId);
+        const orderRef = normalizeExternalOrderId(text(order.orderRef) ?? '');
+        if (!id || !companyId || !orderRef) return [];
+        const target = targetByIdentity.get(`${companyId}:${orderRef}`);
+        return target?.id !== id &&
+          (Boolean(target) || (importMode === 'canonical-rebuild' && canonicalOrderOwned(order)))
+          ? [id]
+          : [];
+      }),
+    );
     const comments = await this.repo(ECOBASE_COLLECTIONS.silverActivityComments).find(
       params({ filter: { entityType: 'supplier_order' }, limit: 100000 }, transaction),
     );
-    const exported: ExportedSupplierOrderComment[] = comments.map((value) => {
+    const exported: ExportedSupplierOrderComment[] = comments.flatMap((value) => {
       const comment = plain(value);
       const orderId = text(comment.entityId);
-      const order = orderId ? orderById.get(orderId) : undefined;
+      if (!orderId || !relinkOrderIds.has(orderId)) return [];
+      const order = orderById.get(orderId);
       const companyId = text(order?.companyId);
       const orderRef = text(order?.orderRef);
-      if (!orderId || !companyId || !orderRef || !text(comment.id)) {
+      if (!companyId || !orderRef || !text(comment.id)) {
         throw new Error('Ecobase supplier/order apply failed: an operator comment has no canonical source order.');
       }
-      return {
-        companyId,
-        orderId,
-        orderRef,
-        comment: comment as ExportedSupplierOrderComment['comment'],
-      };
+      return [
+        {
+          companyId,
+          orderId,
+          orderRef,
+          comment: comment as ExportedSupplierOrderComment['comment'],
+        },
+      ];
     });
     return prepareSupplierOrderCommentRelink(exported, targetOrders);
   }
@@ -919,18 +959,28 @@ export class EcobaseSupplierOrderImportApplyService {
     return fingerprints;
   }
 
-  private async assertCount(collection: string, expected: number, transaction?: unknown) {
-    const actual = (await this.all(collection, transaction)).length;
+  private async assertCount(
+    collection: string,
+    expected: number,
+    transaction?: unknown,
+    predicate: (row: PlainRecord) => boolean = () => true,
+  ) {
+    const actual = (await this.all(collection, transaction)).filter(predicate).length;
     if (actual !== expected) {
       throw new Error(`Ecobase supplier/order apply failed: ${collection} has ${actual} rows; expected ${expected}.`);
     }
   }
 
-  private async deleteExcept(collection: string, desiredIds: Set<string>, transaction?: unknown) {
+  private async deleteExcept(
+    collection: string,
+    desiredIds: Set<string>,
+    transaction?: unknown,
+    predicate: (row: PlainRecord) => boolean = () => true,
+  ) {
     const repo = this.repo(collection);
     for (const row of await this.all(collection, transaction)) {
       const id = text(row.id);
-      if (!id || desiredIds.has(id)) continue;
+      if (!id || desiredIds.has(id) || !predicate(row)) continue;
       if (!repo.destroy)
         throw new Error(`Ecobase supplier/order apply failed: ${collection} cannot delete stale row ${id}.`);
       await repo.destroy(params({ filterByTk: id }, transaction));

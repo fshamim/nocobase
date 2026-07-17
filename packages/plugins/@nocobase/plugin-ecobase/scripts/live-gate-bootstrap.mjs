@@ -145,9 +145,6 @@ async function main() {
     case 'import-data':
       await importData();
       return;
-    case 'import-supplier-csvs':
-      await importSupplierCsvs();
-      return;
     case 'verify-links':
       await verifyLinks();
       return;
@@ -221,7 +218,6 @@ Commands:
   reset-db           Destroy/recreate only the local live-gate DB volume, using the existing start-live-gate.sh guard
   restore-sources    Restore exported source rows and company IDs into a clean live-gate DB
   import-data        Require saved preflight for staging-fast-clickup, then run imports, Gold, and verification
-  import-supplier-csvs  Import/retry only the supplier-management CSV files
   verify-links       Print/fail post-import medallion link checks
   business-fingerprint  Write the deterministic business fingerprint
   deactivate-migration-sources  Deactivate Google Sheets and ClickUp migration sources
@@ -414,10 +410,7 @@ function assertSeedProfileBundle() {
     throw new Error('staging-fast-clickup rejected a bundle with the wrong profile');
   }
   const groups = greenfieldBundleManifest.groups ?? [];
-  if (
-    groups.length !== STAGING_FAST_GROUPS.size ||
-    groups.some((group) => !STAGING_FAST_GROUPS.has(group.id))
-  ) {
+  if (groups.length !== STAGING_FAST_GROUPS.size || groups.some((group) => !STAGING_FAST_GROUPS.has(group.id))) {
     throw new Error('staging-fast-clickup rejected unexpected bundle groups');
   }
   for (const group of groups) {
@@ -485,164 +478,205 @@ async function importData() {
   const sellerboardByCompany = seedPhaseEnabled('sellerboard')
     ? new Map(sources.filter(isSellerboardSource).map((source) => [source.companyName, source]))
     : new Map();
-  const supplierSource = seedPhaseEnabled('suppliers')
-    ? requiredSource(sources, 'google_sheets', 'supplier_management')
-    : undefined;
-  const orderSource = seedPhaseEnabled('orders') || seedPhaseEnabled('clickup')
-    ? requiredSource(sources, 'google_sheets', 'order_management')
-    : undefined;
   const clickupSource = seedPhaseEnabled('clickup')
     ? requiredSource(sources, 'clickup', 'order_management')
     : undefined;
 
   if (SEED_PROFILE === 'staging-fast-clickup' && seedPhaseEnabled('sellerboard')) {
     await runStage(2, 'Upsert approved non-login ClickUp attribution users', async () => {
-      const result = await runImport(token, 'Approved ClickUp attribution users', 'ecobaseImport:ensureClickupAttributionUsers', {});
+      const result = await runImport(
+        token,
+        'Approved ClickUp attribution users',
+        'ecobaseImport:ensureClickupAttributionUsers',
+        {},
+      );
       if (Number(result.approvedUserCount ?? 0) !== 10) {
         throw new Error(`approved ClickUp attribution user count is ${result.approvedUserCount ?? 0}, expected 10`);
       }
     });
   }
 
-  if (seedPhaseEnabled('sellerboard')) await runStage(SEED_PROFILE === 'staging-fast-clickup' ? 3 : 2, 'Sellerboard API snapshots', async () => {
-    for (const company of REQUIRED_SELLERBOARD_COMPANIES) {
-      const source = sellerboardByCompany.get(company);
-      if (!source) throw new Error(`missing Sellerboard source for ${company}`);
-      await runImport(token, `Sellerboard API ${company}`, 'ecobaseImport:run', {
-        sourceConnectionId: source.id,
-        adapterName: 'sellerboard-api',
-        sourceIdentifier: `sellerboard-api-bootstrap-${companyKey(company)}`,
-        sourceVersion: BOOTSTRAP_SOURCE_VERSION,
-        idempotencyKey: `${source.id}:sellerboard-api-bootstrap:${BOOTSTRAP_SOURCE_VERSION}`,
-      });
-    }
-  });
-
-  if (SEED_PROFILE !== 'staging-fast-clickup' && seedPhaseEnabled('sellerboard')) await runStage(3, 'Sellerboard history CSVs', async () => {
-    for (const filePath of listHistoryDashboardFiles()) {
-      const company = companyFromHistoryFile(path.basename(filePath), 'Dashboard_by_product');
-      const source = sellerboardByCompany.get(company);
-      if (!source) throw new Error(`history file ${path.basename(filePath)} maps to ${company}, but no source exists`);
-      await runImport(
-        token,
-        `Sellerboard history ${company} ${path.basename(filePath)}`,
-        'ecobaseImport:runCsvBundle',
-        {
+  if (seedPhaseEnabled('sellerboard'))
+    await runStage(SEED_PROFILE === 'staging-fast-clickup' ? 3 : 2, 'Sellerboard API snapshots', async () => {
+      for (const company of REQUIRED_SELLERBOARD_COMPANIES) {
+        const source = sellerboardByCompany.get(company);
+        if (!source) throw new Error(`missing Sellerboard source for ${company}`);
+        await runImport(token, `Sellerboard API ${company}`, 'ecobaseImport:run', {
           sourceConnectionId: source.id,
-          adapterName: 'sellerboard-history-csv',
-          sourceIdentifier: 'sellerboard-history-backfill',
+          adapterName: 'sellerboard-api',
+          sourceIdentifier: `sellerboard-api-bootstrap-${companyKey(company)}`,
           sourceVersion: BOOTSTRAP_SOURCE_VERSION,
-          defaultCompany: company,
-          files: [csvFile(filePath)],
-        },
-      );
-    }
-  });
+          idempotencyKey: `${source.id}:sellerboard-api-bootstrap:${BOOTSTRAP_SOURCE_VERSION}`,
+        });
+      }
+    });
 
-  if (SEED_PROFILE !== 'staging-fast-clickup' && seedPhaseEnabled('sellerboard')) await runStage(4, 'Sellerboard COGS CSVs', async () => {
-    for (const filePath of listCogsFiles()) {
-      const company = companyFromHistoryFile(path.basename(filePath), 'Cost_of_Goods_Sold');
-      await runImport(
+  if (SEED_PROFILE !== 'staging-fast-clickup' && seedPhaseEnabled('sellerboard'))
+    await runStage(3, 'Sellerboard history CSVs', async () => {
+      for (const filePath of listHistoryDashboardFiles()) {
+        const company = companyFromHistoryFile(path.basename(filePath), 'Dashboard_by_product');
+        const source = sellerboardByCompany.get(company);
+        if (!source)
+          throw new Error(`history file ${path.basename(filePath)} maps to ${company}, but no source exists`);
+        await runImport(
+          token,
+          `Sellerboard history ${company} ${path.basename(filePath)}`,
+          'ecobaseImport:runCsvBundle',
+          {
+            sourceConnectionId: source.id,
+            adapterName: 'sellerboard-history-csv',
+            sourceIdentifier: 'sellerboard-history-backfill',
+            sourceVersion: BOOTSTRAP_SOURCE_VERSION,
+            defaultCompany: company,
+            files: [csvFile(filePath)],
+          },
+        );
+      }
+    });
+
+  if (SEED_PROFILE !== 'staging-fast-clickup' && seedPhaseEnabled('sellerboard'))
+    await runStage(4, 'Sellerboard COGS CSVs', async () => {
+      for (const filePath of listCogsFiles()) {
+        const company = companyFromHistoryFile(path.basename(filePath), 'Cost_of_Goods_Sold');
+        await runImport(
+          token,
+          `Sellerboard COGS ${company} ${path.basename(filePath)}`,
+          'ecobaseImport:importSellerboardCogs',
+          {
+            defaultCompany: company,
+            importedAt: `${BOOTSTRAP_SOURCE_VERSION}T00:00:00.000Z`,
+            files: [csvFile(filePath)],
+          },
+        );
+      }
+    });
+
+  if (seedPhaseEnabled('orders'))
+    await runStage(7, 'Canonical supplier/order import', async () => {
+      const preflight = await runImport(token, 'Supplier/order preview', 'ecobaseImport:previewSupplierOrderImport', {
+        asOfDate: BOOTSTRAP_SOURCE_VERSION,
+        importMode: 'canonical-rebuild',
+        files: supplierOrderFiles().map(csvFile),
+      });
+      if (preflight.ready !== true) {
+        throw new Error(
+          `canonical supplier/order preflight blocked apply with ${(preflight.blockers ?? []).length} blocker(s)`,
+        );
+      }
+      await runImport(token, 'Supplier/order apply', 'ecobaseImport:applySupplierOrderImportPreflight', {
+        preflight,
+        confirmation: `APPLY_SUPPLIER_ORDER_${String(preflight.preflightDigest).slice(0, 12).toUpperCase()}`,
+      });
+      await verifyOrderDetailsRelationships(token, 'after-canonical-supplier-order-import', { strict: false });
+    });
+
+  if (seedPhaseEnabled('clickup'))
+    await runStage(9, 'Reconcile ClickUp status/comments', async () => {
+      const clickupPayload = {
+        sourceConnectionId: clickupSource.id,
+        sourceIdentifier: 'clickup-order-status-bootstrap',
+        importedAt: `${BOOTSTRAP_SOURCE_VERSION}T00:00:00.000Z`,
+        snapshotDate: BOOTSTRAP_SOURCE_VERSION,
+        files: clickupFiles().map(csvFile),
+        orderDetailFiles: supplierOrderFiles()
+          .filter((file) => path.basename(file).endsWith('OrderDetails.csv'))
+          .map(csvFile),
+      };
+      const preview = await runImport(
         token,
-        `Sellerboard COGS ${company} ${path.basename(filePath)}`,
-        'ecobaseImport:importSellerboardCogs',
-        {
-          defaultCompany: company,
-          importedAt: `${BOOTSTRAP_SOURCE_VERSION}T00:00:00.000Z`,
-          files: [csvFile(filePath)],
-        },
+        'ClickUp order status dry-run',
+        'ecobaseImport:importClickupOrderStatuses',
+        { ...clickupPayload, dryRun: true },
       );
-    }
-  });
-
-  const [historicalSupplierFile, currentSupplierFile] = seedPhaseEnabled('suppliers') ? supplierFiles() : [];
-  if (seedPhaseEnabled('suppliers')) await runStage(5, 'Supplier Management historical tracker', () =>
-    runImport(token, `Supplier management ${path.basename(historicalSupplierFile)}`, 'ecobaseImport:runCsvBundle', {
-      sourceConnectionId: supplierSource.id,
-      adapterName: 'google-sheets-migration-csv',
-      sourceIdentifier: `supplier-management-${path.basename(historicalSupplierFile)}`,
-      sourceVersion: BOOTSTRAP_SOURCE_VERSION,
-      files: [csvFile(historicalSupplierFile)],
-    }),
-  );
-  if (seedPhaseEnabled('suppliers')) await runStage(6, 'Supplier Management current 2026 tracker', () =>
-    runImport(token, `Supplier management ${path.basename(currentSupplierFile)}`, 'ecobaseImport:runCsvBundle', {
-      sourceConnectionId: supplierSource.id,
-      adapterName: 'google-sheets-migration-csv',
-      sourceIdentifier: `supplier-management-${path.basename(currentSupplierFile)}`,
-      sourceVersion: BOOTSTRAP_SOURCE_VERSION,
-      files: [csvFile(currentSupplierFile)],
-    }),
-  );
-
-  if (seedPhaseEnabled('orders')) await runStage(7, 'Order Management Purchase Orders then OrderDetails', async () => {
-    await runImport(token, 'Order management ordered bundle', 'ecobaseImport:runCsvBundle', {
-      sourceConnectionId: orderSource.id,
-      adapterName: 'google-sheets-migration-csv',
-      sourceIdentifier: 'order-management-bundle',
-      sourceVersion: BOOTSTRAP_SOURCE_VERSION,
-      files: orderFiles().map(csvFile),
+      progressEvent('clickup_workflow_draft_preview', {
+        workflowDraftCount: Number(preview.workflowDraftCount ?? 0),
+        workflowDraftRefs: preview.workflowDraftRefs ?? [],
+        workflowDraftExceptions: preview.workflowDraftExceptions ?? [],
+        receiptStateCoverage: preview.receiptStateCoverage ?? {},
+      });
+      const run = await runImport(token, 'ClickUp order status', 'ecobaseImport:importClickupOrderStatuses', {
+        ...clickupPayload,
+        dryRun: false,
+        forceReconcile: true,
+      });
+      const clickup = run?.summary?.clickup ?? {};
+      if (Number(clickup.workflowDraftCount ?? 0) !== Number(preview.workflowDraftCount ?? 0)) {
+        throw new Error(
+          `ClickUp workflow draft apply created ${Number(clickup.workflowDraftCount ?? 0)} draft(s); dry-run expected ${Number(preview.workflowDraftCount ?? 0)}`,
+        );
+      }
+      const receiptCoverage = clickup.receiptStateCoverage ?? {};
+      if (
+        Number(receiptCoverage.orderStatusCounts?.missing ?? 0) > 0 ||
+        Number(receiptCoverage.linesWithoutReceiptStatus ?? 0) > 0 ||
+        (receiptCoverage.missingOrderIds ?? []).length > 0
+      ) {
+        throw new Error('ClickUp post-import receipt reconciliation left affected order or line states uncovered');
+      }
+      const postApplyPreview = await runImport(
+        token,
+        'ClickUp order status post-apply dry-run',
+        'ecobaseImport:importClickupOrderStatuses',
+        { ...clickupPayload, dryRun: true },
+      );
+      if (Number(postApplyPreview.workflowDraftCount ?? 0) !== 0) {
+        throw new Error(
+          `ClickUp post-apply dry-run still proposes ${Number(postApplyPreview.workflowDraftCount ?? 0)} workflow draft(s)`,
+        );
+      }
+      progressEvent('clickup_actor_mapping', {
+        mappedActorCount: Number(clickup.linkedActorCount ?? 0),
+        unresolvedActorCount: (clickup.unresolvedActors ?? []).length,
+        actorMappings: clickup.actorMappings ?? [],
+      });
+      const retainedClickupOrderCount = Number(
+        psqlScalar(
+          `select count(distinct "entityId") from "silverActivityComments" where "entityType" = 'supplier_order' and "contextSnapshotJson"->>'source' = 'clickup_csv'`,
+        ),
+      );
+      const retainedClickupCommentCount = Number(
+        psqlScalar(
+          `select count(*) from "silverActivityComments" where "contextSnapshotJson"->>'source' = 'clickup_csv'`,
+        ),
+      );
+      const resultCommentCount = Number(clickup.importedCommentCount ?? 0) + Number(clickup.duplicateCommentCount ?? 0);
+      if (
+        Number(clickup.matchedOrderCount ?? retainedClickupOrderCount) === 0 ||
+        (resultCommentCount || retainedClickupCommentCount) === 0
+      ) {
+        throw new Error(
+          'ClickUp reconciliation matched no orders or retained no comments after the ordered order bundle',
+        );
+      }
+      const unlinkedMappedCommentCount = Number(
+        psqlScalar(
+          `select count(*) from "silverActivityComments" where "contextSnapshotJson"->>'source' = 'clickup_csv' and "contextSnapshotJson"->>'actorResolution' = 'mapped' and "actorUserId" is null`,
+        ),
+      );
+      if (unlinkedMappedCommentCount > 0) {
+        throw new Error(
+          `ClickUp reconciliation left ${unlinkedMappedCommentCount} mapped comments without NocoBase users`,
+        );
+      }
+      const clickupTaskCount = Number(
+        psqlScalar(`select count(*) from "silverTasks" where "workspaceName" = 'ClickUp export'`),
+      );
+      if (clickupTaskCount > 0) {
+        throw new Error(`ClickUp reconciliation created ${clickupTaskCount} forbidden task records`);
+      }
     });
-  });
-
-  if (seedPhaseEnabled('orders')) await runStage(8, 'Reconcile order lines against imported product data', async () => {
-    await runImport(token, 'Order management product reconciliation', 'ecobaseImport:runCsvBundle', {
-      sourceConnectionId: orderSource.id,
-      adapterName: 'google-sheets-migration-csv',
-      sourceIdentifier: 'order-management-product-reconciliation-v3',
-      sourceVersion: BOOTSTRAP_SOURCE_VERSION,
-      files: orderFiles().map(csvFile),
-    });
-    await verifyOrderDetailsRelationships(token, 'after-product-reconciliation', { strict: false });
-  });
-
-  if (seedPhaseEnabled('clickup')) await runStage(9, 'Reconcile ClickUp status/comments', async () => {
-    const run = await runImport(token, 'ClickUp order status', 'ecobaseImport:importClickupOrderStatuses', {
-      sourceConnectionId: clickupSource.id,
-      sourceIdentifier: 'clickup-order-status-bootstrap',
-      importedAt: `${BOOTSTRAP_SOURCE_VERSION}T00:00:00.000Z`,
-      snapshotDate: BOOTSTRAP_SOURCE_VERSION,
-      dryRun: false,
-      files: clickupFiles().map(csvFile),
-    });
-    const clickup = run?.summary?.clickup ?? {};
-    progressEvent('clickup_actor_mapping', {
-      mappedActorCount: Number(clickup.linkedActorCount ?? 0),
-      unresolvedActorCount: (clickup.unresolvedActors ?? []).length,
-      actorMappings: clickup.actorMappings ?? [],
-    });
-    if (
-      Number(clickup.matchedOrderCount ?? 0) === 0 ||
-      Number(clickup.importedCommentCount ?? 0) + Number(clickup.duplicateCommentCount ?? 0) === 0
-    ) {
-      throw new Error('ClickUp reconciliation matched no orders or retained no comments after the ordered order bundle');
-    }
-    const unlinkedMappedCommentCount = Number(
-      psqlScalar(
-        `select count(*) from "silverActivityComments" where "contextSnapshotJson"->>'source' = 'clickup_csv' and "contextSnapshotJson"->>'actorResolution' = 'mapped' and "actorUserId" is null`,
-      ),
-    );
-    if (unlinkedMappedCommentCount > 0) {
-      throw new Error(`ClickUp reconciliation left ${unlinkedMappedCommentCount} mapped comments without NocoBase users`);
-    }
-    const clickupTaskCount = Number(
-      psqlScalar(`select count(*) from "silverTasks" where "workspaceName" = 'ClickUp export'`),
-    );
-    if (clickupTaskCount > 0) {
-      throw new Error(`ClickUp reconciliation created ${clickupTaskCount} forbidden task records`);
-    }
-  });
 
   if (seedPhaseEnabled('gold')) {
     await runStage(10, 'validate Phase A Silver blockers', () => validateSilverPhase());
   }
 
-  if (seedPhaseEnabled('gold') && !SEED_SKIP_GOLD) await runStage(11, 'Phase B final gold read-model refresh', () =>
-    runImport(token, 'Gold read models', 'ecobaseImport:refreshGoldReadModels', {
-      calculationDate: BOOTSTRAP_SOURCE_VERSION,
-      confirmation: 'REBUILD GOLD',
-    }),
-  );
+  if (seedPhaseEnabled('gold') && !SEED_SKIP_GOLD)
+    await runStage(11, 'Phase B final gold read-model refresh', () =>
+      runImport(token, 'Gold read models', 'ecobaseImport:refreshGoldReadModels', {
+        calculationDate: BOOTSTRAP_SOURCE_VERSION,
+        confirmation: 'REBUILD GOLD',
+      }),
+    );
   if (seedPhaseEnabled('gold') && !SEED_SKIP_GOLD) {
     await runStage(12, 'strict semantic verification', async () => {
       assertHistoryDependentGoldUnknown();
@@ -661,22 +695,6 @@ async function importData() {
     metrics: importMetrics,
   });
   console.log('import bootstrap completed; Sellerboard schedules remain disabled until enable-schedules is run');
-}
-
-async function importSupplierCsvs() {
-  waitForCurrentSchema();
-  const token = await signIn();
-  const supplierSource = requiredSource(currentSources(), 'google_sheets', 'supplier_management');
-  for (const filePath of supplierFiles()) {
-    await runImport(token, `Supplier management ${path.basename(filePath)}`, 'ecobaseImport:runCsvBundle', {
-      sourceConnectionId: supplierSource.id,
-      adapterName: 'google-sheets-migration-csv',
-      sourceIdentifier: `supplier-management-${path.basename(filePath)}`,
-      sourceVersion: BOOTSTRAP_SOURCE_VERSION,
-      files: [csvFile(filePath)],
-    });
-  }
-  console.log('supplier CSV import completed');
 }
 
 function validateSilverPhase() {
@@ -708,12 +726,18 @@ function validateSilverPhase() {
     ),
     check(
       'phase_a_sellerboard_current_snapshot_stale',
-      `select count(*) from (select sc.id, max(i."snapshotDate")::date as snapshot_date from "ecobaseSourceConnections" sc join "silverInventorySnapshots" i on i."sourceConnectionId"=sc.id where sc."sourceType"='sellerboard' and sc.domain='amazon_operations' group by sc.id) x where x.snapshot_date < ${sqlString(BOOTSTRAP_SOURCE_VERSION)}::date - interval '2 days' or x.snapshot_date > ${sqlString(BOOTSTRAP_SOURCE_VERSION)}::date`,
+      `select count(*) from (select sc.id, max(i."snapshotDate")::date as snapshot_date from "ecobaseSourceConnections" sc join "silverInventorySnapshots" i on i."sourceConnectionId"=sc.id where sc."sourceType"='sellerboard' and sc.domain='amazon_operations' group by sc.id) x where x.snapshot_date < ${sqlString(
+        BOOTSTRAP_SOURCE_VERSION,
+      )}::date - interval '2 days' or x.snapshot_date > ${sqlString(BOOTSTRAP_SOURCE_VERSION)}::date`,
       0,
     ),
     check(
       'phase_a_sellerboard_history_incomplete',
-      `select count(*) from "ecobaseSourceConnections" sc left join (select cp."companyId", min(f."snapshotDate")::date as first_date, max(f."snapshotDate")::date as last_date from "silverListingDailyFacts" f join "silverCompanyProducts" cp on cp.id=f."companyProductId" group by cp."companyId") h on h."companyId"=sc."companyId" where sc."sourceType"='sellerboard' and sc.domain='amazon_operations' and (h.first_date is null or h.first_date > date_trunc('month', ${sqlString(BOOTSTRAP_SOURCE_VERSION)}::date) - interval '6 months' or h.last_date < ${sqlString(BOOTSTRAP_SOURCE_VERSION)}::date - interval '2 days')`,
+      `select count(*) from "ecobaseSourceConnections" sc left join (select cp."companyId", min(f."snapshotDate")::date as first_date, max(f."snapshotDate")::date as last_date from "silverListingDailyFacts" f join "silverCompanyProducts" cp on cp.id=f."companyProductId" group by cp."companyId") h on h."companyId"=sc."companyId" where sc."sourceType"='sellerboard' and sc.domain='amazon_operations' and (h.first_date is null or h.first_date > date_trunc('month', ${sqlString(
+        BOOTSTRAP_SOURCE_VERSION,
+      )}::date) - interval '6 months' or h.last_date < ${sqlString(
+        BOOTSTRAP_SOURCE_VERSION,
+      )}::date - interval '2 days')`,
       0,
     ),
     check(
@@ -772,7 +796,9 @@ function validateSilverPhase() {
   console.log(`Phase A Silver validation: status=${result.status} unresolvedOrderLines=${unresolvedOrderLines}`);
   const failed = applicableChecks.filter((item) => item.actual !== item.expected);
   if (failed.length) {
-    throw new Error(`Phase A Silver validation failed: ${failed.map((item) => `${item.name}=${item.actual}`).join(', ')}`);
+    throw new Error(
+      `Phase A Silver validation failed: ${failed.map((item) => `${item.name}=${item.actual}`).join(', ')}`,
+    );
   }
   return result;
 }
@@ -953,8 +979,8 @@ async function verifyLinks() {
       0,
     ),
     check(
-      'etc_listing_and_supplier_alias_present',
-      `select case when exists (select 1 from "silverProducts" p where p.asin='B0177E9JPS' and p.sku='ETC-120A') and exists (select 1 from "silverSupplierProducts" sp join "silverProducts" p on p.id=sp."productId" where p.asin='B0177E9JPS' and p.sku='ETC-120A' and sp."supplierSku"='ETC120A') then 0 else 1 end`,
+      'etc_listing_and_source_alias_resolved',
+      `select case when exists (select 1 from "silverOrderLines" l join "silverCompanyProducts" cp on cp.id=l."companyProductId" join "silverProducts" p on p.id=cp."productId" where l."sourceAsin"='B0177E9JPS' and l."sourceSupplierSku"='ETC120A' and p.asin='B0177E9JPS' and p.sku='ETC-120A') then 0 else 1 end`,
       0,
     ),
     check(
@@ -965,7 +991,9 @@ async function verifyLinks() {
   ];
   const applicableChecks =
     SEED_PROFILE === 'staging-fast-clickup'
-      ? checks.filter((item) => !['etc_listing_and_supplier_alias_present', 'gold_active_order_rows_present'].includes(item.name))
+      ? checks.filter(
+          (item) => !['etc_listing_and_source_alias_resolved', 'gold_active_order_rows_present'].includes(item.name),
+        )
       : checks;
   const actionStatus = psqlJson(
     `select coalesce(jsonb_object_agg("actionStatus", count), '{}'::jsonb) from (select "actionStatus", count(*)::int as count from "goldInventoryPlanningRows" group by "actionStatus" order by "actionStatus") x`,
@@ -1095,7 +1123,7 @@ async function verifySemanticLinks(token) {
 }
 
 async function verifyOrderDetailsRelationships(token, suffix, { strict = true } = {}) {
-  const orderDetailsPath = orderFiles()[1];
+  const orderDetailsPath = supplierOrderFiles()[2];
   const result = unwrapActionData(
     await apiPost(token, 'ecobaseImport:verifyOrderDetailsRelationships', {
       files: [csvFile(orderDetailsPath)],
@@ -1549,34 +1577,20 @@ function listCogsFiles() {
   );
 }
 
-function orderFiles() {
-  return (
-    bundleFilePaths(['order-management']) ?? [
-      path.join(PROJECT_ROOT, 'data', 'order-managment-sheets', 'Ecofission-Order Management - Purchase Orders.csv'),
-      path.join(PROJECT_ROOT, 'data', 'order-managment-sheets', 'Ecofission-Order Management - OrderDetails.csv'),
-    ].map(assertFileExists)
-  );
-}
-
-function supplierFiles() {
+function supplierOrderFiles() {
+  const bundleFiles = GREENFIELD_BUNDLE_PATH ? bundleFilePaths(['order-management', 'supplier-management']) : undefined;
   const files =
-    bundleFilePaths(['supplier-management']) ??
+    bundleFiles ??
     [
-      path.join(
-        PROJECT_ROOT,
-        'data',
-        'supplier-management-sheets',
-        'Supplier Analysis Tracker - Supplier Analysis Tracker.csv',
-      ),
-      path.join(PROJECT_ROOT, 'data', 'supplier-management-sheets', 'Supplier Analysis Tracker - Supplier 2026.csv'),
+      path.join(PROJECT_ROOT, 'data', 'dataforimport', 'Ecofission-Order Management - Supplier IDs.csv'),
+      path.join(PROJECT_ROOT, 'data', 'dataforimport', 'Ecofission-Order Management - Purchase Orders.csv'),
+      path.join(PROJECT_ROOT, 'data', 'dataforimport', 'Ecofission-Order Management - OrderDetails.csv'),
+      path.join(PROJECT_ROOT, 'data', 'dataforimport', 'Supplier Analysis Tracker - Supplier Analysis Tracker.csv'),
     ].map(assertFileExists);
-  const byName = new Map(files.map((file) => [path.basename(file), file]));
-  return [
-    'Supplier Analysis Tracker - Supplier Analysis Tracker.csv',
-    'Supplier Analysis Tracker - Supplier 2026.csv',
-  ].map((name) => {
-    const file = byName.get(name);
-    if (!file) throw new Error(`greenfield supplier bundle is missing ${name}`);
+  const required = ['Supplier IDs.csv', 'Purchase Orders.csv', 'OrderDetails.csv', 'Supplier Analysis Tracker.csv'];
+  return required.map((suffix) => {
+    const file = files.find((candidate) => path.basename(candidate).endsWith(suffix));
+    if (!file) throw new Error(`greenfield bundle is missing canonical supplier/order source ${suffix}`);
     return file;
   });
 }
@@ -1584,7 +1598,9 @@ function supplierFiles() {
 function clickupFiles() {
   return (
     bundleFilePaths(['clickup-order-status']) ??
-    [path.join(PROJECT_ROOT, 'data', 'clickup', 'Order Management Clickup Data 06-07-2026.csv')].map(assertFileExists)
+    [path.join(PROJECT_ROOT, 'data', 'dataforimport', 'Order Management Clickup Data 06-07-2026.csv')].map(
+      assertFileExists,
+    )
   );
 }
 

@@ -223,12 +223,12 @@ describe('Ecobase AI public API seam', () => {
 
   it('answers inventory questions from silver/gold medallion tables only', async () => {
     const oldBusinessTables = new Set([
-      ECOBASE_COLLECTIONS.planningCalculationSnapshots,
-      ECOBASE_COLLECTIONS.alerts,
-      ECOBASE_COLLECTIONS.supplierLeadTimes,
-      ECOBASE_COLLECTIONS.supplierProductLinks,
-      ECOBASE_COLLECTIONS.listingDailyFacts,
-      ECOBASE_COLLECTIONS.inventorySnapshots,
+      'ecobasePlanningCalculationSnapshots',
+      'ecobaseAlerts',
+      'ecobaseSupplierLeadTimes',
+      'ecobaseSupplierProductLinks',
+      'ecobaseListingDailyFacts',
+      'ecobaseInventorySnapshots',
     ]);
     class GuardedDatabase extends MemoryDatabase {
       getRepository(name: string) {
@@ -372,6 +372,8 @@ describe('Ecobase inventory-planning public API seam', () => {
       lastRefreshedAt: '2026-07-05T08:00:00.000Z',
       targetCoverDays: 45,
       tier: 'A',
+      productStatus: 'Active',
+      familyRole: 'target',
       tierScore: 250,
       recentUnits30: 10,
       tierEligibilityReason: 'eligible_recent_demand',
@@ -394,6 +396,10 @@ describe('Ecobase inventory-planning public API seam', () => {
       inboundStock: 1,
       orderedStock: 2,
       prepStock: 1,
+      awdStock: 0,
+      supplierPipelineStock: 0,
+      onHandSellableStock: 4,
+      effectiveLeadTimeDays: 30,
       sixMonthAverageQty: 22,
       suggestedReorderQty: 215,
       estimatedProfitRisk: 100,
@@ -418,7 +424,7 @@ describe('Ecobase inventory-planning public API seam', () => {
         estimatedOosDate: '2026-07-08',
         daysUntilOos: 3,
         supplierOrderState: 'no_open_order',
-        commandCenterPane: 'supplyAction',
+        commandCenterPane: 'orderNow',
       },
     });
     await goldRows.create({
@@ -438,8 +444,9 @@ describe('Ecobase inventory-planning public API seam', () => {
         pipelineHealthStatus: 'late',
         stockoutGapDays: 3,
         supplierOrderState: 'purchased_pipeline',
+        supplierOrderWorkflowStage: 'in_prep',
         supplierOrderId: 'supplier-order-po-2',
-        commandCenterPane: 'activeOrders',
+        commandCenterPane: 'orderedPipeline',
         supplierOrderStatus: 'paid',
         supplierOrderRef: 'PO-2',
         companyProductId: 'company-product-2',
@@ -466,7 +473,7 @@ describe('Ecobase inventory-planning public API seam', () => {
         supplierOrderState: 'closed_history',
         stuck: true,
         stuckClassification: 'over_60_doc',
-        commandCenterPane: 'stuckInventory',
+        commandCenterPane: 'watchlist',
       },
     });
     await goldRows.create({
@@ -487,7 +494,7 @@ describe('Ecobase inventory-planning public API seam', () => {
         expectedArrivalStatus: 'unknown',
         pipelineHealthStatus: 'unknown_timing',
         supplierOrderState: 'purchased_pipeline',
-        commandCenterPane: 'activeOrders',
+        commandCenterPane: 'orderedPipeline',
         supplierOrderStatus: 'paid',
         supplierOrderRef: 'PO-4',
         stuck: false,
@@ -508,7 +515,7 @@ describe('Ecobase inventory-planning public API seam', () => {
         supplierOrderState: 'closed_history',
         stuck: true,
         stuckClassification: 'over_60_doc',
-        commandCenterPane: 'stuckInventory',
+        commandCenterPane: 'watchlist',
       },
     });
     await goldRows.create({
@@ -529,7 +536,8 @@ describe('Ecobase inventory-planning public API seam', () => {
         expectedArrivalStatus: 'imported',
         pipelineHealthStatus: 'on_track',
         supplierOrderState: 'purchased_pipeline',
-        commandCenterPane: 'activeOrders',
+        supplierOrderWorkflowStage: 'in_prep',
+        commandCenterPane: 'inPrepMonitoring',
         supplierOrderStatus: 'paid',
         supplierOrderRef: 'PO-6',
         stuck: false,
@@ -551,7 +559,7 @@ describe('Ecobase inventory-planning public API seam', () => {
         salesVelocity: null,
         salesVelocityStatus: 'missing',
         actionStatus: 'missing_velocity',
-        commandCenterPane: 'dataReadiness',
+        commandCenterPane: 'dataQuality',
         dataQualityStatus: 'blocked',
         dataQualityIssues: ['velocity_missing'],
         evidence: { historyLoadStatus: 'not_loaded' },
@@ -634,13 +642,22 @@ describe('Ecobase inventory-planning public API seam', () => {
     expect(data.summaryCards.find((card: Record<string, unknown>) => card.key === 'moneyAtRisk')).toMatchObject({
       value: 600,
       knownCount: 3,
-      unknownCount: 1,
-      denominatorCount: 4,
+      unknownCount: 0,
+      denominatorCount: 3,
     });
-    expect(data.panes.dataReadiness).toMatchObject({
-      total: 1,
-      rows: [expect.objectContaining({ id: 'gold-7', tier: undefined, profitPerUnit: undefined })],
-    });
+    expect(Object.keys(data.panes)).toEqual([
+      'supplyAction',
+      'activeOrders',
+      'inPrepMonitoring',
+      'inboundMonitoring',
+      'healthyInventory',
+      'excessInventory',
+      'stuckInventory',
+      'zeroStock',
+      'dataReadiness',
+      'untieredProducts',
+    ]);
+    expect(data.panes.dataReadiness).toMatchObject({ total: 0, rows: [] });
     expect(data.panes.supplyAction).toMatchObject({ total: 1, pageSize: 1 });
     expect(data.panes.supplyAction.rows[0]).toMatchObject({
       id: 'gold-1',
@@ -664,8 +681,8 @@ describe('Ecobase inventory-planning public API seam', () => {
       pipelineStock: 4,
       sixMonthAverageQty: 22,
     });
-    expect(data.panes.activeOrders).toMatchObject({ total: 3 });
-    expect(data.panes.activeOrders.rows).toEqual(
+    expect(data.panes.inPrepMonitoring).toMatchObject({ total: 2 });
+    expect(data.panes.inPrepMonitoring.rows).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           id: 'gold-2',
@@ -674,19 +691,22 @@ describe('Ecobase inventory-planning public API seam', () => {
           latestSupplierOrderActivityAt: '2026-07-01T10:00:00.000Z',
           latestSupplierOrderActivityNote: 'Paid confirmed',
         }),
-        expect.objectContaining({ id: 'gold-4', estimatedProfitRisk: undefined, moneyRiskStatus: 'unknown_arrival' }),
         expect.objectContaining({ id: 'gold-6', stuck: false, stuckClassification: 'none' }),
       ]),
     );
-    expect(data.panes.stuckInventory).toMatchObject({ total: 2 });
-    expect(data.panes.stuckInventory.rows).toEqual(
+    expect(data.panes.untieredProducts).toMatchObject({ total: 3 });
+    expect(data.panes.untieredProducts.rows).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: 'gold-3', tier: undefined, stuckClassification: 'over_60_doc' }),
-        expect.objectContaining({ id: 'gold-5', stuckClassification: 'over_60_doc' }),
+        expect.objectContaining({ id: 'gold-4', estimatedProfitRisk: undefined, moneyRiskStatus: 'unknown_arrival' }),
+        expect.objectContaining({ id: 'gold-7', tier: undefined, profitPerUnit: undefined }),
       ]),
     );
+    expect(data.panes.excessInventory.rows).toEqual([
+      expect.objectContaining({ id: 'gold-5', stuckClassification: 'over_60_doc' }),
+    ]);
     expect(data.panes.supplyAction.rows.map((row: Record<string, unknown>) => row.id)).not.toContain('gold-5');
-    expect(data.panes.stuckInventory.rows.map((row: Record<string, unknown>) => row.id)).not.toContain('gold-6');
+    expect(data.panes.untieredProducts.rows.map((row: Record<string, unknown>) => row.id)).not.toContain('gold-6');
     expect(data.selectedRow.row).toMatchObject({
       id: 'gold-2',
       tierScore: 250,
@@ -704,15 +724,15 @@ describe('Ecobase inventory-planning public API seam', () => {
 
     const pageTwoContext = createActionContext(db, {
       company: 'ACME',
-      pane: 'activeOrders',
+      pane: 'inPrepMonitoring',
       page: 2,
       pageSize: 1,
       sortBy: 'asin',
       sortDirection: 'asc',
     });
     await actions.commandCenter(pageTwoContext, vi.fn());
-    expect(pageTwoContext.body?.data.panes.activeOrders).toMatchObject({ total: 3, page: 2, pageSize: 1 });
-    expect(pageTwoContext.body?.data.panes.activeOrders.rows).toHaveLength(1);
+    expect(pageTwoContext.body?.data.panes.inPrepMonitoring).toMatchObject({ total: 2, page: 2, pageSize: 1 });
+    expect(pageTwoContext.body?.data.panes.inPrepMonitoring.rows).toHaveLength(1);
   });
 });
 
@@ -1834,6 +1854,17 @@ describe('Ecobase import public API seam', () => {
         selectedRefCount: 1,
         matchedOrderCount: 1,
         updatedOrderCount: 0,
+        workflowDraftRefs: [],
+        receiptStateCoverage: {
+          requestedOrderCount: 1,
+          foundOrderCount: 1,
+          orderStatusCounts: { missing: 1 },
+          lineCount: 0,
+          linesWithoutReceiptStatus: 0,
+          ordersWithoutLines: ['supplier-order-1'],
+          pendingWorkflowDraftRefs: [],
+        },
+        receiptReconciliation: null,
       },
     });
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).all()[0]).toMatchObject({
@@ -2156,7 +2187,17 @@ describe('Ecobase import public API seam', () => {
         status: 'success',
         rowCount: 2,
         summary: {
-          clickup: { dryRun: false, matchedOrderCount: 1, updatedOrderCount: 1 },
+          clickup: {
+            dryRun: false,
+            matchedOrderCount: 1,
+            updatedOrderCount: 1,
+            receiptStateCoverageBefore: {
+              orderStatusCounts: { missing: 1 },
+              ordersWithoutLines: ['supplier-order-1'],
+            },
+            receiptReconciliation: { processedOrders: 1, updatedOrders: 1, errors: [] },
+            receiptStateCoverage: { orderStatusCounts: { review_required: 1 } },
+          },
           goldRefreshRequired: true,
         },
       },
@@ -2169,6 +2210,7 @@ describe('Ecobase import public API seam', () => {
       authoritySource: 'clickup_csv',
       authorityTaskRef: 'task-main',
       authorityAsOf: '2026-07-06T00:00:00.000Z',
+      amazonReceiptStatus: 'review_required',
       statusEvidenceJson: {
         clickupStatusImport: expect.objectContaining({
           clickupStatus: 'inbound-monitoring',
@@ -2200,6 +2242,28 @@ describe('Ecobase import public API seam', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).all()[0]).toMatchObject({
       canonicalStatus: 'shipped_inbound',
       statusSource: 'clickup_csv',
+    });
+
+    const reconciledContext = createActionContext(db, {
+      files: [{ name: 'Order Management Clickup Data 06-07-2026.csv', content }],
+      dryRun: false,
+      importedAt: '2026-07-08T00:00:00.000Z',
+      sourceConnectionId: clickupSourceId,
+      forceReconcile: true,
+    });
+    await actions.importClickupOrderStatuses(reconciledContext, vi.fn());
+    expect(reconciledContext.body).toMatchObject({
+      data: {
+        status: 'success',
+        summary: {
+          clickup: {
+            updatedOrderCount: 0,
+            workflowDraftCount: 0,
+            receiptReconciliation: { processedOrders: 1, updatedOrders: 0, updatedLines: 0, errors: [] },
+            receiptStateCoverage: { orderStatusCounts: { review_required: 1 } },
+          },
+        },
+      },
     });
   });
 
@@ -2237,6 +2301,14 @@ describe('Ecobase import public API seam', () => {
         marketplace: 'amazon.com',
       },
     });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductFamilies).create({
+      values: {
+        id: 'family-mexico',
+        companyId: 'stop-company',
+        canonicalAsin: 'B008BVEKJ2',
+        marketplace: 'amazon.com.mx',
+      },
+    });
     await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
       values: { id: 'product-1', asin: 'B008BVEKJ2', sku: '22-3000' },
     });
@@ -2248,11 +2320,20 @@ describe('Ecobase import public API seam', () => {
         productId: 'product-1',
       },
     });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+      values: {
+        id: 'company-product-mexico',
+        companyId: 'stop-company',
+        companyProductFamilyId: 'family-mexico',
+        productId: 'product-1',
+      },
+    });
     const clickupFile = {
       name: 'clickup.csv',
       content: [
         'Task ID,Task Link,Task Name,Status,Date Created,Parent ID,List Name',
-        'draft-task,https://clickup.test/draft,Restock Order SS2626D Stop Shop,in progress,1770383090985,null,Order Management (ORM)',
+        'draft-task,https://clickup.test/draft,Restock Order SS2626D Stop Shop USA,in progress,1770383090985,null,Order Management (ORM)',
+        'draft-task-2,https://clickup.test/draft-2,Restock Order SS2726E Stop Shop USA,approved-to-order,1770469490985,null,Order Management (ORM)',
         'unlinked-task,https://clickup.test/unlinked,New Order SS7226A Stop Shop,approved-to-order,1782921594245,null,Order Management (ORM)',
       ].join('\n'),
     };
@@ -2261,6 +2342,7 @@ describe('Ecobase import public API seam', () => {
       content: [
         'Order ID,Timestamp,Company,SR ID,Supplier,ASIN,UPC,SKU,Qty,PPU,Total Cost,Order type',
         'SS2626D,05/02/2026,Stop Shop LLC,SRO-3000,COLLECTORS ARMOURY,B008BVEKJ2,8435089730005,22-3000,15,4,60,Restock',
+        'SS2726E,06/02/2026,Stop Shop LLC,SRO-3000,COLLECTORS ARMOURY,B008BVEKJ2,8435089730005,22-3000,10,4,40,Restock',
       ].join('\n'),
     };
     const service = new EcobaseClickupOrderStatusService(db);
@@ -2272,35 +2354,48 @@ describe('Ecobase import public API seam', () => {
       importedAt: '2026-07-16T00:00:00.000Z',
     };
 
+    const preview = await service.importCsvFiles({ ...params, dryRun: true });
+
+    expect(preview).toMatchObject({ workflowDraftCount: 2, workflowDraftRefs: ['SS2626D', 'SS2726E'] });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).all()).toEqual([]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).all()).toEqual([]);
+
     const first = await service.importCsvFiles(params);
 
     expect(first).toMatchObject({
-      workflowDraftCount: 1,
-      workflowDraftLineCount: 1,
+      workflowDraftCount: 2,
+      workflowDraftLineCount: 2,
+      workflowDraftRefs: ['SS2626D', 'SS2726E'],
       unmatchedRefs: ['Stop Shop LLC:SS7226A'],
       workflowDraftExceptions: [{ ref: 'SS7226A', taskId: 'unlinked-task', reason: 'order_details_missing' }],
     });
-    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).all()).toEqual([
-      expect.objectContaining({
-        orderRef: 'SS2626D',
-        recordType: 'workflow_draft',
-        purchaseEvidenceStatus: 'unconfirmed_workflow',
-        operationalStatus: 'in progress',
-        workflowStage: 'pre_purchase',
-        taskRef: 'draft-task',
-        taskLink: 'https://clickup.test/draft',
-      }),
-    ]);
-    expect(transactionCount).toBe(1);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).all()).toEqual([
-      expect.objectContaining({
-        externalOrderId: 'SS2626D',
-        companyProductFamilyId: 'family-1',
-        companyProductId: 'company-product-1',
-        supplierProductId: null,
-        purchaseEvidenceStatus: 'unconfirmed_workflow',
-      }),
-    ]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).all()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          orderRef: 'SS2626D',
+          recordType: 'workflow_draft',
+          purchaseEvidenceStatus: 'unconfirmed_workflow',
+          operationalStatus: 'in progress',
+          workflowStage: 'pre_purchase',
+          taskRef: 'draft-task',
+          taskLink: 'https://clickup.test/draft',
+        }),
+        expect.objectContaining({ orderRef: 'SS2726E', taskRef: 'draft-task-2' }),
+      ]),
+    );
+    expect(transactionCount).toBe(2);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).all()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          externalOrderId: 'SS2626D',
+          companyProductFamilyId: 'family-1',
+          companyProductId: 'company-product-1',
+          supplierProductId: null,
+          purchaseEvidenceStatus: 'unconfirmed_workflow',
+        }),
+        expect.objectContaining({ externalOrderId: 'SS2726E', companyProductFamilyId: 'family-1' }),
+      ]),
+    );
     const firstOrders = structuredClone(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).all());
     const firstLines = structuredClone(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).all());
 
@@ -2910,13 +3005,13 @@ describe('Ecobase import public API seam', () => {
       files: [
         expect.objectContaining({
           detectedShape: 'supplier-ids',
-          adapterName: 'google-sheets-migration-csv',
+          adapterName: 'supplier-order-csv',
           importable: true,
         }),
       ],
       groups: [
         expect.objectContaining({
-          adapterName: 'google-sheets-migration-csv',
+          adapterName: 'supplier-order-csv',
           sourceType: 'google_sheets',
           domain: 'order_management',
         }),
@@ -3151,7 +3246,7 @@ describe('Ecobase alert public API seam', () => {
         asin: 'B010API',
         title: 'API alert product',
         actionStatus: 'overdue',
-        commandCenterPane: 'supplyAction',
+        commandCenterPane: 'orderNow',
         supplierOrderState: 'no_open_order',
         currentPlanningStock: 0,
         salesVelocity: 4,
@@ -3804,22 +3899,14 @@ describe('Ecobase Silver Data operator API', () => {
     const actions = createEcobaseSupplierManagementActions();
     const memberPreview = createActionContext(db, {}, undefined, ['member']);
     const memberApply = createActionContext(db, {}, undefined, ['member']);
-    const memberEvidence = createActionContext(db, {}, undefined, ['member']);
 
     await expect(actions.previewSupplierResolutionRepair(memberPreview, vi.fn())).rejects.toMatchObject({
       status: 403,
     });
     await expect(actions.applySupplierResolutionRepair(memberApply, vi.fn())).rejects.toMatchObject({ status: 403 });
-    await expect(actions.previewSupplierEvidenceBackfill(memberEvidence, vi.fn())).rejects.toMatchObject({
-      status: 403,
-    });
 
     const adminPreview = createActionContext(db, {}, undefined, ['admin']);
-    const adminEvidence = createActionContext(db, {}, undefined, ['admin']);
     await expect(actions.previewSupplierResolutionRepair(adminPreview, vi.fn())).rejects.toMatchObject({ status: 400 });
-    await expect(actions.previewSupplierEvidenceBackfill(adminEvidence, vi.fn())).rejects.toMatchObject({
-      status: 400,
-    });
   });
 
   it('rejects read-only updates and links drawer comments to the selected entity', async () => {

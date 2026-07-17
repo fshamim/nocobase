@@ -45,7 +45,12 @@ import { EcobaseOrderDetailsRelationshipVerifier } from '../features/source-impo
 import { EcobaseSellerboardCogsService } from '../features/source-import/server/sellerboard-cogs-service';
 import { EcobaseSellerboardHistoryApplyService } from '../features/source-import/server/sellerboard-history-apply-service';
 import { EcobaseSupplierOrderImportApplyService } from '../features/source-import/server/supplier-order-import-apply-service';
-import type { SupplierOrderImportPreflight } from '../features/source-import/server/supplier-order-import/supplier-order-import-preflight';
+import { EcobaseSupplierOrderImportService } from '../features/source-import/server/supplier-order-import-service';
+import { EcobaseProtectedCatalogBoundary } from '../features/source-import/server/protected-catalog-boundary';
+import type {
+  SupplierOrderImportMode,
+  SupplierOrderImportPreflight,
+} from '../features/source-import/server/supplier-order-import/supplier-order-import-preflight';
 import {
   EcobaseInventoryPlanningService,
   type InventoryCommandCenterPane,
@@ -75,8 +80,6 @@ import { EcobaseSourceConnectionService } from '../features/source-import/server
 import { EcobaseSupplierManagementService } from '../features/supplier-management/server/supplier-management-service';
 import { EcobaseSupplierOrderService } from '../features/supplier-management/server/supplier-order-service';
 import { EcobaseSupplierResolutionRepairService } from '../features/supplier-management/server/supplier-resolution-repair-service';
-import { EcobaseSupplierEvidenceApplyService } from '../features/supplier-management/server/supplier-evidence-apply-service';
-import type { SupplierEvidenceFiles } from '../features/supplier-management/server/supplier-evidence-backfill-service';
 
 function getValues(params: unknown): Record<string, unknown> {
   if (typeof params !== 'object' || params === null) {
@@ -163,27 +166,6 @@ function getCsvFiles(values: Record<string, unknown>, key = 'files'): CsvSourceF
     }
     return [csvFile];
   });
-}
-
-function getSupplierEvidenceFiles(values: Record<string, unknown>): SupplierEvidenceFiles {
-  const files = getCsvFiles(values);
-  const required = (description: string, match: (name: string) => boolean) => {
-    const matches = files.filter((file) => match(file.name));
-    if (matches.length !== 1) {
-      throw new Error(`Supplier evidence operation requires exactly one ${description} CSV; found ${matches.length}.`);
-    }
-    return matches[0];
-  };
-  return {
-    supplierIds: required('Supplier IDs', (name) => name.includes('Supplier IDs')),
-    supplierTracker: required(
-      'Supplier Analysis Tracker',
-      (name) => name.includes('Supplier Analysis Tracker') && !name.includes('Supplier 2026'),
-    ),
-    supplier2026: required('Supplier 2026', (name) => name.includes('Supplier 2026')),
-    purchaseOrders: required('Purchase Orders', (name) => name.includes('Purchase Orders')),
-    orderDetails: required('OrderDetails', (name) => name.includes('OrderDetails')),
-  };
 }
 
 function compactInventoryPlanningRow(row: Record<string, unknown>) {
@@ -2083,66 +2065,6 @@ export function createEcobaseSupplierManagementActions() {
         }
         await next();
       },
-      previewSupplierEvidenceBackfill: async (ctx, next) => {
-        requireRepairAdministrator(ctx);
-        try {
-          ctx.body = {
-            data: await new EcobaseSupplierEvidenceApplyService(ctx.db).preview(
-              getSupplierEvidenceFiles(getValues(ctx.action.params)),
-            ),
-          };
-        } catch (error) {
-          ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier evidence preview failed.');
-          return;
-        }
-        await next();
-      },
-      applySupplierEvidenceBackfill: async (ctx, next) => {
-        requireRepairAdministrator(ctx);
-        const values = getValues(ctx.action.params);
-        const decisionDigest = getOptionalString(values, 'decisionDigest');
-        const confirmation = getOptionalString(values, 'confirmation');
-        if (!decisionDigest || !confirmation) {
-          ctx.throw(400, 'Ecobase supplier evidence apply requires decisionDigest and confirmation.');
-          return;
-        }
-        try {
-          ctx.body = {
-            data: await new EcobaseSupplierEvidenceApplyService(ctx.db).apply({
-              files: getSupplierEvidenceFiles(values),
-              decisionDigest,
-              confirmation,
-            }),
-          };
-        } catch (error) {
-          ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier evidence apply failed.');
-          return;
-        }
-        await next();
-      },
-      verifySupplierEvidenceBackfillIdempotency: async (ctx, next) => {
-        requireRepairAdministrator(ctx);
-        const values = getValues(ctx.action.params);
-        const decisionDigest = getOptionalString(values, 'decisionDigest');
-        const confirmation = getOptionalString(values, 'confirmation');
-        if (!decisionDigest || !confirmation) {
-          ctx.throw(400, 'Ecobase supplier evidence verification requires decisionDigest and confirmation.');
-          return;
-        }
-        try {
-          ctx.body = {
-            data: await new EcobaseSupplierEvidenceApplyService(ctx.db).verifyIdempotency({
-              files: getSupplierEvidenceFiles(values),
-              decisionDigest,
-              confirmation,
-            }),
-          };
-        } catch (error) {
-          ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier evidence verification failed.');
-          return;
-        }
-        await next();
-      },
       refreshAttentionRows: async (ctx, next) => {
         const values = getValues(ctx.action.params);
         const service = new EcobaseSupplierManagementService(ctx.db);
@@ -2467,9 +2389,6 @@ export function createEcobaseSupplierManagementActions() {
     {
       previewSupplierResolutionRepair: 'admin',
       applySupplierResolutionRepair: 'admin',
-      previewSupplierEvidenceBackfill: 'admin',
-      applySupplierEvidenceBackfill: 'admin',
-      verifySupplierEvidenceBackfillIdempotency: 'admin',
       refreshAttentionRows: 'admin',
       createSupplier: 'operator',
       updateSupplierProfile: 'operator',
@@ -2723,6 +2642,15 @@ export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
         }
         await next();
       },
+      protectedCatalogDrift: async (ctx, next) => {
+        try {
+          ctx.body = { data: await new EcobaseProtectedCatalogBoundary(ctx.db).inspect() };
+        } catch (error) {
+          ctx.throw(400, error instanceof Error ? error.message : 'Ecobase protected catalog drift report failed.');
+          return;
+        }
+        await next();
+      },
       analyzeCsvBundle: async (ctx, next) => {
         const values = getValues(ctx.action.params);
         const service = new EcobaseImportService(ctx.db, registry);
@@ -2922,9 +2850,32 @@ export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
         }
         await next();
       },
+      previewSupplierOrderImport: async (ctx, next) => {
+        const values = getValues(ctx.action.params);
+        const files = getCsvFiles(values);
+        const asOfDate = getOptionalString(values, 'asOfDate');
+        const importMode = getOptionalString(values, 'importMode') as SupplierOrderImportMode | undefined;
+        if (!files.length || !asOfDate || !importMode) {
+          ctx.throw(400, 'Ecobase supplier/order preview requires files, asOfDate, and importMode.');
+          return;
+        }
+        if (!['canonical-rebuild', 'refresh'].includes(importMode)) {
+          ctx.throw(400, `Ecobase supplier/order preview received unsupported importMode: ${importMode}.`);
+          return;
+        }
+        try {
+          ctx.body = {
+            data: await new EcobaseSupplierOrderImportService(ctx.db).preview(files, asOfDate, importMode),
+          };
+        } catch (error) {
+          ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier/order preview failed.');
+          return;
+        }
+        await next();
+      },
       applySupplierOrderImportPreflight: async (ctx, next) => {
         const values = getValues(ctx.action.params);
-        const preflight = getOptionalRecord(values, 'preflight') as SupplierOrderImportPreflight | undefined;
+        const preflight = getOptionalRecord(values, 'preflight') as unknown as SupplierOrderImportPreflight | undefined;
         const confirmation = getOptionalString(values, 'confirmation');
         if (
           !preflight ||
@@ -2934,7 +2885,24 @@ export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
           return;
         }
         try {
-          ctx.body = { data: await new EcobaseSupplierOrderImportApplyService(ctx.db).apply(preflight) };
+          await new EcobaseSupplierOrderImportService(ctx.db).assertCatalogCurrent(preflight);
+          const apply = await new EcobaseSupplierOrderImportApplyService(ctx.db).apply(preflight);
+          let familyReconciliation: Record<string, unknown>;
+          try {
+            const { families: _families, ...summary } = await new EcobaseCompanyProductFamilyService(
+              ctx.db,
+            ).reconcileAllFamilies();
+            familyReconciliation = { status: 'success', ...summary };
+          } catch (error) {
+            familyReconciliation = {
+              status: 'warning',
+              error:
+                error instanceof Error
+                  ? `Supplier/order apply succeeded, but family reconciliation failed: ${error.message}`
+                  : 'Supplier/order apply succeeded, but family reconciliation threw a non-Error value.',
+            };
+          }
+          ctx.body = { data: { ...apply, familyReconciliation } };
         } catch (error) {
           ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier/order import apply failed.');
           return;
@@ -3049,6 +3017,7 @@ export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
       applySellerboardCogsBackfill: 'admin',
       verifySellerboardCogsBackfillIdempotency: 'admin',
       importSellerboardCogs: 'admin',
+      previewSupplierOrderImport: 'admin',
       applySupplierOrderImportPreflight: 'admin',
       ensureClickupAttributionUsers: 'admin',
       importClickupOrderStatuses: 'admin',

@@ -170,6 +170,31 @@ describe('safe import boundary', () => {
     });
   });
 
+  it('preserves the adapter-normalized Sellerboard date in the safe payload', () => {
+    const item: AdapterStreamItem = {
+      type: 'record',
+      rowNumber: 2,
+      sourceKey: 'profit_by_product_daily.csv:2',
+      payload: {
+        Company: 'Retail Heaven Inc',
+        Date: '7/12/2026',
+        Marketplace: 'Amazon.com',
+        ASIN: 'B000000001',
+        SKU: 'SKU-1',
+        SalesOrganic: '10',
+      },
+      record: {
+        kind: 'listing_daily_fact',
+        data: { company: 'Retail Heaven Inc', snapshotDate: '2026-07-12' },
+      },
+    };
+
+    expect(applySafeImportBoundary({ adapter: adapter('sellerboard', 'sellerboard-api') }, item)).toMatchObject({
+      disposition: 'accept',
+      item: { payload: { period: '2026-07-12' } },
+    });
+  });
+
   it('canonicalizes source-scoped Sellerboard aliases in the safe payload', () => {
     const item: AdapterStreamItem = {
       type: 'record',

@@ -249,7 +249,7 @@ describe('supplier/order import planner', () => {
     ]);
   });
 
-  it('requires an explicit hash-based decision for non-equivalent canonical line revisions and survives row reordering', () => {
+  it('preserves non-equivalent repeated lines by default and supports explicit revision selection across row reordering', () => {
     const detailRows = [
       {
         'Order ID': 'EF71626A',
@@ -278,10 +278,11 @@ describe('supplier/order import planner', () => {
     };
     expect(duplicate).toMatchObject({
       identity: 'ECOFISSION_LLC:EF71626A:B012345678:SKU:SKU-1',
-      disposition: 'blocked',
+      disposition: 'preserved_repeat',
     });
     expect(duplicate.sourceHashes).toHaveLength(2);
-    expect(blocked.hasBlockingIssues).toBe(true);
+    expect(blocked.orderLines).toHaveLength(2);
+    expect(blocked.hasBlockingIssues).toBe(false);
 
     const decision = {
       [duplicate.identity]: {

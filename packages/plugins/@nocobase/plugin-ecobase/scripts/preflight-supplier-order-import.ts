@@ -11,10 +11,17 @@ import {
   type SupplierOrderCatalogSnapshot,
 } from '../src/features/source-import/server/supplier-order-import/supplier-order-import-preflight';
 
-const [supplierIdsPath, purchaseOrdersPath, orderDetailsPath, catalogPath, supplierTrackerPath] = process.argv.slice(2);
-if (!supplierIdsPath || !purchaseOrdersPath || !orderDetailsPath || !catalogPath) {
+const [supplierIdsPath, purchaseOrdersPath, orderDetailsPath, catalogPath, importMode, supplierTrackerPath] =
+  process.argv.slice(2);
+if (
+  !supplierIdsPath ||
+  !purchaseOrdersPath ||
+  !orderDetailsPath ||
+  !catalogPath ||
+  (importMode !== 'canonical-rebuild' && importMode !== 'refresh')
+) {
   throw new Error(
-    'Usage: preflight-supplier-order-import.ts <supplier-ids.csv> <purchase-orders.csv> <order-details.csv> <catalog.json> [supplier-tracker.csv]',
+    'Usage: preflight-supplier-order-import.ts <supplier-ids.csv> <purchase-orders.csv> <order-details.csv> <catalog.json> <canonical-rebuild|refresh> [supplier-tracker.csv]',
   );
 }
 
@@ -55,8 +62,8 @@ const overrides = validateSupplierOrderImportOverrides(
 );
 const catalog = JSON.parse(readFileSync(path.resolve(catalogPath), 'utf8')) as SupplierOrderCatalogSnapshot;
 const plan = buildSupplierOrderImportPlan({ files, asOfDate: '2026-07-16', overrides });
-const first = preflightSupplierOrderImport(plan, catalog);
-const second = preflightSupplierOrderImport(plan, catalog);
+const first = preflightSupplierOrderImport(plan, catalog, importMode);
+const second = preflightSupplierOrderImport(plan, catalog, importMode);
 if (first.preflightDigest !== second.preflightDigest) {
   throw new Error(
     `Supplier/order preflight failed determinism gate: ${first.preflightDigest} != ${second.preflightDigest}.`,

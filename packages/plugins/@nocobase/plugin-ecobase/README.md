@@ -85,11 +85,15 @@ Issue 005 adapters are registered through the same Issue 004 source-adapter seam
 | --- | --- | --- |
 | `amazon-operations-csv` | `seller_central_file` | SampleAM weekly CSV shapes and Sellerboard-like CSV exports when imported as files. |
 | `sellerboard-csv` | `sellerboard` | Sellerboard stock/profit dashboard CSV exports. |
-| `google-sheets-migration-csv` | `google_sheets` | Planning targets, supplier defaults/lead times, and order-management workbook exports. |
+| `supplier-order-csv` | `google_sheets` | Canonical Supplier IDs, Supplier Tracker, Purchase Orders, and Order Details bundle import. |
+| `clickup-order-status-csv` | `clickup` | Separate exact-reference workflow status refresh; it does not import supplier or purchase-order facts. |
+| `google-sheets-migration-csv` | `google_sheets` | Planning targets and non-order supplier-management exports. |
 | `sellerboard-api` | `sellerboard` | Slim live-source check; records a credential blocker when API credentials are absent. |
 | `amazon-sp-api-access-check` | `amazon_sp_api` | Slim Amazon SP-API access check; records an access blocker when approval/credentials are absent. |
 | `clickup-fixture` | `clickup` | Fixture/manual accountability import for ClickUp task snapshots, task links, OKRs, and OKR metric snapshots. |
 | `clickup-access-check` | `clickup` | Slim ClickUp access check; records a credential blocker and source warning when live credentials are absent. |
+
+Supplier/order preview requires an explicit mode. `canonical-rebuild` replaces only importer-owned supplier/order rows with a complete snapshot. `refresh` upserts new evidence and retains historical rows omitted from a later export. ClickUp remains a separate refresh operation.
 
 Documented sample row counts for row-count verification:
 

@@ -132,11 +132,13 @@ export class EcobaseMedallionNormalizationService {
           : null),
     );
     const adapterName = textValue(importRun.adapterName);
-    const createsAmazonIdentity = approvedAmazonIdentitySource({
+    const catalogMutationMode = textValue(toPlainRecord(importRun.summary).catalogMutationMode) ?? 'refresh';
+    const sellerboardIdentitySource = approvedAmazonIdentitySource({
       sourceType: textValue(bronze.sourceType),
       sourceDataset,
       adapterName,
     });
+    const createsAmazonIdentity = sellerboardIdentitySource && catalogMutationMode === 'rebuild';
     const isSellerboardHistory =
       adapterName === 'sellerboard-history-csv' && sourceDataset === 'sellerboard_daily_facts';
     if (orderShape && !safeProjectedDataset && orderRowExclusionReason(orderShape, row)) return entities;
@@ -258,6 +260,13 @@ export class EcobaseMedallionNormalizationService {
     const account = companyProductIdentity?.account ?? null;
     const companyProduct = companyProductIdentity?.companyProduct ?? null;
     const supplierProductProduct = product ?? companyProductIdentity?.product ?? null;
+    if (sellerboardIdentitySource && catalogMutationMode !== 'rebuild' && company && asin && sku && !companyProduct) {
+      throw new Error(
+        `Ecobase Sellerboard refresh failed: ${canonicalCompany?.name}/${
+          marketplace ?? 'unknown marketplace'
+        }/${asin}/${sku} is outside the protected catalog.`,
+      );
+    }
     if (supplierExternalCode && asin && !sku && !companyProductIdentity) {
       await this.markBronzeWarning(
         bronze,

@@ -26,10 +26,6 @@ import {
 import { sellerboardMetricValues } from './sellerboard-metrics';
 import { analyzeSellerboardHistoryCsvFile } from './sellerboard-history-csv-adapter';
 import { requireCanonicalCompany } from '../../../../server/company-identity';
-import { orderDetailSourceIdentity } from '../order-detail-source-identity';
-import { orderDetailLineIdentityKey, orderIdentityKey, orderRowExclusionReason } from '../order-import-policy';
-import { decideOrderMigrationRetention } from '../order-migration-retention';
-import type { FourCompanyKey } from '../four-company-migration-profile';
 
 interface FileConfig {
   files?: CsvSourceFile[];
@@ -53,7 +49,6 @@ export type CsvShape =
   | 'supplier-ids'
   | 'order-details'
   | 'purchase-orders'
-  | 'pre-order-sheet'
   | 'clickup-order-status'
   | 'unknown';
 
@@ -127,16 +122,6 @@ export function detectCsvShape(headers: string[]): CsvShape {
   if (has(normalized, 'Order ID') && has(normalized, 'Lead time(day)')) return 'order-details';
   if (has(normalized, 'Timestamp') && has(normalized, 'Order ID') && has(normalized, 'Payment Status'))
     return 'purchase-orders';
-  if (
-    has(normalized, 'Order ID') &&
-    has(normalized, 'Qty') &&
-    !has(normalized, 'Lead time(day)') &&
-    !has(normalized, 'Payment Status') &&
-    (has(normalized, 'ETA on Amazon') ||
-      has(normalized, 'Arrival to Amazon') ||
-      has(normalized, 'Expected Sellable Date'))
-  )
-    return 'pre-order-sheet';
   return 'unknown';
 }
 
@@ -151,12 +136,12 @@ export function targetForCsvShape(shape: CsvShape): Omit<CsvBundleAnalysisGroup,
   if (
     shape === 'order-details' ||
     shape === 'purchase-orders' ||
-    shape === 'pre-order-sheet' ||
-    shape === 'supplier-ids'
+    shape === 'supplier-ids' ||
+    shape === 'supplier-analysis-tracker'
   ) {
-    return { adapterName: 'google-sheets-migration-csv', sourceType: 'google_sheets', domain: 'order_management' };
+    return { adapterName: 'supplier-order-csv', sourceType: 'google_sheets', domain: 'order_management' };
   }
-  if (shape === 'supplier-analysis-tracker' || shape === 'supplier-analysis-2026') {
+  if (shape === 'supplier-analysis-2026') {
     return { adapterName: 'google-sheets-migration-csv', sourceType: 'google_sheets', domain: 'supplier_management' };
   }
   if (shape === 'clickup-order-status') {
@@ -354,121 +339,6 @@ function firstDateTime(row: CsvRowReader, ...headers: string[]) {
     }
   }
   return undefined;
-}
-
-export function latestOrderDetailRowIndexes(rows: Array<Record<string, string>>) {
-  const latestByIdentity = new Map<string, { index: number; observedAt: string }>();
-  rows.forEach((rawRow, index) => {
-    const row = new CsvRowReader(rawRow);
-    const identity = orderDetailLineIdentityKey(row);
-    if (!identity) return;
-    const observedAt = firstDateTime(row, 'Timestamp', 'Date', 'Order Date') ?? '';
-    const current = latestByIdentity.get(identity);
-    if (!current || observedAt > current.observedAt || (observedAt === current.observedAt && index > current.index)) {
-      latestByIdentity.set(identity, { index, observedAt });
-    }
-  });
-  return new Set([...latestByIdentity.values()].map(({ index }) => index));
-}
-
-export function orderBundleAuthority(files: CsvSourceFile[], asOfDate?: string) {
-  const latestByOrder = new Map<
-    string,
-    {
-      fileName: string;
-      index: number;
-      observedAt: string;
-      supplierCode: string;
-      companyKey: FourCompanyKey;
-      status: string;
-      expectedDeliveryDate?: string;
-    }
-  >();
-  for (const file of files) {
-    const parsed = parseCsv(file.content);
-    if (detectCsvShape(parsed.headers) !== 'purchase-orders') continue;
-    parsed.rows.forEach((rawRow, index) => {
-      const row = new CsvRowReader(rawRow);
-      if (orderRowExclusionReason('purchase-orders', row)) return;
-      const key = orderIdentityKey(row);
-      const identity = orderDetailSourceIdentity(row);
-      if (!key || !identity.supplierCode || !identity.company) return;
-      const observedAt = firstDateTime(row, 'Timestamp', 'Order Date', 'Updated At') ?? '';
-      const current = latestByOrder.get(key);
-      if (
-        !current ||
-        observedAt > current.observedAt ||
-        (observedAt === current.observedAt && `${file.name}:${index}` > `${current.fileName}:${current.index}`)
-      ) {
-        latestByOrder.set(key, {
-          fileName: file.name,
-          index,
-          observedAt,
-          supplierCode: identity.supplierCode,
-          companyKey: identity.company.companyKey as FourCompanyKey,
-          status: row.string('Order status', 'Order Status', 'Status') ?? 'draft',
-          expectedDeliveryDate: firstDate(
-            row,
-            'Expected Delivery',
-            'Expected Delivery Date',
-            'ETA',
-            'Arrival to Amazon',
-          ),
-        });
-      }
-    });
-  }
-
-  const decisionByOrder = new Map(
-    [...latestByOrder].map(([key, value]) => [
-      key,
-      asOfDate
-        ? decideOrderMigrationRetention({
-            companyKey: value.companyKey,
-            status: value.status,
-            orderDate: value.observedAt,
-            expectedDeliveryDate: value.expectedDeliveryDate,
-            asOfDate,
-          })
-        : { disposition: 'accept' as const, companyKey: value.companyKey, reasonCode: 'retention_not_requested' },
-    ]),
-  );
-  const retainedOrderKeys = new Set(
-    [...decisionByOrder].filter(([, decision]) => decision.disposition !== 'discard').map(([key]) => key),
-  );
-  const usableDetailCountByOrder = new Map<string, number>();
-  for (const file of files) {
-    const parsed = parseCsv(file.content);
-    if (detectCsvShape(parsed.headers) !== 'order-details') continue;
-    const latestRows = latestOrderDetailRowIndexes(parsed.rows);
-    parsed.rows.forEach((rawRow, index) => {
-      const row = new CsvRowReader(rawRow);
-      const key = orderIdentityKey(row);
-      if (
-        !key ||
-        !retainedOrderKeys.has(key) ||
-        orderRowExclusionReason('order-details', row) ||
-        !latestRows.has(index) ||
-        orderDetailSourceIdentity(row).supplierCode !== latestByOrder.get(key)?.supplierCode
-      ) {
-        return;
-      }
-      usableDetailCountByOrder.set(key, (usableDetailCountByOrder.get(key) ?? 0) + 1);
-    });
-  }
-
-  return {
-    supplierByOrder: new Map([...latestByOrder].map(([key, value]) => [key, value.supplierCode])),
-    selectedPurchaseRows: new Set([...latestByOrder.values()].map(({ fileName, index }) => `${fileName}:${index}`)),
-    retainedPurchaseRows: new Set(
-      [...latestByOrder]
-        .filter(([key]) => retainedOrderKeys.has(key))
-        .map(([, { fileName, index }]) => `${fileName}:${index}`),
-    ),
-    retainedOrderKeys,
-    decisionByOrder,
-    usableDetailCountByOrder,
-  };
 }
 
 const MONTH_INDEX: Record<string, string> = {
@@ -827,53 +697,6 @@ function supplierManagementRecord(
   ];
 }
 
-function supplierIdentityRecord(input: SourceAdapterImportInput, row: CsvRowReader): NormalizedRecord[] {
-  const company = companyOf(input, row);
-  const supplierName = row.string('Supplier', 'Supplier ', 'Supplier Name');
-  const supplierId = supplierExternalCode(row);
-  if (!company || (!supplierName && !supplierId)) {
-    return [];
-  }
-
-  return [
-    {
-      kind: 'supplier_identity',
-      data: {
-        company,
-        supplierName,
-        externalSupplierCode: supplierId,
-        sourceSystem: 'supplier_ids',
-        sourceConnectionId: input.sourceConnectionId,
-        observedAt: isoDateTime(input.sourceVersion),
-        leadTimeDays: row.number('Lead time(day)', 'Manuf. time days'),
-        payload: row.payload(),
-      },
-    },
-  ];
-}
-
-function expectedSellableDate(row: CsvRowReader) {
-  if (row.string('Expected Sellable Date')) {
-    return {
-      date: firstDate(row, 'Expected Sellable Date'),
-      source: 'imported_expected_sellable_date',
-    };
-  }
-  if (row.string('ETA on Amazon')) {
-    return {
-      date: firstDate(row, 'ETA on Amazon'),
-      source: 'imported_eta_on_amazon',
-    };
-  }
-  if (row.string('Arrival to Amazon')) {
-    return {
-      date: firstDate(row, 'Arrival to Amazon'),
-      source: 'imported_arrival_to_amazon',
-    };
-  }
-  return { date: undefined, source: undefined };
-}
-
 function compactReference(value: string, maxLength = 180) {
   if (value.length <= maxLength) {
     return value;
@@ -882,273 +705,12 @@ function compactReference(value: string, maxLength = 180) {
   return `${value.slice(0, maxLength - 17)}:${hash}`;
 }
 
-function sourceOrderLineRef(row: CsvRowReader, fallback: string) {
-  return compactReference(
-    [row.string('Order ID'), canonicalAsin(row), row.string('SKU')].filter(Boolean).join(':') || fallback,
-  );
-}
-
 function lower(value: string | undefined) {
   return value?.trim().toLowerCase() ?? '';
 }
 
 function hasAny(value: string, terms: string[]) {
   return terms.some((term) => value.includes(term));
-}
-
-function purchaseOrderStatus(row: CsvRowReader) {
-  const orderStatus = lower(row.string('Order status', 'Order Status', 'Status'));
-  const paymentStatus = lower(row.string('Payment Status', 'Payment Status '));
-  const poApproval = lower(row.string('PO approval', 'Approval Status', 'PO Approval'));
-  const invoiceStatus = lower(row.string('Invoice Status'));
-  const orStatus = lower(row.string('OR Status'));
-  const prepStatus = lower(row.string('Prep Status', 'Prep Status '));
-  const combined = [
-    orderStatus,
-    paymentStatus,
-    poApproval,
-    invoiceStatus,
-    orStatus,
-    prepStatus,
-    lower(row.string('Blocked Reason')),
-    lower(row.string('Tracking ID', 'Tracking #')),
-    lower(row.string('Shipping Carrier', 'Carrier')),
-  ]
-    .filter(Boolean)
-    .join(' ');
-
-  if (hasAny(combined, ['cancel'])) return 'cancelled';
-  if (hasAny(combined, ['reject'])) return 'rejected';
-  if (hasAny(combined, ['block', 'hold'])) return 'blocked';
-  if (hasAny(orStatus, ['reached fba', 'reached amazon'])) return 'reached_fba';
-  if (
-    hasAny(combined, ['dispatch to fba', 'ship', 'inbound']) ||
-    row.string('Tracking ID', 'Tracking #') ||
-    row.string('Shipping Carrier', 'Carrier')
-  ) {
-    return 'shipped_inbound';
-  }
-  if (hasAny(combined, ['prep', 'production', 'manufactur'])) return 'supplier_preparing';
-  if (
-    hasAny(paymentStatus, ['completed', 'paid']) ||
-    hasAny(orderStatus, ['completed', 'complete']) ||
-    row.string('Date of Payment')
-  )
-    return 'paid';
-  if (
-    hasAny(paymentStatus, ['pending', 'due', 'not paid']) ||
-    hasAny(invoiceStatus, ['uploaded', 'invoice']) ||
-    hasAny(orderStatus, ['placed'])
-  ) {
-    return 'payment_pending';
-  }
-  if (hasAny(combined, ['confirm'])) return 'supplier_confirmed';
-  if (hasAny(poApproval, ['approved']) || hasAny(combined, ['approv'])) return 'approval_pending';
-  return 'supplier_contacted';
-}
-
-function orderDetailsStatus(row: CsvRowReader) {
-  const orderStatus = lower(row.string('Order status', 'Order Status'));
-  const poStatus = lower(row.string('PO Status'));
-  const amStatus = lower(row.string('AM Status'));
-  const cooStatus = lower(row.string('COO status'));
-  const combined = [
-    orderStatus,
-    poStatus,
-    amStatus,
-    cooStatus,
-    lower(row.string('Remarks')),
-    lower(row.string('AM Remarks')),
-  ]
-    .filter(Boolean)
-    .join(' ');
-  if (hasAny(combined, ['cancel'])) return 'cancelled';
-  if (hasAny(combined, ['reject'])) return 'rejected';
-  if (hasAny(combined, ['block', 'hold'])) return 'blocked';
-  if (hasAny(combined, ['ship', 'inbound', 'dispatch'])) return 'shipped_inbound';
-  if (hasAny(combined, ['prep', 'reserved'])) return 'supplier_preparing';
-  if (hasAny(combined, ['paid', 'payment completed'])) return 'paid';
-  if (hasAny(combined, ['payment', 'invoice', 'po placed', 'order placed'])) return 'payment_pending';
-  if (hasAny(combined, ['approved', 'approval', 'cleared', 'added to po'])) return 'approval_pending';
-  if (hasAny(combined, ['confirm'])) return 'supplier_confirmed';
-  return 'supplier_contacted';
-}
-
-function orderDetailsReceivedQty(_row: CsvRowReader) {
-  return 0;
-}
-
-function orderDetailsRecord(input: SourceAdapterImportInput, row: CsvRowReader, sourceKey: string): NormalizedRecord[] {
-  const company = companyOf(input, row);
-  const supplierName = row.string('Supplier', 'Supplier ', 'Supplier Name');
-  const supplierId = supplierExternalCode(row);
-  const orderId = row.string('Order ID');
-  if (!company || (!supplierName && !supplierId) || !orderId) {
-    return [];
-  }
-
-  return [
-    {
-      kind: 'supplier_order',
-      data: {
-        company,
-        supplierName,
-        externalSupplierCode: supplierId,
-        sourceSystem: 'order_details',
-        sourceConnectionId: input.sourceConnectionId,
-        externalOrderRef: orderId,
-        sourceStage: 'order_detail',
-        status: orderDetailsStatus(row),
-        orderDate: firstDate(row, 'Timestamp'),
-        statusUpdatedAt: firstDateTime(row, 'Timestamp'),
-        lastMeaningfulUpdateAt: firstDateTime(row, 'Timestamp'),
-        payload: row.payload(),
-        lines: [
-          {
-            sourceOrderLineRef: sourceOrderLineRef(row, sourceKey),
-            asin: canonicalAsin(row),
-            sku: row.string('SKU'),
-            brand: row.string('Brand', 'Brand '),
-            orderedQty: row.number('Qty') ?? 0,
-            receivedQty: orderDetailsReceivedQty(row),
-            unitCost: row.number('PPU', 'Exp. Cost '),
-            leadTimeDays: row.number('Lead time(day)', 'Manuf. time days'),
-            observedAt: firstDateTime(row, 'Timestamp'),
-            payload: row.payload(),
-          },
-        ],
-      },
-    },
-  ];
-}
-
-function purchaseOrderRecord(
-  input: SourceAdapterImportInput,
-  row: CsvRowReader,
-  sourceKey: string,
-): NormalizedRecord[] {
-  const company = companyOf(input, row);
-  const supplierName = row.string('Supplier', 'Supplier ', 'Supplier Name');
-  const supplierId = supplierExternalCode(row);
-  const orderId = row.string('Order ID');
-  if (!company || (!supplierName && !supplierId) || !orderId) {
-    return [];
-  }
-
-  const lines = [] as Array<Record<string, unknown>>;
-  const orderedQty = row.number('Qty', 'Total units');
-  if (typeof orderedQty === 'number' && (canonicalAsin(row) || row.string('SKU'))) {
-    lines.push({
-      sourceOrderLineRef: sourceOrderLineRef(row, sourceKey),
-      asin: canonicalAsin(row),
-      sku: row.string('SKU'),
-      brand: row.string('Brand', 'Brand '),
-      orderedQty,
-      unitCost: row.number('PPU', 'Exp. Cost '),
-      expectedDeliveryDate: firstDate(row, 'Expected Delivery', 'Expected Delivery Date', 'ETA', 'Arrival to Amazon'),
-      observedAt: firstDateTime(row, 'Timestamp'),
-      payload: row.payload(),
-    });
-  }
-
-  return [
-    {
-      kind: 'supplier_order',
-      data: {
-        company,
-        supplierName,
-        externalSupplierCode: supplierId,
-        sourceSystem: 'purchase_orders',
-        sourceConnectionId: input.sourceConnectionId,
-        externalOrderRef: orderId,
-        sourceStage: 'purchase_order',
-        status: purchaseOrderStatus(row),
-        approvalStatus: row.string('PO approval', 'Approval Status', 'PO Approval'),
-        paymentStatus: row.string('Payment Status', 'Payment Status '),
-        shippingCarrier: row.string('Shipping Carrier', 'Carrier'),
-        trackingId: row.string('Tracking ID', 'Tracking #'),
-        expectedDeliveryDate: firstDate(
-          row,
-          'Expected Delivery',
-          'Expected Delivery Date',
-          'Exp. Delivery Date',
-          'Exp. Delivery Date ',
-          'ETA',
-          'Arrival to Amazon',
-        ),
-        blockedReason: row.string('Blocked Reason'),
-        orderDate: firstDate(row, 'Timestamp', 'Order Date'),
-        statusUpdatedAt: firstDateTime(row, 'OR Status Date', 'Timestamp', 'Updated At'),
-        lastMeaningfulUpdateAt: firstDateTime(row, 'OR Status Date', 'Date of Payment', 'Timestamp', 'Updated At'),
-        payload: row.payload(),
-        lines,
-      },
-    },
-  ];
-}
-
-function preOrderSheetRecord(
-  input: SourceAdapterImportInput,
-  row: CsvRowReader,
-  sourceKey: string,
-): NormalizedRecord[] {
-  const company = companyOf(input, row);
-  const supplierName = row.string('Supplier', 'Supplier ', 'Supplier Name');
-  const supplierId = supplierExternalCode(row);
-  const orderId = row.string('Order ID');
-  const orderedQty = row.number('Qty');
-  if (
-    !company ||
-    (!supplierName && !supplierId) ||
-    !orderId ||
-    typeof orderedQty !== 'number' ||
-    (!canonicalAsin(row) && !row.string('SKU'))
-  ) {
-    return [];
-  }
-
-  const sellableDate = expectedSellableDate(row);
-  return [
-    {
-      kind: 'supplier_order',
-      data: {
-        company,
-        supplierName,
-        externalSupplierCode: supplierId,
-        sourceSystem: 'pre_order_sheet',
-        sourceConnectionId: input.sourceConnectionId,
-        externalOrderRef: orderId,
-        sourceStage: 'pre_order',
-        status: 'planned',
-        expectedDeliveryDate: firstDate(row, 'Expected Delivery', 'Expected Delivery Date', 'ETA', 'Arrival to Amazon'),
-        orderDate: firstDate(row, 'Timestamp', 'Order Date') ?? input.sourceVersion,
-        statusUpdatedAt: firstDateTime(row, 'Timestamp', 'Order Date') ?? `${input.sourceVersion}T00:00:00.000Z`,
-        lastMeaningfulUpdateAt: firstDateTime(row, 'Timestamp', 'Order Date') ?? `${input.sourceVersion}T00:00:00.000Z`,
-        payload: row.payload(),
-        lines: [
-          {
-            sourceOrderLineRef: sourceOrderLineRef(row, sourceKey),
-            asin: canonicalAsin(row),
-            sku: row.string('SKU'),
-            brand: row.string('Brand', 'Brand '),
-            orderedQty,
-            unitCost: row.number('PPU', 'Exp. Cost '),
-            expectedDeliveryDate: firstDate(
-              row,
-              'Expected Delivery',
-              'Expected Delivery Date',
-              'ETA',
-              'Arrival to Amazon',
-            ),
-            expectedSellableDate: sellableDate.date,
-            expectedSellableDateSource: sellableDate.source,
-            observedAt: firstDateTime(row, 'Timestamp', 'Order Date') ?? `${input.sourceVersion}T00:00:00.000Z`,
-            payload: row.payload(),
-          },
-        ],
-      },
-    },
-  ];
 }
 
 function dailyFactRecord(
@@ -1298,21 +860,7 @@ function recordsForShape(
   if (shape === 'sellerboard-dashboard-goods' || shape === 'sellerboard-dashboard-totals') {
     return [dailyFactRecord(input, row, snapshotDate, sourceKey), trafficRecord(input, row, snapshotDate, sourceKey)];
   }
-  if (shape === 'supplier-analysis-tracker' || shape === 'supplier-analysis-2026') {
-    return supplierManagementRecord(input, row, sourceKey);
-  }
-  if (shape === 'supplier-ids') {
-    return supplierIdentityRecord(input, row);
-  }
-  if (shape === 'order-details') {
-    return orderDetailsRecord(input, row, sourceKey);
-  }
-  if (shape === 'purchase-orders') {
-    return purchaseOrderRecord(input, row, sourceKey);
-  }
-  if (shape === 'pre-order-sheet') {
-    return preOrderSheetRecord(input, row, sourceKey);
-  }
+  if (shape === 'supplier-analysis-2026') return supplierManagementRecord(input, row, sourceKey);
   return [];
 }
 
@@ -1330,19 +878,6 @@ export async function* importCsvFiles(input: SourceAdapterImportInput): AsyncIte
     };
     return;
   }
-
-  const bundleAuthority = orderBundleAuthority(files, input.sourceVersion.slice(0, 10));
-  const orderIssueSummaries = new Map<
-    string,
-    { code: string; fileName: string; discardedCount: number; severity: 'warning' | 'error' }
-  >();
-  const countOrderIssue = (code: string, fileName: string, severity: 'warning' | 'error' = 'warning') => {
-    const key = `${fileName}:${code}`;
-    const summary = orderIssueSummaries.get(key) ?? { code, fileName, discardedCount: 0, severity };
-    summary.discardedCount += 1;
-    if (severity === 'error') summary.severity = 'error';
-    orderIssueSummaries.set(key, summary);
-  };
 
   for (const file of files) {
     const parsed = parseCsv(file.content);
@@ -1362,7 +897,6 @@ export async function* importCsvFiles(input: SourceAdapterImportInput): AsyncIte
     }
 
     const shape = detectCsvShape(parsed.headers);
-    const latestOrderDetailRows = shape === 'order-details' ? latestOrderDetailRowIndexes(parsed.rows) : undefined;
     if (shape === 'unknown') {
       yield {
         type: 'rowIssue',
@@ -1377,62 +911,31 @@ export async function* importCsvFiles(input: SourceAdapterImportInput): AsyncIte
       };
       continue;
     }
+    if (
+      shape === 'supplier-ids' ||
+      shape === 'supplier-analysis-tracker' ||
+      shape === 'purchase-orders' ||
+      shape === 'order-details'
+    ) {
+      yield {
+        type: 'rowIssue',
+        issue: {
+          rowNumber: 0,
+          severity: 'error',
+          code: 'canonical_supplier_order_import_required',
+          message: `Ecobase CSV import requires the canonical supplier/order importer for ${file.name}.`,
+          sourceKey: file.name,
+          payload: { fileName: file.name, shape },
+        },
+      };
+      continue;
+    }
 
     for (const [index, row] of parsed.rows.entries()) {
       const reader = new CsvRowReader(row);
       const rowNumber = index + 2;
       const sourceKey = compactReference(`${file.name}:${sourceKeyFor(reader, String(rowNumber))}`);
-      if (shape === 'order-details' || shape === 'purchase-orders') {
-        const exclusionReason = orderRowExclusionReason(shape, reader);
-        if (exclusionReason) {
-          countOrderIssue(`discarded_order_${exclusionReason}`, file.name);
-          continue;
-        }
-        const orderKey = orderIdentityKey(reader);
-        if (shape === 'purchase-orders') {
-          const rowKey = `${file.name}:${index}`;
-          if (!bundleAuthority.selectedPurchaseRows.has(rowKey)) {
-            countOrderIssue('discarded_purchase_order_superseded', file.name);
-            continue;
-          }
-          if (!bundleAuthority.retainedPurchaseRows.has(rowKey)) {
-            const reasonCode = orderKey ? bundleAuthority.decisionByOrder.get(orderKey)?.reasonCode : undefined;
-            countOrderIssue(`discarded_order_${reasonCode ?? 'retention_policy'}`, file.name);
-            continue;
-          }
-        }
-        if (shape === 'order-details') {
-          const expectedSupplierCode = orderKey ? bundleAuthority.supplierByOrder.get(orderKey) : undefined;
-          const actualSupplierCode = orderDetailSourceIdentity(reader).supplierCode;
-          const retainedParent = orderKey ? bundleAuthority.retainedOrderKeys.has(orderKey) : false;
-          if (!expectedSupplierCode) {
-            countOrderIssue('discarded_order_detail_parent_missing', file.name);
-            continue;
-          }
-          if (actualSupplierCode !== expectedSupplierCode) {
-            if (!retainedParent) {
-              countOrderIssue('discarded_order_detail_supplier_mismatch', file.name);
-            } else if ((bundleAuthority.usableDetailCountByOrder.get(orderKey ?? '') ?? 0) === 0) {
-              countOrderIssue('retained_order_has_no_usable_lines', file.name, 'error');
-            } else {
-              countOrderIssue('retained_order_detail_supplier_mismatch', file.name);
-            }
-            continue;
-          }
-          if (!retainedParent) {
-            countOrderIssue('discarded_order_detail_parent', file.name);
-            continue;
-          }
-          if (!latestOrderDetailRows?.has(index)) {
-            countOrderIssue('discarded_order_detail_superseded', file.name);
-            continue;
-          }
-        }
-      }
-      if (
-        (shape === 'supplier-analysis-tracker' || shape === 'supplier-analysis-2026' || shape === 'supplier-ids') &&
-        reader.string('Reached Via')?.trim().toLowerCase() === 'call & email'
-      ) {
+      if (shape === 'supplier-analysis-2026' && reader.string('Reached Via')?.trim().toLowerCase() === 'call & email') {
         yield {
           type: 'rowIssue',
           issue: {
@@ -1488,24 +991,6 @@ export async function* importCsvFiles(input: SourceAdapterImportInput): AsyncIte
         record: records,
       };
     }
-  }
-
-  for (const [, summary] of [...orderIssueSummaries].sort(([left], [right]) => left.localeCompare(right))) {
-    yield {
-      type: 'rowIssue',
-      issue: {
-        rowNumber: 0,
-        severity: summary.severity,
-        code: summary.code,
-        message: `Ecobase CSV import excluded ${summary.discardedCount} order row(s): ${summary.code}.`,
-        sourceKey: `${summary.fileName}:order-import-summary:${summary.code}`,
-        payload: {
-          discardedCount: summary.discardedCount,
-          reasonCode: summary.code,
-          fileName: summary.fileName,
-        },
-      },
-    };
   }
 }
 

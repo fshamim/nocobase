@@ -8,6 +8,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import { FOUR_COMPANY_MIGRATION_PROFILE } from '../four-company-migration-profile';
 import { computeSupplierOrderImportPlanDigest } from './supplier-order-import-plan';
 import type { OrderLineImportPlanRow, SupplierOrderImportPlan } from './supplier-order-import-types';
 
@@ -65,8 +66,11 @@ export interface SupplierOrderPreflightBlocker {
   candidateIds?: string[];
 }
 
+export type SupplierOrderImportMode = 'canonical-rebuild' | 'refresh';
+
 export interface SupplierOrderImportPreflight {
-  preflightVersion: 'supplier-order-preflight-v1';
+  preflightVersion: 'supplier-order-preflight-v2';
+  importMode: SupplierOrderImportMode;
   sourcePlanDigest: string;
   catalogDigest: string;
   preflightDigest: string;
@@ -126,10 +130,11 @@ function sortedIds(values: Array<{ id: string }>) {
 export function computeSupplierOrderPreflightDigest(
   preflight: Pick<
     SupplierOrderImportPreflight,
-    'sourcePlanDigest' | 'catalogDigest' | 'counts' | 'blockers' | 'mappingExceptions' | 'plan'
+    'importMode' | 'sourcePlanDigest' | 'catalogDigest' | 'counts' | 'blockers' | 'mappingExceptions' | 'plan'
   >,
 ) {
   return digest({
+    importMode: preflight.importMode,
     sourcePlanDigest: preflight.sourcePlanDigest,
     catalogDigest: preflight.catalogDigest,
     counts: preflight.counts,
@@ -140,8 +145,11 @@ export function computeSupplierOrderPreflightDigest(
 }
 
 export function assertReadySupplierOrderImportPreflight(preflight: SupplierOrderImportPreflight) {
-  if (preflight.preflightVersion !== 'supplier-order-preflight-v1') {
+  if (preflight.preflightVersion !== 'supplier-order-preflight-v2') {
     throw new Error('Ecobase supplier/order apply failed: preflight version is invalid.');
+  }
+  if (!['canonical-rebuild', 'refresh'].includes(preflight.importMode)) {
+    throw new Error('Ecobase supplier/order apply failed: import mode is invalid.');
   }
   if (
     preflight.sourcePlanDigest !== preflight.plan.digest ||
@@ -197,6 +205,7 @@ export function assertReadySupplierOrderImportPreflight(preflight: SupplierOrder
 export function preflightSupplierOrderImport(
   sourcePlan: SupplierOrderImportPlan,
   catalog: SupplierOrderCatalogSnapshot,
+  importMode: SupplierOrderImportMode,
 ): SupplierOrderImportPreflight {
   if (sourcePlan.planVersion !== 'supplier-order-import-plan-v1' || !/^[a-f0-9]{64}$/.test(sourcePlan.digest)) {
     throw new Error('Supplier/order preflight failed: source plan version or digest is invalid.');
@@ -224,6 +233,12 @@ export function preflightSupplierOrderImport(
     const key = `${family.companyId}:${text(family.canonicalAsin).toUpperCase()}`;
     familiesByCompanyAsin.set(key, [...(familiesByCompanyAsin.get(key) ?? []), family]);
   }
+  const listingSkuAliases = new Map(
+    FOUR_COMPANY_MIGRATION_PROFILE.listingSkuAliasDecisions.map((decision) => [
+      `${decision.asin}:${decision.sourceSupplierSku}`,
+      decision.amazonListingSku,
+    ]),
+  );
   const membersByFamilySku = new Map<string, CatalogCompanyProduct[]>();
   for (const member of catalog.companyProducts) {
     const product = productsById.get(member.productId);
@@ -282,9 +297,10 @@ export function preflightSupplierOrderImport(
       });
       continue;
     }
-    const memberCandidates = line.supplierSku
-      ? membersByFamilySku.get(`${selectedFamily.id}:${text(line.supplierSku)}`) ?? []
-      : [];
+    const listingSku = line.supplierSku
+      ? listingSkuAliases.get(`${line.asin}:${text(line.supplierSku)}`) ?? text(line.supplierSku)
+      : undefined;
+    const memberCandidates = listingSku ? membersByFamilySku.get(`${selectedFamily.id}:${listingSku}`) ?? [] : [];
     if (memberCandidates.length > 1) {
       mappingExceptions.push({
         sourceLineKey: line.sourceLineKey,
@@ -355,6 +371,7 @@ export function preflightSupplierOrderImport(
     blockedLines: sourcePlan.orderLines.length - resolvedLines.length,
   };
   const preflightDigest = computeSupplierOrderPreflightDigest({
+    importMode,
     sourcePlanDigest: sourcePlan.digest,
     catalogDigest,
     counts,
@@ -363,7 +380,8 @@ export function preflightSupplierOrderImport(
     plan,
   });
   return {
-    preflightVersion: 'supplier-order-preflight-v1',
+    preflightVersion: 'supplier-order-preflight-v2',
+    importMode,
     sourcePlanDigest: sourcePlan.digest,
     catalogDigest,
     preflightDigest,

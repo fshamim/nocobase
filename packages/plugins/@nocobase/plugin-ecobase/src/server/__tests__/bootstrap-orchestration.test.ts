@@ -26,10 +26,7 @@ describe('live-gate import orchestration', () => {
       [2, 'Upsert approved non-login ClickUp attribution users'],
       [3, 'Sellerboard history CSVs'],
       [4, 'Sellerboard COGS CSVs'],
-      [5, 'Supplier Management historical tracker'],
-      [6, 'Supplier Management current 2026 tracker'],
-      [7, 'Order Management Purchase Orders then OrderDetails'],
-      [8, 'Reconcile order lines against imported product data'],
+      [7, 'Canonical supplier/order import'],
       [9, 'Reconcile ClickUp status/comments'],
       [10, 'validate Phase A Silver blockers'],
       [11, 'Phase B final gold read-model refresh'],
@@ -62,16 +59,15 @@ describe('live-gate import orchestration', () => {
     expect(script).toContain('ECOBASE_SEED_SKIP_GOLD');
     expect(script).toContain('ECOBASE_SEED_HEARTBEAT_MS');
     expect(script).toContain('ECOBASE_GREENFIELD_BUNDLE_PATH');
-    expect(script).toContain("bundleFilePaths(['order-management'])");
+    expect(script).toContain('supplierOrderFiles().map(csvFile)');
     expect(script).toContain("seedPhaseEnabled('sellerboard')");
-    expect(script).toContain("seedPhaseEnabled('suppliers')");
     expect(script).toContain("seedPhaseEnabled('orders')");
     expect(script).toContain("seedPhaseEnabled('clickup')");
     expect(script).toContain("seedPhaseEnabled('gold')");
     expect(script).toContain('[3, 3_600_000]');
     expect(script).toContain('writeBusinessFingerprint()');
     expect(script).toContain("'rejected_supplier_refs_absent'");
-    expect(script).toContain("'etc_listing_and_supplier_alias_present'");
+    expect(script).toContain("'etc_listing_and_source_alias_resolved'");
   });
 
   it('orders source files and final actions deterministically', () => {
@@ -83,11 +79,17 @@ describe('live-gate import orchestration', () => {
       script.indexOf('async function verifyLinks()'),
       script.indexOf('function check('),
     );
-    expect(script.indexOf('Supplier Analysis Tracker - Supplier Analysis Tracker.csv')).toBeLessThan(
-      script.indexOf('Supplier Analysis Tracker - Supplier 2026.csv'),
+    expect(script.indexOf("'Ecofission-Order Management - Supplier IDs.csv'")).toBeLessThan(
+      script.indexOf("'Ecofission-Order Management - Purchase Orders.csv'"),
     );
-    expect(script.indexOf('Ecofission-Order Management - Purchase Orders.csv')).toBeLessThan(
-      script.indexOf('Ecofission-Order Management - OrderDetails.csv'),
+    expect(script.indexOf("'Ecofission-Order Management - Purchase Orders.csv'")).toBeLessThan(
+      script.indexOf("'Ecofission-Order Management - OrderDetails.csv'"),
+    );
+    expect(script.indexOf("'Ecofission-Order Management - OrderDetails.csv'")).toBeLessThan(
+      script.indexOf("'Supplier Analysis Tracker - Supplier Analysis Tracker.csv'"),
+    );
+    expect(script).toContain(
+      "const required = ['Supplier IDs.csv', 'Purchase Orders.csv', 'OrderDetails.csv', 'Supplier Analysis Tracker.csv']",
     );
     expect(script.indexOf("'ecobaseImport:importClickupOrderStatuses'")).toBeLessThan(
       script.indexOf("'ecobaseImport:refreshGoldReadModels'"),
@@ -98,13 +100,9 @@ describe('live-gate import orchestration', () => {
     expect(script.indexOf("'ecobaseImport:refreshGoldReadModels'")).toBeLessThan(
       script.indexOf("runStage(12, 'strict semantic verification'"),
     );
-    expect(importData.indexOf('Supplier management ${path.basename(currentSupplierFile)}')).toBeLessThan(
-      importData.indexOf("'Order management ordered bundle'"),
-    );
-    expect(importData.indexOf("'Order management ordered bundle'")).toBeLessThan(
-      importData.indexOf("'ClickUp order status'"),
-    );
+    expect(importData.indexOf("'Supplier/order preview'")).toBeLessThan(importData.indexOf("'ClickUp order status'"));
     expect(importData).not.toContain('skipGoldRefresh');
+    expect(importData).toContain('confirmation: `APPLY_SUPPLIER_ORDER_${');
     expect(importData).toContain("confirmation: 'REBUILD GOLD'");
     expect(script).toContain("check('phase_a_gold_inventory_rows_before_rebuild'");
     expect(script).toContain('ECOBASE_PREFLIGHT_SOURCE_EXPORT');

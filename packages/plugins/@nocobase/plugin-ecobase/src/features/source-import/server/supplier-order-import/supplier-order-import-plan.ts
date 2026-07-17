@@ -855,7 +855,6 @@ export function buildSupplierOrderImportPlan(params: {
       trackingId: order.trackingId,
       invoiceReference: order.invoiceReference,
       remarks: order.remarks,
-      retentionDisposition: 'accept' as const,
       sourceEvidence: { purchaseOrders: purchaseGroups.get(order.identity)!.map((candidate) => candidate.evidence) },
     }))
     .sort(
@@ -1124,14 +1123,28 @@ export function buildSupplierOrderImportPlan(params: {
         continue;
       }
     }
+    if (!decision) {
+      for (const row of rowsBySourcePosition) {
+        selectedLines.push({
+          ...row,
+          sourceLineKey: `${identity}#${row.sourceEvidence.row}-${row.sourceEvidence.hash.slice(0, 12)}`,
+        });
+      }
+      duplicateOrderLines.push({
+        identity,
+        sourceRows,
+        sourceHashes,
+        disposition: 'preserved_repeat',
+        reason: 'Non-equivalent source rows are preserved as separate ordered line items.',
+      });
+      continue;
+    }
     duplicateOrderLines.push({
       identity,
       sourceRows,
       sourceHashes,
       disposition: 'blocked',
-      reason: decision
-        ? 'Override does not exactly identify this duplicate group.'
-        : 'Non-equivalent duplicate requires an override.',
+      reason: 'Override does not exactly identify this duplicate group.',
     });
     issue(issues, 'order_details', rows[0].sourceEvidence.row, 'duplicate_order_line_unresolved', 'blocked', identity);
   }

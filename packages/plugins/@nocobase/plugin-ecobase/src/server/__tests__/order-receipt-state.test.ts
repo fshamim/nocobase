@@ -97,6 +97,11 @@ describe('Amazon receipt-state vocabulary', () => {
       to: 'awaiting_amazon_stock',
       reason: 'source_direct_ship_fba',
     });
+    expect(resolveAmazonReceiptState({ sourceOperationalStatus: 'complete' })).toMatchObject({
+      outcome: 'changed',
+      to: 'review_required',
+      reason: 'source_complete_receipt_review_required',
+    });
     expect(resolveAmazonReceiptState({ sourceOperationalStatus: 'ordered' })).toMatchObject({
       outcome: 'changed',
       to: 'not_applicable',
@@ -109,7 +114,7 @@ describe('Amazon receipt-state vocabulary', () => {
     });
   });
 
-  it('preserves partial or awaiting progress when later source data is less conclusive', () => {
+  it('preserves partial progress but requires receipt review when an awaiting order becomes complete', () => {
     expect(
       resolveAmazonReceiptState({
         currentStatus: 'partially_observed',
@@ -127,10 +132,10 @@ describe('Amazon receipt-state vocabulary', () => {
         sourceOperationalStatus: 'complete',
       }),
     ).toEqual({
-      outcome: 'unchanged',
+      outcome: 'changed',
       from: 'awaiting_amazon_stock',
-      to: 'awaiting_amazon_stock',
-      reason: 'progress_state_preserved',
+      to: 'review_required',
+      reason: 'source_complete_receipt_review_required',
     });
   });
 });

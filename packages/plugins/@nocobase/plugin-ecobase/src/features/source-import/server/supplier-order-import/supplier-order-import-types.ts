@@ -119,7 +119,6 @@ export interface OrderImportPlanRow {
   trackingId?: string;
   invoiceReference?: string;
   remarks?: string;
-  retentionDisposition: 'accept' | 'review';
   sourceEvidence: { purchaseOrders: SourceEvidence[]; orderDetails?: SourceEvidence[] };
 }
 
@@ -159,7 +158,7 @@ export interface DuplicateDecision {
   sourceHashes: string[];
   selectedRowNumber?: number;
   selectedSourceHash?: string;
-  disposition: 'collapsed_exact' | 'selected_override' | 'blocked';
+  disposition: 'collapsed_exact' | 'preserved_repeat' | 'selected_override' | 'blocked';
   reason: string;
 }
 

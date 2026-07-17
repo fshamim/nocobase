@@ -138,37 +138,39 @@ async function seedDashboard(db: MemoryDatabase) {
       title: 'Dashboard product',
     },
   });
-  await db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).create({
+  await db.getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts).create({
     values: {
       naturalKey: 'fact-current',
       sourceConnectionId: 'source-1',
       planningProductId: 'product-1',
+      companyProductId: 'company-product-1',
       snapshotDate: '2026-06-05',
       company: 'ACME',
       asin: 'B00DASH',
       sku: 'SKU-DASH',
       sales: 200,
       units: 10,
-      netProfit: 100,
+      profit: 100,
       payload: { accountKey: 'US', tier: 'A' },
     },
   });
-  await db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).create({
+  await db.getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts).create({
     values: {
       naturalKey: 'fact-prior',
       sourceConnectionId: 'source-1',
       planningProductId: 'product-1',
+      companyProductId: 'company-product-1',
       snapshotDate: '2026-06-04',
       company: 'ACME',
       asin: 'B00DASH',
       sku: 'SKU-DASH',
       sales: 160,
       units: 8,
-      netProfit: 80,
+      profit: 80,
       payload: { accountKey: 'US', tier: 'A' },
     },
   });
-  await db.getRepository(ECOBASE_COLLECTIONS.planningCalculationSnapshots).create({
+  await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).create({
     values: {
       naturalKey: 'calc-1',
       planningProductId: 'product-1',
@@ -242,7 +244,7 @@ async function seedDashboard(db: MemoryDatabase) {
       id: 'task-1',
       sourceConnectionId: 'source-1',
       snapshotDate: '2026-06-05',
-      externalTaskId: 'CU-1',
+      sourceTaskRef: 'CU-1',
       taskName: 'Call Supplier One',
       title: 'Call Supplier One',
       assignee: 'Ops',
@@ -291,7 +293,7 @@ describe('Ecobase dashboard service', () => {
       key: 'ACME',
       change: expect.objectContaining({ netProfit: 20 }),
     });
-    expect(dashboard.comparison.planningProducts.rows[0]).toMatchObject({ key: 'product-1' });
+    expect(dashboard.comparison.planningProducts.rows[0]).toMatchObject({ key: 'company-product-1' });
     expect(dashboard.comparison.rawListings.rows[0]).toMatchObject({ key: 'ACME:B00DASH:SKU-DASH' });
     expect(dashboard.atRiskProducts[0]).toMatchObject({
       canonicalAsin: 'B00DASH',
@@ -302,10 +304,10 @@ describe('Ecobase dashboard service', () => {
       supplier: 'Supplier One',
       orderRef: 'PO-1',
       expectedSellableDate: '2026-06-12',
-      linkedPlanningProductId: 'product-1',
+      linkedPlanningProductId: 'company-product-1',
     });
     expect(dashboard.accountability.latestTasks[0]).toMatchObject({
-      externalTaskId: 'CU-1',
+      sourceTaskRef: 'CU-1',
       assignee: 'Ops',
       operationalArea: 'Purchasing',
     });

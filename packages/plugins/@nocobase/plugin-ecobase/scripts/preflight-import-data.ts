@@ -91,26 +91,14 @@ function stagingFastSourceFiles() {
 
 function sourceFiles() {
   if (SEED_PROFILE === 'staging-fast-clickup') return stagingFastSourceFiles();
+  const canonicalImportDir = path.join(PROJECT_ROOT, 'data', 'dataforimport');
   return [
     ...csvFilesIn(path.join(PROJECT_ROOT, 'data', 'history')),
-    requiredFile(
-      path.join(
-        PROJECT_ROOT,
-        'data',
-        'supplier-management-sheets',
-        'Supplier Analysis Tracker - Supplier Analysis Tracker.csv',
-      ),
-    ),
-    requiredFile(
-      path.join(PROJECT_ROOT, 'data', 'supplier-management-sheets', 'Supplier Analysis Tracker - Supplier 2026.csv'),
-    ),
-    requiredFile(
-      path.join(PROJECT_ROOT, 'data', 'order-managment-sheets', 'Ecofission-Order Management - Purchase Orders.csv'),
-    ),
-    requiredFile(
-      path.join(PROJECT_ROOT, 'data', 'order-managment-sheets', 'Ecofission-Order Management - OrderDetails.csv'),
-    ),
-    ...csvFilesIn(path.join(PROJECT_ROOT, 'data', 'clickup')),
+    requiredFile(path.join(canonicalImportDir, 'Ecofission-Order Management - Supplier IDs.csv')),
+    requiredFile(path.join(canonicalImportDir, 'Ecofission-Order Management - Purchase Orders.csv')),
+    requiredFile(path.join(canonicalImportDir, 'Ecofission-Order Management - OrderDetails.csv')),
+    requiredFile(path.join(canonicalImportDir, 'Supplier Analysis Tracker - Supplier Analysis Tracker.csv')),
+    requiredFile(path.join(canonicalImportDir, 'Order Management Clickup Data 06-07-2026.csv')),
   ];
 }
 

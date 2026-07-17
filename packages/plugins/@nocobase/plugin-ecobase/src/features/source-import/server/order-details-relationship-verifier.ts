@@ -10,7 +10,6 @@
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import { orderLineSourceKeyForBronze } from '../../semantic-model/server/medallion-normalization-service';
 import { bronzePayloadHash } from './bronze-import-service';
-import { latestOrderDetailRowIndexes } from './adapters/amazon-operations-csv-adapter';
 import { CsvRowReader, parseCsv, type CsvSourceFile } from './adapters/csv-utils';
 import type { EcobaseDatabase } from './import-service';
 import { toPlainRecord } from './import-service';
@@ -21,7 +20,6 @@ type PlainRecord = Record<string, unknown>;
 type Classification =
   | 'full_identity'
   | 'asin_only_resolvable'
-  | 'superseded_by_newer_row'
   | 'excluded_header_missing'
   | 'excluded_supplier_not_established'
   | 'excluded_supplier_mismatch'
@@ -43,7 +41,6 @@ export type OrderDetailsRelationshipVerification = {
     acceptedRows: number;
     fullIdentityRows: number;
     asinOnlyRows: number;
-    supersededRows: number;
     headerMissingRows: number;
     supplierNotEstablishedRows: number;
     supplierMismatchRows: number;
@@ -98,7 +95,6 @@ export class EcobaseOrderDetailsRelationshipVerifier {
 
   async verify(file: CsvSourceFile): Promise<OrderDetailsRelationshipVerification> {
     const parsed = parseCsv(file.content);
-    const latestRows = latestOrderDetailRowIndexes(parsed.rows);
     const rows = parsed.rows.map((raw, index) => {
       const reader = new CsvRowReader(raw);
       return {
@@ -114,7 +110,6 @@ export class EcobaseOrderDetailsRelationshipVerifier {
     const classified = rows.map((row) => {
       let classification: Classification;
       if (row.invalidReason) classification = 'invalid_non_actionable';
-      else if (!latestRows.has(row.index)) classification = 'superseded_by_newer_row';
       else classification = row.identity.sku ? 'full_identity' : 'asin_only_resolvable';
       return { ...row, classification } as typeof row & { classification: Classification };
     });
@@ -342,7 +337,6 @@ export class EcobaseOrderDetailsRelationshipVerifier {
       acceptedRows: classified.filter((row) => isAcceptedClassification(row.classification)).length,
       fullIdentityRows: classified.filter((row) => row.classification === 'full_identity').length,
       asinOnlyRows: classified.filter((row) => row.classification === 'asin_only_resolvable').length,
-      supersededRows: classified.filter((row) => row.classification === 'superseded_by_newer_row').length,
       headerMissingRows: classified.filter((row) => row.classification === 'excluded_header_missing').length,
       supplierNotEstablishedRows: classified.filter((row) => row.classification === 'excluded_supplier_not_established')
         .length,

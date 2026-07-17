@@ -165,8 +165,12 @@ function sourcePlan(orderStatus = 'Completed') {
   });
 }
 
-function readyPreflight(db: MemoryDatabase, orderStatus = 'Completed') {
-  return preflightSupplierOrderImport(sourcePlan(orderStatus), catalog(db));
+function readyPreflight(
+  db: MemoryDatabase,
+  orderStatus = 'Completed',
+  importMode: 'canonical-rebuild' | 'refresh' = 'canonical-rebuild',
+) {
+  return preflightSupplierOrderImport(sourcePlan(orderStatus), catalog(db), importMode);
 }
 
 describe('supplier/order import apply service', () => {
@@ -193,6 +197,7 @@ describe('supplier/order import apply service', () => {
     const service = new EcobaseSupplierOrderImportApplyService(db as never);
 
     const first = await service.apply(preflight);
+    db.getRepository(ECOBASE_COLLECTIONS.silverOrders).records[0].orderDate = new Date(2026, 6, 16);
     const second = await service.apply(preflight);
 
     expect(preflight).toMatchObject({ ready: true, counts: { structuralBlockers: 0, lines: 3 } });
@@ -201,11 +206,11 @@ describe('supplier/order import apply service', () => {
     expect(db.transactions).toBe(2);
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).records).toHaveLength(1);
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductFamilies).records[0]).toMatchObject({
-      preferredSupplierId: null,
-      preferredSupplierProductId: null,
-      supplierSelectionSource: null,
-      supplierReviewRequired: false,
-      supplierSelectionEvidenceJson: {},
+      preferredSupplierId: 'legacy-supplier',
+      preferredSupplierProductId: 'legacy-supplier-product',
+      supplierSelectionSource: 'legacy_import',
+      supplierReviewRequired: true,
+      supplierSelectionEvidenceJson: { source: 'legacy' },
     });
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).records).toEqual([
       expect.objectContaining({ productId: 'product-1', supplierSku: 'SKU-1' }),
@@ -242,6 +247,68 @@ describe('supplier/order import apply service', () => {
         body: 'Preserve exactly',
       }),
     ]);
+  });
+
+  it('keeps downstream ClickUp authority and workflow drafts on an identical canonical replay', async () => {
+    const db = new MemoryDatabase();
+    seedCatalog(db);
+    const preflight = readyPreflight(db);
+    const service = new EcobaseSupplierOrderImportApplyService(db as never);
+    await service.apply(preflight);
+
+    Object.assign(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).records[0], {
+      canonicalStatus: 'shipped_inbound',
+      lifecycleStatus: 'in_transit',
+      operationalStatus: 'inbound-monitoring',
+      workflowStage: 'inbound',
+      statusSource: 'clickup_csv',
+      statusEvidenceJson: { source: 'clickup_csv' },
+      authorityStatus: 'clickup_authoritative',
+      authoritySource: 'clickup_csv',
+      authorityTaskRef: 'task-1',
+    });
+    db.getRepository(ECOBASE_COLLECTIONS.silverOrders).records.push({
+      id: 'workflow-draft',
+      companyId: 'company-1',
+      orderRef: 'EF71726A',
+      recordType: 'workflow_draft',
+      statusSource: 'clickup_csv',
+      sourceEvidence: { source: 'clickup_csv' },
+    });
+    db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).records.push({
+      id: 'workflow-draft-line',
+      orderId: 'workflow-draft',
+      sourceLineKey: 'clickup:task-2:1',
+      sourceEvidence: { source: 'clickup_csv' },
+    });
+    db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).records.push({
+      id: 'clickup-comment',
+      entityType: 'supplier_order',
+      entityId: 'workflow-draft',
+      actorType: 'external',
+      actorUserId: null,
+      sourceCommentKey: 'clickup-comment-1',
+    });
+
+    const replay = await service.apply(preflight);
+
+    expect(replay).toMatchObject({ noOp: true, totalWrites: 0 });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).records).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          orderRef: 'EF71626A',
+          canonicalStatus: 'shipped_inbound',
+          authoritySource: 'clickup_csv',
+        }),
+        expect.objectContaining({ id: 'workflow-draft' }),
+      ]),
+    );
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).records).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'workflow-draft-line' })]),
+    );
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).records).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'clickup-comment', entityId: 'workflow-draft' })]),
+    );
   });
 
   it('does not derive supplier-product evidence from cancelled purchases', async () => {
@@ -283,6 +350,45 @@ describe('supplier/order import apply service', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).records).toEqual([]);
   });
 
+  it('preserves importer-owned history absent from a refresh snapshot', async () => {
+    const db = new MemoryDatabase();
+    seedCatalog(db);
+    db.getRepository(ECOBASE_COLLECTIONS.silverOrders).records.push({
+      id: 'historical-order',
+      companyId: 'company-1',
+      orderRef: 'EF11111A',
+      statusSource: 'supplier_order_import',
+      sourceEvidence: { preflightDigest: 'older-run' },
+    });
+    db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).records.push({
+      id: 'historical-line',
+      orderId: 'historical-order',
+      sourceLineKey: 'older-run:line-1',
+      sourceEvidence: { preflightDigest: 'older-run' },
+    });
+    db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).records.push({
+      id: 'historical-comment',
+      entityType: 'supplier_order',
+      entityId: 'historical-order',
+      body: 'Preserve with history',
+    });
+
+    const result = await new EcobaseSupplierOrderImportApplyService(db as never).apply(
+      readyPreflight(db, 'Completed', 'refresh'),
+    );
+
+    expect(result).toMatchObject({ importMode: 'refresh', deleted: 0 });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).records).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'historical-order' })]),
+    );
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).records).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'historical-line' })]),
+    );
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).records).toEqual([
+      expect.objectContaining({ id: 'historical-comment', entityId: 'historical-order' }),
+    ]);
+  });
+
   it('blocks deletion when an operator comment has no target in the canonical plan', async () => {
     const db = new MemoryDatabase();
     seedCatalog(db);
@@ -290,6 +396,7 @@ describe('supplier/order import apply service', () => {
       id: 'stale-order',
       companyId: 'company-1',
       orderRef: 'EF11111A',
+      statusSource: 'supplier_order_import',
     });
     db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).records.push({
       id: 'comment-1',

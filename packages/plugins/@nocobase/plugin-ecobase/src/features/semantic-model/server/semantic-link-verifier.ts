@@ -79,6 +79,19 @@ function comparableOrderStatus(value: unknown) {
   );
 }
 
+function effectiveInventoryOrderStatus(order: PlainRecord) {
+  const status = text(order.canonicalStatus);
+  const statusSource = text(order.statusSource);
+  if (
+    statusSource === 'operator' ||
+    (statusSource === 'manual' && (text(order.operatorStatusOverrideAt) || text(order.lastOperatorEditAt))) ||
+    inventoryOrderStatusCategory(status) === 'closed'
+  ) {
+    return status;
+  }
+  return /completed|complete|paid/i.test(text(order.paymentStatus) ?? '') ? 'paid' : status;
+}
+
 function inventoryOrderStatusCategory(value: unknown) {
   const status = comparableOrderStatus(value);
   if (status === 'COMPLETE') return 'closed';
@@ -183,13 +196,18 @@ export function evaluateSemanticLinkSnapshot(snapshot: SemanticLinkSnapshot) {
     const supplierProduct = supplierProductById.get(text(line.supplierProductId) ?? '');
     if (!order) issue('error', 'order_line_order_missing', [line], 'Order line has no order.');
     if (!companyProduct || !supplierProduct) {
+      const mappingStatus = text(line.productMappingStatus);
       issue(
-        text(line.productAnalysisStatus) === 'mapping_missing' || isApprovedOrderLineBusinessAmbiguity(line)
+        text(line.productAnalysisStatus) === 'mapping_missing' ||
+          isApprovedOrderLineBusinessAmbiguity(line) ||
+          mappingStatus === 'family_only' ||
+          mappingStatus === 'unresolved' ||
+          (mappingStatus === 'exact_member' && Boolean(companyProduct))
           ? 'warning'
           : 'error',
         'order_line_product_missing',
         [line],
-        'Order line is missing company/supplier product identity.',
+        'Order line is missing a canonical member or supplier-product link.',
       );
       continue;
     }
@@ -337,7 +355,8 @@ export function evaluateSemanticLinkSnapshot(snapshot: SemanticLinkSnapshot) {
     if (
       text(gold.supplierOrderRef) &&
       (!order ||
-        inventoryOrderStatusCategory(gold.supplierOrderStatus) !== inventoryOrderStatusCategory(order.canonicalStatus))
+        inventoryOrderStatusCategory(gold.supplierOrderStatus) !==
+          inventoryOrderStatusCategory(effectiveInventoryOrderStatus(order)))
     ) {
       issue('error', 'gold_inventory_order_status_stale', [gold], 'Gold inventory order status is stale.');
     }

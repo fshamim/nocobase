@@ -286,6 +286,6 @@ describe('EcobaseMedallionIdentityService', () => {
     await service.upsertSupplier({ displayName: 'ACME' });
 
     expect(db.repositories.has(ECOBASE_COLLECTIONS.silverSuppliers)).toBe(true);
-    expect(db.repositories.has(ECOBASE_COLLECTIONS.suppliers)).toBe(false);
+    expect(db.repositories.has('ecobaseSuppliers')).toBe(false);
   });
 });

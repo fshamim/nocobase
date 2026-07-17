@@ -116,6 +116,7 @@ export interface ClickupOrderStatusImportResult {
   selectedTaskOverrideCount: number;
   workflowDraftCount: number;
   workflowDraftLineCount: number;
+  workflowDraftRefs: string[];
   workflowDraftExceptions: Array<Record<string, unknown>>;
   blockingIssueCount: number;
   proposedUpdates: Array<Record<string, unknown>>;
@@ -660,6 +661,14 @@ function parseWorkflowDraftDetails(files: CsvSourceFile[]) {
   return detailsByRef;
 }
 
+function marketplaceFromTaskName(value: string) {
+  if (/\b(?:usa|us|united states)\b/i.test(value)) return 'amazon.com';
+  if (/\b(?:uk|united kingdom)\b/i.test(value)) return 'amazon.co.uk';
+  if (/\b(?:mexico|mx)\b/i.test(value)) return 'amazon.com.mx';
+  if (/\b(?:canada|ca)\b/i.test(value)) return 'amazon.ca';
+  return undefined;
+}
+
 function marketplaceFromFamily(value: unknown) {
   const marketplace = asString(value)?.toLowerCase();
   if (marketplace === 'amazon.com') return 'US';
@@ -755,7 +764,10 @@ export class EcobaseClickupOrderStatusService {
       ({ ref, task }) => !params.matchedRefs.has(ref) && !['complete', 'cancelled'].includes(task.workflowStage ?? ''),
     );
     const exceptions: Array<Record<string, unknown>> = [];
-    if (!unmatchedTasks.length) return { workflowDraftCount: 0, workflowDraftLineCount: 0, exceptions };
+    const workflowDraftRefs: string[] = [];
+    if (!unmatchedTasks.length) {
+      return { workflowDraftCount: 0, workflowDraftLineCount: 0, workflowDraftRefs, exceptions };
+    }
 
     const [companies, externalRefs, supplierAccounts, families, companyProducts, products] = await Promise.all([
       this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).find({ limit: 1000 }),
@@ -765,7 +777,9 @@ export class EcobaseClickupOrderStatusService {
       this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).find({ limit: 100000 }),
       this.db.getRepository(ECOBASE_COLLECTIONS.silverProducts).find({ limit: 100000 }),
     ]).then((groups) => groups.map((rows) => rows.map(toPlainRecord)));
-    const companyByName = new Map(companies.map((company) => [canonicalCompanyName(asString(company.name)), company]));
+    const companyByName = new Map<string, PlainRecord>(
+      companies.map((company) => [canonicalCompanyName(asString(company.name)), company]),
+    );
     const externalRefByCode = new Map(
       externalRefs.map((externalRef) => [asString(externalRef.normalizedExternalSupplierCode), externalRef]),
     );
@@ -812,9 +826,13 @@ export class EcobaseClickupOrderStatusService {
         });
         continue;
       }
+      const taskMarketplace = marketplaceFromTaskName(selected.task.taskName);
       const resolvedLines = details.map((detail) => {
         const familyCandidates = families.filter(
-          (family) => asIdString(family.companyId) === companyId && asString(family.canonicalAsin) === detail.asin,
+          (family) =>
+            asIdString(family.companyId) === companyId &&
+            asString(family.canonicalAsin) === detail.asin &&
+            (!taskMarketplace || asString(family.marketplace)?.toLowerCase() === taskMarketplace),
         );
         if (familyCandidates.length !== 1) return undefined;
         const family = familyCandidates[0];
@@ -841,6 +859,7 @@ export class EcobaseClickupOrderStatusService {
       }
       workflowDraftCount += 1;
       workflowDraftLineCount += resolvedLines.length;
+      workflowDraftRefs.push(selected.ref);
       if (params.dryRun) continue;
 
       const persist = async (transaction?: unknown) => {
@@ -942,7 +961,7 @@ export class EcobaseClickupOrderStatusService {
       if (sequelize) await sequelize.transaction(persist);
       else await persist();
     }
-    return { workflowDraftCount, workflowDraftLineCount, exceptions };
+    return { workflowDraftCount, workflowDraftLineCount, workflowDraftRefs, exceptions };
   }
 
   async reconcileAuthority(asOf = new Date().toISOString()) {
@@ -1334,6 +1353,7 @@ export class EcobaseClickupOrderStatusService {
       selectedTaskOverrideCount: selectedTasks.filter((selected) => selected.override).length,
       workflowDraftCount: workflowDrafts.workflowDraftCount,
       workflowDraftLineCount: workflowDrafts.workflowDraftLineCount,
+      workflowDraftRefs: workflowDrafts.workflowDraftRefs,
       workflowDraftExceptions: workflowDrafts.exceptions,
       blockingIssueCount,
       proposedUpdates,

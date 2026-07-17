@@ -42,7 +42,6 @@ function sourcePlan(): SupplierOrderImportPlan {
         externalSupplierCode: 'SRO-1',
         recordType: 'purchase_order',
         purchaseEvidenceStatus: 'confirmed',
-        retentionDisposition: 'accept',
         sourceEvidence: { purchaseOrders: [evidence] },
       },
     ],
@@ -118,8 +117,17 @@ const catalog = {
 };
 
 describe('supplier/order import preflight', () => {
+  it('binds the explicit execution mode into the preflight digest', () => {
+    const rebuild = preflightSupplierOrderImport(sourcePlan(), catalog, 'canonical-rebuild');
+    const refresh = preflightSupplierOrderImport(sourcePlan(), catalog, 'refresh');
+
+    expect(rebuild.importMode).toBe('canonical-rebuild');
+    expect(refresh.importMode).toBe('refresh');
+    expect(rebuild.preflightDigest).not.toBe(refresh.preflightDigest);
+  });
+
   it('links exact listing members and keeps unmatched source SKUs family-only', () => {
-    const result = preflightSupplierOrderImport(sourcePlan(), catalog);
+    const result = preflightSupplierOrderImport(sourcePlan(), catalog, 'canonical-rebuild');
 
     expect(result.ready).toBe(true);
     expect(result.blockers).toEqual([]);
@@ -153,14 +161,44 @@ describe('supplier/order import preflight', () => {
     });
   });
 
-  it('classifies unresolved marketplace evidence without guessing a family', () => {
-    const result = preflightSupplierOrderImport(sourcePlan(), {
-      ...catalog,
-      families: [
-        { ...catalog.families[0], id: 'family-uk', marketplace: 'amazon.co.uk' },
-        { ...catalog.families[0], id: 'family-ca', marketplace: 'amazon.ca' },
-      ],
+  it('uses the approved listing SKU alias when resolving an exact member', () => {
+    const plan = sourcePlan();
+    plan.orderLines = [
+      {
+        ...plan.orderLines[0],
+        asin: 'B0177E9JPS',
+        supplierSku: 'ETC120A',
+      },
+    ];
+    const result = preflightSupplierOrderImport(
+      plan,
+      {
+        ...catalog,
+        families: [{ ...catalog.families[0], canonicalAsin: 'B0177E9JPS' }],
+        products: [{ id: 'product-1', asin: 'B0177E9JPS', sku: 'ETC-120A' }],
+      },
+      'canonical-rebuild',
+    );
+
+    expect(result.plan.orderLines[0]).toMatchObject({
+      companyProductId: 'company-product-1',
+      mappingScope: 'exact_member',
+      sourceSkuType: 'listing_sku',
     });
+  });
+
+  it('classifies unresolved marketplace evidence without guessing a family', () => {
+    const result = preflightSupplierOrderImport(
+      sourcePlan(),
+      {
+        ...catalog,
+        families: [
+          { ...catalog.families[0], id: 'family-uk', marketplace: 'amazon.co.uk' },
+          { ...catalog.families[0], id: 'family-ca', marketplace: 'amazon.ca' },
+        ],
+      },
+      'canonical-rebuild',
+    );
 
     expect(result.ready).toBe(true);
     expect(result.blockers).toEqual([]);
@@ -187,7 +225,7 @@ describe('supplier/order import preflight', () => {
       },
     ];
 
-    const result = preflightSupplierOrderImport(plan, catalog);
+    const result = preflightSupplierOrderImport(plan, catalog, 'canonical-rebuild');
 
     expect(result.ready).toBe(false);
     expect(result.counts.structuralBlockers).toBe(1);
@@ -200,7 +238,7 @@ describe('supplier/order import preflight', () => {
   });
 
   it('classifies a missing family as unresolved without creating a product', () => {
-    const result = preflightSupplierOrderImport(sourcePlan(), { ...catalog, families: [] });
+    const result = preflightSupplierOrderImport(sourcePlan(), { ...catalog, families: [] }, 'canonical-rebuild');
 
     expect(result.ready).toBe(true);
     expect(result.counts).toMatchObject({ unresolvedLines: 2, mappingExceptions: 2, blockedLines: 0 });

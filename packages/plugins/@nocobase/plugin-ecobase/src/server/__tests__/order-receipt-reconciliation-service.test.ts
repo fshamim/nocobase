@@ -149,9 +149,31 @@ describe('EcobaseOrderReceiptReconciliationService', () => {
           amazonReceiptStatus: 'awaiting_amazon_stock',
           statusEvidenceJson: { clickupStatusImport: { clickupStatus: 'inbound-monitoring' } },
         },
+        { id: 'complete', authorityEvidenceJson: { clickupStatusEvidence: { clickupStatus: 'complete' } } },
         { id: 'other', statusEvidenceJson: { clickupStatusImport: { clickupStatus: 'supplier-preparing' } } },
       ]),
-    ).toEqual(['direct', 'inbound']);
+    ).toEqual(['complete', 'direct', 'inbound']);
+  });
+
+  it('inspects receipt-state coverage without mutating orders or lines', async () => {
+    const db = fixture();
+    const service = new EcobaseOrderReceiptReconciliationService(db);
+    const before = structuredClone({
+      orders: db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows,
+      lines: db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows,
+    });
+
+    await expect(service.inspectCoverage(['missing-order', 'order-1', 'order-1'])).resolves.toEqual({
+      requestedOrderCount: 2,
+      foundOrderCount: 1,
+      missingOrderIds: ['missing-order'],
+      orderStatusCounts: { missing: 1 },
+      lineCount: 1,
+      linesWithoutReceiptStatus: 1,
+      ordersWithoutLines: [],
+    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows).toEqual(before.orders);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows).toEqual(before.lines);
   });
 
   it('previews and applies historical receipt backfill in bounded cursor batches with outcome counts', async () => {
@@ -236,6 +258,32 @@ describe('EcobaseOrderReceiptReconciliationService', () => {
       lifecycleStatus: 'inbound-monitoring',
       canonicalStatus: 'shipped_inbound',
       amazonReceiptStatus: 'partially_observed',
+    });
+  });
+
+  it('keeps ClickUp complete visible for receipt review until Amazon stock is observed', async () => {
+    const db = fixture();
+    const order = db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[0];
+    order.lifecycleStatus = 'complete';
+    order.canonicalStatus = 'completed';
+    order.authorityEvidenceJson = { clickupStatusEvidence: { clickupStatus: 'complete' } };
+    order.statusEvidenceJson = {};
+    db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).rows.pop();
+
+    const result = await new EcobaseOrderReceiptReconciliationService(db).reconcileAffectedOrders({
+      orderIds: ['order-1'],
+      evaluatedAt: '2026-07-12T12:00:00.000Z',
+    });
+
+    expect(result).toMatchObject({ processedOrders: 1, reviewRequired: 1 });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[0]).toMatchObject({
+      amazonReceiptStatus: 'review_required',
+      amazonReceiptCompletionReason: 'missing_current_snapshot',
+    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[0]).toMatchObject({
+      lifecycleStatus: 'complete',
+      canonicalStatus: 'completed',
+      amazonReceiptStatus: 'review_required',
     });
   });
 

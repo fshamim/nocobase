@@ -71,7 +71,7 @@ function projectionDataset(context: SafeImportBoundaryContext, item: AdapterStre
   if (!source) return undefined;
   const shape = detectCsvShape(Object.keys(source));
   if (shape === 'order-details') return 'order_details' as const;
-  if (shape === 'purchase-orders' || shape === 'pre-order-sheet') return 'purchase_orders' as const;
+  if (shape === 'purchase-orders') return 'purchase_orders' as const;
   if (shape === 'supplier-analysis-tracker') return 'supplier_tracker' as const;
   if (shape === 'supplier-analysis-2026' || shape === 'supplier-ids') return 'supplier_2026' as const;
   if (
@@ -161,6 +161,10 @@ function safeProjection(
   const source = item.type === 'record' ? item.payload : item.type === 'rowIssue' ? item.issue.payload ?? {} : {};
   const retainedOrderRef = dataset === 'clickup_order_evidence' ? orderRef(item) : undefined;
   const projected = projectSourceRecord(dataset, source, { retainedOrderRef });
+  const snapshotDate = recordValue(item, 'snapshotDate');
+  if (snapshotDate && (dataset === 'sellerboard_daily_facts' || dataset === 'amazon_listing_inventory')) {
+    projected.payload.period = snapshotDate;
+  }
   if (companyKey) {
     const companyName = canonicalCompanyName(companyKey);
     if (dataset === 'supplier_tracker' || dataset === 'supplier_2026') {

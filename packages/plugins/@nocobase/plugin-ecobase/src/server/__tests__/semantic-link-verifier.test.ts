@@ -276,6 +276,48 @@ describe('semantic link verification', () => {
     },
   );
 
+  it.each([
+    ['family_only', null, null],
+    ['unresolved', null, null],
+    ['exact_member', 'company-product-1', null],
+  ])(
+    'keeps canonical %s order-line mappings as warnings when the member or offer is absent',
+    (productMappingStatus, companyProductId, supplierProductId) => {
+      const snapshot = baseline();
+      snapshot.orderLines[0] = {
+        id: 'line-1',
+        orderId: 'order-1',
+        companyProductId,
+        supplierProductId,
+        productAnalysisStatus: 'source_imported',
+        productMappingStatus,
+        productMappingEvidenceJson: { mappingReason: 'family_not_found' },
+      };
+
+      const result = evaluateSemanticLinkSnapshot(snapshot);
+
+      expect(result).toMatchObject({ ok: true, errorCount: 0, warningCount: 1 });
+      expect(result.issues).toContainEqual(
+        expect.objectContaining({ severity: 'warning', code: 'order_line_product_missing' }),
+      );
+    },
+  );
+
+  it('accepts paid Gold inventory derived from Silver payment evidence without ClickUp status', () => {
+    const snapshot = baseline();
+    snapshot.orders[0] = {
+      ...snapshot.orders[0],
+      canonicalStatus: null,
+      lifecycleStatus: null,
+      statusSource: 'explicit_missing_authority',
+      paymentStatus: 'Completed',
+    };
+    snapshot.taskLinks = [];
+    snapshot.goldOrders = [];
+
+    expect(evaluateSemanticLinkSnapshot(snapshot)).toMatchObject({ ok: true, errorCount: 0 });
+  });
+
   it('keeps ClickUp refs without accepted Purchase Orders headers as warnings', () => {
     const snapshot = baseline();
     (snapshot.importRuns[1].summary as any).clickup.unmatchedRefCount = 1;
