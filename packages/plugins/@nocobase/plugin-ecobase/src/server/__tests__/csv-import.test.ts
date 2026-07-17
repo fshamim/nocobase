@@ -647,6 +647,11 @@ describe('Ecobase current Amazon operations CSV import', () => {
     const analysis = analyzeCsvFiles([
       { name: 'OrderDetails.csv', content: orderDetailsDetailedCsv },
       { name: 'Purchase Orders.csv', content: purchaseOrdersDetailedCsv },
+      { name: 'Supplier IDs.csv', content: 'SR ID,Supplier Name\nSRO-36,3Dmatsusa' },
+      {
+        name: 'Supplier 2026.csv',
+        content: 'SR ID,Supplier Name,Supplier Type\nSRO-36,3Dmatsusa,Brand Approved',
+      },
       {
         name: 'Order Management Clickup Data.csv',
         content:
@@ -673,6 +678,22 @@ describe('Ecobase current Amazon operations CSV import', () => {
           adapterName: 'supplier-order-csv',
           sourceType: 'google_sheets',
           domain: 'order_management',
+          importable: true,
+        }),
+        expect.objectContaining({
+          name: 'Supplier IDs.csv',
+          detectedShape: 'supplier-ids',
+          adapterName: 'google-sheets-migration-csv',
+          sourceType: 'google_sheets',
+          domain: 'supplier_management',
+          importable: true,
+        }),
+        expect.objectContaining({
+          name: 'Supplier 2026.csv',
+          detectedShape: 'supplier-analysis-2026',
+          adapterName: 'google-sheets-migration-csv',
+          sourceType: 'google_sheets',
+          domain: 'supplier_management',
           importable: true,
         }),
         expect.objectContaining({
@@ -708,6 +729,12 @@ describe('Ecobase current Amazon operations CSV import', () => {
           sourceType: 'google_sheets',
           domain: 'order_management',
           files: ['OrderDetails.csv', 'Purchase Orders.csv'],
+        }),
+        expect.objectContaining({
+          adapterName: 'google-sheets-migration-csv',
+          sourceType: 'google_sheets',
+          domain: 'supplier_management',
+          files: ['Supplier IDs.csv', 'Supplier 2026.csv'],
         }),
         expect.objectContaining({
           adapterName: 'clickup-order-status-csv',

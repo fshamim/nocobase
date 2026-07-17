@@ -133,15 +133,10 @@ export function targetForCsvShape(shape: CsvShape): Omit<CsvBundleAnalysisGroup,
   if (shape === 'unknown') {
     return null;
   }
-  if (
-    shape === 'order-details' ||
-    shape === 'purchase-orders' ||
-    shape === 'supplier-ids' ||
-    shape === 'supplier-analysis-tracker'
-  ) {
+  if (shape === 'order-details' || shape === 'purchase-orders' || shape === 'supplier-analysis-tracker') {
     return { adapterName: 'supplier-order-csv', sourceType: 'google_sheets', domain: 'order_management' };
   }
-  if (shape === 'supplier-analysis-2026') {
+  if (shape === 'supplier-ids' || shape === 'supplier-analysis-2026') {
     return { adapterName: 'google-sheets-migration-csv', sourceType: 'google_sheets', domain: 'supplier_management' };
   }
   if (shape === 'clickup-order-status') {
