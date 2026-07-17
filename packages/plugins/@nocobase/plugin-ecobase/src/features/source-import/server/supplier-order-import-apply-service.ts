@@ -143,7 +143,11 @@ function sourceEvidence(row: PlainRecord) {
 }
 
 function canonicalOrderOwned(row: PlainRecord) {
-  return Boolean(text(sourceEvidence(row).preflightDigest)) || row.statusSource === 'supplier_order_import';
+  return (
+    row.recordType === 'purchase_order' ||
+    Boolean(text(sourceEvidence(row).preflightDigest)) ||
+    row.statusSource === 'supplier_order_import'
+  );
 }
 
 function canonicalOrderLineOwned(row: PlainRecord) {
@@ -306,11 +310,17 @@ export class EcobaseSupplierOrderImportApplyService {
     await this.relinkComments(commentRelink.comments, transaction);
 
     if (preflight.importMode === 'canonical-rebuild') {
+      const replacedOrderIds = new Set(
+        existingOrders
+          .filter(canonicalOrderOwned)
+          .map((order) => text(order.id))
+          .filter(Boolean) as string[],
+      );
       await this.deleteExcept(
         ECOBASE_COLLECTIONS.silverOrderLines,
         desiredLineIds,
         transaction,
-        canonicalOrderLineOwned,
+        (line) => canonicalOrderLineOwned(line) || replacedOrderIds.has(text(line.orderId) ?? ''),
       );
       await this.deleteExcept(
         ECOBASE_COLLECTIONS.silverOrders,

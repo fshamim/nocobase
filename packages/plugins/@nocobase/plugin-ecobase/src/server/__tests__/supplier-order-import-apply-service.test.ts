@@ -181,6 +181,13 @@ describe('supplier/order import apply service', () => {
       id: 'existing-order',
       companyId: 'company-1',
       orderRef: ' ef 71626a ',
+      recordType: 'purchase_order',
+    });
+    db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).records.push({
+      id: 'legacy-line',
+      orderId: 'existing-order',
+      sourceLineKey: 'legacy-line',
+      sourceEvidence: { source: 'google_sheets' },
     });
     db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).records.push({
       id: 'comment-1',
@@ -218,6 +225,9 @@ describe('supplier/order import apply service', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductSuppliers).records).toEqual([
       expect.objectContaining({ companyProductId: 'company-product-1', role: 'historical_purchase' }),
     ]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).records).not.toContainEqual(
+      expect.objectContaining({ id: 'legacy-line' }),
+    );
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).records).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
