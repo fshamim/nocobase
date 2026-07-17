@@ -1,0 +1,117 @@
+{
+  "manifestVersion": 2,
+  "frozenAt": "2026-07-17T10:52:28Z",
+  "productionMutationPerformed": false,
+  "revision": {
+    "acceptedCodeCommit": "f195d03d7def4bccecb56b5292ad95d655ca16e3",
+    "requiredAncestryBase": "fdbbb8be6902e2bc49bc195b391d7ec4d8a53dd5",
+    "branch": "ecobase/staging",
+    "pluginPatchSha256": "d36ed11aea12aea7e5fad1d41936f73cfdda1ecb99713228fc1e1aafe0ec82e1",
+    "note": "Deploy only a commit that contains acceptedCodeCommit. This manifest is committed in a direct descendant so it can identify the immutable code commit without a self-referential hash."
+  },
+  "remoteStagingTarget": {
+    "composeName": "Ecobase Staging",
+    "appName": "ecobase-staging-2ndggj",
+    "expectedDatabase": "nocobase_rc_20260715t141025",
+    "expectedPreDeployRuntimeCommit": "fdbbb8be6902e2bc49bc195b391d7ec4d8a53dd5",
+    "productionForbidden": true,
+    "status": "pending_replay"
+  },
+  "sourceVersion": "2026-07-16",
+  "sourceFiles": [
+    {
+      "role": "supplier_ids",
+      "path": "data/dataforimport/Ecofission-Order Management - Supplier IDs.csv",
+      "sha256": "e1708c82a2aa4da9cf1ecba4e873f80b1125861128fdc810fe24c920cc9e2d94"
+    },
+    {
+      "role": "supplier_tracker",
+      "path": "data/dataforimport/Supplier Analysis Tracker - Supplier Analysis Tracker.csv",
+      "sha256": "f3ab0021d5b68446e9f313ea4a0875954955826aab4d1bbbe907fa1ee62db677"
+    },
+    {
+      "role": "purchase_orders",
+      "path": "data/dataforimport/Ecofission-Order Management - Purchase Orders.csv",
+      "sha256": "e759ab02673f09264b9ed1538cd24e470c61a92b1c1ac97d5a47fb69a0ecec8c"
+    },
+    {
+      "role": "order_details",
+      "path": "data/dataforimport/Ecofission-Order Management - OrderDetails.csv",
+      "sha256": "3878bc6f87bbba80a8831cb06cd549fe7d6d7698b36d1a0a37ad0bd4e6cd16bd"
+    },
+    {
+      "role": "clickup",
+      "path": "data/dataforimport/Order Management Clickup Data 06-07-2026.csv",
+      "sha256": "a27ce8c0e4ce72947a99578ad6ed0ad90579dc5bd72ed43fa7a7c071e7a84525"
+    }
+  ],
+  "frozenImplementationFiles": [
+    {
+      "path": "packages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/supplier-order-import/supplier-order-import-overrides.json",
+      "sha256": "91091ad16e05abe9346e15ed06873384e8001a1ea8593f9a1892569fa30b9f21"
+    },
+    {
+      "path": "packages/plugins/@nocobase/plugin-ecobase/scripts/live-gate-bootstrap.mjs",
+      "sha256": "2e29303a372bbdc4bd45f3d3df06234e129ea4563b642e384b9793ef46dca1e6"
+    },
+    {
+      "path": "packages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/supplier-order-import-service.ts",
+      "sha256": "113233a0cd3427b15ff9e463e4f9739efd35858c901c88850b73315b1a005832"
+    },
+    {
+      "path": "packages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/supplier-order-import-apply-service.ts",
+      "sha256": "e3fc503fd64616650b2b9affa9645bf1dadfcdabbb9fca72dfdcfe4b0eae084d"
+    },
+    {
+      "path": "packages/plugins/@nocobase/plugin-ecobase/src/features/source-import/server/supplier-order-import/supplier-order-import-preflight.ts",
+      "sha256": "ccbb193723de2ddbcb0e8748c85a89964872957d8fc5901932a9458c638117cb"
+    }
+  ],
+  "canonicalPreflight": {
+    "ready": true,
+    "blockers": 0,
+    "importMode": "canonical-rebuild",
+    "sourcePlanDigest": "a421a971946e3fb8ed42b086d8b12a888660be13e1efaf6c503071587af1e8af",
+    "catalogDigest": "87abf02b35c794652dce6b94b67ff8d1e94286933dfb75770ecd4ca695a63fce",
+    "preflightDigest": "91707de7c6a96dee7206d0279308d1c29669bf9d5a84d91ddd75805d23f90ada",
+    "orders": 1272,
+    "lines": 3557,
+    "exactMemberLines": 2236,
+    "familyOnlyLines": 1043,
+    "unresolvedLines": 278,
+    "blockedLines": 0,
+    "note": "The catalog and preflight digests must be regenerated on remote staging immediately before apply. Source-plan digest and counts must match; catalog/preflight digests are environment-specific."
+  },
+  "acceptedLocalRehearsal": {
+    "databaseSnapshot": "nocobase_supplier_order_final_20260717t0425",
+    "counts": {
+      "companies": 4,
+      "amazonAccounts": 6,
+      "products": 1857,
+      "companyProducts": 2136,
+      "families": 1780,
+      "suppliers": 1855,
+      "orders": 1274,
+      "orderLines": 3561,
+      "clickupComments": 6083,
+      "publishedGoldInventoryRows": 2136,
+      "goldOrderRows": 1274,
+      "goldSupplierRows": 3132,
+      "clickupAuthorityOrders": 434,
+      "explicitMissingAuthorityOrders": 840
+    },
+    "acceptance": {
+      "canonicalSecondApplyNoOp": true,
+      "canonicalSecondApplyWrites": 0,
+      "clickupSecondApplyUpdates": 0,
+      "semanticVerificationErrors": 0,
+      "semanticVerificationBlockingErrors": 0,
+      "pluginTestsExitCode": 0,
+      "eslintExitCode": 0,
+      "buildExitCode": 0,
+      "browserSmokePassed": true,
+      "crossRuntimeDigestsMatch": true,
+      "workflowDraftMappingReconciliationErrors": 0
+    }
+  }
+}
