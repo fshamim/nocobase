@@ -137,8 +137,9 @@ export class EcobaseMedallionNormalizationService {
       sourceDataset,
       adapterName,
     });
-    const isSellerboardHistory =
-      adapterName === 'sellerboard-history-csv' && sourceDataset === 'sellerboard_daily_facts';
+    const usesAdapterNormalizedSellerboardDate =
+      sourceDataset === 'sellerboard_daily_facts' &&
+      (adapterName === 'sellerboard-api' || adapterName === 'sellerboard-history-csv');
     if (orderShape && !safeProjectedDataset && orderRowExclusionReason(orderShape, row)) return entities;
     if (
       !safeProjectedDataset &&
@@ -165,7 +166,7 @@ export class EcobaseMedallionNormalizationService {
       row.string('listingSku', 'sourceSupplierSku', 'SKU') ??
       (orderRef ? row.string('UPC') : undefined);
     const snapshotDate = dateOnly(
-      isSellerboardHistory
+      usesAdapterNormalizedSellerboardDate
         ? textValue(bronze.observedAt)
         : createsAmazonIdentity
           ? row.string('period') ?? textValue(bronze.observedAt)

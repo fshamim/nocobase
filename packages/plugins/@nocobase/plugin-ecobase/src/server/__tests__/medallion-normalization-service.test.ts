@@ -1389,14 +1389,14 @@ describe('EcobaseMedallionNormalizationService', () => {
         Company: 'Retail Heaven Inc',
         ASIN: 'B00RETAILDATE',
         SKU: 'RETAIL-DATE',
-        Date: '1/8/2026',
+        period: '7/12/2026',
         SalesOrganic: '10',
         UnitsOrganic: '2',
       },
       {
         sourceType: 'sellerboard',
         sourceDataset: 'sellerboard_daily_facts',
-        observedAt: new Date('2026-01-08T00:00:00.000Z'),
+        observedAt: new Date('2026-07-12T00:00:00.000Z'),
       },
     );
 
@@ -1404,7 +1404,7 @@ describe('EcobaseMedallionNormalizationService', () => {
 
     expect(result.failed).toBe(0);
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts).rows[0]).toMatchObject({
-      snapshotDate: '2026-01-08',
+      snapshotDate: '2026-07-12',
     });
   });
 
