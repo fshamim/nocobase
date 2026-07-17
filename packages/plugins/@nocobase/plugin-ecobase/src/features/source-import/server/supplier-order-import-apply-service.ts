@@ -264,6 +264,12 @@ export class EcobaseSupplierOrderImportApplyService {
         if (supplierId) retainedSupplierIds.add(supplierId);
       }
     }
+    const retainedCompanyProductSupplierIds = new Set(
+      (await this.all(ECOBASE_COLLECTIONS.silverCompanyProductSuppliers, transaction))
+        .filter((relationship) => retainedSupplierProductIds.has(text(relationship.supplierProductId) ?? ''))
+        .map((relationship) => text(relationship.id))
+        .filter(Boolean) as string[],
+    );
     const companyIds = await this.resolveCompanyIds(plan, transaction);
     const existingOrders = await this.all(ECOBASE_COLLECTIONS.silverOrders, transaction);
     const existingOrderByIdentity = new Map(
@@ -341,9 +347,13 @@ export class EcobaseSupplierOrderImportApplyService {
         transaction,
         canonicalOrderOwned,
       );
+      const desiredCompanyProductSupplierIds = new Set([
+        ...companyProductSupplierIds,
+        ...retainedCompanyProductSupplierIds,
+      ]);
       await this.deleteExcept(
         ECOBASE_COLLECTIONS.silverCompanyProductSuppliers,
-        companyProductSupplierIds,
+        desiredCompanyProductSupplierIds,
         transaction,
       );
       const desiredSupplierProductIds = new Set([...supplierProductIds, ...retainedSupplierProductIds]);
@@ -374,7 +384,7 @@ export class EcobaseSupplierOrderImportApplyService {
       await this.assertCount(ECOBASE_COLLECTIONS.silverSupplierProducts, desiredSupplierProductIds.size, transaction);
       await this.assertCount(
         ECOBASE_COLLECTIONS.silverCompanyProductSuppliers,
-        companyProductSupplierIds.size,
+        desiredCompanyProductSupplierIds.size,
         transaction,
       );
     }

@@ -134,6 +134,12 @@ function seedCatalog(db: MemoryDatabase) {
     productId: 'product-1',
     supplierSku: 'LEGACY-SKU',
   });
+  db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductSuppliers).records.push({
+    id: 'legacy-company-product-supplier',
+    companyProductId: 'company-product-1',
+    supplierProductId: 'legacy-supplier-product',
+    role: 'preferred',
+  });
 }
 
 function catalog(db: MemoryDatabase): SupplierOrderCatalogSnapshot {
@@ -237,9 +243,13 @@ describe('supplier/order import apply service', () => {
       ]),
     );
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).records).toHaveLength(2);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductSuppliers).records).toEqual([
-      expect.objectContaining({ companyProductId: 'company-product-1', role: 'historical_purchase' }),
-    ]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductSuppliers).records).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'legacy-company-product-supplier', role: 'preferred' }),
+        expect.objectContaining({ companyProductId: 'company-product-1', role: 'historical_purchase' }),
+      ]),
+    );
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductSuppliers).records).toHaveLength(2);
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).records).not.toContainEqual(
       expect.objectContaining({ id: 'legacy-line' }),
     );
@@ -345,7 +355,9 @@ describe('supplier/order import apply service', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).records).toEqual([
       expect.objectContaining({ id: 'legacy-supplier-product', supplierSku: 'LEGACY-SKU' }),
     ]);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductSuppliers).records).toEqual([]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductSuppliers).records).toEqual([
+      expect.objectContaining({ id: 'legacy-company-product-supplier', role: 'preferred' }),
+    ]);
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).records).toEqual(
       expect.arrayContaining([expect.objectContaining({ mappingScope: 'exact_member', supplierProductId: null })]),
     );
