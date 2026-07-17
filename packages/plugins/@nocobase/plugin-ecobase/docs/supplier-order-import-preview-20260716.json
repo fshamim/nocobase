@@ -1,0 +1,1319 @@
+{
+  "deterministic": true,
+  "digest": "7d6326a5990a17a9896bf69324e687811bba006bf3a6282ea7a4300e2a686c16",
+  "asOfDate": "2026-07-16",
+  "sourceFiles": [
+    {
+      "name": "order-managment-sheets/Ecofission-Order Management - OrderDetails.csv",
+      "role": "order_details",
+      "sha256": "4d2f39e2f003de36551c8f3f10afba30af06b23d89be440735ffc54159920a45",
+      "rowCount": 6489
+    },
+    {
+      "name": "order-managment-sheets/Ecofission-Order Management - Purchase Orders.csv",
+      "role": "purchase_orders",
+      "sha256": "6e0362d2e2cebc346f3dfdb4fff89330bd8f911ccd03d7fdb9254a546bca2075",
+      "rowCount": 4310
+    },
+    {
+      "name": "supplier-management-sheets/Ecofission-Order Management - Supplier IDs.csv",
+      "role": "supplier_ids",
+      "sha256": "e1708c82a2aa4da9cf1ecba4e873f80b1125861128fdc810fe24c920cc9e2d94",
+      "rowCount": 2135
+    },
+    {
+      "name": "supplier-management-sheets/Supplier Analysis Tracker - Supplier 2026.csv",
+      "role": "supplier_tracker",
+      "sha256": "d2fab46cfbb17a9ecb2d3695652c5751a7752367783c57a2a7b44dd90cc1cb5c",
+      "rowCount": 528
+    },
+    {
+      "name": "supplier-management-sheets/Supplier Analysis Tracker - Supplier Analysis Tracker.csv",
+      "role": "supplier_tracker",
+      "sha256": "d09f10e4d5c86c1c173d37ac22e19aed7f1fbe1045e5e926d94214523c3098e8",
+      "rowCount": 1659
+    }
+  ],
+  "counts": {
+    "suppliers": 1794,
+    "supplierAccounts": 1451,
+    "supplierProducts": 1156,
+    "orders": 79,
+    "orderLines": 309,
+    "blockedSupplierCodes": 62,
+    "duplicateSupplierNames": 19,
+    "blockedOrderIds": 12,
+    "headerlessOrderOutcomes": 235,
+    "issues": 2574
+  },
+  "supplierCodeOverrides": [
+    {
+      "acceptedCode": "SRO-12939",
+      "rejectedCode": "SRO-1293",
+      "normalizedName": "DELKO TOOLS"
+    },
+    {
+      "acceptedCode": "SRO-12572",
+      "rejectedCode": "SRO-1257",
+      "normalizedName": "FRANKLIN MACHINE PRODUCTS"
+    }
+  ],
+  "supplierNameOverrides": [
+    {
+      "externalSupplierCode": "SRO-10484",
+      "displayName": "Spicin Foods, Inc.",
+      "sourceNames": ["SPICIN FOODS, INC.", "SPICIN FOODS, INC"],
+      "reason": "po_referenced_identity_resolution"
+    },
+    {
+      "externalSupplierCode": "SRO-12478",
+      "displayName": "Boxer Adhesives",
+      "sourceNames": ["BOXER ADHESIVES", "UNION LABORATORIES / BOXER ADHESIVES"],
+      "reason": "po_referenced_identity_resolution"
+    },
+    {
+      "externalSupplierCode": "SRO-12890",
+      "displayName": "Peppermill Kitchenware Inc.",
+      "sourceNames": ["PEPPERMILL KITCHENWARE INC.", "PEPPERMILL KITCHENWARE INC"],
+      "reason": "po_referenced_identity_resolution"
+    },
+    {
+      "externalSupplierCode": "SRO-1538",
+      "displayName": "BIRCHWOOD LABORATORIES INC",
+      "sourceNames": ["BIRCHWOOD LABORATORIES INC", "BIRCHWOOD LABORATORIES"],
+      "reason": "po_referenced_identity_resolution"
+    },
+    {
+      "externalSupplierCode": "SRO-2873",
+      "displayName": "Clarke Tinwhistles USA",
+      "sourceNames": ["CLARKETINWHISTLE", "CLARKE TINWHISTLES USA"],
+      "reason": "po_referenced_identity_resolution"
+    },
+    {
+      "externalSupplierCode": "SRO-442",
+      "displayName": "Alliance Entertainment",
+      "sourceNames": ["ALLIANCE", "ALLIANCE ENTERTAINMENT"],
+      "reason": "po_referenced_identity_resolution"
+    },
+    {
+      "externalSupplierCode": "SRO-9095",
+      "displayName": "Premierwd",
+      "sourceNames": ["PREMIERWD", "PREMIER WD"],
+      "reason": "po_referenced_identity_resolution"
+    },
+    {
+      "externalSupplierCode": "SRO-9482",
+      "displayName": "Redstone Foods, Inc",
+      "sourceNames": ["REDSTONE FOODS, INC", "RED STONE FOODS"],
+      "reason": "po_referenced_identity_resolution"
+    },
+    {
+      "externalSupplierCode": "SRO-9619",
+      "displayName": "Rio Grande Games",
+      "sourceNames": ["RIOGRANDEGAMES", "RIO GRANDE GAMES"],
+      "reason": "po_referenced_identity_resolution"
+    }
+  ],
+  "reconciliation": {
+    "matchedOrderCount": 2158,
+    "detailsOnlyOrderCount": 235,
+    "purchaseOnlyOrderCount": 24,
+    "supplierMismatchCount": 4,
+    "companyMismatchCount": 3,
+    "retainedOrderCount": 79,
+    "retainedOrderLineCount": 309
+  },
+  "headerlessOrderOutcomes": [
+    {
+      "externalOrderId": "B07RGG7TXX",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "EF101524A",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "EF102125A",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "EF102524E",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "EF102725B",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "EF112525C",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "EF112525D",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "EF112525E",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "EF11425E",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "EF11525A",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "EF12224A",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "EF12224B",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "EF12226B",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "EF122425D",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "EF12524A",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "EF1625A",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "EF21726E",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "EF2526D",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "EF2725",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "EF2725C",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "EF32025E",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "EF32124A",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "EF32725B",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "EF32725C",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "EF32924A",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "EF3725",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "EF51226A",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "EF51326A",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "EF52825B",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "EF61926B",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "EF6226B",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "EF6226C",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "EF6526C",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "EF6826A",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "EF7126B",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "EF72624",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "EF7926A",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "GS102324A",
+      "disposition": "exception",
+      "reason": "company_out_of_scope"
+    },
+    {
+      "externalOrderId": "KK113024B",
+      "disposition": "exception",
+      "reason": "company_out_of_scope"
+    },
+    {
+      "externalOrderId": "KK12025A",
+      "disposition": "exception",
+      "reason": "company_out_of_scope"
+    },
+    {
+      "externalOrderId": "KK22025B",
+      "disposition": "exception",
+      "reason": "company_out_of_scope"
+    },
+    {
+      "externalOrderId": "KK82224A",
+      "disposition": "exception",
+      "reason": "company_out_of_scope"
+    },
+    {
+      "externalOrderId": "KK82325A",
+      "disposition": "exception",
+      "reason": "company_out_of_scope"
+    },
+    {
+      "externalOrderId": "KK82924A",
+      "disposition": "exception",
+      "reason": "company_out_of_scope"
+    },
+    {
+      "externalOrderId": "KK92524A",
+      "disposition": "exception",
+      "reason": "company_out_of_scope"
+    },
+    {
+      "externalOrderId": "MM102723C",
+      "disposition": "exception",
+      "reason": "company_out_of_scope"
+    },
+    {
+      "externalOrderId": "MMO81024A",
+      "disposition": "exception",
+      "reason": "company_out_of_scope"
+    },
+    {
+      "externalOrderId": "MV122324A",
+      "disposition": "exception",
+      "reason": "company_out_of_scope"
+    },
+    {
+      "externalOrderId": "MV31825B",
+      "disposition": "exception",
+      "reason": "company_out_of_scope"
+    },
+    {
+      "externalOrderId": "MX101124A",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "MX101424B",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "MX101725B",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "MX102725C",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "MX111225B",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "MX11425A",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "MX11525A",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "MX11626A",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "MX12125C",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "MX121825A",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "MX122525A",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "MX122525B",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "MX122525C",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "MX122525D",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "MX122525E",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "MX122525F",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "MX122525G",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "MX12525C",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "MX12925A",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "MX12925B",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "MX12925C",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "MX1425D",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "MX1625C",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "MX2626C",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "MX2626H",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "MX2626I",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "MX2626J",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "MX31026A",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "MX51326C",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "MX51926E",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "MX52126A",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "MX52126F",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "MX52326C",
+      "disposition": "exception",
+      "reason": "company_evidence_conflict"
+    },
+    {
+      "externalOrderId": "MX53025C",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "MX61726H",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "MX61726I",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "MX61726L",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "MX7126D",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "MX7126G",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "MX72225A",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "MX7826D",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "RH111225B",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "RH112525C",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "RH112525D",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "RH11525A",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "RH11525D",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "RH120823B",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "RH121025A",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "RH1626B",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "RH1626C",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "RH1626E",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "RH1925A",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "RH21226A",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "RH21226B",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "RH21226C",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "RH2626B",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "RH2626D",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "RH31824C",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "RH51326D",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "RH51926A",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "RH6126A",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "RH61726C",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "RH61926B",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "RH6826A",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "RH6826C",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "RH71625A",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "RH7826B",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "RH8525A",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "RH9224A",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "RH93024E",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "SAS",
+      "disposition": "exception",
+      "reason": "company_out_of_scope"
+    },
+    {
+      "externalOrderId": "SAS51024B",
+      "disposition": "exception",
+      "reason": "company_out_of_scope"
+    },
+    {
+      "externalOrderId": "SAS72524A",
+      "disposition": "exception",
+      "reason": "company_out_of_scope"
+    },
+    {
+      "externalOrderId": "SS10225B",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "SS102725C",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "SS102925B",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "SS112324B",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "SS112525D",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "SS112525F",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "SS11525D",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "SS122425B",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "SS122425D",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "SS122425F",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "SS12325",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "SS12624D",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "SS12925B",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "SS12925C",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "SS12925D",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "SS12925E",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "SS13126B",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "SS1526E",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "SS1526F",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "SS1526G",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "SS21126A",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "SS21126B",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "SS21126C",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "SS21325B",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "SS21924A",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "SS2626A",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "SS2626D",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "SS2626E",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "SS2725",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "SS41625A",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "SS42125A",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "SS42826C",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "SS51926B",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "SS52225",
+      "disposition": "exception",
+      "reason": "company_out_of_scope"
+    },
+    {
+      "externalOrderId": "SS5225A",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "SS52725E",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "SS6325B",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "SS8725B",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "SS8825A",
+      "disposition": "exception",
+      "reason": "orphan_without_operational_evidence"
+    },
+    {
+      "externalOrderId": "TKH111324A",
+      "disposition": "exception",
+      "reason": "company_out_of_scope"
+    },
+    {
+      "externalOrderId": "TKH32425A",
+      "disposition": "exception",
+      "reason": "company_out_of_scope"
+    },
+    {
+      "externalOrderId": "TKH62024A",
+      "disposition": "exception",
+      "reason": "company_out_of_scope"
+    },
+    {
+      "externalOrderId": "TKH73024A",
+      "disposition": "exception",
+      "reason": "company_out_of_scope"
+    },
+    {
+      "externalOrderId": "TVC11525A",
+      "disposition": "exception",
+      "reason": "company_out_of_scope"
+    },
+    {
+      "externalOrderId": "TVC82024C",
+      "disposition": "exception",
+      "reason": "company_out_of_scope"
+    },
+    {
+      "externalOrderId": "TWC61225B",
+      "disposition": "exception",
+      "reason": "company_out_of_scope"
+    },
+    {
+      "externalOrderId": "TWC73124A",
+      "disposition": "exception",
+      "reason": "company_out_of_scope"
+    },
+    {
+      "externalOrderId": "TWC82024A",
+      "disposition": "exception",
+      "reason": "company_out_of_scope"
+    },
+    {
+      "externalOrderId": "TWC8624A",
+      "disposition": "exception",
+      "reason": "company_out_of_scope"
+    },
+    {
+      "externalOrderId": "UK-KK-KM-250716-01",
+      "disposition": "exception",
+      "reason": "company_out_of_scope"
+    },
+    {
+      "externalOrderId": "UK-KK-KM-250719-02",
+      "disposition": "exception",
+      "reason": "company_out_of_scope"
+    },
+    {
+      "externalOrderId": "UK-KK-KM-250719-03",
+      "disposition": "exception",
+      "reason": "company_out_of_scope"
+    },
+    {
+      "externalOrderId": "UK-KK-KM-250721-01",
+      "disposition": "exception",
+      "reason": "company_out_of_scope"
+    },
+    {
+      "externalOrderId": "UK-KK-KM-250724-01",
+      "disposition": "exception",
+      "reason": "company_out_of_scope"
+    },
+    {
+      "externalOrderId": "UK-KK-KM-250731-02",
+      "disposition": "exception",
+      "reason": "company_out_of_scope"
+    },
+    {
+      "externalOrderId": "USA-23451-MX-01",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-EF-BS-01012026-01",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-EF-BS-020426-01",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-EF-BS-020426-02",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-EF-BS-021526-01",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-EF-BS-10312025-01",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-EF-BS-18112025-01",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-EF-BS-250726-01",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-EF-BS-250826-01",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-EF-BS-250918-01",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-EF-BS-251001-02",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-EF-BS-251003-02",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-MX-BS-012326-02",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-MX-BS-012326-03",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-MX-BS-020426-01",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-MX-BS-020426-02",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-MX-BS-020426-03",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-MX-BS-021326-01",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-MX-BS-021326-02",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-MX-BS-11062025-02",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-MX-BS-11062025-03",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-MX-BS-121725-07",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-MX-BS-250903-05",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-MX-BS-251125-01",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-MX-BS-261125-01",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-MX-BS-261125-02",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-MX-NU-101725-02",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-MX-NU-101725-07",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-MX-NU-10292025-01",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-MX-NU-250730-02",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-MX-NU-2508-30-02",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-MX-NU-250929-01",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-MX-NU-251001-01",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-MX-NU-251002-01",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-RH-BS-012426-01",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-RH-BS-020426-01",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-RH-BS-021526-01",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-RH-BS-10312025-02",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-RH-BS-121725-03",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-RH-BS-121725-06",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-RH-BS-251125-02",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-RH-NU-101725-06",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-RH-NU-10252025-01",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-RH-NU-10292025-03",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-RH-NU-250905-02",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-RH-NU-250911-01",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-RH-NU-251001-04",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-SS-BS-012426-01",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-SS-BS-012426-02",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-SS-BS-012426-03",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-SS-BS-012626-01",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-SS-BS-020426-01",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-SS-BS-101625-01",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-SS-BS-101725-01",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-SS-BS-121725-01",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-SS-BS-250826-02",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-SS-BS-271125-01",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    },
+    {
+      "externalOrderId": "USA-SS-NU-250726-01",
+      "disposition": "exception",
+      "reason": "unsupported_order_ref"
+    }
+  ],
+  "issueReasonCounts": {
+    "cancelled_or_rejected_order": 133,
+    "company_evidence_conflict": 1,
+    "company_out_of_scope": 881,
+    "invalid_asin": 12,
+    "invalid_boolean": 2,
+    "invalid_date": 5,
+    "invalid_email": 4,
+    "invalid_number": 187,
+    "invalid_supplier_code": 36,
+    "missing_supplier_sku_asin_fallback": 2,
+    "orphan_without_operational_evidence": 146,
+    "stale_complete_order": 1050,
+    "stale_unknown_order": 1,
+    "unsupported_order_ref": 114
+  }
+}

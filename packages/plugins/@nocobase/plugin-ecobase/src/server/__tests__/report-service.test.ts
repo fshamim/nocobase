@@ -138,7 +138,7 @@ async function seedReportData(db: MemoryDatabase) {
       title: 'Report product',
     },
   });
-  await db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).create({
+  await db.getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts).create({
     values: {
       naturalKey: 'fact-current',
       sourceConnectionId: 'source-1',
@@ -149,11 +149,11 @@ async function seedReportData(db: MemoryDatabase) {
       sku: 'SKU-REPORT',
       sales: 200,
       units: 10,
-      netProfit: 100,
+      profit: 100,
       payload: { accountKey: 'US', tier: 'A' },
     },
   });
-  await db.getRepository(ECOBASE_COLLECTIONS.listingDailyFacts).create({
+  await db.getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts).create({
     values: {
       naturalKey: 'fact-prior',
       sourceConnectionId: 'source-1',
@@ -164,11 +164,11 @@ async function seedReportData(db: MemoryDatabase) {
       sku: 'SKU-REPORT',
       sales: 150,
       units: 8,
-      netProfit: 70,
+      profit: 70,
       payload: { accountKey: 'US', tier: 'A' },
     },
   });
-  await db.getRepository(ECOBASE_COLLECTIONS.planningCalculationSnapshots).create({
+  await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).create({
     values: {
       naturalKey: 'calc-1',
       planningProductId: 'product-1',
@@ -294,8 +294,7 @@ describe('Ecobase report service', () => {
         'oos_reorder_risk',
         'supplier_order_risk',
         'accountability_task',
-        'okr_status',
-        'comparative_trend',
+        'target_status',
         'data_quality',
       ]),
     );
@@ -348,7 +347,7 @@ describe('Ecobase report service', () => {
         auditSummary: { source: 'inventory_planning_fallback' },
       },
     });
-    await db.getRepository(ECOBASE_COLLECTIONS.inventorySnapshots).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).create({
       values: {
         naturalKey: 'inventory-brief-1',
         sourceConnectionId: 'source-brief-1',
@@ -366,7 +365,7 @@ describe('Ecobase report service', () => {
         payload: {},
       },
     });
-    await db.getRepository(ECOBASE_COLLECTIONS.planningParameters).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).create({
       values: {
         naturalKey: 'parameter-brief-1',
         sourceConnectionId: 'source-brief-1',
@@ -382,42 +381,29 @@ describe('Ecobase report service', () => {
         payload: {},
       },
     });
-    await db.getRepository(ECOBASE_COLLECTIONS.suppliers).create({
-      values: { id: 'supplier-brief-1', naturalKey: 'supplier:ACME:brief', company: 'ACME', name: 'Brief Supplier' },
-    });
-    await db.getRepository(ECOBASE_COLLECTIONS.supplierProductLinks).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).create({
       values: {
-        id: 'supplier-link-1',
+        id: 'supplier-brief-1',
+        naturalKey: 'supplier:ACME:brief',
         company: 'ACME',
-        planningProductId: 'product-brief-1',
-        supplierId: 'supplier-brief-1',
-        supplierName: 'Brief Supplier',
-        role: 'preferred',
-        confidence: 'high',
-        active: true,
-        lastSeenAt: '2026-06-01T00:00:00.000Z',
-        payload: {},
+        displayName: 'Brief Supplier',
       },
     });
-    await db.getRepository(ECOBASE_COLLECTIONS.supplierLeadTimes).create({
+    await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).create({
       values: {
-        naturalKey: 'lead-time-brief-1',
-        company: 'ACME',
-        supplierId: 'supplier-brief-1',
-        supplierName: 'Brief Supplier',
-        planningProductId: 'product-brief-1',
-        asin: 'B00BRIEF',
-        sku: 'SKU-BRIEF',
-        scope: 'product',
-        leadTimeDays: 24,
-        confirmedAt: '2026-01-01T00:00:00.000Z',
+        id: 'gold-refresh-brief-1',
+        calculationDate: '2026-06-10',
+        status: 'published',
+        publishedAt: '2026-06-10T00:00:00.000Z',
       },
     });
     await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).create({
       values: {
         id: 'gold-inventory-brief-1',
+        refreshRunId: 'gold-refresh-brief-1',
         naturalKey: 'gold-inventory-brief-1',
         planningProductId: 'product-brief-1',
+        companyProductId: 'company-product-brief-1',
         calculationDate: '2026-06-10',
         company: 'ACME',
         asin: 'B00BRIEF',
@@ -425,8 +411,17 @@ describe('Ecobase report service', () => {
         title: 'Brief SKU',
         tier: 'A',
         actionStatus: 'overdue',
-        sellableStock: 0,
+        productStatus: 'active',
+        planningReadinessStatus: 'ready',
+        daysOfCover: 0,
+        targetCoverDays: 60,
+        sellableStock: 1,
         reservedStock: 0,
+        orderedStock: 0,
+        prepStock: 0,
+        inboundStock: 0,
+        awdStock: 0,
+        supplierPipelineStock: 0,
         pipelineStock: 0,
         salesVelocity: 3,
         leadTimeDays: 24,
@@ -504,7 +499,7 @@ describe('Ecobase report service', () => {
         id: 'task-brief-1',
         sourceConnectionId: 'source-brief-1',
         snapshotDate: '2026-06-10',
-        externalTaskId: 'CU-BRIEF-1',
+        sourceTaskRef: 'CU-BRIEF-1',
         taskName: 'Confirm PO-BRIEF-1 with supplier',
         title: 'Confirm PO-BRIEF-1 with supplier',
         assignee: 'Ops',
@@ -526,8 +521,8 @@ describe('Ecobase report service', () => {
     });
     const evidencePack = body.data.evidencePack as Record<string, any>;
     expect(evidencePack.summaryCounts).toMatchObject({
-      inventoryRiskCount: 1,
-      includedInventoryRiskCount: 1,
+      supplyActionCount: 1,
+      includedSupplyActionCount: 1,
       supplierOrderContextCount: 1,
       orderPlanningRiskCount: 1,
       taskRiskCount: 1,
@@ -613,7 +608,7 @@ describe('Ecobase report service', () => {
         const noActionEvidenceId = request.evidencePack.dataWarnings[0].evidenceId;
         return JSON.stringify({
           subject: 'Ecobase daily brief: no major exceptions',
-          bodyMarkdown: `# Ecobase Daily Operations Brief — ${request.evidencePack.date}\n\n## Director action points\n\n- **Review today** with evidence ${noActionEvidenceId}.`,
+          bodyMarkdown: `# Ecobase Daily Operations Brief — ${request.evidencePack.date}\n\n## Director action points\n\n- **Review source data warning today** with evidence ${noActionEvidenceId}.`,
           citedEvidenceIds: [noActionEvidenceId],
           dataWarningsMentioned: [],
           confidence: 'high',
@@ -656,7 +651,7 @@ describe('Ecobase report service', () => {
         const evidenceId = request.evidencePack.dataWarnings[0].evidenceId;
         return JSON.stringify({
           subject: 'Ecobase daily brief: reused preview',
-          bodyMarkdown: `# Ecobase Daily Operations Brief — ${request.evidencePack.date}\n\nDo today. Cited evidence: ${evidenceId}.`,
+          bodyMarkdown: `# Ecobase Daily Operations Brief — ${request.evidencePack.date}\n\nReview source data warning today. Cited evidence: ${evidenceId}.`,
           citedEvidenceIds: [evidenceId],
           dataWarningsMentioned: [],
           confidence: 'high',
@@ -688,7 +683,7 @@ describe('Ecobase report service', () => {
         const evidenceId = request.evidencePack.dataWarnings[0].evidenceId;
         return JSON.stringify({
           subject: 'Ecobase daily brief repaired',
-          bodyMarkdown: `# Ecobase Daily Operations Brief — ${request.evidencePack.date}\n\nNo major exception needs action today. Cited evidence: ${evidenceId}.`,
+          bodyMarkdown: `# Ecobase Daily Operations Brief — ${request.evidencePack.date}\n\nNo major exception needs action today; review the source data warning. Cited evidence: ${evidenceId}.`,
           citedEvidenceIds: [evidenceId],
           dataWarningsMentioned: [],
           confidence: 'medium',

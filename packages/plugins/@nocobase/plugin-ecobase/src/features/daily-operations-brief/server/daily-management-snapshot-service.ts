@@ -603,10 +603,14 @@ export class EcobaseDailyManagementSnapshotService {
     const sourceStatus = evidenceSourceStatus(params.evidencePack);
     const supplyActionRows = inventoryRows.filter((row) => asString(row.commandCenterPane) === 'supplyAction');
     const dataReadinessRows = inventoryRows.filter((row) => asString(row.commandCenterPane) === 'dataReadiness');
-    const activeOrderRows = inventoryRows.filter((row) => asString(row.commandCenterPane) === 'activeOrders');
+    const activeOrderRows = inventoryRows.filter((row) =>
+      ['activeOrders', 'inPrepMonitoring', 'inboundMonitoring'].includes(asString(row.commandCenterPane) ?? ''),
+    );
     const stuckInventoryRows = inventoryRows.filter((row) => asString(row.commandCenterPane) === 'stuckInventory');
     const moneyRiskRows = inventoryRows.filter((row) =>
-      ['supplyAction', 'activeOrders', 'inboundMonitoring'].includes(asString(row.commandCenterPane) ?? ''),
+      ['supplyAction', 'activeOrders', 'inPrepMonitoring', 'inboundMonitoring'].includes(
+        asString(row.commandCenterPane) ?? '',
+      ),
     );
     const knownMoneyRiskRows = moneyRiskRows.filter(
       (row) =>

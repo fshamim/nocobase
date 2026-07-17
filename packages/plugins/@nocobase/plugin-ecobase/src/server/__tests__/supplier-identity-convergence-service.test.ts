@@ -10,7 +10,6 @@
 import { describe, expect, it } from 'vitest';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { EcobaseSupplierIdentityConvergenceService } from '../../features/supplier-management/server/supplier-identity-convergence-service';
-import { EcobaseSupplierOrderService } from '../../features/supplier-management/server/supplier-order-service';
 import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
 
 type Row = Record<string, unknown>;
@@ -235,27 +234,6 @@ describe('EcobaseSupplierIdentityConvergenceService', () => {
     await expect(new EcobaseSupplierIdentityConvergenceService(db).preview()).resolves.toMatchObject({
       eligible: [{ canonicalSupplierId: 'supplier-canonical' }],
     });
-  });
-
-  it('resolves imports by external authority and rejects ambiguous name-only resolution', async () => {
-    const db = new MemoryDatabase();
-    await seedCollisionSafeGroup(db);
-    await create(db, ECOBASE_COLLECTIONS.silverCompanies, { id: 'company-1', name: 'Ecofission LLC' });
-    const service = new EcobaseSupplierOrderService(db);
-    const record = {
-      kind: 'supplier_identity',
-      data: {
-        company: 'Ecofission LLC',
-        supplierName: 'Allied Piano',
-        sourceSystem: 'order_management',
-        sourceConnectionId: 'source-1',
-      },
-    };
-
-    await expect(service.applyImportRecord(record, 'run-1')).rejects.toThrow('supplier identity is ambiguous');
-    await expect(
-      service.applyImportRecord({ ...record, data: { ...record.data, externalSupplierCode: 'allied-piano' } }, 'run-1'),
-    ).resolves.toMatchObject({ sample: { supplierId: 'supplier-canonical' } });
   });
 
   it('keeps null-versus-zero and analysis-status offer differences in review', async () => {

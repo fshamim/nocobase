@@ -16,11 +16,7 @@ export const EXPECTED_BUNDLE_GROUP_IDS = [
   'sellerboard-history-stop-shop',
   'supplier-management',
 ];
-export const STAGING_FAST_CLICKUP_GROUP_IDS = [
-  'clickup-order-status',
-  'order-management',
-  'supplier-management',
-];
+export const STAGING_FAST_CLICKUP_GROUP_IDS = ['clickup-order-status', 'order-management', 'supplier-management'];
 const BUNDLE_GROUP_IDS_BY_PROFILE = new Map([
   ['complete', EXPECTED_BUNDLE_GROUP_IDS],
   ['staging-fast-clickup', STAGING_FAST_CLICKUP_GROUP_IDS],
@@ -37,7 +33,7 @@ const STAGING_FAST_CLICKUP_FILE_PATHS_BY_GROUP = new Map([
   [
     'supplier-management',
     [
-      'data/supplier-management-sheets/Supplier Analysis Tracker - Supplier Analysis Tracker.csv',
+      'data/dataforimport/Ecofission-Order Management - Supplier IDs.csv',
       'data/supplier-management-sheets/Supplier Analysis Tracker - Supplier 2026.csv',
     ],
   ],
@@ -103,7 +99,9 @@ export async function validateBundleManifest({ manifestPath, projectRoot, profil
     throw new Error(`Ecobase greenfield seed failed: unsupported bundle profile ${manifestProfile}.`);
   }
   if (profile && profile !== manifestProfile) {
-    throw new Error(`Ecobase greenfield seed failed: requested profile ${profile} does not match bundle profile ${manifestProfile}.`);
+    throw new Error(
+      `Ecobase greenfield seed failed: requested profile ${profile} does not match bundle profile ${manifestProfile}.`,
+    );
   }
   if (requiredString(manifest.profileVersion, 'bundle profileVersion') !== '2026-07-13.1') {
     throw new Error(`Ecobase greenfield seed failed: unsupported bundle profileVersion ${manifest.profileVersion}.`);
@@ -117,7 +115,9 @@ export async function validateBundleManifest({ manifestPath, projectRoot, profil
   }
   const groupIds = manifest.groups.map((group) => requiredString(group?.id, 'bundle group id'));
   if (JSON.stringify([...groupIds].sort()) !== JSON.stringify(expectedGroupIds)) {
-    throw new Error(`Ecobase greenfield seed failed: bundle groups are incomplete or unexpected: ${groupIds.join(', ')}.`);
+    throw new Error(
+      `Ecobase greenfield seed failed: bundle groups are incomplete or unexpected: ${groupIds.join(', ')}.`,
+    );
   }
   const seenPaths = new Set();
   const filesToValidate = [];
@@ -153,7 +153,10 @@ export async function validateBundleManifest({ manifestPath, projectRoot, profil
         throw new Error(`Ecobase greenfield seed failed: bundle file ${relativePath} has an invalid rowCount.`);
       }
       const resolvedFilePath = path.resolve(resolvedProjectRoot, relativePath);
-      if (resolvedFilePath !== resolvedProjectRoot && !resolvedFilePath.startsWith(`${resolvedProjectRoot}${path.sep}`)) {
+      if (
+        resolvedFilePath !== resolvedProjectRoot &&
+        !resolvedFilePath.startsWith(`${resolvedProjectRoot}${path.sep}`)
+      ) {
         throw new Error(`Ecobase greenfield seed failed: bundle file path escapes project root: ${relativePath}.`);
       }
       filesToValidate.push({ relativePath, resolvedFilePath, checksum: file.checksum });
@@ -162,7 +165,8 @@ export async function validateBundleManifest({ manifestPath, projectRoot, profil
   }
   const expectedFileCount = [...EXPECTED_BUNDLE_FILE_COUNTS.entries()].reduce(
     (total, [id, count]) => total + (expectedGroupIds.includes(id) ? count : 0),
-    expectedGroupIds.length - [...EXPECTED_BUNDLE_FILE_COUNTS.keys()].filter((id) => expectedGroupIds.includes(id)).length,
+    expectedGroupIds.length -
+      [...EXPECTED_BUNDLE_FILE_COUNTS.keys()].filter((id) => expectedGroupIds.includes(id)).length,
   );
   if (fileCount !== expectedFileCount) {
     throw new Error(
@@ -214,7 +218,9 @@ export function createSeedPlan({
   }
   if (stopAfter === 'bundle') {
     if (startAt !== 'sellerboard') {
-      throw new Error('Ecobase greenfield seed failed: --stop-after bundle cannot be combined with a later --start-at phase.');
+      throw new Error(
+        'Ecobase greenfield seed failed: --stop-after bundle cannot be combined with a later --start-at phase.',
+      );
     }
     return {
       profile,
@@ -266,17 +272,19 @@ function isVolatileKey(key) {
   return key === 'id' || key.endsWith('Id') || key.endsWith('At') || key === 'timestamp';
 }
 
+function compareText(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 function canonicalize(value) {
   if (Array.isArray(value)) {
-    return value
-      .map(canonicalize)
-      .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+    return value.map(canonicalize).sort((left, right) => compareText(JSON.stringify(left), JSON.stringify(right)));
   }
   if (value && typeof value === 'object') {
     return Object.fromEntries(
       Object.entries(value)
         .filter(([key]) => !isVolatileKey(key))
-        .sort(([left], [right]) => left.localeCompare(right))
+        .sort(([left], [right]) => compareText(left, right))
         .map(([key, child]) => [key, canonicalize(child)]),
     );
   }

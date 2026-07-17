@@ -17,6 +17,7 @@ import {
   EcobaseInventoryPlanningService,
   type InventoryCommandCenterPane,
 } from '../../inventory-planning/server/inventory-planning-service';
+import { INVENTORY_PLANNING_PANES } from '../../inventory-planning/server/inventory-planning-pane-classifier';
 import {
   isReliableSupplierOrderCoverageStatus,
   normalizeSupplierOrderStatus,
@@ -676,15 +677,18 @@ function commandPaneTotal(commandCenter: InventoryCommandCenterEvidence, pane: I
 
 function commandCenterAlerts(commandCenter: PlainRecord, maxItems: number): InventoryCommandCenterEvidence['alerts'] {
   const supplyAction = commandPaneRows(commandCenter, 'supplyAction');
-  const missingSupplier = commandPaneRows(commandCenter, 'missingSupplier');
-  const activeOrders = commandPaneRows(commandCenter, 'activeOrders');
-  const stuckInventory = commandPaneRows(commandCenter, 'stuckInventory');
   const dataReadiness = commandPaneRows(commandCenter, 'dataReadiness');
+  const activeOrders = [
+    ...commandPaneRows(commandCenter, 'activeOrders'),
+    ...commandPaneRows(commandCenter, 'inPrepMonitoring'),
+    ...commandPaneRows(commandCenter, 'inboundMonitoring'),
+  ];
+  const stuckInventory = commandPaneRows(commandCenter, 'stuckInventory');
   return {
-    supplyActionNeeded: [...supplyAction, ...missingSupplier].slice(0, maxItems),
+    supplyActionNeeded: supplyAction.slice(0, maxItems),
     dataReadiness: dataReadiness.slice(0, maxItems),
     activeOrdersOffTrack: activeOrders
-      .filter((row) => ['late', 'placed_not_purchased'].includes(asString(row.pipelineHealthStatus) ?? ''))
+      .filter((row) => asString(row.pipelineHealthStatus) === 'late')
       .slice(0, maxItems),
     activeOrdersUnknownTiming: activeOrders
       .filter((row) => asString(row.pipelineHealthStatus) === 'unknown_timing')
@@ -692,14 +696,16 @@ function commandCenterAlerts(commandCenter: PlainRecord, maxItems: number): Inve
     followUpsDueToday: activeOrders
       .filter((row) => asString(row.recommendedEscalation) === 'follow_up_order')
       .slice(0, maxItems),
-    leadTimeDataGaps: [...supplyAction, ...missingSupplier, ...activeOrders]
+    leadTimeDataGaps: [...supplyAction, ...dataReadiness, ...activeOrders]
       .filter(
         (row) =>
           ['missing_lead_time', 'stale_lead_time'].includes(asString(row.actionStatus) ?? '') ||
           ['missing', 'stale'].includes(asString(row.leadTimeFreshness) ?? ''),
       )
       .slice(0, maxItems),
-    stuckInventoryReview: stuckInventory.filter((row) => asString(row.actionStatus) !== 'excluded').slice(0, maxItems),
+    stuckInventoryReview: [...stuckInventory, ...activeOrders]
+      .filter((row) => !['none', undefined].includes(asString(row.stuckClassification)))
+      .slice(0, maxItems),
   };
 }
 
@@ -721,13 +727,15 @@ function inventoryCommandCenterEvidence(commandCenter: PlainRecord, maxItems: nu
     riskBars: toPlainRecord(commandCenter.riskBars),
     panes: {
       supplyAction: pane('supplyAction'),
-      missingSupplier: pane('missingSupplier'),
       activeOrders: pane('activeOrders'),
+      inPrepMonitoring: pane('inPrepMonitoring'),
       inboundMonitoring: pane('inboundMonitoring'),
       healthyInventory: pane('healthyInventory'),
+      excessInventory: pane('excessInventory'),
       stuckInventory: pane('stuckInventory'),
+      zeroStock: pane('zeroStock'),
       dataReadiness: pane('dataReadiness'),
-      excludedProducts: pane('excludedProducts'),
+      untieredProducts: pane('untieredProducts'),
     },
     alerts: commandCenterAlerts(commandCenter, maxItems),
   };
@@ -819,16 +827,7 @@ export class EcobaseDailyOperationsBriefService {
     inventoryPlanning: EcobaseInventoryPlanningService,
     params: { company?: string; date: string },
   ): Promise<PlainRecord> {
-    const panes: InventoryCommandCenterPane[] = [
-      'supplyAction',
-      'missingSupplier',
-      'activeOrders',
-      'inboundMonitoring',
-      'healthyInventory',
-      'stuckInventory',
-      'dataReadiness',
-      'excludedProducts',
-    ];
+    const panes: InventoryCommandCenterPane[] = [...INVENTORY_PLANNING_PANES];
     let result: PlainRecord | undefined;
     const fullPanes: PlainRecord = {};
 
@@ -897,10 +896,7 @@ export class EcobaseDailyOperationsBriefService {
       if (safeReorder !== 0) return safeReorder;
       return safeNumber(right.estimatedProfitRisk) - safeNumber(left.estimatedProfitRisk);
     });
-    const riskRows = [
-      ...commandPaneRows(commandCenterRaw, 'supplyAction'),
-      ...commandPaneRows(commandCenterRaw, 'missingSupplier'),
-    ];
+    const riskRows = commandPaneRows(commandCenterRaw, 'supplyAction');
     const cappedRiskRows = riskRows.slice(0, params.maxItems);
     const omissions = this.buildOmissions({ riskRows, cappedRiskRows, sourceStatus, params });
     const inventoryRisks = this.buildInventoryRisks(cappedRiskRows, params.date);
@@ -980,8 +976,11 @@ export class EcobaseDailyOperationsBriefService {
         supplyActionCount: riskRows.length,
         includedSupplyActionCount: inventoryRisks.length,
         omittedSupplyActionCount: Math.max(riskRows.length - inventoryRisks.length, 0),
-        activeOrderCount: commandPaneRows(commandCenterRaw, 'activeOrders').length,
-        stuckInventoryCount: commandPaneRows(commandCenterRaw, 'stuckInventory').length,
+        activeOrderCount:
+          commandPaneRows(commandCenterRaw, 'activeOrders').length +
+          commandPaneRows(commandCenterRaw, 'inPrepMonitoring').length +
+          commandPaneRows(commandCenterRaw, 'inboundMonitoring').length,
+        stuckInventoryCount: inventoryCommandCenter.alerts.stuckInventoryReview.length,
         dataReadinessCount: commandPaneRows(commandCenterRaw, 'dataReadiness').length,
         historyReadinessAffectedCount:
           asNumber(toPlainRecord(toPlainRecord(commandCenterRaw.metadata).historyReadiness).affectedRowCount) ?? 0,
@@ -989,16 +988,10 @@ export class EcobaseDailyOperationsBriefService {
           (total, items) => total + items.length,
           0,
         ),
-        activeOrderOffTrackCount: commandPaneRows(commandCenterRaw, 'activeOrders').filter((row) =>
-          ['late', 'placed_not_purchased'].includes(asString(row.pipelineHealthStatus) ?? ''),
-        ).length,
-        activeOrderUnknownTimingCount: commandPaneRows(commandCenterRaw, 'activeOrders').filter(
-          (row) => asString(row.pipelineHealthStatus) === 'unknown_timing',
-        ).length,
-        followUpDueTodayCount: commandPaneRows(commandCenterRaw, 'activeOrders').filter(
-          (row) => asString(row.recommendedEscalation) === 'follow_up_order',
-        ).length,
-        stuckInventoryReviewCount: commandPaneRows(commandCenterRaw, 'stuckInventory').length,
+        activeOrderOffTrackCount: inventoryCommandCenter.alerts.activeOrdersOffTrack.length,
+        activeOrderUnknownTimingCount: inventoryCommandCenter.alerts.activeOrdersUnknownTiming.length,
+        followUpDueTodayCount: inventoryCommandCenter.alerts.followUpsDueToday.length,
+        stuckInventoryReviewCount: inventoryCommandCenter.alerts.stuckInventoryReview.length,
         moneyAtRiskKnownTotal: asNumber(moneyAtRiskCard?.value) ?? 0,
         moneyAtRiskUnknownCount: asNumber(moneyAtRiskCard?.unknownCount) ?? 0,
         moneyAtRiskDenominatorCount: asNumber(moneyAtRiskCard?.denominatorCount) ?? 0,
@@ -1820,23 +1813,19 @@ export class EcobaseDailyOperationsBriefService {
       return `${overdue} included overdue reorder action(s), ${commandPaneTotal(
         params.inventoryCommandCenter,
         'supplyAction',
-      )} Gold supply-action row(s), ${missingLeadTime} included lead-time blocker(s), and ${commandPaneTotal(
-        params.inventoryCommandCenter,
-        'stuckInventory',
-      )} stuck-inventory row(s) outrank other current signals.`;
+      )} Gold order-now row(s), ${missingLeadTime} included lead-time blocker(s), and ${
+        commandAlerts.stuckInventoryReview.length
+      } stuck-inventory row(s) outrank other current signals.`;
     }
     if (params.focus === 'supplier_orders') {
       const statusChecks = params.orderPlanningRisks.filter((order) => order.statusCheckRequired).length;
       const staleCoverage = params.supplierOrderContext.filter((order) => !order.isTrustedCoverage).length;
       const commandAlerts = params.inventoryCommandCenter.alerts;
-      return `${
-        params.orderPlanningRisks.length
-      } included order-planning action(s), ${statusChecks} status check(s), ${staleCoverage} supplier coverage follow-up(s), ${commandPaneTotal(
-        params.inventoryCommandCenter,
-        'activeOrders',
-      )} active order row(s), ${commandAlerts.activeOrdersOffTrack.length} included off-track alert(s), and ${
-        commandAlerts.followUpsDueToday.length
-      } included follow-up alert(s) need attention.`;
+      const activeOrderCount =
+        commandPaneTotal(params.inventoryCommandCenter, 'activeOrders') +
+        commandPaneTotal(params.inventoryCommandCenter, 'inPrepMonitoring') +
+        commandPaneTotal(params.inventoryCommandCenter, 'inboundMonitoring');
+      return `${params.orderPlanningRisks.length} included order-planning action(s), ${statusChecks} status check(s), ${staleCoverage} supplier coverage follow-up(s), ${activeOrderCount} active order row(s), ${commandAlerts.activeOrdersOffTrack.length} included off-track alert(s), and ${commandAlerts.followUpsDueToday.length} included follow-up alert(s) need attention.`;
     }
     if (params.focus === 'buybox') {
       return `${params.buyBoxRisks.length} Buy Box deterioration signal(s) outrank lower-priority velocity, profit, and accountability signals.`;

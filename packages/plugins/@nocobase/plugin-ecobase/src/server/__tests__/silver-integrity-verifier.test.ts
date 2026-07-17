@@ -225,7 +225,7 @@ describe('EcobaseSilverIntegrityVerifier', () => {
       expect.arrayContaining([
         'company_product_account_company_mismatch',
         'family_membership_boundary_mismatch',
-        'family_target_outside_family',
+        'replenishment_target_outside_family',
         'resolved_line_company_product_supplier_mismatch',
         'resolved_line_supplier_link_missing',
         'supplier_sku_amazon_product_duplicate',

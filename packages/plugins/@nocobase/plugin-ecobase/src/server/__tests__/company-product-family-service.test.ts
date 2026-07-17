@@ -142,7 +142,7 @@ const identity = {
 };
 
 describe('EcobaseCompanyProductFamilyService', () => {
-  it('resolves exact SKU before a governed family target and preserves source-SKU evidence', async () => {
+  it('resolves only exact member identity and never substitutes the family target', async () => {
     const db = new MemoryDatabase();
     await seed(db);
     const service = new EcobaseCompanyProductFamilyService(db);
@@ -175,15 +175,14 @@ describe('EcobaseCompanyProductFamilyService', () => {
           marketplace: 'Amazon.com',
         }),
       ).resolves.toMatchObject({
-        companyProductId: 'company-product-b',
-        resolution: 'family_target',
+        exclusionReason: 'exact_match_missing',
         sourceSku,
         boundary: { amazonAccountId: 'account-us', marketplace: 'amazon.com' },
       });
     }
   });
 
-  it('excludes missing, multiple, cross-boundary, review-flagged, missing, and stale targets', async () => {
+  it('reports missing, ambiguous, and cross-boundary family identity without target inference', async () => {
     const db = new MemoryDatabase();
     await seed(db);
     const service = new EcobaseCompanyProductFamilyService(db);
@@ -223,8 +222,6 @@ describe('EcobaseCompanyProductFamilyService', () => {
       }),
     ).resolves.toMatchObject({ exclusionReason: 'family_missing' });
 
-    const familyRepo = db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductFamilies);
-    await familyRepo.update({ filterByTk: String(family.id), values: { targetReviewRequired: true } });
     await expect(
       service.resolveCompanyProduct({
         companyId: 'company-1',
@@ -232,33 +229,7 @@ describe('EcobaseCompanyProductFamilyService', () => {
         sku: 'ALIAS',
         marketplace: 'Amazon.com',
       }),
-    ).resolves.toMatchObject({ exclusionReason: 'target_review_required' });
-
-    await familyRepo.update({
-      filterByTk: String(family.id),
-      values: { targetReviewRequired: false, replenishmentTargetCompanyProductId: null },
-    });
-    await expect(
-      service.resolveCompanyProduct({
-        companyId: 'company-1',
-        asin: 'B000FAMILY',
-        sku: 'ALIAS',
-        marketplace: 'Amazon.com',
-      }),
-    ).resolves.toMatchObject({ exclusionReason: 'target_missing' });
-
-    await familyRepo.update({
-      filterByTk: String(family.id),
-      values: { replenishmentTargetCompanyProductId: 'company-product-other-account' },
-    });
-    await expect(
-      service.resolveCompanyProduct({
-        companyId: 'company-1',
-        asin: 'B000FAMILY',
-        sku: 'ALIAS',
-        marketplace: 'Amazon.com',
-      }),
-    ).resolves.toMatchObject({ exclusionReason: 'target_not_member' });
+    ).resolves.toMatchObject({ exclusionReason: 'exact_match_missing' });
   });
 
   it('creates one idempotent family per company, account, marketplace, and ASIN', async () => {
@@ -629,6 +600,79 @@ describe('EcobaseCompanyProductFamilyService', () => {
         sourceSku: 'SUPPLIER-SKU-B',
         productMappingStatus: 'resolved',
         matchType: 'exact_target_sku',
+      },
+    });
+  });
+
+  it('selects purchase-confirmed family-only evidence without inventing a supplier product', async () => {
+    const db = new MemoryDatabase();
+    await seed(db);
+    const service = new EcobaseCompanyProductFamilyService(db);
+    const family = await service.ensureFamily(identity);
+    await service.setReplenishmentTarget({
+      familyId: String(family.id),
+      companyProductId: 'company-product-a',
+      source: 'automatic',
+    });
+
+    for (const order of [
+      { id: 'order-confirmed-line-10', supplierId: 'supplier-1', orderDate: '2026-06-01' },
+      { id: 'order-confirmed-line-20', supplierId: 'supplier-2', orderDate: '2026-06-01' },
+      { id: 'order-newer-unconfirmed', supplierId: 'supplier-1', orderDate: '2026-07-01' },
+    ]) {
+      await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+        values: {
+          ...order,
+          companyId: 'company-1',
+          orderRef: order.id,
+          canonicalStatus: 'paid',
+          authorityStatus: 'clickup_authoritative',
+        },
+      });
+    }
+    for (const line of [
+      { id: 'line-confirmed-10', orderId: 'order-confirmed-line-10', sourceEvidenceJson: { sourceRowNumber: 10 } },
+      { id: 'line-confirmed-20', orderId: 'order-confirmed-line-20', sourceEvidenceJson: { sourceRowNumber: 20 } },
+    ]) {
+      await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+        values: {
+          ...line,
+          companyProductFamilyId: family.id,
+          mappingScope: 'family_only',
+          productMappingStatus: 'family_only',
+          purchaseEvidenceStatus: 'confirmed',
+          sourceLineKey: line.id,
+          sourceAsin: 'B000FAMILY',
+          orderedQty: 1,
+        },
+      });
+    }
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+      values: {
+        id: 'line-newer-unconfirmed',
+        orderId: 'order-newer-unconfirmed',
+        companyProductId: 'company-product-a',
+        supplierProductId: 'supplier-product-a',
+        mappingScope: 'exact_member',
+        productMappingStatus: 'exact_member',
+        purchaseEvidenceStatus: 'unconfirmed_workflow',
+        sourceRowNumber: 30,
+        orderedQty: 1,
+      },
+    });
+
+    await expect(service.reconcileFamily(String(family.id))).resolves.toMatchObject({
+      preferredSupplierId: 'supplier-2',
+      preferredSupplierProductId: undefined,
+      supplierSelectionSource: 'latest_valid_order',
+      supplierReviewRequired: false,
+      supplierSelectionEvidenceJson: {
+        sourceLineId: 'line-confirmed-20',
+        sourceLineNumber: 20,
+        mappingScope: 'family_only',
+        purchaseEvidenceStatus: 'confirmed',
+        matchType: 'family_only',
+        selectionRule: 'purchase_confirmed_then_latest_order_date_then_latest_source_line',
       },
     });
   });

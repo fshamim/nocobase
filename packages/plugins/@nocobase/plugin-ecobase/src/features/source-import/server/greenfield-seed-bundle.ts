@@ -148,7 +148,7 @@ export const GREENFIELD_SEED_SOURCE_SPECS: GreenfieldSeedSourceSpec[] = [
     domain: 'supplier_management',
     delimiter: ',',
     paths: [
-      'data/supplier-management-sheets/Supplier Analysis Tracker - Supplier Analysis Tracker.csv',
+      'data/dataforimport/Ecofission-Order Management - Supplier IDs.csv',
       'data/supplier-management-sheets/Supplier Analysis Tracker - Supplier 2026.csv',
     ],
   },

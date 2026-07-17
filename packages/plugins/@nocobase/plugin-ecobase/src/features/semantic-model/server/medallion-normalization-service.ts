@@ -132,11 +132,13 @@ export class EcobaseMedallionNormalizationService {
           : null),
     );
     const adapterName = textValue(importRun.adapterName);
-    const createsAmazonIdentity = approvedAmazonIdentitySource({
+    const catalogMutationMode = textValue(toPlainRecord(importRun.summary).catalogMutationMode) ?? 'refresh';
+    const sellerboardIdentitySource = approvedAmazonIdentitySource({
       sourceType: textValue(bronze.sourceType),
       sourceDataset,
       adapterName,
     });
+    const createsAmazonIdentity = sellerboardIdentitySource && catalogMutationMode === 'rebuild';
     const usesAdapterNormalizedSellerboardDate =
       sourceDataset === 'sellerboard_daily_facts' &&
       (adapterName === 'sellerboard-api' || adapterName === 'sellerboard-history-csv');
@@ -259,6 +261,13 @@ export class EcobaseMedallionNormalizationService {
     const account = companyProductIdentity?.account ?? null;
     const companyProduct = companyProductIdentity?.companyProduct ?? null;
     const supplierProductProduct = product ?? companyProductIdentity?.product ?? null;
+    if (sellerboardIdentitySource && catalogMutationMode !== 'rebuild' && company && asin && sku && !companyProduct) {
+      throw new Error(
+        `Ecobase Sellerboard refresh failed: ${canonicalCompany?.name}/${
+          marketplace ?? 'unknown marketplace'
+        }/${asin}/${sku} is outside the protected catalog.`,
+      );
+    }
     if (supplierExternalCode && asin && !sku && !companyProductIdentity) {
       await this.markBronzeWarning(
         bronze,
@@ -269,6 +278,21 @@ export class EcobaseMedallionNormalizationService {
     if (account) entities.push(entity('silverAmazonAccount', account, 'amazon_account'));
     if (companyProduct) entities.push(entity('silverCompanyProduct', companyProduct, 'company_product'));
 
+    const supplierProfileSource = sourceDataset === 'supplier_2026' || sourceDataset === 'supplier_ids';
+    const supplierStatus = supplierProfileSource ? row.string('supplierStatus', 'Status') : undefined;
+    const currentSupplierStatus = supplierProfileSource
+      ? row.string('currentStatus', 'Current Status', 'Active Status')
+      : undefined;
+    const supplierEmail = supplierProfileSource
+      ? row.string('primaryEmail', 'receivedEmail', 'Recieved Email', 'Received Email')
+      : undefined;
+    const supplierDateOfUpdate = supplierProfileSource ? row.string('dateOfUpdate', 'Date of Update') : undefined;
+    const supplierApprovalStatus =
+      supplierStatus?.toLowerCase() === 'approved'
+        ? 'approved'
+        : supplierStatus?.toLowerCase() === 'rejected'
+          ? 'rejected'
+          : undefined;
     const supplier = supplierExternalCode
       ? await this.identity.upsertSupplierExternalRef({
           sourceSystem: 'supplier_ids',
@@ -276,23 +300,53 @@ export class EcobaseMedallionNormalizationService {
           displayName: supplierName,
           sourceConnectionId,
           observedAt: textValue(bronze.observedAt),
-          payload: toPlainRecord(bronze.payload),
+          payload: supplierProfileSource ? undefined : toPlainRecord(bronze.payload),
+          approvalStatus: supplierApprovalStatus,
+          analysisStatus: supplierStatus,
+          accountStatus: currentSupplierStatus,
+          contactName: supplierProfileSource ? row.string('contactName', 'Contact Person') : undefined,
+          primaryEmail: supplierEmail,
+          contactNotes: supplierProfileSource ? row.string('remarks', 'Remarks') : undefined,
+          supplierUrl: supplierProfileSource ? row.string('supplierUrl', 'prPortalLink', 'PR Portal Link') : undefined,
+          activeStatus: currentSupplierStatus,
+          supplierType: supplierProfileSource ? row.string('supplierType', 'Supplier Type') : undefined,
+          reachedVia: supplierProfileSource ? row.string('reachedVia', 'companyProvenance', 'Reached Via') : undefined,
+          receivedEmail: supplierEmail,
+          designation: supplierProfileSource ? row.string('designation', 'Designation') : undefined,
+          amazonPresence: supplierProfileSource
+            ? row.string('amazonPresence', 'presenceOnAmazon', 'Presence on Amazon')
+            : undefined,
+          trackingStatus: supplierStatus,
+          dateOfUpdate: supplierDateOfUpdate ? dateOnly(supplierDateOfUpdate) : undefined,
+          analysisProgress: supplierStatus,
+          remarksAnalysed: supplierProfileSource
+            ? row.string('analysisIssueRemarks', 'Remarks ( Analysed / facing any issue )')
+            : undefined,
           identityAuthority: orderRef ? 'reference' : 'authoritative',
         })
       : null;
+    const accountName =
+      supplierExternalCode && canonicalCompany ? `${supplierExternalCode}:${canonicalCompany.companyKey}` : undefined;
     const supplierAccount =
-      supplier && company
+      supplier && company && accountName
         ? await this.upsertByFilter(
             ECOBASE_COLLECTIONS.silverSupplierAccounts,
-            { supplierId: idOf(supplier), companyId: idOf(company), accountName: supplierName ?? supplierExternalCode },
+            { supplierId: idOf(supplier), accountName },
             {
               supplierId: idOf(supplier),
               companyId: idOf(company),
-              accountName: supplierName ?? supplierExternalCode,
+              accountName,
               orderingMethod: row.string('Ordering Method', 'Order Method'),
-              portalUrl: row.string('Portal URL', 'Website'),
-              username: row.string('Username', 'Login'),
-              status: 'imported',
+              portalUrl: row.string('prPortalLink', 'PR Portal Link', 'Portal URL', 'Website'),
+              username: row.string('portalUsername', 'Username', 'Login'),
+              loginUsername: row.string('portalUsername', 'Username', 'Login'),
+              loginSecret: row.string('portalPassword', 'pass', 'Password'),
+              status: currentSupplierStatus ?? 'imported',
+              accountType: supplierProfileSource ? 'supplier_portal' : undefined,
+              contactName: supplierProfileSource ? row.string('contactName', 'Contact Person') : undefined,
+              email: supplierEmail,
+              preferredContactMethod: supplierEmail ? 'email' : undefined,
+              metadata: supplierProfileSource ? { source: sourceDataset } : undefined,
             },
           )
         : null;

@@ -129,7 +129,7 @@ async function seed(db: MemoryDatabase, lineCount = 1) {
     await create(db, ECOBASE_COLLECTIONS.silverOrderLines, {
       id: `line-${index}`,
       orderId: `order-${index}`,
-      sourceLineKey: `${orderRef}:B007P55HOW:SOURCE-SKU-${index}`,
+      sourceLineKey: `${orderRef}:B007P55HOW:DC50944 New`,
       orderedQty: 2,
       unitCost: 10,
       productAnalysisStatus: 'planning_product_mapping_ambiguous',
@@ -141,7 +141,7 @@ async function seed(db: MemoryDatabase, lineCount = 1) {
       sourceDataset: 'OrderDetails.csv',
       sourceRecordKey: `order-detail-${index}`,
       rowHash: `hash-${index}`,
-      payload: { 'Order ID': orderRef, ASIN: 'B007P55HOW', SKU: `SOURCE-SKU-${index}` },
+      payload: { 'Order ID': orderRef, ASIN: 'B007P55HOW', SKU: 'DC50944 New' },
       normalizationStatus: 'normalized',
     });
   }

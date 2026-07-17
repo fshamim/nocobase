@@ -64,7 +64,7 @@ describe('planning readiness', () => {
       inventoryFreshnessStatus: 'stale',
       salesVelocityStatus: 'fallback_positive',
       supplierAvailability: 'link_defect',
-      leadTimeAvailability: 'resolved_default_30d',
+      leadTimeAvailability: 'resolved_default_supplier_lead_time',
       unitCostAvailability: 'source_incomplete',
       profitAvailability: 'source_incomplete',
       expectedArrivalStatus: 'derived',

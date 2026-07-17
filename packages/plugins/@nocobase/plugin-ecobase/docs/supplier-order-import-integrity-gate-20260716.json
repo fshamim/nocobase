@@ -1,0 +1,59 @@
+{
+  "counts": {
+    "orders": 79,
+    "products": 1342,
+    "companies": 4,
+    "suppliers": 1794,
+    "orderLines": 309,
+    "supplierAccounts": 1451,
+    "supplierProducts": 1393,
+    "supplierExternalRefs": 1794
+  },
+  "digest": "132d5d5efffcf1e6af8762cea9dfbbb906d451dc3ce2fed318df70416ccc8e54",
+  "orphans": {
+    "orders": 0,
+    "orderLines": 0,
+    "supplierAccounts": 0,
+    "supplierProducts": 0,
+    "supplierExternalRefs": 0
+  },
+  "database": "nocobase_supplier_order_phase2_clean",
+  "secretStorage": {
+    "secretReferences": 524,
+    "rawSecretsImported": 0
+  },
+  "companyOrderCounts": {
+    "Muxtex INC": 26,
+    "Stop Shop LLC": 20,
+    "Ecofission LLC": 19,
+    "Retail Heaven Inc": 14
+  },
+  "sourceEvidenceMissing": {
+    "orders": 0,
+    "suppliers": 0,
+    "orderLines": 0,
+    "supplierProducts": 0
+  },
+  "duplicateIdentityGroups": {
+    "orders": 0,
+    "products": 0,
+    "orderLines": 0,
+    "supplierProducts": 0,
+    "supplierExternalRefs": 0
+  },
+  "operationalStatusCounts": {
+    "<null>": 1,
+    "complete": 31,
+    "in progress": 47
+  },
+  "poReferencedSupplierIds": {
+    "missing": [],
+    "expected": 97,
+    "resolved": 97
+  },
+  "trackerAbsentRequiredSupplierIds": {
+    "missing": [],
+    "expected": ["SRO-10788", "SRO-1218", "SRO-12347", "SRO-12590", "SRO-7646", "SRO-8005", "SRO-9917"],
+    "resolved": 7
+  }
+}

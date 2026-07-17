@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { defineCollection } from '@nocobase/database';
 import { ECOBASE_COLLECTIONS } from './names';
 
@@ -70,7 +79,7 @@ export default defineCollection({
     { name: 'nextAction', type: 'string', interface: 'input', uiSchema: { title: 'Next Action' } },
     { name: 'nextActionDueAt', type: 'datetimeTz', interface: 'datetime', uiSchema: { title: 'Next Action Due' } },
     { name: 'expectedDeliveryDate', type: 'dateOnly', interface: 'date', uiSchema: { title: 'Expected Delivery' } },
-    { name: 'trackingId', type: 'string', interface: 'input', uiSchema: { title: 'Tracking ID' } },
+    { name: 'trackingId', type: 'text', interface: 'textarea', uiSchema: { title: 'Tracking ID' } },
     { name: 'asinCount', type: 'integer', interface: 'integer', uiSchema: { title: 'ASIN Count' } },
     { name: 'lineCount', type: 'integer', interface: 'integer', uiSchema: { title: 'Line Count' } },
     { name: 'moneyAtRisk', type: 'double', interface: 'number', uiSchema: { title: 'Money At Risk' }, index: true },

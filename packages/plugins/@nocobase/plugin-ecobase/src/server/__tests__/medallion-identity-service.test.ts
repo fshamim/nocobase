@@ -254,6 +254,45 @@ describe('EcobaseMedallionIdentityService', () => {
     );
   });
 
+  it('merges only populated fields into an existing supplier identity', async () => {
+    const db = new FakeDatabase();
+    const service = new EcobaseMedallionIdentityService(db);
+    const supplier = await service.upsertSupplierExternalRef({
+      sourceSystem: 'supplier_ids',
+      externalSupplierCode: 'SRO-300',
+      displayName: 'Good Supply',
+    });
+
+    await service.upsertSupplierExternalRef({
+      sourceSystem: 'supplier_ids',
+      externalSupplierCode: 'SRO-300',
+      displayName: 'Good Supply LLC',
+      primaryEmail: 'orders@example.test',
+      supplierType: 'Brand Approved',
+      amazonPresence: 'Good',
+      activeStatus: 'Active',
+      approvalStatus: 'approved',
+    });
+    const enriched = await service.upsertSupplierExternalRef({
+      sourceSystem: 'supplier_ids',
+      externalSupplierCode: 'SRO-300',
+      displayName: 'Good Supply LLC',
+      designation: 'Purchasing',
+    });
+
+    expect(idOf(enriched)).toBe(idOf(supplier));
+    expect(toPlainRecord(enriched)).toMatchObject({
+      displayName: 'Good Supply LLC',
+      primaryEmail: 'orders@example.test',
+      supplierType: 'Brand Approved',
+      amazonPresence: 'Good',
+      activeStatus: 'Active',
+      approvalStatus: 'approved',
+      designation: 'Purchasing',
+    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).rows).toHaveLength(1);
+  });
+
   it('fails clearly when link references are missing', async () => {
     const service = new EcobaseMedallionIdentityService(new FakeDatabase());
     const product = await service.upsertProduct({ asin: 'B001', sku: 'SKU-1' });
@@ -286,6 +325,6 @@ describe('EcobaseMedallionIdentityService', () => {
     await service.upsertSupplier({ displayName: 'ACME' });
 
     expect(db.repositories.has(ECOBASE_COLLECTIONS.silverSuppliers)).toBe(true);
-    expect(db.repositories.has(ECOBASE_COLLECTIONS.suppliers)).toBe(false);
+    expect(db.repositories.has('ecobaseSuppliers')).toBe(false);
   });
 });

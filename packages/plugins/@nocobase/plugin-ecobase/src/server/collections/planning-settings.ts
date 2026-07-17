@@ -71,6 +71,14 @@ export default defineCollection({
       allowNull: false,
     },
     {
+      name: 'defaultSupplierLeadTimeDays',
+      type: 'integer',
+      interface: 'integer',
+      uiSchema: { title: 'Default supplier lead time days' },
+      allowNull: false,
+      defaultValue: 30,
+    },
+    {
       name: 'fbaReceivingBufferDays',
       type: 'integer',
       interface: 'integer',

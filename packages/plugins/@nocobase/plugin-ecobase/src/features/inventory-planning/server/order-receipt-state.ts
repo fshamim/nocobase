@@ -20,6 +20,7 @@ export type AmazonReceiptStatus = (typeof AMAZON_RECEIPT_STATUSES)[number];
 
 const AMAZON_RECEIPT_STATUS_SET = new Set<unknown>(AMAZON_RECEIPT_STATUSES);
 const AMAZON_RECEIPT_APPLICABLE_SOURCE_STATUSES = new Set(['inbound-monitoring', 'direct-ship-fba']);
+const SOURCE_COMPLETE_STATUSES = new Set(['complete', 'completed']);
 
 export function isAmazonReceiptStatus(value: unknown): value is AmazonReceiptStatus {
   return AMAZON_RECEIPT_STATUS_SET.has(value);
@@ -44,6 +45,7 @@ export type AmazonReceiptTransitionReason =
   | 'source_status_missing'
   | 'source_inbound_monitoring'
   | 'source_direct_ship_fba'
+  | 'source_complete_receipt_review_required'
   | 'source_not_inbound_monitoring'
   | 'progress_state_preserved';
 
@@ -101,6 +103,10 @@ export function resolveAmazonReceiptState(input: ResolveAmazonReceiptStateInput)
     to = 'awaiting_amazon_stock';
     reason = normalizedSourceStatus === 'direct-ship-fba' ? 'source_direct_ship_fba' : 'source_inbound_monitoring';
     sourceOnly = true;
+  } else if (normalizedSourceStatus && SOURCE_COMPLETE_STATUSES.has(normalizedSourceStatus)) {
+    to = 'review_required';
+    reason = 'source_complete_receipt_review_required';
+    sourceOnly = true;
   } else {
     to = 'not_applicable';
     reason = 'source_not_inbound_monitoring';
@@ -110,7 +116,10 @@ export function resolveAmazonReceiptState(input: ResolveAmazonReceiptStateInput)
   if (
     sourceOnly &&
     (currentStatus === 'partially_observed' ||
-      (currentStatus === 'awaiting_amazon_stock' && to !== 'partially_observed' && to !== 'amazon_stock_observed'))
+      (currentStatus === 'awaiting_amazon_stock' &&
+        to !== 'partially_observed' &&
+        to !== 'amazon_stock_observed' &&
+        to !== 'review_required'))
   ) {
     return {
       outcome: 'unchanged',

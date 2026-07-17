@@ -121,6 +121,7 @@ function createService(csv = sellerboardGoodsCsv('2026-06-05', 15.2)) {
       sourceType: 'sellerboard',
       domain: 'amazon_operations',
       config: {
+        catalogMutationMode: 'rebuild',
         reportUrls: [
           {
             name: 'Profit by Product Dashboard Daily Data',
@@ -197,6 +198,7 @@ describe('Sellerboard live URL import', () => {
       values: {
         companyId: 'company-1',
         config: {
+          catalogMutationMode: 'rebuild',
           reportUrls: [
             { name: 'Stock Daily Data', category: 'stock_daily', url: 'https://sellerboard.test/report.csv' },
           ],
@@ -257,6 +259,29 @@ describe('Sellerboard live URL import', () => {
           kind: 'listing_daily_fact',
           data: expect.objectContaining({ snapshotDate: '2026-06-09' }),
         }),
+      ]),
+    );
+  });
+
+  it('persists adapter-normalized month-first dates through the safe Bronze boundary', async () => {
+    const csv = `Date,Marketplace,ASIN,SKU,Name,SalesOrganic,UnitsOrganic,NetProfit
+6/15/2026,Amazon.com,B007P55HOW,DC50944,Dampp Chaser,63.40,3,15.2
+7/12/2026,Amazon.com,B007P55HOW,DC50944,Dampp Chaser,72.10,4,18.3`;
+    const { db, service } = createService(csv);
+
+    const run = await service.runAdapterImport({
+      sourceConnectionId: 'sellerboard-source-1',
+      adapterName: 'sellerboard-api',
+      sourceIdentifier: 'manual-live-date-check',
+      sourceVersion: '2026-07-12',
+      preserveAuditRun: true,
+    });
+
+    expect(run).toMatchObject({ status: 'success', rowCount: 2, errorCount: 0 });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ payload: expect.objectContaining({ period: '2026-06-15' }) }),
+        expect.objectContaining({ payload: expect.objectContaining({ period: '2026-07-12' }) }),
       ]),
     );
   });
@@ -346,6 +371,20 @@ describe('Sellerboard live URL import', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all().length).toBeGreaterThan(0);
   });
 
+  it('accepts the previous-day rolling report during bootstrap', async () => {
+    const { service } = createService(sellerboardGoodsCsv('2026-06-04', 15.2));
+
+    const run = await service.runAdapterImport({
+      sourceConnectionId: 'sellerboard-source-1',
+      adapterName: 'sellerboard-api',
+      sourceIdentifier: 'sellerboard-api-bootstrap-ecofission_llc',
+      sourceVersion: '2026-06-05',
+      preserveAuditRun: true,
+    });
+
+    expect(run).toMatchObject({ status: 'success', rowCount: 1, errorCount: 0 });
+  });
+
   it('records a durable skipped run when scheduled same-day Sellerboard data was already imported', async () => {
     const { db, service } = createService(sellerboardGoodsCsv('2026-06-05', 15.2));
 
@@ -370,6 +409,7 @@ describe('Sellerboard live URL import', () => {
       filterByTk: 'sellerboard-source-1',
       values: {
         config: {
+          catalogMutationMode: 'rebuild',
           reportUrls: [
             { name: 'Fresh report', category: 'profit_by_product_daily', url: 'https://sellerboard.test/fresh.csv' },
             { name: 'Stale report', category: 'profit_dashboard', url: 'https://sellerboard.test/stale.csv' },

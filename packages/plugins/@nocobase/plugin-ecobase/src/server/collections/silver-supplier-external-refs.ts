@@ -33,6 +33,7 @@ export default defineCollection({
     { name: 'sourceConnectionId', type: 'uuid', autoFill: false },
     { name: 'lastSeenAt', type: 'datetimeTz' },
     { name: 'payload', type: 'jsonb', defaultValue: {} },
+    { name: 'sourceEvidence', type: 'jsonb', defaultValue: {} },
   ],
   indexes: [
     {

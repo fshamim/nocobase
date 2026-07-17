@@ -273,7 +273,7 @@ export class EcobaseSilverIntegrityVerifier {
         issues.push(
           issue(
             'technical_blocker',
-            'family_target_outside_family',
+            'replenishment_target_outside_family',
             'silverCompanyProductFamily',
             familyId,
             'Family replenishment target is not a member of the family.',
@@ -284,7 +284,7 @@ export class EcobaseSilverIntegrityVerifier {
         issues.push(
           issue(
             'technical_blocker',
-            'family_target_not_eligible',
+            'replenishment_target_not_eligible',
             'silverCompanyProductFamily',
             familyId,
             'Family replenishment target is not an eligible current listing.',
@@ -296,7 +296,7 @@ export class EcobaseSilverIntegrityVerifier {
         issues.push(
           issue(
             'technical_blocker',
-            'eligible_family_target_classification_missing',
+            'eligible_replenishment_target_classification_missing',
             'silverCompanyProductFamily',
             familyId,
             'Eligible family has neither a replenishment target nor an explicit target review.',

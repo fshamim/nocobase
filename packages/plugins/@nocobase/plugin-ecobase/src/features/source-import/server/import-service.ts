@@ -36,6 +36,8 @@ import { EcobaseCompanyProductFamilyService } from '../../inventory-planning/ser
 import {
   EcobaseOrderReceiptReconciliationService,
   receiptReconciliationOrderIdsForRefresh,
+  type ReceiptReconciliationResult,
+  type ReceiptStateCoverage,
 } from '../../inventory-planning/server/order-receipt-reconciliation-service';
 import { EcobaseManagementKpiFactsService } from '../../daily-operations-brief/server/management-kpi-facts-service';
 import { EcobaseMedallionNormalizationService } from '../../semantic-model/server/medallion-normalization-service';
@@ -43,10 +45,8 @@ import type { NormalizePendingResult } from '../../semantic-model/server/medalli
 import { EcobaseOrderPlanningService } from '../../order-planning/server/order-planning-service';
 import { EcobasePlanningProductService } from '../../inventory-planning/server/planning-product-service';
 import { EcobaseSupplierManagementService } from '../../supplier-management/server/supplier-management-service';
-import {
-  EcobaseSupplierOrderService,
-  validateSupplierLeadTimeDays,
-} from '../../supplier-management/server/supplier-order-service';
+import { validateSupplierLeadTimeDays } from '../../supplier-management/server/supplier-order-service';
+import { EcobaseProtectedCatalogBoundary, type ProtectedCatalogReport } from './protected-catalog-boundary';
 
 type Filter = Record<string, unknown>;
 
@@ -58,7 +58,7 @@ type RepositoryFindParams = {
   appends?: string[];
 };
 
-type RepositoryCreateParams = { values: Record<string, unknown> };
+type RepositoryCreateParams = { values: Record<string, unknown>; transaction?: unknown };
 type RepositoryUpdateParams = { filterByTk?: string | number | null; filter?: Filter; values: Record<string, unknown> };
 type RepositoryDestroyParams = { filter?: Filter; filterByTk?: string | number; where?: Filter };
 
@@ -87,14 +87,13 @@ type AdapterImportStreamResult = {
   firstErrorIssueMessage: string | null;
   finalStatusOverride: string | null;
   fileSummaries: Record<string, ImportFileSummary>;
-  supplierOrderTouched: boolean;
   accountabilityTouched: boolean;
   migrationSummary: ImportDecisionCounts & { bySourceGroup: Record<string, ImportDecisionCounts> };
+  protectedCatalog?: ProtectedCatalogReport;
 };
 
 type AdapterImportStreamParams = {
   importRunId: string;
-  supplierOrderService: EcobaseSupplierOrderService;
   bronzeService: EcobaseBronzeImportService;
   bronzeContext: {
     importRunId: string;
@@ -274,11 +273,22 @@ export interface ImportClickupOrderStatusesParams {
   sourceConnectionId?: string;
   sourceIdentifier?: string;
   files: CsvSourceFile[];
+  orderDetailFiles?: CsvSourceFile[];
   dryRun?: boolean;
   importedAt?: string;
   snapshotDate?: string;
   forceReconcile?: boolean;
   overrideOperatorStatus?: boolean;
+}
+
+interface ClickupReceiptStateCoverage extends ReceiptStateCoverage {
+  pendingWorkflowDraftRefs: string[];
+}
+
+interface ClickupOrderStatusOrchestrationResult extends ClickupOrderStatusImportResult {
+  receiptStateCoverageBefore: ClickupReceiptStateCoverage;
+  receiptStateCoverage: ClickupReceiptStateCoverage;
+  receiptReconciliation: ReceiptReconciliationResult | null;
 }
 
 export interface RunScheduledSellerboardImportsParams {
@@ -701,7 +711,24 @@ export class EcobaseImportService {
     this.validateCsvBundleFiles(params.files);
     const dryRun = params.dryRun !== false;
     const clickupService = new EcobaseClickupOrderStatusService(this.db);
-    if (dryRun) return clickupService.importCsvFiles({ ...params, dryRun: true });
+    const receiptService = new EcobaseOrderReceiptReconciliationService(this.db);
+    if (dryRun) {
+      const result = await clickupService.importCsvFiles({ ...params, dryRun: true });
+      const orderIds = (await this.db.getRepository(ECOBASE_COLLECTIONS.silverOrders).find({ limit: 100000 }))
+        .map(toPlainRecord)
+        .map((order) => getString(order, 'id'))
+        .filter((orderId): orderId is string => Boolean(orderId));
+      const coverage = {
+        ...(await receiptService.inspectCoverage(orderIds)),
+        pendingWorkflowDraftRefs: result.workflowDraftRefs,
+      };
+      return {
+        ...result,
+        receiptStateCoverageBefore: coverage,
+        receiptStateCoverage: coverage,
+        receiptReconciliation: null,
+      } satisfies ClickupOrderStatusOrchestrationResult;
+    }
     if (!params.sourceConnectionId) {
       throw new Error('Ecobase ClickUp order-status import requires sourceConnectionId.');
     }
@@ -734,7 +761,9 @@ export class EcobaseImportService {
     const sourceVersion =
       params.snapshotDate ?? params.importedAt?.slice(0, 10) ?? startedAt.toISOString().slice(0, 10);
     const contentHash = createHash('sha256');
-    for (const file of [...params.files].sort((left, right) => left.name.localeCompare(right.name))) {
+    for (const file of [...params.files, ...(params.orderDetailFiles ?? [])].sort((left, right) =>
+      left.name.localeCompare(right.name),
+    )) {
       contentHash.update(file.name).update('\0').update(file.content).update('\0');
     }
     const baseIdempotencyKey = `${params.sourceConnectionId}:${sourceIdentifier}:${contentHash.digest('hex')}`;
@@ -793,6 +822,30 @@ export class EcobaseImportService {
 
     try {
       const result = await clickupService.importCsvFiles({ ...params, dryRun: false });
+      const affectedOrderIds = (await this.db.getRepository(ECOBASE_COLLECTIONS.silverOrders).find({ limit: 100000 }))
+        .map(toPlainRecord)
+        .map((order) => getString(order, 'id'))
+        .filter((orderId): orderId is string => Boolean(orderId));
+      const receiptStateCoverageBefore = {
+        ...(await receiptService.inspectCoverage(affectedOrderIds)),
+        pendingWorkflowDraftRefs: [],
+      };
+      const receiptReconciliation = affectedOrderIds.length
+        ? await receiptService.reconcileAffectedOrders({
+            orderIds: affectedOrderIds,
+            evaluatedAt: params.importedAt ?? startedAt.toISOString(),
+          })
+        : null;
+      const receiptStateCoverage = {
+        ...(await receiptService.inspectCoverage(affectedOrderIds)),
+        pendingWorkflowDraftRefs: [],
+      };
+      const orchestratedResult = {
+        ...result,
+        receiptStateCoverageBefore,
+        receiptStateCoverage,
+        receiptReconciliation,
+      } satisfies ClickupOrderStatusOrchestrationResult;
       const sourceRetention = await retainClickupSourceRows({
         db: this.db,
         files: params.files,
@@ -807,9 +860,16 @@ export class EcobaseImportService {
         result.invalidCommentCount +
         result.conflictingMainTaskCount +
         result.companyConflictCount +
-        result.ambiguousMultiRefTaskCount;
-      const errorCount = result.blockingIssueCount;
-      const goldRefreshRequired = errorCount === 0 && result.updatedOrderCount > 0;
+        result.ambiguousMultiRefTaskCount +
+        result.workflowDraftExceptions.length;
+      const receiptErrorCount = receiptReconciliation?.errors.length ?? 0;
+      const errorCount = result.blockingIssueCount + receiptErrorCount;
+      const goldRefreshRequired =
+        errorCount === 0 &&
+        (result.updatedOrderCount > 0 ||
+          result.workflowDraftCount > 0 ||
+          (receiptReconciliation?.updatedOrders ?? 0) > 0 ||
+          (receiptReconciliation?.updatedLines ?? 0) > 0);
       await importRunRepo.update({
         filterByTk: importRunId,
         values: {
@@ -821,10 +881,10 @@ export class EcobaseImportService {
           errorCount,
           errorMessage:
             errorCount > 0
-              ? `ClickUp import quarantined ${errorCount} unmapped-status or ambiguous retained-order group(s).`
+              ? `ClickUp import found ${result.blockingIssueCount} status blocker(s) and ${receiptErrorCount} receipt reconciliation error(s).`
               : null,
           summary: {
-            clickup: result,
+            clickup: orchestratedResult,
             sourceRetention,
             migration: {
               profileVersion: FOUR_COMPANY_MIGRATION_PROFILE.profileVersion,
@@ -1097,6 +1157,16 @@ export class EcobaseImportService {
     validateSourceConnectionForAdapter(sourceConnection, adapter);
 
     const adapterConfig = mergeConfig(sourceConnection, params.runtimeConfig);
+    const catalogMutationMode =
+      adapter.metadata.name === 'sellerboard-api'
+        ? getString(adapterConfig, 'catalogMutationMode') ?? 'refresh'
+        : undefined;
+    if (catalogMutationMode && !['rebuild', 'refresh'].includes(catalogMutationMode)) {
+      throw new Error(
+        `Ecobase import failed: catalogMutationMode must be rebuild or refresh, received "${catalogMutationMode}".`,
+      );
+    }
+    if (catalogMutationMode) adapterConfig.catalogMutationMode = catalogMutationMode;
     const companyId = getString(sourceConnection, 'companyId');
     if (companyId && !getString(adapterConfig, 'defaultCompany')) {
       const company = await this.db
@@ -1162,8 +1232,19 @@ export class EcobaseImportService {
     if (!importRunId) {
       throw new Error('Ecobase import failed: import run was created without an id.');
     }
+    if (catalogMutationMode) {
+      await importRunRepo.update({
+        filterByTk: importRunId,
+        values: {
+          summary: {
+            ...toPlainRecord(toPlainRecord(pendingRun).summary),
+            ...(params.summary ?? {}),
+            catalogMutationMode,
+          },
+        },
+      });
+    }
 
-    const supplierOrderService = new EcobaseSupplierOrderService(this.db);
     const bronzeService = new EcobaseBronzeImportService(this.db);
     const bronzeContext = {
       importRunId,
@@ -1174,7 +1255,6 @@ export class EcobaseImportService {
     };
     const stream = await this.runAdapterStream({
       importRunId,
-      supplierOrderService,
       bronzeService,
       bronzeContext,
       adapter,
@@ -1196,7 +1276,6 @@ export class EcobaseImportService {
       errorMessage,
       firstErrorIssueMessage,
       finalStatusOverride,
-      supplierOrderTouched,
       accountabilityTouched,
     } = stream;
     let { errorCount, statusMessage } = stream;
@@ -1221,11 +1300,27 @@ export class EcobaseImportService {
 
     if (!errorMessage && normalizedCount > 0) {
       try {
-        familyReconciliation = await new EcobaseCompanyProductFamilyService(this.db).reconcileAllFamilies(companyId);
-        await new EcobasePlanningProductService(this.db).syncFromSilverCompanyProducts();
-        if (supplierOrderTouched) {
-          await supplierOrderService.reconcileAfterImport(importRunId);
+        const preservesProtectedCatalog = catalogMutationMode === 'refresh';
+        if (preservesProtectedCatalog && stream.protectedCatalog) {
+          const currentCatalog = await new EcobaseProtectedCatalogBoundary(this.db).inspect();
+          if (currentCatalog.fingerprint !== stream.protectedCatalog.fingerprint) {
+            throw new Error(
+              'Ecobase protected catalog refresh failed: catalog fingerprint changed during normalization.',
+            );
+          }
         }
+        familyReconciliation = await new EcobaseCompanyProductFamilyService(this.db).reconcileAllFamilies(companyId, {
+          preserveCatalog: preservesProtectedCatalog,
+        });
+        if (preservesProtectedCatalog && stream.protectedCatalog) {
+          const currentCatalog = await new EcobaseProtectedCatalogBoundary(this.db).inspect();
+          if (currentCatalog.fingerprint !== stream.protectedCatalog.fingerprint) {
+            throw new Error(
+              'Ecobase protected catalog refresh failed: catalog fingerprint changed during reconciliation.',
+            );
+          }
+        }
+        await new EcobasePlanningProductService(this.db).syncFromSilverCompanyProducts();
         if (accountabilityTouched) {
           await new EcobaseAccountabilityService(this.db).evaluateAccountability({
             sourceConnectionId: params.sourceConnectionId,
@@ -1269,6 +1364,8 @@ export class EcobaseImportService {
             ...stream.migrationSummary,
           },
           ...(params.summary ?? {}),
+          ...(catalogMutationMode ? { catalogMutationMode } : {}),
+          ...(stream.protectedCatalog ? { protectedCatalog: stream.protectedCatalog } : {}),
         },
       },
     });
@@ -1288,7 +1385,6 @@ export class EcobaseImportService {
       firstErrorIssueMessage: null,
       finalStatusOverride: null,
       fileSummaries: {},
-      supplierOrderTouched: false,
       accountabilityTouched: false,
       migrationSummary: {
         acceptedCount: 0,
@@ -1301,8 +1397,32 @@ export class EcobaseImportService {
     };
 
     try {
+      let sourceItems: AsyncIterable<AdapterStreamItem> | AdapterStreamItem[] = params.adapter.import(
+        params.adapterInput,
+      );
+      if (
+        params.adapter.metadata.name === 'sellerboard-api' &&
+        getString(params.adapterConfig, 'catalogMutationMode') !== 'rebuild'
+      ) {
+        const boundaryService = new EcobaseProtectedCatalogBoundary(this.db);
+        result.protectedCatalog = await boundaryService.inspect();
+        const preflightedItems: AdapterStreamItem[] = [];
+        for await (const sourceItem of sourceItems) {
+          if (sourceItem.type !== 'status') {
+            const boundary = applySafeImportBoundary(
+              { adapter: params.adapter, defaultCompany: getString(params.adapterConfig, 'defaultCompany') },
+              sourceItem,
+            );
+            if (boundary.disposition !== 'discard' && boundary.item.type === 'record') {
+              await boundaryService.assertExistingSellerboardIdentity(boundary.item.payload);
+            }
+          }
+          preflightedItems.push(sourceItem);
+        }
+        sourceItems = preflightedItems;
+      }
       await params.bronzeService.createSourceFiles(params.bronzeContext, inlineCsvFiles(params.adapterConfig));
-      for await (const sourceItem of params.adapter.import(params.adapterInput)) {
+      for await (const sourceItem of sourceItems) {
         if (sourceItem.type === 'status') {
           result.finalStatusOverride = sourceItem.status;
           if (sourceItem.status === 'blocked' || sourceItem.status === 'failed') {
@@ -1367,7 +1487,6 @@ export class EcobaseImportService {
           const normalized = await this.upsertNormalizedRecords(
             records,
             params.importRunId,
-            params.supplierOrderService,
             params.skipExistingNormalizedKinds,
           );
           result.normalizedCount += normalized.normalizedCount;
@@ -1375,7 +1494,6 @@ export class EcobaseImportService {
             rowCount: 1,
             normalizedCount: normalized.normalizedCount,
           });
-          result.supplierOrderTouched = result.supplierOrderTouched || normalized.supplierOrderTouched;
           result.accountabilityTouched = result.accountabilityTouched || normalized.accountabilityTouched;
           result.warningCount += normalized.warnings.length;
           updateFileSummary(result.fileSummaries, fileName, {
@@ -1683,6 +1801,7 @@ export class EcobaseImportService {
     const finishedAt = new Date();
     const skippedRun = await importRunRepo.create({
       values: {
+        id: randomUUID(),
         ...values,
         finishedAt,
         status: 'skipped',
@@ -1718,13 +1837,10 @@ export class EcobaseImportService {
   private async upsertNormalizedRecords(
     records: NormalizedRecord[],
     importRunId: string,
-    supplierOrderService: EcobaseSupplierOrderService,
     skipExistingNormalizedKinds: Set<string>,
   ) {
-    const warnings: Array<{ code: string; message: string; payload?: Record<string, unknown> }> = [];
     let normalizedCount = 0;
     let sample: Record<string, unknown> | undefined;
-    let supplierOrderTouched = false;
     let accountabilityTouched = false;
 
     for (const record of records) {
@@ -1732,18 +1848,6 @@ export class EcobaseImportService {
       if (BRONZE_ONLY_RECORD_KINDS.has(record.kind)) {
         normalizedCount += 1;
         sample = sample ?? summarizeRecord(record);
-        continue;
-      }
-
-      const customResult = await supplierOrderService.applyImportRecord(
-        record as { kind: string; data: Record<string, unknown> },
-        importRunId,
-      );
-      if (customResult.handled) {
-        supplierOrderTouched = supplierOrderTouched || customResult.requiresReconcile === true;
-        normalizedCount += 1;
-        warnings.push(...customResult.warnings);
-        sample = sample ?? customResult.sample;
         continue;
       }
 
@@ -1777,7 +1881,7 @@ export class EcobaseImportService {
       sample = sample ?? summarizeRecord(record);
     }
 
-    return { warnings, normalizedCount, sample, supplierOrderTouched, accountabilityTouched };
+    return { warnings: [], normalizedCount, sample, accountabilityTouched };
   }
 
   private getFinalStatus(

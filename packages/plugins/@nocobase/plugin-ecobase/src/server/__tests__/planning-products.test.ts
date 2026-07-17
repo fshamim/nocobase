@@ -117,6 +117,49 @@ const productionDuplicateMasterStockCsv = `Company,ASIN,SKU,Title,FBA/FBM Stock,
 Ecofission LLC,B0DX35PTCL,RM-CLIPS/3-01,"OLFA 35"" x 70"" Connecting Grid Rotary Cutting Mat Set (RM-CLIPS/3-01) - sample duplicate",10,100,1.5,40,12,1,0,5,Amazon.com,60,15,SUP-RM
 Ecofission LLC,B0DX35PTCL,FBA1935C9P1P.missing1,"OLFA 35"" x 70"" Connecting Grid Rotary Cutting Mat Set (RM-CLIPS/3-01) - duplicate FBA SKU",6,60,1.1,30,8,0,0,3,Amazon.com,60,15,SUP-FBA`;
 
+function seedDuplicateSilver(db: MemoryDatabase) {
+  db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
+    values: { id: 'company-1', name: 'Ecofission LLC', companyKey: 'ecofission-llc' },
+  });
+  for (const [index, sku, stock, units] of [
+    [1, 'RM-CLIPS/3-01', 10, 4],
+    [2, 'FBA1935C9P1P.missing1', 6, 2],
+  ] as const) {
+    db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+      values: {
+        id: `product-${index}`,
+        asin: 'B0DX35PTCL',
+        sku,
+        title: `OLFA duplicate ${index}`,
+      },
+    });
+    db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+      values: {
+        id: `company-product-${index}`,
+        companyId: 'company-1',
+        productId: `product-${index}`,
+        amazonAccountId: 'ceb758f2-7026-4f07-b493-0a2ba7209529',
+      },
+    });
+    db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).create({
+      values: {
+        id: `inventory-${index}`,
+        companyProductId: `company-product-${index}`,
+        snapshotDate: '2025-07-01',
+        sellableStock: stock,
+      },
+    });
+    db.getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts).create({
+      values: {
+        id: `fact-${index}`,
+        companyProductId: `company-product-${index}`,
+        snapshotDate: '2025-07-01',
+        units,
+      },
+    });
+  }
+}
+
 const knownDuplicateAdapter: SourceAdapter = {
   metadata: {
     name: 'known-duplicate-fixture',
@@ -206,6 +249,7 @@ const knownDuplicateAdapter: SourceAdapter = {
 
 function createImportedFixture() {
   const db = new MemoryDatabase();
+  seedDuplicateSilver(db);
   db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).create({
     values: {
       id: 'source-1',
@@ -222,6 +266,7 @@ function createImportedFixture() {
 
 function createProductionAdapterFixture() {
   const db = new MemoryDatabase();
+  seedDuplicateSilver(db);
   db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).create({
     values: {
       id: 'source-1',
@@ -290,7 +335,7 @@ describe('Ecobase planning product identity layer', () => {
     expect(listing.naturalKey).toMatch(/^raw-listing:silver-listing:Stop Shop LLC:B06WVWNHM4:/);
   });
 
-  it('preserves duplicate MasterStock listing rows through the production amazon-operations-csv adapter', async () => {
+  it('preserves pre-projected duplicate MasterStock listings during a production adapter import', async () => {
     const { db, service, planning } = createProductionAdapterFixture();
 
     const run = await service.runAdapterImport({
@@ -341,7 +386,7 @@ describe('Ecobase planning product identity layer', () => {
     ]);
   });
 
-  it('creates one planning product per company and canonical ASIN with duplicate listings visible for review', async () => {
+  it('creates one planning product per company and canonical ASIN from projected duplicate listings', async () => {
     const { db, service, planning } = createImportedFixture();
 
     await service.runAdapterImport({
@@ -379,8 +424,14 @@ describe('Ecobase planning product identity layer', () => {
         mappingStatus: 'needs_review',
         listingCount: 2,
         listings: expect.arrayContaining([
-          expect.objectContaining({ sku: 'RM-CLIPS/3-01', sourceConnectionId: 'source-1' }),
-          expect.objectContaining({ sku: 'FBA1935C9P1P.missing1', sourceConnectionId: 'source-1' }),
+          expect.objectContaining({
+            sku: 'RM-CLIPS/3-01',
+            sourceConnectionId: 'ceb758f2-7026-4f07-b493-0a2ba7209529',
+          }),
+          expect.objectContaining({
+            sku: 'FBA1935C9P1P.missing1',
+            sourceConnectionId: 'ceb758f2-7026-4f07-b493-0a2ba7209529',
+          }),
         ]),
       }),
     ]);

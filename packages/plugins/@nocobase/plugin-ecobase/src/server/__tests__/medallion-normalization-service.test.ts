@@ -74,6 +74,9 @@ async function seedBronze(db: FakeDatabase, payload: Record<string, unknown>, ov
         adapterName: String(
           overrides.adapterName ?? (sourceType === 'sellerboard' ? 'sellerboard-api' : 'google-sheets-migration-csv'),
         ),
+        summary: {
+          catalogMutationMode: String(overrides.catalogMutationMode ?? 'rebuild'),
+        },
       },
     });
   }
@@ -179,6 +182,60 @@ describe('EcobaseMedallionNormalizationService', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).rows[0].normalizationStatus).toBe('normalized');
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverNormalizationLinks).rows.length).toBeGreaterThan(0);
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverNormalizationLinks).rows[0].relation).toBe('created_from');
+  });
+
+  it('blocks Sellerboard refresh rows that would create protected catalog identity', async () => {
+    const db = new FakeDatabase();
+    await seedBronze(
+      db,
+      {
+        Company: 'Ecofission LLC',
+        ASIN: 'B00NEWIDENTITY',
+        SKU: 'NEW-SKU',
+        Marketplace: 'Amazon.com',
+        'FBA/FBM Stock': '1',
+      },
+      { catalogMutationMode: 'refresh' },
+    );
+
+    const result = await new EcobaseMedallionNormalizationService(db).normalizePending();
+
+    expect(result).toMatchObject({ normalized: 0, failed: 1 });
+    expect(result.errors[0]).toContain('outside the protected catalog');
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).rows).toHaveLength(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverAmazonAccounts).rows).toHaveLength(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).rows).toHaveLength(0);
+  });
+
+  it('updates an existing Sellerboard listing in refresh mode without increasing protected counts', async () => {
+    const db = new FakeDatabase();
+    const service = new EcobaseMedallionNormalizationService(db);
+    await seedBronze(db, {
+      Company: 'Ecofission LLC',
+      ASIN: 'B00PUSNY5A',
+      SKU: 'W101',
+      Marketplace: 'Amazon.com',
+      'FBA/FBM Stock': '10',
+    });
+    await service.normalizePending();
+    db.getRepository(ECOBASE_COLLECTIONS.importRuns).rows[0].summary = { catalogMutationMode: 'refresh' };
+    await seedBronze(db, {
+      Company: 'Ecofission LLC',
+      ASIN: 'B00PUSNY5A',
+      SKU: 'W101',
+      Marketplace: 'Amazon.com',
+      'FBA/FBM Stock': '20',
+    });
+
+    const result = await service.normalizePending();
+
+    expect(result).toMatchObject({ normalized: 1, failed: 0 });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).rows).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverAmazonAccounts).rows).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).rows).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).rows).toEqual([
+      expect.objectContaining({ sellableStock: 20 }),
+    ]);
   });
 
   it('keeps Sellerboard history facts on existing listings without creating catalog identity', async () => {
@@ -723,6 +780,62 @@ describe('EcobaseMedallionNormalizationService', () => {
       expect.objectContaining({ normalizedExternalSupplierCode: 'SRO-UNASSIGNED' }),
     ]);
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverSupplierAccounts).rows).toHaveLength(0);
+  });
+
+  it('enriches a Supplier IDs record from the current Supplier 2026 row without duplicates', async () => {
+    const db = new FakeDatabase();
+    await seedBronze(
+      db,
+      { 'SR ID': 'SRO-300', 'Supplier Name': 'Good Supply' },
+      { sourceType: 'google_sheets', sourceDataset: 'supplier_2026' },
+    );
+    await seedBronze(
+      db,
+      {
+        'SR ID': 'SRO-300',
+        'Supplier Name': 'Good Supply LLC',
+        'PR Portal Link': 'https://supplier.example.test',
+        Username: 'buyer@example.test',
+        pass: 'fixture-secret',
+        'Contact Person': 'Pat Buyer',
+        'Reached Via': 'Ecofission LLC',
+        'Recieved Email': 'orders@example.test',
+        Remarks: 'Current supplier profile',
+        Status: 'Approved',
+        'Current Status': 'Active',
+        'Date of Update': '07/15/2026',
+        'Supplier Type': 'Brand Approved',
+        'Presence on Amazon': 'Good',
+      },
+      { sourceType: 'google_sheets', sourceDataset: 'supplier_2026' },
+    );
+
+    const result = await new EcobaseMedallionNormalizationService(db).normalizePending();
+
+    expect(result).toMatchObject({ normalized: 2, failed: 0 });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).rows).toEqual([
+      expect.objectContaining({
+        displayName: 'Good Supply LLC',
+        approvalStatus: 'approved',
+        contactName: 'Pat Buyer',
+        primaryEmail: 'orders@example.test',
+        contactNotes: 'Current supplier profile',
+        supplierType: 'Brand Approved',
+        amazonPresence: 'Good',
+        activeStatus: 'Active',
+        dateOfUpdate: '2026-07-15',
+      }),
+    ]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSupplierExternalRefs).rows).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSupplierAccounts).rows).toEqual([
+      expect.objectContaining({
+        accountName: 'SRO-300:ECOFISSION_LLC',
+        portalUrl: 'https://supplier.example.test',
+        loginUsername: 'buyer@example.test',
+        loginSecret: 'fixture-secret',
+        email: 'orders@example.test',
+      }),
+    ]);
   });
 
   it('imports supplier lead-time ranges and defaults unavailable lead-time text', async () => {

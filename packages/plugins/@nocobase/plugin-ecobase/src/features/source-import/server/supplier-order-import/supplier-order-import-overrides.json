@@ -1,0 +1,255 @@
+{
+  "version": 1,
+  "supplierIds": {
+    "SRO-1293": {
+      "acceptedCode": "SRO-12939",
+      "reason": "Exact legacy Delko Tools supplier reference; authoritative code is documented in the migration profile."
+    },
+    "SRO-1257": {
+      "acceptedCode": "SRO-12572",
+      "reason": "Exact legacy Franklin Machine Products supplier reference; authoritative code is documented in the migration profile."
+    }
+  },
+  "supplierNames": {
+    "SRO-12801": {
+      "displayName": "New England Quilt Supply",
+      "reason": "PO-referenced identity; normalized source spellings refer to one supplier."
+    },
+    "SRO-12865": {
+      "displayName": "Allied Piano and Finish",
+      "reason": "PO-referenced identity; normalized source spellings refer to one supplier."
+    },
+    "SRO-4035": {
+      "displayName": "Edhoy",
+      "reason": "PO-referenced identity; normalized source spellings refer to one supplier."
+    },
+    "SRO-4050": {
+      "displayName": "EE Schenck",
+      "reason": "PO-referenced identity; normalized source spellings refer to one supplier."
+    },
+    "SRO-5055": {
+      "displayName": "Glass Crafters",
+      "reason": "PO-referenced identity; normalized source spellings refer to one supplier."
+    },
+    "SRO-5344": {
+      "displayName": "GSM Outdoors",
+      "reason": "PO-referenced identity; normalized source spellings refer to one supplier."
+    },
+    "SRO-3639": {
+      "displayName": "Discount Pond Supply",
+      "reason": "PO-referenced identity; normalized source spellings refer to one supplier."
+    },
+    "SRO-9095": {
+      "displayName": "Premier WD",
+      "reason": "PO-referenced identity; normalized source spellings refer to one supplier."
+    },
+    "SRO-12270": {
+      "displayName": "WS Billiard Supply",
+      "reason": "PO-referenced identity; normalized source spellings refer to one supplier."
+    }
+  },
+  "purchaseOrders": {
+    "ECOFISSION_LLC:EF122425A": {
+      "selectedRowNumber": 1859,
+      "reason": "Completed row has payment and uploaded-invoice evidence; paired row is cancelled."
+    },
+    "ECOFISSION_LLC:EF3926D": {
+      "selectedRowNumber": 1973,
+      "reason": "Completed row has payment and uploaded-invoice evidence; paired row is cancelled."
+    },
+    "ECOFISSION_LLC:EF72624A": {
+      "selectedRowNumber": 669,
+      "reason": "Completed row has payment and uploaded-invoice evidence; paired row is cancelled."
+    },
+    "ECOFISSION_LLC:EF81225A": {
+      "selectedRowNumber": 1657,
+      "reason": "Completed row has payment and uploaded-invoice evidence; paired rows are cancelled."
+    },
+    "MUXTEX_INC:MX101125A": {
+      "selectedRowNumber": 1734,
+      "reason": "Completed row has payment and uploaded-invoice evidence; paired row is cancelled."
+    },
+    "MUXTEX_INC:MX102523B": {
+      "selectedRowNumber": 20,
+      "reason": "Completed row has payment and uploaded-invoice evidence and resolves the supplier conflict; paired row is cancelled."
+    },
+    "MUXTEX_INC:MX102725A": {
+      "selectedRowNumber": 1770,
+      "reason": "Completed row has payment and uploaded-invoice evidence and resolves the marketplace conflict; paired row is cancelled."
+    },
+    "MUXTEX_INC:MX121025A": {
+      "selectedRowNumber": 1829,
+      "reason": "Rows have identical rejected business facts; select the first source row explicitly."
+    },
+    "MUXTEX_INC:MX121824A": {
+      "selectedRowNumber": 1105,
+      "reason": "Completed row has payment and uploaded-invoice evidence; paired row is cancelled."
+    },
+    "MUXTEX_INC:MX91925B": {
+      "selectedRowNumber": 1710,
+      "reason": "Rows have identical cancelled business facts; select the first source row explicitly."
+    },
+    "RETAIL_HEAVEN_INC:RH11625A": {
+      "selectedRowNumber": 1789,
+      "reason": "Completed row has payment and uploaded-invoice evidence; paired row is cancelled."
+    },
+    "RETAIL_HEAVEN_INC:RH12026A": {
+      "selectedRowNumber": 1898,
+      "reason": "Completed row has payment and uploaded-invoice evidence; paired row is cancelled."
+    },
+    "STOP_SHOP_LLC:SS101025A": {
+      "selectedRowNumber": 1737,
+      "reason": "Completed row has payment and uploaded-invoice evidence; paired row is cancelled."
+    },
+    "STOP_SHOP_LLC:SS1526B": {
+      "selectedRowNumber": 1865,
+      "reason": "Completed row has payment and uploaded-invoice evidence; paired row is cancelled."
+    },
+    "STOP_SHOP_LLC:SS42125C": {
+      "selectedRowNumber": 1440,
+      "reason": "Completed row has payment and uploaded-invoice evidence; paired row is cancelled."
+    }
+  },
+  "orderLines": {
+    "ECOFISSION_LLC:EF11326G:B0777PF8J6:SKU:B-161": {
+      "disposition": "repeat",
+      "occurrences": [
+        {
+          "sourceHash": "aa98a4c75115446d626d0a5ac1b1635cd2fb4d08b837e9d7dc878fdb895b53a0",
+          "suffix": "occurrence-a"
+        },
+        {
+          "sourceHash": "cdd096c1538c068e6894ab361bb8668b4f45b5e448f22bd8e3363ba5977bc7ba",
+          "suffix": "occurrence-b"
+        }
+      ],
+      "reason": "Both cleared, added-to-PO source rows have distinct quantities and buying evidence, so they are genuine repeated line items."
+    },
+    "ECOFISSION_LLC:EF122425A:B0006SDOFE:SKU:OLFA-RM-6X8": {
+      "disposition": "select",
+      "selectedSourceHash": "65226f91f5f9f53ac8ea5605f63d3562288edccde2caa3b8f39d85881fd0176c",
+      "reason": "The 2026-01-05 cleared row supersedes the rejected 2025-12-22 analysis row."
+    },
+    "ECOFISSION_LLC:EF122425A:B0006SDOFO:SKU:OLFA-RM-MG-GREEN": {
+      "disposition": "select",
+      "selectedSourceHash": "4a20d08eeb84c0c0bc828ab0e278096fe6d7520f64345f33fe4c8108ae813e33",
+      "reason": "The 2026-01-05 in-progress row supersedes the rejected 2025-12-22 analysis row."
+    },
+    "ECOFISSION_LLC:EF122425A:B0006SJAW0:SKU:NH-1": {
+      "disposition": "select",
+      "selectedSourceHash": "48783cccc92b1d5462182a998635df63b6c75c86a18a5b60672a439f956e67da",
+      "reason": "The 2026-01-05 cleared row supersedes the rejected 2025-12-22 analysis row."
+    },
+    "ECOFISSION_LLC:EF122425A:B0010ERKZ8:SKU:RM-17S": {
+      "disposition": "select",
+      "selectedSourceHash": "121aa5c221a4466f89940ccb253488dfe86dea028b02f5e5f189970d8f6b7832",
+      "reason": "The 2026-01-05 in-progress row supersedes the rejected 2025-12-22 analysis row."
+    },
+    "ECOFISSION_LLC:EF122425A:B00168253A:SKU:RTY-2/NS": {
+      "disposition": "select",
+      "selectedSourceHash": "e5787271bad879b71efa777105ebb5ab58f907f73b0033feae4c4355b307eee0",
+      "reason": "The 2026-01-05 cleared row supersedes the rejected 2025-12-22 analysis row."
+    },
+    "ECOFISSION_LLC:EF122425A:B0053ANGG2:SKU:OLFA-RM-CLIPS/3": {
+      "disposition": "select",
+      "selectedSourceHash": "4d77521799d4294d5b4b5b56f7ec8a8528e4a9364f6f6eb64ee9c3f3fe802fd2",
+      "reason": "The 2026-01-05 cleared row supersedes the rejected 2025-12-22 analysis row."
+    },
+    "ECOFISSION_LLC:EF122425A:B0CLFLL9Y2:SKU:OLFA-RTY-2/DX-MAG": {
+      "disposition": "select",
+      "selectedSourceHash": "8aa8a9968036fb4bde4810e8151f833f1949d356a7580f3143e9d6a96b61277a",
+      "reason": "The 2026-01-05 cleared row supersedes the rejected 2025-11-03 analysis row."
+    },
+    "ECOFISSION_LLC:EF122425A:B0CS8XM7N9:SKU:OFA-RB60H-2": {
+      "disposition": "select",
+      "selectedSourceHash": "d3697e6672bbc132624e6b82541949ba8f6f573ec987ecd1b9417018463a2fd7",
+      "reason": "The 2026-01-05 cleared row supersedes the rejected 2025-12-22 analysis row."
+    },
+    "ECOFISSION_LLC:EF122425A:B0D48RCZ39:SKU:OLFA-RM-MG-GREEN": {
+      "disposition": "select",
+      "selectedSourceHash": "233e5243c143a4d2fc7255e2a7c06f2e9885605db74bcf0672a661f915b043a9",
+      "reason": "The 2026-01-05 cleared row supersedes the rejected 2025-12-22 analysis row."
+    },
+    "MUXTEX_INC:MX61726N:B00IYT2E12:SKU:B00IYT2E12": {
+      "disposition": "select",
+      "selectedSourceHash": "f7c54c90edf06b4df3c7908dd3ddc42935402481cd9e1a1388d6fc38c80fbf38",
+      "reason": "The later 30-unit source row supersedes the earlier 16-unit revision for the same cleared line identity."
+    },
+    "RETAIL_HEAVEN_INC:RH71425D:B01MQIOGGA:SKU:58186": {
+      "disposition": "select",
+      "selectedSourceHash": "fb1fe0d9634399353cb6ad42e3315e98c2d7277150c7c9803bd4d600187df998",
+      "reason": "The later source timestamp and Check again evidence identify the 20-unit row as the authoritative revision."
+    }
+  },
+  "excludedOrderDetailRows": {
+    "116": {
+      "reason": "Header supplier SRO-66 is authoritative; the detail row's SRO-67 supplier conflicts and cannot be linked safely."
+    },
+    "121": {
+      "reason": "Header supplier SRO-66 is authoritative; the detail row's SRO-67 supplier conflicts and cannot be linked safely."
+    },
+    "1718": {
+      "reason": "Compensation detail has no supplier ID and cannot be accepted as a supplier order line."
+    },
+    "1803": {
+      "reason": "Compensation detail has no supplier ID and cannot be accepted as a supplier order line."
+    },
+    "1834": {
+      "reason": "Compensation detail has no supplier ID and cannot be accepted as a supplier order line."
+    },
+    "1876": {
+      "reason": "Header supplier SRO-5344 is authoritative; the detail row's SRO-9753 supplier conflicts and cannot be linked safely."
+    },
+    "2506": {
+      "reason": "Compensation detail has no supplier ID and cannot be accepted as a supplier order line."
+    },
+    "3348": {
+      "reason": "Explicit Retail Heaven company conflicts with the EF order identity; exclude rather than cross-company link."
+    },
+    "3381": {
+      "reason": "Explicit Muxtex company conflicts with the EF order identity; exclude rather than cross-company link."
+    },
+    "3433": {
+      "reason": "Rejected analysis row has zero quantity and is not an ordered line."
+    },
+    "3436": {
+      "reason": "Rejected analysis row has zero quantity and is not an ordered line."
+    },
+    "3717": {
+      "reason": "Header supplier SRO-3639 is authoritative; the detail row's SRO-1861 supplier conflicts and cannot be linked safely."
+    },
+    "4486": {
+      "reason": "Rejected analysis row has zero quantity and is not an ordered line."
+    },
+    "4759": {
+      "reason": "Explicit Retail Heaven company conflicts with the MX order identity; exclude rather than cross-company link."
+    },
+    "4869": {
+      "reason": "Source row has no quantity and cannot establish an ordered line."
+    },
+    "4870": {
+      "reason": "Source row has no quantity and cannot establish an ordered line."
+    },
+    "5428": {
+      "reason": "Supplier ID cell contains corrupted prose rather than a supplier identity."
+    },
+    "5626": {
+      "reason": "Zero-quantity analysis row is not an ordered line."
+    },
+    "6093": {
+      "reason": "Explicit Ecofission company conflicts with the MX order identity; exclude rather than cross-company link."
+    },
+    "6094": {
+      "reason": "Explicit Ecofission company conflicts with the MX order identity; exclude rather than cross-company link."
+    },
+    "6402": {
+      "reason": "Explicit Stop Shop company conflicts with the MX order identity; exclude rather than cross-company link."
+    }
+  },
+  "clickupTasks": {
+    "EF3926D": {
+      "selectedTaskId": "86ewzjn8n",
+      "reason": "The later root task is the active replacement cycle and agrees with the payment-backed completed PO override; the older root task is cancelled."
+    }
+  }
+}

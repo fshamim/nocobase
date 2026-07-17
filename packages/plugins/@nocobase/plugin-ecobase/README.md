@@ -85,11 +85,15 @@ Issue 005 adapters are registered through the same Issue 004 source-adapter seam
 | --- | --- | --- |
 | `amazon-operations-csv` | `seller_central_file` | SampleAM weekly CSV shapes and Sellerboard-like CSV exports when imported as files. |
 | `sellerboard-csv` | `sellerboard` | Sellerboard stock/profit dashboard CSV exports. |
-| `google-sheets-migration-csv` | `google_sheets` | Planning targets, supplier defaults/lead times, and order-management workbook exports. |
+| `supplier-order-csv` | `google_sheets` | Canonical Supplier IDs, current Supplier 2026 enrichment, Purchase Orders, and Order Details bundle import. |
+| `clickup-order-status-csv` | `clickup` | Separate exact-reference workflow status refresh; it does not import supplier or purchase-order facts. |
+| `google-sheets-migration-csv` | `google_sheets` | Planning targets and non-order supplier-management exports. |
 | `sellerboard-api` | `sellerboard` | Slim live-source check; records a credential blocker when API credentials are absent. |
 | `amazon-sp-api-access-check` | `amazon_sp_api` | Slim Amazon SP-API access check; records an access blocker when approval/credentials are absent. |
 | `clickup-fixture` | `clickup` | Fixture/manual accountability import for ClickUp task snapshots, task links, OKRs, and OKR metric snapshots. |
 | `clickup-access-check` | `clickup` | Slim ClickUp access check; records a credential blocker and source warning when live credentials are absent. |
+
+Supplier/order preview requires an explicit mode. `canonical-rebuild` replaces only importer-owned supplier/order rows with a complete snapshot. `refresh` upserts new evidence and retains historical rows omitted from a later export. ClickUp remains a separate refresh operation.
 
 Documented sample row counts for row-count verification:
 
@@ -103,7 +107,8 @@ Documented sample row counts for row-count verification:
 | Sellerboard dashboard goods | `data/Fissionem_DashboardGoods_30_04_2026-31_05_2026_(2026_06_01_02_08_33_779).csv` | 4350 |
 | Sellerboard dashboard totals | `data/Fissionem_DashboardTotals_30_04_2026-31_05_2026_(2026_06_01_02_07_53_685).csv` | 32 |
 | Sellerboard stock | `data/Fissionem_Stock_(2026_06_01_02_06_56_070).csv` | 434 |
-| Supplier IDs | `data/order-managment-sheets/Copy of Ecofission-Order Management - Supplier IDs.csv` | 2052 |
+| Supplier IDs | `data/dataforimport/Ecofission-Order Management - Supplier IDs.csv` | 2136 |
+| Supplier 2026 | `data/supplier-management-sheets/Supplier Analysis Tracker - Supplier 2026.csv` | 528 |
 | OrderDetails | `data/order-managment-sheets/Copy of Ecofission-Order Management - OrderDetails.csv` | 6129 |
 | Pre-Order Sheet | `data/order-managment-sheets/Copy of Ecofission-Order Management - Pre-Order Sheet.csv` | 304 |
 | Purchase Orders | `data/order-managment-sheets/Copy of Ecofission-Order Management - Purchase Orders.csv` | 4203 |

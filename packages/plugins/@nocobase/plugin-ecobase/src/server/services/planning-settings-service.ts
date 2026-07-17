@@ -23,6 +23,7 @@ export type PlanningSettingKey =
   | 'orderSoonWindowDays'
   | 'leadTimeFreshnessDays'
   | 'purchasedPipelineGraceDays'
+  | 'defaultSupplierLeadTimeDays'
   | 'fbaReceivingBufferDays';
 
 type ProfitTierSettingKey = keyof ProfitTierThresholds;
@@ -64,6 +65,7 @@ const SETTING_KEYS: PlanningSettingKey[] = [
   'orderSoonWindowDays',
   'leadTimeFreshnessDays',
   'purchasedPipelineGraceDays',
+  'defaultSupplierLeadTimeDays',
   'fbaReceivingBufferDays',
 ];
 
@@ -90,6 +92,7 @@ export const DEFAULT_PLANNING_SETTINGS: Record<PlanningSettingKey, number> = {
   orderSoonWindowDays: 14,
   leadTimeFreshnessDays: 60,
   purchasedPipelineGraceDays: 3,
+  defaultSupplierLeadTimeDays: 30,
   fbaReceivingBufferDays: 7,
 };
 
@@ -122,6 +125,7 @@ const SETTING_LABELS: Record<NumberSettingKey, string> = {
   orderSoonWindowDays: 'Order-soon window days',
   leadTimeFreshnessDays: 'Lead-time freshness days',
   purchasedPipelineGraceDays: 'Purchased pipeline grace days',
+  defaultSupplierLeadTimeDays: 'Default supplier lead time days',
   fbaReceivingBufferDays: 'FBA receiving buffer days',
   profitTierAThreshold: 'Profit tier A threshold',
   profitTierBThreshold: 'Profit tier B threshold',
@@ -225,6 +229,9 @@ function normalize(row: PlainRecord): EcobasePlanningSettings {
     purchasedPipelineGraceDays:
       positiveInteger(row.purchasedPipelineGraceDays, 'purchasedPipelineGraceDays') ??
       defaults.purchasedPipelineGraceDays,
+    defaultSupplierLeadTimeDays:
+      positiveInteger(row.defaultSupplierLeadTimeDays, 'defaultSupplierLeadTimeDays') ??
+      defaults.defaultSupplierLeadTimeDays,
     fbaReceivingBufferDays:
       positiveInteger(row.fbaReceivingBufferDays, 'fbaReceivingBufferDays') ?? defaults.fbaReceivingBufferDays,
     enableCurrentOrderCycleSelection: asBoolean(

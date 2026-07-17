@@ -83,6 +83,27 @@ describe('safe import boundary', () => {
     ).toEqual({ disposition: 'discard', reasonCode: 'unsupported_order_ref', droppedFieldCount: 0 });
   });
 
+  it('accepts a global Supplier IDs row without inventing a company', () => {
+    const result = applySafeImportBoundary(
+      { adapter: adapter('google_sheets') },
+      {
+        type: 'record',
+        rowNumber: 2,
+        sourceKey: 'Supplier IDs.csv:SRO-300',
+        payload: { 'SR ID': 'SRO-300', 'Supplier Name': 'Good Supply' },
+        record: { kind: 'supplier', data: { supplierId: 'SRO-300', name: 'Good Supply' } },
+      },
+    );
+
+    expect(result).toMatchObject({
+      disposition: 'accept',
+      reasonCode: 'safe_supplier_ids',
+      sourceDataset: 'supplier_ids',
+      item: { payload: { supplierExternalRef: 'SRO-300', supplierName: 'Good Supply' } },
+    });
+    expect(result).not.toHaveProperty('companyKey');
+  });
+
   it('enforces exact supplier-reference accept/reject decisions before Bronze', () => {
     const supplierItem = (externalRef: string): AdapterStreamItem => ({
       type: 'record',
@@ -167,6 +188,31 @@ describe('safe import boundary', () => {
         type: 'record',
         payload: { sourceType: 'seller_central_file', domain: 'amazon_operations', accessStatus: 'blocked' },
       },
+    });
+  });
+
+  it('preserves the adapter-normalized Sellerboard date in the safe payload', () => {
+    const item: AdapterStreamItem = {
+      type: 'record',
+      rowNumber: 2,
+      sourceKey: 'profit_by_product_daily.csv:2',
+      payload: {
+        Company: 'Retail Heaven Inc',
+        Date: '7/12/2026',
+        Marketplace: 'Amazon.com',
+        ASIN: 'B000000001',
+        SKU: 'SKU-1',
+        SalesOrganic: '10',
+      },
+      record: {
+        kind: 'listing_daily_fact',
+        data: { company: 'Retail Heaven Inc', snapshotDate: '2026-07-12' },
+      },
+    };
+
+    expect(applySafeImportBoundary({ adapter: adapter('sellerboard', 'sellerboard-api') }, item)).toMatchObject({
+      disposition: 'accept',
+      item: { payload: { period: '2026-07-12' } },
     });
   });
 

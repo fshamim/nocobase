@@ -7,7 +7,7 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
-export const SOURCE_RECORD_PROJECTION_VERSION = '2026-07-13.1';
+export const SOURCE_RECORD_PROJECTION_VERSION = '2026-07-18.1';
 
 export type MigrationDataset =
   | 'sellerboard_current'
@@ -190,8 +190,19 @@ const FIELD_PROJECTIONS: Record<Exclude<MigrationDataset, 'clickup_order_evidenc
     leadTimeDays: ['Lead time(day)', 'Lead Time', 'Lead Time Days'],
     minimumOrderQuantity: ['MOQ'],
     packSize: ['Pack Size', 'Case Pack'],
-    approvalStatus: ['Status'],
+    supplierStatus: ['Status'],
     currentStatus: ['Current Status'],
+    contactName: ['Contact Person'],
+    primaryEmail: ['Recieved Email', 'Received Email'],
+    supplierUrl: ['PR Portal Link'],
+    portalUsername: ['Username'],
+    portalPassword: ['pass'],
+    remarks: ['Remarks'],
+    designation: ['Designation'],
+    supplierType: ['Supplier Type'],
+    amazonPresence: ['Presence on Amazon'],
+    dateOfUpdate: ['Date of Update'],
+    analysisIssueRemarks: ['Remarks ( Analysed / facing any issue )', 'Remarks ( Analysed / facing any issue ) '],
   },
   supplier_ids: {
     supplierExternalRef: ['SR ID', 'SR ID '],
@@ -232,13 +243,32 @@ function safeScalar(value: unknown): value is string | number | boolean {
   );
 }
 
-function projectFields(source: Record<string, unknown>, fields: FieldProjection) {
+const SUPPLIER_PRIVATE_FIELDS = new Set([
+  'primaryEmail',
+  'receivedEmail',
+  'supplierUrl',
+  'prPortalLink',
+  'portalUsername',
+  'portalPassword',
+]);
+
+function privateSupplierScalar(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0 && Buffer.byteLength(value, 'utf8') <= 4096;
+}
+
+function projectFields(source: Record<string, unknown>, fields: FieldProjection, allowSupplierPrivateFields = false) {
   const payload: Record<string, unknown> = {};
   const selectedInputKeys = new Set<string>();
   for (const [outputKey, inputKeys] of Object.entries(fields)) {
     const inputKey = inputKeys.find((key) => {
       const value = source[key];
-      return value !== undefined && value !== null && value !== '' && safeScalar(value);
+      return (
+        value !== undefined &&
+        value !== null &&
+        value !== '' &&
+        (safeScalar(value) ||
+          (allowSupplierPrivateFields && SUPPLIER_PRIVATE_FIELDS.has(outputKey) && privateSupplierScalar(value)))
+      );
     });
     if (inputKey) {
       selectedInputKeys.add(inputKey);
@@ -264,7 +294,7 @@ export function projectSourceRecord(
   context: ProjectionContext = {},
 ): SourceRecordProjection {
   const fields = dataset === 'clickup_order_evidence' ? CLICKUP_FIELD_PROJECTION : FIELD_PROJECTIONS[dataset];
-  const projected = projectFields(source, fields);
+  const projected = projectFields(source, fields, dataset === 'supplier_2026');
   if (dataset === 'clickup_order_evidence') {
     const selectedCommentBody = Object.hasOwn(projected.payload, 'commentBody');
     const orderRef = typeof projected.payload.orderRef === 'string' ? projected.payload.orderRef.trim() : undefined;
@@ -280,10 +310,18 @@ export function projectSourceRecord(
   return { ...projected, projectionVersion: SOURCE_RECORD_PROJECTION_VERSION };
 }
 
-export function projectNormalizedRecordData(source: Record<string, unknown>): SourceRecordProjection {
+export function projectNormalizedRecordData(
+  source: Record<string, unknown>,
+  allowSupplierPrivateFields = false,
+): SourceRecordProjection {
   const payload: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(source)) {
-    if (!isForbiddenKey(key) && safeScalar(value)) payload[key] = value;
+    if (
+      (!isForbiddenKey(key) && safeScalar(value)) ||
+      (allowSupplierPrivateFields && SUPPLIER_PRIVATE_FIELDS.has(key) && privateSupplierScalar(value))
+    ) {
+      payload[key] = value;
+    }
   }
   return {
     payload,

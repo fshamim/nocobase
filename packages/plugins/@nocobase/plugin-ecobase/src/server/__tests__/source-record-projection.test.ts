@@ -157,6 +157,53 @@ describe('source record projection', () => {
     expect(findForbiddenSourceMaterial(credentialComment)).toEqual([]);
   });
 
+  it('retains explicitly approved current supplier contact and portal fields', () => {
+    expect(
+      projectSourceRecord('supplier_2026', {
+        'SR ID': 'SRO-300',
+        'Supplier Name': 'Good Supply LLC',
+        'Reached Via': 'Ecofission LLC',
+        'Recieved Email': 'orders@example.test',
+        'PR Portal Link': 'https://supplier.example.test',
+        Username: 'buyer@example.test',
+        pass: 'fixture-secret',
+        'Contact Person': 'Pat Buyer',
+        Status: 'Approved',
+        'Current Status': 'Active',
+        Ignored: 'not projected',
+      }),
+    ).toMatchObject({
+      payload: {
+        supplierExternalRef: 'SRO-300',
+        supplierName: 'Good Supply LLC',
+        companyProvenance: 'Ecofission LLC',
+        primaryEmail: 'orders@example.test',
+        supplierUrl: 'https://supplier.example.test',
+        portalUsername: 'buyer@example.test',
+        portalPassword: 'fixture-secret',
+        contactName: 'Pat Buyer',
+        supplierStatus: 'Approved',
+        currentStatus: 'Active',
+      },
+      droppedFieldCount: 1,
+    });
+    expect(
+      projectNormalizedRecordData(
+        {
+          naturalKey: 'supplier:SRO-300',
+          receivedEmail: 'orders@example.test',
+          prPortalLink: 'https://supplier.example.test',
+          portalUsername: 'buyer@example.test',
+          portalPassword: 'fixture-secret',
+        },
+        true,
+      ).payload,
+    ).toMatchObject({
+      portalUsername: 'buyer@example.test',
+      portalPassword: 'fixture-secret',
+    });
+  });
+
   it('projects only the exact supplier identity fields from Supplier IDs', () => {
     expect(
       projectSourceRecord('supplier_ids', {

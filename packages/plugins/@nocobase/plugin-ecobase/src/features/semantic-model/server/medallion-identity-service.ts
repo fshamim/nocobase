@@ -62,6 +62,22 @@ export interface UpsertSupplierExternalRefParams {
   observedAt?: string;
   payload?: Record<string, unknown>;
   approvalStatus?: string;
+  analysisStatus?: string;
+  accountStatus?: string;
+  contactName?: string;
+  primaryEmail?: string;
+  contactNotes?: string;
+  supplierUrl?: string;
+  activeStatus?: string;
+  supplierType?: string;
+  reachedVia?: string;
+  receivedEmail?: string;
+  designation?: string;
+  amazonPresence?: string;
+  trackingStatus?: string;
+  dateOfUpdate?: string;
+  analysisProgress?: string;
+  remarksAnalysed?: string;
   identityAuthority?: 'authoritative' | 'reference';
 }
 
@@ -279,20 +295,37 @@ export class EcobaseMedallionIdentityService {
       payload: params.payload,
     });
 
+    const supplierValues = valuesForUpdate({
+      displayName: authoritative ? displayName : undefined,
+      normalizedName: authoritative ? normalizedName : undefined,
+      approvalStatus: authoritative ? params.approvalStatus : undefined,
+      analysisStatus: authoritative ? params.analysisStatus : undefined,
+      accountStatus: authoritative ? params.accountStatus : undefined,
+      contactName: authoritative ? params.contactName : undefined,
+      email: authoritative ? params.primaryEmail : undefined,
+      preferredContactMethod: authoritative && params.primaryEmail ? 'email' : undefined,
+      primaryEmail: authoritative ? params.primaryEmail : undefined,
+      contactNotes: authoritative ? params.contactNotes : undefined,
+      supplierUrl: authoritative ? params.supplierUrl : undefined,
+      activeStatus: authoritative ? params.activeStatus : undefined,
+      supplierType: authoritative ? params.supplierType : undefined,
+      reachedVia: authoritative ? params.reachedVia : undefined,
+      receivedEmail: authoritative ? params.receivedEmail : undefined,
+      designation: authoritative ? params.designation : undefined,
+      amazonPresence: authoritative ? params.amazonPresence : undefined,
+      trackingStatus: authoritative ? params.trackingStatus : undefined,
+      dateOfUpdate: authoritative ? params.dateOfUpdate : undefined,
+      analysisProgress: authoritative ? params.analysisProgress : undefined,
+      remarksAnalysed: authoritative ? params.remarksAnalysed : undefined,
+    });
+
     if (existingRef) {
       const supplierId = toPlainRecord(existingRef).supplierId;
       if (typeof supplierId !== 'string') {
         throw new Error('Ecobase medallion identity failed: supplier external ref is missing supplierId.');
       }
       const supplier = await this.findRequired(this.repo(ECOBASE_COLLECTIONS.silverSuppliers), supplierId, 'supplier');
-      await this.repo(ECOBASE_COLLECTIONS.silverSuppliers).update({
-        filterByTk: supplierId,
-        values: valuesForUpdate({
-          displayName: authoritative ? displayName : undefined,
-          normalizedName: authoritative ? normalizedName : undefined,
-          approvalStatus: authoritative ? params.approvalStatus : undefined,
-        }),
-      });
+      await this.repo(ECOBASE_COLLECTIONS.silverSuppliers).update({ filterByTk: supplierId, values: supplierValues });
       await refRepo.update({ filterByTk: idOf(existingRef), values: refValues });
       return this.findRequired(this.repo(ECOBASE_COLLECTIONS.silverSuppliers), idOf(supplier), 'supplier');
     }
@@ -303,6 +336,7 @@ export class EcobaseMedallionIdentityService {
         normalizedName,
         displayName,
         approvalStatus: params.approvalStatus ?? 'analyzing',
+        ...supplierValues,
       },
     });
     await refRepo.create({

@@ -50,15 +50,13 @@ export interface SetReceiptOverrideInput {
 
 export function historicalReceiptCandidateOrderIds(orders: Row[]) {
   return orders
-    .filter((order) => {
-      if (text(order.amazonReceiptStatus)) return false;
-      const statusEvidence = record(order.statusEvidenceJson);
-      const authorityEvidence = record(order.authorityEvidenceJson);
-      const exactStatus =
-        text(record(statusEvidence.clickupStatusImport).clickupStatus) ??
-        text(record(authorityEvidence.clickupStatusEvidence).clickupStatus);
-      return ['inbound-monitoring', 'direct-ship-fba'].includes(exactStatus ?? '');
-    })
+    .filter(
+      (order) =>
+        !text(order.amazonReceiptStatus) &&
+        ['inbound-monitoring', 'direct-ship-fba', 'complete', 'completed'].includes(
+          clickupOperationalStatus(order) ?? '',
+        ),
+    )
     .map((order) => text(order.id))
     .filter((id): id is string => Boolean(id))
     .sort();
@@ -76,6 +74,16 @@ export function receiptReconciliationOrderIdsForRefresh(orders: Row[], affectedO
         .filter((id): id is string => Boolean(id)),
     ]),
   ];
+}
+
+export interface ReceiptStateCoverage {
+  requestedOrderCount: number;
+  foundOrderCount: number;
+  missingOrderIds: string[];
+  orderStatusCounts: Record<string, number>;
+  lineCount: number;
+  linesWithoutReceiptStatus: number;
+  ordersWithoutLines: string[];
 }
 
 export interface ReceiptReconciliationResult {
@@ -138,7 +146,12 @@ function evidenceKey(value: unknown) {
 
 function clickupOperationalStatus(order: Row) {
   const statusEvidence = record(order.statusEvidenceJson);
-  return text(record(statusEvidence.clickupStatusImport).clickupStatus) ?? text(order.lifecycleStatus);
+  const authorityEvidence = record(order.authorityEvidenceJson);
+  return (
+    text(record(statusEvidence.clickupStatusImport).clickupStatus) ??
+    text(record(authorityEvidence.clickupStatusEvidence).clickupStatus) ??
+    text(order.lifecycleStatus)
+  );
 }
 
 function currentReceiptStatus(row: Row) {
@@ -160,6 +173,40 @@ function aggregateOrderStatus(lines: LineResult[]): AmazonReceiptStatus {
 
 export class EcobaseOrderReceiptReconciliationService {
   constructor(private readonly db: EcobaseDatabase) {}
+
+  async inspectCoverage(orderIds: string[]): Promise<ReceiptStateCoverage> {
+    const requestedOrderIds = [...new Set(orderIds.filter(Boolean))].sort();
+    if (requestedOrderIds.length === 0) {
+      return {
+        requestedOrderCount: 0,
+        foundOrderCount: 0,
+        missingOrderIds: [],
+        orderStatusCounts: {},
+        lineCount: 0,
+        linesWithoutReceiptStatus: 0,
+        ordersWithoutLines: [],
+      };
+    }
+    const orders = await this.find(ECOBASE_COLLECTIONS.silverOrders, { id: { $in: requestedOrderIds } });
+    const lines = await this.find(ECOBASE_COLLECTIONS.silverOrderLines, { orderId: { $in: requestedOrderIds } });
+    const foundOrderIds = new Set(orders.map((order) => text(order.id)).filter((id): id is string => Boolean(id)));
+    const orderIdsWithLines = new Set(
+      lines.map((line) => text(line.orderId)).filter((id): id is string => Boolean(id)),
+    );
+    return {
+      requestedOrderCount: requestedOrderIds.length,
+      foundOrderCount: foundOrderIds.size,
+      missingOrderIds: requestedOrderIds.filter((orderId) => !foundOrderIds.has(orderId)),
+      orderStatusCounts: orders.reduce<Record<string, number>>((counts, order) => {
+        const status = currentReceiptStatus(order) ?? 'missing';
+        counts[status] = (counts[status] ?? 0) + 1;
+        return counts;
+      }, {}),
+      lineCount: lines.length,
+      linesWithoutReceiptStatus: lines.filter((line) => !currentReceiptStatus(line)).length,
+      ordersWithoutLines: [...foundOrderIds].filter((orderId) => !orderIdsWithLines.has(orderId)).sort(),
+    };
+  }
 
   async backfillHistoricalReceipts(input: ReceiptBackfillInput = {}) {
     const batchSize = Math.min(Math.max(Math.floor(input.batchSize ?? 100), 1), 500);

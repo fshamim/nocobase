@@ -67,14 +67,7 @@ export function createSupplierManagementResourceRegistration(): EcobaseFeatureRe
       },
       {
         resource: 'ecobaseSupplierManagement',
-        actions: [
-          'previewSupplierResolutionRepair',
-          'applySupplierResolutionRepair',
-          'previewSupplierEvidenceBackfill',
-          'applySupplierEvidenceBackfill',
-          'verifySupplierEvidenceBackfillIdempotency',
-          'refreshAttentionRows',
-        ],
+        actions: ['previewSupplierResolutionRepair', 'applySupplierResolutionRepair', 'refreshAttentionRows'],
         role: ADMIN,
       },
     ],

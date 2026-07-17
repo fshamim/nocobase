@@ -18,8 +18,17 @@ import { projectSourceRecord } from './source-record-projection';
 import { silverSupplierOrderReadModel } from '../../supplier-management/server/silver-supplier-order-read-model';
 import {
   canonicalOrderStatusForOperationalStatus,
+  lifecycleStatusForOperationalStatus,
   normalizeOrderOperationalStatus,
+  workflowStageForOperationalStatus,
 } from '../../order-planning/order-operational-status';
+import clickupOverrides from './supplier-order-import/supplier-order-import-overrides.json';
+import {
+  normalizeExternalOrderId,
+  normalizeExternalSupplierCode,
+  normalizeSourceAsin,
+} from './supplier-order-import/supplier-order-import-plan';
+import { validateSupplierOrderImportOverrides } from './supplier-order-import/supplier-order-import-overrides';
 import {
   APPROVED_CLICKUP_ATTRIBUTION_USERS,
   approvedClickupAttributionUser,
@@ -42,7 +51,9 @@ const ORDER_REF_PATTERN = new RegExp(
   'gi',
 );
 const MAIN_ORDER_PATTERN = /\b(?:new\s*order|restock|po|order)\b/i;
-const HELPER_TASK_PATTERN = /shipping labels?|labels required|time tracking|approval/i;
+const HELPER_TASK_PATTERN = /shipping labels?|labels required|time tracking|approval|reimbursement|claim|sample/i;
+const MAIN_TASK_LISTS = new Set(['order management (orm)', 'prep & logistics']);
+const CLICKUP_TASK_OVERRIDES = validateSupplierOrderImportOverrides(clickupOverrides).clickupTasks;
 
 const COMMENT_PROPOSAL_LIMIT = 20;
 
@@ -60,6 +71,8 @@ type ParsedTask = {
   ref: string;
   clickupStatus: string;
   mappedStatus?: string;
+  lifecycleStatus?: string;
+  workflowStage?: string;
   taskId: string;
   taskLink?: string;
   taskName: string;
@@ -100,6 +113,12 @@ export interface ClickupOrderStatusImportResult {
   ambiguousMultiRefTaskCount: number;
   operatorOverrideCount: number;
   overriddenOperatorStatusCount: number;
+  selectedTaskOverrideCount: number;
+  workflowDraftCount: number;
+  workflowDraftLineCount: number;
+  reconciledWorkflowDraftLineCount: number;
+  workflowDraftRefs: string[];
+  workflowDraftExceptions: Array<Record<string, unknown>>;
   blockingIssueCount: number;
   proposedUpdates: Array<Record<string, unknown>>;
   proposedComments: Array<Record<string, unknown>>;
@@ -176,8 +195,26 @@ export function extractClickupOrderRefsFromTitle(taskName: string) {
   return refs;
 }
 
-function isMainOrderTask(taskName: string) {
-  return MAIN_ORDER_PATTERN.test(taskName) && !HELPER_TASK_PATTERN.test(taskName);
+function isRootTask(parentId: string | undefined) {
+  return !parentId || ['blank', 'null', 'none'].includes(parentId.toLowerCase());
+}
+
+function isLegacyCompactRootTitle(taskName: string, ref: string) {
+  const remainder = taskName
+    .replace(new RegExp(ref, 'i'), '')
+    .replace(/\b(?:ecofission|muxtex|rehmat|stop\s*shop|llc|inc)\b/gi, '')
+    .replace(/[^a-z0-9]+/gi, ' ')
+    .trim();
+  return !remainder || remainder.toLowerCase() === 'new';
+}
+
+function isMainOrderTask(params: { taskName: string; ref: string; parentId?: string; listName?: string }) {
+  return (
+    isRootTask(params.parentId) &&
+    MAIN_TASK_LISTS.has(params.listName?.trim().toLowerCase() ?? '') &&
+    !HELPER_TASK_PATTERN.test(params.taskName) &&
+    (MAIN_ORDER_PATTERN.test(params.taskName) || isLegacyCompactRootTitle(params.taskName, params.ref))
+  );
 }
 
 export function canonicalOrderStatusForClickupStatus(status: string | undefined) {
@@ -255,17 +292,22 @@ function parseClickupComments(value: string | undefined) {
   return { comments, invalidCount };
 }
 
-function authoritativeTaskForRef(tasks: ParsedTask[]) {
+function authoritativeTaskForRef(ref: string, tasks: ParsedTask[]) {
   const candidates = tasks.filter((task) => task.mainOrderTask);
   if (candidates.length === 0) return { missingMainTask: true as const };
   const ordered = [...candidates].sort(
     (left, right) => timestamp(right.dateCreated) - timestamp(left.dateCreated) || right.lineNumber - left.lineNumber,
   );
-  const statuses = [...new Set(candidates.map((task) => task.clickupStatus))];
+  const companyConflicts = ordered.filter((task) => task.companyConflict);
+  const statuses = [...new Set(ordered.map((task) => task.clickupStatus))];
+  const override = CLICKUP_TASK_OVERRIDES[ref];
+  const selected = statuses.length > 1 ? ordered.find((task) => task.taskId === override?.selectedTaskId) : ordered[0];
   return {
-    task: ordered[0],
-    companyConflicts: candidates.filter((task) => task.companyConflict),
+    task: companyConflicts.length ? undefined : selected,
+    companyConflicts,
     conflictingTasks: statuses.length > 1 ? ordered : [],
+    unresolvedConflict: statuses.length > 1 && !selected,
+    override: selected && statuses.length > 1 ? override : undefined,
     statuses,
   };
 }
@@ -275,7 +317,12 @@ function taskOccurredAt(task: ParsedTask) {
   return value > 0 ? new Date(value).toISOString() : undefined;
 }
 
-function statusEvidence(task: ParsedTask) {
+function statusEvidence(
+  task: ParsedTask,
+  observedAt: string,
+  candidateTaskIds: string[],
+  override?: { selectedTaskId: string; reason: string },
+) {
   const projection = projectSourceRecord(
     'clickup_order_evidence',
     {
@@ -292,8 +339,12 @@ function statusEvidence(task: ParsedTask) {
     extraction: 'task_name_compact_order_ref',
     ...projection.payload,
     clickupStatus: task.clickupStatus,
-    taskOccurredAt: taskOccurredAt(task),
+    taskCreatedAt: taskOccurredAt(task),
+    observedAt,
     mappedStatus: task.mappedStatus,
+    workflowStage: task.workflowStage,
+    candidateTaskIds,
+    selectionOverride: override,
     lineNumber: task.lineNumber,
     mainOrderTask: task.mainOrderTask,
   };
@@ -389,6 +440,10 @@ function commentNaturalKey(comment: PlainRecord) {
   return asString(comment.sourceCommentKey) ?? asString(asPlainRecord(comment.contextSnapshotJson).naturalKey);
 }
 
+function recordValuesChanged(existing: PlainRecord, next: PlainRecord) {
+  return Object.entries(next).some(([key, value]) => !isDeepStrictEqual(existing[key] ?? null, value ?? null));
+}
+
 function commentValuesChanged(existing: PlainRecord, next: PlainRecord) {
   return (
     asString(existing.actorType) !== asString(next.actorType) ||
@@ -438,6 +493,8 @@ export function parseClickupOrderStatusFiles(files: CsvSourceFile[]) {
         const company = companyForOrderRef(ref);
         if (!company) continue;
         const titleCompany = companyFromTaskTitle(taskName);
+        const parentId = row.string('Parent ID');
+        const listName = row.string('List Name');
         const task: ParsedTask = {
           ref,
           company,
@@ -448,15 +505,17 @@ export function parseClickupOrderStatusFiles(files: CsvSourceFile[]) {
               : undefined,
           clickupStatus,
           mappedStatus: canonicalOrderStatusForClickupStatus(clickupStatus),
+          lifecycleStatus: lifecycleStatusForOperationalStatus(clickupStatus),
+          workflowStage: workflowStageForOperationalStatus(clickupStatus),
           taskId: row.string('Task ID') ?? `${file.name}:${index + 2}:${ref}`,
           taskLink: row.string('Task Link'),
           taskName,
           dateCreated: row.string('Date Created'),
           dateCreatedText: row.string('Date Created Text'),
-          parentId: row.string('Parent ID'),
-          listName: row.string('List Name'),
+          parentId,
+          listName,
           lineNumber: index + 2,
-          mainOrderTask: isMainOrderTask(taskName),
+          mainOrderTask: isMainOrderTask({ taskName, ref, parentId, listName }),
           comments: parsedComments.comments,
           invalidCommentCount: parsedComments.invalidCount,
         };
@@ -465,12 +524,18 @@ export function parseClickupOrderStatusFiles(files: CsvSourceFile[]) {
     });
   }
 
-  const selectedTasks: Array<{ ref: string; company: string; task: ParsedTask; allTasks: ParsedTask[] }> = [];
+  const selectedTasks: Array<{
+    ref: string;
+    company: string;
+    task: ParsedTask;
+    allTasks: ParsedTask[];
+    override?: { selectedTaskId: string; reason: string };
+  }> = [];
   const missingMainTaskRefs: string[] = [];
   const conflictingMainTasks: Array<Record<string, unknown>> = [];
   const companyConflicts: Array<Record<string, unknown>> = [];
   for (const [ref, tasks] of tasksByRef.entries()) {
-    const selection = authoritativeTaskForRef(tasks);
+    const selection = authoritativeTaskForRef(ref, tasks);
     if ('missingMainTask' in selection) {
       missingMainTaskRefs.push(ref);
       continue;
@@ -478,7 +543,6 @@ export function parseClickupOrderStatusFiles(files: CsvSourceFile[]) {
     if (selection.companyConflicts.length > 0) {
       companyConflicts.push({
         ref,
-        selectedTaskId: selection.task.taskId,
         conflicts: selection.companyConflicts.map((task) => ({
           taskId: task.taskId,
           taskName: task.taskName,
@@ -490,8 +554,9 @@ export function parseClickupOrderStatusFiles(files: CsvSourceFile[]) {
     if (selection.conflictingTasks.length > 0) {
       conflictingMainTasks.push({
         ref,
-        selectedTaskId: selection.task.taskId,
-        selectedStatus: selection.task.clickupStatus,
+        selectedTaskId: selection.task?.taskId,
+        selectedStatus: selection.task?.clickupStatus,
+        resolvedByOverride: Boolean(selection.override),
         statuses: selection.statuses,
         tasks: selection.conflictingTasks.map((task) => ({
           taskId: task.taskId,
@@ -502,7 +567,15 @@ export function parseClickupOrderStatusFiles(files: CsvSourceFile[]) {
         })),
       });
     }
-    selectedTasks.push({ ref, company: selection.task.company, task: selection.task, allTasks: tasks });
+    if (selection.task) {
+      selectedTasks.push({
+        ref,
+        company: selection.task.company,
+        task: selection.task,
+        allTasks: tasks,
+        override: selection.override,
+      });
+    }
   }
 
   return {
@@ -514,6 +587,94 @@ export function parseClickupOrderStatusFiles(files: CsvSourceFile[]) {
     companyConflicts,
     ambiguousMultiRefTasks,
   };
+}
+
+type WorkflowDraftDetail = {
+  sourceFile: string;
+  sourceRow: number;
+  sourceHash: string;
+  company: string;
+  externalOrderId: string;
+  externalSupplierCode: string;
+  asin: string;
+  supplierSku?: string;
+  upc?: string;
+  orderQty: number;
+  unitCost?: number;
+  expectedCost?: number;
+  orderType?: string;
+  orderDate?: string;
+};
+
+function finiteNumber(value: string | undefined) {
+  const parsed = Number(
+    value
+      ?.replace(/[$£€,%]/g, '')
+      .replace(/,/g, '')
+      .trim(),
+  );
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function dayFirstDate(value: string | undefined) {
+  const match = value?.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})/);
+  if (!match) return undefined;
+  const year = Number(match[3]) + (match[3].length === 2 ? 2000 : 0);
+  const month = Number(match[2]);
+  const day = Number(match[1]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+    ? date.toISOString().slice(0, 10)
+    : undefined;
+}
+
+function parseWorkflowDraftDetails(files: CsvSourceFile[]) {
+  const detailsByRef = new Map<string, WorkflowDraftDetail[]>();
+  for (const file of files) {
+    const parsed = parseCsv(file.content);
+    parsed.rows.forEach((rawRow, index) => {
+      const row = new CsvRowReader(rawRow);
+      const externalOrderId = normalizeExternalOrderId(row.string('Order ID'));
+      const company = canonicalCompanyName(row.string('Company'));
+      const externalSupplierCode = normalizeExternalSupplierCode(row.string('SR ID'));
+      const asin = normalizeSourceAsin(row.string('ASIN'));
+      const orderQty = finiteNumber(row.string('Qty'));
+      if (!externalOrderId || !company || !externalSupplierCode || !asin || !orderQty || orderQty <= 0) return;
+      const detail: WorkflowDraftDetail = {
+        sourceFile: file.name,
+        sourceRow: index + 2,
+        sourceHash: createHash('sha256').update(JSON.stringify(rawRow)).digest('hex'),
+        company,
+        externalOrderId,
+        externalSupplierCode,
+        asin,
+        supplierSku: asString(row.string('SKU')),
+        upc: asString(row.string('UPC')),
+        orderQty,
+        unitCost: finiteNumber(row.string('PPU')),
+        expectedCost: finiteNumber(row.string('Total Cost')),
+        orderType: asString(row.string('Order type')),
+        orderDate: dayFirstDate(row.string('Timestamp')),
+      };
+      detailsByRef.set(externalOrderId, [...(detailsByRef.get(externalOrderId) ?? []), detail]);
+    });
+  }
+  return detailsByRef;
+}
+
+function marketplaceFromTaskName(value: string) {
+  if (/\b(?:usa|us|united states)\b/i.test(value)) return 'amazon.com';
+  if (/\b(?:uk|united kingdom)\b/i.test(value)) return 'amazon.co.uk';
+  if (/\b(?:mexico|mx)\b/i.test(value)) return 'amazon.com.mx';
+  if (/\b(?:canada|ca)\b/i.test(value)) return 'amazon.ca';
+  return undefined;
+}
+
+function marketplaceFromFamily(value: unknown) {
+  const marketplace = asString(value)?.toLowerCase();
+  if (marketplace === 'amazon.com') return 'US';
+  if (marketplace === 'amazon.co.uk') return 'UK';
+  return asString(value);
 }
 
 export class EcobaseClickupOrderStatusService {
@@ -568,7 +729,7 @@ export class EcobaseClickupOrderStatusService {
       };
       if (!dryRun) {
         if (existingId) {
-          await userRepo.update({ filterByTk: existingTk, values });
+          if (recordValuesChanged(user, values)) await userRepo.update({ filterByTk: existingTk, values });
           user = { ...user, ...values };
         } else {
           user = toPlainRecord(await userRepo.create({ values }));
@@ -589,6 +750,246 @@ export class EcobaseClickupOrderStatusService {
 
   parseCsvFiles(files: CsvSourceFile[]) {
     return parseClickupOrderStatusFiles(files);
+  }
+
+  private async reconcileWorkflowDraftLineMappings(dryRun: boolean) {
+    const orders = (
+      await this.db
+        .getRepository(ECOBASE_COLLECTIONS.silverOrders)
+        .find({ filter: { recordType: 'workflow_draft' }, limit: 100000 })
+    ).map(toPlainRecord);
+    const orderIds = orders.map((order) => asIdString(order.id)).filter((id): id is string => Boolean(id));
+    if (!orderIds.length) return 0;
+    const repo = this.db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines);
+    const lines = (await repo.find({ filter: { orderId: { $in: orderIds } }, limit: 100000 })).map(toPlainRecord);
+    let reconciled = 0;
+    for (const line of lines) {
+      const expected = asIdString(line.companyProductId)
+        ? 'exact_member'
+        : asIdString(line.companyProductFamilyId)
+          ? 'family_only'
+          : 'unresolved';
+      const values = { mappingScope: expected, productMappingStatus: expected };
+      if (!recordValuesChanged(line, values)) continue;
+      reconciled += 1;
+      const id = asIdString(line.id);
+      if (!dryRun && !id) throw new Error('Ecobase ClickUp reconciliation failed: workflow draft line has no ID.');
+      if (!dryRun) await repo.update({ filterByTk: id, values });
+    }
+    return reconciled;
+  }
+
+  private async createWorkflowDrafts(params: {
+    selectedTasks: ReturnType<typeof parseClickupOrderStatusFiles>['selectedTasks'];
+    matchedRefs: Set<string>;
+    orderDetailFiles: CsvSourceFile[];
+    dryRun: boolean;
+    sourceConnectionId: string;
+    observedAt: string;
+  }) {
+    const detailsByRef = parseWorkflowDraftDetails(params.orderDetailFiles);
+    const unmatchedTasks = params.selectedTasks.filter(
+      ({ ref, task }) => !params.matchedRefs.has(ref) && !['complete', 'cancelled'].includes(task.workflowStage ?? ''),
+    );
+    const exceptions: Array<Record<string, unknown>> = [];
+    const workflowDraftRefs: string[] = [];
+    if (!unmatchedTasks.length) {
+      return { workflowDraftCount: 0, workflowDraftLineCount: 0, workflowDraftRefs, exceptions };
+    }
+
+    const [companies, externalRefs, supplierAccounts, families, companyProducts, products] = await Promise.all([
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).find({ limit: 1000 }),
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverSupplierExternalRefs).find({ limit: 100000 }),
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverSupplierAccounts).find({ limit: 100000 }),
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductFamilies).find({ limit: 100000 }),
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).find({ limit: 100000 }),
+      this.db.getRepository(ECOBASE_COLLECTIONS.silverProducts).find({ limit: 100000 }),
+    ]).then((groups) => groups.map((rows) => rows.map(toPlainRecord)));
+    const companyByName = new Map<string, PlainRecord>(
+      companies.map((company) => [canonicalCompanyName(asString(company.name)), company]),
+    );
+    const externalRefByCode = new Map(
+      externalRefs.map((externalRef) => [asString(externalRef.normalizedExternalSupplierCode), externalRef]),
+    );
+    const accountByCompanySupplier = new Map(
+      supplierAccounts.map((account) => [
+        `${asIdString(account.companyId)}:${asIdString(account.supplierId)}`,
+        account,
+      ]),
+    );
+    const productById = new Map(products.map((product) => [asIdString(product.id), product]));
+    const membersByFamily = new Map<string, PlainRecord[]>();
+    for (const member of companyProducts) {
+      const familyId = asIdString(member.companyProductFamilyId);
+      if (familyId) membersByFamily.set(familyId, [...(membersByFamily.get(familyId) ?? []), member]);
+    }
+
+    let workflowDraftCount = 0;
+    let workflowDraftLineCount = 0;
+    for (const selected of unmatchedTasks) {
+      const details = detailsByRef.get(selected.ref) ?? [];
+      const company = companyByName.get(selected.company);
+      const companyId = asIdString(company?.id);
+      const supplierCodes = [...new Set(details.map((detail) => detail.externalSupplierCode))];
+      const externalRef = supplierCodes.length === 1 ? externalRefByCode.get(supplierCodes[0]) : undefined;
+      const supplierId = asIdString(externalRef?.supplierId);
+      const supplierExternalRefId = asIdString(externalRef?.id);
+      const supplierAccountId = asIdString(
+        companyId && supplierId ? accountByCompanySupplier.get(`${companyId}:${supplierId}`)?.id : undefined,
+      );
+      if (
+        !details.length ||
+        !companyId ||
+        details.some((detail) => detail.company !== selected.company) ||
+        supplierCodes.length !== 1 ||
+        !supplierId ||
+        !supplierExternalRefId ||
+        !supplierAccountId ||
+        details.some((detail) => !detail.orderDate)
+      ) {
+        exceptions.push({
+          ref: selected.ref,
+          taskId: selected.task.taskId,
+          reason: details.length ? 'workflow_draft_identity_unresolved' : 'order_details_missing',
+        });
+        continue;
+      }
+      const taskMarketplace = marketplaceFromTaskName(selected.task.taskName);
+      const resolvedLines = details.map((detail) => {
+        const familyCandidates = families.filter(
+          (family) =>
+            asIdString(family.companyId) === companyId &&
+            asString(family.canonicalAsin) === detail.asin &&
+            (!taskMarketplace || asString(family.marketplace)?.toLowerCase() === taskMarketplace),
+        );
+        if (familyCandidates.length !== 1) return undefined;
+        const family = familyCandidates[0];
+        const familyId = asIdString(family.id)!;
+        const memberCandidates = (membersByFamily.get(familyId) ?? []).filter((member) => {
+          const product = productById.get(asIdString(member.productId));
+          return detail.supplierSku && asString(product?.sku) === detail.supplierSku;
+        });
+        if (memberCandidates.length > 1) return undefined;
+        return {
+          detail,
+          family,
+          familyId,
+          companyProductId: memberCandidates.length === 1 ? asIdString(memberCandidates[0].id) : undefined,
+        };
+      });
+      if (resolvedLines.some((line) => !line)) {
+        exceptions.push({
+          ref: selected.ref,
+          taskId: selected.task.taskId,
+          reason: 'workflow_draft_family_unresolved',
+        });
+        continue;
+      }
+      workflowDraftCount += 1;
+      workflowDraftLineCount += resolvedLines.length;
+      workflowDraftRefs.push(selected.ref);
+      if (params.dryRun) continue;
+
+      const persist = async (transaction?: unknown) => {
+        const orderId = randomUUID();
+        const evidence = statusEvidence(
+          selected.task,
+          params.observedAt,
+          selected.allTasks.filter((task) => task.mainOrderTask).map((task) => task.taskId),
+          selected.override,
+        );
+        const sourceMarketplace = marketplaceFromFamily(resolvedLines[0]!.family.marketplace);
+        await this.db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+          values: {
+            id: orderId,
+            companyId,
+            supplierId,
+            supplierExternalRefId,
+            supplierAccountId,
+            orderRef: selected.ref,
+            externalOrderId: selected.ref,
+            recordType: 'workflow_draft',
+            purchaseEvidenceStatus: 'unconfirmed_workflow',
+            orderDate: details[0].orderDate,
+            dailySequenceLetter: selected.ref.match(/[A-Z]$/)?.[0] ?? 'A',
+            orderIntent: details[0].orderType?.toLowerCase() ?? 'unknown',
+            sourceMarketplace,
+            canonicalStatus: selected.task.mappedStatus,
+            lifecycleStatus: selected.task.lifecycleStatus,
+            operationalStatus: selected.task.clickupStatus,
+            workflowStage: selected.task.workflowStage,
+            statusSource: 'clickup_csv',
+            statusCheckRequired: !selected.task.mappedStatus,
+            statusEvidenceJson: { clickupStatusImport: evidence, importedAt: params.observedAt, statusHistory: [] },
+            authorityStatus: 'clickup_authoritative',
+            authoritySource: 'clickup_csv',
+            authorityTaskRef: selected.task.taskId,
+            authorityAsOf: params.observedAt,
+            authorityEvidenceJson: { clickupStatusEvidence: evidence },
+            taskRef: selected.task.taskId,
+            taskLink: selected.task.taskLink,
+            expectedCost: details.reduce((sum, detail) => sum + (detail.expectedCost ?? 0), 0),
+            sourceEvidence: {
+              sourceConnectionId: params.sourceConnectionId,
+              clickupTaskId: selected.task.taskId,
+              orderDetails: details.map(({ sourceFile, sourceRow, sourceHash }) => ({
+                sourceFile,
+                sourceRow,
+                sourceHash,
+              })),
+            },
+          },
+          transaction,
+        });
+        for (const [index, resolved] of resolvedLines.entries()) {
+          const { detail, familyId, companyProductId } = resolved!;
+          await this.db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+            values: {
+              id: randomUUID(),
+              orderId,
+              companyProductFamilyId: familyId,
+              companyProductId,
+              supplierProductId: null,
+              sourceLineKey: `workflow_draft:${detail.sourceHash}`,
+              externalOrderId: selected.ref,
+              lineOrdinal: index + 1,
+              sourceAsin: detail.asin,
+              sourceSupplierSku: detail.supplierSku,
+              sourceMarketplace: marketplaceFromFamily(resolved!.family.marketplace),
+              sourceSkuType: detail.supplierSku ? 'supplier_sku' : detail.upc ? 'upc' : 'unknown',
+              mappingScope: companyProductId ? 'exact_member' : 'family_only',
+              purchaseEvidenceStatus: 'unconfirmed_workflow',
+              sourceRowNumber: detail.sourceRow,
+              sourceRowHash: detail.sourceHash,
+              productMappingStatus: companyProductId ? 'exact_member' : 'family_only',
+              productMappingEvidenceJson: { reason: 'workflow_draft_exact_company_family' },
+              orderedQty: detail.orderQty,
+              orderQty: detail.orderQty,
+              unitCost: detail.unitCost,
+              expectedCost: detail.expectedCost,
+              orderType: detail.orderType,
+              operationalStatus: selected.task.clickupStatus,
+              upc: detail.upc,
+              sourceEvidence: {
+                file: detail.sourceFile,
+                row: detail.sourceRow,
+                hash: detail.sourceHash,
+                clickupTaskId: selected.task.taskId,
+              },
+            },
+            transaction,
+          });
+        }
+      };
+      const sequelize = (
+        this.db as EcobaseDatabase & {
+          sequelize?: { transaction: (callback: (transaction: unknown) => Promise<void>) => Promise<void> };
+        }
+      ).sequelize;
+      if (sequelize) await sequelize.transaction(persist);
+      else await persist();
+    }
+    return { workflowDraftCount, workflowDraftLineCount, workflowDraftRefs, exceptions };
   }
 
   async reconcileAuthority(asOf = new Date().toISOString()) {
@@ -643,22 +1044,24 @@ export class EcobaseClickupOrderStatusService {
               : 'missing_authoritative_task_or_alternate_evidence';
       counts[authorityStatus] = (counts[authorityStatus] ?? 0) + 1;
       if (authorityStatus === 'unresolved') unresolvedAuthorityOrderIds.push(orderId);
-      await orderRepo.update({
-        filterByTk: orderId,
-        values: {
-          authorityStatus,
-          authoritySource,
-          authorityTaskRef: clickupTaskRef,
-          authorityAsOf: asString(clickupEvidence.taskOccurredAt) ?? asString(statusEvidenceJson.importedAt) ?? asOf,
-          authorityEvidenceJson: {
-            orderRef: asString(order.externalOrderRef) ?? asString(order.orderRef),
-            canonicalStatus: asString(order.canonicalStatus) ?? asString(order.status),
-            statusSource,
-            operatorOverride,
-            clickupStatusEvidence: clickupEvidence,
-          },
+      const values = {
+        authorityStatus,
+        authoritySource,
+        authorityTaskRef: clickupTaskRef,
+        authorityAsOf:
+          asString(clickupEvidence.observedAt) ??
+          asString(statusEvidenceJson.importedAt) ??
+          asString(order.authorityAsOf) ??
+          asOf,
+        authorityEvidenceJson: {
+          orderRef: asString(order.externalOrderRef) ?? asString(order.orderRef),
+          canonicalStatus: asString(order.canonicalStatus) ?? asString(order.status),
+          statusSource,
+          operatorOverride,
+          clickupStatusEvidence: clickupEvidence,
         },
-      });
+      };
+      if (recordValuesChanged(order, values)) await orderRepo.update({ filterByTk: orderId, values });
     }
     return { authorityCounts: counts, unresolvedAuthorityOrderIds };
   }
@@ -669,6 +1072,7 @@ export class EcobaseClickupOrderStatusService {
     sourceConnectionId?: string;
     importedAt?: string;
     overrideOperatorStatus?: boolean;
+    orderDetailFiles?: CsvSourceFile[];
   }): Promise<ClickupOrderStatusImportResult> {
     const dryRun = params.dryRun !== false;
     if (!dryRun && !params.sourceConnectionId) {
@@ -688,7 +1092,25 @@ export class EcobaseClickupOrderStatusService {
     const allTasks = [...tasksByRef.values()].flat();
     const supplierOrderRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverOrders);
     const activityRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments);
-    const supplierOrders = (await silverSupplierOrderReadModel(this.db, { limit: 100000 })).supplierOrders;
+    const initialSupplierOrders = (await silverSupplierOrderReadModel(this.db, { limit: 100000 })).supplierOrders;
+    const reconciledWorkflowDraftLineCount = await this.reconcileWorkflowDraftLineMappings(dryRun);
+    const initialRefs = new Set(
+      initialSupplierOrders
+        .map(toPlainRecord)
+        .map((order) => asString(order.externalOrderRef))
+        .filter((ref): ref is string => Boolean(ref)),
+    );
+    const workflowDrafts = await this.createWorkflowDrafts({
+      selectedTasks,
+      matchedRefs: initialRefs,
+      orderDetailFiles: params.orderDetailFiles ?? [],
+      dryRun,
+      sourceConnectionId,
+      observedAt: importedAt,
+    });
+    const supplierOrders = dryRun
+      ? initialSupplierOrders
+      : (await silverSupplierOrderReadModel(this.db, { limit: 100000 })).supplierOrders;
     const ordersByCompanyRef = new Map<string, PlainRecord[]>();
     for (const order of supplierOrders.map(toPlainRecord)) {
       const ref = asString(order.externalOrderRef);
@@ -753,7 +1175,10 @@ export class EcobaseClickupOrderStatusService {
           right.occurrenceCount - left.occurrenceCount || left.sourceActor.localeCompare(right.sourceActor),
       );
     const conflictingRefs = new Set(
-      conflictingMainTasks.map((conflict) => asString(conflict.ref)).filter((ref): ref is string => Boolean(ref)),
+      conflictingMainTasks
+        .filter((conflict) => conflict.resolvedByOverride !== true)
+        .map((conflict) => asString(conflict.ref))
+        .filter((ref): ref is string => Boolean(ref)),
     );
     let updatedOrderCount = 0;
     let proposedCommentCount = 0;
@@ -807,23 +1232,37 @@ export class EcobaseClickupOrderStatusService {
       }
     }
 
-    for (const { ref, company, task } of selectedTasks) {
+    for (const { ref, company, task, allTasks: candidateTasks, override } of selectedTasks) {
       if (!task.mappedStatus) {
         unmappedStatuses.push({ ref, clickupStatus: task.clickupStatus, taskName: task.taskName });
       }
       const order = matchedOrderByRef.get(ref);
       const supplierOrderId = asString(order?.id);
       if (!order || !supplierOrderId) continue;
-      const evidence = statusEvidence(task);
+      const candidateTaskIds = candidateTasks
+        .filter((candidate) => candidate.mainOrderTask)
+        .map((candidate) => candidate.taskId);
+      const nextEvidence = statusEvidence(task, importedAt, candidateTaskIds, override);
       const statusConflict = conflictingRefs.has(ref);
       const operatorOverride =
         asString(order.statusSource) === 'operator' || Boolean(asString(order.operatorStatusOverrideAt));
       const overrideOperatorStatus = operatorOverride && params.overrideOperatorStatus === true;
       const existingEvidence = asPlainRecord(order.statusEvidenceJson);
+      const previousClickupEvidence = asPlainRecord(existingEvidence.clickupStatusImport);
+      const sameClickupState =
+        asString(previousClickupEvidence.taskId) === task.taskId &&
+        asString(previousClickupEvidence.clickupStatus) === task.clickupStatus &&
+        isDeepStrictEqual(previousClickupEvidence.candidateTaskIds ?? [], candidateTaskIds) &&
+        isDeepStrictEqual(previousClickupEvidence.selectionOverride ?? null, override ?? null);
+      const evidence = sameClickupState ? previousClickupEvidence : nextEvidence;
+      const previousClickupStatus = asString(previousClickupEvidence.clickupStatus);
+      const statusChanged = Boolean(previousClickupStatus && previousClickupStatus !== task.clickupStatus);
       const operatorOperationalStatus = asString(asPlainRecord(existingEvidence.operatorOperationalStatus).status);
       const statusDiscrepancy = Boolean(
         operatorOverride &&
-          normalizeOrderOperationalStatus(operatorOperationalStatus ?? order.lifecycleStatus) !== task.clickupStatus,
+          normalizeOrderOperationalStatus(
+            operatorOperationalStatus ?? order.operationalStatus ?? order.lifecycleStatus,
+          ) !== task.clickupStatus,
       );
       proposedUpdates.push({
         supplierOrderId,
@@ -832,61 +1271,88 @@ export class EcobaseClickupOrderStatusService {
         previousStatus: asString(order.canonicalStatus) ?? asString(order.lifecycleStatus),
         nextStatus: task.mappedStatus,
         clickupStatus: task.clickupStatus,
+        workflowStage: task.workflowStage,
         taskId: task.taskId,
         taskName: task.taskName,
         taskLink: task.taskLink,
         operatorOverride,
         overrideOperatorStatus,
         statusDiscrepancy,
+        statusChanged,
         requiresReview: !task.mappedStatus || statusDiscrepancy || statusConflict,
       });
       if (operatorOverride && !overrideOperatorStatus) operatorOverrideCount += 1;
       if (overrideOperatorStatus) overriddenOperatorStatusCount += 1;
       if (dryRun) continue;
+      const statusHistory = Array.isArray(existingEvidence.statusHistory) ? existingEvidence.statusHistory : [];
       const statusEvidenceJson: PlainRecord = {
         ...existingEvidence,
         clickupStatusImport: evidence,
-        importedAt,
+        importedAt: sameClickupState ? existingEvidence.importedAt ?? importedAt : importedAt,
+        statusHistory: statusChanged
+          ? [
+              ...statusHistory,
+              {
+                source: 'clickup_csv',
+                taskId: task.taskId,
+                previousStatus: previousClickupStatus,
+                nextStatus: task.clickupStatus,
+                observedAt: importedAt,
+              },
+            ]
+          : statusHistory,
         clickupStatusConflict: statusConflict ? conflictingMainTasks.find((conflict) => conflict.ref === ref) : null,
         clickupStatusDiscrepancy: statusDiscrepancy
           ? {
-              operatorStatus: operatorOperationalStatus ?? order.lifecycleStatus,
+              operatorStatus: operatorOperationalStatus ?? order.operationalStatus ?? order.lifecycleStatus,
               clickupStatus: task.clickupStatus,
-              detectedAt: importedAt,
+              detectedAt: sameClickupState
+                ? asString(asPlainRecord(existingEvidence.clickupStatusDiscrepancy).detectedAt) ?? importedAt
+                : importedAt,
             }
           : null,
       };
       if (overrideOperatorStatus) delete statusEvidenceJson.operatorOperationalStatus;
-      if (!task.mappedStatus || statusConflict) {
-        await supplierOrderRepo.update({
-          filterByTk: supplierOrderId,
-          values: { statusEvidenceJson, statusCheckRequired: true },
-        });
-        continue;
-      }
-      await supplierOrderRepo.update({
-        filterByTk: supplierOrderId,
-        values:
-          operatorOverride && !overrideOperatorStatus
+      const values: PlainRecord =
+        !task.mappedStatus || statusConflict
+          ? {
+              statusEvidenceJson,
+              statusCheckRequired: true,
+              taskRef: task.taskId,
+              taskLink: task.taskLink,
+              authorityAsOf: sameClickupState ? order.authorityAsOf ?? importedAt : importedAt,
+            }
+          : operatorOverride && !overrideOperatorStatus
             ? {
                 statusEvidenceJson,
                 statusCheckRequired: statusDiscrepancy || order.statusCheckRequired === true,
+                taskRef: task.taskId,
+                taskLink: task.taskLink,
+                authorityAsOf: sameClickupState ? order.authorityAsOf ?? importedAt : importedAt,
               }
             : {
                 canonicalStatus: task.mappedStatus,
-                lifecycleStatus: task.clickupStatus,
+                lifecycleStatus: task.lifecycleStatus,
+                operationalStatus: task.clickupStatus,
+                workflowStage: task.workflowStage,
                 statusSource: 'clickup_csv',
                 statusCheckRequired: false,
                 statusEvidenceJson,
+                taskRef: task.taskId,
+                taskLink: task.taskLink,
+                authorityAsOf: sameClickupState ? order.authorityAsOf ?? importedAt : importedAt,
                 ...(overrideOperatorStatus
                   ? { operatorStatusOverrideAt: null, operatorStatusOverrideByUserId: null }
                   : {}),
-              },
-      });
-      if (!operatorOverride || overrideOperatorStatus) updatedOrderCount += 1;
+              };
+      if (recordValuesChanged(order, values)) {
+        await supplierOrderRepo.update({ filterByTk: supplierOrderId, values });
+        if (!operatorOverride || overrideOperatorStatus) updatedOrderCount += 1;
+      }
     }
 
-    const blockingIssueCount = ambiguousOrders.length + unmappedStatuses.length;
+    const blockingIssueCount =
+      ambiguousOrders.length + unmappedStatuses.length + conflictingRefs.size + companyConflicts.length;
     const authority = dryRun ? undefined : await this.reconcileAuthority(importedAt);
 
     return {
@@ -913,6 +1379,12 @@ export class EcobaseClickupOrderStatusService {
       ambiguousMultiRefTaskCount: ambiguousMultiRefTasks.length,
       operatorOverrideCount,
       overriddenOperatorStatusCount,
+      selectedTaskOverrideCount: selectedTasks.filter((selected) => selected.override).length,
+      workflowDraftCount: workflowDrafts.workflowDraftCount,
+      workflowDraftLineCount: workflowDrafts.workflowDraftLineCount,
+      reconciledWorkflowDraftLineCount,
+      workflowDraftRefs: workflowDrafts.workflowDraftRefs,
+      workflowDraftExceptions: workflowDrafts.exceptions,
       blockingIssueCount,
       proposedUpdates,
       proposedComments,

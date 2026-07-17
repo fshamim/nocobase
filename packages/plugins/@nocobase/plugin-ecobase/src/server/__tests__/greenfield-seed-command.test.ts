@@ -38,7 +38,7 @@ const STAGING_FAST_PATHS_BY_GROUP: Record<string, string[]> = {
     'data/order-managment-sheets/Ecofission-Order Management - OrderDetails.csv',
   ],
   'supplier-management': [
-    'data/supplier-management-sheets/Supplier Analysis Tracker - Supplier Analysis Tracker.csv',
+    'data/dataforimport/Ecofission-Order Management - Supplier IDs.csv',
     'data/supplier-management-sheets/Supplier Analysis Tracker - Supplier 2026.csv',
   ],
 };

@@ -132,7 +132,7 @@ function verifierFixture({ includeLine = true } = {}) {
 }
 
 describe('EcobaseOrderDetailsRelationshipVerifier', () => {
-  it('verifies only the newest repeated row and primary-SKU history through an alias SKU line', async () => {
+  it('verifies repeated source rows without latest-row inference and reaches primary-SKU history', async () => {
     const { db, file } = verifierFixture();
 
     const result = await new EcobaseOrderDetailsRelationshipVerifier(db).verify(file);
@@ -140,9 +140,8 @@ describe('EcobaseOrderDetailsRelationshipVerifier', () => {
     expect(result.ok, JSON.stringify(result)).toBe(true);
     expect(result.totals).toMatchObject({
       sourceRows: 2,
-      acceptedRows: 1,
-      supersededRows: 1,
-      verifiedRows: 1,
+      acceptedRows: 2,
+      verifiedRows: 2,
       relationshipGaps: 0,
       inventoryHistoryGaps: 0,
     });
@@ -155,8 +154,8 @@ describe('EcobaseOrderDetailsRelationshipVerifier', () => {
     const result = await new EcobaseOrderDetailsRelationshipVerifier(db).verify(file);
 
     expect(result.ok, JSON.stringify(result)).toBe(true);
-    expect(result.totals).toMatchObject({ acceptedRows: 0, supplierMismatchRows: 1, relationshipGaps: 0 });
-    expect(result.invalidReasons).toMatchObject({ supplier_mismatch_purchase_header: 1 });
+    expect(result.totals).toMatchObject({ acceptedRows: 0, supplierMismatchRows: 2, relationshipGaps: 0 });
+    expect(result.invalidReasons).toMatchObject({ supplier_mismatch_purchase_header: 2 });
   });
 
   it('distinguishes missing and duplicate company-product matches', async () => {
@@ -172,11 +171,15 @@ describe('EcobaseOrderDetailsRelationshipVerifier', () => {
     const missingResult = await new EcobaseOrderDetailsRelationshipVerifier(missing.db).verify(missing.file);
     const duplicateResult = await new EcobaseOrderDetailsRelationshipVerifier(duplicate.db).verify(duplicate.file);
 
-    expect(missingResult.discrepancies).toEqual([
-      expect.objectContaining({ reason: 'company_product_not_found' }),
-      expect.objectContaining({ reason: 'inventory_order_history_not_reachable' }),
-    ]);
-    expect(duplicateResult.discrepancies).toEqual([expect.objectContaining({ reason: 'company_product_not_unique' })]);
+    expect(missingResult.discrepancies).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ reason: 'company_product_not_found' }),
+        expect.objectContaining({ reason: 'inventory_order_history_not_reachable' }),
+      ]),
+    );
+    expect(duplicateResult.discrepancies).toEqual(
+      expect.arrayContaining([expect.objectContaining({ reason: 'company_product_not_unique' })]),
+    );
   });
 
   it('distinguishes missing and duplicate supplier-product matches', async () => {
@@ -192,8 +195,12 @@ describe('EcobaseOrderDetailsRelationshipVerifier', () => {
     const missingResult = await new EcobaseOrderDetailsRelationshipVerifier(missing.db).verify(missing.file);
     const duplicateResult = await new EcobaseOrderDetailsRelationshipVerifier(duplicate.db).verify(duplicate.file);
 
-    expect(missingResult.discrepancies).toEqual([expect.objectContaining({ reason: 'supplier_product_not_found' })]);
-    expect(duplicateResult.discrepancies).toEqual([expect.objectContaining({ reason: 'supplier_product_not_unique' })]);
+    expect(missingResult.discrepancies).toEqual(
+      expect.arrayContaining([expect.objectContaining({ reason: 'supplier_product_not_found' })]),
+    );
+    expect(duplicateResult.discrepancies).toEqual(
+      expect.arrayContaining([expect.objectContaining({ reason: 'supplier_product_not_unique' })]),
+    );
   });
 
   it('distinguishes missing and duplicate Silver order-line matches', async () => {
@@ -208,15 +215,15 @@ describe('EcobaseOrderDetailsRelationshipVerifier', () => {
     const duplicateResult = await new EcobaseOrderDetailsRelationshipVerifier(duplicate.db).verify(duplicate.file);
 
     expect(missingResult.ok).toBe(false);
-    expect(missingResult.totals).toMatchObject({ relationshipGaps: 1, inventoryHistoryGaps: 1 });
+    expect(missingResult.totals).toMatchObject({ relationshipGaps: 2, inventoryHistoryGaps: 1 });
     expect(missingResult.discrepancies).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ reason: 'silver_order_line_not_found' }),
         expect.objectContaining({ reason: 'inventory_order_history_not_reachable' }),
       ]),
     );
-    expect(duplicateResult.discrepancies).toEqual([
-      expect.objectContaining({ reason: 'silver_order_line_not_unique' }),
-    ]);
+    expect(duplicateResult.discrepancies).toEqual(
+      expect.arrayContaining([expect.objectContaining({ reason: 'silver_order_line_not_unique' })]),
+    );
   });
 });

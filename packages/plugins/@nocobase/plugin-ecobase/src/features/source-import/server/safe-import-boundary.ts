@@ -71,9 +71,10 @@ function projectionDataset(context: SafeImportBoundaryContext, item: AdapterStre
   if (!source) return undefined;
   const shape = detectCsvShape(Object.keys(source));
   if (shape === 'order-details') return 'order_details' as const;
-  if (shape === 'purchase-orders' || shape === 'pre-order-sheet') return 'purchase_orders' as const;
+  if (shape === 'purchase-orders') return 'purchase_orders' as const;
   if (shape === 'supplier-analysis-tracker') return 'supplier_tracker' as const;
-  if (shape === 'supplier-analysis-2026' || shape === 'supplier-ids') return 'supplier_2026' as const;
+  if (shape === 'supplier-analysis-2026') return 'supplier_2026' as const;
+  if (shape === 'supplier-ids') return 'supplier_ids' as const;
   if (
     shape === 'sellerboard-dashboard-goods' ||
     shape === 'sellerboard-dashboard-totals' ||
@@ -161,6 +162,10 @@ function safeProjection(
   const source = item.type === 'record' ? item.payload : item.type === 'rowIssue' ? item.issue.payload ?? {} : {};
   const retainedOrderRef = dataset === 'clickup_order_evidence' ? orderRef(item) : undefined;
   const projected = projectSourceRecord(dataset, source, { retainedOrderRef });
+  const snapshotDate = recordValue(item, 'snapshotDate');
+  if (snapshotDate && (dataset === 'sellerboard_daily_facts' || dataset === 'amazon_listing_inventory')) {
+    projected.payload.period = snapshotDate;
+  }
   if (companyKey) {
     const companyName = canonicalCompanyName(companyKey);
     if (dataset === 'supplier_tracker' || dataset === 'supplier_2026') {
@@ -176,11 +181,12 @@ function safeItem(
   item: AdapterStreamItem,
   projection: SourceRecordProjection,
   decision: Pick<MigrationDecision, 'disposition' | 'reasonCode'>,
+  dataset: MigrationDataset,
 ) {
   if (item.type === 'record' && decision.disposition === 'accept') {
     let droppedFieldCount = 0;
     const sanitize = (record: NormalizedRecord) => {
-      const safe = projectNormalizedRecordData(record.data);
+      const safe = projectNormalizedRecordData(record.data, dataset === 'supplier_2026');
       droppedFieldCount += safe.droppedFieldCount;
       return { ...record, data: safe.payload };
     };
@@ -225,7 +231,7 @@ export function applySafeImportBoundary(
   if (rejectedSupplierExternalRef(item, dataset)) {
     return { disposition: 'discard', reasonCode: 'supplier_external_ref_rejected', droppedFieldCount: 0 };
   }
-  const scopeFree = dataset === 'source_access_audit' || dataset === 'source_issue';
+  const scopeFree = dataset === 'source_access_audit' || dataset === 'source_issue' || dataset === 'supplier_ids';
   const decision = scopeFree
     ? ({ disposition: 'accept', reasonCode: `safe_${dataset}` } as const)
     : scopeDecision(context, item, dataset);
@@ -233,7 +239,7 @@ export function applySafeImportBoundary(
     return { disposition: 'discard', reasonCode: decision.reasonCode, droppedFieldCount: 0 };
   }
   const projection = safeProjection(dataset, item, 'companyKey' in decision ? decision.companyKey : undefined);
-  const safe = safeItem(item, projection, decision);
+  const safe = safeItem(item, projection, decision, dataset);
   return {
     disposition: decision.disposition,
     reasonCode: decision.reasonCode,

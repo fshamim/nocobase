@@ -247,7 +247,8 @@ function expectedFreshDate(input: SourceAdapterImportInput, report: SellerboardR
   if (typeof input.config.expectedReportDate === 'string') return input.config.expectedReportDate;
   const sourceDate = /^\d{4}-\d{2}-\d{2}/.test(input.sourceVersion) ? input.sourceVersion.slice(0, 10) : undefined;
   if (!sourceDate) return undefined;
-  return input.sourceIdentifier === 'sellerboard-scheduled' &&
+  return (input.sourceIdentifier === 'sellerboard-scheduled' ||
+    input.sourceIdentifier.startsWith('sellerboard-api-bootstrap')) &&
     ROLLING_SELLERBOARD_REPORT_CATEGORIES.has(report.category)
     ? previousIsoDate(sourceDate)
     : sourceDate;

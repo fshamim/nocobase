@@ -182,6 +182,7 @@ describe('EcobasePlanningSettingsService', () => {
 
     expect(result.settings).toMatchObject({
       ...DEFAULT_PLANNING_SETTINGS,
+      defaultSupplierLeadTimeDays: 30,
       fbaReceivingBufferDays: 7,
       enableCurrentOrderCycleSelection: false,
     });
@@ -197,6 +198,7 @@ describe('EcobasePlanningSettingsService', () => {
       profitTierBThreshold: 200,
       profitTierCThreshold: 10,
       supplierOrderPurchasedPipelineStatuses: ['paid', 'custom-paid'],
+      defaultSupplierLeadTimeDays: 35,
       fbaReceivingBufferDays: 4,
       enableCurrentOrderCycleSelection: true,
     });
@@ -209,6 +211,7 @@ describe('EcobasePlanningSettingsService', () => {
       profitTierBThreshold: 200,
       profitTierCThreshold: 10,
       supplierOrderPurchasedPipelineStatuses: ['paid', 'custom_paid'],
+      defaultSupplierLeadTimeDays: 35,
       fbaReceivingBufferDays: 4,
       enableCurrentOrderCycleSelection: true,
     });
@@ -238,6 +241,7 @@ describe('EcobasePlanningSettingsService', () => {
       orderSoonWindowDays: 5,
       leadTimeFreshnessDays: 30,
       purchasedPipelineGraceDays: 1,
+      defaultSupplierLeadTimeDays: 12,
       profitTierAThreshold: 500,
       profitTierBThreshold: 200,
       profitTierCThreshold: 0,
@@ -249,7 +253,7 @@ describe('EcobasePlanningSettingsService', () => {
       title: 'Settings product',
       stock: 10,
       salesVelocity: 2,
-      leadTimeDays: 4,
+      leadTimeDays: undefined,
       units: 20,
       profit: 400,
     });
@@ -263,6 +267,8 @@ describe('EcobasePlanningSettingsService', () => {
 
     expect(row).toMatchObject({
       targetCoverDays: 30,
+      leadTimeDays: 12,
+      leadTimeAvailability: 'resolved_default_supplier_lead_time',
       suggestedReorderQty: 50,
     });
   });

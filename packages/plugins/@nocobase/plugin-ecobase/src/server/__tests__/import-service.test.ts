@@ -223,6 +223,67 @@ describe('Ecobase no-op import and status seam', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.importRuns).all()).toEqual([]);
   });
 
+  it('blocks Sellerboard refresh before Bronze writes when a row proposes protected catalog drift', async () => {
+    const db = new MemoryDatabase();
+    await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).create({
+      values: {
+        id: 'sellerboard-source',
+        name: 'Sellerboard source',
+        sourceType: 'sellerboard',
+        domain: 'profitability',
+        config: {},
+        active: true,
+      },
+    });
+    let sourceReadStarted = false;
+    const sellerboardAdapter: SourceAdapter = {
+      metadata: {
+        name: 'sellerboard-api',
+        title: 'Sellerboard API',
+        sourceType: 'sellerboard',
+        supportedDomains: ['profitability'],
+        version: '1',
+      },
+      async *import() {
+        sourceReadStarted = true;
+        yield {
+          type: 'record',
+          rowNumber: 2,
+          sourceKey: 'sellerboard.csv:2',
+          payload: {
+            Company: 'Ecofission LLC',
+            Date: '2026-07-17',
+            Marketplace: 'Amazon.com',
+            ASIN: 'B000000001',
+            SKU: 'SKU-1',
+            SalesOrganic: '10',
+          },
+          record: {
+            kind: 'listing_daily_fact',
+            data: { company: 'Ecofission LLC', asin: 'B000000001', sku: 'SKU-1' },
+          },
+        };
+      },
+    };
+    const service = new EcobaseImportService(db, createSourceAdapterRegistry([sellerboardAdapter]));
+
+    const run = await service.runAdapterImport({
+      sourceConnectionId: 'sellerboard-source',
+      adapterName: 'sellerboard-api',
+      sourceIdentifier: 'sellerboard-refresh',
+      sourceVersion: 'v1',
+    });
+
+    expect(run).toMatchObject({
+      status: 'failed',
+      errorCount: 1,
+      errorMessage:
+        'Ecobase Sellerboard refresh preflight failed: Ecofission LLC/Amazon.com/B000000001/SKU-1 would create protected company, amazon account, product, company product identity. Run an explicit canonical rebuild instead.',
+    });
+    expect(sourceReadStarted).toBe(true);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toEqual([]);
+  });
+
   it('rejects invalid generic supplier lead-time imports before persistence', async () => {
     const db = new MemoryDatabase();
     await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).create({
