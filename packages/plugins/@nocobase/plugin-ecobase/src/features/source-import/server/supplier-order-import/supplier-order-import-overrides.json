@@ -115,11 +115,11 @@
       "disposition": "repeat",
       "occurrences": [
         {
-          "sourceHash": "aa98a4c75115446d626d0a5ac1b1635cd2fb4d08b837e9d7dc878fdb895b53a0",
+          "sourceHash": "bd43ea25e3e12e8b662f1bc23fd82e1bb3b2d46bc641db4318d9d8ee790050d3",
           "suffix": "occurrence-a"
         },
         {
-          "sourceHash": "cdd096c1538c068e6894ab361bb8668b4f45b5e448f22bd8e3363ba5977bc7ba",
+          "sourceHash": "7144ea2e824d1613966d60f4ebb3731b0f2031346aa3b0dd8863bd2bf4b90987",
           "suffix": "occurrence-b"
         }
       ],
@@ -127,57 +127,57 @@
     },
     "ECOFISSION_LLC:EF122425A:B0006SDOFE:SKU:OLFA-RM-6X8": {
       "disposition": "select",
-      "selectedSourceHash": "65226f91f5f9f53ac8ea5605f63d3562288edccde2caa3b8f39d85881fd0176c",
+      "selectedSourceHash": "cc4c76e04d9c464ecc4eb380b6a4084ab191328491934ef3944aa76936217942",
       "reason": "The 2026-01-05 cleared row supersedes the rejected 2025-12-22 analysis row."
     },
     "ECOFISSION_LLC:EF122425A:B0006SDOFO:SKU:OLFA-RM-MG-GREEN": {
       "disposition": "select",
-      "selectedSourceHash": "4a20d08eeb84c0c0bc828ab0e278096fe6d7520f64345f33fe4c8108ae813e33",
+      "selectedSourceHash": "4cb262e81d703d3d85f6ffd02d4d9c101f9b9c7b8c1a0708fdab75c86419f467",
       "reason": "The 2026-01-05 in-progress row supersedes the rejected 2025-12-22 analysis row."
     },
     "ECOFISSION_LLC:EF122425A:B0006SJAW0:SKU:NH-1": {
       "disposition": "select",
-      "selectedSourceHash": "48783cccc92b1d5462182a998635df63b6c75c86a18a5b60672a439f956e67da",
+      "selectedSourceHash": "78b2874554eca66fae6a8bcb44b7ed5e38eeb7935f90ff1c88370f4f9f728d5e",
       "reason": "The 2026-01-05 cleared row supersedes the rejected 2025-12-22 analysis row."
     },
     "ECOFISSION_LLC:EF122425A:B0010ERKZ8:SKU:RM-17S": {
       "disposition": "select",
-      "selectedSourceHash": "121aa5c221a4466f89940ccb253488dfe86dea028b02f5e5f189970d8f6b7832",
+      "selectedSourceHash": "84206e0446bbd8a276145b63c84b183b8b641156f1d6815d7f4315193f2d4961",
       "reason": "The 2026-01-05 in-progress row supersedes the rejected 2025-12-22 analysis row."
     },
     "ECOFISSION_LLC:EF122425A:B00168253A:SKU:RTY-2/NS": {
       "disposition": "select",
-      "selectedSourceHash": "e5787271bad879b71efa777105ebb5ab58f907f73b0033feae4c4355b307eee0",
+      "selectedSourceHash": "28267a53a5cc475ac1b7038e256d2279017965e737377a25510f13da0630ed6b",
       "reason": "The 2026-01-05 cleared row supersedes the rejected 2025-12-22 analysis row."
     },
     "ECOFISSION_LLC:EF122425A:B0053ANGG2:SKU:OLFA-RM-CLIPS/3": {
       "disposition": "select",
-      "selectedSourceHash": "4d77521799d4294d5b4b5b56f7ec8a8528e4a9364f6f6eb64ee9c3f3fe802fd2",
+      "selectedSourceHash": "2cb94e61283d78ce294655ed1ad07a4d5fc669b8d7577e13dc7b38da9d451f20",
       "reason": "The 2026-01-05 cleared row supersedes the rejected 2025-12-22 analysis row."
     },
     "ECOFISSION_LLC:EF122425A:B0CLFLL9Y2:SKU:OLFA-RTY-2/DX-MAG": {
       "disposition": "select",
-      "selectedSourceHash": "8aa8a9968036fb4bde4810e8151f833f1949d356a7580f3143e9d6a96b61277a",
+      "selectedSourceHash": "afcb441446b2f39290fe60ea60ee6bfc78aa0c2e840f72aac45e4ad0148eb59a",
       "reason": "The 2026-01-05 cleared row supersedes the rejected 2025-11-03 analysis row."
     },
     "ECOFISSION_LLC:EF122425A:B0CS8XM7N9:SKU:OFA-RB60H-2": {
       "disposition": "select",
-      "selectedSourceHash": "d3697e6672bbc132624e6b82541949ba8f6f573ec987ecd1b9417018463a2fd7",
+      "selectedSourceHash": "fb58bb26af32fa47f0fbf630fe039e6bbfd1af73e9e76f625891a5e1d7bf6102",
       "reason": "The 2026-01-05 cleared row supersedes the rejected 2025-12-22 analysis row."
     },
     "ECOFISSION_LLC:EF122425A:B0D48RCZ39:SKU:OLFA-RM-MG-GREEN": {
       "disposition": "select",
-      "selectedSourceHash": "233e5243c143a4d2fc7255e2a7c06f2e9885605db74bcf0672a661f915b043a9",
+      "selectedSourceHash": "3f5b53b3c25d36f3773ca4e36ed24e783db5912b9957cddcbc7c515cf99a3571",
       "reason": "The 2026-01-05 cleared row supersedes the rejected 2025-12-22 analysis row."
     },
     "MUXTEX_INC:MX61726N:B00IYT2E12:SKU:B00IYT2E12": {
       "disposition": "select",
-      "selectedSourceHash": "f7c54c90edf06b4df3c7908dd3ddc42935402481cd9e1a1388d6fc38c80fbf38",
+      "selectedSourceHash": "0793f19da13c90ef4464dadf06f73a3cc9350914f4bedc57033568865bb9531b",
       "reason": "The later 30-unit source row supersedes the earlier 16-unit revision for the same cleared line identity."
     },
     "RETAIL_HEAVEN_INC:RH71425D:B01MQIOGGA:SKU:58186": {
       "disposition": "select",
-      "selectedSourceHash": "fb1fe0d9634399353cb6ad42e3315e98c2d7277150c7c9803bd4d600187df998",
+      "selectedSourceHash": "cb93215cd5f311a52b265e4880a33335942c41d66fee30246b2fba517d10cd3a",
       "reason": "The later source timestamp and Check again evidence identify the 20-unit row as the authoritative revision."
     }
   },
