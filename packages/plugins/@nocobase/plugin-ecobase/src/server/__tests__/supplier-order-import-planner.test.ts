@@ -194,6 +194,12 @@ describe('supplier/order import planner', () => {
     expect(plan.hasBlockingIssues).toBe(false);
   });
 
+  it('uses runtime-independent code-point ordering for source evidence hashes', () => {
+    expect(buildPlan().orderLines[0].sourceEvidence.hash).toBe(
+      '0c3b291d8d3a1997388d30b1941c34e8d6f3913efbd766417c67fa275ddc7b38',
+    );
+  });
+
   it('excludes rows with missing supplier IDs without blocking the import', () => {
     const plan = buildSupplierOrderImportPlan({
       asOfDate: '2026-07-16',

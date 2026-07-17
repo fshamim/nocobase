@@ -69,12 +69,16 @@ function text(value: unknown) {
   return result || undefined;
 }
 
+function compareText(left: string, right: string) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
   if (value && typeof value === 'object') {
     return `{${Object.entries(value as PlainRecord)
       .filter(([, item]) => item !== undefined)
-      .sort(([left], [right]) => left.localeCompare(right))
+      .sort(([left], [right]) => compareText(left, right))
       .map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`)
       .join(',')}}`;
   }
@@ -89,7 +93,7 @@ function identityRows(rows: ProtectedCatalogRows) {
   const sorted = (values: PlainRecord[], fields: string[]) =>
     values
       .map((row) => Object.fromEntries(fields.map((field) => [field, row[field] ?? null])))
-      .sort((left, right) => canonical(left).localeCompare(canonical(right)));
+      .sort((left, right) => compareText(canonical(left), canonical(right)));
   return {
     companies: sorted(rows.companies, ['id', 'companyKey', 'name']),
     amazonAccounts: sorted(rows.amazonAccounts, ['id', 'companyId', 'name', 'sellerId', 'marketplace', 'isDefault']),

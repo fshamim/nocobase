@@ -116,6 +116,7 @@ export interface ClickupOrderStatusImportResult {
   selectedTaskOverrideCount: number;
   workflowDraftCount: number;
   workflowDraftLineCount: number;
+  reconciledWorkflowDraftLineCount: number;
   workflowDraftRefs: string[];
   workflowDraftExceptions: Array<Record<string, unknown>>;
   blockingIssueCount: number;
@@ -751,6 +752,33 @@ export class EcobaseClickupOrderStatusService {
     return parseClickupOrderStatusFiles(files);
   }
 
+  private async reconcileWorkflowDraftLineMappings(dryRun: boolean) {
+    const orders = (
+      await this.db
+        .getRepository(ECOBASE_COLLECTIONS.silverOrders)
+        .find({ filter: { recordType: 'workflow_draft' }, limit: 100000 })
+    ).map(toPlainRecord);
+    const orderIds = orders.map((order) => asIdString(order.id)).filter((id): id is string => Boolean(id));
+    if (!orderIds.length) return 0;
+    const repo = this.db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines);
+    const lines = (await repo.find({ filter: { orderId: { $in: orderIds } }, limit: 100000 })).map(toPlainRecord);
+    let reconciled = 0;
+    for (const line of lines) {
+      const expected = asIdString(line.companyProductId)
+        ? 'exact_member'
+        : asIdString(line.companyProductFamilyId)
+          ? 'family_only'
+          : 'unresolved';
+      const values = { mappingScope: expected, productMappingStatus: expected };
+      if (!recordValuesChanged(line, values)) continue;
+      reconciled += 1;
+      const id = asIdString(line.id);
+      if (!dryRun && !id) throw new Error('Ecobase ClickUp reconciliation failed: workflow draft line has no ID.');
+      if (!dryRun) await repo.update({ filterByTk: id, values });
+    }
+    return reconciled;
+  }
+
   private async createWorkflowDrafts(params: {
     selectedTasks: ReturnType<typeof parseClickupOrderStatusFiles>['selectedTasks'];
     matchedRefs: Set<string>;
@@ -933,7 +961,7 @@ export class EcobaseClickupOrderStatusService {
               purchaseEvidenceStatus: 'unconfirmed_workflow',
               sourceRowNumber: detail.sourceRow,
               sourceRowHash: detail.sourceHash,
-              productMappingStatus: 'resolved',
+              productMappingStatus: companyProductId ? 'exact_member' : 'family_only',
               productMappingEvidenceJson: { reason: 'workflow_draft_exact_company_family' },
               orderedQty: detail.orderQty,
               orderQty: detail.orderQty,
@@ -1065,6 +1093,7 @@ export class EcobaseClickupOrderStatusService {
     const supplierOrderRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverOrders);
     const activityRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments);
     const initialSupplierOrders = (await silverSupplierOrderReadModel(this.db, { limit: 100000 })).supplierOrders;
+    const reconciledWorkflowDraftLineCount = await this.reconcileWorkflowDraftLineMappings(dryRun);
     const initialRefs = new Set(
       initialSupplierOrders
         .map(toPlainRecord)
@@ -1353,6 +1382,7 @@ export class EcobaseClickupOrderStatusService {
       selectedTaskOverrideCount: selectedTasks.filter((selected) => selected.override).length,
       workflowDraftCount: workflowDrafts.workflowDraftCount,
       workflowDraftLineCount: workflowDrafts.workflowDraftLineCount,
+      reconciledWorkflowDraftLineCount,
       workflowDraftRefs: workflowDrafts.workflowDraftRefs,
       workflowDraftExceptions: workflowDrafts.exceptions,
       blockingIssueCount,

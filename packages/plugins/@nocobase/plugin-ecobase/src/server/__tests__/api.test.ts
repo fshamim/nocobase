@@ -2391,6 +2391,8 @@ describe('Ecobase import public API seam', () => {
           companyProductFamilyId: 'family-1',
           companyProductId: 'company-product-1',
           supplierProductId: null,
+          mappingScope: 'exact_member',
+          productMappingStatus: 'exact_member',
           purchaseEvidenceStatus: 'unconfirmed_workflow',
         }),
         expect.objectContaining({ externalOrderId: 'SS2726E', companyProductFamilyId: 'family-1' }),
@@ -2398,12 +2400,25 @@ describe('Ecobase import public API seam', () => {
     );
     const firstOrders = structuredClone(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).all());
     const firstLines = structuredClone(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).all());
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).update({
+      filterByTk: firstLines[0].id,
+      values: { productMappingStatus: 'resolved' },
+    });
 
     const second = await service.importCsvFiles(params);
 
-    expect(second).toMatchObject({ workflowDraftCount: 0, workflowDraftLineCount: 0, updatedOrderCount: 0 });
+    expect(second).toMatchObject({
+      workflowDraftCount: 0,
+      workflowDraftLineCount: 0,
+      reconciledWorkflowDraftLineCount: 1,
+      updatedOrderCount: 0,
+    });
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).all()).toEqual(firstOrders);
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).all()).toEqual(firstLines);
+
+    const third = await service.importCsvFiles(params);
+
+    expect(third).toMatchObject({ reconciledWorkflowDraftLineCount: 0, updatedOrderCount: 0 });
   });
 
   it('imports ClickUp comments as idempotent supplier-order notes', async () => {

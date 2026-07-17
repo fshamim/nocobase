@@ -66,12 +66,16 @@ export type ImportPreflightOptions = {
   requireSellerboardHistory?: boolean;
 };
 
+function compareText(left: string, right: string) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 function issueSort(left: ImportPreflightIssue, right: ImportPreflightIssue) {
   return (
-    left.file.localeCompare(right.file) ||
+    compareText(left.file, right.file) ||
     (left.row ?? 0) - (right.row ?? 0) ||
-    left.code.localeCompare(right.code) ||
-    left.message.localeCompare(right.message)
+    compareText(left.code, right.code) ||
+    compareText(left.message, right.message)
   );
 }
 
@@ -91,7 +95,7 @@ export function preflightImportFiles(files: CsvSourceFile[], options?: ImportPre
 
   const addIssue = (issue: ImportPreflightIssue) => issues.push(issue);
 
-  for (const file of [...files].sort((left, right) => left.name.localeCompare(right.name))) {
+  for (const file of [...files].sort((left, right) => compareText(left.name, right.name))) {
     const analysis = analyzeCsvFile(file);
     if (!analysis.importable) {
       addIssue({
@@ -181,7 +185,7 @@ export function preflightImportFiles(files: CsvSourceFile[], options?: ImportPre
   issues.sort(issueSort);
   const issueCounts = Object.fromEntries(
     [...groupBy(issues, (issue) => issue.code).entries()]
-      .sort(([left], [right]) => left.localeCompare(right))
+      .sort(([left], [right]) => compareText(left, right))
       .map(([code, entries]) => [code, entries.length]),
   );
   const errorCount = issues.filter((issue) => issue.severity === 'error').length;

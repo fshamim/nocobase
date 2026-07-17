@@ -213,9 +213,13 @@ function text(value: unknown) {
 function comparisonKey(value: unknown) {
   return (
     text(value)
-      ?.toLocaleLowerCase()
+      ?.toLowerCase()
       .replace(/[^a-z0-9]+/g, '') ?? ''
   );
+}
+
+function compareText(left: string, right: string) {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function canonical(value: unknown): string {
@@ -223,7 +227,7 @@ function canonical(value: unknown): string {
   if (value && typeof value === 'object') {
     return `{${Object.entries(value as Record<string, unknown>)
       .filter(([, item]) => item !== undefined)
-      .sort(([left], [right]) => left.localeCompare(right))
+      .sort(([left], [right]) => compareText(left, right))
       .map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`)
       .join(',')}}`;
   }
@@ -364,7 +368,7 @@ function parseSources(files: SupplierOrderSourceFile[]) {
       }
       return { file, content, sha256: sha256(content), headers: parsed.headers, rows: parsed.rows };
     })
-    .sort((left, right) => left.file.role.localeCompare(right.file.role));
+    .sort((left, right) => compareText(left.file.role, right.file.role));
 }
 
 function reconciliation(
@@ -420,7 +424,7 @@ function preferredSourceName(names: string[]) {
     });
   }
   return [...counts.values()].sort(
-    (left, right) => right.count - left.count || left.displayName.localeCompare(right.displayName),
+    (left, right) => right.count - left.count || compareText(left.displayName, right.displayName),
   )[0]?.displayName;
 }
 
@@ -471,7 +475,7 @@ function lineBusinessFacts(line: OrderLineImportPlanRow) {
 
 function withEvidenceRows(line: OrderLineImportPlanRow, rows: SourceEvidence[]) {
   const evidence = line.sourceEvidence;
-  return { ...line, sourceEvidence: { ...evidence, rows: [...rows].sort((a, b) => a.hash.localeCompare(b.hash)) } };
+  return { ...line, sourceEvidence: { ...evidence, rows: [...rows].sort((a, b) => compareText(a.hash, b.hash)) } };
 }
 
 export function buildSupplierOrderImportPlan(params: {
@@ -507,7 +511,7 @@ export function buildSupplierOrderImportPlan(params: {
         preferredSourceName((masterRows.get(decision.acceptedCode) ?? []).flatMap((row) => row.name ?? [])),
       ),
     }))
-    .sort((left, right) => left.rejectedCode.localeCompare(right.rejectedCode));
+    .sort((left, right) => compareText(left.rejectedCode, right.rejectedCode));
 
   const trackerSource = byRole.get('supplier_tracker');
   const trackerRows = new Map<
@@ -563,9 +567,9 @@ export function buildSupplierOrderImportPlan(params: {
 
   const supplierNameOverrides: SupplierOrderImportPlan['supplierNameOverrides'] = [];
   const suppliers: SupplierImportPlanRow[] = [];
-  for (const [code, rows] of [...masterRows.entries()].sort(([left], [right]) => left.localeCompare(right))) {
+  for (const [code, rows] of [...masterRows.entries()].sort(([left], [right]) => compareText(left, right))) {
     const tracker = [...(trackerRows.get(code) ?? [])].sort(
-      (left, right) => (right.date ?? '').localeCompare(left.date ?? '') || right.sourceRow - left.sourceRow,
+      (left, right) => compareText(right.date ?? '', left.date ?? '') || right.sourceRow - left.sourceRow,
     );
     const sourceNames = [
       ...new Set(rows.map((row) => text(row.name)).filter((name): name is string => Boolean(name))),
@@ -617,7 +621,7 @@ export function buildSupplierOrderImportPlan(params: {
   const duplicateSupplierNames = [...supplierCodesByName.entries()]
     .filter(([, codes]) => codes.size > 1)
     .map(([normalizedName, codes]) => ({ normalizedName, externalSupplierCodes: [...codes].sort() }))
-    .sort((left, right) => left.normalizedName.localeCompare(right.normalizedName));
+    .sort((left, right) => compareText(left.normalizedName, right.normalizedName));
 
   const poSource = byRole.get('purchase_orders')!;
   const purchaseGroups = new Map<string, ParsedPurchaseOrder[]>();
@@ -759,7 +763,7 @@ export function buildSupplierOrderImportPlan(params: {
   const duplicatePurchaseOrders: DuplicateDecision[] = [];
   const selectedPurchaseOrders: ParsedPurchaseOrder[] = [];
   const blockedOrderIds: SupplierOrderImportPlan['blockedOrderIds'] = [];
-  for (const [identity, rows] of [...purchaseGroups.entries()].sort(([left], [right]) => left.localeCompare(right))) {
+  for (const [identity, rows] of [...purchaseGroups.entries()].sort(([left], [right]) => compareText(left, right))) {
     if (rows.length === 1) {
       selectedPurchaseOrders.push(rows[0]);
       continue;
@@ -859,7 +863,7 @@ export function buildSupplierOrderImportPlan(params: {
     }))
     .sort(
       (left, right) =>
-        left.companyKey.localeCompare(right.companyKey) || left.externalOrderId.localeCompare(right.externalOrderId),
+        compareText(left.companyKey, right.companyKey) || compareText(left.externalOrderId, right.externalOrderId),
     );
   const orderByIdentity = new Map(orders.map((order) => [`${order.companyKey}:${order.externalOrderId}`, order]));
 
@@ -882,8 +886,8 @@ export function buildSupplierOrderImportPlan(params: {
     ).values(),
   ].sort(
     (left, right) =>
-      left.externalSupplierCode.localeCompare(right.externalSupplierCode) ||
-      left.companyKey.localeCompare(right.companyKey),
+      compareText(left.externalSupplierCode, right.externalSupplierCode) ||
+      compareText(left.companyKey, right.companyKey),
   );
 
   const detailSource = byRole.get('order_details')!;
@@ -1040,7 +1044,7 @@ export function buildSupplierOrderImportPlan(params: {
   for (const line of candidateLines) {
     lineGroups.set(line.sourceLineKey, [...(lineGroups.get(line.sourceLineKey) ?? []), line]);
   }
-  for (const [identity, rows] of [...lineGroups.entries()].sort(([left], [right]) => left.localeCompare(right))) {
+  for (const [identity, rows] of [...lineGroups.entries()].sort(([left], [right]) => compareText(left, right))) {
     if (rows.length === 1) {
       selectedLines.push(rows[0]);
       continue;
@@ -1050,7 +1054,7 @@ export function buildSupplierOrderImportPlan(params: {
     const sourceHashes = rowsBySourcePosition.map((row) => row.sourceEvidence.hash);
     const evidenceRows = rows.map((row) => ({ ...row.sourceEvidence, rows: undefined }) as unknown as SourceEvidence);
     if (new Set(rows.map(lineBusinessFacts)).size === 1) {
-      const selected = [...rows].sort((a, b) => a.sourceEvidence.hash.localeCompare(b.sourceEvidence.hash))[0];
+      const selected = [...rows].sort((a, b) => compareText(a.sourceEvidence.hash, b.sourceEvidence.hash))[0];
       selectedLines.push(withEvidenceRows(selected, evidenceRows));
       duplicateOrderLines.push({
         identity,
@@ -1150,14 +1154,14 @@ export function buildSupplierOrderImportPlan(params: {
   }
 
   const orderLines = selectedLines
-    .sort((left, right) => left.sourceLineKey.localeCompare(right.sourceLineKey))
+    .sort((left, right) => compareText(left.sourceLineKey, right.sourceLineKey))
     .map((line, _index, lines) => ({
       ...line,
       lineOrdinal: lines.filter(
         (candidate) =>
           candidate.companyKey === line.companyKey &&
           candidate.externalOrderId === line.externalOrderId &&
-          candidate.sourceLineKey.localeCompare(line.sourceLineKey) <= 0,
+          compareText(candidate.sourceLineKey, line.sourceLineKey) <= 0,
       ).length,
     }));
   if (new Set(orderLines.map((line) => line.sourceLineKey)).size !== orderLines.length) {
@@ -1170,7 +1174,7 @@ export function buildSupplierOrderImportPlan(params: {
       disposition: 'exception' as const,
       reason,
     }))
-    .sort((left, right) => left.externalOrderId.localeCompare(right.externalOrderId));
+    .sort((left, right) => compareText(left.externalOrderId, right.externalOrderId));
 
   const sourceFiles = sources.map((source) => ({
     name: source.file.name,
@@ -1209,7 +1213,7 @@ export function buildSupplierOrderImportPlan(params: {
     supplierAccounts,
     supplierProducts: [...supplierProductsByKey.values()].sort(
       (left, right) =>
-        left.externalSupplierCode.localeCompare(right.externalSupplierCode) || left.asin.localeCompare(right.asin),
+        compareText(left.externalSupplierCode, right.externalSupplierCode) || compareText(left.asin, right.asin),
     ),
     purchaseOrderSourceSupplierCodes: [
       ...new Set([...purchaseGroups.values()].flat().map((order) => order.sourceExternalSupplierCode)),
@@ -1218,7 +1222,7 @@ export function buildSupplierOrderImportPlan(params: {
     orderLines,
     supplierCodeOverrides,
     supplierNameOverrides: supplierNameOverrides.sort((left, right) =>
-      left.externalSupplierCode.localeCompare(right.externalSupplierCode),
+      compareText(left.externalSupplierCode, right.externalSupplierCode),
     ),
     duplicateSupplierNames,
     duplicatePurchaseOrders,
@@ -1241,9 +1245,9 @@ export function buildSupplierOrderImportPlan(params: {
     hasBlockingIssues: issues.some((candidate) => candidate.severity === 'blocked'),
     issues: issues.sort(
       (left, right) =>
-        left.sourceFile.localeCompare(right.sourceFile) ||
+        compareText(left.sourceFile, right.sourceFile) ||
         (left.sourceRow ?? 0) - (right.sourceRow ?? 0) ||
-        left.reason.localeCompare(right.reason),
+        compareText(left.reason, right.reason),
     ),
   };
   return { ...planWithoutDigest, digest: computeSupplierOrderImportPlanDigest(planWithoutDigest) };

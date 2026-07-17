@@ -266,17 +266,19 @@ function isVolatileKey(key) {
   return key === 'id' || key.endsWith('Id') || key.endsWith('At') || key === 'timestamp';
 }
 
+function compareText(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 function canonicalize(value) {
   if (Array.isArray(value)) {
-    return value
-      .map(canonicalize)
-      .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+    return value.map(canonicalize).sort((left, right) => compareText(JSON.stringify(left), JSON.stringify(right)));
   }
   if (value && typeof value === 'object') {
     return Object.fromEntries(
       Object.entries(value)
         .filter(([key]) => !isVolatileKey(key))
-        .sort(([left], [right]) => left.localeCompare(right))
+        .sort(([left], [right]) => compareText(left, right))
         .map(([key, child]) => [key, canonicalize(child)]),
     );
   }

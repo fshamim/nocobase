@@ -108,13 +108,17 @@ function stableUuid(value: string) {
     .padStart(2, '0')}${hex.slice(18, 20)}-${hex.slice(20, 32)}`;
 }
 
+function compareText(left: string, right: string) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
   if (value instanceof Date) return JSON.stringify(value.toISOString());
   if (value && typeof value === 'object') {
     return `{${Object.entries(plain(value))
       .filter(([, item]) => item !== undefined)
-      .sort(([left], [right]) => left.localeCompare(right))
+      .sort(([left], [right]) => compareText(left, right))
       .map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`)
       .join(',')}}`;
   }
@@ -265,7 +269,7 @@ export class EcobaseSupplierOrderImportApplyService {
           return counts;
         }, {}),
       )
-        .sort(([left], [right]) => left.localeCompare(right))
+        .sort(([left], [right]) => compareText(left, right))
         .map(([reason, count]) => `${reason}=${count}`)
         .join(', ');
       throw new Error(
@@ -700,8 +704,8 @@ export class EcobaseSupplierOrderImportApplyService {
     for (const group of candidates.values()) {
       const selected = [...group].sort(
         (left, right) =>
-          String(right.order.orderDate).localeCompare(String(left.order.orderDate)) ||
-          right.line.sourceLineKey.localeCompare(left.line.sourceLineKey),
+          compareText(String(right.order.orderDate), String(left.order.orderDate)) ||
+          compareText(right.line.sourceLineKey, left.line.sourceLineKey),
       )[0];
       const tracker = plan.supplierProducts.find(
         (candidate) =>
@@ -953,7 +957,7 @@ export class EcobaseSupplierOrderImportApplyService {
     for (const collection of PROTECTED_COLLECTIONS) {
       const rows = (await this.all(collection, transaction))
         .map((row) => protectedRow(collection, row))
-        .sort((left, right) => canonical(left).localeCompare(canonical(right)));
+        .sort((left, right) => compareText(canonical(left), canonical(right)));
       fingerprints[collection] = digest(rows);
     }
     return fingerprints;
