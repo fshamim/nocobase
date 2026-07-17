@@ -2886,23 +2886,7 @@ export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
         }
         try {
           await new EcobaseSupplierOrderImportService(ctx.db).assertCatalogCurrent(preflight);
-          const apply = await new EcobaseSupplierOrderImportApplyService(ctx.db).apply(preflight);
-          let familyReconciliation: Record<string, unknown>;
-          try {
-            const { families: _families, ...summary } = await new EcobaseCompanyProductFamilyService(
-              ctx.db,
-            ).reconcileAllFamilies();
-            familyReconciliation = { status: 'success', ...summary };
-          } catch (error) {
-            familyReconciliation = {
-              status: 'warning',
-              error:
-                error instanceof Error
-                  ? `Supplier/order apply succeeded, but family reconciliation failed: ${error.message}`
-                  : 'Supplier/order apply succeeded, but family reconciliation threw a non-Error value.',
-            };
-          }
-          ctx.body = { data: { ...apply, familyReconciliation } };
+          ctx.body = { data: await new EcobaseSupplierOrderImportApplyService(ctx.db).apply(preflight) };
         } catch (error) {
           ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier/order import apply failed.');
           return;
