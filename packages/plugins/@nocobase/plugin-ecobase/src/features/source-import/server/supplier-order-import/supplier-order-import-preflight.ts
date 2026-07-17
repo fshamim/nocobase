@@ -272,8 +272,13 @@ export function preflightSupplierOrderImport(
     const marketplaceFamilies = line.sourceMarketplace
       ? families.filter((family) => marketplaceKey(family.marketplace) === marketplaceKey(line.sourceMarketplace))
       : [];
-    const selectedFamily =
-      marketplaceFamilies.length === 1 ? marketplaceFamilies[0] : families.length === 1 ? families[0] : undefined;
+    const selectedFamily = line.sourceMarketplace
+      ? marketplaceFamilies.length === 1
+        ? marketplaceFamilies[0]
+        : undefined
+      : families.length === 1
+        ? families[0]
+        : undefined;
     if (!selectedFamily) {
       const reason = !families.length
         ? 'family_not_found'

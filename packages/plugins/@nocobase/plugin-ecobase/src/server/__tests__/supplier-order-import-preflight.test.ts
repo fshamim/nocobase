@@ -187,15 +187,12 @@ describe('supplier/order import preflight', () => {
     });
   });
 
-  it('classifies unresolved marketplace evidence without guessing a family', () => {
+  it('classifies unresolved marketplace evidence without guessing a unique cross-marketplace family', () => {
     const result = preflightSupplierOrderImport(
       sourcePlan(),
       {
         ...catalog,
-        families: [
-          { ...catalog.families[0], id: 'family-uk', marketplace: 'amazon.co.uk' },
-          { ...catalog.families[0], id: 'family-ca', marketplace: 'amazon.ca' },
-        ],
+        families: [{ ...catalog.families[0], id: 'family-uk', marketplace: 'amazon.co.uk' }],
       },
       'canonical-rebuild',
     );
