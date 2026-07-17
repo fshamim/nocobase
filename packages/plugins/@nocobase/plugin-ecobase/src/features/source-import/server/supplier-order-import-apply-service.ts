@@ -251,6 +251,19 @@ export class EcobaseSupplierOrderImportApplyService {
   private async applyInTransaction(preflight: SupplierOrderImportPreflight, transaction?: unknown) {
     const plan = preflight.plan;
     const protectedBefore = await this.protectedFingerprints(transaction);
+    const protectedFamilies = await this.all(ECOBASE_COLLECTIONS.silverCompanyProductFamilies, transaction);
+    const retainedSupplierProductIds = new Set(
+      protectedFamilies.map((family) => text(family.preferredSupplierProductId)).filter(Boolean) as string[],
+    );
+    const retainedSupplierIds = new Set(
+      protectedFamilies.map((family) => text(family.preferredSupplierId)).filter(Boolean) as string[],
+    );
+    for (const supplierProduct of await this.all(ECOBASE_COLLECTIONS.silverSupplierProducts, transaction)) {
+      if (retainedSupplierProductIds.has(text(supplierProduct.id) ?? '')) {
+        const supplierId = text(supplierProduct.supplierId);
+        if (supplierId) retainedSupplierIds.add(supplierId);
+      }
+    }
     const companyIds = await this.resolveCompanyIds(plan, transaction);
     const existingOrders = await this.all(ECOBASE_COLLECTIONS.silverOrders, transaction);
     const existingOrderByIdentity = new Map(
@@ -333,24 +346,22 @@ export class EcobaseSupplierOrderImportApplyService {
         companyProductSupplierIds,
         transaction,
       );
-      await this.deleteExcept(ECOBASE_COLLECTIONS.silverSupplierProducts, supplierProductIds, transaction);
+      const desiredSupplierProductIds = new Set([...supplierProductIds, ...retainedSupplierProductIds]);
+      await this.deleteExcept(ECOBASE_COLLECTIONS.silverSupplierProducts, desiredSupplierProductIds, transaction);
       await this.deleteExcept(ECOBASE_COLLECTIONS.silverSupplierAccounts, desiredAccountIds, transaction);
       await this.deleteExcept(
         ECOBASE_COLLECTIONS.silverSupplierExternalRefs,
         new Set([...identities.values()].map((identity) => identity.externalRefId)),
         transaction,
       );
-      await this.assertNoStaleSupplierComments(
-        new Set([...identities.values()].map((identity) => identity.supplierId)),
-        transaction,
-      );
-      await this.deleteExcept(
-        ECOBASE_COLLECTIONS.silverSuppliers,
-        new Set([...identities.values()].map((identity) => identity.supplierId)),
-        transaction,
-      );
+      const desiredSupplierIds = new Set([
+        ...[...identities.values()].map((identity) => identity.supplierId),
+        ...retainedSupplierIds,
+      ]);
+      await this.assertNoStaleSupplierComments(desiredSupplierIds, transaction);
+      await this.deleteExcept(ECOBASE_COLLECTIONS.silverSuppliers, desiredSupplierIds, transaction);
 
-      await this.assertCount(ECOBASE_COLLECTIONS.silverSuppliers, plan.suppliers.length, transaction);
+      await this.assertCount(ECOBASE_COLLECTIONS.silverSuppliers, desiredSupplierIds.size, transaction);
       await this.assertCount(ECOBASE_COLLECTIONS.silverSupplierExternalRefs, plan.suppliers.length, transaction);
       await this.assertCount(ECOBASE_COLLECTIONS.silverSupplierAccounts, plan.supplierAccounts.length, transaction);
       await this.assertCount(ECOBASE_COLLECTIONS.silverOrders, plan.orders.length, transaction, canonicalOrderOwned);
@@ -360,7 +371,7 @@ export class EcobaseSupplierOrderImportApplyService {
         transaction,
         canonicalOrderLineOwned,
       );
-      await this.assertCount(ECOBASE_COLLECTIONS.silverSupplierProducts, supplierProductIds.size, transaction);
+      await this.assertCount(ECOBASE_COLLECTIONS.silverSupplierProducts, desiredSupplierProductIds.size, transaction);
       await this.assertCount(
         ECOBASE_COLLECTIONS.silverCompanyProductSuppliers,
         companyProductSupplierIds.size,

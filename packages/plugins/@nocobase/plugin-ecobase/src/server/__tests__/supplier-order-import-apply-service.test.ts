@@ -123,6 +123,17 @@ function seedCatalog(db: MemoryDatabase) {
     companyProductFamilyId: 'family-1',
     productId: 'product-1',
   });
+  db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).records.push({
+    id: 'legacy-supplier',
+    normalizedName: 'legacy supplier',
+    displayName: 'Legacy Supplier',
+  });
+  db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).records.push({
+    id: 'legacy-supplier-product',
+    supplierId: 'legacy-supplier',
+    productId: 'product-1',
+    supplierSku: 'LEGACY-SKU',
+  });
 }
 
 function catalog(db: MemoryDatabase): SupplierOrderCatalogSnapshot {
@@ -219,9 +230,13 @@ describe('supplier/order import apply service', () => {
       supplierReviewRequired: true,
       supplierSelectionEvidenceJson: { source: 'legacy' },
     });
-    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).records).toEqual([
-      expect.objectContaining({ productId: 'product-1', supplierSku: 'SKU-1' }),
-    ]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).records).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'legacy-supplier-product', supplierSku: 'LEGACY-SKU' }),
+        expect.objectContaining({ productId: 'product-1', supplierSku: 'SKU-1' }),
+      ]),
+    );
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).records).toHaveLength(2);
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductSuppliers).records).toEqual([
       expect.objectContaining({ companyProductId: 'company-product-1', role: 'historical_purchase' }),
     ]);
@@ -327,7 +342,9 @@ describe('supplier/order import apply service', () => {
 
     await new EcobaseSupplierOrderImportApplyService(db as never).apply(readyPreflight(db, 'Cancelled'));
 
-    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).records).toEqual([]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).records).toEqual([
+      expect.objectContaining({ id: 'legacy-supplier-product', supplierSku: 'LEGACY-SKU' }),
+    ]);
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductSuppliers).records).toEqual([]);
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).records).toEqual(
       expect.arrayContaining([expect.objectContaining({ mappingScope: 'exact_member', supplierProductId: null })]),
@@ -356,7 +373,9 @@ describe('supplier/order import apply service', () => {
       'family link changed',
     );
 
-    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).records).toEqual([]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).records).toEqual([
+      expect.objectContaining({ id: 'legacy-supplier' }),
+    ]);
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).records).toEqual([]);
   });
 
@@ -427,6 +446,8 @@ describe('supplier/order import apply service', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).records).toEqual([
       expect.objectContaining({ id: 'stale-order' }),
     ]);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).records).toEqual([]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).records).toEqual([
+      expect.objectContaining({ id: 'legacy-supplier' }),
+    ]);
   });
 });
