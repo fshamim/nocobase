@@ -88,6 +88,7 @@ export default defineCollection({
       type: 'uuid',
       interface: 'input',
       uiSchema: { title: 'Family Amazon Account' },
+      autoFill: false,
       index: true,
     },
     { name: 'familyMarketplace', type: 'string', interface: 'input', uiSchema: { title: 'Family Marketplace' } },

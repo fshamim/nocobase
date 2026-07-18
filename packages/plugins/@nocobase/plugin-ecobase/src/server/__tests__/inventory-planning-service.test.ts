@@ -691,6 +691,45 @@ describe('EcobaseInventoryPlanningService', () => {
     ]);
   });
 
+  it('projects family source-order receipt evidence onto the replenishment target', () => {
+    const service = new EcobaseInventoryPlanningService(new MemoryDatabase()) as unknown as {
+      applyFamilyRollups: (rows: Record<string, unknown>[], calculationDate: string) => Record<string, unknown>[];
+    };
+    const receiptEvidence = { evidenceKey: 'receipt-evidence' };
+    const rows = service.applyFamilyRollups(
+      [
+        {
+          companyProductId: 'family-target',
+          companyProductFamilyId: 'family-receipt',
+          replenishmentTargetCompanyProductId: 'family-target',
+          familyRollupEvidence: { supplierSelection: { sourceCompanyProductId: 'family-source' } },
+        },
+        {
+          companyProductId: 'family-source',
+          companyProductFamilyId: 'family-receipt',
+          replenishmentTargetCompanyProductId: 'family-target',
+          supplierOrderId: 'order-1',
+          supplierOrderRef: 'PO-1',
+          supplierOrderSortValue: '2026-07-10:PO-1',
+          amazonReceiptStatus: 'awaiting_amazon_stock',
+          amazonReceiptObservedAt: '2026-07-10T00:00:00.000Z',
+          amazonReceiptCompletionReason: 'source_inbound_monitoring',
+          amazonReceiptEvidenceJson: receiptEvidence,
+        },
+      ],
+      '2026-07-16',
+    );
+
+    expect(rows.find((row) => row.companyProductId === 'family-target')).toMatchObject({
+      supplierOrderId: 'order-1',
+      supplierOrderRef: 'PO-1',
+      amazonReceiptStatus: 'awaiting_amazon_stock',
+      amazonReceiptObservedAt: '2026-07-10T00:00:00.000Z',
+      amazonReceiptCompletionReason: 'source_inbound_monitoring',
+      amazonReceiptEvidenceJson: receiptEvidence,
+    });
+  });
+
   it('keeps untiered current-operational targets visible without history enrichment', () => {
     const service = new EcobaseInventoryPlanningService(new MemoryDatabase({ historyLoaded: false })) as unknown as {
       finalizeGoldContract: (row: Record<string, unknown>, calculationDate: string) => Record<string, unknown>;
@@ -1032,6 +1071,7 @@ describe('EcobaseInventoryPlanningService', () => {
     await createRecord(db, ECOBASE_COLLECTIONS.silverCompanyProductFamilies, {
       id: 'family-target-change',
       companyId: 'company-target-change',
+      amazonAccountId: 'account-target-change',
       canonicalAsin: 'B00TARGETCHANGE',
       targetSelectionStatus: 'selected',
       replenishmentTargetCompanyProductId: 'cp-target-a',
@@ -1045,6 +1085,7 @@ describe('EcobaseInventoryPlanningService', () => {
       await createRecord(db, ECOBASE_COLLECTIONS.silverCompanyProducts, {
         id: `cp-target-${suffix}`,
         companyId: 'company-target-change',
+        amazonAccountId: 'account-target-change',
         productId: `product-target-${suffix}`,
         companyProductFamilyId: 'family-target-change',
         lifecycleStatus: 'active',
@@ -1066,8 +1107,16 @@ describe('EcobaseInventoryPlanningService', () => {
     });
     expect(goldRows).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ companyProductId: 'cp-target-a', familyRole: 'member' }),
-        expect.objectContaining({ companyProductId: 'cp-target-b', familyRole: 'target' }),
+        expect.objectContaining({
+          companyProductId: 'cp-target-a',
+          familyAmazonAccountId: 'account-target-change',
+          familyRole: 'member',
+        }),
+        expect.objectContaining({
+          companyProductId: 'cp-target-b',
+          familyAmazonAccountId: 'account-target-change',
+          familyRole: 'target',
+        }),
       ]),
     );
     const commandCenter = await service.commandCenter({
