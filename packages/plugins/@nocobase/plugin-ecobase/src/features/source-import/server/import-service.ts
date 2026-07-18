@@ -1298,7 +1298,7 @@ export class EcobaseImportService {
       }
     }
 
-    if (!errorMessage && normalizedCount > 0) {
+    if (!errorMessage && normalizedCount > 0 && adapter.metadata.name !== 'google-sheets-migration-csv') {
       try {
         const preservesProtectedCatalog = catalogMutationMode === 'refresh';
         if (preservesProtectedCatalog && stream.protectedCatalog) {

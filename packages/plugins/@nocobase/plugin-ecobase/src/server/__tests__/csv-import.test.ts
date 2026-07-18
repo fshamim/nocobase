@@ -280,7 +280,7 @@ describe('Ecobase bronze import write path', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).all()).toHaveLength(0);
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverNormalizationLinks).all().length).toBeGreaterThan(0);
     expect(db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).all()).toHaveLength(0);
-    expect(run.summary.goldRefreshRequired).toBe(true);
+    expect(run.summary).toMatchObject({ goldRefreshRequired: true, familyReconciliation: null });
   });
 
   it('rejects out-of-scope rows before Bronze and records the migration decision summary', async () => {
