@@ -1221,6 +1221,7 @@ export function createEcobaseInventoryPlanningActions() {
         ctx.body = {
           data: await new EcobaseCompanyProductFamilyService(ctx.db).reconcileAllFamilies(
             getOptionalString(values, 'companyId'),
+            { preserveCatalog: true },
           ),
         };
         await next();

@@ -7,7 +7,7 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EcobaseCompanyProductFamilyService } from '../../features/inventory-planning/server/company-product-family-service';
 import { EcobaseInventoryPlanningService } from '../../features/inventory-planning/server/inventory-planning-service';
 import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
@@ -20,6 +20,8 @@ function matches(row: Row, filter: Row = {}) {
 }
 
 class MemoryRepository implements EcobaseRepository {
+  updateCallCount = 0;
+
   constructor(private rows: Row[] = []) {}
 
   async find(params: any = {}) {
@@ -40,6 +42,7 @@ class MemoryRepository implements EcobaseRepository {
   }
 
   async update(params: any) {
+    this.updateCallCount += 1;
     const row = this.rows.find((item) => item.id === params.filterByTk);
     if (!row) throw new Error(`MemoryRepository failed: row ${params.filterByTk} was not found.`);
     Object.assign(row, params.values);
@@ -142,6 +145,8 @@ const identity = {
 };
 
 describe('EcobaseCompanyProductFamilyService', () => {
+  afterEach(() => vi.useRealTimers());
+
   it('resolves only exact member identity and never substitutes the family target', async () => {
     const db = new MemoryDatabase();
     await seed(db);
@@ -289,6 +294,39 @@ describe('EcobaseCompanyProductFamilyService', () => {
         ['account-us', 'amazon.com', 'B000OTHER'],
       ]),
     );
+  });
+
+  it('blocks protected catalog creation before changing any family identity', async () => {
+    const db = new MemoryDatabase();
+    await seed(db);
+    const service = new EcobaseCompanyProductFamilyService(db);
+    const companyProducts = await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).find();
+
+    await expect(service.reconcileAllFamilies(undefined, { preserveCatalog: true })).rejects.toThrow(
+      'EcoBase family reconciliation would create protected family',
+    );
+
+    expect(await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductFamilies).find()).toEqual([]);
+    expect(await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).find()).toEqual(companyProducts);
+  });
+
+  it('does not rewrite family evidence or timestamps on an identical reconciliation', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime('2026-07-16T12:00:00.000Z');
+    const db = new MemoryDatabase();
+    await seed(db);
+    const service = new EcobaseCompanyProductFamilyService(db);
+
+    await service.reconcileAllFamilies();
+    const familyRepository = db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductFamilies);
+    const firstFamilies = await familyRepository.find();
+    const firstUpdateCallCount = familyRepository.updateCallCount;
+    vi.setSystemTime('2026-07-16T12:01:00.000Z');
+    const replay = await service.reconcileAllFamilies();
+
+    expect(replay).toMatchObject({ createdFamilyCount: 0, linkedCompanyProductCount: 0 });
+    expect(await familyRepository.find()).toEqual(firstFamilies);
+    expect(familyRepository.updateCallCount).toBe(firstUpdateCallCount);
   });
 
   it('does not mutate Silver family prerequisites during a Gold refresh', async () => {
@@ -542,6 +580,8 @@ describe('EcobaseCompanyProductFamilyService', () => {
   });
 
   it('selects the latest valid supplier order and preserves source SKU evidence', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime('2026-07-16T12:00:00.000Z');
     const db = new MemoryDatabase();
     await seed(db);
     const service = new EcobaseCompanyProductFamilyService(db);
@@ -588,6 +628,10 @@ describe('EcobaseCompanyProductFamilyService', () => {
     });
 
     const reconciled = await service.reconcileFamily(family.id as string);
+    const familyRepository = db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductFamilies);
+    const updateCallCount = familyRepository.updateCallCount;
+    vi.setSystemTime('2026-07-16T12:01:00.000Z');
+    const replay = await service.reconcileFamily(family.id as string);
 
     expect(reconciled).toMatchObject({
       preferredSupplierId: 'supplier-2',
@@ -602,6 +646,8 @@ describe('EcobaseCompanyProductFamilyService', () => {
         matchType: 'exact_target_sku',
       },
     });
+    expect(replay).toEqual(reconciled);
+    expect(familyRepository.updateCallCount).toBe(updateCallCount);
   });
 
   it('selects purchase-confirmed family-only evidence without inventing a supplier product', async () => {

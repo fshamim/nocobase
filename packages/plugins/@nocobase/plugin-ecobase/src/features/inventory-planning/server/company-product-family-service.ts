@@ -77,6 +77,25 @@ function recordValue(value: unknown): PlainRecord {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as PlainRecord) : {};
 }
 
+function canonicalValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalValue);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as PlainRecord)
+        .filter(([, item]) => item !== undefined)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, item]) => [key, canonicalValue(item)]),
+    );
+  }
+  return value;
+}
+
+function valuesEqual(left: unknown, right: unknown) {
+  if (Object.is(left, right) || (left == null && right == null)) return true;
+  if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false;
+  return JSON.stringify(canonicalValue(left)) === JSON.stringify(canonicalValue(right));
+}
+
 function dateSortValue(value: unknown) {
   const timestamp = Date.parse(String(value ?? ''));
   return Number.isFinite(timestamp) ? timestamp : 0;
@@ -361,6 +380,16 @@ export class EcobaseCompanyProductFamilyService {
       : undefined;
     if (params.source === 'operator') await this.validateSupplier(params.familyId, supplierId);
     if (supplierProductId) await this.validateSupplierProduct(params.familyId, supplierId, supplierProductId);
+    if (
+      params.source !== 'operator' &&
+      idOf(family, 'preferredSupplierId') === supplierId &&
+      valuesEqual(family.preferredSupplierProductId, supplierProductId) &&
+      family.supplierSelectionSource === params.source &&
+      family.supplierReviewRequired !== true &&
+      valuesEqual(family.supplierSelectionEvidenceJson, params.evidence ?? {})
+    ) {
+      return family;
+    }
     const supplierSelectedAt = new Date().toISOString();
     await this.updateFamily(params.familyId, {
       preferredSupplierId: supplierId,
@@ -427,10 +456,29 @@ export class EcobaseCompanyProductFamilyService {
         ];
       }),
     );
+    const identityEntries = [...identities.entries()].sort(([left], [right]) => left.localeCompare(right));
+    if (options.preserveCatalog) {
+      for (const [key] of identityEntries) {
+        const family = existingFamilies.get(key);
+        if (!family) throw new Error(`EcoBase family reconciliation would create protected family ${key}.`);
+        const familyId = idOf(family, 'id') as string;
+        const relinkedCompanyProduct = (companyProductsByIdentity.get(key) ?? []).find(
+          (companyProduct) => idOf(companyProduct, 'companyProductFamilyId') !== familyId,
+        );
+        if (relinkedCompanyProduct) {
+          throw new Error(
+            `EcoBase family reconciliation would change protected company product ${idOf(
+              relinkedCompanyProduct,
+              'id',
+            )}.`,
+          );
+        }
+      }
+    }
     const families: PlainRecord[] = [];
     let createdFamilyCount = 0;
     let linkedCompanyProductCount = 0;
-    for (const [key, identity] of identities) {
+    for (const [key, identity] of identityEntries) {
       let family = existingFamilies.get(key);
       if (!family) {
         if (options.preserveCatalog) {
@@ -514,7 +562,6 @@ export class EcobaseCompanyProductFamilyService {
           ...target.evidence,
           recommendedCompanyProductId: idOf(target.recommended ?? {}, 'companyProductId'),
           reviewReason: target.reviewReason ?? 'higher_stock_listing_detected',
-          reconciledAt: new Date().toISOString(),
         },
       });
       family = await this.getFamily(familyId);
@@ -890,7 +937,6 @@ export class EcobaseCompanyProductFamilyService {
           reviewReason: supplierConflict
             ? 'operator_supplier_differs_from_latest_order'
             : latestReview?.reviewReason ?? 'missing_valid_supplier_order',
-          reconciledAt: new Date().toISOString(),
         },
       });
     } else if (currentFamily.supplierReviewRequired === true) {
@@ -951,8 +997,16 @@ export class EcobaseCompanyProductFamilyService {
   }
 
   private async updateFamily(familyId: string, values: PlainRecord) {
+    const family = await this.getFamily(familyId);
+    const changedValues = Object.fromEntries(
+      Object.entries(values).filter(
+        ([field, value]) => !Object.prototype.hasOwnProperty.call(family, field) || !valuesEqual(family[field], value),
+      ),
+    );
+    if (Object.keys(changedValues).length === 0) return false;
     await this.db
       .getRepository(ECOBASE_COLLECTIONS.silverCompanyProductFamilies)
-      .update({ filterByTk: familyId, values });
+      .update({ filterByTk: familyId, values: changedValues });
+    return true;
   }
 }

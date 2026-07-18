@@ -18,7 +18,7 @@ import { EcobaseSupplierOrderImportApplyService } from '../../features/source-im
 import { EcobaseSupplierOrderImportService } from '../../features/source-import/server/supplier-order-import-service';
 import { EcobaseCompanyProductFamilyService } from '../../features/inventory-planning/server/company-product-family-service';
 import { createSupplierManagementResourceRegistration } from '../../features/supplier-management/server/resource-registration';
-import { createEcobaseImportActions } from '../resource-actions';
+import { createEcobaseImportActions, createEcobaseInventoryPlanningActions } from '../resource-actions';
 import { registerEcobaseResources } from '../resource-registration';
 
 function registerAll() {
@@ -80,6 +80,26 @@ describe('Ecobase resource registration', () => {
       const grantedActions = acl.filter((entry) => entry.resource === resource.name).flatMap((entry) => entry.actions);
       expect(grantedActions.sort()).toEqual(Object.keys(resource.actions).sort());
     }
+  });
+
+  it('runs the family reconciliation action with protected catalog identity', async () => {
+    const result = { createdFamilyCount: 0, linkedCompanyProductCount: 0 };
+    const reconcile = vi
+      .spyOn(EcobaseCompanyProductFamilyService.prototype, 'reconcileAllFamilies')
+      .mockResolvedValue(result as never);
+    const ctx = {
+      state: { currentUser: { id: 1 }, currentRoles: ['root'] },
+      action: { params: { values: {} } },
+      db: {},
+      body: undefined as unknown,
+    };
+    const next = vi.fn();
+
+    await createEcobaseInventoryPlanningActions().reconcileFamilies(ctx as never, next);
+
+    expect(reconcile).toHaveBeenCalledWith(undefined, { preserveCatalog: true });
+    expect(ctx.body).toEqual({ data: result });
+    expect(next).toHaveBeenCalledOnce();
   });
 
   it('keeps protected family reconciliation outside supplier/order apply', async () => {
