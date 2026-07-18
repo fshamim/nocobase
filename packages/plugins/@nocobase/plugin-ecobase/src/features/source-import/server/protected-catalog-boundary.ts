@@ -21,9 +21,9 @@ interface ProtectedCatalogCounts {
 
 const EXPECTED_COUNTS: ProtectedCatalogCounts = {
   companies: 4,
-  amazonAccounts: 6,
-  companyProducts: 2136,
-  productFamilies: 1780,
+  amazonAccounts: 10,
+  companyProducts: 2363,
+  productFamilies: 1919,
 };
 
 type PlainRecord = Record<string, unknown>;

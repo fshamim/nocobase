@@ -45,31 +45,31 @@ function seedCatalog() {
     { id: 'company-2', companyKey: 'RETAIL_HEAVEN_INC', name: 'Retail Heaven Inc' },
     { id: 'company-3', companyKey: 'STOP_SHOP_LLC', name: 'Stop Shop LLC' },
   ];
-  const amazonAccounts = Array.from({ length: 6 }, (_, index) => ({
+  const amazonAccounts = Array.from({ length: 10 }, (_, index) => ({
     id: `account-${index}`,
     companyId: `company-${index % 4}`,
     name: `Account ${index}`,
     marketplace: index === 0 ? 'Amazon.com' : `Marketplace ${index}`,
     isDefault: true,
   }));
-  const products = Array.from({ length: 2136 }, (_, index) => ({
+  const products = Array.from({ length: 2363 }, (_, index) => ({
     id: `product-${index}`,
     asin: index === 0 ? 'B000000001' : `B${String(index).padStart(9, '0')}`,
     sku: `SKU-${index}`,
   }));
-  const productFamilies = Array.from({ length: 1780 }, (_, index) => ({
+  const productFamilies = Array.from({ length: 1919 }, (_, index) => ({
     id: `family-${index}`,
     companyId: `company-${index % 4}`,
-    amazonAccountId: `account-${index % 6}`,
-    marketplace: index === 0 ? 'Amazon.com' : `Marketplace ${index % 6}`,
+    amazonAccountId: `account-${index % 10}`,
+    marketplace: index === 0 ? 'Amazon.com' : `Marketplace ${index % 10}`,
     canonicalAsin: products[index].asin,
   }));
   const companyProducts = products.map((product, index) => ({
     id: `company-product-${index}`,
     companyId: `company-${index % 4}`,
-    amazonAccountId: `account-${index % 6}`,
+    amazonAccountId: `account-${index % 10}`,
     productId: product.id,
-    companyProductFamilyId: `family-${index % 1780}`,
+    companyProductFamilyId: `family-${index % 1919}`,
   }));
   db.repositories.set(ECOBASE_COLLECTIONS.silverCompanies, new Repository(companies));
   db.repositories.set(ECOBASE_COLLECTIONS.silverAmazonAccounts, new Repository(amazonAccounts));
@@ -85,22 +85,22 @@ describe('EcobaseProtectedCatalogBoundary', () => {
     const baseline = await new EcobaseProtectedCatalogBoundary(db).assertReadyForRefresh();
     expect(baseline).toMatchObject({
       readyForRefresh: true,
-      actualCounts: { companies: 4, amazonAccounts: 6, companyProducts: 2136, productFamilies: 1780 },
+      actualCounts: { companies: 4, amazonAccounts: 10, companyProducts: 2363, productFamilies: 1919 },
       drift: { companies: 0, amazonAccounts: 0, companyProducts: 0, productFamilies: 0 },
     });
 
     const accounts = db.getRepository(ECOBASE_COLLECTIONS.silverAmazonAccounts).rows;
     const companyProducts = db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).rows;
     const families = db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductFamilies).rows;
-    accounts.push(...Array.from({ length: 4 }, (_, index) => ({ id: `drift-account-${index}` })));
-    companyProducts.push(...Array.from({ length: 226 }, (_, index) => ({ id: `drift-product-${index}` })));
-    families.push(...Array.from({ length: 134 }, (_, index) => ({ id: `drift-family-${index}` })));
+    accounts.push({ id: 'drift-account' });
+    companyProducts.push({ id: 'drift-product' });
+    families.push({ id: 'drift-family' });
 
     const drift = await new EcobaseProtectedCatalogBoundary(db).inspect();
     expect(drift).toMatchObject({
       readyForRefresh: false,
-      actualCounts: { companies: 4, amazonAccounts: 10, companyProducts: 2362, productFamilies: 1914 },
-      drift: { companies: 0, amazonAccounts: 4, companyProducts: 226, productFamilies: 134 },
+      actualCounts: { companies: 4, amazonAccounts: 11, companyProducts: 2364, productFamilies: 1920 },
+      drift: { companies: 0, amazonAccounts: 1, companyProducts: 1, productFamilies: 1 },
     });
   });
 
