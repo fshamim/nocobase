@@ -142,11 +142,14 @@ function fixture(): Record<string, Row[]> {
         id: 'line-etc',
         orderId: 'order-etc',
         companyProductId: 'company-product-etc',
+        companyProductFamilyId: 'family-etc',
         supplierProductId: 'supplier-product-etc',
         sourceAsin: 'B0177E9JPS',
         sourceSupplierSku: 'ETC120A',
-        productMappingStatus: 'resolved',
+        mappingScope: 'exact_member',
+        productMappingStatus: 'exact_member',
         productMappingEvidenceJson: { method: 'reviewed_alias' },
+        purchaseEvidenceStatus: 'confirmed',
         orderedQty: 1,
       },
     ],
@@ -191,15 +194,41 @@ describe('EcobaseSilverIntegrityVerifier', () => {
     rows[ECOBASE_COLLECTIONS.silverOrderLines][0] = {
       ...rows[ECOBASE_COLLECTIONS.silverOrderLines][0],
       companyProductId: null,
+      companyProductFamilyId: null,
       supplierProductId: null,
+      mappingScope: 'unresolved',
       productMappingStatus: 'unresolved',
-      productMappingEvidenceJson: { reason: 'boundary_ambiguous' },
+      productMappingEvidenceJson: { mappingReason: 'family_marketplace_unresolved' },
     };
 
     const result = await new EcobaseSilverIntegrityVerifier(new MemoryDatabase(rows)).verify();
 
     expect(result.ok).toBe(true);
     expect(result.counts.business_ambiguity).toBe(1);
+    expect(technicalCodes(result)).toEqual([]);
+  });
+
+  it('keeps a family-only line as an explicit nonblocking business ambiguity', async () => {
+    const rows = fixture();
+    rows[ECOBASE_COLLECTIONS.silverOrderLines][0] = {
+      ...rows[ECOBASE_COLLECTIONS.silverOrderLines][0],
+      companyProductId: null,
+      companyProductFamilyId: 'family-etc',
+      supplierProductId: null,
+      mappingScope: 'family_only',
+      productMappingStatus: 'family_only',
+      productMappingEvidenceJson: { mappingReason: 'exact_member_unresolved' },
+    };
+
+    const result = await new EcobaseSilverIntegrityVerifier(new MemoryDatabase(rows)).verify();
+
+    expect(result.ok).toBe(true);
+    expect(result.counts.business_ambiguity).toBe(1);
+    expect(result.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ classification: 'business_ambiguity', code: 'order_line_family_only' }),
+      ]),
+    );
     expect(technicalCodes(result)).toEqual([]);
   });
 
@@ -239,7 +268,7 @@ describe('EcobaseSilverIntegrityVerifier', () => {
       expect.arrayContaining([
         expect.objectContaining({
           code: 'resolved_line_company_product_supplier_mismatch',
-          message: 'Resolved order line crosses company, product, or order-header supplier authority.',
+          message: 'Exact-member order line crosses family, company, product, or order-header supplier authority.',
         }),
       ]),
     );
@@ -250,9 +279,11 @@ describe('EcobaseSilverIntegrityVerifier', () => {
     rows[ECOBASE_COLLECTIONS.silverOrderLines][0] = {
       ...rows[ECOBASE_COLLECTIONS.silverOrderLines][0],
       companyProductId: null,
+      companyProductFamilyId: null,
       supplierProductId: null,
+      mappingScope: 'unresolved',
       productMappingStatus: 'unresolved',
-      productMappingEvidenceJson: { reason: 'order_context_missing' },
+      productMappingEvidenceJson: { mappingReason: 'order_context_missing' },
     };
 
     const result = await new EcobaseSilverIntegrityVerifier(new MemoryDatabase(rows)).verify();

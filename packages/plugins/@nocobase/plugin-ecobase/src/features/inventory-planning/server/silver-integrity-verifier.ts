@@ -30,6 +30,8 @@ const APPROVED_BUSINESS_AMBIGUITIES = new Set([
   'target_missing',
   'target_review_required',
   'product_not_found',
+  'family_marketplace_unresolved',
+  'family_not_found',
 ]);
 
 function text(value: unknown) {
@@ -46,11 +48,25 @@ function normalized(value: unknown) {
     .trim();
 }
 
+type OrderLineMappingScope = 'exact_member' | 'family_only' | 'unresolved';
+
+function orderLineMappingScope(line: PlainRecord): OrderLineMappingScope | undefined {
+  const scope = text(line.mappingScope);
+  if (scope) return scope === 'exact_member' || scope === 'family_only' || scope === 'unresolved' ? scope : undefined;
+  const status = text(line.productMappingStatus);
+  if (status === 'resolved') return 'exact_member';
+  if (status === 'unresolved') return 'unresolved';
+  return undefined;
+}
+
+function orderLineMappingReason(line: PlainRecord) {
+  const evidence = toPlainRecord(line.productMappingEvidenceJson);
+  return text(evidence.mappingReason) ?? text(evidence.reason);
+}
+
 export function isApprovedOrderLineBusinessAmbiguity(line: PlainRecord) {
-  const reason = text(toPlainRecord(line.productMappingEvidenceJson).reason);
-  return (
-    text(line.productMappingStatus) === 'unresolved' && Boolean(reason && APPROVED_BUSINESS_AMBIGUITIES.has(reason))
-  );
+  const reason = orderLineMappingReason(line);
+  return orderLineMappingScope(line) === 'unresolved' && Boolean(reason && APPROVED_BUSINESS_AMBIGUITIES.has(reason));
 }
 
 function byId(rows: PlainRecord[]) {
@@ -312,23 +328,80 @@ export class EcobaseSilverIntegrityVerifier {
     );
     for (const line of lines) {
       const lineId = text(line.id);
-      const mappingStatus = text(line.productMappingStatus);
-      const evidence = toPlainRecord(line.productMappingEvidenceJson);
-      if (!['resolved', 'unresolved'].includes(mappingStatus ?? '')) {
+      const mappingScope = orderLineMappingScope(line);
+      if (!mappingScope) {
         issues.push(
           issue(
             'technical_blocker',
             'line_resolution_classification_missing',
             'silverOrderLine',
             lineId,
-            'Order line must be classified as resolved or unresolved.',
+            'Order line must be classified as exact_member, family_only, or unresolved.',
           ),
         );
         continue;
       }
-      if (mappingStatus === 'unresolved') {
-        const reason = text(evidence.reason);
-        if (isApprovedOrderLineBusinessAmbiguity(line)) {
+
+      const order = orderById.get(text(line.orderId));
+      if (!order) {
+        issues.push(
+          issue(
+            'technical_blocker',
+            'order_line_order_missing',
+            'silverOrderLine',
+            lineId,
+            'Order line references a missing order.',
+          ),
+        );
+        continue;
+      }
+
+      if (mappingScope === 'family_only') {
+        const family = familyById.get(text(line.companyProductFamilyId));
+        if (
+          !family ||
+          text(line.companyProductId) ||
+          text(line.supplierProductId) ||
+          text(family.companyId) !== text(order.companyId)
+        ) {
+          issues.push(
+            issue(
+              'technical_blocker',
+              'family_only_line_relationship_invalid',
+              'silverOrderLine',
+              lineId,
+              'Family-only order line must reference one family in the order company without exact product links.',
+            ),
+          );
+        } else {
+          issues.push(
+            issue(
+              'business_ambiguity',
+              'order_line_family_only',
+              'silverOrderLine',
+              lineId,
+              'Order line is intentionally resolved only to its company-product family.',
+              { familyId: text(family.id) },
+            ),
+          );
+        }
+        continue;
+      }
+
+      if (mappingScope === 'unresolved') {
+        const reason = orderLineMappingReason(line);
+        if (text(line.companyProductId) || text(line.companyProductFamilyId) || text(line.supplierProductId)) {
+          issues.push(
+            issue(
+              'technical_blocker',
+              'unresolved_line_relationship_present',
+              'silverOrderLine',
+              lineId,
+              'Unresolved order line may not retain an exact product or family relationship.',
+              { reason },
+            ),
+          );
+        } else if (isApprovedOrderLineBusinessAmbiguity(line)) {
           issues.push(
             issue(
               'business_ambiguity',
@@ -354,29 +427,33 @@ export class EcobaseSilverIntegrityVerifier {
         continue;
       }
 
-      const order = orderById.get(text(line.orderId));
       const companyProduct = companyProductById.get(text(line.companyProductId));
       const supplierProduct = supplierProductById.get(text(line.supplierProductId));
-      const supplierId = text(order?.supplierId);
+      const supplierId = text(order.supplierId);
       const companyProductId = text(companyProduct?.id);
       const supplierProductId = text(supplierProduct?.id);
-      if (!order || !companyProduct || !supplierProduct) {
+      const purchaseEvidenceStatus = text(line.purchaseEvidenceStatus)?.toLowerCase();
+      const supplierProductRequired = purchaseEvidenceStatus === 'confirmed' || Boolean(text(line.supplierProductId));
+      if (!companyProduct || (supplierProductRequired && !supplierProduct)) {
         issues.push(
           issue(
             'technical_blocker',
             'resolved_line_relationship_missing',
             'silverOrderLine',
             lineId,
-            'Resolved order line is missing its order, company-product, or supplier-product relationship.',
+            'Exact-member order line is missing its company-product or required supplier-product relationship.',
           ),
         );
         continue;
       }
       if (
+        (text(line.companyProductFamilyId) &&
+          text(line.companyProductFamilyId) !== text(companyProduct.companyProductFamilyId)) ||
         text(order.companyId) !== text(companyProduct.companyId) ||
-        text(supplierProduct.supplierId) !== supplierId ||
-        text(supplierProduct.productId) !== text(companyProduct.productId) ||
-        !supplierById.has(supplierId)
+        !supplierById.has(supplierId) ||
+        (supplierProduct &&
+          (text(supplierProduct.supplierId) !== supplierId ||
+            text(supplierProduct.productId) !== text(companyProduct.productId)))
       ) {
         issues.push(
           issue(
@@ -384,18 +461,18 @@ export class EcobaseSilverIntegrityVerifier {
             'resolved_line_company_product_supplier_mismatch',
             'silverOrderLine',
             lineId,
-            'Resolved order line crosses company, product, or order-header supplier authority.',
+            'Exact-member order line crosses family, company, product, or order-header supplier authority.',
           ),
         );
       }
-      if (!linkKeys.has(`${companyProductId ?? ''}:${supplierProductId ?? ''}`)) {
+      if (supplierProduct && !linkKeys.has(`${companyProductId ?? ''}:${supplierProductId ?? ''}`)) {
         issues.push(
           issue(
             'technical_blocker',
             'resolved_line_supplier_link_missing',
             'silverOrderLine',
             lineId,
-            'Resolved order line has no company-product supplier link.',
+            'Exact-member order line has no company-product supplier link.',
           ),
         );
       }
@@ -409,7 +486,7 @@ export class EcobaseSilverIntegrityVerifier {
             'resolved_line_source_asin_mismatch',
             'silverOrderLine',
             lineId,
-            'Resolved line source ASIN differs from its canonical Amazon product.',
+            'Exact-member line source ASIN differs from its canonical Amazon product.',
           ),
         );
       }
@@ -510,7 +587,7 @@ export class EcobaseSilverIntegrityVerifier {
     )) {
       const companyProduct = companyProducts.find((candidate) => text(candidate.id) === text(line.companyProductId));
       if (
-        line.productMappingStatus === 'resolved' &&
+        orderLineMappingScope(line) === 'exact_member' &&
         !canonicalIds.has(text(companyProduct && productById.get(text(companyProduct.productId))?.id))
       ) {
         issues.push(
