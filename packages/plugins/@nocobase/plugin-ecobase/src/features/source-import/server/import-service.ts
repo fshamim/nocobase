@@ -1298,7 +1298,11 @@ export class EcobaseImportService {
       }
     }
 
-    if (!errorMessage && normalizedCount > 0 && adapter.metadata.name !== 'google-sheets-migration-csv') {
+    if (
+      !errorMessage &&
+      normalizedCount > 0 &&
+      !['google-sheets-migration-csv', 'sellerboard-history-csv'].includes(adapter.metadata.name)
+    ) {
       try {
         const preservesProtectedCatalog = catalogMutationMode === 'refresh';
         if (preservesProtectedCatalog && stream.protectedCatalog) {

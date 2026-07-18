@@ -828,7 +828,13 @@ describe('Ecobase current Amazon operations CSV import', () => {
       preserveAuditRun: true,
     });
 
-    expect(run).toMatchObject({ status: 'success', rowCount: 1, normalizedCount: 1, warningCount: 0 });
+    expect(run).toMatchObject({
+      status: 'success',
+      rowCount: 1,
+      normalizedCount: 1,
+      warningCount: 0,
+      summary: { familyReconciliation: null },
+    });
     const imported: any[] = [];
     for await (const item of sellerboardHistoryCsvAdapter.import({
       sourceConnectionId: 'source-1',
