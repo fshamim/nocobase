@@ -17,7 +17,7 @@ import {
   EcobasePlanningSettingsService,
 } from '../../../server/services/planning-settings-service';
 import { addDays, diffDays, isoDate } from './planning-date';
-import { profitTierFor, type ProfitTierThresholds } from './profit-tier';
+import { profitTierFor, rollingDemandProfitTier, type ProfitTierThresholds } from './profit-tier';
 import { summarizeHistoricalProductFacts } from './historical-product-metrics';
 
 const RULE_VERSION = 'explicit_inventory_position_v2';
@@ -333,7 +333,14 @@ export class EcobasePlanningCalculationService {
       sourceEstimatedVelocity,
     ].filter((value): value is number => typeof value === 'number');
     const salesVelocity = velocityCandidates.length > 0 ? Math.max(...velocityCandidates) : undefined;
-    const historicalMetrics = summarizeHistoricalProductFacts(params.factRows, params.calculationDate);
+    const recentAsOfDate = latestDate(
+      params.factRows.filter((row) => {
+        const snapshotDate = asString(row.snapshotDate);
+        return snapshotDate && snapshotDate <= params.calculationDate;
+      }),
+      'snapshotDate',
+    );
+    const historicalMetrics = summarizeHistoricalProductFacts(params.factRows, params.calculationDate, recentAsOfDate);
     const recommendedBestQty =
       historicalMetrics.sixMonthBestQty ??
       sumFirstNumbers(params.parameterRows, ['recommendedBestQty', 'Rec.Best Qty', 'Rec. Best Qty']);
@@ -406,16 +413,33 @@ export class EcobasePlanningCalculationService {
       profitPerUnit,
       recommendedBestQty,
     });
-    const currentTierResult = profitTierFor(profitPerUnit, historicalMetrics.lastMonthQty, params.profitTierThresholds);
+    const recentTierVelocity =
+      typeof historicalMetrics.recentUnits30 === 'number' ? historicalMetrics.recentUnits30 / 30 : undefined;
+    const tierDaysOfCover =
+      typeof recentTierVelocity === 'number' && recentTierVelocity > 0 ? sellableStock / recentTierVelocity : undefined;
+    const selectedTierResult = rollingDemandProfitTier({
+      profitPerUnit: historicalMetrics.profitPerUnit,
+      recentUnits30: historicalMetrics.recentUnits30,
+      stuckInventory:
+        sellableStock > 0 &&
+        (historicalMetrics.recentUnits30 === 0 || (typeof tierDaysOfCover === 'number' && tierDaysOfCover > 60)),
+      thresholds: params.profitTierThresholds,
+    });
+    const currentTierResult = profitTierFor(
+      historicalMetrics.profitPerUnit,
+      historicalMetrics.lastMonthQty,
+      params.profitTierThresholds,
+    );
     const averageTierResult = profitTierFor(
-      profitPerUnit,
+      historicalMetrics.profitPerUnit,
       historicalMetrics.sixMonthAverageQty,
       params.profitTierThresholds,
     );
-    const bestTierResult = profitTierFor(profitPerUnit, historicalMetrics.sixMonthBestQty, params.profitTierThresholds);
-    const legacyTierResult = profitTierFor(profitPerUnit, recommendedBestQty, params.profitTierThresholds);
-    const hasHistoricalQuantities = typeof historicalMetrics.sixMonthBestQty === 'number';
-    const selectedTierResult = hasHistoricalQuantities ? currentTierResult : legacyTierResult;
+    const bestTierResult = profitTierFor(
+      historicalMetrics.profitPerUnit,
+      historicalMetrics.sixMonthBestQty,
+      params.profitTierThresholds,
+    );
     return {
       naturalKey: `${params.planningProductId}:${RULE_VERSION}:${params.calculationDate}`,
       planningProductId: params.planningProductId,
@@ -425,6 +449,9 @@ export class EcobasePlanningCalculationService {
       canonicalAsin: asString(params.product.canonicalAsin),
       tier: selectedTierResult.tier ?? 'unclassified',
       tierScore: selectedTierResult.tierScore,
+      recentUnits30: historicalMetrics.recentUnits30,
+      tierEligibilityReason: selectedTierResult.tierEligibilityReason,
+      tierRuleVersion: selectedTierResult.tierRuleVersion,
       currentTier: currentTierResult.tier ?? 'unclassified',
       currentTierScore: currentTierResult.tierScore,
       averageTier: averageTierResult.tier ?? 'unclassified',

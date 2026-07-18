@@ -30,8 +30,8 @@ import {
 } from '../../../server/services/planning-settings-service';
 import {
   isProfitTier,
-  profitTierFor,
   profitTierMovement,
+  rollingDemandProfitTier,
   profitTierRank,
   type ProfitTierThresholds,
 } from './profit-tier';
@@ -48,8 +48,6 @@ import {
 } from './inventory-planning-pane-classifier';
 
 const GOLD_SOURCE_RECORD_LIMIT = 100000;
-const TIER_RULE_VERSION = 'rolling_30d_min_4_v1';
-const MINIMUM_TIER_UNITS_30_DAYS = 4;
 export type InventoryPlanningActionStatus =
   | 'excluded'
   | 'missing_inventory'
@@ -2026,7 +2024,6 @@ export class EcobaseInventoryPlanningService {
             })
           : 'missing_inventory';
       const recentUnits30 = historical.recentUnits30;
-      const tierResult = profitTierFor(historical.profitPerUnit, recentUnits30, profitTierThresholds);
       const provisionalStuck = stuckClassification(
         {
           ...stockBuckets,
@@ -2048,22 +2045,15 @@ export class EcobaseInventoryPlanningService {
         },
         calculationDate,
       );
-      const tierEligibilityReason =
-        typeof recentUnits30 !== 'number'
-          ? 'missing_recent_sales_evidence'
-          : recentUnits30 < MINIMUM_TIER_UNITS_30_DAYS
-            ? 'low_recent_demand'
-            : ['over_60_doc', 'reserved_stalled', 'pipeline_stalled', 'no_sell_through_with_stock'].includes(
-                  provisionalStuck,
-                )
-              ? 'stuck_inventory'
-              : typeof historical.profitPerUnit !== 'number'
-                ? 'missing_profit_evidence'
-                : !tierResult.tier
-                  ? 'non_positive_profit_score'
-                  : 'eligible_recent_demand';
-      const tier = tierEligibilityReason === 'eligible_recent_demand' ? tierResult.tier : undefined;
-      const tierScore = tierResult.tierScore;
+      const tierResult = rollingDemandProfitTier({
+        profitPerUnit: historical.profitPerUnit,
+        recentUnits30,
+        stuckInventory: ['over_60_doc', 'reserved_stalled', 'pipeline_stalled', 'no_sell_through_with_stock'].includes(
+          provisionalStuck,
+        ),
+        thresholds: profitTierThresholds,
+      });
+      const { tier, tierScore, tierEligibilityReason, tierRuleVersion } = tierResult;
 
       rows.push({
         planningProductId: companyProductId,
@@ -2097,7 +2087,7 @@ export class EcobaseInventoryPlanningService {
         tierScore,
         recentUnits30,
         tierEligibilityReason,
-        tierRuleVersion: TIER_RULE_VERSION,
+        tierRuleVersion,
         salesVelocity,
         salesVelocityBasis,
         salesVelocityStatus,

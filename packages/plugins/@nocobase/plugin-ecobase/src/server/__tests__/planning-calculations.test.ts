@@ -101,7 +101,7 @@ function createActionContext(db: EcobaseDatabase) {
   };
 }
 
-async function seedCurrentPlanningData(db: MemoryDatabase) {
+async function seedCurrentPlanningData(db: MemoryDatabase, options: { sellableStock?: number } = {}) {
   const planningProductId = 'planning-product-1';
   const productId = 'silver-product-1';
   const companyProductId = 'company-product-1';
@@ -141,7 +141,7 @@ async function seedCurrentPlanningData(db: MemoryDatabase) {
       sourceConnectionId: 'source-1',
       companyProductId,
       snapshotDate: '2026-07-13',
-      sellableStock: 100,
+      sellableStock: options.sellableStock ?? 100,
       reserved: 100,
       inbound: 50,
       salesVelocity: 2,
@@ -204,6 +204,16 @@ describe('Ecobase Silver-backed planning calculations', () => {
 
     expect(result).toMatchObject({
       tier: 'A',
+      tierScore: 370,
+      recentUnits30: 74,
+      tierEligibilityReason: 'eligible_recent_demand',
+      tierRuleVersion: 'rolling_30d_min_4_v1',
+      currentTier: 'A',
+      currentTierScore: 300,
+      averageTier: 'B',
+      averageTierScore: 175,
+      bestTier: 'A',
+      bestTierScore: 300,
       lastMonthQty: 60,
       sixMonthAverageQty: 35,
       sixMonthWorstQty: 10,
@@ -230,6 +240,26 @@ describe('Ecobase Silver-backed planning calculations', () => {
     });
     expect(result.daysOfCover).toBeCloseTo(100 / (74 / 30));
     expect(result.positionDaysOfCover).toBeCloseTo(150 / (74 / 30));
+  });
+
+  it('does not assign the canonical tier when trusted recent velocity shows over 60 days of cover', async () => {
+    const db = new MemoryDatabase();
+    const planningProductId = await seedCurrentPlanningData(db, { sellableStock: 1000 });
+
+    const result = await new EcobasePlanningCalculationService(db).calculatePlanningProduct({
+      planningProductId,
+      calculationDate: '2026-07-13',
+    });
+
+    expect(result).toMatchObject({
+      tier: 'unclassified',
+      tierScore: 370,
+      recentUnits30: 74,
+      tierEligibilityReason: 'stuck_inventory',
+      tierRuleVersion: 'rolling_30d_min_4_v1',
+      currentTier: 'A',
+      currentTierScore: 300,
+    });
   });
 
   it('exposes benchmark validation rows through the public planning action', async () => {

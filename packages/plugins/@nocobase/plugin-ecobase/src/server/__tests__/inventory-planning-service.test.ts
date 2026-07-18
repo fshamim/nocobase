@@ -1602,6 +1602,9 @@ describe('EcobaseInventoryPlanningService', () => {
     const rows = db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).all();
     expect(rows.find((row) => row.sku === 'RECENT-FOUR')).toMatchObject({
       recentUnits30: 4,
+      profitPerUnit: 100,
+      lastMonthQty: null,
+      sixMonthAverageQty: 10,
       salesVelocity: 4 / 30,
       salesVelocityBasis: 'historical_rolling_30_days',
       salesVelocityWindowStart: '2026-05-08',
