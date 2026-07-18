@@ -30,6 +30,7 @@ import {
 } from '../../../server/services/planning-settings-service';
 import {
   isProfitTier,
+  profitTierFor,
   profitTierMovement,
   rollingDemandProfitTier,
   profitTierRank,
@@ -2055,6 +2056,13 @@ export class EcobaseInventoryPlanningService {
         thresholds: profitTierThresholds,
       });
       const { tier, tierScore, tierEligibilityReason, tierRuleVersion } = tierResult;
+      const currentTierResult = profitTierFor(historical.profitPerUnit, historical.lastMonthQty, profitTierThresholds);
+      const averageTierResult = profitTierFor(
+        historical.profitPerUnit,
+        historical.sixMonthAverageQty,
+        profitTierThresholds,
+      );
+      const bestTierResult = profitTierFor(historical.profitPerUnit, historical.sixMonthBestQty, profitTierThresholds);
 
       rows.push({
         planningProductId: companyProductId,
@@ -2089,6 +2097,12 @@ export class EcobaseInventoryPlanningService {
         recentUnits30,
         tierEligibilityReason,
         tierRuleVersion,
+        currentTier: currentTierResult.tier ?? 'unclassified',
+        currentTierScore: currentTierResult.tierScore,
+        averageTier: averageTierResult.tier ?? 'unclassified',
+        averageTierScore: averageTierResult.tierScore,
+        bestTier: bestTierResult.tier ?? 'unclassified',
+        bestTierScore: bestTierResult.tierScore,
         salesVelocity,
         salesVelocityBasis,
         salesVelocityStatus,
