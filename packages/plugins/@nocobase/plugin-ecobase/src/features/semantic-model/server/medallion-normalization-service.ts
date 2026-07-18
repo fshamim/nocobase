@@ -337,7 +337,7 @@ export class EcobaseMedallionNormalizationService {
               companyId: idOf(company),
               accountName,
               orderingMethod: row.string('Ordering Method', 'Order Method'),
-              portalUrl: row.string('prPortalLink', 'PR Portal Link', 'Portal URL', 'Website'),
+              portalUrl: row.string('supplierUrl', 'prPortalLink', 'PR Portal Link', 'Portal URL', 'Website'),
               username: row.string('portalUsername', 'Username', 'Login'),
               loginUsername: row.string('portalUsername', 'Username', 'Login'),
               loginSecret: row.string('portalPassword', 'pass', 'Password'),
