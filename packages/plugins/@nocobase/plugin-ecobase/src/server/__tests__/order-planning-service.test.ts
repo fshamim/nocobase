@@ -159,9 +159,18 @@ async function seed(db: FakeDatabase) {
       expectedProfit: 30,
     },
   });
+  await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).create({
+    values: {
+      id: 'order-planning-published-run',
+      status: 'published',
+      calculationDate: '2026-06-24',
+      publishedAt: '2026-06-24T00:00:00.000Z',
+    },
+  });
   await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).create({
     values: {
       id: 'gold-1',
+      refreshRunId: 'order-planning-published-run',
       company: 'SampleAM',
       supplierOrderRef: 'SAM062426A',
       calculationDate: '2026-06-24',
@@ -173,6 +182,7 @@ async function seed(db: FakeDatabase) {
   await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).create({
     values: {
       id: 'gold-2',
+      refreshRunId: 'order-planning-published-run',
       company: 'SampleAM',
       supplierOrderRef: 'SAM062426A',
       calculationDate: '2026-06-24',
@@ -284,6 +294,7 @@ describe('EcobaseOrderPlanningService', () => {
     await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).create({
       values: {
         id: 'gold-order-2-a-tier',
+        refreshRunId: 'order-planning-published-run',
         company: 'SampleAM',
         supplierOrderRef: 'SAM062426B',
         calculationDate: '2026-06-24',

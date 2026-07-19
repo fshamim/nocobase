@@ -23,6 +23,10 @@ import {
 import type { SourceAdapterRegistry } from '../features/source-import/server/adapters';
 import { createEcobaseAiTools } from './ecobase-ai-tools';
 import { createDailyOperationsBriefResourceRegistration } from '../features/daily-operations-brief/server/resource-registration';
+import {
+  blockRawGoldInventoryPlanningAccess,
+  registerGoldInventoryPlanningWriteGuard,
+} from '../features/inventory-planning/server/gold-write-guard';
 import { createInventoryPlanningResourceRegistration } from '../features/inventory-planning/server/resource-registration';
 import { createOrderPlanningResourceRegistration } from '../features/order-planning/server/resource-registration';
 import { createSemanticModelResourceRegistration } from '../features/semantic-model/server/resource-registration';
@@ -122,6 +126,8 @@ export class PluginEcobaseServer extends Plugin {
   }
 
   async load() {
+    registerGoldInventoryPlanningWriteGuard(this.app.db);
+    this.app.resourceManager.use(blockRawGoldInventoryPlanningAccess);
     this.registerAiEmployeeTools();
     this.app.on('afterStart', async () => {
       await ensureEcobaseCollectionManagerMetadata(this.app.db);

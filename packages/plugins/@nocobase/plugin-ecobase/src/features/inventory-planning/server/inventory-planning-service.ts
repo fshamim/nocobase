@@ -41,7 +41,9 @@ import { latestPreferredInventorySnapshot } from './order-receipt-evidence';
 import { selectCurrentFamilyOrderCycle, type FamilyOrderCycleSelection } from './order-cycle-selection';
 import { evaluatePlanningReadiness } from './planning-readiness';
 import { workflowStageForOperationalStatus } from '../../order-planning/order-operational-status';
-import { EcobaseGoldRefreshRunService } from './gold-refresh-run-service';
+import { canonicalJson, EcobaseGoldRefreshRunService } from './gold-refresh-run-service';
+import { EcobaseInventoryPlanningGoldAccess } from './inventory-planning-gold-access';
+import { withGoldInventoryPlanningWriteAuthority } from './gold-write-guard';
 import {
   classifyInventoryFamily,
   INVENTORY_PLANNING_PANES,
@@ -1014,6 +1016,10 @@ function companyLabelFromSourceConnection(connection: PlainRecord, companyNamesB
   if (companyId) return companyNamesById.get(companyId);
 
   return configString(connection, ['company', 'Company', 'defaultCompany']);
+}
+
+function sha256Canonical(value: unknown) {
+  return createHash('sha256').update(canonicalJson(value)).digest('hex');
 }
 
 function stableUuid(value: string) {
@@ -2682,22 +2688,14 @@ export class EcobaseInventoryPlanningService {
   }
 
   private async readGoldRows(query: InventoryPlanningQuery = {}) {
-    const publishedRun = await new EcobaseGoldRefreshRunService(this.db).getPublishedRun();
-    const refreshRunId = asString(publishedRun?.id);
-    const publishedDate = asString(publishedRun?.calculationDate);
+    const result = await new EcobaseInventoryPlanningGoldAccess(this.db).readPublishedListingPerformance({
+      filter: query.company ? { company: query.company } : undefined,
+      sort: ['-estimatedProfitRisk'],
+    });
+    const publishedDate = asString(result.run?.calculationDate);
     const requestedDate = query.calculationDate ? isoDate(query.calculationDate) : undefined;
-    if (!refreshRunId || (requestedDate && requestedDate !== publishedDate)) return [];
-
-    const rows = (
-      await this.db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).find({
-        filter: {
-          refreshRunId,
-          ...(query.company ? { company: query.company } : {}),
-        },
-        sort: ['-estimatedProfitRisk'],
-      })
-    ).map(toPlainRecord);
-    return this.sortPlanningRows(rows).slice(0, query.limit ?? rows.length);
+    if (!result.published || (requestedDate && requestedDate !== publishedDate)) return [];
+    return this.sortPlanningRows(result.rows).slice(0, query.limit ?? result.rows.length);
   }
 
   private sortPlanningRows(rows: PlainRecord[]) {
@@ -3633,30 +3631,67 @@ export class EcobaseInventoryPlanningService {
       limit: query.limit ?? GOLD_SOURCE_RECORD_LIMIT,
     };
 
+    const rows = await this.calculateRows({
+      ...query,
+      company: undefined,
+      calculationDate,
+      limit: query.limit ?? GOLD_SOURCE_RECORD_LIMIT,
+    });
+    const algorithmVersions = [
+      ...new Set(rows.map((row) => asString(row.tierRuleVersion)).filter((value): value is string => Boolean(value))),
+    ];
+    if (algorithmVersions.length > 1) {
+      throw new Error(
+        `Ecobase inventory-planning refresh failed: candidate rows contain multiple algorithm contracts (${algorithmVersions.join(
+          ', ',
+        )}).`,
+      );
+    }
+    const candidateInputDigests = {
+      sourceInputDigest: sha256Canonical(rows),
+      coverageInputDigest: sha256Canonical(
+        rows.map((row) => ({
+          planningProductId: row.planningProductId,
+          companyProductId: row.companyProductId,
+          inventoryAsOfDate: row.inventoryAsOfDate,
+          recentUnitsWindowStart: row.recentUnitsWindowStart,
+          recentUnitsWindowEnd: row.recentUnitsWindowEnd,
+          evidence: toPlainRecord(row.evidence),
+        })),
+      ),
+      settingsDigest: sha256Canonical({
+        request,
+        rowSettings: rows.map((row) => ({
+          planningProductId: row.planningProductId,
+          targetCoverDays: row.targetCoverDays,
+          reorderCycleDays: row.reorderCycleDays,
+          tierRuleVersion: row.tierRuleVersion,
+        })),
+      }),
+      algorithmContractVersion: algorithmVersions[0] ?? 'rolling_30d_min_4_v1',
+    };
+
     return runService.execute({
       calculationDate,
       idempotencyKey: query.idempotencyKey,
       requestedByUserId: query.requestedByUserId,
+      candidateInputDigests,
       publish: query.publish,
       request,
       materialize: async ({ runId, transaction, previousPublishedRunId }) => {
-        const rows = await this.calculateRows({
-          ...query,
-          company: undefined,
-          calculationDate,
-          limit: query.limit ?? GOLD_SOURCE_RECORD_LIMIT,
-        });
         const repository = this.db.getRepository(
           ECOBASE_COLLECTIONS.goldInventoryPlanningRows,
         ) as GoldTransactionRepository;
         const previousRows = previousPublishedRunId
           ? (
-              await repository.find({
-                filter: { refreshRunId: previousPublishedRunId },
+              await new EcobaseInventoryPlanningGoldAccess(this.db).readExplicitListingPerformance({
+                runId: previousPublishedRunId,
+                purpose: 'maintenance',
+                actor: { type: 'system' },
                 limit: GOLD_SOURCE_RECORD_LIMIT,
                 transaction,
               })
-            ).map(toPlainRecord)
+            ).rows
           : [];
         const refreshedAt = new Date().toISOString();
         const naturalKeys = new Set<string>();
@@ -3700,7 +3735,7 @@ export class EcobaseInventoryPlanningService {
           const previousTier = sameTierRule && isProfitTier(previousSnapshot?.tier) ? previousSnapshot.tier : undefined;
           values.previousTier = previousTier ?? null;
           values.tierMovement = sameTierRule ? profitTierMovement(row.tier, previousSnapshot?.tier) ?? null : null;
-          await repository.create({ values, transaction });
+          await withGoldInventoryPlanningWriteAuthority(() => repository.create({ values, transaction }));
         }
 
         return {

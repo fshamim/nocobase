@@ -33,7 +33,6 @@ export default function GoldMaintenancePage() {
   const [calculationDate, setCalculationDate] = useState(new Date().toISOString().slice(0, 10));
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
   const [buildConfirmation, setBuildConfirmation] = useState('');
-  const [publishConfirmation, setPublishConfirmation] = useState('');
   const [result, setResult] = useState<PlainRecord>({});
   const [verification, setVerification] = useState<PlainRecord>({});
   const [loading, setLoading] = useState(false);
@@ -78,24 +77,6 @@ export default function GoldMaintenancePage() {
     }
   };
 
-  const publish = async () => {
-    if (!runId) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await api.request({
-        url: 'ecobaseInventoryPlanning:publishRefreshRun',
-        method: 'post',
-        data: { runId, confirmation: publishConfirmation },
-      });
-      setResult(unwrapData(response));
-    } catch (cause) {
-      setError(cause instanceof Error ? cause : new Error(t('Gold publication failed.')));
-    } finally {
-      setLoading(false);
-    }
-  };
-
   return (
     <div style={{ padding: 24 }}>
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
@@ -105,7 +86,7 @@ export default function GoldMaintenancePage() {
           showIcon
           message={t('Administrative maintenance only')}
           description={t(
-            'A rebuild writes an unpublished run. Inventory Planning keeps reading the current published run until you verify and publish the new run.',
+            'A rebuild writes an unpublished run. Inventory Planning keeps reading the current published run. Publication remains disabled until the controlled cutover.',
           )}
         />
         {error ? <Alert type="error" showIcon message={error.message} /> : null}
@@ -128,7 +109,7 @@ export default function GoldMaintenancePage() {
         </Card>
 
         {runId ? (
-          <Card title={t('2. Verify and publish')}>
+          <Card title={t('2. Verify candidate')}>
             <Space direction="vertical" style={{ width: '100%' }}>
               <Descriptions bordered size="small" column={1}>
                 <Descriptions.Item label={t('Run ID')}>{runId}</Descriptions.Item>
@@ -147,17 +128,12 @@ export default function GoldMaintenancePage() {
                   description={`${String(verification.storedRowCount)} ${t('rows verified')}`}
                 />
               ) : null}
-              <Typography.Text strong>{t('Type PUBLISH GOLD to confirm')}</Typography.Text>
-              <Input value={publishConfirmation} onChange={(event) => setPublishConfirmation(event.target.value)} />
-              <Button
-                danger
-                type="primary"
-                loading={loading}
-                disabled={verification.valid !== true || run.status === 'published'}
-                onClick={publish}
-              >
-                {t('Publish verified run')}
-              </Button>
+              <Alert
+                type="info"
+                showIcon
+                message={t('Publication is disabled')}
+                description={t('Verified candidates remain unpublished until the controlled publication cutover.')}
+              />
             </Space>
           </Card>
         ) : null}

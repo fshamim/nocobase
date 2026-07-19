@@ -13,6 +13,7 @@ import { isApprovedOrderLineBusinessAmbiguity } from '../../inventory-planning/s
 import { canonicalOrderLifecycleStatus, resolveOrderLifecycle } from '../../order-planning/server/order-lifecycle';
 import type { EcobaseDatabase } from '../../source-import/server/import-service';
 import { toPlainRecord } from '../../source-import/server/import-service';
+import { EcobaseInventoryPlanningGoldAccess } from '../../inventory-planning/server/inventory-planning-gold-access';
 
 type PlainRecord = Record<string, unknown>;
 type Severity = 'error' | 'warning';
@@ -456,8 +457,8 @@ export function evaluateSemanticLinkSnapshot(snapshot: SemanticLinkSnapshot) {
 export class EcobaseSemanticLinkVerifier {
   constructor(private db: EcobaseDatabase) {}
 
-  async verify() {
-    const collections: Array<[keyof SemanticLinkSnapshot, string]> = [
+  async verify(params: { runId: string; purpose?: 'production_verification' | 'independent_verification' }) {
+    const collections: Array<[Exclude<keyof SemanticLinkSnapshot, 'goldInventory'>, string]> = [
       ['bronze', ECOBASE_COLLECTIONS.bronzeSourceRecords],
       ['companies', ECOBASE_COLLECTIONS.silverCompanies],
       ['suppliers', ECOBASE_COLLECTIONS.silverSuppliers],
@@ -470,14 +471,24 @@ export class EcobaseSemanticLinkVerifier {
       ['taskLinks', ECOBASE_COLLECTIONS.silverTaskLinks],
       ['importRuns', ECOBASE_COLLECTIONS.importRuns],
       ['goldOrders', ECOBASE_COLLECTIONS.goldOrderPlanningRows],
-      ['goldInventory', ECOBASE_COLLECTIONS.goldInventoryPlanningRows],
     ];
-    const values = await Promise.all(
-      collections.map(
-        async ([key, collection]) =>
-          [key, (await this.db.getRepository(collection).find({ limit: 100000 })).map(toPlainRecord)] as const,
+    const [values, goldInventory] = await Promise.all([
+      Promise.all(
+        collections.map(
+          async ([key, collection]) =>
+            [key, (await this.db.getRepository(collection).find({ limit: 100000 })).map(toPlainRecord)] as const,
+        ),
       ),
-    );
-    return evaluateSemanticLinkSnapshot(Object.fromEntries(values) as SemanticLinkSnapshot);
+      new EcobaseInventoryPlanningGoldAccess(this.db).readExplicitListingPerformance({
+        runId: params.runId,
+        purpose: params.purpose ?? 'production_verification',
+        actor: { type: 'system' },
+        limit: 100000,
+      }),
+    ]);
+    return evaluateSemanticLinkSnapshot({
+      ...(Object.fromEntries(values) as Omit<SemanticLinkSnapshot, 'goldInventory'>),
+      goldInventory: goldInventory.rows,
+    });
   }
 }

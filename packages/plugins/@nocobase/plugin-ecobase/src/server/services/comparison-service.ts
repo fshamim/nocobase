@@ -9,6 +9,7 @@
 
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import type { EcobaseDatabase } from '../../features/source-import/server/import-service';
+import { EcobaseInventoryPlanningGoldAccess } from '../../features/inventory-planning/server/inventory-planning-gold-access';
 
 type PlainRecord = Record<string, unknown>;
 type ComparisonGroupBy = 'company' | 'account' | 'planning_product' | 'raw_listing_sku' | 'tier';
@@ -337,8 +338,8 @@ export class EcobaseComparisonService {
     const facts = await this.listingFacts();
     const targets = await this.targetRows();
     const calculationSnapshots = (
-      await this.db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).find({ limit: 50000 })
-    ).map(toPlainRecord);
+      await new EcobaseInventoryPlanningGoldAccess(this.db).readPublishedListingPerformance({ limit: 50000 })
+    ).rows;
     const importRuns = (await this.db.getRepository(ECOBASE_COLLECTIONS.importRuns).find({})).map(toPlainRecord);
 
     const groups = new Map<string, GroupAccumulator>();

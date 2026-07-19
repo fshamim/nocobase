@@ -18,6 +18,7 @@ import {
   type InventoryCommandCenterPane,
 } from '../../inventory-planning/server/inventory-planning-service';
 import { INVENTORY_PLANNING_PANES } from '../../inventory-planning/server/inventory-planning-pane-classifier';
+import { EcobaseInventoryPlanningGoldAccess } from '../../inventory-planning/server/inventory-planning-gold-access';
 import {
   isReliableSupplierOrderCoverageStatus,
   normalizeSupplierOrderStatus,
@@ -860,11 +861,11 @@ export class EcobaseDailyOperationsBriefService {
 
   private async goldInventoryRows(company: string | undefined, calculationDate: string) {
     const rows = (
-      await this.db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).find({
+      await new EcobaseInventoryPlanningGoldAccess(this.db).readPublishedListingPerformance({
         filter: { ...(company ? { company } : {}), calculationDate },
         sort: ['digestPriority', 'daysUntilSafeReorder', '-estimatedProfitRisk'],
       })
-    ).map(toPlainRecord);
+    ).rows;
     const latestRefresh = rows
       .map((row) => asString(row.lastRefreshedAt))
       .filter((value): value is string => Boolean(value))
@@ -1448,10 +1449,11 @@ export class EcobaseDailyOperationsBriefService {
   private async buildBuyBoxRisks(params: { date: string; company?: string; maxItems: number }) {
     const trafficRows = await this.silverTrafficRows(params.company, 5000);
     const products = (
-      await this.db
-        .getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows)
-        .find({ filter: params.company ? { company: params.company } : {}, limit: 5000 })
-    ).map(toPlainRecord);
+      await new EcobaseInventoryPlanningGoldAccess(this.db).readPublishedListingPerformance({
+        filter: params.company ? { company: params.company } : {},
+        limit: 5000,
+      })
+    ).rows;
     const productByAsinSku = new Map<string, PlainRecord>();
     for (const product of products) {
       const asin = asString(product.asin) ?? asString(product.canonicalAsin);

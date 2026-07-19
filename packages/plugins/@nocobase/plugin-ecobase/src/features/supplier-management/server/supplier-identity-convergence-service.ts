@@ -205,24 +205,6 @@ export class EcobaseSupplierIdentityConvergenceService {
         { preferredSupplierId: canonicalSupplierId },
         transaction,
       );
-      await this.repointByFilter(
-        ECOBASE_COLLECTIONS.goldSupplierAttentionRows,
-        { supplierId: duplicateSupplierId },
-        { supplierId: canonicalSupplierId },
-        transaction,
-      );
-      await this.repointByFilter(
-        ECOBASE_COLLECTIONS.goldInventoryPlanningRows,
-        { familyPreferredSupplierId: duplicateSupplierId },
-        { familyPreferredSupplierId: canonicalSupplierId },
-        transaction,
-      );
-      await this.repointByFilter(
-        ECOBASE_COLLECTIONS.goldOrderPlanningRows,
-        { supplierId: duplicateSupplierId },
-        { supplierId: canonicalSupplierId },
-        transaction,
-      );
       await this.destroy(ECOBASE_COLLECTIONS.silverSuppliers, duplicateSupplierId, transaction);
     }
 
@@ -233,6 +215,7 @@ export class EcobaseSupplierIdentityConvergenceService {
       movedOffers,
       coalescedOffers,
       offerIdMap: Object.fromEntries(offerIdMap),
+      goldRefreshRequired: true,
     };
   }
 
@@ -272,12 +255,6 @@ export class EcobaseSupplierIdentityConvergenceService {
       ECOBASE_COLLECTIONS.silverCompanyProductFamilies,
       { preferredSupplierProductId: fromId },
       { preferredSupplierProductId: toId },
-      transaction,
-    );
-    await this.repointByFilter(
-      ECOBASE_COLLECTIONS.goldInventoryPlanningRows,
-      { familyPreferredSupplierProductId: fromId },
-      { familyPreferredSupplierProductId: toId },
       transaction,
     );
   }

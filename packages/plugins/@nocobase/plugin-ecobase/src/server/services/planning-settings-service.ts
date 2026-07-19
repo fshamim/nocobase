@@ -38,9 +38,19 @@ export type SupplierOrderStatusBuckets = Record<SupplierOrderStatusBucketKey, st
 
 export type PlanningFeatureFlagKey = 'enableCurrentOrderCycleSelection';
 
+export type CurrentProjectionGateMode = 'informational' | 'evidence_driven';
+
+export interface PlanningProjectionSettings {
+  minimumProjectionCoveredDays: number;
+  paceTolerancePercent: number;
+  projectionPolicyVersion: 'evidence_driven_v1';
+  currentProjectionGateMode: CurrentProjectionGateMode;
+}
+
 export type EcobasePlanningSettings = Record<NumberSettingKey, number> &
   Record<PlanningFeatureFlagKey, boolean> &
-  SupplierOrderStatusBuckets & {
+  SupplierOrderStatusBuckets &
+  PlanningProjectionSettings & {
     id?: string;
     name: string;
     isActive: boolean;
@@ -51,7 +61,8 @@ export type EcobasePlanningSettings = Record<NumberSettingKey, number> &
 
 export type SaveEcobasePlanningSettingsParams = Partial<Record<NumberSettingKey, unknown>> &
   Partial<Record<PlanningFeatureFlagKey, unknown>> &
-  Partial<Record<SupplierOrderStatusBucketKey, unknown>> & {
+  Partial<Record<SupplierOrderStatusBucketKey, unknown>> &
+  Partial<Record<keyof PlanningProjectionSettings, unknown>> & {
     id?: string;
     name?: string;
     isActive?: boolean;
@@ -98,6 +109,13 @@ export const DEFAULT_PLANNING_SETTINGS: Record<PlanningSettingKey, number> = {
 
 export const DEFAULT_PLANNING_FEATURE_FLAGS: Record<PlanningFeatureFlagKey, boolean> = {
   enableCurrentOrderCycleSelection: false,
+};
+
+export const DEFAULT_PLANNING_PROJECTION_SETTINGS: PlanningProjectionSettings = {
+  minimumProjectionCoveredDays: 14,
+  paceTolerancePercent: 0,
+  projectionPolicyVersion: 'evidence_driven_v1',
+  currentProjectionGateMode: 'informational',
 };
 
 export const DEFAULT_SUPPLIER_ORDER_STATUS_BUCKETS: SupplierOrderStatusBuckets = {
@@ -150,6 +168,46 @@ function asString(value: unknown): string | undefined {
 
 function asBoolean(value: unknown, fallback = false) {
   return typeof value === 'boolean' ? value : fallback;
+}
+
+function projectionCoveredDays(value: unknown): number | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  const number = Number(value);
+  if (!Number.isInteger(number) || number < 1 || number > 31) {
+    throw new Error(
+      'EcoBase planning settings require Minimum projection covered days to be an integer from 1 through 31.',
+    );
+  }
+  return number;
+}
+
+function paceTolerancePercent(value: unknown): number | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0 || number > 100) {
+    throw new Error(
+      'EcoBase planning settings require Pace tolerance percent to be a finite number from 0 through 100.',
+    );
+  }
+  return number;
+}
+
+function projectionPolicyVersion(value: unknown): 'evidence_driven_v1' | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (value !== 'evidence_driven_v1') {
+    throw new Error('EcoBase planning settings require Projection policy version to equal "evidence_driven_v1".');
+  }
+  return value;
+}
+
+function currentProjectionGateMode(value: unknown): CurrentProjectionGateMode | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (value !== 'informational' && value !== 'evidence_driven') {
+    throw new Error(
+      'EcoBase planning settings require Current projection gate mode to be informational or evidence_driven.',
+    );
+  }
+  return value;
 }
 
 function positiveInteger(value: unknown, key: NumberSettingKey): number | undefined {
@@ -209,6 +267,7 @@ function defaultSettings(): EcobasePlanningSettings {
     isActive: true,
     ...DEFAULT_PLANNING_SETTINGS,
     ...DEFAULT_PLANNING_FEATURE_FLAGS,
+    ...DEFAULT_PLANNING_PROJECTION_SETTINGS,
     ...DEFAULT_PLANNING_BUSINESS_RULES,
   };
 }
@@ -238,6 +297,12 @@ function normalize(row: PlainRecord): EcobasePlanningSettings {
       row.enableCurrentOrderCycleSelection,
       defaults.enableCurrentOrderCycleSelection,
     ),
+    minimumProjectionCoveredDays:
+      projectionCoveredDays(row.minimumProjectionCoveredDays) ?? defaults.minimumProjectionCoveredDays,
+    paceTolerancePercent: paceTolerancePercent(row.paceTolerancePercent) ?? defaults.paceTolerancePercent,
+    projectionPolicyVersion: projectionPolicyVersion(row.projectionPolicyVersion) ?? defaults.projectionPolicyVersion,
+    currentProjectionGateMode:
+      currentProjectionGateMode(row.currentProjectionGateMode) ?? defaults.currentProjectionGateMode,
     profitTierAThreshold:
       positiveInteger(row.profitTierAThreshold, 'profitTierAThreshold') ?? defaults.profitTierAThreshold,
     profitTierBThreshold:
@@ -288,6 +353,7 @@ export class EcobasePlanningSettingsService {
       defaults: {
         ...DEFAULT_PLANNING_SETTINGS,
         ...DEFAULT_PLANNING_FEATURE_FLAGS,
+        ...DEFAULT_PLANNING_PROJECTION_SETTINGS,
         ...DEFAULT_PLANNING_BUSINESS_RULES,
       },
       warning:
@@ -326,6 +392,22 @@ export class EcobasePlanningSettingsService {
             ? existing[key]
             : defaultSettings()[key];
     }
+    values.minimumProjectionCoveredDays =
+      projectionCoveredDays(params.minimumProjectionCoveredDays) ??
+      projectionCoveredDays(existing.minimumProjectionCoveredDays) ??
+      DEFAULT_PLANNING_PROJECTION_SETTINGS.minimumProjectionCoveredDays;
+    values.paceTolerancePercent =
+      paceTolerancePercent(params.paceTolerancePercent) ??
+      paceTolerancePercent(existing.paceTolerancePercent) ??
+      DEFAULT_PLANNING_PROJECTION_SETTINGS.paceTolerancePercent;
+    values.projectionPolicyVersion =
+      projectionPolicyVersion(params.projectionPolicyVersion) ??
+      projectionPolicyVersion(existing.projectionPolicyVersion) ??
+      DEFAULT_PLANNING_PROJECTION_SETTINGS.projectionPolicyVersion;
+    values.currentProjectionGateMode =
+      currentProjectionGateMode(params.currentProjectionGateMode) ??
+      currentProjectionGateMode(existing.currentProjectionGateMode) ??
+      DEFAULT_PLANNING_PROJECTION_SETTINGS.currentProjectionGateMode;
     for (const key of STATUS_BUCKET_KEYS) {
       values[key] = statusList(params[key], key) ?? statusList(existing[key], key) ?? defaultSettings()[key];
     }
@@ -342,6 +424,7 @@ export class EcobasePlanningSettingsService {
     return this.saveSettings({
       ...DEFAULT_PLANNING_SETTINGS,
       ...DEFAULT_PLANNING_FEATURE_FLAGS,
+      ...DEFAULT_PLANNING_PROJECTION_SETTINGS,
       ...DEFAULT_PLANNING_BUSINESS_RULES,
     });
   }

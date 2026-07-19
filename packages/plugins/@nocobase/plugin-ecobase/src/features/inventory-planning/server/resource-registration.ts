@@ -28,7 +28,16 @@ export function createInventoryPlanningResourceRegistration(): EcobaseFeatureRes
     acl: [
       {
         resource: 'ecobaseInventoryPlanning',
-        actions: ['filters', 'workspace', 'commandCenter', 'rows', 'digestPreview', 'rowWorkspace', 'optimizeBudget'],
+        actions: [
+          'filters',
+          'workspace',
+          'commandCenter',
+          'rows',
+          'digestPreview',
+          'rowWorkspace',
+          'optimizeBudget',
+          'candidatePreview',
+        ],
         role: LOGGED_IN,
       },
       {
@@ -41,7 +50,6 @@ export function createInventoryPlanningResourceRegistration(): EcobaseFeatureRes
         actions: [
           'refreshReadModel',
           'verifyRefreshRun',
-          'publishRefreshRun',
           'reconcileFamilies',
           'previewAutomaticTargetCorrections',
           'applyAutomaticTargetCorrections',

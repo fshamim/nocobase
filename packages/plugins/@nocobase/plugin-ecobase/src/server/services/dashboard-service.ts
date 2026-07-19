@@ -13,6 +13,7 @@ import { EcobaseComparisonService } from './comparison-service';
 import { EcobaseDataWarningService } from './data-warning-service';
 import type { EcobaseDatabase } from '../../features/source-import/server/import-service';
 import { EcobaseSupplierOrderService } from '../../features/supplier-management/server/supplier-order-service';
+import { EcobaseInventoryPlanningGoldAccess } from '../../features/inventory-planning/server/inventory-planning-gold-access';
 
 type PlainRecord = Record<string, unknown>;
 
@@ -162,11 +163,11 @@ export class EcobaseDashboardService {
       company: normalizedFilters.company,
     });
 
-    const calculations = (
-      await this.db
-        .getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows)
-        .find({ sort: ['-calculationDate'], limit: 500 })
-    ).map(toPlainRecord);
+    const goldAccess = new EcobaseInventoryPlanningGoldAccess(this.db);
+    const [listingPerformance, familyActions] = await Promise.all([
+      goldAccess.readPublishedListingPerformance({ sort: ['-calculationDate'], limit: 500 }),
+      goldAccess.readPublishedFamilyActions({ sort: ['-calculationDate'], limit: 500 }),
+    ]);
     const alerts = (
       await this.db.getRepository(ECOBASE_COLLECTIONS.alerts).find({ sort: ['-lastSeenAt'], limit: 500 })
     ).map(toPlainRecord);
@@ -193,13 +194,13 @@ export class EcobaseDashboardService {
       settings,
       importStatuses,
       warningSummary: this.warningSummary(importStatuses),
-      profitStockRollups: this.profitStockRollups(calculations, normalizedFilters),
+      profitStockRollups: this.profitStockRollups(listingPerformance.rows, normalizedFilters),
       comparison: {
         accountOrCompany: comparison,
         planningProducts: productComparison,
         rawListings: rawListingComparison,
       },
-      atRiskProducts: this.atRiskProducts(calculations, openAlerts),
+      atRiskProducts: this.atRiskProducts(familyActions.rows, openAlerts),
       openAlerts,
       supplierOrderDelays: this.supplierOrderDelays(workspace, openAlerts),
       accountability: this.accountabilityPanel(taskSnapshots, okrSnapshots, openAlerts),

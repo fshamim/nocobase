@@ -134,13 +134,7 @@ describe('EcobaseOperatorWorkspaceService', () => {
     expect(workspace.domains.map((domain) => domain.key)).toContain('source_import');
     expect(
       workspace.domains.flatMap((domain) => domain.collections).map((collection) => collection.collectionName),
-    ).toEqual(
-      expect.arrayContaining([
-        ECOBASE_COLLECTIONS.bronzeSourceRecords,
-        ECOBASE_COLLECTIONS.goldInventoryPlanningRows,
-        ECOBASE_COLLECTIONS.aiAnswers,
-      ]),
-    );
+    ).toEqual(expect.arrayContaining([ECOBASE_COLLECTIONS.bronzeSourceRecords, ECOBASE_COLLECTIONS.aiAnswers]));
     expect(workspace.domains.flatMap((domain) => domain.collections)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -149,29 +143,30 @@ describe('EcobaseOperatorWorkspaceService', () => {
           rowCount: 1,
           warningCount: 1,
         }),
-        expect.objectContaining({
-          collectionName: ECOBASE_COLLECTIONS.goldInventoryPlanningRows,
-          rowCount: 1,
-          freshnessStatus: 'fresh',
-        }),
+      ]),
+    );
+    expect(workspace.domains.flatMap((domain) => domain.collections)).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ collectionName: ECOBASE_COLLECTIONS.goldInventoryPlanningRows }),
       ]),
     );
     expect(workspace.starterViews.map((view) => view.key)).toEqual(
-      expect.arrayContaining(['latest-products', 'oos-reorder-candidates', 'critical-alerts', 'stale-source-warnings']),
+      expect.arrayContaining(['critical-alerts', 'stale-source-warnings']),
     );
-    expect(workspace.starterViews.find((view) => view.key === 'latest-products')?.filters).toMatchObject({
-      company: 'Ecofission LLC',
-    });
+    expect(workspace.starterViews.map((view) => view.key)).not.toEqual(
+      expect.arrayContaining(['latest-products', 'oos-reorder-candidates']),
+    );
 
     const sourceOnlyWorkspace = await new EcobaseOperatorWorkspaceService(db).getWorkspace({
       sourceConnectionId: 'source-1',
     });
     expect(sourceOnlyWorkspace.filters).toMatchObject({ company: 'Ecofission LLC', sourceConnectionId: 'source-1' });
-    const sourceOnlyPreview = await new EcobaseOperatorWorkspaceService(db).previewView({
-      viewKey: 'latest-products',
-      filters: { sourceConnectionId: 'source-1' },
-    });
-    expect(sourceOnlyPreview.rows).toEqual([expect.objectContaining({ id: 'product-1', company: 'Ecofission LLC' })]);
+    await expect(
+      new EcobaseOperatorWorkspaceService(db).previewView({
+        viewKey: 'latest-products',
+        filters: { sourceConnectionId: 'source-1' },
+      }),
+    ).rejects.toThrow('collection "unknown" is not exposed');
 
     const unscopedWorkspace = await new EcobaseOperatorWorkspaceService(db).getWorkspace();
     expect(unscopedWorkspace.scopeRequired).toBe(true);

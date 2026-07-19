@@ -181,6 +181,7 @@ describe('EcobaseSupplierIdentityConvergenceService', () => {
       mergedSupplierCount: 1,
       coalescedOffers: 1,
       movedOffers: 1,
+      goldRefreshRequired: true,
     });
 
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).records).toHaveLength(1);
@@ -201,11 +202,11 @@ describe('EcobaseSupplierIdentityConvergenceService', () => {
       preferredSupplierProductId: 'offer-canonical',
     });
     expect(db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).records[0]).toMatchObject({
-      familyPreferredSupplierId: 'supplier-canonical',
-      familyPreferredSupplierProductId: 'offer-canonical',
+      familyPreferredSupplierId: 'supplier-duplicate',
+      familyPreferredSupplierProductId: 'offer-duplicate-identical',
     });
     expect(db.getRepository(ECOBASE_COLLECTIONS.goldOrderPlanningRows).records[0]).toMatchObject({
-      supplierId: 'supplier-canonical',
+      supplierId: 'supplier-duplicate',
     });
     expect((await service.preview()).eligible).toEqual([]);
   });

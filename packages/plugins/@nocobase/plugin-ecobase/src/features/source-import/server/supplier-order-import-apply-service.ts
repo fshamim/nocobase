@@ -20,6 +20,7 @@ import {
   type ExportedSupplierOrderComment,
 } from './supplier-order-import/supplier-order-comment-relink';
 import { normalizeExternalOrderId } from './supplier-order-import/supplier-order-import-plan';
+import { EcobaseInventoryPlanningGoldAccess } from '../../inventory-planning/server/inventory-planning-gold-access';
 import type {
   OrderImportPlanRow,
   OrderLineImportPlanRow,
@@ -84,8 +85,9 @@ const PROTECTED_COLLECTIONS = [
   ECOBASE_COLLECTIONS.silverListingDailyFacts,
   ECOBASE_COLLECTIONS.silverTrafficSnapshots,
   ECOBASE_COLLECTIONS.sellerboardProductCosts,
-  ECOBASE_COLLECTIONS.goldInventoryPlanningRows,
 ] as const;
+
+const PROTECTED_FINGERPRINT_KEYS = [...PROTECTED_COLLECTIONS, ECOBASE_COLLECTIONS.goldInventoryPlanningRows] as const;
 
 function plain(value: unknown): PlainRecord {
   if (!value || typeof value !== 'object') return {};
@@ -390,7 +392,7 @@ export class EcobaseSupplierOrderImportApplyService {
     }
 
     const protectedAfter = await this.protectedFingerprints(transaction);
-    const changedProtectedCollections = PROTECTED_COLLECTIONS.filter(
+    const changedProtectedCollections = PROTECTED_FINGERPRINT_KEYS.filter(
       (collection) => protectedAfter[collection] !== protectedBefore[collection],
     );
     if (changedProtectedCollections.length) {
@@ -1009,6 +1011,16 @@ export class EcobaseSupplierOrderImportApplyService {
         .sort((left, right) => compareText(canonical(left), canonical(right)));
       fingerprints[collection] = digest(rows);
     }
+    const publishedGold = await new EcobaseInventoryPlanningGoldAccess(this.db).readPublishedListingPerformance({
+      transaction,
+      limit: 100000,
+    });
+    fingerprints[ECOBASE_COLLECTIONS.goldInventoryPlanningRows] = digest({
+      runId: publishedGold.run?.id ?? null,
+      rows: publishedGold.rows
+        .map((row) => protectedRow(ECOBASE_COLLECTIONS.goldInventoryPlanningRows, row))
+        .sort((left, right) => compareText(canonical(left), canonical(right))),
+    });
     return fingerprints;
   }
 

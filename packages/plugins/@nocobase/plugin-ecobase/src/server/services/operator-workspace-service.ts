@@ -199,13 +199,6 @@ const COLLECTIONS: CollectionDefinition[] = [
   },
   {
     domain: 'planning',
-    collectionName: ECOBASE_COLLECTIONS.goldInventoryPlanningRows,
-    title: 'Gold inventory planning rows',
-    access: 'system_managed',
-    companyScoped: true,
-  },
-  {
-    domain: 'planning',
     collectionName: ECOBASE_COLLECTIONS.goldOrderPlanningRows,
     title: 'Gold order planning rows',
     access: 'system_managed',
@@ -295,26 +288,6 @@ const COLLECTIONS: CollectionDefinition[] = [
 ];
 
 const STARTER_VIEWS: BusinessViewDefinition[] = [
-  starterView(
-    'latest-products',
-    'Latest imported products',
-    'planning',
-    ECOBASE_COLLECTIONS.goldInventoryPlanningRows,
-    'Review current planning products by company.',
-    ['company', 'asin', 'sku', 'title', 'tier', 'actionStatus', 'lastRefreshedAt'],
-    {},
-    ['company', 'asin'],
-  ),
-  starterView(
-    'oos-reorder-candidates',
-    'OOS and reorder candidates',
-    'planning',
-    ECOBASE_COLLECTIONS.goldInventoryPlanningRows,
-    'Find products with reorder or OOS risk evidence.',
-    ['company', 'asin', 'sku', 'tier', 'actionStatus', 'estimatedProfitRisk', 'evidence'],
-    { actionStatus: 'order_today' },
-    ['-estimatedProfitRisk'],
-  ),
   starterView(
     'critical-alerts',
     'Critical alerts',

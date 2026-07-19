@@ -17,6 +17,8 @@ import { EcobaseOrderDetailsRelationshipVerifier } from '../../features/source-i
 
 type Row = Record<string, unknown>;
 
+const VERIFICATION_PARAMS = { runId: 'gold-run-1' } as const;
+
 class MemoryRepository implements EcobaseRepository {
   constructor(public rows: Row[] = []) {}
   async find() {
@@ -120,8 +122,13 @@ function verifierFixture({ includeLine = true } = {}) {
       silverEntityId: lineId,
     });
   }
+  db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).rows.push({
+    id: 'gold-run-1',
+    status: 'materialized',
+  });
   db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).rows.push({
     id: 'gold-primary',
+    refreshRunId: 'gold-run-1',
     calculationDate: '2026-07-10',
     company: 'Ecofission LLC',
     asin: 'B000VERIFY',
@@ -135,7 +142,7 @@ describe('EcobaseOrderDetailsRelationshipVerifier', () => {
   it('verifies repeated source rows without latest-row inference and reaches primary-SKU history', async () => {
     const { db, file } = verifierFixture();
 
-    const result = await new EcobaseOrderDetailsRelationshipVerifier(db).verify(file);
+    const result = await new EcobaseOrderDetailsRelationshipVerifier(db).verify(file, VERIFICATION_PARAMS);
 
     expect(result.ok, JSON.stringify(result)).toBe(true);
     expect(result.totals).toMatchObject({
@@ -151,7 +158,7 @@ describe('EcobaseOrderDetailsRelationshipVerifier', () => {
     const { db, file } = verifierFixture();
     db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[0].supplierId = 'another-supplier';
 
-    const result = await new EcobaseOrderDetailsRelationshipVerifier(db).verify(file);
+    const result = await new EcobaseOrderDetailsRelationshipVerifier(db).verify(file, VERIFICATION_PARAMS);
 
     expect(result.ok, JSON.stringify(result)).toBe(true);
     expect(result.totals).toMatchObject({ acceptedRows: 0, supplierMismatchRows: 2, relationshipGaps: 0 });
@@ -168,8 +175,14 @@ describe('EcobaseOrderDetailsRelationshipVerifier', () => {
       productId: 'product-alias',
     });
 
-    const missingResult = await new EcobaseOrderDetailsRelationshipVerifier(missing.db).verify(missing.file);
-    const duplicateResult = await new EcobaseOrderDetailsRelationshipVerifier(duplicate.db).verify(duplicate.file);
+    const missingResult = await new EcobaseOrderDetailsRelationshipVerifier(missing.db).verify(
+      missing.file,
+      VERIFICATION_PARAMS,
+    );
+    const duplicateResult = await new EcobaseOrderDetailsRelationshipVerifier(duplicate.db).verify(
+      duplicate.file,
+      VERIFICATION_PARAMS,
+    );
 
     expect(missingResult.discrepancies).toEqual(
       expect.arrayContaining([
@@ -192,8 +205,14 @@ describe('EcobaseOrderDetailsRelationshipVerifier', () => {
       productId: 'product-alias',
     });
 
-    const missingResult = await new EcobaseOrderDetailsRelationshipVerifier(missing.db).verify(missing.file);
-    const duplicateResult = await new EcobaseOrderDetailsRelationshipVerifier(duplicate.db).verify(duplicate.file);
+    const missingResult = await new EcobaseOrderDetailsRelationshipVerifier(missing.db).verify(
+      missing.file,
+      VERIFICATION_PARAMS,
+    );
+    const duplicateResult = await new EcobaseOrderDetailsRelationshipVerifier(duplicate.db).verify(
+      duplicate.file,
+      VERIFICATION_PARAMS,
+    );
 
     expect(missingResult.discrepancies).toEqual(
       expect.arrayContaining([expect.objectContaining({ reason: 'supplier_product_not_found' })]),
@@ -211,8 +230,14 @@ describe('EcobaseOrderDetailsRelationshipVerifier', () => {
       id: 'line-duplicate',
     });
 
-    const missingResult = await new EcobaseOrderDetailsRelationshipVerifier(missing.db).verify(missing.file);
-    const duplicateResult = await new EcobaseOrderDetailsRelationshipVerifier(duplicate.db).verify(duplicate.file);
+    const missingResult = await new EcobaseOrderDetailsRelationshipVerifier(missing.db).verify(
+      missing.file,
+      VERIFICATION_PARAMS,
+    );
+    const duplicateResult = await new EcobaseOrderDetailsRelationshipVerifier(duplicate.db).verify(
+      duplicate.file,
+      VERIFICATION_PARAMS,
+    );
 
     expect(missingResult.ok).toBe(false);
     expect(missingResult.totals).toMatchObject({ relationshipGaps: 2, inventoryHistoryGaps: 1 });

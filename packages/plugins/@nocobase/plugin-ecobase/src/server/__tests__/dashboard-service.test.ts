@@ -170,9 +170,18 @@ async function seedDashboard(db: MemoryDatabase) {
       payload: { accountKey: 'US', tier: 'A' },
     },
   });
+  await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).create({
+    values: {
+      id: 'dashboard-published-run',
+      status: 'published',
+      calculationDate: '2026-06-05',
+      publishedAt: '2026-06-05T00:00:00.000Z',
+    },
+  });
   await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).create({
     values: {
       naturalKey: 'calc-1',
+      refreshRunId: 'dashboard-published-run',
       planningProductId: 'product-1',
       calculationDate: '2026-06-05',
       company: 'ACME',

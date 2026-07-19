@@ -9,6 +9,8 @@
 
 export const ECOBASE_COLLECTIONS = {
   sourceConnections: 'ecobaseSourceConnections',
+  sourceCoverageIntervals: 'ecobaseSourceCoverageIntervals',
+  sourceCoverageMemberships: 'ecobaseSourceCoverageMemberships',
   importRuns: 'ecobaseImportRuns',
   repairRuns: 'ecobaseRepairRuns',
   planningProducts: 'ecobasePlanningProducts',
@@ -59,6 +61,7 @@ export const ECOBASE_COLLECTIONS = {
   goldTargetEvaluations: 'goldTargetEvaluations',
   goldInventoryPlanningRefreshRuns: 'goldInventoryPlanningRefreshRuns',
   goldInventoryPlanningRows: 'goldInventoryPlanningRows',
+  goldInventoryPlanningAccessAudits: 'goldInventoryPlanningAccessAudits',
   goldOrderPlanningRows: 'goldOrderPlanningRows',
   goldSupplierAttentionRows: 'goldSupplierAttentionRows',
   goldManagementKpiDailyFacts: 'goldManagementKpiDailyFacts',

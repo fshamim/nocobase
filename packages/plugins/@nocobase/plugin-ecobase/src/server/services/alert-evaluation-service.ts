@@ -12,6 +12,7 @@ import { ECOBASE_COLLECTIONS } from '../collections/names';
 import type { EcobaseDatabase } from '../../features/source-import/server/import-service';
 import { toPlainRecord } from '../../features/source-import/server/import-service';
 import { EcobaseSupplierOrderService } from '../../features/supplier-management/server/supplier-order-service';
+import { EcobaseInventoryPlanningGoldAccess } from '../../features/inventory-planning/server/inventory-planning-gold-access';
 
 const ALERT_RULE_VERSION = 'ecobase_alerts_mvp_v1';
 const DEFAULT_ALERT_CONFIG = {
@@ -271,12 +272,12 @@ export class EcobaseAlertEvaluationService {
 
   private async findProducts(params: EvaluateAlertsParams) {
     const rows = (
-      await this.db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).find({
+      await new EcobaseInventoryPlanningGoldAccess(this.db).readPublishedFamilyActions({
         filter: params.company ? { company: params.company } : undefined,
         sort: ['-calculationDate'],
         limit: 5000,
       })
-    ).map(toPlainRecord);
+    ).rows;
     if (params.planningProductId) {
       const product = rows.find((row) =>
         [row.id, row.planningProductId, row.companyProductId].map(asString).includes(params.planningProductId),
@@ -403,20 +404,20 @@ export class EcobaseAlertEvaluationService {
   }
 
   private async productContext(planningProductId: string, calculationDate: string) {
-    const [facts, inventoryRows, goldRows] = await Promise.all([
+    const [facts, inventoryRows, goldResult] = await Promise.all([
       this.db
         .getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts)
         .find({ filter: { companyProductId: planningProductId } }),
       this.db
         .getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots)
         .find({ filter: { companyProductId: planningProductId } }),
-      this.db
-        .getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows)
-        .find({ filter: { companyProductId: planningProductId } }),
+      new EcobaseInventoryPlanningGoldAccess(this.db).readPublishedListingPerformance({
+        filter: { companyProductId: planningProductId },
+      }),
     ]);
     const factRows = facts.map(toPlainRecord);
     const stockRows = inventoryRows.map(toPlainRecord);
-    const planningRows = goldRows.map(toPlainRecord);
+    const planningRows = goldResult.rows;
     const latestFact = mostRecent(factRows, 'snapshotDate') ?? {};
     const latestInventory = mostRecent(stockRows, 'snapshotDate') ?? {};
     const latestPlanning = mostRecent(planningRows, 'calculationDate') ?? {};

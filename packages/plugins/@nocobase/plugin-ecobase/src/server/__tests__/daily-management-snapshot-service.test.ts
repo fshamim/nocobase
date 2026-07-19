@@ -84,9 +84,21 @@ class MemoryDatabase implements EcobaseDatabase {
 describe('EcobaseDailyManagementSnapshotService', () => {
   it('persists management KPIs and compares the 7-day trend', async () => {
     const db = new MemoryDatabase();
+    await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).create({
+      values: {
+        id: 'baseline-run',
+        status: 'published',
+        calculationDate: '2026-06-03',
+        publishedAt: '2026-06-03T00:00:00.000Z',
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).create({
+      values: { id: 'current-run', status: 'materialized', calculationDate: '2026-06-10' },
+    });
     await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).create({
       values: {
         id: 'baseline-risk',
+        refreshRunId: 'baseline-run',
         calculationDate: '2026-06-03',
         company: 'ACME',
         asin: 'B00BASE',
@@ -104,6 +116,7 @@ describe('EcobaseDailyManagementSnapshotService', () => {
     await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).create({
       values: {
         id: 'current-risk',
+        refreshRunId: 'current-run',
         calculationDate: '2026-06-10',
         company: 'ACME',
         asin: 'B00CURR',
@@ -147,6 +160,14 @@ describe('EcobaseDailyManagementSnapshotService', () => {
 
     const service = new EcobaseDailyManagementSnapshotService(db);
     await service.upsertFromEvidence({ date: '2026-06-03', company: 'ACME', reportRunId: 'report-baseline' });
+    await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).update({
+      filterByTk: 'baseline-run',
+      values: { status: 'retired' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).update({
+      filterByTk: 'current-run',
+      values: { status: 'published', publishedAt: '2026-06-10T00:00:00.000Z' },
+    });
     const current = await service.upsertFromEvidence({
       date: '2026-06-10',
       company: 'ACME',

@@ -97,6 +97,13 @@ async function createRecord(db: MemoryDatabase, collection: string, values: Reco
   await repository.create({ values });
 }
 
+async function refreshAndPublish(inventory: EcobaseInventoryPlanningService, calculationDate: string) {
+  const result = await inventory.refreshReadModel({ calculationDate });
+  const runId = String((result.run as Record<string, unknown>).id);
+  await inventory.verifyRefreshRun(runId);
+  await inventory.publishRefreshRun(runId);
+}
+
 async function createSilverPlanningProductFixture(db: MemoryDatabase, values: Record<string, unknown>) {
   const company = String(values.company ?? '');
   const asin = String(values.asin ?? '');
@@ -185,6 +192,10 @@ describe('EcobasePlanningSettingsService', () => {
       defaultSupplierLeadTimeDays: 30,
       fbaReceivingBufferDays: 7,
       enableCurrentOrderCycleSelection: false,
+      minimumProjectionCoveredDays: 14,
+      paceTolerancePercent: 0,
+      projectionPolicyVersion: 'evidence_driven_v1',
+      currentProjectionGateMode: 'informational',
     });
   });
 
@@ -201,6 +212,10 @@ describe('EcobasePlanningSettingsService', () => {
       defaultSupplierLeadTimeDays: 35,
       fbaReceivingBufferDays: 4,
       enableCurrentOrderCycleSelection: true,
+      minimumProjectionCoveredDays: 20,
+      paceTolerancePercent: 12.5,
+      projectionPolicyVersion: 'evidence_driven_v1',
+      currentProjectionGateMode: 'evidence_driven',
     });
 
     expect(saved).toMatchObject({
@@ -214,6 +229,10 @@ describe('EcobasePlanningSettingsService', () => {
       defaultSupplierLeadTimeDays: 35,
       fbaReceivingBufferDays: 4,
       enableCurrentOrderCycleSelection: true,
+      minimumProjectionCoveredDays: 20,
+      paceTolerancePercent: 12.5,
+      projectionPolicyVersion: 'evidence_driven_v1',
+      currentProjectionGateMode: 'evidence_driven',
     });
     await expect(service.saveSettings({ safetyBufferDays: -1 })).rejects.toThrow(
       'EcoBase planning settings require Safety buffer days to be a zero-or-positive whole number.',
@@ -223,6 +242,18 @@ describe('EcobasePlanningSettingsService', () => {
     );
     await expect(service.saveSettings({ profitTierAThreshold: 100, profitTierBThreshold: 200 })).rejects.toThrow(
       'EcoBase profit tier thresholds must descend: A threshold > B threshold > C threshold.',
+    );
+    await expect(service.saveSettings({ minimumProjectionCoveredDays: 0 })).rejects.toThrow(
+      'EcoBase planning settings require Minimum projection covered days to be an integer from 1 through 31.',
+    );
+    await expect(service.saveSettings({ paceTolerancePercent: 100.01 })).rejects.toThrow(
+      'EcoBase planning settings require Pace tolerance percent to be a finite number from 0 through 100.',
+    );
+    await expect(service.saveSettings({ projectionPolicyVersion: 'legacy' })).rejects.toThrow(
+      'EcoBase planning settings require Projection policy version to equal "evidence_driven_v1".',
+    );
+    await expect(service.saveSettings({ currentProjectionGateMode: 'legacy' })).rejects.toThrow(
+      'EcoBase planning settings require Current projection gate mode to be informational or evidence_driven.',
     );
     await expect(
       service.saveSettings({
@@ -259,7 +290,7 @@ describe('EcobasePlanningSettingsService', () => {
     });
 
     const inventory = new EcobaseInventoryPlanningService(db);
-    await inventory.refreshReadModel({ calculationDate: '2026-06-07' });
+    await refreshAndPublish(inventory, '2026-06-07');
     const [row] = await inventory.listRows({
       company: 'Ecofission LLC',
       calculationDate: '2026-06-07',
@@ -308,7 +339,7 @@ describe('EcobasePlanningSettingsService', () => {
     });
 
     const inventory = new EcobaseInventoryPlanningService(db);
-    await inventory.refreshReadModel({ calculationDate: '2026-06-07' });
+    await refreshAndPublish(inventory, '2026-06-07');
     const [row] = await inventory.listRows({
       company: 'Ecofission LLC',
       calculationDate: '2026-06-07',

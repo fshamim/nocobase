@@ -12,6 +12,7 @@ import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import type { DailyEvidencePack } from './daily-operations-brief-service';
 import type { EcobaseDatabase } from '../../source-import/server/import-service';
 import { toPlainRecord } from '../../source-import/server/import-service';
+import { EcobaseInventoryPlanningGoldAccess } from '../../inventory-planning/server/inventory-planning-gold-access';
 
 type PlainRecord = Record<string, unknown>;
 
@@ -392,28 +393,6 @@ function fallbackWarning(warning: PlainRecord) {
   return /fallback|mapping|identity|supplier.*missing|inferred/.test(text);
 }
 
-function evidenceRiskRows(pack?: DailyEvidencePack) {
-  return Array.isArray(pack?.inventoryRisks) ? pack.inventoryRisks.map((item) => item as PlainRecord) : [];
-}
-
-function evidenceInventoryRows(pack?: DailyEvidencePack) {
-  const panes = toPlainRecord(pack?.inventoryCommandCenter?.panes);
-  return Object.values(panes).flatMap((pane) => {
-    const rows = toPlainRecord(pane).rows;
-    return Array.isArray(rows) ? rows.map(toPlainRecord) : [];
-  });
-}
-
-function familyActionRows(rows: PlainRecord[]) {
-  const selected = new Map<string, PlainRecord>();
-  for (const row of rows) {
-    if (asString(row.familyRole) === 'member') continue;
-    const key = asString(row.companyProductFamilyId) ?? asString(row.id) ?? JSON.stringify(row);
-    if (!selected.has(key) || row.familyRole === 'target') selected.set(key, row);
-  }
-  return [...selected.values()];
-}
-
 function evidenceOrderRows(pack?: DailyEvidencePack) {
   return Array.isArray(pack?.orderPlanningRisks) ? pack.orderPlanningRisks.map((item) => item as PlainRecord) : [];
 }
@@ -699,22 +678,14 @@ export class EcobaseDailyManagementSnapshotService {
     };
   }
 
-  private async currentInventoryRows(date: string, company?: string, evidencePack?: DailyEvidencePack) {
-    const rows = (
-      await this.db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).find({
-        filter: company ? { company } : {},
+  private async currentInventoryRows(date: string, company?: string, _evidencePack?: DailyEvidencePack) {
+    return (
+      await new EcobaseInventoryPlanningGoldAccess(this.db).readPublishedFamilyActions({
+        filter: company ? { company, calculationDate: date } : { calculationDate: date },
         sort: ['-estimatedProfitRisk'],
         limit: 10000,
       })
-    )
-      .map(toPlainRecord)
-      .filter((row) => matchesCompany(row, company));
-    const datedRows = rows.filter((row) => dateOnly(row.calculationDate) === date);
-    if (datedRows.length > 0) return familyActionRows(datedRows);
-    const evidenceRows = evidenceInventoryRows(evidencePack);
-    if (evidenceRows.length > 0) return familyActionRows(evidenceRows);
-    const riskRows = evidenceRiskRows(evidencePack);
-    return riskRows.length > 0 ? familyActionRows(riskRows) : familyActionRows(rows);
+    ).rows;
   }
 
   private async currentOrderRows(company?: string, evidencePack?: DailyEvidencePack) {
@@ -807,10 +778,11 @@ export class EcobaseDailyManagementSnapshotService {
 
   private async companyProductTrafficKeys(company: string) {
     const products = (
-      await this.db
-        .getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows)
-        .find({ filter: { company }, limit: 10000 })
-    ).map(toPlainRecord);
+      await new EcobaseInventoryPlanningGoldAccess(this.db).readPublishedListingPerformance({
+        filter: { company },
+        limit: 10000,
+      })
+    ).rows;
     return new Set(
       products
         .map((product) => [asString(product.asin)?.toUpperCase() ?? '', asString(product.sku) ?? ''].join(':'))

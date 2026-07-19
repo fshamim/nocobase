@@ -7,12 +7,20 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { createHash } from 'node:crypto';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { EcobaseGoldRefreshRunService } from '../../features/inventory-planning/server/gold-refresh-run-service';
 import { EcobaseInventoryPlanningService } from '../../features/inventory-planning/server/inventory-planning-service';
+import {
+  blockRawGoldInventoryPlanningAccess,
+  registerGoldInventoryPlanningWriteGuard,
+  withGoldInventoryPlanningWriteAuthority,
+} from '../../features/inventory-planning/server/gold-write-guard';
 import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
+import { EcobaseSupplierOrderService } from '../../features/supplier-management/server/supplier-order-service';
+import { EcobaseSupplierManagementService } from '../../features/supplier-management/server/supplier-management-service';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { createEcobaseInventoryPlanningActions } from '../resource-actions';
 
@@ -63,12 +71,24 @@ class MemoryRepository implements EcobaseRepository {
 class MemoryDatabase implements EcobaseDatabase {
   readonly runs = new MemoryRepository();
   readonly gold = new MemoryRepository();
+  private readonly repositories = new Map<string, MemoryRepository>([
+    [ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns, this.runs],
+    [ECOBASE_COLLECTIONS.goldInventoryPlanningRows, this.gold],
+  ]);
 
   getRepository(name: string) {
-    if (name === ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns) return this.runs;
-    if (name === ECOBASE_COLLECTIONS.goldInventoryPlanningRows) return this.gold;
-    throw new Error(`Memory refresh database has no repository named ${name}.`);
+    if (!this.repositories.has(name)) this.repositories.set(name, new MemoryRepository());
+    const repository = this.repositories.get(name);
+    if (!repository) throw new Error(`Missing in-memory repository ${name}.`);
+    return repository;
   }
+}
+
+function filesUnder(directory: string): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(directory, entry.name);
+    return entry.isDirectory() ? filesUnder(path) : [path];
+  });
 }
 
 function validStockContract() {
@@ -86,14 +106,26 @@ function validStockContract() {
   };
 }
 
+function testCandidateInputDigests(seed: string) {
+  const digest = (part: string) => createHash('sha256').update(`${seed}:${part}`).digest('hex');
+  return {
+    sourceInputDigest: digest('source'),
+    coverageInputDigest: digest('coverage'),
+    settingsDigest: digest('settings'),
+    algorithmContractVersion: 'test_algorithm_v1',
+  };
+}
+
 async function buildRun(
   db: MemoryDatabase,
   params: { date: string; key: string; publish?: boolean; rowIds?: string[] },
 ) {
-  return new EcobaseGoldRefreshRunService(db).execute({
+  const service = new EcobaseGoldRefreshRunService(db);
+  const materialized = await service.execute({
     calculationDate: params.date,
     idempotencyKey: params.key,
-    publish: params.publish,
+    publish: false,
+    candidateInputDigests: testCandidateInputDigests(params.key),
     request: { calculationDate: params.date },
     materialize: async ({ runId }) => {
       const rowIds = params.rowIds ?? [params.key];
@@ -121,12 +153,45 @@ async function buildRun(
       };
     },
   });
+  if (params.publish !== true) return materialized;
+  const runId = String((materialized.run as Row).id);
+  await service.verify(runId);
+  return service.publish(runId);
+}
+
+async function seedLifecycleRun(db: MemoryDatabase, id: string, status: string, date: string) {
+  await db.runs.create({
+    values: {
+      id,
+      idempotencyKey: id,
+      requestDigest: `${id}-request`,
+      candidateInputDigest: createHash('sha256').update(`${id}:candidate`).digest('hex'),
+      ...testCandidateInputDigests(id),
+      calculationDate: date,
+      status,
+      rowCount: 1,
+      publishedAt: status === 'published' ? `${date}T00:00:00.000Z` : null,
+    },
+  });
+  await db.gold.create({
+    values: {
+      id: `${id}:row`,
+      refreshRunId: id,
+      naturalKey: `${id}:row`,
+      planningProductId: `${id}:product`,
+      companyProductId: `${id}:product`,
+      company: 'ACME',
+      asin: `B00${id.toUpperCase()}`,
+      calculationDate: date,
+      ...validStockContract(),
+    },
+  });
 }
 
 describe('Gold refresh publication control', () => {
   it('reads the published run deterministically and ignores a newer unpublished date', async () => {
     const db = new MemoryDatabase();
-    const published = await buildRun(db, { date: '2026-07-14', key: 'published' });
+    const published = await buildRun(db, { date: '2026-07-14', key: 'published', publish: true });
     await buildRun(db, { date: '2026-07-15', key: 'newer-unpublished', publish: false });
 
     const rows = await new EcobaseInventoryPlanningService(db).listRows();
@@ -138,6 +203,34 @@ describe('Gold refresh publication control', () => {
     expect(unpublishedRows).toEqual([]);
   });
 
+  it('fails closed when more than one run is marked published', async () => {
+    const db = new MemoryDatabase();
+    await seedLifecycleRun(db, 'published-one', 'published', '2026-07-14');
+    await seedLifecycleRun(db, 'published-two', 'published', '2026-07-15');
+
+    await expect(new EcobaseInventoryPlanningService(db).listRows()).rejects.toMatchObject({
+      code: 'ECOBASE_GOLD_PUBLICATION_MISMATCH',
+    });
+  });
+
+  it('rejects publish=true during candidate execution', async () => {
+    const db = new MemoryDatabase();
+    const materialize = vi.fn();
+
+    await expect(
+      new EcobaseGoldRefreshRunService(db).execute({
+        calculationDate: '2026-07-15',
+        idempotencyKey: 'publish-during-build',
+        publish: true,
+        candidateInputDigests: testCandidateInputDigests('publish-during-build'),
+        request: { calculationDate: '2026-07-15' },
+        materialize,
+      }),
+    ).rejects.toMatchObject({ code: 'ECOBASE_GOLD_INVALID_TRANSITION' });
+    expect(materialize).not.toHaveBeenCalled();
+    expect(db.runs.rows).toEqual([]);
+  });
+
   it('creates one run and one row cohort for concurrent duplicate idempotency keys', async () => {
     const db = new MemoryDatabase();
     const service = new EcobaseGoldRefreshRunService(db);
@@ -146,6 +239,7 @@ describe('Gold refresh publication control', () => {
       service.execute({
         calculationDate: '2026-07-15',
         idempotencyKey: 'same-key',
+        candidateInputDigests: testCandidateInputDigests('same-key'),
         request: { calculationDate: '2026-07-15' },
         materialize: async ({ runId }) => {
           materializationCount += 1;
@@ -181,11 +275,12 @@ describe('Gold refresh publication control', () => {
 
   it('keeps the published pointer unchanged when a run fails and rejects failed publication', async () => {
     const db = new MemoryDatabase();
-    const published = await buildRun(db, { date: '2026-07-14', key: 'current' });
+    const published = await buildRun(db, { date: '2026-07-14', key: 'current', publish: true });
     await expect(
       new EcobaseGoldRefreshRunService(db).execute({
         calculationDate: '2026-07-15',
         idempotencyKey: 'failed',
+        candidateInputDigests: testCandidateInputDigests('failed'),
         request: { calculationDate: '2026-07-15' },
         materialize: async () => {
           throw new Error('fixture materialization failed');
@@ -196,9 +291,9 @@ describe('Gold refresh publication control', () => {
     const failed = db.runs.rows.find((run) => run.idempotencyKey === 'failed');
     expect(db.runs.rows.find((run) => run.status === 'published')?.id).toBe((published.run as Row).id);
     expect(failed).toMatchObject({ status: 'failed', errorJson: { message: 'fixture materialization failed' } });
-    await expect(new EcobaseGoldRefreshRunService(db).publish(String(failed?.id))).rejects.toThrow(
-      'with status "failed" cannot be published',
-    );
+    await expect(new EcobaseGoldRefreshRunService(db).publish(String(failed?.id))).rejects.toMatchObject({
+      code: 'ECOBASE_GOLD_INVALID_TRANSITION',
+    });
   });
 
   it('rejects stock-contract violations before publication', async () => {
@@ -208,6 +303,7 @@ describe('Gold refresh publication control', () => {
       new EcobaseGoldRefreshRunService(db).execute({
         calculationDate: '2026-07-15',
         idempotencyKey: 'invalid-stock-contract',
+        candidateInputDigests: testCandidateInputDigests('invalid-stock-contract'),
         request: { calculationDate: '2026-07-15' },
         materialize: async ({ runId }) => {
           await db.gold.create({
@@ -239,13 +335,15 @@ describe('Gold refresh publication control', () => {
 
   it('switches the published pointer to one verified successful run', async () => {
     const db = new MemoryDatabase();
-    const first = await buildRun(db, { date: '2026-07-14', key: 'first' });
+    const first = await buildRun(db, { date: '2026-07-14', key: 'first', publish: true });
     const second = await buildRun(db, { date: '2026-07-15', key: 'second', publish: false });
+    const service = new EcobaseGoldRefreshRunService(db);
+    await service.verify(String((second.run as Row).id));
 
-    const published = await new EcobaseGoldRefreshRunService(db).publish(String((second.run as Row).id));
+    const published = await service.publish(String((second.run as Row).id));
 
     expect(db.runs.rows.filter((run) => run.status === 'published')).toHaveLength(1);
-    expect(db.runs.rows.find((run) => run.id === (first.run as Row).id)?.status).toBe('succeeded');
+    expect(db.runs.rows.find((run) => run.id === (first.run as Row).id)?.status).toBe('retired');
     expect((published.run as Row).id).toBe((second.run as Row).id);
   });
 
@@ -270,6 +368,280 @@ describe('Gold refresh publication control', () => {
     });
   });
 
+  it('keeps omitted publish explicitly materialized and unpublished', async () => {
+    const db = new MemoryDatabase();
+
+    const result = await buildRun(db, { date: '2026-07-15', key: 'default-unpublished' });
+
+    expect(result).toMatchObject({ published: false, run: { status: 'materialized' } });
+    await expect(new EcobaseGoldRefreshRunService(db).getPublishedRun()).resolves.toBeUndefined();
+  });
+
+  it.each(['materialized', 'succeeded', 'superseded'])('rejects publication from %s', async (status) => {
+    const db = new MemoryDatabase();
+    await seedLifecycleRun(db, `run-${status}`, status, '2026-07-15');
+
+    await expect(new EcobaseGoldRefreshRunService(db).publish(`run-${status}`)).rejects.toMatchObject({
+      code: 'ECOBASE_GOLD_INVALID_TRANSITION',
+    });
+  });
+
+  it('retires the previous publication and never makes it republishable', async () => {
+    const db = new MemoryDatabase();
+    await seedLifecycleRun(db, 'old-published', 'published', '2026-07-14');
+    await seedLifecycleRun(db, 'replacement', 'verified', '2026-07-15');
+    const service = new EcobaseGoldRefreshRunService(db);
+
+    await service.publish('replacement');
+
+    expect(db.runs.rows.find((run) => run.id === 'old-published')).toMatchObject({ status: 'retired' });
+    await expect(service.publish('old-published')).rejects.toMatchObject({
+      code: 'ECOBASE_GOLD_INVALID_TRANSITION',
+    });
+  });
+
+  it.each(['failed', 'succeeded', 'superseded', 'rejected', 'retired'] as const)(
+    'never reuses a %s terminal run',
+    async (terminalStatus) => {
+      const db = new MemoryDatabase();
+      const service = new EcobaseGoldRefreshRunService(db);
+      let materializationCount = 0;
+      const execute = () =>
+        service.execute({
+          calculationDate: '2026-07-15',
+          idempotencyKey: `terminal-${terminalStatus}`,
+          candidateInputDigests: testCandidateInputDigests(`terminal-${terminalStatus}`),
+          request: { calculationDate: '2026-07-15', terminalStatus },
+          materialize: async ({ runId }) => {
+            materializationCount += 1;
+            await db.gold.create({
+              values: {
+                id: `${runId}:row`,
+                refreshRunId: runId,
+                naturalKey: `${runId}:row`,
+                planningProductId: terminalStatus,
+                company: 'ACME',
+                calculationDate: '2026-07-15',
+                ...validStockContract(),
+              },
+            });
+            return {
+              calculationDate: '2026-07-15',
+              rowCount: 1,
+              created: 1,
+              updated: 0,
+              lastRefreshedAt: '2026-07-15T00:00:00.000Z',
+            };
+          },
+        });
+      const first = await execute();
+      const runId = String((first.run as Row).id);
+
+      if (terminalStatus === 'superseded' || terminalStatus === 'rejected') {
+        await service.terminate(runId, terminalStatus, `test_${terminalStatus}`);
+      } else {
+        await db.runs.update({ filterByTk: runId, values: { status: terminalStatus } });
+      }
+
+      await expect(execute()).rejects.toMatchObject({ code: 'ECOBASE_GOLD_TERMINAL_RUN_REUSE' });
+      await expect(service.publish(runId)).rejects.toMatchObject({ code: 'ECOBASE_GOLD_INVALID_TRANSITION' });
+      expect(materializationCount).toBe(1);
+    },
+  );
+
+  it('binds an idempotency key to the full candidate input digest', async () => {
+    const db = new MemoryDatabase();
+    const service = new EcobaseGoldRefreshRunService(db);
+    const execute = (inputVersion: string) =>
+      service.execute({
+        calculationDate: '2026-07-15',
+        idempotencyKey: 'candidate-key',
+        publish: false,
+        request: { calculationDate: '2026-07-15' },
+        candidateInputDigests: testCandidateInputDigests(inputVersion),
+        materialize: async ({ runId }) => {
+          await db.gold.create({
+            values: {
+              id: `${runId}:row`,
+              refreshRunId: runId,
+              naturalKey: `${runId}:row`,
+              planningProductId: 'candidate-product',
+              company: 'ACME',
+              calculationDate: '2026-07-15',
+              ...validStockContract(),
+            },
+          });
+          return {
+            calculationDate: '2026-07-15',
+            rowCount: 1,
+            created: 1,
+            updated: 0,
+            lastRefreshedAt: '2026-07-15T00:00:00.000Z',
+          };
+        },
+      });
+
+    await execute('candidate-a');
+    expect(db.runs.rows[0]).toMatchObject({
+      ...testCandidateInputDigests('candidate-a'),
+      canonicalSerializerVersion: 'canonical_json_v1',
+      candidateInputDigestVersion: 'candidate_input_v1',
+      sourceCoverageDigestVersion: 'coverage_input_v1',
+    });
+    await expect(execute('candidate-b')).rejects.toMatchObject({
+      code: 'ECOBASE_GOLD_IDEMPOTENCY_CONFLICT',
+    });
+  });
+
+  it('keeps unpublished rows out of supplier-order operational recommendations', async () => {
+    const db = new MemoryDatabase();
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
+      values: { id: 'company-acme', name: 'ACME' },
+    });
+    await seedLifecycleRun(db, 'candidate-only', 'materialized', '2026-07-15');
+
+    const workspace = await new EcobaseSupplierOrderService(db).getWorkspace({ company: 'ACME' });
+
+    expect(workspace.reorderCandidates).toEqual([]);
+  });
+
+  it('keeps unpublished rows out of supplier-management detail and decisions', async () => {
+    const db = new MemoryDatabase();
+    await db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).create({
+      values: { id: 'supplier-acme', displayName: 'Supplier ACME', normalizedName: 'supplier acme' },
+    });
+    await seedLifecycleRun(db, 'supplier-candidate', 'verified', '2026-07-15');
+    Object.assign(db.gold.rows[0], { supplierId: 'supplier-acme', supplierName: 'Supplier ACME' });
+
+    const detail = await new EcobaseSupplierManagementService(db).getSupplierDetail({
+      supplierId: 'supplier-acme',
+    });
+
+    expect(detail.inventoryRisks).toEqual([]);
+    expect(detail.listingEvidence).toEqual([]);
+  });
+
+  it('requires an authorized explicit verified run for audited candidate preview', async () => {
+    const db = new MemoryDatabase();
+    await seedLifecycleRun(db, 'candidate-preview', 'verified', '2026-07-15');
+    const actions = createEcobaseInventoryPlanningActions() as unknown as Record<
+      string,
+      ((ctx: Row, next: () => Promise<void>) => Promise<void>) | undefined
+    >;
+    const action = actions.candidatePreview;
+    expect(action).toBeTypeOf('function');
+    if (!action) return;
+
+    const operatorContext: Row = {
+      db,
+      action: { params: { values: { runId: 'candidate-preview' } } },
+      state: { currentRoles: ['operator'], currentUser: { id: 7 } },
+      throw(status: number, message: string): never {
+        throw Object.assign(new Error(message), { status });
+      },
+    };
+    await expect(action(operatorContext, async () => undefined)).rejects.toMatchObject({
+      code: 'ECOBASE_CANDIDATE_PREVIEW_FORBIDDEN',
+    });
+
+    const adminContext: Row = {
+      db,
+      action: { params: { values: {} } },
+      state: { currentRoles: ['admin'], currentUser: { id: 8 } },
+      throw(status: number, message: string): never {
+        throw Object.assign(new Error(message), { status });
+      },
+    };
+    await expect(action(adminContext, async () => undefined)).rejects.toMatchObject({
+      code: 'ECOBASE_GOLD_EXPLICIT_RUN_REQUIRED',
+    });
+    const allowedContext: Row = {
+      db,
+      action: { params: { values: { runId: 'candidate-preview' } } },
+      state: { currentRoles: ['admin'], currentUser: { id: 8 } },
+      throw(status: number, message: string): never {
+        throw Object.assign(new Error(message), { status });
+      },
+    };
+    await action(allowedContext, async () => undefined);
+    expect(allowedContext.body).toMatchObject({
+      data: {
+        published: false,
+        rows: [expect.objectContaining({ refreshRunId: 'candidate-preview' })],
+        familyActions: [expect.objectContaining({ refreshRunId: 'candidate-preview' })],
+      },
+    });
+    expect(db.getRepository('goldInventoryPlanningAccessAudits').rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ runId: 'candidate-preview', outcome: 'denied' }),
+        expect.objectContaining({ runId: null, outcome: 'denied' }),
+        expect.objectContaining({ runId: 'candidate-preview', outcome: 'allowed', actorUserId: '8' }),
+      ]),
+    );
+  });
+
+  it('makes listing-row artifacts append-only and owned by the refresh service', async () => {
+    const listeners = new Map<string, (...args: unknown[]) => void>();
+    registerGoldInventoryPlanningWriteGuard({
+      on(event, listener) {
+        listeners.set(event, listener);
+      },
+    });
+    const event = (name: string) => {
+      const listener = listeners.get(`${ECOBASE_COLLECTIONS.goldInventoryPlanningRows}.${name}`);
+      if (!listener) throw new Error(`Missing Gold write-guard listener ${name}.`);
+      return listener;
+    };
+
+    expect(() => event('beforeCreate')({}, {})).toThrowError(
+      expect.objectContaining({ code: 'ECOBASE_GOLD_IMMUTABLE_ARTIFACT' }),
+    );
+    await expect(
+      withGoldInventoryPlanningWriteAuthority(async () => event('beforeCreate')({}, {})),
+    ).resolves.toBeUndefined();
+    await expect(
+      withGoldInventoryPlanningWriteAuthority(async () => event('beforeUpdate')({}, {})),
+    ).rejects.toMatchObject({ code: 'ECOBASE_GOLD_IMMUTABLE_ARTIFACT' });
+    expect(() => event('beforeBulkDestroy')({})).toThrowError(
+      expect.objectContaining({ code: 'ECOBASE_GOLD_IMMUTABLE_ARTIFACT' }),
+    );
+
+    const next = vi.fn(async () => undefined);
+    await expect(
+      blockRawGoldInventoryPlanningAccess(
+        { action: { params: { resourceName: ECOBASE_COLLECTIONS.goldInventoryPlanningRows } } },
+        next,
+      ),
+    ).rejects.toMatchObject({ code: 'ECOBASE_GOLD_RAW_ACCESS_FORBIDDEN', status: 403 });
+    expect(next).not.toHaveBeenCalled();
+    await blockRawGoldInventoryPlanningAccess(
+      { action: { params: { resourceName: 'ecobaseInventoryPlanning' } } },
+      next,
+    );
+    expect(next).toHaveBeenCalledOnce();
+  });
+
+  it('keeps every operational Gold reader behind the typed published-run boundary', () => {
+    const sourceRoot = resolve(process.cwd(), 'packages/plugins/@nocobase/plugin-ecobase/src');
+    const allowedOwners = new Set([
+      'features/inventory-planning/server/gold-refresh-run-service.ts',
+      'features/inventory-planning/server/inventory-planning-gold-access.ts',
+      'features/inventory-planning/server/inventory-planning-service.ts',
+    ]);
+    const directRead =
+      /(?:getRepository|repoRows|repoRowsFiltered|this\.repo|this\.all)\s*\([\s\S]{0,160}ECOBASE_COLLECTIONS\.goldInventoryPlanningRows/;
+    const offenders = filesUnder(sourceRoot)
+      .filter((path) => path.endsWith('.ts'))
+      .filter(
+        (path) => !path.includes('/__tests__/') && !path.includes('/migrations/') && !path.includes('/collections/'),
+      )
+      .filter((path) => !allowedOwners.has(path.slice(sourceRoot.length + 1)))
+      .filter((path) => directRead.test(readFileSync(path, 'utf8')))
+      .map((path) => path.slice(sourceRoot.length + 1));
+
+    expect(offenders).toEqual([]);
+  });
+
   it('blocks operator rebuild requests and keeps operator Refresh free of rebuild calls', async () => {
     const action = createEcobaseInventoryPlanningActions().refreshReadModel;
     const next = vi.fn();
@@ -286,6 +658,19 @@ describe('Gold refresh publication control', () => {
     );
     expect(next).not.toHaveBeenCalled();
 
+    const verifyAction = createEcobaseInventoryPlanningActions().verifyRefreshRun;
+    const verifyContext = {
+      state: { currentRoles: ['admin'], currentUser: { id: 2 } },
+      action: { params: { values: {} } },
+      throw: (status: number, message: string) => {
+        throw new Error(`${status}:${message}`);
+      },
+    };
+    await expect(verifyAction(verifyContext as never, next)).rejects.toMatchObject({
+      code: 'ECOBASE_GOLD_EXPLICIT_RUN_REQUIRED',
+      status: 400,
+    });
+
     const pageSource = readFileSync(
       resolve(
         process.cwd(),
@@ -295,5 +680,12 @@ describe('Gold refresh publication control', () => {
     );
     expect(pageSource).not.toContain('ecobaseInventoryPlanning:refreshReadModel');
     expect(pageSource).not.toContain('Rebuild gold inventory');
+
+    const publicPublicationSources = [
+      'packages/plugins/@nocobase/plugin-ecobase/src/client/pages/GoldMaintenancePage.tsx',
+      'packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/resource-registration.ts',
+      'packages/plugins/@nocobase/plugin-ecobase/src/server/resource-actions.ts',
+    ].map((path) => readFileSync(resolve(process.cwd(), path), 'utf8'));
+    expect(publicPublicationSources.every((source) => !source.includes('publishRefreshRun'))).toBe(true);
   });
 });

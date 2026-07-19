@@ -152,6 +152,13 @@ describe('EcobaseManagementKpiFactsService', () => {
 
   it('writes current Gold risk KPI facts and reports insufficient trend history until prior facts exist', async () => {
     const db = new MemoryDatabase();
+    const refreshRunId = 'management-kpi-published-run';
+    db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).records.push({
+      id: refreshRunId,
+      status: 'published',
+      calculationDate: '2026-06-14',
+      publishedAt: '2026-06-14T00:00:00.000Z',
+    });
     db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).records.push(
       {
         id: 'inventory-1',
@@ -193,6 +200,9 @@ describe('EcobaseManagementKpiFactsService', () => {
         estimatedProfitRisk: 900,
       },
     );
+    for (const row of db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).records) {
+      row.refreshRunId = refreshRunId;
+    }
     db.getRepository(ECOBASE_COLLECTIONS.goldOrderPlanningRows).records.push({
       id: 'order-1',
       companyName: 'Ecofission LLC',

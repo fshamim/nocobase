@@ -15,6 +15,7 @@ import type { EcobaseDatabase } from './import-service';
 import { toPlainRecord } from './import-service';
 import { orderDetailSourceIdentity } from './order-detail-source-identity';
 import { orderRowExclusionReason } from './order-import-policy';
+import { EcobaseInventoryPlanningGoldAccess } from '../../inventory-planning/server/inventory-planning-gold-access';
 
 type PlainRecord = Record<string, unknown>;
 type Classification =
@@ -93,7 +94,10 @@ function isAcceptedClassification(classification: Classification) {
 export class EcobaseOrderDetailsRelationshipVerifier {
   constructor(private db: EcobaseDatabase) {}
 
-  async verify(file: CsvSourceFile): Promise<OrderDetailsRelationshipVerification> {
+  async verify(
+    file: CsvSourceFile,
+    params: { runId: string; purpose?: 'production_verification' | 'independent_verification' },
+  ): Promise<OrderDetailsRelationshipVerification> {
     const parsed = parseCsv(file.content);
     const rows = parsed.rows.map((raw, index) => {
       const reader = new CsvRowReader(raw);
@@ -114,18 +118,33 @@ export class EcobaseOrderDetailsRelationshipVerifier {
       return { ...row, classification } as typeof row & { classification: Classification };
     });
 
-    const [companies, supplierRefs, products, companyProducts, supplierProducts, orders, lines, bronzeRows, gold] =
-      await Promise.all([
-        this.all(ECOBASE_COLLECTIONS.silverCompanies),
-        this.all(ECOBASE_COLLECTIONS.silverSupplierExternalRefs),
-        this.all(ECOBASE_COLLECTIONS.silverProducts),
-        this.all(ECOBASE_COLLECTIONS.silverCompanyProducts),
-        this.all(ECOBASE_COLLECTIONS.silverSupplierProducts),
-        this.all(ECOBASE_COLLECTIONS.silverOrders),
-        this.all(ECOBASE_COLLECTIONS.silverOrderLines),
-        this.all(ECOBASE_COLLECTIONS.bronzeSourceRecords),
-        this.all(ECOBASE_COLLECTIONS.goldInventoryPlanningRows),
-      ]);
+    const [
+      companies,
+      supplierRefs,
+      products,
+      companyProducts,
+      supplierProducts,
+      orders,
+      lines,
+      bronzeRows,
+      goldResult,
+    ] = await Promise.all([
+      this.all(ECOBASE_COLLECTIONS.silverCompanies),
+      this.all(ECOBASE_COLLECTIONS.silverSupplierExternalRefs),
+      this.all(ECOBASE_COLLECTIONS.silverProducts),
+      this.all(ECOBASE_COLLECTIONS.silverCompanyProducts),
+      this.all(ECOBASE_COLLECTIONS.silverSupplierProducts),
+      this.all(ECOBASE_COLLECTIONS.silverOrders),
+      this.all(ECOBASE_COLLECTIONS.silverOrderLines),
+      this.all(ECOBASE_COLLECTIONS.bronzeSourceRecords),
+      new EcobaseInventoryPlanningGoldAccess(this.db).readExplicitListingPerformance({
+        runId: params.runId,
+        purpose: params.purpose ?? 'production_verification',
+        actor: { type: 'system' },
+        limit: 100000,
+      }),
+    ]);
+    const gold = goldResult.rows;
     const orderDetailBronzeIds = bronzeRows
       .filter((row) => text(row.sourceDataset)?.toLowerCase().includes('orderdetails'))
       .map((row) => text(row.id))

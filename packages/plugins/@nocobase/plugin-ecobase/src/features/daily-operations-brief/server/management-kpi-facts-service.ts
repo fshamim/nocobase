@@ -11,6 +11,7 @@ import { createHash } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import type { EcobaseDatabase } from '../../source-import/server/import-service';
 import { toPlainRecord } from '../../source-import/server/import-service';
+import { EcobaseInventoryPlanningGoldAccess } from '../../inventory-planning/server/inventory-planning-gold-access';
 
 type PlainRecord = Record<string, unknown>;
 
@@ -923,12 +924,12 @@ export class EcobaseManagementKpiFactsService {
   }
 
   private async buildInventoryFacts(date: string, company?: string) {
-    const rows = asPlainRows(
-      await this.db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).find({
+    const rows = (
+      await new EcobaseInventoryPlanningGoldAccess(this.db).readPublishedFamilyActions({
         filter: company ? { calculationDate: date, company } : { calculationDate: date },
         limit: 100000,
-      }),
-    );
+      })
+    ).rows;
     const facts = [] as PlainRecord[];
     for (const [scope, groupRows] of this.scopedGroups(rows, company)) {
       const supplyActionRows = groupRows.filter((row) => asString(row.commandCenterPane) === 'supplyAction');

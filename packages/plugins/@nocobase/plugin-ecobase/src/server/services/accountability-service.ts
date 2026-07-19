@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import type { EcobaseDatabase } from '../../features/source-import/server/import-service';
 import { toPlainRecord } from '../../features/source-import/server/import-service';
+import { EcobaseInventoryPlanningGoldAccess } from '../../features/inventory-planning/server/inventory-planning-gold-access';
 
 const ACCOUNTABILITY_RULE_VERSION = 'ecobase_accountability_mvp_v1';
 const DEFAULT_ACCOUNTABILITY_CONFIG = {
@@ -343,11 +344,13 @@ export class EcobaseAccountabilityService {
       : {};
     const planningProductId = asString(link.planningProductId);
     const product = planningProductId
-      ? toPlainRecord(
-          await this.db
-            .getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows)
-            .findOne({ filter: { companyProductId: planningProductId }, sort: ['-calculationDate'] }),
-        )
+      ? (
+          await new EcobaseInventoryPlanningGoldAccess(this.db).readPublishedListingPerformance({
+            filter: { companyProductId: planningProductId },
+            sort: ['-calculationDate'],
+            limit: 1,
+          })
+        ).rows[0] ?? {}
       : {};
     return {
       link,

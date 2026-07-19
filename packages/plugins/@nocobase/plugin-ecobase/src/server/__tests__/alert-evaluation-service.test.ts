@@ -185,9 +185,31 @@ async function seedPlanningRows(
       refunds: overrides.refundRate ?? 0,
     },
   });
+  const refreshRunId = `published:${calculationDate}`;
+  const runRepository = db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns);
+  for (const run of runRepository.all()) {
+    if (run.id !== refreshRunId && run.status === 'published') run.status = 'retired';
+  }
+  const existingRun = await runRepository.findOne({ filterByTk: refreshRunId });
+  if (existingRun) {
+    await runRepository.update({
+      filterByTk: refreshRunId,
+      values: { status: 'published', publishedAt: `${calculationDate}T00:00:00.000Z` },
+    });
+  } else {
+    await runRepository.create({
+      values: {
+        id: refreshRunId,
+        status: 'published',
+        calculationDate,
+        publishedAt: `${calculationDate}T00:00:00.000Z`,
+      },
+    });
+  }
   await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).create({
     values: {
       id: `gold:${planningProductId}:${calculationDate}`,
+      refreshRunId,
       naturalKey: `gold:${planningProductId}:${calculationDate}`,
       planningProductId,
       companyProductId: planningProductId,

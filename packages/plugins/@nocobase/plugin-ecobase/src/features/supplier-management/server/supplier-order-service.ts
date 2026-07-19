@@ -10,6 +10,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import { EcobaseCompanyProductFamilyService } from '../../inventory-planning/server/company-product-family-service';
+import { EcobaseInventoryPlanningGoldAccess } from '../../inventory-planning/server/inventory-planning-gold-access';
 import {
   EcobaseMedallionIdentityService,
   normalizeExternalSupplierCode,
@@ -545,26 +546,15 @@ export class EcobaseSupplierOrderService {
       toPlainRecord,
     );
     const companyId = asString(companies.find((company) => asString(company.name) === filters.company)?.id);
-    const goldInventoryRepository = this.db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows);
-    const latestGoldInventoryRow = toPlainRecord(
-      await goldInventoryRepository.findOne({ filter: { company: filters.company }, sort: ['-calculationDate'] }),
-    );
-    const latestGoldCalculationDate = asString(latestGoldInventoryRow.calculationDate);
-    const planningProducts: PlainRecord[] = (
-      latestGoldCalculationDate
-        ? await goldInventoryRepository.find({
-            filter: { company: filters.company, calculationDate: latestGoldCalculationDate },
-            sort: ['company', 'asin'],
-            limit,
-          })
-        : []
-    )
-      .map(toPlainRecord)
-      .map((row) => ({
-        ...row,
-        id: asString(row.companyProductId) ?? asString(row.planningProductId) ?? asString(row.id),
-        canonicalAsin: asString(row.asin),
-      }));
+    const publishedFamilyActions = await new EcobaseInventoryPlanningGoldAccess(this.db).readPublishedFamilyActions({
+      filter: { company: filters.company },
+      sort: ['company', 'asin'],
+    });
+    const planningProducts: PlainRecord[] = publishedFamilyActions.rows.slice(0, limit).map((row) => ({
+      ...row,
+      id: asString(row.companyProductId) ?? asString(row.planningProductId) ?? asString(row.id),
+      canonicalAsin: asString(row.asin),
+    }));
     const silverOrders = await silverSupplierOrderReadModel(this.db, { company: filters.company, limit });
     const supplierOrders: PlainRecord[] = silverOrders.supplierOrders
       .map((order) => ({ ...order, status: normalizeSupplierOrderStatus(asString(order.status)) }))

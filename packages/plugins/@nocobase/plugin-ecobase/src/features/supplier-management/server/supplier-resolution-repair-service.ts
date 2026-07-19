@@ -25,15 +25,6 @@ type RepairItem =
       duplicateSupplierIds: string[];
     }
   | {
-      step: 'gold_reference_cleanup';
-      key: string;
-      goldRowId: string;
-      clearSupplierId: boolean;
-      clearSupplierProductId: boolean;
-      observedSupplierId?: string;
-      observedSupplierProductId?: string;
-    }
-  | {
       step: 'order_line_replay';
       key: string;
       lineId: string;
@@ -144,10 +135,10 @@ export class EcobaseSupplierResolutionRepairService {
     const decisionDigest = stableDigest(plan);
     const repository = this.repo(ECOBASE_COLLECTIONS.repairRuns);
     const existing = plain(await repository.findOne({ filter: { repairVersion, codeSha, decisionDigest } }));
-    if (text(existing.id)) return existing;
+    if (text(existing.id)) return { ...existing, goldRefreshRequired: true };
 
     const now = new Date().toISOString();
-    return repository.create({
+    const created = await repository.create({
       values: {
         id: randomUUID(),
         repairVersion,
@@ -165,6 +156,7 @@ export class EcobaseSupplierResolutionRepairService {
         summary: { plan, previewedAt: now } satisfies RepairRunSummary,
       },
     });
+    return { ...plain(created), goldRefreshRequired: true };
   }
 
   async apply(params: {
@@ -239,7 +231,10 @@ export class EcobaseSupplierResolutionRepairService {
           } as never);
           return nextCursor >= plan.items.length;
         });
-        if (completed) return this.repo(ECOBASE_COLLECTIONS.repairRuns).findOne({ filterByTk: runId });
+        if (completed) {
+          const result = plain(await this.repo(ECOBASE_COLLECTIONS.repairRuns).findOne({ filterByTk: runId }));
+          return { ...result, goldRefreshRequired: true };
+        }
       } catch (error) {
         if (error instanceof RepairPreconditionError) throw error;
         await this.recordExecutionFailure({
@@ -259,10 +254,9 @@ export class EcobaseSupplierResolutionRepairService {
         .filter((group) => group.canonicalSupplierId)
         .map((group) => [group.normalizedName, group.canonicalSupplierId as string]),
     );
-    const [orderLineSelection, trackerSelection, goldReferenceCleanup] = await Promise.all([
+    const [orderLineSelection, trackerSelection] = await Promise.all([
       this.selectOrderLineRepairs(),
       this.selectTrackerRepairs(canonicalSupplierIdByName),
-      this.selectGoldReferenceCleanup(),
     ]);
     const items: RepairItem[] = [
       ...supplierPreview.eligible.map(
@@ -274,7 +268,6 @@ export class EcobaseSupplierResolutionRepairService {
           duplicateSupplierIds: [...group.duplicateSupplierIds].sort(),
         }),
       ),
-      ...goldReferenceCleanup,
       ...orderLineSelection.items,
       ...trackerSelection.items,
     ];
@@ -290,52 +283,6 @@ export class EcobaseSupplierResolutionRepairService {
       reasonCounts,
       supplierReview: supplierPreview.reviewRequired,
     };
-  }
-
-  private async selectGoldReferenceCleanup(): Promise<RepairItem[]> {
-    const [goldRows, suppliers, supplierProducts, companyProducts] = await Promise.all([
-      this.rows(ECOBASE_COLLECTIONS.goldInventoryPlanningRows),
-      this.rows(ECOBASE_COLLECTIONS.silverSuppliers),
-      this.rows(ECOBASE_COLLECTIONS.silverSupplierProducts),
-      this.rows(ECOBASE_COLLECTIONS.silverCompanyProducts),
-    ]);
-    const supplierIds = new Set(suppliers.map((row) => text(row.id)).filter(Boolean));
-    const supplierProductsById = new Map(supplierProducts.map((row) => [text(row.id), row]));
-    const productIdsByFamilyId = new Map<string, Set<string>>();
-    for (const companyProduct of companyProducts) {
-      const familyId = text(companyProduct.companyProductFamilyId);
-      const productId = text(companyProduct.productId);
-      if (!familyId || !productId) continue;
-      const productIds = productIdsByFamilyId.get(familyId) ?? new Set<string>();
-      productIds.add(productId);
-      productIdsByFamilyId.set(familyId, productIds);
-    }
-    const items: RepairItem[] = [];
-    for (const row of goldRows) {
-      const goldRowId = text(row.id);
-      const supplierId = text(row.familyPreferredSupplierId);
-      const supplierProductId = text(row.familyPreferredSupplierProductId);
-      if (!goldRowId || (!supplierId && !supplierProductId)) continue;
-      const supplierValid = Boolean(supplierId && supplierIds.has(supplierId));
-      const supplierProduct = supplierProductId ? supplierProductsById.get(supplierProductId) : undefined;
-      const supplierProductValid = Boolean(
-        supplierProduct &&
-          supplierValid &&
-          text(supplierProduct.supplierId) === supplierId &&
-          productIdsByFamilyId.get(text(row.companyProductFamilyId) ?? '')?.has(text(supplierProduct.productId) ?? ''),
-      );
-      if (supplierValid && (!supplierProductId || supplierProductValid)) continue;
-      items.push({
-        step: 'gold_reference_cleanup',
-        key: `gold-reference:${goldRowId}`,
-        goldRowId,
-        clearSupplierId: !supplierValid,
-        clearSupplierProductId: !supplierProductValid,
-        observedSupplierId: supplierId,
-        observedSupplierProductId: supplierProductId,
-      });
-    }
-    return items;
   }
 
   private async selectOrderLineRepairs() {
@@ -531,21 +478,6 @@ export class EcobaseSupplierResolutionRepairService {
         canonicalSupplierId: item.canonicalSupplierId,
         duplicateSupplierIds: item.duplicateSupplierIds,
       });
-      return 1;
-    }
-    if (item.step === 'gold_reference_cleanup') {
-      const repository = this.repo(ECOBASE_COLLECTIONS.goldInventoryPlanningRows);
-      const current = plain(await repository.findOne({ filterByTk: item.goldRowId, transaction, lock: true } as never));
-      if (
-        text(current.familyPreferredSupplierId) !== item.observedSupplierId ||
-        text(current.familyPreferredSupplierProductId) !== item.observedSupplierProductId
-      ) {
-        throw new Error(`EcoBase supplier repair Gold row ${item.goldRowId} changed after preview.`);
-      }
-      const values: PlainRecord = {};
-      if (item.clearSupplierId) values.familyPreferredSupplierId = null;
-      if (item.clearSupplierProductId) values.familyPreferredSupplierProductId = null;
-      await repository.update({ filterByTk: item.goldRowId, values, transaction } as never);
       return 1;
     }
     if (item.step === 'order_line_replay') return this.applyOrderLine(item, runId, repairVersion, transaction);

@@ -10,7 +10,9 @@
 import type Database from '@nocobase/database';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 
-const OPERATOR_DASHBOARD_COLLECTIONS = [
+export const HIDDEN_OPERATOR_COLLECTIONS = [ECOBASE_COLLECTIONS.goldInventoryPlanningRows];
+
+export const OPERATOR_DASHBOARD_COLLECTIONS = [
   ECOBASE_COLLECTIONS.bronzeSourceFiles,
   ECOBASE_COLLECTIONS.bronzeSourceRecords,
   ECOBASE_COLLECTIONS.silverCompanies,
@@ -36,7 +38,6 @@ const OPERATOR_DASHBOARD_COLLECTIONS = [
   ECOBASE_COLLECTIONS.silverTrafficSnapshots,
   ECOBASE_COLLECTIONS.silverNormalizationLinks,
   ECOBASE_COLLECTIONS.goldTargetEvaluations,
-  ECOBASE_COLLECTIONS.goldInventoryPlanningRows,
   ECOBASE_COLLECTIONS.goldOrderPlanningRows,
   ECOBASE_COLLECTIONS.goldSupplierAttentionRows,
   ECOBASE_COLLECTIONS.goldAlerts,
@@ -55,6 +56,7 @@ type Repository = {
   ): Promise<{ load?: (options?: Record<string, unknown>) => Promise<unknown> } | null>;
   find(options: Record<string, unknown>): Promise<Array<{ get?: (key: string) => unknown; name?: string }>>;
   create(options: Record<string, unknown>): Promise<unknown>;
+  update(options: Record<string, unknown>): Promise<unknown>;
 };
 
 function clonePlain<T>(value: T): T {
@@ -89,6 +91,13 @@ export async function ensureEcobaseCollectionManagerMetadata(db: Database) {
   const fieldsRepository = getOptionalRepository(db, 'fields');
   if (!collectionsRepository || !fieldsRepository) {
     return;
+  }
+
+  for (const collectionName of HIDDEN_OPERATOR_COLLECTIONS) {
+    const existingCollection = await collectionsRepository.findOne({ filter: { name: collectionName } });
+    if (existingCollection) {
+      await collectionsRepository.update({ filter: { name: collectionName }, values: { hidden: true } });
+    }
   }
 
   for (const collectionName of OPERATOR_DASHBOARD_COLLECTIONS) {

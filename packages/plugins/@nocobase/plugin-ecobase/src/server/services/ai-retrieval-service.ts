@@ -1,6 +1,16 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import type { EcobaseDatabase } from '../../features/source-import/server/import-service';
+import { EcobaseInventoryPlanningGoldAccess } from '../../features/inventory-planning/server/inventory-planning-gold-access';
 
 type PlainRecord = Record<string, unknown>;
 type EvidenceReference = { type: string; id?: string; label?: string; warning?: string };
@@ -501,20 +511,14 @@ export class EcobaseAiRetrievalService {
     const calculationDate = params.calculationDate ?? params.date;
     if (params.company) filter.company = params.company;
     if (calculationDate) filter.calculationDate = calculationDate;
-    const rows = await this.findRows(ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
-      filter: Object.keys(filter).length ? filter : undefined,
-      sort: ['-calculationDate'],
-      limit: Math.max(limit * 5, 100),
-    });
-    const latestDate =
-      calculationDate ??
-      rows
-        .map((row) => asString(row.calculationDate))
-        .filter(Boolean)
-        .sort()
-        .at(-1);
-    const scopedRows = latestDate ? rows.filter((row) => asString(row.calculationDate) === latestDate) : rows;
-    return sortByRisk(scopedRows).slice(0, limit);
+    const rows = (
+      await new EcobaseInventoryPlanningGoldAccess(this.db).readPublishedFamilyActions({
+        filter: Object.keys(filter).length ? filter : undefined,
+        sort: ['-calculationDate'],
+        limit: Math.max(limit * 5, 100),
+      })
+    ).rows;
+    return sortByRisk(rows).slice(0, limit);
   }
 
   private async findRows(collection: string, params: PlainRecord = {}) {

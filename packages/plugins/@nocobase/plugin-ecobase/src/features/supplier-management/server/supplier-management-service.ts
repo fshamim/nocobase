@@ -12,6 +12,7 @@ import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import type { EcobaseDatabase } from '../../source-import/server/import-service';
 import { toPlainRecord } from '../../source-import/server/import-service';
 import { validateSupplierLeadTimeDays, validateSupplierOrderStatus } from './supplier-order-service';
+import { EcobaseInventoryPlanningGoldAccess } from '../../inventory-planning/server/inventory-planning-gold-access';
 
 type PlainRecord = Record<string, unknown>;
 
@@ -396,15 +397,24 @@ export class EcobaseSupplierManagementService {
     const supplierId = asString(params.supplierId);
     if (!supplierId) throw new Error('Ecobase supplier detail failed: supplierId is required.');
     const supplier = await this.requireSupplier(supplierId);
-    const [comments, accounts, supplierProducts, orderedSupplierKeys, rawInventoryRisks, rawOrderRisks] =
-      await Promise.all([
-        this.commentsForSupplier(supplierId),
-        this.accountsForSupplier(supplierId),
-        this.productsForSupplier(supplierId),
-        this.orderedSupplierKeysForSupplier(supplierId),
-        repoRowsFiltered(this.db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, { supplierId }),
-        repoRowsFiltered(this.db, ECOBASE_COLLECTIONS.goldOrderPlanningRows, { supplierId }),
-      ]);
+    const goldAccess = new EcobaseInventoryPlanningGoldAccess(this.db);
+    const [
+      comments,
+      accounts,
+      supplierProducts,
+      orderedSupplierKeys,
+      familyActions,
+      listingPerformance,
+      rawOrderRisks,
+    ] = await Promise.all([
+      this.commentsForSupplier(supplierId),
+      this.accountsForSupplier(supplierId),
+      this.productsForSupplier(supplierId),
+      this.orderedSupplierKeysForSupplier(supplierId),
+      goldAccess.readPublishedFamilyActions({ filter: { supplierId } }),
+      goldAccess.readPublishedListingPerformance({ filter: { supplierId } }),
+      repoRowsFiltered(this.db, ECOBASE_COLLECTIONS.goldOrderPlanningRows, { supplierId }),
+    ]);
     const productById = new Map(
       (
         await repoRowsByIds(
@@ -428,7 +438,8 @@ export class EcobaseSupplierManagementService {
       ...supplier,
       approvalStatus: effectiveSupplierLifecycleStatus(supplier, orderedSupplierKeys),
     };
-    const inventoryRisks = rawInventoryRisks.filter((row) => matchesCompany(row, params.company));
+    const inventoryRisks = familyActions.rows.filter((row) => matchesCompany(row, params.company));
+    const listingEvidence = listingPerformance.rows.filter((row) => matchesCompany(row, params.company));
     const orderRisks = rawOrderRisks.filter((row) => matchesCompany(row, params.company) && isActiveOrderRiskRow(row));
     return {
       supplier: effectiveSupplier,
@@ -437,6 +448,7 @@ export class EcobaseSupplierManagementService {
       accounts,
       supplierProducts: enrichedProducts,
       inventoryRisks,
+      listingEvidence,
       orderRisks,
     };
   }
@@ -776,17 +788,17 @@ export class EcobaseSupplierManagementService {
 
   private async buildDigestRows(filters: SupplierAttentionFilters) {
     const calculationDate = asString(filters.calculationDate) ?? todayIso();
-    const [suppliers, rawInventoryRows, rawOrderRows, silverOrders, rawComments, accounts, supplierProducts] =
+    const [suppliers, publishedInventory, rawOrderRows, silverOrders, rawComments, accounts, supplierProducts] =
       await Promise.all([
         repoRows(this.db, ECOBASE_COLLECTIONS.silverSuppliers),
-        repoRows(this.db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows),
+        new EcobaseInventoryPlanningGoldAccess(this.db).readPublishedFamilyActions(),
         repoRows(this.db, ECOBASE_COLLECTIONS.goldOrderPlanningRows),
         repoRows(this.db, ECOBASE_COLLECTIONS.silverOrders),
         repoRows(this.db, ECOBASE_COLLECTIONS.silverActivityComments),
         repoRows(this.db, ECOBASE_COLLECTIONS.silverSupplierAccounts),
         repoRows(this.db, ECOBASE_COLLECTIONS.silverSupplierProducts),
       ]);
-    const inventoryRows = rawInventoryRows.filter((row) => matchesCompany(row, filters.company));
+    const inventoryRows = publishedInventory.rows.filter((row) => matchesCompany(row, filters.company));
     const orderRows = rawOrderRows.filter((row) => matchesCompany(row, filters.company));
     const orderedSupplierKeys = collectOrderedSupplierKeys([...silverOrders, ...orderRows]);
     const comments = rawComments.filter((comment) => comment.entityType === 'supplier' && !comment.deletedAt);

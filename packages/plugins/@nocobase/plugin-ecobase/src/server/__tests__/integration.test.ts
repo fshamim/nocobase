@@ -11,6 +11,8 @@ import { resolve } from 'node:path';
 import { createMockServer, MockServer } from '@nocobase/test';
 import { afterEach, describe, expect, it } from 'vitest';
 import PluginEcobaseServer from '..';
+import { withGoldInventoryPlanningWriteAuthority } from '../../features/inventory-planning/server/gold-write-guard';
+import { EcobaseInventoryPlanningService } from '../../features/inventory-planning/server/inventory-planning-service';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { EcobaseOperatorWorkspaceService } from '../services/operator-workspace-service';
 
@@ -137,29 +139,50 @@ describe('Ecobase plugin NocoBase integration seam', () => {
       ]),
     );
 
-    await app.db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).create({
-      values: {
-        id: '97a31b86-0ab3-4f54-9717-91500e78a7b2',
-        naturalKey: 'Workspace LLC:B00REAL',
-        calculationDate: '2026-07-13',
-        company: 'Workspace LLC',
-        asin: 'B00REAL',
-        sku: 'REAL-1',
-        title: 'Workspace product',
-        actionStatus: 'watch',
-      },
-    });
+    const goldRepository = app.db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows) as unknown as {
+      create(options: { values: Record<string, unknown> }): Promise<unknown>;
+    };
+    await withGoldInventoryPlanningWriteAuthority(() =>
+      goldRepository.create({
+        values: {
+          id: '97a31b86-0ab3-4f54-9717-91500e78a7b2',
+          naturalKey: 'Workspace LLC:B00REAL',
+          calculationDate: '2026-07-13',
+          company: 'Workspace LLC',
+          planningProductId: 'workspace-product',
+          actionStatus: 'watch',
+        },
+      }),
+    );
+    await expect(new EcobaseInventoryPlanningService(app.db).listRows()).resolves.toEqual([]);
     const workspaceService = new EcobaseOperatorWorkspaceService(app.db);
     const workspace = await workspaceService.getWorkspace({ sourceConnectionId });
     expect(workspace.filters).toMatchObject({ company: 'Workspace LLC', sourceConnectionId });
     expect(workspace.domains.flatMap((domain) => domain.collections)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ collectionName: ECOBASE_COLLECTIONS.sourceConnections, rowCount: 1 }),
-        expect.objectContaining({ collectionName: ECOBASE_COLLECTIONS.goldInventoryPlanningRows, rowCount: 1 }),
       ]),
     );
-    const preview = await workspaceService.previewView({ viewKey: 'latest-products', filters: { sourceConnectionId } });
-    expect(preview.rows).toEqual([expect.objectContaining({ company: 'Workspace LLC', asin: 'B00REAL' })]);
+    expect(workspace.domains.flatMap((domain) => domain.collections)).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ collectionName: ECOBASE_COLLECTIONS.goldInventoryPlanningRows }),
+      ]),
+    );
+    await expect(
+      workspaceService.previewView({ viewKey: 'latest-products', filters: { sourceConnectionId } }),
+    ).rejects.toThrow('collection "unknown" is not exposed');
+    const forbiddenGoldList = await agent.resource(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).list();
+    expect(forbiddenGoldList.status).toBe(403);
+    const forbiddenGoldCreate = await agent.resource(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).create({
+      values: {
+        id: '97a31b86-0ab3-4f54-9717-91500e78a7b2',
+        naturalKey: 'Workspace LLC:B00REAL',
+        calculationDate: '2026-07-13',
+        company: 'Workspace LLC',
+        planningProductId: 'workspace-product',
+      },
+    });
+    expect(forbiddenGoldCreate.status).toBe(403);
     const forbiddenRawCreate = await agent.resource(ECOBASE_COLLECTIONS.bronzeSourceRecords).create({
       values: { id: 'blocked-raw-row', importRunId: runResponse.body.data.data.id, rowNumber: 1, payload: {} },
     });

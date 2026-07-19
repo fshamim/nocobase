@@ -197,7 +197,7 @@ describe('EcobaseSupplierResolutionRepairService', () => {
     expect(noOp).toMatchObject({ candidateCount: 0, changedCount: 0 });
   });
 
-  it('clears only invalid optional Gold supplier references', async () => {
+  it('leaves invalid Gold supplier references immutable and requests a new refresh', async () => {
     const db = new MemoryDatabase();
     await create(db, ECOBASE_COLLECTIONS.silverSuppliers, {
       id: 'supplier-1',
@@ -217,16 +217,17 @@ describe('EcobaseSupplierResolutionRepairService', () => {
     });
     const service = new EcobaseSupplierResolutionRepairService(db);
     const run = (await service.preview({ repairVersion: 'supplier-v1', codeSha: 'sha-1' })) as Row;
-    expect(run).toMatchObject({ candidateCount: 1 });
+    expect(run).toMatchObject({ candidateCount: 0, goldRefreshRequired: true });
 
-    await service.apply({
+    const completed = (await service.apply({
       runId: String(run.id),
       decisionDigest: String(run.decisionDigest),
       codeSha: 'sha-1',
-    });
+    })) as Row;
+    expect(completed).toMatchObject({ changedCount: 0, goldRefreshRequired: true });
     expect(db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).records[0]).toMatchObject({
-      familyPreferredSupplierId: null,
-      familyPreferredSupplierProductId: null,
+      familyPreferredSupplierId: 'missing-supplier',
+      familyPreferredSupplierProductId: 'missing-offer',
     });
   });
 
@@ -268,41 +269,6 @@ describe('EcobaseSupplierResolutionRepairService', () => {
       cursor: 0,
     });
     expect(db.getRepository(ECOBASE_COLLECTIONS.repairRuns).records[0]).not.toHaveProperty('errorMessage');
-  });
-
-  it('refuses to clear Gold supplier authority that changed after preview', async () => {
-    const db = new MemoryDatabase();
-    await create(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
-      id: 'gold-1',
-      familyPreferredSupplierId: 'missing-supplier',
-      familyPreferredSupplierProductId: 'missing-offer',
-    });
-    const service = new EcobaseSupplierResolutionRepairService(db);
-    const run = (await service.preview({ repairVersion: 'supplier-v1', codeSha: 'sha-1' })) as Row;
-    await create(db, ECOBASE_COLLECTIONS.silverSuppliers, { id: 'valid-supplier' });
-    await create(db, ECOBASE_COLLECTIONS.silverSupplierProducts, {
-      id: 'valid-offer',
-      supplierId: 'valid-supplier',
-    });
-    await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).update({
-      filterByTk: 'gold-1',
-      values: {
-        familyPreferredSupplierId: 'valid-supplier',
-        familyPreferredSupplierProductId: 'valid-offer',
-      },
-    });
-
-    await expect(
-      service.apply({
-        runId: String(run.id),
-        decisionDigest: String(run.decisionDigest),
-        codeSha: 'sha-1',
-      }),
-    ).rejects.toThrow('changed after preview');
-    expect(db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).records[0]).toMatchObject({
-      familyPreferredSupplierId: 'valid-supplier',
-      familyPreferredSupplierProductId: 'valid-offer',
-    });
   });
 
   it('refuses an unrelated supplier product on a changed order line', async () => {

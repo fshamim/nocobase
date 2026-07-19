@@ -57,6 +57,8 @@ import {
   type InventoryPlanningCommandCenterQuery,
 } from '../features/inventory-planning/server/inventory-planning-service';
 import { EcobaseOrderReceiptReconciliationService } from '../features/inventory-planning/server/order-receipt-reconciliation-service';
+import { EcobaseInventoryPlanningGoldAccess } from '../features/inventory-planning/server/inventory-planning-gold-access';
+import { EcobaseGoldError } from '../features/inventory-planning/server/gold-errors';
 import type { AmazonReceiptStatus } from '../features/inventory-planning/server/order-receipt-state';
 import { EcobaseOrderPlanningService } from '../features/order-planning/server/order-planning-service';
 import { EcobaseMedallionNormalizationService } from '../features/semantic-model/server/medallion-normalization-service';
@@ -242,6 +244,13 @@ function getActorId(ctx: { state?: Record<string, unknown> }) {
     return typeof id === 'string' || typeof id === 'number' ? String(id) : undefined;
   }
   return undefined;
+}
+
+function getActorRoles(ctx: { state?: Record<string, unknown> }) {
+  if (Array.isArray(ctx.state?.currentRoles)) {
+    return ctx.state.currentRoles.filter((role): role is string => typeof role === 'string');
+  }
+  return typeof ctx.state?.currentRole === 'string' ? [ctx.state.currentRole] : [];
 }
 
 export function createEcobaseAccuracyActions() {
@@ -1199,21 +1208,46 @@ export function createEcobaseInventoryPlanningActions() {
         requireMaintenanceAdministrator(ctx, 'Gold maintenance');
         const runId = getOptionalString(getValues(ctx.action.params), 'runId');
         if (!runId) {
-          ctx.throw(400, 'Ecobase Gold refresh verification requires runId.');
-          return;
+          throw Object.assign(
+            new EcobaseGoldError(
+              'ECOBASE_GOLD_EXPLICIT_RUN_REQUIRED',
+              'EcoBase Gold explicit access requires a run ID.',
+              { purpose: 'production_verification' },
+            ),
+            { status: 400 },
+          );
         }
         ctx.body = { data: await new EcobaseInventoryPlanningService(ctx.db).verifyRefreshRun(runId) };
         await next();
       },
-      publishRefreshRun: async (ctx, next) => {
-        requireMaintenanceAdministrator(ctx, 'Gold maintenance');
+      candidatePreview: async (ctx, next) => {
         const values = getValues(ctx.action.params);
-        const runId = getOptionalString(values, 'runId');
-        if (!runId || getOptionalString(values, 'confirmation') !== 'PUBLISH GOLD') {
-          ctx.throw(400, 'Ecobase Gold publication requires runId and confirmation "PUBLISH GOLD".');
-          return;
+        try {
+          const result = await new EcobaseInventoryPlanningGoldAccess(ctx.db).readCandidatePreview({
+            runId: getOptionalString(values, 'runId'),
+            actorUserId: getActorId(ctx),
+            roles: getActorRoles(ctx),
+            requestId:
+              getOptionalString(ctx.state ?? {}, 'requestId') ?? getOptionalString(ctx.request ?? {}, 'requestId'),
+          });
+          ctx.body = {
+            data: {
+              ...result,
+              banner: 'UNPUBLISHED CANDIDATE — NOT OPERATIONAL',
+            },
+          };
+        } catch (error) {
+          if (error instanceof EcobaseGoldError) {
+            const status =
+              error.code === 'ECOBASE_CANDIDATE_PREVIEW_FORBIDDEN'
+                ? 403
+                : error.code === 'ECOBASE_GOLD_RUN_NOT_FOUND'
+                  ? 404
+                  : 400;
+            throw Object.assign(error, { status });
+          }
+          throw error;
         }
-        ctx.body = { data: await new EcobaseInventoryPlanningService(ctx.db).publishRefreshRun(runId) };
         await next();
       },
       reconcileFamilies: async (ctx, next) => {
@@ -1456,7 +1490,6 @@ export function createEcobaseInventoryPlanningActions() {
     {
       refreshReadModel: 'admin',
       verifyRefreshRun: 'admin',
-      publishRefreshRun: 'admin',
       reconcileFamilies: 'admin',
       previewAutomaticTargetCorrections: 'admin',
       applyAutomaticTargetCorrections: 'admin',
@@ -2582,7 +2615,28 @@ export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
         await next();
       },
       verifySemanticLinks: async (ctx, next) => {
-        ctx.body = { data: await new EcobaseSemanticLinkVerifier(ctx.db).verify() };
+        const values = getValues(ctx.action.params);
+        const runId = getOptionalString(values, 'runId');
+        if (!runId) {
+          throw Object.assign(
+            new EcobaseGoldError(
+              'ECOBASE_GOLD_EXPLICIT_RUN_REQUIRED',
+              'EcoBase Gold explicit access requires a run ID.',
+              { purpose: 'production_verification' },
+            ),
+            { status: 400 },
+          );
+        }
+        const purpose =
+          getOptionalString(values, 'purpose') === 'independent_verification'
+            ? 'independent_verification'
+            : 'production_verification';
+        try {
+          ctx.body = { data: await new EcobaseSemanticLinkVerifier(ctx.db).verify({ runId, purpose }) };
+        } catch (error) {
+          if (error instanceof EcobaseGoldError) throw Object.assign(error, { status: 400 });
+          throw error;
+        }
         await next();
       },
       verifyOrderDetailsRelationships: async (ctx, next) => {
@@ -2591,9 +2645,28 @@ export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
           ctx.throw(400, 'Ecobase OrderDetails verification requires exactly one CSV file.');
           return;
         }
+        const values = getValues(ctx.action.params);
+        const runId = getOptionalString(values, 'runId');
+        if (!runId) {
+          throw Object.assign(
+            new EcobaseGoldError(
+              'ECOBASE_GOLD_EXPLICIT_RUN_REQUIRED',
+              'EcoBase Gold explicit access requires a run ID.',
+              { purpose: 'production_verification' },
+            ),
+            { status: 400 },
+          );
+        }
+        const purpose =
+          getOptionalString(values, 'purpose') === 'independent_verification'
+            ? 'independent_verification'
+            : 'production_verification';
         try {
-          ctx.body = { data: await new EcobaseOrderDetailsRelationshipVerifier(ctx.db).verify(files[0]) };
+          ctx.body = {
+            data: await new EcobaseOrderDetailsRelationshipVerifier(ctx.db).verify(files[0], { runId, purpose }),
+          };
         } catch (error) {
+          if (error instanceof EcobaseGoldError) throw Object.assign(error, { status: 400 });
           ctx.throw(400, error instanceof Error ? error.message : 'Ecobase OrderDetails verification failed.');
           return;
         }

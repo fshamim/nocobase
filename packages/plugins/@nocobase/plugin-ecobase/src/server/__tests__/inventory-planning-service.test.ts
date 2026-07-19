@@ -162,6 +162,19 @@ async function createRecord(db: MemoryDatabase, collection: string, values: Reco
   await db.getRepository(collection).create({ values });
 }
 
+async function refreshAndPublish(
+  service: EcobaseInventoryPlanningService,
+  query: Parameters<EcobaseInventoryPlanningService['refreshReadModel']>[0],
+) {
+  const result = await service.refreshReadModel(query);
+  const run = result.run as Record<string, unknown>;
+  if (run.status === 'published') return result;
+  const runId = String(run.id);
+  await service.verifyRefreshRun(runId);
+  await service.publishRefreshRun(runId);
+  return result;
+}
+
 async function createSilverOrderRecord(db: MemoryDatabase, values: Record<string, unknown>) {
   const company = String(values.company ?? '');
   const companyId = `silver-company:${company}`;
@@ -863,7 +876,7 @@ describe('EcobaseInventoryPlanningService', () => {
     });
 
     const service = new EcobaseInventoryPlanningService(db);
-    await service.refreshReadModel({ company: 'ACME', calculationDate: '2026-07-10' });
+    await refreshAndPublish(service, { company: 'ACME', calculationDate: '2026-07-10' });
     const commandCenter = await service.commandCenter({ company: 'ACME', calculationDate: '2026-07-10' });
     const [goldRow] = await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).find({});
 
@@ -1100,7 +1113,7 @@ describe('EcobaseInventoryPlanningService', () => {
       reason: 'Listing B is the reviewed replenishment target.',
     });
     const service = new EcobaseInventoryPlanningService(db);
-    await service.refreshReadModel({ company: 'ACME', calculationDate: '2026-07-16' });
+    await refreshAndPublish(service, { company: 'ACME', calculationDate: '2026-07-16' });
 
     const goldRows = await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).find({
       filter: { calculationDate: '2026-07-16' },
@@ -1768,7 +1781,7 @@ describe('EcobaseInventoryPlanningService', () => {
     });
 
     const service = new EcobaseInventoryPlanningService(db);
-    await service.refreshReadModel({
+    await refreshAndPublish(service, {
       company: 'Current Only Inc',
       calculationDate: '2026-07-13',
     });
@@ -1856,14 +1869,14 @@ describe('EcobaseInventoryPlanningService', () => {
     });
 
     const service = new EcobaseInventoryPlanningService(db);
-    await service.refreshReadModel({ company: 'ACME', calculationDate: '2026-06-07' });
-    await service.refreshReadModel({ company: 'ACME', calculationDate: '2026-06-07' });
-    await service.refreshReadModel({ company: 'ACME', calculationDate: '2026-06-08' });
+    await refreshAndPublish(service, { company: 'ACME', calculationDate: '2026-06-07' });
+    await refreshAndPublish(service, { company: 'ACME', calculationDate: '2026-06-07' });
+    await refreshAndPublish(service, { company: 'ACME', calculationDate: '2026-06-08' });
     await db
       .getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts)
       .update({ filterByTk: 'recent-tier-movement', values: { units: 2 } });
-    await service.refreshReadModel({ company: 'ACME', calculationDate: '2026-06-09' });
-    await service.refreshReadModel({ company: 'ACME', calculationDate: '2026-06-10' });
+    await refreshAndPublish(service, { company: 'ACME', calculationDate: '2026-06-09' });
+    await refreshAndPublish(service, { company: 'ACME', calculationDate: '2026-06-10' });
 
     const rows = db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).all();
     expect(rows.filter((row) => row.calculationDate === '2026-06-07')).toHaveLength(1);
@@ -2201,7 +2214,8 @@ describe('EcobaseInventoryPlanningService', () => {
     }
 
     await new EcobaseCompanyProductFamilyService(db).reconcileFamily(familyId);
-    await new EcobaseInventoryPlanningService(db).refreshReadModel({
+    const inventoryService = new EcobaseInventoryPlanningService(db);
+    await refreshAndPublish(inventoryService, {
       company,
       calculationDate: '2026-07-09',
     });
@@ -2273,7 +2287,7 @@ describe('EcobaseInventoryPlanningService', () => {
       unitCost: 322,
     });
 
-    const commandCenter = await new EcobaseInventoryPlanningService(db).commandCenter({
+    const commandCenter = await inventoryService.commandCenter({
       company,
       calculationDate: '2026-07-09',
       pane: 'inPrepMonitoring',
@@ -2504,7 +2518,7 @@ describe('EcobaseInventoryPlanningService', () => {
     }
 
     const service = new EcobaseInventoryPlanningService(db);
-    await service.refreshReadModel({ calculationDate: '2026-06-07' });
+    await refreshAndPublish(service, { calculationDate: '2026-06-07' });
     const commandCenter = await service.commandCenter({
       calculationDate: '2026-06-07',
       pane: 'inPrepMonitoring',
@@ -2617,7 +2631,7 @@ describe('EcobaseInventoryPlanningService', () => {
     }
 
     const service = new EcobaseInventoryPlanningService(db);
-    await service.refreshReadModel({ company, calculationDate: '2026-07-10', targetCoverDays: 200 });
+    await refreshAndPublish(service, { company, calculationDate: '2026-07-10', targetCoverDays: 200 });
     const rows = await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).find({});
     const row = (sku: string) => rows.find((candidate) => candidate.sku === sku);
 
@@ -2755,7 +2769,7 @@ describe('EcobaseInventoryPlanningService', () => {
     });
 
     const service = new EcobaseInventoryPlanningService(db);
-    await service.refreshReadModel({
+    await refreshAndPublish(service, {
       calculationDate: '2026-07-14',
       idempotencyKey: 'before-expected-date-override',
     });
@@ -2768,7 +2782,7 @@ describe('EcobaseInventoryPlanningService', () => {
         expectedDateOverrideReason: 'Supplier confirmed revised timing.',
       },
     });
-    await service.refreshReadModel({
+    await refreshAndPublish(service, {
       calculationDate: '2026-07-14',
       idempotencyKey: 'after-expected-date-override',
     });
@@ -2890,7 +2904,7 @@ describe('EcobaseInventoryPlanningService', () => {
       source: 'clickup_csv',
     });
     const service = new EcobaseInventoryPlanningService(db);
-    await service.refreshReadModel({ company, calculationDate: '2026-06-07' });
+    await refreshAndPublish(service, { company, calculationDate: '2026-06-07' });
     const commandCenter = await service.commandCenter({
       company,
       calculationDate: '2026-06-07',
@@ -3094,7 +3108,7 @@ describe('EcobaseInventoryPlanningService', () => {
     }
 
     const service = new EcobaseInventoryPlanningService(db);
-    await service.refreshReadModel({ calculationDate: '2026-06-07' });
+    await refreshAndPublish(service, { calculationDate: '2026-06-07' });
     const rows = db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).all();
     const row = (asin: string) => rows.find((item) => item.asin === asin);
     expect(row('B000PARTIAL')).toMatchObject({
@@ -3813,7 +3827,7 @@ describe('EcobaseInventoryPlanningService', () => {
     }
     const verification = await new EcobaseSilverIntegrityVerifier(db).verify();
     const inventoryService = new EcobaseInventoryPlanningService(db);
-    await inventoryService.refreshReadModel({ calculationDate: fixture.calculationDate });
+    await refreshAndPublish(inventoryService, { calculationDate: fixture.calculationDate });
     const commandCenter = await inventoryService.commandCenter({
       calculationDate: fixture.calculationDate,
       pageSize: 100,
