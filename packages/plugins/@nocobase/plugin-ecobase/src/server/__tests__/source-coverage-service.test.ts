@@ -11,15 +11,19 @@ import { describe, expect, it } from 'vitest';
 import {
   EcobaseSourceCoverageService,
   FROZEN_COVERAGE_BOOTSTRAP_EVIDENCE_DIGEST,
+  FROZEN_COVERAGE_BOOTSTRAP_MANIFEST,
+  frozenCoverageBootstrapApplyConfirmation,
   type CoverageEvidencePlan,
 } from '../../features/source-import/server/source-coverage-service';
 import { frozenCoverageBootstrapFixture } from './fixtures/frozen-coverage-bootstrap-fixture';
 import {
-  FROZEN_COVERAGE_IMPORT_PLAN_DIGEST,
+  FROZEN_COVERAGE_IMPORT_FIXTURE_PLAN_DIGEST,
+  FROZEN_STRICT_COVERAGE_PLAN_DIGEST,
   frozenCoverageImportProjectionFixture,
 } from './fixtures/frozen-coverage-import-projection-fixture';
 import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
+import { TD02A_STRICT_REFERENCE_MANIFEST } from './fixtures/td02a-strict-reference-manifest';
 
 type PlainRecord = Record<string, unknown>;
 type FindParams = {
@@ -37,6 +41,14 @@ class MemoryRepository implements EcobaseRepository {
 
   async find(params: FindParams = {}) {
     const records = this.filter(params);
+    for (const sort of [...(params.sort ?? [])].reverse()) {
+      const descending = sort.startsWith('-');
+      const field = descending ? sort.slice(1) : sort;
+      records.sort((left, right) => {
+        const compared = String(left[field]).localeCompare(String(right[field]));
+        return descending ? -compared : compared;
+      });
+    }
     return records.slice(0, params.limit ?? records.length);
   }
 
@@ -73,7 +85,13 @@ class MemoryRepository implements EcobaseRepository {
   private filter(params: FindParams) {
     if (params.filterByTk !== undefined) return this.records.filter((item) => item.id === params.filterByTk);
     return this.records.filter((item) =>
-      Object.entries(params.filter ?? {}).every(([key, expected]) => item[key] === expected),
+      Object.entries(params.filter ?? {}).every(([key, expected]) => {
+        if (!expected || typeof expected !== 'object' || Array.isArray(expected)) return item[key] === expected;
+        const operators = expected as { $gt?: unknown; $in?: unknown[] };
+        if (operators.$gt !== undefined && String(item[key]).localeCompare(String(operators.$gt)) <= 0) return false;
+        if (operators.$in !== undefined && !operators.$in.includes(item[key])) return false;
+        return true;
+      }),
     );
   }
 }
@@ -593,9 +611,9 @@ describe('EcoBase source coverage ledger', () => {
     });
   });
 
-  it('keeps out-of-window linked current facts visible as fail-closed metric mismatches', async () => {
+  it('uses proved report-date format to keep a linked current fact-date mismatch fail-closed', async () => {
     const currentDates = Array.from({ length: 16 }, (_, index) => `2026-07-${String(index + 1).padStart(2, '0')}`);
-    const factDates = [...currentDates, '2026-01-07'];
+    const factDates = [...currentDates, '2026-07-02'];
     const bronzeRows = factDates.map((_factDate, index) => ({
       id: `bronze-current-${index}`,
       importRunId: 'current-run',
@@ -728,6 +746,34 @@ describe('EcoBase source coverage ledger', () => {
     ]);
   });
 
+  it('locks the independent strict reference and all dependent acceptance partitions', () => {
+    expect(FROZEN_COVERAGE_BOOTSTRAP_MANIFEST.version).toBe(TD02A_STRICT_REFERENCE_MANIFEST.version);
+    expect(FROZEN_COVERAGE_BOOTSTRAP_EVIDENCE_DIGEST).toBe(TD02A_STRICT_REFERENCE_MANIFEST.evidenceDigest);
+    expect(FROZEN_COVERAGE_BOOTSTRAP_MANIFEST.strictPlanDigest).toBe(TD02A_STRICT_REFERENCE_MANIFEST.planDigest);
+    expect(FROZEN_COVERAGE_BOOTSTRAP_MANIFEST.expected).toEqual(TD02A_STRICT_REFERENCE_MANIFEST.coverage);
+    expect(Object.values(TD02A_STRICT_REFERENCE_MANIFEST.dependentAcceptance.baselineResults)).toEqual(
+      expect.arrayContaining([21, 53, 440, 141, 416, 1292]),
+    );
+    expect(
+      Object.values(TD02A_STRICT_REFERENCE_MANIFEST.dependentAcceptance.baselineResults).reduce(
+        (total, count) => total + count,
+        0,
+      ),
+    ).toBe(2363);
+    expect(
+      Object.values(TD02A_STRICT_REFERENCE_MANIFEST.dependentAcceptance.currentProjectionConfidence).reduce(
+        (total, count) => total + count,
+        0,
+      ),
+    ).toBe(2363);
+    expect(TD02A_STRICT_REFERENCE_MANIFEST.dependentAcceptance).toMatchObject({
+      listingCount: 2363,
+      familyActionCount: 1919,
+      currentProjectionGateMode: 'informational',
+      candidateDigest: null,
+    });
+  });
+
   it('dry-runs the digest-bound frozen bootstrap with the exact TD-02A partition and zero writes', async () => {
     const fixture = frozenCoverageBootstrapFixture();
     const db = new MemoryDatabase({
@@ -736,8 +782,9 @@ describe('EcoBase source coverage ledger', () => {
     const protectedBefore = JSON.stringify(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).all());
     const service = new EcobaseSourceCoverageService(db);
     expect(FROZEN_COVERAGE_BOOTSTRAP_EVIDENCE_DIGEST).toBe(
-      'd4ab92cbf038620da8a89ada5b6976bf69bd46d9e3b485731627718c9dfff750',
+      '8a8115d136c8b887a06f460ffcad1c546da103c6fd552ddfa17fae7e341cabf8',
     );
+    expect(FROZEN_COVERAGE_BOOTSTRAP_MANIFEST.strictPlanDigest).toBe(FROZEN_STRICT_COVERAGE_PLAN_DIGEST);
 
     await expect(
       service.bootstrapFrozenEvidence({
@@ -747,31 +794,31 @@ describe('EcoBase source coverage ledger', () => {
       }),
     ).resolves.toMatchObject({
       mode: 'dry-run',
-      planDigest: '38d0e58d18e3a24a073bcb66251d81bb1a3ff864fa9a44958c16620df461d4c8',
+      planDigest: '93082e86d7709e0090f22ebdc59558d80ef6e624d0d9522b19aef87f33e89f1d',
       history: {
         intervalCount: 54,
         continuousIntervalCount: 42,
         discontinuousIntervalCount: 12,
-        membershipCount: 3729,
+        membershipCount: 3718,
       },
       baseline: {
         listingCount: 2363,
         productMonthCount: 14178,
-        eligibleCompleteCount: 3683,
-        productScopeUnknownCount: 10353,
+        eligibleCompleteCount: 3667,
+        productScopeUnknownCount: 10364,
         coverageDiscontinuousCount: 142,
-        metricNormalizationMismatchCount: 0,
-        confidenceCounts: { full: 264, moderate: 396, low: 413, none: 1290 },
+        metricNormalizationMismatchCount: 5,
+        confidenceCounts: { full: 260, moderate: 400, low: 411, none: 1292 },
       },
       current: {
         intervalCount: 10,
         continuousIntervalCount: 5,
         incompleteIntervalCount: 5,
-        membershipCount: 2317,
-        metricNormalizationMismatchCount: 57,
-        completeScopeMetricNormalizationMismatchCount: 52,
+        membershipCount: 2319,
+        metricNormalizationMismatchCount: 100,
+        completeScopeMetricNormalizationMismatchCount: 88,
       },
-      predictedLedgerWriteCount: 6110,
+      predictedLedgerWriteCount: 6101,
       predictedProtectedDomainMutationCount: 0,
       reconciliation: null,
     });
@@ -808,57 +855,88 @@ describe('EcoBase source coverage ledger', () => {
     expect(stockRows.every((row) => row.observedAt === '2026-07-16')).toBe(true);
     expect(stockRows.every((row) => (row.payload as PlainRecord).period === undefined)).toBe(true);
 
-    const db = new MemoryDatabase(fixture.seeds);
+    const irrelevantLinks = Array.from({ length: 200_001 }, (_, index) => ({
+      id: `irrelevant-link-${String(index).padStart(6, '0')}`,
+      importRunId: 'unselected-run',
+      silverEntityType: 'silverCompany',
+    }));
+    const productionSeeds = {
+      ...fixture.seeds,
+      [ECOBASE_COLLECTIONS.silverNormalizationLinks]: [
+        ...irrelevantLinks,
+        ...fixture.seeds[ECOBASE_COLLECTIONS.silverNormalizationLinks],
+      ],
+    };
+    const reversedSeeds = Object.fromEntries(
+      Object.entries(productionSeeds).map(([collection, rows]) => [collection, [...rows].reverse()]),
+    );
+    const db = new MemoryDatabase(productionSeeds);
+    const reversedDb = new MemoryDatabase(reversedSeeds);
     const protectedBefore = JSON.stringify(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).all());
-    const service = new EcobaseSourceCoverageService(db);
 
-    const first = await service.bootstrapFrozenSuccessfulImports({
-      mode: 'dry-run',
-      expectedEvidenceDigest: FROZEN_COVERAGE_BOOTSTRAP_EVIDENCE_DIGEST,
-      importRunIds: fixture.importRunIds,
-    });
-    const replay = await service.bootstrapFrozenSuccessfulImports({
-      mode: 'dry-run',
-      expectedEvidenceDigest: FROZEN_COVERAGE_BOOTSTRAP_EVIDENCE_DIGEST,
-      expectedPlanDigest: first.planDigest,
-      importRunIds: [...fixture.importRunIds].reverse(),
-    });
+    type ProjectionInternals = {
+      loadCoverageProjection(importRunIds: string[]): Promise<unknown>;
+      frozenImportPlan(importRunId: string, snapshot: unknown): Promise<CoverageEvidencePlan>;
+    };
+    const project = async (database: MemoryDatabase, importRunIds: string[]) => {
+      const service = new EcobaseSourceCoverageService(database);
+      const internals = service as unknown as ProjectionInternals;
+      const selectedRunIds = [...importRunIds].sort();
+      const snapshot = await internals.loadCoverageProjection(selectedRunIds);
+      const plans = await Promise.all(
+        selectedRunIds.map((importRunId) => internals.frozenImportPlan(importRunId, snapshot)),
+      );
+      return service.bootstrapFrozenEvidence({
+        mode: 'dry-run',
+        expectedEvidenceDigest: FROZEN_COVERAGE_BOOTSTRAP_EVIDENCE_DIGEST,
+        plan: {
+          intervals: plans.flatMap((plan) => plan.intervals),
+          memberships: plans.flatMap((plan) => plan.memberships),
+        },
+      });
+    };
+    const first = await project(db, fixture.importRunIds);
+    const replay = await project(reversedDb, [...fixture.importRunIds].reverse());
 
     expect(first).toEqual(replay);
+    expect(frozenCoverageBootstrapApplyConfirmation(first.planDigest)).toBe(
+      `APPLY_TD02A_COVERAGE_${FROZEN_COVERAGE_IMPORT_FIXTURE_PLAN_DIGEST.slice(0, 16)}`,
+    );
     expect(first).toMatchObject({
       mode: 'dry-run',
-      evidenceDigest: 'd4ab92cbf038620da8a89ada5b6976bf69bd46d9e3b485731627718c9dfff750',
-      planDigest: FROZEN_COVERAGE_IMPORT_PLAN_DIGEST,
-      applyConfirmation: `APPLY_TD02A_COVERAGE_${FROZEN_COVERAGE_IMPORT_PLAN_DIGEST.slice(0, 16)}`,
+      evidenceDigest: '8a8115d136c8b887a06f460ffcad1c546da103c6fd552ddfa17fae7e341cabf8',
+      planDigest: FROZEN_COVERAGE_IMPORT_FIXTURE_PLAN_DIGEST,
       history: {
         intervalCount: 54,
         continuousIntervalCount: 42,
         discontinuousIntervalCount: 12,
-        membershipCount: 3729,
+        membershipCount: 3718,
       },
       baseline: {
         listingCount: 2363,
         productMonthCount: 14178,
-        eligibleCompleteCount: 3683,
-        productScopeUnknownCount: 10353,
+        eligibleCompleteCount: 3667,
+        productScopeUnknownCount: 10364,
         coverageDiscontinuousCount: 142,
-        metricNormalizationMismatchCount: 0,
-        confidenceCounts: { full: 264, moderate: 396, low: 413, none: 1290 },
+        metricNormalizationMismatchCount: 5,
+        confidenceCounts: { full: 260, moderate: 400, low: 411, none: 1292 },
       },
       current: {
         intervalCount: 10,
         continuousIntervalCount: 5,
         incompleteIntervalCount: 5,
-        membershipCount: 2317,
-        metricNormalizationMismatchCount: 57,
-        completeScopeMetricNormalizationMismatchCount: 52,
+        membershipCount: 2319,
+        metricNormalizationMismatchCount: 100,
+        completeScopeMetricNormalizationMismatchCount: 88,
       },
-      predictedLedgerWriteCount: 6110,
+      predictedLedgerWriteCount: 6101,
       predictedProtectedDomainMutationCount: 0,
       reconciliation: null,
     });
     expect(db.getRepository(ECOBASE_COLLECTIONS.sourceCoverageIntervals).all()).toEqual([]);
     expect(db.getRepository(ECOBASE_COLLECTIONS.sourceCoverageMemberships).all()).toEqual([]);
+    expect(reversedDb.getRepository(ECOBASE_COLLECTIONS.sourceCoverageIntervals).all()).toEqual([]);
+    expect(reversedDb.getRepository(ECOBASE_COLLECTIONS.sourceCoverageMemberships).all()).toEqual([]);
     expect(JSON.stringify(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).all())).toBe(protectedBefore);
   });
 
@@ -900,7 +978,7 @@ describe('EcoBase source coverage ledger', () => {
       }),
     ).resolves.toMatchObject({
       mode: 'apply',
-      reconciliation: { intervalCreatedCount: 64, membershipCreatedCount: 6046, noOp: false },
+      reconciliation: { intervalCreatedCount: 64, membershipCreatedCount: 6037, noOp: false },
     });
     await expect(
       service.bootstrapFrozenEvidence({
@@ -915,7 +993,7 @@ describe('EcoBase source coverage ledger', () => {
         intervalCreatedCount: 0,
         membershipCreatedCount: 0,
         idempotentIntervalCount: 64,
-        idempotentMembershipCount: 6046,
+        idempotentMembershipCount: 6037,
         noOp: true,
       },
     });

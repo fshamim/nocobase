@@ -14,11 +14,12 @@ import type { EcobaseDatabase } from './import-service';
 
 export const SELLERBOARD_COVERAGE_METRIC_SET = 'sellerboard_units_net_profit_v1';
 export const SELLERBOARD_SCOPE_EVIDENCE_VERSION = 'sellerboard_listing_scope_v1';
-const SELLERBOARD_CURRENT_REPORT_DAY_COUNT = 31;
+const COVERAGE_PROJECTION_PAGE_SIZE = 5000;
 
 export const FROZEN_COVERAGE_BOOTSTRAP_MANIFEST = {
-  version: 'td02a_frozen_coverage_evidence_v1',
-  feasibilityReportDigest: 'dc90916758b96b02f4e77eca807c21f0e4c5dc7fe2eda9075dc969daac1974f9',
+  version: 'td02a_strict_source_row_rebaseline_v2',
+  feasibilityReportDigest: 'df881488cf049dd473d7ca0d1822a654161946f5e7aaee763289c19f779c350c',
+  strictPlanDigest: '362134b7a631794b7cd91db0e1b300ae0583d2dbc47dcf1cf2d13f34de36fe01',
   sourceEvidenceDigests: {
     preflightManifest: '150a6c707cab33c221ba2ed3ade7e2561ffdcb64977f19498ca6e206f2d05875',
     sellerboardSourceIndex: '0bb9ea12e08c49bdf350be5b5cfa4c325d5807b0582a8922eb749541055159b3',
@@ -29,32 +30,38 @@ export const FROZEN_COVERAGE_BOOTSTRAP_MANIFEST = {
     sellerboardNormalizationLinks: '54d62186e838d84148b915663039cf5433f7c54f7a5004b3b2816e5594a1ae47',
     silverListingDailyFacts: '7688c45e4a75d6ca43804226dc3dafc5e0a6eb1d237bd2ec4a8b06beeaa5b5f9',
     companyProductIdentity: '79947a33fb7df689931b5c9bd29996a5f3c0247c0e0e7965c696cc63a821d0b4',
+    strictReferenceImplementation: '78d2c36c4f3c3f290f64f304afb2301fde533efba50d58042116ab71e9aaaa0c',
+    strictReferenceResult: '9673927a295b7e42f50e17a94a00c47ffff01b4807cb9e0765d15fb706ffd26d',
+    strictCanonicalProjection: 'b69788aeba35ef5f67edf1a2054cadddb82ed893f13f3ea8d7f08be3804e9e7a',
+    strictCausalityReport: '6fb2c1eb0f3f8976fb54d0d009750c32444fb76060e22a8c0141e7f3313dfe03',
+    strictDependentReference: '59f41f4d6f08c7cdc2a02217911e37e64787cecfb8e4f8160715ba90343e3359',
+    strictDependentCalculatorEvidence: '9d2d8642dee226a9ab558b32c0f515eb41054f80fa5a7b3681ac65eaffced379',
   },
   expected: {
     history: {
       intervalCount: 54,
       continuousIntervalCount: 42,
       discontinuousIntervalCount: 12,
-      membershipCount: 3729,
+      membershipCount: 3718,
     },
     baseline: {
       listingCount: 2363,
       productMonthCount: 14178,
-      eligibleCompleteCount: 3683,
-      productScopeUnknownCount: 10353,
+      eligibleCompleteCount: 3667,
+      productScopeUnknownCount: 10364,
       coverageDiscontinuousCount: 142,
-      metricNormalizationMismatchCount: 0,
-      confidenceCounts: { full: 264, moderate: 396, low: 413, none: 1290 },
+      metricNormalizationMismatchCount: 5,
+      confidenceCounts: { full: 260, moderate: 400, low: 411, none: 1292 },
     },
     current: {
       intervalCount: 10,
       continuousIntervalCount: 5,
       incompleteIntervalCount: 5,
-      membershipCount: 2317,
-      metricNormalizationMismatchCount: 57,
-      completeScopeMetricNormalizationMismatchCount: 52,
+      membershipCount: 2319,
+      metricNormalizationMismatchCount: 100,
+      completeScopeMetricNormalizationMismatchCount: 88,
     },
-    predictedLedgerWriteCount: 6110,
+    predictedLedgerWriteCount: 6101,
     predictedProtectedDomainMutationCount: 0,
   },
 } as const;
@@ -420,15 +427,65 @@ function canonicalStoredDate(value: unknown) {
   return date.toISOString().slice(0, 10) === candidate ? candidate : undefined;
 }
 
-function coverageEvidenceDate(kind: CoverageReportKind, sourceAsOfDate: string, linkedFact?: PlainRecord) {
-  if (kind === 'stock_daily') return canonicalStoredDate(sourceAsOfDate);
-  return linkedFact ? canonicalStoredDate(linkedFact.snapshotDate) : undefined;
+type SellerboardReportDateFormat = 'day-first' | 'month-first';
+type SellerboardReportDateEvidence = {
+  format?: SellerboardReportDateFormat;
+  conflicted: boolean;
+};
+
+function calendarDate(year: number, month: number, day: number) {
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
+    return undefined;
+  }
+  return isoDate(date);
 }
 
-function currentReportWindowStart(sourceAsOfDate: string) {
-  const date = dateOnly(sourceAsOfDate, 'sourceAsOfDate');
-  date.setUTCDate(date.getUTCDate() - (SELLERBOARD_CURRENT_REPORT_DAY_COUNT - 1));
-  return isoDate(date);
+function sellerboardReportDateEvidence(rows: PlainRecord[], adapterName: SellerboardCoverageAdapter) {
+  let format: SellerboardReportDateFormat | undefined;
+  for (const row of rows) {
+    if (reportKind(row, adapterName) !== 'profit_by_product_daily') continue;
+    const period = text(toPlainRecord(row.payload).period);
+    const match = period?.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (!match) continue;
+    const left = Number(match[1]);
+    const right = Number(match[2]);
+    const observed = left > 12 && right <= 12 ? 'day-first' : right > 12 && left <= 12 ? 'month-first' : undefined;
+    if (!observed) continue;
+    if (format && format !== observed) return { conflicted: true } satisfies SellerboardReportDateEvidence;
+    format = observed;
+  }
+  return { format, conflicted: false } satisfies SellerboardReportDateEvidence;
+}
+
+function canonicalSellerboardReportDate(
+  value: unknown,
+  evidence: SellerboardReportDateEvidence,
+  linkedFactDate?: string,
+) {
+  const iso = canonicalStoredDate(value);
+  if (iso) return iso;
+  const match = text(value)?.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!match || evidence.conflicted) return undefined;
+  const left = Number(match[1]);
+  const right = Number(match[2]);
+  const year = Number(match[3]);
+  if (evidence.format === 'day-first') return calendarDate(year, right, left);
+  if (evidence.format === 'month-first') return calendarDate(year, left, right);
+  const candidates = [...new Set([calendarDate(year, right, left), calendarDate(year, left, right)].filter(Boolean))];
+  if (candidates.length === 1) return candidates[0];
+  return linkedFactDate && candidates.includes(linkedFactDate) ? linkedFactDate : undefined;
+}
+
+function coverageEvidenceDate(params: {
+  kind: CoverageReportKind;
+  sourceAsOfDate: string;
+  rawPeriod: unknown;
+  reportDateEvidence: SellerboardReportDateEvidence;
+  linkedFactDate?: string;
+}) {
+  if (params.kind === 'stock_daily') return canonicalStoredDate(params.sourceAsOfDate);
+  return canonicalSellerboardReportDate(params.rawPeriod, params.reportDateEvidence, params.linkedFactDate);
 }
 
 function identityKey(asin: unknown, sku: unknown) {
@@ -491,10 +548,7 @@ export class EcobaseSourceCoverageService {
         ),
       ),
     };
-    const planDigest = bronzePayloadHash({
-      evidenceDigest: FROZEN_COVERAGE_BOOTSTRAP_EVIDENCE_DIGEST,
-      plan: canonicalPlan,
-    });
+    const planDigest = bronzePayloadHash(canonicalPlan);
     if (params.expectedPlanDigest && params.expectedPlanDigest !== planDigest) {
       throw this.bootstrapMismatch('bootstrap plan digest', {
         expected: params.expectedPlanDigest,
@@ -537,7 +591,7 @@ export class EcobaseSourceCoverageService {
         importRunIds: params.importRunIds,
       });
     }
-    const snapshot = await this.loadCoverageProjection();
+    const snapshot = await this.loadCoverageProjection(importRunIds);
     const plans: CoverageEvidencePlan[] = [];
     for (const importRunId of importRunIds) plans.push(await this.frozenImportPlan(importRunId, snapshot));
     const plan: CoverageEvidencePlan = {
@@ -547,7 +601,7 @@ export class EcobaseSourceCoverageService {
     const dryRun = await this.bootstrapFrozenEvidence({
       mode: 'dry-run',
       expectedEvidenceDigest: params.expectedEvidenceDigest,
-      expectedPlanDigest: params.expectedPlanDigest,
+      expectedPlanDigest: params.expectedPlanDigest ?? FROZEN_COVERAGE_BOOTSTRAP_MANIFEST.strictPlanDigest,
       plan,
     });
     const applyConfirmation = frozenCoverageBootstrapApplyConfirmation(dryRun.planDigest);
@@ -802,7 +856,7 @@ export class EcobaseSourceCoverageService {
     const confidenceCounts = { full: 0, moderate: 0, low: 0, none: 0 };
     for (const eligibleMonths of eligibleMonthsByProduct.values()) {
       if (eligibleMonths === 6) confidenceCounts.full += 1;
-      else if (eligibleMonths >= 4) confidenceCounts.moderate += 1;
+      else if (eligibleMonths >= 3) confidenceCounts.moderate += 1;
       else if (eligibleMonths >= 1) confidenceCounts.low += 1;
       else confidenceCounts.none += 1;
     }
@@ -849,17 +903,77 @@ export class EcobaseSourceCoverageService {
     );
   }
 
-  private async loadCoverageProjection(transaction?: unknown): Promise<CoverageProjectionSnapshot> {
-    const all = async (collection: string) =>
-      (await this.db.getRepository(collection).find({ limit: 200000, transaction })).map(toPlainRecord);
-    const [accounts, bronzeRows, products, companyProducts, links, facts] = await Promise.all([
-      all(ECOBASE_COLLECTIONS.silverAmazonAccounts),
-      all(ECOBASE_COLLECTIONS.bronzeSourceRecords),
-      all(ECOBASE_COLLECTIONS.silverProducts),
-      all(ECOBASE_COLLECTIONS.silverCompanyProducts),
-      all(ECOBASE_COLLECTIONS.silverNormalizationLinks),
-      all(ECOBASE_COLLECTIONS.silverListingDailyFacts),
+  private async loadOrderedProjectionRows(
+    collection: string,
+    options: { filter?: PlainRecord; transaction?: unknown } = {},
+  ) {
+    const repository = this.db.getRepository(collection);
+    const rows: PlainRecord[] = [];
+    let cursor: string | undefined;
+    let pageLength = COVERAGE_PROJECTION_PAGE_SIZE;
+    while (pageLength === COVERAGE_PROJECTION_PAGE_SIZE) {
+      const filter = cursor ? { ...(options.filter ?? {}), id: { $gt: cursor } } : options.filter;
+      const page = (
+        await repository.find({
+          filter,
+          sort: ['id'],
+          limit: COVERAGE_PROJECTION_PAGE_SIZE,
+          transaction: options.transaction,
+        })
+      ).map(toPlainRecord);
+      pageLength = page.length;
+      let previous = cursor;
+      for (const row of page) {
+        const id = text(row.id);
+        if (!id || (previous && id.localeCompare(previous) <= 0)) {
+          throw new EcobaseCoverageError(
+            'ECOBASE_COVERAGE_SCOPE_UNPROVEN',
+            `EcoBase source coverage projection requires strictly ordered, non-empty IDs while reading ${collection}.`,
+            { collection, previousId: previous ?? null, receivedId: id ?? null },
+          );
+        }
+        rows.push(row);
+        previous = id;
+      }
+      cursor = previous;
+    }
+    return rows;
+  }
+
+  private async loadCoverageProjection(
+    importRunIds: string[],
+    transaction?: unknown,
+  ): Promise<CoverageProjectionSnapshot> {
+    const selectedRunIds = [...new Set(importRunIds)].sort();
+    if (!selectedRunIds.length) {
+      throw new EcobaseCoverageError(
+        'ECOBASE_COVERAGE_SCOPE_UNPROVEN',
+        'EcoBase source coverage projection requires at least one selected import run.',
+        { importRunIds },
+      );
+    }
+    const [accounts, products, companyProducts, facts] = await Promise.all([
+      this.loadOrderedProjectionRows(ECOBASE_COLLECTIONS.silverAmazonAccounts, { transaction }),
+      this.loadOrderedProjectionRows(ECOBASE_COLLECTIONS.silverProducts, { transaction }),
+      this.loadOrderedProjectionRows(ECOBASE_COLLECTIONS.silverCompanyProducts, { transaction }),
+      this.loadOrderedProjectionRows(ECOBASE_COLLECTIONS.silverListingDailyFacts, { transaction }),
     ]);
+    const bronzeRows: PlainRecord[] = [];
+    const links: PlainRecord[] = [];
+    for (const importRunId of selectedRunIds) {
+      bronzeRows.push(
+        ...(await this.loadOrderedProjectionRows(ECOBASE_COLLECTIONS.bronzeSourceRecords, {
+          filter: { importRunId },
+          transaction,
+        })),
+      );
+      links.push(
+        ...(await this.loadOrderedProjectionRows(ECOBASE_COLLECTIONS.silverNormalizationLinks, {
+          filter: { importRunId, silverEntityType: 'silverListingDailyFact' },
+          transaction,
+        })),
+      );
+    }
     return { accounts, bronzeRows, products, companyProducts, links, facts };
   }
 
@@ -874,7 +988,7 @@ export class EcobaseSourceCoverageService {
     snapshot?: CoverageProjectionSnapshot;
   }): Promise<CoverageEvidencePlan | 'account_scope_unproven'> {
     const { accounts, bronzeRows, products, companyProducts, links, facts } =
-      params.snapshot ?? (await this.loadCoverageProjection(params.transaction));
+      params.snapshot ?? (await this.loadCoverageProjection([params.importRunId], params.transaction));
     const companyAccounts = accounts.filter((account) => account.companyId === params.companyId);
     if (!companyAccounts.length) return 'account_scope_unproven';
     const accountsByKey = new Map<string, PlainRecord[]>();
@@ -911,7 +1025,7 @@ export class EcobaseSourceCoverageService {
     if (!runRows.length) return { intervals: [], memberships: [] };
 
     const currentMonth = monthStartFor(params.sourceAsOfDate);
-    const currentWindowStart = currentReportWindowStart(params.sourceAsOfDate);
+    const reportDateEvidence = sellerboardReportDateEvidence(runRows, params.adapterName as SellerboardCoverageAdapter);
     const intervalRows = new Map<string, PlainRecord[]>();
     const evidenceDateByRowId = new Map<string, string>();
     const membershipEvidence = new Map<
@@ -956,17 +1070,21 @@ export class EcobaseSourceCoverageService {
         );
         linkedFact = metricLinks.length === 1 ? factById.get(String(metricLinks[0].silverEntityId)) : undefined;
       }
-      const linkedPeriod = coverageEvidenceDate(kind, params.sourceAsOfDate, linkedFact);
-      const currentMetricDateMismatch = Boolean(
-        kind === 'profit_by_product_daily' &&
-          params.adapterName === 'sellerboard-api' &&
-          linkedPeriod &&
-          (linkedPeriod < currentWindowStart || linkedPeriod > params.sourceAsOfDate),
-      );
-      const period = currentMetricDateMismatch ? params.sourceAsOfDate : linkedPeriod;
+      const linkedFactDate = canonicalStoredDate(linkedFact?.snapshotDate);
+      const period = coverageEvidenceDate({
+        kind,
+        sourceAsOfDate: params.sourceAsOfDate,
+        rawPeriod: payload.period,
+        reportDateEvidence,
+        linkedFactDate,
+      });
       const monthStart = period ? targetMonth(period) : undefined;
       if (!marketplace || !period || !monthStart) continue;
       const accountMatches = accountsByKey.get(accountKey(params.companyId, marketplace) ?? '') ?? [];
+      if (!accountMatches.length) {
+        if (marketplace.toLowerCase().startsWith('amazon.')) accountAmbiguity = true;
+        continue;
+      }
       if (accountMatches.length !== 1) {
         accountAmbiguity = true;
         continue;
@@ -978,22 +1096,23 @@ export class EcobaseSourceCoverageService {
       const sourceIdentity = identityKey(payload.asin, payload.listingSku);
       if (!sourceIdentity) continue;
 
-      let companyProduct = catalogCompanyProduct(account, payload);
+      const companyProduct = catalogCompanyProduct(account, payload);
       let reconciled = kind === 'stock_daily';
       if (kind === 'profit_by_product_daily') {
         const linkedCompanyProduct = linkedFact
           ? companyProductById.get(String(linkedFact.companyProductId))
           : undefined;
-        companyProduct = linkedCompanyProduct ?? companyProduct;
         const linkedProduct = linkedCompanyProduct
           ? productById.get(String(linkedCompanyProduct.productId))
           : undefined;
         reconciled = Boolean(
           linkedFact &&
+            companyProduct &&
             linkedCompanyProduct &&
+            linkedCompanyProduct.id === companyProduct.id &&
             linkedCompanyProduct.amazonAccountId === account.id &&
             identityKey(linkedProduct?.asin, linkedProduct?.sku) === sourceIdentity &&
-            !currentMetricDateMismatch &&
+            linkedFactDate === period &&
             metricLinks[0].sourceRowHash === row.rowHash &&
             sameNumber(sourceUnits(payload), linkedFact.units) &&
             sameNumber(payload.netProfit, linkedFact.profit),

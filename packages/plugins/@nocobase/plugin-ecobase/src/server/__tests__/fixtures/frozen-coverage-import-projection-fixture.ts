@@ -1,5 +1,14 @@
 /**
  * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
+/**
+ * This file is part of the NocoBase (R) project.
  * Copyright (c) 2020-2024 NocoBase Team.
  * Authors: NocoBase Team.
  *
@@ -10,7 +19,9 @@
 import { bronzePayloadHash } from '../../../features/source-import/server/bronze-import-service';
 import { ECOBASE_COLLECTIONS } from '../../collections/names';
 
-export const FROZEN_COVERAGE_IMPORT_PLAN_DIGEST = '42c8420c9f1acda61ead39b6bbc9994b829759142924396bad6f3a2b54ee4642';
+export const FROZEN_STRICT_COVERAGE_PLAN_DIGEST = '362134b7a631794b7cd91db0e1b300ae0583d2dbc47dcf1cf2d13f34de36fe01';
+export const FROZEN_COVERAGE_IMPORT_FIXTURE_PLAN_DIGEST =
+  '037f44c0ed4f90d7bc56ed9702823fdeb1d3c87c253720ba86aac60c97007d53';
 
 const SOURCE_AS_OF_DATE = '2026-07-16';
 const BASELINE_MONTHS = ['2026-01-01', '2026-02-01', '2026-03-01', '2026-04-01', '2026-05-01', '2026-06-01'];
@@ -246,25 +257,37 @@ export function frozenCoverageImportProjectionFixture(): {
     .filter((account) => account.history.every((status) => status === 'complete'))
     .map((account) => [...(productsByAccount.get(account.id) ?? [])]);
   const eligibleProducts: ProductRef[] = [];
-  while (eligibleProducts.length < 1073) {
+  while (eligibleProducts.length < 1071) {
     let added = false;
     for (const pool of completeAccountPools) {
       const next = pool.shift();
       if (!next) continue;
       eligibleProducts.push(next);
       added = true;
-      if (eligibleProducts.length === 1073) break;
+      if (eligibleProducts.length === 1071) break;
     }
     invariant(added, 'complete-account product pools cannot satisfy the baseline confidence partition');
   }
 
   const historyTargets = new Map<string, Set<string>>();
   eligibleProducts.forEach((product, index) => {
-    const eligibleMonthCount = index < 264 ? 6 : index < 660 ? 4 : index < 762 ? 2 : 1;
+    const eligibleMonthCount =
+      index < 260 ? 6 : index < 427 ? 3 : index < 564 ? 4 : index < 660 ? 5 : index < 827 ? 2 : 1;
     BASELINE_MONTHS.slice(0, eligibleMonthCount).forEach((monthStart) => {
       target(historyTargets, `${product.account.id}\u0000${monthStart}`).add(product.companyProductId);
     });
   });
+  const eligibleIds = new Set(eligibleProducts.map((product) => product.companyProductId));
+  const historyMismatchProducts = accountSpecs
+    .filter((account) => account.history.every((status) => status === 'complete'))
+    .flatMap((account) => productsByAccount.get(account.id) ?? [])
+    .filter((product) => !eligibleIds.has(product.companyProductId))
+    .slice(0, 5);
+  invariant(historyMismatchProducts.length === 5, 'expected five strict history metric-mismatch products');
+  const historyMismatchIds = new Set(historyMismatchProducts.map((product) => product.companyProductId));
+  historyMismatchProducts.forEach((product) =>
+    target(historyTargets, `${product.account.id}\u00002026-01-01`).add(product.companyProductId),
+  );
   const mixedCompleteScopes = accountSpecs.flatMap((account) =>
     account.history.flatMap((status, index) =>
       status === 'complete' && !account.history.every((item) => item === 'complete')
@@ -301,30 +324,64 @@ export function frozenCoverageImportProjectionFixture(): {
     target(historyTargets, `${scope.account.id}\u0000${scope.monthStart}`).add(product.companyProductId);
   }
   invariant(
-    targetCount(historyTargets) === 3729,
-    `expected 3729 history memberships, received ${targetCount(historyTargets)}`,
+    targetCount(historyTargets) === 3718,
+    `expected 3718 history memberships, received ${targetCount(historyTargets)}`,
   );
 
   const continuousCurrentProducts = accountSpecs
     .filter((account) => account.currentContinuous)
     .flatMap((account) => productsByAccount.get(account.id) ?? []);
-  const incompleteCurrentExclusionPool = productsByAccount.get('account-eco-mx') ?? [];
-  const currentExcluded = new Set([
-    ...continuousCurrentProducts.slice(-24).map((product) => product.companyProductId),
-    ...incompleteCurrentExclusionPool.slice(-22).map((product) => product.companyProductId),
-  ]);
+  const incompleteCurrentProducts = accountSpecs
+    .filter((account) => !account.currentContinuous)
+    .flatMap((account) => productsByAccount.get(account.id) ?? []);
+  const roundRobinExclusionIds = (continuous: boolean, count: number) => {
+    const pools = accountSpecs
+      .filter((account) => account.currentContinuous === continuous)
+      .map((account) => [...(productsByAccount.get(account.id) ?? [])]);
+    const selected: string[] = [];
+    while (selected.length < count) {
+      let added = false;
+      for (const pool of pools) {
+        if (pool.length <= 1) continue;
+        const product = pool.pop();
+        if (!product) continue;
+        selected.push(product.companyProductId);
+        added = true;
+        if (selected.length === count) break;
+      }
+      invariant(added, `current scopes cannot provide ${count} excluded products`);
+    }
+    return selected;
+  };
+  const currentExcluded = new Set([...roundRobinExclusionIds(true, 22), ...roundRobinExclusionIds(false, 22)]);
   const currentProducts = productRefs.filter((product) => !currentExcluded.has(product.companyProductId));
-  invariant(currentProducts.length === 2317, `expected 2317 current memberships, received ${currentProducts.length}`);
+  invariant(currentProducts.length === 2319, `expected 2319 current memberships, received ${currentProducts.length}`);
   const currentTargets = new Map<string, Set<string>>();
   currentProducts.forEach((product) => target(currentTargets, product.account.id).add(product.companyProductId));
 
-  const retailUsProducts = productsByAccount.get('account-retail-us') ?? [];
-  const retailMxProducts = productsByAccount.get('account-retail-mx') ?? [];
-  const currentMismatchIds = new Set([
-    ...retailUsProducts.slice(0, 52).map((product) => product.companyProductId),
-    ...retailMxProducts.slice(0, 5).map((product) => product.companyProductId),
-  ]);
-  invariant(currentMismatchIds.size === 57, `expected 57 current mismatches, received ${currentMismatchIds.size}`);
+  const roundRobinMismatchIds = (continuous: boolean, count: number) => {
+    const pools = accountSpecs
+      .filter((account) => account.currentContinuous === continuous)
+      .map((account) =>
+        (productsByAccount.get(account.id) ?? []).filter((product) => !currentExcluded.has(product.companyProductId)),
+      );
+    const selected: string[] = [];
+    while (selected.length < count) {
+      let added = false;
+      for (const pool of pools) {
+        if (pool.length <= 1) continue;
+        const product = pool.shift();
+        if (!product) continue;
+        selected.push(product.companyProductId);
+        added = true;
+        if (selected.length === count) break;
+      }
+      invariant(added, `current scopes cannot provide ${count} mismatch products`);
+    }
+    return selected;
+  };
+  const currentMismatchIds = new Set([...roundRobinMismatchIds(true, 88), ...roundRobinMismatchIds(false, 12)]);
+  invariant(currentMismatchIds.size === 100, `expected 100 current mismatches, received ${currentMismatchIds.size}`);
   invariant(
     [...currentMismatchIds].every((id) => !currentExcluded.has(id)),
     'current mismatch products must remain in source scope',
@@ -343,6 +400,7 @@ export function frozenCoverageImportProjectionFixture(): {
     sourceDate: string;
     factDate?: string;
     history: boolean;
+    metricMismatch?: boolean;
   }) => {
     rowSequence += 1;
     const rowId = `bronze-metric-${String(rowSequence).padStart(6, '0')}`;
@@ -378,8 +436,8 @@ export function frozenCoverageImportProjectionFixture(): {
       id: factId,
       companyProductId: params.product.companyProductId,
       snapshotDate: params.factDate ?? params.sourceDate,
-      units: 1,
-      profit: 2,
+      units: params.metricMismatch ? 2 : 1,
+      profit: params.metricMismatch ? 3 : 2,
     });
     links.push({
       id: linkId,
@@ -426,11 +484,16 @@ export function frozenCoverageImportProjectionFixture(): {
       observedDates.forEach((sourceDate) =>
         addMetricRow({ account, product: anchor, runId: account.historyRunId, sourceDate, history: true }),
       );
-      selectedProducts
-        .slice(1)
-        .forEach((product) =>
-          addMetricRow({ account, product, runId: account.historyRunId, sourceDate: observedDates[0], history: true }),
-        );
+      selectedProducts.slice(1).forEach((product) =>
+        addMetricRow({
+          account,
+          product,
+          runId: account.historyRunId,
+          sourceDate: observedDates[0],
+          history: true,
+          metricMismatch: historyMismatchIds.has(product.companyProductId),
+        }),
+      );
     });
   }
 

@@ -103,10 +103,12 @@ export function frozenCoverageBootstrapFixture(): {
     historyIntervals.map((item) => [`${item.amazonAccountId}\u0000${item.coveredStartDate}`, item]),
   );
   const eligibleMonthCount = (index: number) => {
-    if (index < 264) return 6;
-    if (index < 660) return 4;
-    if (index < 762) return 2;
-    if (index < 1073) return 1;
+    if (index < 260) return 6;
+    if (index < 427) return 3;
+    if (index < 564) return 4;
+    if (index < 660) return 5;
+    if (index < 904) return 1;
+    if (index < 1071) return 2;
     return 0;
   };
   const historyMemberships: CoverageMembershipEvidence[] = [];
@@ -116,6 +118,11 @@ export function frozenCoverageBootstrapFixture(): {
       if (!intervalEvidence) throw new Error('Frozen coverage fixture is missing a history interval.');
       historyMemberships.push(membership(intervalEvidence, String(companyProduct.id)));
     });
+  });
+  companyProducts.slice(1071, 1076).forEach((companyProduct) => {
+    const intervalEvidence = historyByAccountMonth.get('account-main\u00002026-01-01');
+    if (!intervalEvidence) throw new Error('Frozen coverage fixture is missing its metric-mismatch interval.');
+    historyMemberships.push(membership(intervalEvidence, String(companyProduct.id), false));
   });
   companyProducts.slice(2221, 2267).forEach((companyProduct) => {
     const intervalEvidence = historyByAccountMonth.get('account-sparse\u00002026-01-01');
@@ -141,10 +148,10 @@ export function frozenCoverageBootstrapFixture(): {
     ),
   ];
   const currentByAccount = new Map(currentIntervals.map((item) => [item.amazonAccountId, item]));
-  const currentMemberships = companyProducts.slice(0, 2317).map((companyProduct, index) => {
+  const currentMemberships = companyProducts.slice(0, 2319).map((companyProduct, index) => {
     const intervalEvidence = currentByAccount.get(String(companyProduct.amazonAccountId));
     if (!intervalEvidence) throw new Error('Frozen coverage fixture is missing a current interval.');
-    const metricMismatch = index < 52 || index >= 2312;
+    const metricMismatch = index < 88 || index >= 2307;
     return membership(intervalEvidence, String(companyProduct.id), !metricMismatch);
   });
 
