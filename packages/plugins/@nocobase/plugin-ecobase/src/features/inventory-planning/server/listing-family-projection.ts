@@ -249,12 +249,43 @@ function compareListings(left: ListingIdentity, right: ListingIdentity) {
 }
 
 function listingDigestProjection(row: CorrectedListingPerformanceRow) {
-  const excluded = new Set(['id', 'refreshRunId', 'createdAt', 'updatedAt', 'lastRefreshedAt']);
-  return Object.fromEntries(Object.entries(row).filter(([key]) => !excluded.has(key)));
+  return {
+    naturalKey: row.naturalKey ?? null,
+    ...Object.fromEntries(CORRECTED_INVENTORY_PLANNING_ROW_FIELDS.map((field) => [field, row[field] ?? null])),
+  };
 }
 
+const FAMILY_ACTION_DIGEST_FIELDS = [
+  'naturalKey',
+  'familyKey',
+  'companyProductFamilyId',
+  'companyId',
+  'amazonAccountId',
+  'marketplace',
+  'canonicalAsin',
+  'targetSelectionState',
+  'targetCompanyProductId',
+  'representativeCompanyProductId',
+  'actionSourceCompanyProductId',
+  'memberCount',
+  'primaryActionPane',
+  'primaryActionReasonCode',
+  'replenishmentEligibility',
+  'replenishmentBlockReasonCode',
+  'existingOrderFollowUp',
+  'existingOrderFollowUpAction',
+  'newReplenishmentActionable',
+  'oosAlertActionable',
+  'supplyActionable',
+  'recommendedOrderQty',
+  'alternateRecommendationCompanyProductIds',
+  'targetSelectionEvidence',
+  'listing',
+  'linkedMemberEvidence',
+] as const;
+
 function familyDigestProjection(action: CorrectedFamilyActionProjection) {
-  return Object.fromEntries(Object.entries(action).filter(([key]) => key !== 'runId' && key !== 'generatedAt'));
+  return Object.fromEntries(FAMILY_ACTION_DIGEST_FIELDS.map((field) => [field, action[field] ?? null]));
 }
 
 export function correctedListingRowDigest(rows: CorrectedListingPerformanceRow[]) {

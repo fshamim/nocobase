@@ -185,6 +185,7 @@ export interface CorrectedCandidateCoverageMembership {
   readonly monthStart: string;
   readonly membershipStatus: string;
   readonly metricReconciliationStatus: string;
+  readonly normalizedFactLinkCount: number;
 }
 
 export interface CorrectedCandidateBuilderInput {
@@ -325,12 +326,19 @@ function sameScope(interval: CorrectedCandidateCoverageInterval, identity: Corre
   );
 }
 
+type CoverageMembershipIndex = ReadonlyMap<string, readonly CorrectedCandidateCoverageMembership[]>;
+
+function coverageMembershipKey(companyProductId: string, membershipMonth: string) {
+  return `${companyProductId}\u0000${membershipMonth}`;
+}
+
 function coverageForRange(
   listing: CorrectedOperationalListingSnapshot,
   start: string,
   end: string,
   intervals: readonly CorrectedCandidateCoverageInterval[],
-  memberships: readonly CorrectedCandidateCoverageMembership[],
+  membershipsByListingMonth: CoverageMembershipIndex,
+  actualClosedMonthFactCount?: number,
 ): CoverageEvidence {
   const scoped = intervals.filter((interval) => sameScope(interval, listing.identity));
   if (!scoped.length) {
@@ -356,13 +364,9 @@ function coverageForRange(
   const selectedMemberships: CorrectedCandidateCoverageMembership[] = [];
   for (const [membershipMonth, intervalIds] of selectedByMonth) {
     for (const intervalId of intervalIds) {
-      const membership = memberships.find(
-        (candidate) =>
-          candidate.coverageIntervalId === intervalId &&
-          candidate.companyProductId === listing.identity.companyProductId &&
-          candidate.monthStart === membershipMonth &&
-          candidate.membershipStatus === 'in_scope',
-      );
+      const membership = membershipsByListingMonth
+        .get(coverageMembershipKey(listing.identity.companyProductId, membershipMonth))
+        ?.find((candidate) => candidate.coverageIntervalId === intervalId && candidate.membershipStatus === 'in_scope');
       if (!membership) {
         return {
           reasonCode: 'product_scope_unknown',
@@ -374,7 +378,13 @@ function coverageForRange(
       selectedMemberships.push(membership);
     }
   }
-  if (selectedMemberships.some((membership) => membership.metricReconciliationStatus !== 'complete')) {
+  if (
+    selectedMemberships.some(
+      (membership) =>
+        membership.metricReconciliationStatus !== 'complete' ||
+        (actualClosedMonthFactCount !== undefined && membership.normalizedFactLinkCount !== actualClosedMonthFactCount),
+    )
+  ) {
     return {
       reasonCode: 'metric_normalization_mismatch',
       intervalIds: selectedIntervalIds,
@@ -394,7 +404,7 @@ function currentCoverage(
   listing: CorrectedOperationalListingSnapshot,
   calculationDate: string,
   intervals: readonly CorrectedCandidateCoverageInterval[],
-  memberships: readonly CorrectedCandidateCoverageMembership[],
+  membershipsByListingMonth: CoverageMembershipIndex,
 ) {
   const start = monthStart(calculationDate);
   const coveredThroughDate = intervals
@@ -411,7 +421,7 @@ function currentCoverage(
       coveredThroughDate: null,
     };
   }
-  return coverageForRange(listing, start, coveredThroughDate, intervals, memberships);
+  return coverageForRange(listing, start, coveredThroughDate, intervals, membershipsByListingMonth);
 }
 
 function factsForRange(facts: readonly CorrectedCandidateSourceFact[], start: string, end: string) {
@@ -483,25 +493,28 @@ function listingInput(
   listing: CorrectedOperationalListingSnapshot,
   family: CorrectedCandidateFamilySnapshot,
   input: CorrectedCandidateBuilderInput,
+  facts: readonly CorrectedCandidateSourceFact[],
+  membershipsByListingMonth: CoverageMembershipIndex,
 ): CorrectedListingPerformanceInput {
   const companyProductId = listing.identity.companyProductId;
-  const facts = input.sourceFacts.filter((fact) => fact.companyProductId === companyProductId);
   const closedMonths = closedMonthStarts(input.calculationDate).map((closedMonth) => {
+    const monthFacts = factsForRange(facts, closedMonth, monthEnd(closedMonth));
     const coverage = coverageForRange(
       listing,
       closedMonth,
       monthEnd(closedMonth),
       input.coverageIntervals,
-      input.coverageMemberships,
+      membershipsByListingMonth,
+      monthFacts.length,
     );
     return {
       monthStart: closedMonth,
       coverageReason: coverage.reasonCode,
-      facts: factsForRange(facts, closedMonth, monthEnd(closedMonth)),
+      facts: monthFacts,
       coverage,
     };
   });
-  const current = currentCoverage(listing, input.calculationDate, input.coverageIntervals, input.coverageMemberships);
+  const current = currentCoverage(listing, input.calculationDate, input.coverageIntervals, membershipsByListingMonth);
   const currentFacts = current.coveredThroughDate
     ? factsForRange(facts, monthStart(input.calculationDate), current.coveredThroughDate)
     : [];
@@ -532,7 +545,7 @@ function listingInput(
     rollingStart,
     input.calculationDate,
     input.coverageIntervals,
-    input.coverageMemberships,
+    membershipsByListingMonth,
   );
   const disposition = calculateInventoryDisposition({
     asOfDate: input.calculationDate,
@@ -732,9 +745,24 @@ export function buildCorrectedInventoryPlanningCandidate(
     memberCompanyProductIds: [...family.memberCompanyProductIds],
     targetSelectionEvidence: objectEvidence(family.targetSelectionEvidence),
   }));
+  const factsByListing = new Map<string, CorrectedCandidateSourceFact[]>();
+  for (const fact of input.sourceFacts) {
+    factsByListing.set(fact.companyProductId, [...(factsByListing.get(fact.companyProductId) ?? []), fact]);
+  }
+  const membershipsByListingMonth = new Map<string, CorrectedCandidateCoverageMembership[]>();
+  for (const membership of input.coverageMemberships) {
+    const key = coverageMembershipKey(membership.companyProductId, membership.monthStart);
+    membershipsByListingMonth.set(key, [...(membershipsByListingMonth.get(key) ?? []), membership]);
+  }
   const listingInputs = input.families.flatMap((family) =>
     family.memberCompanyProductIds.map((memberId) =>
-      listingInput(listingsById.get(memberId) as CorrectedOperationalListingSnapshot, family, input),
+      listingInput(
+        listingsById.get(memberId) as CorrectedOperationalListingSnapshot,
+        family,
+        input,
+        factsByListing.get(memberId) ?? [],
+        membershipsByListingMonth,
+      ),
     ),
   );
   return buildCorrectedGoldProjection({

@@ -606,6 +606,35 @@ describe('corrected candidate public refresh seam', () => {
     );
   });
 
+  it('fails a closed month when normalized fact links disagree with the actual source-fact count', async () => {
+    const db = fixture();
+    const membership = db
+      .rows(ECOBASE_COLLECTIONS.sourceCoverageMemberships)
+      .find((row) => row.monthStart === '2026-03-01');
+    if (!membership) throw new Error('Normalized-link fixture membership is missing.');
+    membership.normalizedFactLinkCount = 2;
+
+    await refreshThroughPublicAction(db, 'normalized-link-mismatch');
+
+    expect(db.goldRows.rows[0]).toMatchObject({
+      baselineEligibleMonthCount: 5,
+      baselineConfidence: 'moderate',
+      newReplenishmentActionable: false,
+    });
+    expect(db.goldRows.rows[0].monthlyPerformanceEvidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          monthStart: '2026-03-01',
+          eligible: false,
+          reasonCode: 'metric_normalization_mismatch',
+          sourceFactCount: 1,
+          monthlyUnits: null,
+          monthlyProfit: null,
+        }),
+      ]),
+    );
+  });
+
   it('keeps a proven current decline informational and does not let it hard-block an eligible baseline', async () => {
     const db = fixture();
     const currentFact = db

@@ -10,6 +10,7 @@
 import { createHash } from 'node:crypto';
 import Decimal from 'decimal.js';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
+import { CORRECTED_INVENTORY_PLANNING_ROW_FIELDS } from './gold-schema-contract';
 import type { EcobaseDatabase } from '../../source-import/server/import-service';
 import { EcobaseGoldError } from './gold-errors';
 import { EcobaseInventoryPlanningGoldAccess } from './inventory-planning-gold-access';
@@ -153,6 +154,13 @@ function withoutEnvelope(row: PlainRecord) {
   return Object.fromEntries(Object.entries(row).filter(([key]) => !LISTING_ENVELOPE_FIELDS.has(key)));
 }
 
+function correctedPersistedListingProjection(row: PlainRecord) {
+  return {
+    naturalKey: row.naturalKey ?? null,
+    ...Object.fromEntries(CORRECTED_INVENTORY_PLANNING_ROW_FIELDS.map((field) => [field, row[field] ?? null])),
+  };
+}
+
 function normalizedIdentity(row: PlainRecord) {
   return [
     text(row.companyId) ?? '',
@@ -185,12 +193,31 @@ function decimal(value: unknown) {
 function sameDecimal(actual: unknown, expected: Decimal | null) {
   if (expected === null) return actual === null || actual === undefined;
   const parsed = decimal(actual);
-  return Boolean(parsed?.equals(expected));
+  return parsed !== null && fixed8(parsed) === fixed8(expected);
 }
 
 function isoMonthEnd(monthStart: string) {
   const [year, month] = monthStart.split('-').map(Number);
   return new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
+}
+
+type ListingMonthRowIndex = ReadonlyMap<string, readonly PlainRecord[]>;
+
+function listingMonthKey(companyProductId: unknown, date: unknown) {
+  const listingId = text(companyProductId);
+  const dateValue = text(date);
+  return listingId && dateValue && /^\d{4}-\d{2}/.test(dateValue)
+    ? `${listingId}\u0000${dateValue.slice(0, 7)}-01`
+    : undefined;
+}
+
+function indexByListingMonth(rows: PlainRecord[], dateField: string): ListingMonthRowIndex {
+  const index = new Map<string, PlainRecord[]>();
+  for (const row of rows) {
+    const key = listingMonthKey(row.companyProductId, row[dateField]);
+    if (key) index.set(key, [...(index.get(key) ?? []), row]);
+  }
+  return index;
 }
 
 function expectedClosedMonths(calculationDate: string) {
@@ -214,7 +241,13 @@ function familySnapshot(row: PlainRecord) {
   return record(record(row.calculationEvidence).familyActionSnapshot);
 }
 
-function independentFamilyActions(rows: PlainRecord[], runId: string, generatedAt: string, mismatches: Mismatch[]) {
+function independentFamilyActions(
+  rows: PlainRecord[],
+  runId: string,
+  generatedAt: string,
+  mismatches: Mismatch[],
+  correctedContract: boolean,
+) {
   const groups = new Map<string, { snapshot: PlainRecord; rows: PlainRecord[] }>();
   for (const row of rows) {
     const snapshot = familySnapshot(row);
@@ -309,7 +342,11 @@ function independentFamilyActions(rows: PlainRecord[], runId: string, generatedA
         recommendedOrderQty: target?.recommendedOrderQty ?? null,
         alternateRecommendationCompanyProductIds,
         targetSelectionEvidence: structuredClone(record(snapshot.targetSelectionEvidence)),
-        listing: target ? withoutEnvelope(target) : null,
+        listing: target
+          ? correctedContract
+            ? correctedPersistedListingProjection(target)
+            : withoutEnvelope(target)
+          : null,
         linkedMemberEvidence: members.map((member) => ({
           companyProductId: member.companyProductId,
           listingReviewCategories: Array.isArray(member.listingReviewCategories)
@@ -320,12 +357,41 @@ function independentFamilyActions(rows: PlainRecord[], runId: string, generatedA
     });
 }
 
+const REFERENCE_FAMILY_ACTION_DIGEST_FIELDS = [
+  'naturalKey',
+  'familyKey',
+  'companyProductFamilyId',
+  'companyId',
+  'amazonAccountId',
+  'marketplace',
+  'canonicalAsin',
+  'targetSelectionState',
+  'targetCompanyProductId',
+  'representativeCompanyProductId',
+  'actionSourceCompanyProductId',
+  'memberCount',
+  'primaryActionPane',
+  'primaryActionReasonCode',
+  'replenishmentEligibility',
+  'replenishmentBlockReasonCode',
+  'existingOrderFollowUp',
+  'existingOrderFollowUpAction',
+  'newReplenishmentActionable',
+  'oosAlertActionable',
+  'supplyActionable',
+  'recommendedOrderQty',
+  'alternateRecommendationCompanyProductIds',
+  'targetSelectionEvidence',
+  'listing',
+  'linkedMemberEvidence',
+] as const;
+
 function actionDigest(actions: PlainRecord[]) {
   return digest(
     [...actions]
       .sort((left, right) => compareText(String(left.familyKey), String(right.familyKey)))
       .map((action) =>
-        Object.fromEntries(Object.entries(action).filter(([key]) => key !== 'runId' && key !== 'generatedAt')),
+        Object.fromEntries(REFERENCE_FAMILY_ACTION_DIGEST_FIELDS.map((field) => [field, action[field] ?? null])),
       ),
   );
 }
@@ -383,8 +449,10 @@ export class EcobaseIndependentGoldReferenceVerifier {
       mismatches.push({ code: 'RUN_COHORT_MISMATCH', message: `Run ${runId} contains rows from another cohort.` });
     }
 
-    const listingRowDigest = digest(sortedListings(rows).map(withoutEnvelope));
     const corrected = run.algorithmContractVersion === CORRECTED_ALGORITHM_VERSION;
+    const listingRowDigest = digest(
+      sortedListings(rows).map((row) => (corrected ? correctedPersistedListingProjection(row) : withoutEnvelope(row))),
+    );
     let familyActionProjectionCount = 0;
     let familyActionProjectionDigest: string | null = null;
     let formulaVerifiedListingCount = 0;
@@ -399,6 +467,7 @@ export class EcobaseIndependentGoldReferenceVerifier {
         runId,
         text(run.materializedAt) ?? text(run.verifiedAt) ?? '',
         mismatches,
+        true,
       );
       familyActionProjectionCount = actions.length;
       familyActionProjectionDigest = actionDigest(actions);
@@ -417,13 +486,15 @@ export class EcobaseIndependentGoldReferenceVerifier {
       const sourceFacts = await this.rows(ECOBASE_COLLECTIONS.silverListingDailyFacts, transaction);
       const intervals = await this.rows(ECOBASE_COLLECTIONS.sourceCoverageIntervals, transaction);
       const memberships = await this.rows(ECOBASE_COLLECTIONS.sourceCoverageMemberships, transaction);
+      const sourceFactsByListingMonth = indexByListingMonth(sourceFacts, 'snapshotDate');
+      const membershipsByListingMonth = indexByListingMonth(memberships, 'monthStart');
       for (const row of rows) {
         const counts = this.verifyMonthlyListing(
           row,
           calculationDate ?? '',
-          sourceFacts,
+          sourceFactsByListingMonth,
           intervals,
-          memberships,
+          membershipsByListingMonth,
           mismatches,
         );
         formulaVerifiedListingCount += counts.formulaVerified ? 1 : 0;
@@ -453,6 +524,7 @@ export class EcobaseIndependentGoldReferenceVerifier {
           runId,
           text(run.materializedAt) ?? text(run.verifiedAt) ?? text(run.publishedAt) ?? '',
           mismatches,
+          false,
         );
         familyActionProjectionCount = actions.length;
         familyActionProjectionDigest = actionDigest(actions);
@@ -549,9 +621,9 @@ export class EcobaseIndependentGoldReferenceVerifier {
   private verifyMonthlyListing(
     row: PlainRecord,
     calculationDate: string,
-    sourceFacts: PlainRecord[],
+    sourceFactsByListingMonth: ListingMonthRowIndex,
     intervals: PlainRecord[],
-    memberships: PlainRecord[],
+    membershipsByListingMonth: ListingMonthRowIndex,
     mismatches: Mismatch[],
   ) {
     const listingId = text(row.companyProductId) ?? 'unknown';
@@ -582,7 +654,9 @@ export class EcobaseIndependentGoldReferenceVerifier {
           message: `Listing ${listingId} month ${monthStart} has an invalid eligible reason.`,
         });
       }
-      const facts = sourceFacts.filter(
+      const facts = (
+        sourceFactsByListingMonth.get(listingMonthKey(row.companyProductId, monthStart) ?? '') ?? []
+      ).filter(
         (fact) =>
           fact.companyProductId === row.companyProductId &&
           String(fact.snapshotDate ?? '') >= monthStart &&
@@ -632,7 +706,16 @@ export class EcobaseIndependentGoldReferenceVerifier {
           message: `Listing ${listingId} month ${monthStart} score is not monthly NetProfit.`,
         });
       }
-      if (this.coverageValid(row, monthStart, monthEnd, intervals, memberships, facts.length)) {
+      if (
+        this.coverageValid(
+          row,
+          monthStart,
+          monthEnd,
+          intervals,
+          membershipsByListingMonth.get(listingMonthKey(row.companyProductId, monthStart) ?? '') ?? [],
+          facts.length,
+        )
+      ) {
         coverageVerifiedMonthCount += 1;
       } else {
         mismatches.push({
@@ -688,8 +771,8 @@ export class EcobaseIndependentGoldReferenceVerifier {
     row: PlainRecord,
     monthStart: string,
     monthEnd: string,
-    intervals: PlainRecord[],
-    memberships: PlainRecord[],
+    intervals: readonly PlainRecord[],
+    memberships: readonly PlainRecord[],
     factCount: number,
   ) {
     return memberships.some((membership) => {

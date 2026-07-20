@@ -11,10 +11,14 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
   buildCorrectedGoldProjection,
+  correctedFamilyActionProjectionDigest,
+  correctedListingRowDigest,
   deriveCorrectedFamilyActionsFromListingRows,
   type CorrectedListingPerformanceInput,
+  type CorrectedListingPerformanceRow,
   type FrozenFamilyDecisionInput,
 } from '../../features/inventory-planning/server/listing-family-projection';
+import { CORRECTED_INVENTORY_PLANNING_ROW_FIELDS } from '../../features/inventory-planning/server/gold-schema-contract';
 import { decideReplenishment } from '../../features/inventory-planning/server/replenishment-decision';
 
 function sha256(value: string) {
@@ -242,6 +246,47 @@ describe('corrected listing and frozen-target family projection', () => {
         generatedAt: provenance.generatedAt,
       }),
     ).toEqual(first.familyActions);
+  });
+
+  it('keeps listing and family digests stable after persistence fills every contract field with null', () => {
+    const frozen = fixture();
+    const result = buildCorrectedGoldProjection({
+      ...provenance,
+      ...frozen,
+      expectedListingCount: 2363,
+      expectedFamilyActionCount: 1919,
+    });
+    const persistedRows = result.listingRows.map((row, index) => {
+      const values = row as Record<string, unknown>;
+      return {
+        id: `persisted-${index}`,
+        naturalKey: row.naturalKey,
+        refreshRunId: row.refreshRunId,
+        createdAt: '2026-07-20T00:00:01.000Z',
+        updatedAt: '2026-07-20T00:00:01.000Z',
+        lastRefreshedAt: '2026-07-20T00:00:01.000Z',
+        ...Object.fromEntries(CORRECTED_INVENTORY_PLANNING_ROW_FIELDS.map((field) => [field, values[field] ?? null])),
+      } as unknown as CorrectedListingPerformanceRow;
+    });
+    const sparseRows = persistedRows.map(
+      (row) =>
+        Object.fromEntries(Object.entries(row).filter(([, value]) => value !== null)) as CorrectedListingPerformanceRow,
+    );
+    const persistedActions = deriveCorrectedFamilyActionsFromListingRows(persistedRows, {
+      runId: provenance.runId,
+      generatedAt: provenance.generatedAt,
+    });
+    const sparseActions = deriveCorrectedFamilyActionsFromListingRows(sparseRows, {
+      runId: provenance.runId,
+      generatedAt: provenance.generatedAt,
+    });
+
+    expect(correctedListingRowDigest(persistedRows)).toBe(result.runMetadata.listingRowDigest);
+    expect(correctedListingRowDigest(sparseRows)).toBe(result.runMetadata.listingRowDigest);
+    expect(correctedFamilyActionProjectionDigest(persistedActions)).toBe(
+      result.runMetadata.familyActionProjectionDigest,
+    );
+    expect(correctedFamilyActionProjectionDigest(sparseActions)).toBe(result.runMetadata.familyActionProjectionDigest);
   });
 
   it('fails closed on count, membership, duplicate identity, review-target, and frozen-target drift', () => {

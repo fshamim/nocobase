@@ -89,7 +89,7 @@ const MONTHS = [
   ['2026-06-01', '2026-06-30', 10],
 ] as const;
 
-async function fixture() {
+async function fixture(unitsPerMonth = 10) {
   const db = new MemoryDatabase();
   const companyProductId = '11111111-1111-4111-8111-111111111111';
   const familyId = '22222222-2222-4222-8222-222222222222';
@@ -103,7 +103,7 @@ async function fixture() {
         id: `fact:${monthStart}`,
         companyProductId,
         snapshotDate: monthStart,
-        units: 10,
+        units: unitsPerMonth,
         profit,
       },
     });
@@ -141,9 +141,9 @@ async function fixture() {
     eligible: true,
     reasonCode: 'eligible_complete_month',
     sourceFactCount: 1,
-    monthlyUnits: fixed(10),
+    monthlyUnits: fixed(unitsPerMonth),
     monthlyProfit: fixed(profit),
-    monthlyProfitPerUnit: fixed(profit / 10),
+    monthlyProfitPerUnit: fixed(profit / unitsPerMonth),
     monthlyTierScore: fixed(profit),
   }));
   const result = buildCorrectedGoldProjection({
@@ -178,21 +178,21 @@ async function fixture() {
         baselineEligibleMonthCount: 6,
         baselineWindowStartDate: '2026-01-01',
         baselineWindowEndDate: '2026-06-30',
-        baselineTotalUnits: fixed(60),
+        baselineTotalUnits: fixed(unitsPerMonth * 6),
         baselineTotalProfit: fixed(600),
-        baselineWeightedProfitPerUnit: fixed(10),
-        averageMonthlyUnits: fixed(10),
+        baselineWeightedProfitPerUnit: fixed(600 / (unitsPerMonth * 6)),
+        averageMonthlyUnits: fixed(unitsPerMonth),
         averageMonthlyProfit: fixed(100),
-        bestMonthlyUnits: fixed(10),
+        bestMonthlyUnits: fixed(unitsPerMonth),
         bestUnitsMonth: '2026-01-01',
-        worstMonthlyUnits: fixed(10),
+        worstMonthlyUnits: fixed(unitsPerMonth),
         worstUnitsMonth: '2026-01-01',
         bestMonthlyProfit: fixed(300),
         bestProfitMonth: '2026-01-01',
         worstMonthlyProfit: fixed(-10),
         worstProfitMonth: '2026-05-01',
         lastClosedMonth: '2026-06-01',
-        lastClosedMonthUnits: fixed(10),
+        lastClosedMonthUnits: fixed(unitsPerMonth),
         lastClosedMonthProfit: fixed(10),
         monthlyPerformanceEvidence,
         inventoryDisposition: 'none',
@@ -256,6 +256,16 @@ describe('independent Gold reference verifier', () => {
       formulaVerifiedListingCount: 1,
       coverageVerifiedMonthCount: 6,
       protectedSilverFingerprintMatched: true,
+    });
+  });
+
+  it('compares independently derived decimals at persisted decimal8 half-even scale', async () => {
+    const { db } = await fixture(3);
+
+    await expect(new EcobaseIndependentGoldReferenceVerifier(db).verify('reference-run')).resolves.toMatchObject({
+      valid: true,
+      formulaVerifiedListingCount: 1,
+      mismatchCount: 0,
     });
   });
 

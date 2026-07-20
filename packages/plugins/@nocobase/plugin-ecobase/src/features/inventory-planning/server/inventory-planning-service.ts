@@ -2465,6 +2465,10 @@ export class EcobaseInventoryPlanningService {
           membership.metricReconciliationStatus,
           'coverageMembership.metricReconciliationStatus',
         ),
+        normalizedFactLinkCount: this.correctedCandidateRequiredNonNegativeInteger(
+          membership.normalizedFactLinkCount,
+          'coverageMembership.normalizedFactLinkCount',
+        ),
       }))
       .sort((left, right) => canonicalJson(left).localeCompare(canonicalJson(right)));
     const resolvedPlanningSettingsDigest = sha256Canonical(settings);
@@ -2583,6 +2587,18 @@ export class EcobaseInventoryPlanningService {
         'ECOBASE_CORRECTED_CANDIDATE_CATALOG_DRIFT',
         `EcoBase corrected candidate requires ${field}.`,
         { field },
+      );
+    }
+    return normalized;
+  }
+
+  private correctedCandidateRequiredNonNegativeInteger(value: unknown, field: string) {
+    const normalized = asNumber(value);
+    if (normalized === undefined || !Number.isInteger(normalized) || normalized < 0) {
+      throw new CorrectedCandidateBuilderError(
+        'ECOBASE_CORRECTED_CANDIDATE_CATALOG_DRIFT',
+        `EcoBase corrected candidate requires ${field} as a non-negative integer.`,
+        { field, value },
       );
     }
     return normalized;
