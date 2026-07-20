@@ -86,6 +86,52 @@ function compareText(left: string, right: string) {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
+const MISMATCH_SAMPLE_LIMIT = 3;
+const MISMATCH_SAMPLE_MESSAGE_LIMIT = 160;
+const MISMATCH_ERROR_MESSAGE_LIMIT = 2000;
+
+function mismatchDiagnostics(mismatches: Mismatch[]) {
+  const grouped = new Map<string, { count: number; message: string }>();
+  for (const mismatch of mismatches) {
+    const code = mismatch.code.replace(/[^A-Z0-9_]/g, '_').slice(0, 80) || 'UNKNOWN_MISMATCH';
+    const message = [...mismatch.message]
+      .map((character) => {
+        const characterCode = character.charCodeAt(0);
+        return characterCode <= 31 || characterCode === 127 ? ' ' : character;
+      })
+      .join('')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, MISMATCH_SAMPLE_MESSAGE_LIMIT);
+    const current = grouped.get(code);
+    grouped.set(code, { count: (current?.count ?? 0) + 1, message: current?.message ?? message });
+  }
+  const codes = [...grouped.keys()].sort(compareText);
+  const mismatchCodeHistogram = Object.fromEntries(codes.map((code) => [code, grouped.get(code)?.count ?? 0]));
+  const mismatchSamples = codes.slice(0, MISMATCH_SAMPLE_LIMIT).map((code) => ({
+    code,
+    message: grouped.get(code)?.message ?? '',
+  }));
+  return { mismatchCount: mismatches.length, mismatchCodeHistogram, mismatchSamples };
+}
+
+function independentVerificationFailure(runId: string, mismatches: Mismatch[]) {
+  const diagnostics = mismatchDiagnostics(mismatches);
+  const histogram = Object.entries(diagnostics.mismatchCodeHistogram)
+    .map(([code, count]) => `${code}:${count}`)
+    .join(',');
+  const samples = diagnostics.mismatchSamples.map(({ code, message }) => `${code}:${message}`).join(' | ');
+  const message =
+    `EcoBase independent Gold verification failed for run "${runId}" with ${diagnostics.mismatchCount} mismatch(es). histogram=${histogram}; samples=${samples}`.slice(
+      0,
+      MISMATCH_ERROR_MESSAGE_LIMIT,
+    );
+  return new EcobaseGoldError('ECOBASE_GOLD_INDEPENDENT_VERIFICATION_FAILED', message, {
+    runId,
+    ...diagnostics,
+  });
+}
+
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
   if (value instanceof Date) return JSON.stringify(value.toISOString());
@@ -414,11 +460,7 @@ export class EcobaseIndependentGoldReferenceVerifier {
     }
 
     if (mismatches.length) {
-      throw new EcobaseGoldError(
-        'ECOBASE_GOLD_INDEPENDENT_VERIFICATION_FAILED',
-        `EcoBase independent Gold verification failed for run "${runId}" with ${mismatches.length} mismatch(es).`,
-        { runId, mismatches },
-      );
+      throw independentVerificationFailure(runId, mismatches);
     }
     return {
       valid: true,

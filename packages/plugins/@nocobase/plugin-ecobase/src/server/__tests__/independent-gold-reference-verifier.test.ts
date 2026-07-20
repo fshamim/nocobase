@@ -266,9 +266,39 @@ describe('independent Gold reference verifier', () => {
     await expect(new EcobaseIndependentGoldReferenceVerifier(db).verify('reference-run')).rejects.toMatchObject({
       code: 'ECOBASE_GOLD_INDEPENDENT_VERIFICATION_FAILED',
       details: {
-        mismatches: expect.arrayContaining([expect.objectContaining({ code: 'MONTHLY_PROFIT_MISMATCH' })]),
+        mismatchCodeHistogram: expect.objectContaining({ MONTHLY_PROFIT_MISMATCH: 1 }),
       },
     });
+  });
+
+  it('reports deterministic capped mismatch diagnostics without exposing the full mismatch set', async () => {
+    const { db, facts } = await fixture();
+    await facts.update({ filterByTk: 'fact:2026-03-01', values: { profit: 101 } });
+
+    const error = await new EcobaseIndependentGoldReferenceVerifier(db).verify('reference-run').then(
+      () => undefined,
+      (reason) => reason as { message: string; details: Record<string, unknown> },
+    );
+    if (!error) throw new Error('Independent verifier diagnostic fixture unexpectedly passed.');
+    const histogram = error.details.mismatchCodeHistogram as Record<string, number>;
+    const samples = error.details.mismatchSamples as Array<{ code: string; message: string }>;
+
+    expect(histogram).toMatchObject({ MONTHLY_PROFIT_MISMATCH: 1 });
+    expect(Object.keys(histogram)).toEqual([...Object.keys(histogram)].sort());
+    expect(samples.length).toBeGreaterThan(0);
+    expect(samples).toHaveLength(Math.min(3, Object.keys(histogram).length));
+    expect(samples.every((sample) => /^[A-Z0-9_]+$/.test(sample.code))).toBe(true);
+    expect(
+      samples.every(
+        (sample) =>
+          sample.message.length <= 160 &&
+          [...sample.message].every((character) => character.charCodeAt(0) > 31 && character.charCodeAt(0) !== 127),
+      ),
+    ).toBe(true);
+    expect(error.details).not.toHaveProperty('mismatches');
+    expect(error.message).toContain('histogram=');
+    expect(error.message).toContain('samples=');
+    expect(error.message.length).toBeLessThanOrEqual(2000);
   });
 
   it('detects action leakage independently of the persisted family-action digest', async () => {
@@ -281,7 +311,7 @@ describe('independent Gold reference verifier', () => {
     await expect(new EcobaseIndependentGoldReferenceVerifier(db).verify('reference-run')).rejects.toMatchObject({
       code: 'ECOBASE_GOLD_INDEPENDENT_VERIFICATION_FAILED',
       details: {
-        mismatches: expect.arrayContaining([expect.objectContaining({ code: 'ACTION_LEAK' })]),
+        mismatchCodeHistogram: expect.objectContaining({ ACTION_LEAK: 1 }),
       },
     });
   });
