@@ -24,6 +24,7 @@ import { EcobaseInventoryPlanningService } from '../../features/inventory-planni
 import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { createEcobaseInventoryPlanningActions } from '../resource-actions';
+import { EcobasePlanningSettingsService } from '../services/planning-settings-service';
 
 type Row = Record<string, unknown>;
 type Query = { filter?: Row; filterByTk?: string | number; sort?: string[]; limit?: number };
@@ -329,6 +330,7 @@ describe('corrected candidate public refresh seam', () => {
 
   it('materializes only the corrected unpublished listing/family contract through the admin action', async () => {
     const db = fixture();
+    await new EcobasePlanningSettingsService(db).saveSettings({ targetCoverDays: 60 });
 
     const result = await refreshThroughPublicAction(db);
 
@@ -363,6 +365,8 @@ describe('corrected candidate public refresh seam', () => {
       baselineTier: 'A',
       baselineConfidence: 'full',
       currentProjectionGateMode: 'informational',
+      targetCoverDays: 60,
+      recommendedOrderQty: 10,
       refreshRunId: run.id,
     });
     expect(db.goldRows.rows[0]).not.toHaveProperty('tier');
@@ -373,6 +377,57 @@ describe('corrected candidate public refresh seam', () => {
       familyActionProjectionCount: 1919,
       listingRowDigest: run.listingRowDigest,
       familyActionProjectionDigest: run.familyActionProjectionDigest,
+    });
+  });
+
+  it('applies a configured purchased-pipeline status to corrected public open-order coverage', async () => {
+    const db = fixture();
+    await new EcobasePlanningSettingsService(db).saveSettings({
+      supplierOrderPurchasedPipelineStatuses: ['paid', 'Supplier Paid Wire'],
+    });
+    db.seed(ECOBASE_COLLECTIONS.silverSuppliers, [
+      { id: 'supplier-custom-status', companyId: 'company-1', displayName: 'Custom Status Supplier' },
+    ]);
+    db.seed(ECOBASE_COLLECTIONS.silverOrders, [
+      {
+        id: 'order-custom-status',
+        companyId: 'company-1',
+        supplierId: 'supplier-custom-status',
+        orderRef: 'CUSTOM-STATUS-1',
+        orderDate: '2026-07-10',
+        canonicalStatus: 'supplier_paid_wire',
+        lifecycleStatus: 'supplier_paid_wire',
+        operationalStatus: 'supplier_preparing',
+        workflowStage: 'in_prep',
+      },
+    ]);
+    db.seed(ECOBASE_COLLECTIONS.silverOrderLines, [
+      {
+        id: 'line-custom-status',
+        orderId: 'order-custom-status',
+        companyProductId: 'cp-0000',
+        orderedQty: 20,
+        confirmedQty: 0,
+        productMappingStatus: 'resolved',
+        mappingScope: 'exact_member',
+      },
+    ]);
+
+    const materialized = await refreshThroughPublicAction(db, 'custom-purchased-status');
+    const runId = String((materialized.run as Row).id);
+    const lifecycle = new EcobaseGoldRefreshRunService(db);
+    await lifecycle.verify(runId);
+    await lifecycle.publish(runId);
+    const workspace = await readThroughPublicAction(db, 'workspace');
+    const row = workspace.rows.find((candidate) => candidate.companyProductId === 'cp-0000');
+
+    expect(row).toMatchObject({
+      supplierOrderState: 'purchased_pipeline',
+      supplierOrderStatus: 'supplier_paid_wire',
+      supplierOrderOpenQty: 20,
+      existingOrderFollowUp: true,
+      newReplenishmentActionable: false,
+      recommendedOrderQty: null,
     });
   });
 

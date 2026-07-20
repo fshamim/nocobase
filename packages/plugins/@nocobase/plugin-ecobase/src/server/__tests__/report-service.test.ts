@@ -402,7 +402,6 @@ describe('Ecobase report service', () => {
         id: 'gold-inventory-brief-1',
         refreshRunId: 'gold-refresh-brief-1',
         naturalKey: 'gold-inventory-brief-1',
-        planningProductId: 'product-brief-1',
         companyProductId: 'company-product-brief-1',
         companyProductFamilyId: 'family:company-product-brief-1',
         companyId: 'company-brief-1',
@@ -413,10 +412,11 @@ describe('Ecobase report service', () => {
         asin: 'B00BRIEF',
         sku: 'SKU-BRIEF',
         title: 'Brief SKU',
-        tier: 'A',
-        actionStatus: 'overdue',
+        baselineTier: 'A',
+        baselineState: 'ranked',
+        baselineConfidence: 'full',
+        averageMonthlyProfit: 750,
         productStatus: 'active',
-        planningReadinessStatus: 'ready',
         daysOfCover: 0,
         targetCoverDays: 60,
         sellableStock: 1,
@@ -427,21 +427,17 @@ describe('Ecobase report service', () => {
         awdStock: 0,
         supplierPipelineStock: 0,
         pipelineStock: 0,
-        salesVelocity: 3,
+        rollingUnits30: 90,
         leadTimeDays: 24,
         leadTimeFreshness: 'fresh',
         estimatedOosDate: '2026-06-11',
         latestSafeReorderDate: '2026-06-01',
         daysUntilSafeReorder: -9,
-        suggestedReorderQty: 20,
+        recommendedOrderQty: 20,
         supplierName: 'Brief Supplier',
         supplierId: 'supplier-brief-1',
         supplierOrderState: 'no_open_order',
         openOrderCoverageQty: 0,
-        estimatedProfitRisk: 750,
-        lastRefreshedAt: '2026-06-10T00:00:00.000Z',
-        evidence: {},
-        familyRole: 'target',
         isFrozenFamilyTarget: true,
         familyTargetCompanyProductId: 'company-product-brief-1',
         listingReviewCategories: [],
@@ -541,6 +537,24 @@ describe('Ecobase report service', () => {
       },
     });
 
+    const correctedInventoryFixture = await db
+      .getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows)
+      .findOne({ filterByTk: 'gold-inventory-brief-1' });
+    for (const obsoleteField of [
+      'planningProductId',
+      'tier',
+      'actionStatus',
+      'planningReadinessStatus',
+      'salesVelocity',
+      'suggestedReorderQty',
+      'estimatedProfitRisk',
+      'lastRefreshedAt',
+      'evidence',
+      'familyRole',
+    ]) {
+      expect(correctedInventoryFixture).not.toHaveProperty(obsoleteField);
+    }
+
     const context = createActionContext(db, { company: 'ACME', date: '2026-06-10', maxItems: 5 });
     await createEcobaseReportActions().generateDailyOperationsBriefEvidence(context, vi.fn());
 
@@ -561,8 +575,9 @@ describe('Ecobase report service', () => {
       expect.arrayContaining([
         expect.objectContaining({
           asin: 'B00BRIEF',
-          velocityPerDay: 3,
-          estimatedProfitRisk: expect.any(Number),
+          rollingUnits30: 90,
+          averageMonthlyProfit: 750,
+          recommendedOrderQty: 20,
           supplierOrderState: 'no_open_order',
         }),
       ]),

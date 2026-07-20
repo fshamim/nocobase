@@ -23,8 +23,8 @@ import {
   EcobaseImportService,
   EcobaseRepository,
 } from '../../features/source-import/server/import-service';
-import { EcobaseSupplierOrderService } from '../../features/supplier-management/server/supplier-order-service';
 import { EcobaseInventoryPlanningService } from '../../features/inventory-planning/server/inventory-planning-service';
+import { EcobaseSupplierOrderService } from '../../features/supplier-management/server/supplier-order-service';
 import { findForbiddenSourceMaterial } from '../../features/source-import/server/source-record-projection';
 
 interface FindParams {
@@ -157,6 +157,110 @@ const purchaseOrdersDetailedCsv = `Timestamp,Order ID,SR ID ,Supplier,Company,Or
 16/07/2025 07:30:00,PO-200,SRO-B,Beta Supply,Ecofission LLC,Completed,Completed,Approved,2025-07-24`;
 const supplierAnalysisTrackerCsv =
   'Timestamp,SR ID,Supplier Name,ASIN,Wholesale Price List,Product Catalog,MAP agreement,Market,SR by,PR Portal Link,Username,pass,Contact Person,Reached Via,Recieved Email,Remarks,MOQ,Designation,Category,Amazon Allow,SA By,Status,Active Status,Easy Move(Sister Company ),Bulk Upload,Date of Update,Total NOP,TNOP Analysed,Prof. Products,Inv. margin >0.00%,Inv.margin>4.99%,Inv.margin>8.99%,Cleared POs Amount,Sheet Link,Remarks SA,Used ,Tasks Submitted\n9/21/2023 20:14:39,SRO-7036,locnproducts,B08838XBQN,https://price-list.test,https://catalog.test,https://map.test,USA,Nabeel Uddin,https://portal.test,source@example.com,secret,Danielle Townes,Ecofission LLC,locnproducts1@gmail.com,Initial note,$200,Sales Rep,Home,Yes,Analyst,Completed,Yes,Yes,Yes,5/20/2026,10,8,3,4,5,6,1200,https://sheet.test,SA note,Yes,Submitted';
+
+async function seedLockedCorrectedCatalogForMappedOrderProjection(db: MemoryDatabase) {
+  const products = db.getRepository(ECOBASE_COLLECTIONS.silverProducts);
+  const companyProducts = db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts);
+  const families = db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductFamilies);
+  const existingCompanyProducts = companyProducts.all();
+  if (existingCompanyProducts.length !== 2) {
+    throw new Error(
+      `Mapped-order projection fixture expected 2 existing listings; found ${existingCompanyProducts.length}.`,
+    );
+  }
+
+  await db.getRepository(ECOBASE_COLLECTIONS.silverAmazonAccounts).create({
+    values: {
+      id: 'account-muxtex',
+      companyId: 'company-muxtex',
+      marketplace: 'Amazon.com',
+    },
+  });
+  const sourceConnection = db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).all()[0];
+  Object.assign(sourceConnection, {
+    companyId: 'company-muxtex',
+    amazonAccountId: 'account-muxtex',
+    marketplace: 'Amazon.com',
+  });
+  existingCompanyProducts.forEach((row) =>
+    Object.assign(row, {
+      amazonAccountId: 'account-muxtex',
+      companyProductFamilyId: 'family-mapped-order',
+      lifecycleStatus: 'active',
+    }),
+  );
+  await families.create({
+    values: {
+      id: 'family-mapped-order',
+      companyId: 'company-muxtex',
+      amazonAccountId: 'account-muxtex',
+      marketplace: 'Amazon.com',
+      canonicalAsin: 'B00D3QAK4Y',
+      replenishmentTargetCompanyProductId: 'company-product-old',
+      targetSelectionEvidenceJson: { source: 'csv_import_test' },
+    },
+  });
+
+  let listingCount = existingCompanyProducts.length;
+  for (let familyIndex = 1; familyIndex < 1919; familyIndex += 1) {
+    const familyId = `family-filler-${String(familyIndex).padStart(4, '0')}`;
+    const asin = `FILLER-ASIN-${String(familyIndex).padStart(4, '0')}`;
+    const memberCount = familyIndex <= 443 ? 2 : 1;
+    const memberIds: string[] = [];
+    for (let memberIndex = 0; memberIndex < memberCount; memberIndex += 1) {
+      const suffix = String(listingCount).padStart(4, '0');
+      const productId = `product-filler-${suffix}`;
+      const companyProductId = `company-product-filler-${suffix}`;
+      memberIds.push(companyProductId);
+      await products.create({
+        values: { id: productId, asin, sku: `FILLER-SKU-${suffix}`, title: `Filler ${suffix}` },
+      });
+      await companyProducts.create({
+        values: {
+          id: companyProductId,
+          companyId: 'company-muxtex',
+          amazonAccountId: 'account-muxtex',
+          productId,
+          companyProductFamilyId: familyId,
+          lifecycleStatus: 'active',
+        },
+      });
+      listingCount += 1;
+    }
+    await families.create({
+      values: {
+        id: familyId,
+        companyId: 'company-muxtex',
+        amazonAccountId: 'account-muxtex',
+        marketplace: 'Amazon.com',
+        canonicalAsin: asin,
+        replenishmentTargetCompanyProductId: memberIds[0],
+        targetSelectionEvidenceJson: { source: 'csv_import_test_filler' },
+      },
+    });
+  }
+  if (listingCount !== 2363 || families.all().length !== 1919) {
+    throw new Error(
+      `Mapped-order projection fixture cardinality drifted: ${listingCount} listings and ${
+        families.all().length
+      } families.`,
+    );
+  }
+  await db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).create({
+    values: {
+      id: 'inventory-mapped-order',
+      companyProductId: 'company-product-old',
+      sourceConnectionId: 'source-1',
+      snapshotDate: '2026-06-16',
+      sellableStock: 0,
+      reserved: 0,
+      inbound: 0,
+      ordered: 0,
+      prepStock: 0,
+      awdStock: 0,
+    },
+  });
+}
 
 function createService(sourceType = 'seller_central_file', domain = 'amazon_operations') {
   const db = new MemoryDatabase();
@@ -487,19 +591,27 @@ describe('Ecobase current Amazon operations CSV import', () => {
     ]);
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductSuppliers).all()).toHaveLength(1);
 
-    await db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).create({
-      values: {
-        id: 'inventory-mapped-line',
-        companyProductId: 'company-product-old',
-        snapshotDate: '2026-06-16',
-        sellableStock: 0,
-        reserved: 0,
-        inbound: 0,
-        ordered: 0,
-        salesVelocity: 1,
-      },
+    Object.assign(await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).findOne({ filterByTk: 'order-mx61726d' }), {
+      lifecycleStatus: 'shipped_inbound',
+      operationalStatus: 'shipped_inbound',
+      workflowStage: 'inbound',
     });
-    await new EcobaseInventoryPlanningService(db).refreshReadModel({ calculationDate: '2026-06-16' });
+    await seedLockedCorrectedCatalogForMappedOrderProjection(db);
+    const inventory = new EcobaseInventoryPlanningService(db);
+    await inventory.refreshReadModel({ calculationDate: '2026-06-16' });
+    const projected = db
+      .getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows)
+      .all()
+      .find((row) => row.companyProductId === 'company-product-old');
+
+    expect(projected).toMatchObject({
+      companyProductId: 'company-product-old',
+      supplierOrderState: 'purchased_pipeline',
+      supplierOrderRef: 'MX61726D',
+      supplierOrderOpenQty: 7,
+      existingOrderFollowUp: true,
+      newReplenishmentActionable: false,
+    });
     expect(db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).all()).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

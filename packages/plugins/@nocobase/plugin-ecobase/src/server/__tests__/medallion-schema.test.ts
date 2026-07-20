@@ -175,14 +175,11 @@ describe('Ecobase medallion schema foundation', () => {
     expect(field(silverOrders, 'canonicalStatus')).toMatchObject({ type: 'string' });
     expect(field(silverOrders, 'lifecycleStatus')).toMatchObject({ type: 'string' });
 
-    expect(field(goldInventoryPlanningRows, 'familyPreferredSupplierId')).toMatchObject({
-      type: 'uuid',
-      autoFill: false,
-    });
-    expect(field(goldInventoryPlanningRows, 'familyPreferredSupplierProductId')).toMatchObject({
-      type: 'uuid',
-      autoFill: false,
-    });
+    expect(goldInventoryPlanningRows.fields?.map((item) => item.name)).not.toContain('familyPreferredSupplierId');
+    expect(goldInventoryPlanningRows.fields?.map((item) => item.name)).not.toContain(
+      'familyPreferredSupplierProductId',
+    );
+    expect(field(goldInventoryPlanningRows, 'supplierId')).toMatchObject({ type: 'string' });
     expect(field(goldInventoryPlanningRows, 'amazonReceiptStatus')).toMatchObject({ type: 'string', index: true });
     expect(field(goldInventoryPlanningRows, 'amazonReceiptObservedAt')).toMatchObject({ type: 'datetimeTz' });
     expect(field(goldInventoryPlanningRows, 'amazonReceiptCompletionReason')).toMatchObject({ type: 'string' });

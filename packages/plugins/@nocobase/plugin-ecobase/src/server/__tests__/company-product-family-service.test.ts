@@ -344,7 +344,9 @@ describe('EcobaseCompanyProductFamilyService', () => {
       await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).find({ sort: ['id'] }),
     );
 
-    await new EcobaseInventoryPlanningService(db).refreshReadModel({ calculationDate: '2026-07-01' });
+    await expect(
+      new EcobaseInventoryPlanningService(db).refreshReadModel({ calculationDate: '2026-07-01' }),
+    ).rejects.toMatchObject({ code: 'ECOBASE_CORRECTED_CANDIDATE_CARDINALITY_MISMATCH' });
 
     expect(await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).find({ sort: ['id'] })).toEqual(before);
   });

@@ -9,7 +9,6 @@
 
 import { describe, expect, it } from 'vitest';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
-import { EcobaseInventoryPlanningService } from '../../features/inventory-planning/server/inventory-planning-service';
 import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
 import { DEFAULT_PLANNING_SETTINGS, EcobasePlanningSettingsService } from '../services/planning-settings-service';
 
@@ -85,102 +84,6 @@ class MemoryDatabase implements EcobaseDatabase {
     if (!repository) throw new Error(`MemoryDatabase failed: repository ${name} was not registered.`);
     return repository;
   }
-}
-
-async function createRecord(db: MemoryDatabase, collection: string, values: Record<string, unknown>) {
-  const repository = db.getRepository(collection);
-  const id = values.id;
-  if ((typeof id === 'string' || typeof id === 'number') && (await repository.findOne({ filterByTk: id }))) {
-    await repository.update({ filterByTk: id, values });
-    return;
-  }
-  await repository.create({ values });
-}
-
-async function refreshAndPublish(inventory: EcobaseInventoryPlanningService, calculationDate: string) {
-  const result = await inventory.refreshReadModel({ calculationDate });
-  const runId = String((result.run as Record<string, unknown>).id);
-  await inventory.verifyRefreshRun(runId);
-  await inventory.publishRefreshRun(runId);
-}
-
-async function createSilverPlanningProductFixture(db: MemoryDatabase, values: Record<string, unknown>) {
-  const company = String(values.company ?? '');
-  const asin = String(values.asin ?? '');
-  const sku = String(values.sku ?? '');
-  const companyId = `silver-company:${company}`;
-  const productId = `silver-product:${asin}:${sku}`;
-  const companyProductId = `silver-company-product:${company}:${asin}:${sku}`;
-  const supplierId = `silver-supplier:${company}:${asin}:${sku}`;
-  const supplierProductId = `silver-supplier-product:${company}:${asin}:${sku}`;
-  await createRecord(db, ECOBASE_COLLECTIONS.silverCompanies, { id: companyId, name: company });
-  await createRecord(db, ECOBASE_COLLECTIONS.silverProducts, { id: productId, asin, sku, title: values.title });
-  await createRecord(db, ECOBASE_COLLECTIONS.silverCompanyProducts, {
-    id: companyProductId,
-    companyId,
-    productId,
-    lifecycleStatus: 'active',
-  });
-  await createRecord(db, ECOBASE_COLLECTIONS.silverInventorySnapshots, {
-    id: `silver-inventory:${company}:${asin}:${sku}`,
-    companyProductId,
-    snapshotDate: '2026-06-07',
-    sellableStock: values.stock,
-    salesVelocity: values.salesVelocity,
-  });
-  await createRecord(db, ECOBASE_COLLECTIONS.silverListingDailyFacts, {
-    id: `silver-fact:${company}:${asin}:${sku}`,
-    companyProductId,
-    snapshotDate: '2026-05-15',
-    units: values.units,
-    profit: values.profit,
-  });
-  await createRecord(db, ECOBASE_COLLECTIONS.silverSuppliers, { id: supplierId, displayName: 'Settings Supplier' });
-  await createRecord(db, ECOBASE_COLLECTIONS.silverSupplierProducts, {
-    id: supplierProductId,
-    supplierId,
-    productId,
-    leadTimeDays: values.leadTimeDays,
-  });
-  await createRecord(db, ECOBASE_COLLECTIONS.silverCompanyProductSuppliers, {
-    id: `silver-company-product-supplier:${company}:${asin}:${sku}`,
-    companyProductId,
-    supplierProductId,
-    role: 'latest_used',
-  });
-}
-
-async function createSupplierOrderRecord(db: MemoryDatabase, values: Record<string, unknown>) {
-  const company = String(values.company ?? '');
-  const companyId = `silver-company:${company}`;
-  await createRecord(db, ECOBASE_COLLECTIONS.silverCompanies, { id: companyId, name: company });
-  await createRecord(db, ECOBASE_COLLECTIONS.silverOrders, {
-    id: values.id,
-    companyId,
-    orderRef: values.externalOrderRef ?? values.id,
-    orderDate: values.orderDate ?? '2026-06-01',
-    dailySequenceLetter: 'A',
-    canonicalStatus: values.status,
-    lifecycleStatus: values.status,
-    updatedAt: values.lastMeaningfulUpdateAt,
-  });
-}
-
-async function createSupplierOrderLineRecord(db: MemoryDatabase, values: Record<string, unknown>) {
-  const company = String(values.company ?? '');
-  const companyId = `silver-company:${company}`;
-  const productId = `silver-product:${values.asin}:${values.sku}`;
-  const companyProductId = `silver-company-product:${company}:${values.asin}:${values.sku}`;
-  await createRecord(db, ECOBASE_COLLECTIONS.silverCompanies, { id: companyId, name: company });
-  await createRecord(db, ECOBASE_COLLECTIONS.silverProducts, { id: productId, asin: values.asin, sku: values.sku });
-  await createRecord(db, ECOBASE_COLLECTIONS.silverCompanyProducts, { id: companyProductId, companyId, productId });
-  await createRecord(db, ECOBASE_COLLECTIONS.silverOrderLines, {
-    id: values.id,
-    orderId: values.supplierOrderId,
-    companyProductId,
-    orderedQty: values.orderedQty,
-    confirmedQty: values.receivedQty,
-  });
 }
 
 describe('EcobasePlanningSettingsService', () => {
@@ -263,9 +166,9 @@ describe('EcobasePlanningSettingsService', () => {
     ).rejects.toThrow('EcoBase supplier order status "paid" cannot be in both');
   });
 
-  it('applies saved settings to inventory suggested quantity calculations', async () => {
-    const db = new MemoryDatabase();
-    await new EcobasePlanningSettingsService(db).saveSettings({
+  it('persists corrected candidate calculation inputs without running a partial catalog refresh', async () => {
+    const service = new EcobasePlanningSettingsService(new MemoryDatabase());
+    await service.saveSettings({
       safetyBufferDays: 10,
       reorderCycleDays: 40,
       targetCoverDays: 30,
@@ -277,79 +180,33 @@ describe('EcobasePlanningSettingsService', () => {
       profitTierBThreshold: 200,
       profitTierCThreshold: 0,
     });
-    await createSilverPlanningProductFixture(db, {
-      company: 'Ecofission LLC',
-      asin: 'B000SETTINGS',
-      sku: 'SETTINGS-SKU',
-      title: 'Settings product',
-      stock: 10,
-      salesVelocity: 2,
-      leadTimeDays: undefined,
-      units: 20,
-      profit: 400,
-    });
 
-    const inventory = new EcobaseInventoryPlanningService(db);
-    await refreshAndPublish(inventory, '2026-06-07');
-    const [row] = await inventory.listRows({
-      company: 'Ecofission LLC',
-      calculationDate: '2026-06-07',
-    });
-
-    expect(row).toMatchObject({
-      targetCoverDays: 30,
-      leadTimeDays: 12,
-      leadTimeAvailability: 'resolved_default_supplier_lead_time',
-      suggestedReorderQty: 50,
+    await expect(service.getActiveSettings()).resolves.toMatchObject({
+      settings: {
+        safetyBufferDays: 10,
+        reorderCycleDays: 40,
+        targetCoverDays: 30,
+        orderSoonWindowDays: 5,
+        leadTimeFreshnessDays: 30,
+        purchasedPipelineGraceDays: 1,
+        defaultSupplierLeadTimeDays: 12,
+        profitTierAThreshold: 500,
+        profitTierBThreshold: 200,
+        profitTierCThreshold: 0,
+      },
     });
   });
 
-  it('lets operators add a purchased-pipeline status for open-order coverage', async () => {
-    const db = new MemoryDatabase();
-    await new EcobasePlanningSettingsService(db).saveSettings({
-      supplierOrderPurchasedPipelineStatuses: ['paid', 'supplier_paid_wire'],
-    });
-    await createSilverPlanningProductFixture(db, {
-      company: 'Ecofission LLC',
-      asin: 'B000STATUS',
-      sku: 'STATUS-SKU',
-      title: 'Custom status product',
-      stock: 10,
-      salesVelocity: 2,
-      leadTimeDays: 4,
-      units: 20,
-      profit: 400,
-    });
-    await createSupplierOrderRecord(db, {
-      id: 'order-custom-status',
-      company: 'Ecofission LLC',
-      externalOrderRef: 'CUSTOM-1',
-      status: 'supplier_paid_wire',
-      lastMeaningfulUpdateAt: '2026-06-06T00:00:00.000Z',
-    });
-    await createSupplierOrderLineRecord(db, {
-      id: 'line-custom-status',
-      company: 'Ecofission LLC',
-      supplierOrderId: 'order-custom-status',
-      planningProductId: 'planning-product-custom-status',
-      asin: 'B000STATUS',
-      sku: 'STATUS-SKU',
-      orderedQty: 20,
-      receivedQty: 0,
+  it('normalizes and persists an operator-defined purchased-pipeline status', async () => {
+    const service = new EcobasePlanningSettingsService(new MemoryDatabase());
+    await service.saveSettings({
+      supplierOrderPurchasedPipelineStatuses: ['paid', 'Supplier Paid Wire'],
     });
 
-    const inventory = new EcobaseInventoryPlanningService(db);
-    await refreshAndPublish(inventory, '2026-06-07');
-    const [row] = await inventory.listRows({
-      company: 'Ecofission LLC',
-      calculationDate: '2026-06-07',
-    });
-
-    expect(row).toMatchObject({
-      supplierOrderState: 'purchased_pipeline',
-      supplierOrderStatus: 'supplier_paid_wire',
-      openOrderCoverageQty: 20,
-      suggestedReorderQty: 60,
+    await expect(service.getActiveSettings()).resolves.toMatchObject({
+      settings: {
+        supplierOrderPurchasedPipelineStatuses: ['paid', 'supplier_paid_wire'],
+      },
     });
   });
 });
