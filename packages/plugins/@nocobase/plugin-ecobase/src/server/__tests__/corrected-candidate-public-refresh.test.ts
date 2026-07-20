@@ -521,6 +521,36 @@ describe('corrected candidate public refresh seam', () => {
     expect(db.goldRows.rows).toHaveLength(2363);
   });
 
+  it('rejects a non-informational gate-mode override without changing the materialized candidate', async () => {
+    const db = fixture();
+    const materialized = await refreshThroughPublicAction(db, 'gate-mode-locked');
+    const run = materialized.run as Row;
+    const invocation = publicRefreshInvocation(db, 'gate-mode-locked', {
+      currentProjectionGateMode: 'evidence_driven',
+    });
+
+    await expect(invocation.action(invocation.ctx as never, invocation.next)).rejects.toMatchObject({
+      status: 400,
+      code: 'ECOBASE_CORRECTED_CANDIDATE_GATE_MODE_LOCKED',
+      details: {
+        requestedGateMode: 'evidence_driven',
+        requiredGateMode: 'informational',
+      },
+    });
+    expect(invocation.next).not.toHaveBeenCalled();
+    expect(db.goldRows.rows).toHaveLength(2363);
+    expect(db.goldRows.rows.every((row) => row.refreshRunId === run.id)).toBe(true);
+    expect(db.rows(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns)).toEqual([
+      expect.objectContaining({
+        id: run.id,
+        status: 'materialized',
+        candidateInputDigest: run.candidateInputDigest,
+        listingRowDigest: run.listingRowDigest,
+        familyActionProjectionDigest: run.familyActionProjectionDigest,
+      }),
+    ]);
+  });
+
   it('keeps a sparse baseline month unknown and suppresses new replenishment action', async () => {
     const db = fixture();
     db.rows(ECOBASE_COLLECTIONS.sourceCoverageMemberships).splice(1, 1);

@@ -1205,6 +1205,17 @@ export function createEcobaseInventoryPlanningActions() {
           ctx.throw(400, 'Ecobase Gold rebuild requires confirmation "REBUILD GOLD".');
           return;
         }
+        const requestedGateMode = getOptionalString(values, 'currentProjectionGateMode');
+        if (requestedGateMode && requestedGateMode !== 'informational') {
+          throw Object.assign(
+            new EcobaseGoldError(
+              'ECOBASE_CORRECTED_CANDIDATE_GATE_MODE_LOCKED',
+              `EcoBase corrected Gold rebuild requires currentProjectionGateMode "informational"; received "${requestedGateMode}".`,
+              { requestedGateMode, requiredGateMode: 'informational' },
+            ),
+            { status: 400 },
+          );
+        }
         const service = new EcobaseInventoryPlanningService(ctx.db);
         ctx.body = {
           data: await service.refreshReadModel({
