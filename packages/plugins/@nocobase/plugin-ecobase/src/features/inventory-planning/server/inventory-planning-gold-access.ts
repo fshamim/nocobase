@@ -12,6 +12,10 @@ import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import type { EcobaseDatabase } from '../../source-import/server/import-service';
 import { toPlainRecord } from '../../source-import/server/import-service';
 import { EcobaseGoldError } from './gold-errors';
+import {
+  deriveCorrectedFamilyActionsFromListingRows,
+  type CorrectedListingPerformanceRow,
+} from './listing-family-projection';
 
 export type GoldExplicitReadPurpose =
   | 'candidate_preview'
@@ -66,7 +70,7 @@ interface CandidatePreviewQuery extends GoldListingReadQuery {
 
 const EXPLICIT_PURPOSE_STATUSES: Record<Exclude<GoldExplicitReadPurpose, 'candidate_preview'>, Set<string>> = {
   production_verification: new Set(['materialized', 'verified']),
-  independent_verification: new Set(['verified']),
+  independent_verification: new Set(['materialized', 'verified']),
   maintenance: new Set(['materialized', 'verified', 'published', 'superseded', 'rejected', 'retired', 'succeeded']),
   archive: new Set(['verified', 'published', 'superseded', 'rejected', 'retired', 'failed', 'succeeded']),
 };
@@ -75,20 +79,18 @@ function text(value: unknown) {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
-function familyKey(row: Record<string, unknown>) {
-  return (
-    text(row.companyProductFamilyId) ??
-    [row.companyId ?? row.company, row.amazonAccountId, row.marketplace, row.asin, row.companyProductId ?? row.id]
-      .map((value) => String(value ?? ''))
-      .join(':')
-  );
-}
-
-function familyRoleRank(row: Record<string, unknown>) {
-  if (row.isFrozenFamilyTarget === true || row.familyRole === 'target') return 3;
-  if (row.familyRole === 'review') return 2;
-  if (row.familyRole === 'unassigned') return 1;
-  return 0;
+export function familyActionDecisionRecord(action: Record<string, unknown>): Record<string, unknown> {
+  const listing = toPlainRecord(action.listing);
+  return {
+    ...listing,
+    ...action,
+    listing: Object.keys(listing).length ? listing : null,
+    commandCenterPane: action.primaryActionPane,
+    commandCenterPaneReason: action.primaryActionReasonCode,
+    planningEligibilityStatus:
+      listing.planningEligibilityStatus ??
+      (action.replenishmentEligibility === 'eligible' ? 'eligible' : action.replenishmentEligibility),
+  };
 }
 
 export class EcobaseInventoryPlanningGoldAccess {
@@ -124,8 +126,9 @@ export class EcobaseInventoryPlanningGoldAccess {
   }
 
   async readPublishedFamilyActions(query: GoldListingReadQuery = {}): Promise<GoldReadResult> {
-    const result = await this.readPublishedListingPerformance(query);
-    return { ...result, rows: this.familyActions(result.rows) };
+    const result = await this.readPublishedListingPerformance({ transaction: query.transaction });
+    if (!result.run) return result;
+    return { ...result, rows: this.derivedFamilyActions(result.run, result.rows, query) };
   }
 
   async readExplicitListingPerformance(query: ExplicitReadQuery): Promise<GoldReadResult> {
@@ -172,8 +175,14 @@ export class EcobaseInventoryPlanningGoldAccess {
   }
 
   async readExplicitFamilyActions(query: ExplicitReadQuery): Promise<GoldReadResult> {
-    const result = await this.readExplicitListingPerformance(query);
-    return { ...result, rows: this.familyActions(result.rows) };
+    const result = await this.readExplicitListingPerformance({
+      runId: query.runId,
+      purpose: query.purpose,
+      actor: query.actor,
+      transaction: query.transaction,
+    });
+    if (!result.run) return result;
+    return { ...result, rows: this.derivedFamilyActions(result.run, result.rows, query) };
   }
 
   async readCandidatePreview(query: CandidatePreviewQuery): Promise<GoldReadResult> {
@@ -238,6 +247,7 @@ export class EcobaseInventoryPlanningGoldAccess {
       );
     }
 
+    const allRows = await this.rowsForRun(runId, { transaction: query.transaction });
     const rows = await this.rowsForRun(runId, query);
     await this.audit({
       actorUserId,
@@ -247,7 +257,7 @@ export class EcobaseInventoryPlanningGoldAccess {
       requestId: query.requestId,
       metadataJson: { roles: [...roles] },
     });
-    return { published: false, run, rows, familyActions: this.familyActions(rows) };
+    return { published: false, run, rows, familyActions: this.derivedFamilyActions(run, allRows, query) };
   }
 
   private async requireRun(runId: string, transaction?: unknown) {
@@ -271,15 +281,74 @@ export class EcobaseInventoryPlanningGoldAccess {
     ).map(toPlainRecord);
   }
 
-  private familyActions(rows: Record<string, unknown>[]) {
-    const selected = new Map<string, Record<string, unknown>>();
-    for (const row of rows) {
-      if (row.familyRole === 'member' && row.isFrozenFamilyTarget !== true) continue;
-      const key = familyKey(row);
-      const current = selected.get(key);
-      if (!current || familyRoleRank(row) > familyRoleRank(current)) selected.set(key, row);
+  private derivedFamilyActions(
+    run: Record<string, unknown>,
+    rows: Record<string, unknown>[],
+    query: GoldListingReadQuery,
+  ) {
+    const runId = text(run.id);
+    const generatedAt =
+      text(run.materializedAt) ?? text(run.verifiedAt) ?? text(run.publishedAt) ?? text(run.requestedAt);
+    if (!runId || !generatedAt) {
+      throw new EcobaseGoldError(
+        'ECOBASE_GOLD_PUBLICATION_MISMATCH',
+        'EcoBase Gold family-action derivation requires run identity and materialization time.',
+        { runId: run.id ?? null, materializedAt: run.materializedAt ?? null },
+      );
     }
-    return [...selected.values()];
+    const actions = deriveCorrectedFamilyActionsFromListingRows(rows as CorrectedListingPerformanceRow[], {
+      runId,
+      generatedAt,
+    });
+    const membersByFamily = new Map<string, Record<string, unknown>[]>();
+    for (const row of rows) {
+      const familyId = text(row.companyProductFamilyId);
+      if (familyId) membersByFamily.set(familyId, [...(membersByFamily.get(familyId) ?? []), row]);
+    }
+    const filtered = actions.filter((action) =>
+      this.matchesFilter(action, query.filter ?? {}, membersByFamily.get(action.companyProductFamilyId) ?? []),
+    );
+    const sorted = query.sort?.length
+      ? [...filtered].sort((left, right) => this.compareRows(left, right, query.sort ?? []))
+      : filtered;
+    return sorted.slice(0, query.limit ?? sorted.length);
+  }
+
+  private matchesFilter(
+    row: Record<string, unknown>,
+    filter: Record<string, unknown>,
+    memberListings: Record<string, unknown>[] = [],
+  ) {
+    const candidates = [toPlainRecord(row.listing), ...memberListings];
+    return candidates.some((listing) =>
+      Object.entries(filter).every(([key, expected]) => {
+        const actual = row[key] ?? listing[key];
+        if (expected && typeof expected === 'object' && !Array.isArray(expected)) {
+          const operator = expected as { $in?: unknown[]; $ne?: unknown };
+          if (Array.isArray(operator.$in)) return operator.$in.includes(actual);
+          if ('$ne' in operator) return actual !== operator.$ne;
+        }
+        return actual === expected;
+      }),
+    );
+  }
+
+  private compareRows(left: Record<string, unknown>, right: Record<string, unknown>, sort: string[]) {
+    for (const field of sort) {
+      const descending = field.startsWith('-');
+      const key = descending ? field.slice(1) : field;
+      const leftValue = left[key] ?? toPlainRecord(left.listing)[key];
+      const rightValue = right[key] ?? toPlainRecord(right.listing)[key];
+      if (leftValue === rightValue) continue;
+      if (leftValue === null || leftValue === undefined) return 1;
+      if (rightValue === null || rightValue === undefined) return -1;
+      const comparison =
+        typeof leftValue === 'number' && typeof rightValue === 'number'
+          ? leftValue - rightValue
+          : String(leftValue).localeCompare(String(rightValue));
+      if (comparison !== 0) return descending ? -comparison : comparison;
+    }
+    return 0;
   }
 
   private async audit(values: {

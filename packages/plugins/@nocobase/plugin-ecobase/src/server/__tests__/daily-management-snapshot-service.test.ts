@@ -81,6 +81,49 @@ class MemoryDatabase implements EcobaseDatabase {
   }
 }
 
+function correctedGoldRow(values: Record<string, unknown>) {
+  const companyProductId = String(values.id);
+  const familyId = `family:${companyProductId}`;
+  const company = String(values.company);
+  const asin = String(values.asin);
+  return {
+    ...values,
+    planningProductId: companyProductId,
+    companyProductId,
+    companyProductFamilyId: familyId,
+    companyId: `company:${company}`,
+    amazonAccountId: `account:${company}`,
+    marketplace: 'Amazon.com',
+    sku: `SKU:${companyProductId}`,
+    familyRole: 'target',
+    isFrozenFamilyTarget: true,
+    familyTargetCompanyProductId: companyProductId,
+    listingReviewCategories: [],
+    replenishmentEligibility: 'eligible',
+    replenishmentBlockReasonCode: 'eligible_informational_projection',
+    primaryActionPane: 'supplyAction',
+    primaryActionReasonCode: 'trusted_reorder_due',
+    existingOrderFollowUp: false,
+    existingOrderFollowUpAction: 'none',
+    newReplenishmentActionable: true,
+    oosAlertActionable: true,
+    supplyActionable: true,
+    calculationEvidence: {
+      familyActionSnapshot: {
+        familyKey: familyId,
+        companyProductFamilyId: familyId,
+        companyId: `company:${company}`,
+        amazonAccountId: `account:${company}`,
+        marketplace: 'Amazon.com',
+        canonicalAsin: asin,
+        targetSelectionState: 'automatic',
+        targetCompanyProductId: companyProductId,
+        targetSelectionEvidence: { source: 'test' },
+      },
+    },
+  };
+}
+
 describe('EcobaseDailyManagementSnapshotService', () => {
   it('persists management KPIs and compares the 7-day trend', async () => {
     const db = new MemoryDatabase();
@@ -96,7 +139,7 @@ describe('EcobaseDailyManagementSnapshotService', () => {
       values: { id: 'current-run', status: 'materialized', calculationDate: '2026-06-10' },
     });
     await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).create({
-      values: {
+      values: correctedGoldRow({
         id: 'baseline-risk',
         refreshRunId: 'baseline-run',
         calculationDate: '2026-06-03',
@@ -111,10 +154,10 @@ describe('EcobaseDailyManagementSnapshotService', () => {
         profitPerUnit: 5,
         leadTimeFreshness: 'missing',
         supplierOrderState: 'placed_not_purchased',
-      },
+      }),
     });
     await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).create({
-      values: {
+      values: correctedGoldRow({
         id: 'current-risk',
         refreshRunId: 'current-run',
         calculationDate: '2026-06-10',
@@ -129,7 +172,7 @@ describe('EcobaseDailyManagementSnapshotService', () => {
         profitPerUnit: 5,
         leadTimeFreshness: 'fresh',
         supplierOrderState: 'purchased_pipeline',
-      },
+      }),
     });
     await db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
       values: { id: 'company-acme', name: 'ACME' },

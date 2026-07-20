@@ -53,6 +53,7 @@ describe('inventory planning pane classifier', () => {
       'stuckInventory',
       'zeroStock',
       'dataReadiness',
+      'performanceReview',
       'untieredProducts',
     ]);
   });

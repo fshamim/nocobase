@@ -38,6 +38,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FormulaHelp, type FormulaHelpGroupKey } from '../../../client/formula-help';
 import { useT } from '../../../client/locale';
 import { useEcobaseRoleCapabilities } from '../../../client/role-boundary';
+import { CorrectedInventoryEvidencePanel, ListingPerformanceReviewPanel } from './CorrectedInventoryEvidence';
 
 type PlainRecord = Record<string, any>;
 
@@ -64,6 +65,7 @@ type CommandCenterPaneKey =
   | 'stuckInventory'
   | 'zeroStock'
   | 'dataReadiness'
+  | 'performanceReview'
   | 'untieredProducts';
 
 const COMMAND_CENTER_PANES: CommandCenterPaneKey[] = [
@@ -76,6 +78,7 @@ const COMMAND_CENTER_PANES: CommandCenterPaneKey[] = [
   'stuckInventory',
   'zeroStock',
   'dataReadiness',
+  'performanceReview',
   'untieredProducts',
 ];
 
@@ -796,6 +799,7 @@ export default function InventoryPlanningPage() {
   const [orderNowSort, setOrderNowSort] = useState<OrderNowSortKey>('tier');
   const [filterOptions, setFilterOptions] = useState<PlainRecord>({});
   const [rows, setRows] = useState<PlainRecord[]>([]);
+  const [listingPerformanceRows, setListingPerformanceRows] = useState<PlainRecord[]>([]);
   const [digest, setDigest] = useState<DigestPreview>(() => unwrapDigest({}));
   const [commandCenter, setCommandCenter] = useState<PlainRecord>({});
   const [activeCommandPane, setActiveCommandPane] = useState<CommandCenterPaneKey>('supplyAction');
@@ -869,7 +873,7 @@ export default function InventoryPlanningPage() {
         purchasedPipelineGraceDays,
         limit,
       };
-      const [filtersResponse, commandCenterResponse] = await Promise.all([
+      const [filtersResponse, commandCenterResponse, listingPerformanceResponse] = await Promise.all([
         api.request({ url: 'ecobaseInventoryPlanning:filters', method: 'post', data: {} }),
         api.request({
           url: 'ecobaseInventoryPlanning:commandCenter',
@@ -888,12 +892,22 @@ export default function InventoryPlanningPage() {
             },
           },
         }),
+        api.request({
+          url: 'ecobaseInventoryPlanning:listingPerformanceReview',
+          method: 'post',
+          data: {
+            company: company.trim() || undefined,
+            calculationDate: calculationDate.trim() || undefined,
+            categories: [],
+          },
+        }),
       ]);
       const center = unwrapData(commandCenterResponse);
       const panes = unwrapData(center.panes);
       setFilterOptions(unwrapData(unwrapData(filtersResponse).filters ?? filtersResponse));
       setCommandCenter(center);
       setRows(COMMAND_CENTER_PANES.flatMap((key) => unwrapRows(unwrapData(panes[key]).rows)));
+      setListingPerformanceRows(unwrapRows(unwrapData(listingPerformanceResponse).rows));
       setDigest(unwrapDigest({}));
     } catch (err) {
       setError(err as Error);
@@ -1085,6 +1099,7 @@ export default function InventoryPlanningPage() {
     stuckInventory: t('Stuck Inventory'),
     zeroStock: t('Zero Stock'),
     dataReadiness: t('Data Readiness'),
+    performanceReview: t('Performance Review'),
     untieredProducts: t('Untiered Products'),
   };
   const commandPaneDescriptions: Record<CommandCenterPaneKey, string> = {
@@ -1097,6 +1112,9 @@ export default function InventoryPlanningPage() {
     stuckInventory: t('Tiered families with persisted stuck-inventory evidence requiring review.'),
     zeroStock: t('Tiered families with zero on-hand stock and no active recovery cycle.'),
     dataReadiness: t('Tiered families blocked by missing evidence required for a safe planning decision.'),
+    performanceReview: t(
+      'Families blocked or held for Tier D, closed/current decline, no-movement, or confidence review.',
+    ),
     untieredProducts: t(
       'Products without A, B, or C tier evidence. Supplier, order, lead-time, and stock evidence stays visible, but no automatic replenishment action is generated.',
     ),
@@ -1148,6 +1166,11 @@ export default function InventoryPlanningPage() {
       { value: 'familyCanonicalAsin', label: t('Family ASIN') },
       { value: 'inventoryAsOfDate', label: t('Inventory date') },
     ],
+    performanceReview: [
+      { value: 'baselineTier', label: t('Baseline tier') },
+      { value: 'closedTierMovement', label: t('Closed movement') },
+      { value: 'projectedTierMovement', label: t('Projected movement') },
+    ],
     untieredProducts: [
       { value: 'company', label: t('Company') },
       { value: 'asin', label: t('ASIN') },
@@ -1164,6 +1187,7 @@ export default function InventoryPlanningPage() {
     stuckInventory: 'inventoryStuckInventory',
     zeroStock: 'inventorySupplyAction',
     dataReadiness: 'inventoryDrawer',
+    performanceReview: 'inventoryPerformanceReview',
     untieredProducts: 'inventoryDrawer',
   };
   const renderRiskBars = (items: PlainRecord[]) => (
@@ -2234,6 +2258,7 @@ export default function InventoryPlanningPage() {
     stuckInventory: ['product-tasks-targets', 'history'],
     zeroStock: ['history', 'draft', 'add', 'lead-time'],
     dataReadiness: ['history', 'lead-time'],
+    performanceReview: ['history'],
     untieredProducts: ['history'],
   };
 
@@ -3068,6 +3093,8 @@ export default function InventoryPlanningPage() {
           ))}
         </Space>
 
+        <ListingPerformanceReviewPanel rows={listingPerformanceRows} t={t} />
+
         <Row gutter={[16, 16]}>
           {commandSummaryCards.map((card: PlainRecord) => {
             const isCurrency = String(card.format) === 'currency';
@@ -3204,6 +3231,10 @@ export default function InventoryPlanningPage() {
                 </Descriptions.Item>
               </Descriptions>
             </Card>
+            {selectedRow.algorithmContractVersion === 'individual_monthly_profit_performance_v1' ||
+            selectedRow.baselineTier !== undefined ? (
+              <CorrectedInventoryEvidencePanel row={selectedRow} t={t} />
+            ) : null}
             {canOperate && productPlanningValues ? (
               <Card title={t('Product manager')} size="small">
                 <Row gutter={[12, 12]}>

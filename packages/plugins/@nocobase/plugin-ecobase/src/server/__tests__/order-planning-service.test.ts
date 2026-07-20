@@ -68,6 +68,50 @@ function matches(
   });
 }
 
+function correctedGoldValues(values: Record<string, unknown>) {
+  const companyProductId = String(values.id);
+  const familyId = `family:${companyProductId}`;
+  const company = String(values.company);
+  const asin = `ASIN:${companyProductId}`;
+  return {
+    ...values,
+    planningProductId: companyProductId,
+    companyProductId,
+    companyProductFamilyId: familyId,
+    companyId: `company:${company}`,
+    amazonAccountId: `account:${company}`,
+    marketplace: 'Amazon.com',
+    asin,
+    sku: `SKU:${companyProductId}`,
+    familyRole: 'target',
+    isFrozenFamilyTarget: true,
+    familyTargetCompanyProductId: companyProductId,
+    listingReviewCategories: [],
+    replenishmentEligibility: 'eligible',
+    replenishmentBlockReasonCode: 'eligible_informational_projection',
+    primaryActionPane: 'activeOrders',
+    primaryActionReasonCode: 'existing_order_pre_purchase',
+    existingOrderFollowUp: true,
+    existingOrderFollowUpAction: 'follow_up_existing_order',
+    newReplenishmentActionable: false,
+    oosAlertActionable: false,
+    supplyActionable: false,
+    calculationEvidence: {
+      familyActionSnapshot: {
+        familyKey: familyId,
+        companyProductFamilyId: familyId,
+        companyId: `company:${company}`,
+        amazonAccountId: `account:${company}`,
+        marketplace: 'Amazon.com',
+        canonicalAsin: asin,
+        targetSelectionState: 'automatic',
+        targetCompanyProductId: companyProductId,
+        targetSelectionEvidence: { source: 'test' },
+      },
+    },
+  };
+}
+
 async function seed(db: FakeDatabase) {
   await db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
     values: { id: 'company-1', name: 'SampleAM', companyKey: 'SAM' },
@@ -168,7 +212,7 @@ async function seed(db: FakeDatabase) {
     },
   });
   await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).create({
-    values: {
+    values: correctedGoldValues({
       id: 'gold-1',
       refreshRunId: 'order-planning-published-run',
       company: 'SampleAM',
@@ -177,10 +221,10 @@ async function seed(db: FakeDatabase) {
       tier: 'B',
       estimatedProfitRisk: 300,
       estimatedOosDate: '2026-06-28',
-    },
+    }),
   });
   await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).create({
-    values: {
+    values: correctedGoldValues({
       id: 'gold-2',
       refreshRunId: 'order-planning-published-run',
       company: 'SampleAM',
@@ -189,7 +233,7 @@ async function seed(db: FakeDatabase) {
       tier: 'B',
       estimatedProfitRisk: 50,
       estimatedOosDate: '2026-06-26',
-    },
+    }),
   });
   await db.getRepository(ECOBASE_COLLECTIONS.silverInvoices).create({
     values: {
@@ -292,7 +336,7 @@ describe('EcobaseOrderPlanningService', () => {
     const db = new FakeDatabase();
     await seed(db);
     await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).create({
-      values: {
+      values: correctedGoldValues({
         id: 'gold-order-2-a-tier',
         refreshRunId: 'order-planning-published-run',
         company: 'SampleAM',
@@ -301,7 +345,7 @@ describe('EcobaseOrderPlanningService', () => {
         tier: 'A',
         estimatedProfitRisk: 1,
         estimatedOosDate: '2026-07-01',
-      },
+      }),
     });
 
     const result = await new EcobaseOrderPlanningService(db).listOrders({ companyId: 'company-1', hideClosed: false });

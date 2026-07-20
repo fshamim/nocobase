@@ -11,7 +11,10 @@ import { createHash } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import type { EcobaseDatabase } from '../../source-import/server/import-service';
 import { toPlainRecord } from '../../source-import/server/import-service';
-import { EcobaseInventoryPlanningGoldAccess } from '../../inventory-planning/server/inventory-planning-gold-access';
+import {
+  EcobaseInventoryPlanningGoldAccess,
+  familyActionDecisionRecord,
+} from '../../inventory-planning/server/inventory-planning-gold-access';
 
 type PlainRecord = Record<string, unknown>;
 
@@ -929,7 +932,7 @@ export class EcobaseManagementKpiFactsService {
         filter: company ? { calculationDate: date, company } : { calculationDate: date },
         limit: 100000,
       })
-    ).rows;
+    ).rows.map(familyActionDecisionRecord);
     const facts = [] as PlainRecord[];
     for (const [scope, groupRows] of this.scopedGroups(rows, company)) {
       const supplyActionRows = groupRows.filter((row) => asString(row.commandCenterPane) === 'supplyAction');

@@ -213,6 +213,10 @@ async function seedPlanningRows(
       naturalKey: `gold:${planningProductId}:${calculationDate}`,
       planningProductId,
       companyProductId: planningProductId,
+      companyProductFamilyId: `family:${planningProductId}`,
+      companyId: `company:${company}`,
+      amazonAccountId: `account:${company}`,
+      marketplace: 'Amazon.com',
       calculationDate,
       company,
       asin,
@@ -240,6 +244,42 @@ async function seedPlanningRows(
       buyBoxPercentage: overrides.buyBoxPercentage ?? 100,
       sixMonthMargin: overrides.margin ?? 30,
       calculationStatus: overrides.calculationStatus ?? 'calculated',
+      familyRole: 'target',
+      isFrozenFamilyTarget: true,
+      familyTargetCompanyProductId: planningProductId,
+      listingReviewCategories: [],
+      replenishmentEligibility: 'eligible',
+      replenishmentBlockReasonCode: 'eligible_informational_projection',
+      primaryActionPane:
+        actionStatus === 'sufficient_stock'
+          ? 'healthyInventory'
+          : actionStatus === 'out_of_stock'
+            ? 'zeroStock'
+            : 'supplyAction',
+      primaryActionReasonCode:
+        actionStatus === 'sufficient_stock'
+          ? 'sufficient_stock'
+          : actionStatus === 'out_of_stock'
+            ? 'trusted_zero_stock'
+            : 'trusted_reorder_due',
+      existingOrderFollowUp: false,
+      existingOrderFollowUpAction: 'none',
+      newReplenishmentActionable: actionStatus !== 'sufficient_stock',
+      oosAlertActionable: actionStatus !== 'sufficient_stock',
+      supplyActionable: actionStatus !== 'sufficient_stock',
+      calculationEvidence: {
+        familyActionSnapshot: {
+          familyKey: `family:${planningProductId}`,
+          companyProductFamilyId: `family:${planningProductId}`,
+          companyId: `company:${company}`,
+          amazonAccountId: `account:${company}`,
+          marketplace: 'Amazon.com',
+          canonicalAsin: asin,
+          targetSelectionState: 'automatic',
+          targetCompanyProductId: planningProductId,
+          targetSelectionEvidence: { source: 'test' },
+        },
+      },
     },
   });
 }

@@ -33,6 +33,7 @@ import {
   extractClickupOrderRefsFromTitle,
   parseClickupOrderStatusFiles,
 } from '../../features/source-import/server/clickup-order-status-service';
+import { commandCenterPaneForRow } from '../../features/inventory-planning/server/inventory-planning-service';
 
 interface FindParams {
   filter?: Record<string, unknown>;
@@ -127,11 +128,110 @@ class MemoryRepository implements EcobaseRepository {
   }
 }
 
+class GoldMemoryRepository extends MemoryRepository {
+  async create({ values }: { values: Record<string, unknown> }) {
+    const companyProductId = String(values.companyProductId ?? values.planningProductId ?? values.id);
+    const existingTarget = this.all().find(
+      (row) =>
+        row.companyProductFamilyId === values.companyProductFamilyId &&
+        (row.familyRole === 'target' || row.isFrozenFamilyTarget === true),
+    );
+    const familyRole = String(values.familyRole ?? 'target');
+    const targetCompanyProductId =
+      familyRole === 'review'
+        ? null
+        : String(
+            values.familyTargetCompanyProductId ??
+              values.replenishmentTargetCompanyProductId ??
+              existingTarget?.companyProductId ??
+              companyProductId,
+          );
+    const familyId = String(
+      values.companyProductFamilyId ?? existingTarget?.companyProductFamilyId ?? `test-family:${companyProductId}`,
+    );
+    const company = String(values.company ?? values.companyName ?? 'unknown');
+    const companyId = String(values.companyId ?? `test-company:${company}`);
+    const amazonAccountId = String(values.amazonAccountId ?? `test-account:${company}`);
+    const marketplace = String(values.marketplace ?? values.familyMarketplace ?? 'Amazon.com');
+    const asin = String(values.asin ?? values.canonicalAsin ?? companyProductId);
+    const sku = String(values.sku ?? `test-sku:${companyProductId}`);
+    const productStatus = String(values.productStatus ?? 'active');
+    const listingReviewCategories = Array.isArray(values.listingReviewCategories)
+      ? values.listingReviewCategories
+      : values.baselineTier === 'D'
+        ? ['tier_d']
+        : [];
+    const classification = commandCenterPaneForRow(
+      { ...values, productStatus, companyProductId, companyProductFamilyId: familyId, asin, sku },
+      String(values.calculationDate ?? '2026-07-05'),
+    );
+    const primaryActionPane = String(values.primaryActionPane ?? classification.pane);
+    const eligible = !['adminExcluded', 'dataReadiness', 'untieredProducts', 'performanceReview'].includes(
+      primaryActionPane,
+    );
+    return super.create({
+      values: {
+        ...values,
+        planningProductId: values.planningProductId ?? companyProductId,
+        companyProductId,
+        companyProductFamilyId: familyId,
+        companyId,
+        amazonAccountId,
+        marketplace,
+        asin,
+        sku,
+        productStatus,
+        listingReviewCategories,
+        familyRole,
+        isFrozenFamilyTarget: targetCompanyProductId === companyProductId,
+        familyTargetCompanyProductId: targetCompanyProductId,
+        primaryActionPane,
+        primaryActionReasonCode: values.primaryActionReasonCode ?? classification.reason,
+        replenishmentEligibility:
+          values.replenishmentEligibility ?? (eligible ? 'eligible' : 'blocked_insufficient_evidence'),
+        replenishmentBlockReasonCode:
+          values.replenishmentBlockReasonCode ??
+          (eligible ? 'eligible_informational_projection' : 'blocked_insufficient_evidence'),
+        existingOrderFollowUp:
+          values.existingOrderFollowUp ??
+          ['activeOrders', 'inPrepMonitoring', 'inboundMonitoring'].includes(primaryActionPane),
+        existingOrderFollowUpAction:
+          values.existingOrderFollowUpAction ??
+          (['activeOrders', 'inPrepMonitoring', 'inboundMonitoring'].includes(primaryActionPane)
+            ? 'follow_up_existing_order'
+            : 'none'),
+        newReplenishmentActionable: values.newReplenishmentActionable ?? primaryActionPane === 'supplyAction',
+        oosAlertActionable: values.oosAlertActionable ?? ['supplyAction', 'zeroStock'].includes(primaryActionPane),
+        supplyActionable: values.supplyActionable ?? primaryActionPane === 'supplyAction',
+        calculationEvidence: {
+          ...(values.calculationEvidence as Record<string, unknown> | undefined),
+          familyActionSnapshot: {
+            familyKey: familyId,
+            companyProductFamilyId: familyId,
+            companyId,
+            amazonAccountId,
+            marketplace,
+            canonicalAsin: existingTarget?.asin ?? asin,
+            targetSelectionState: targetCompanyProductId ? 'automatic' : 'review',
+            targetCompanyProductId,
+            targetSelectionEvidence: { source: 'api_test' },
+          },
+        },
+      },
+    });
+  }
+}
+
 class MemoryDatabase implements EcobaseDatabase {
   readonly repositories = new Map<string, MemoryRepository>();
 
   constructor() {
-    Object.values(ECOBASE_COLLECTIONS).forEach((name) => this.repositories.set(name, new MemoryRepository()));
+    Object.values(ECOBASE_COLLECTIONS).forEach((name) =>
+      this.repositories.set(
+        name,
+        name === ECOBASE_COLLECTIONS.goldInventoryPlanningRows ? new GoldMemoryRepository() : new MemoryRepository(),
+      ),
+    );
     this.repositories.set('users', new MemoryRepository());
     this.repositories.set('rolesUsers', new MemoryRepository());
   }
@@ -358,6 +458,49 @@ describe('Ecobase inventory-planning public API seam', () => {
     expect(preview.body).toMatchObject({ data: { dryRun: true, totalCandidates: 0, complete: true } });
   });
 
+  it('exposes an ACL-backed published listing-performance review action with strict category validation', async () => {
+    const db = new MemoryDatabase();
+    const actions = createEcobaseInventoryPlanningActions();
+    await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).create({
+      values: {
+        id: 'published-listing-review',
+        calculationDate: '2026-07-05',
+        status: 'published',
+        publishedAt: '2026-07-05T08:00:00.000Z',
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).create({
+      values: {
+        id: 'published-listing-review-row',
+        refreshRunId: 'published-listing-review',
+        calculationDate: '2026-07-05',
+        companyProductId: 'company-product-d',
+        asin: 'B000TIERD',
+        sku: 'TIER-D-SKU',
+        baselineTier: 'D',
+      },
+    });
+    const context = createActionContext(db, { calculationDate: '2026-07-05', categories: ['tier_d'] });
+
+    await actions.listingPerformanceReview(context, vi.fn());
+
+    expect(context.body).toMatchObject({
+      data: {
+        scope: 'listing_performance_review',
+        selectedCategories: ['tier_d'],
+        listingCount: 1,
+        actionCount: 0,
+        rows: [expect.objectContaining({ sku: 'TIER-D-SKU', listingReviewCategories: ['tier_d'] })],
+      },
+    });
+    await expect(
+      actions.listingPerformanceReview(
+        createActionContext(db, { calculationDate: '2026-07-05', categories: ['unsupported_category'] }),
+        vi.fn(),
+      ),
+    ).rejects.toThrow('unsupported listing review category "unsupported_category"');
+  });
+
   it('returns a compact command-center payload with paginated pane rows and drawer data', async () => {
     const db = new MemoryDatabase();
     const actions = createEcobaseInventoryPlanningActions();
@@ -572,7 +715,12 @@ describe('Ecobase inventory-planning public API seam', () => {
       values: { id: 'product-2', asin: 'B002', sku: 'SKU-2', title: 'Pipeline risk product' },
     });
     await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
-      values: { id: 'company-product-2', companyId: 'company-2', productId: 'product-2' },
+      values: {
+        id: 'company-product-2',
+        companyId: 'company-2',
+        productId: 'product-2',
+        companyProductFamilyId: 'test-family:company-product-2',
+      },
     });
     await db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).create({
       values: { id: 'supplier-2', displayName: 'Supplier A', normalizedName: 'supplier a' },
@@ -614,11 +762,12 @@ describe('Ecobase inventory-planning public API seam', () => {
 
     const context = createActionContext(db, {
       company: 'ACME',
+      calculationDate: '2026-07-05',
       pane: 'supplyAction',
       pageSize: 1,
       sortBy: 'estimatedProfitRisk',
       sortDirection: 'desc',
-      selectedRowId: 'gold-2',
+      selectedRowId: 'test-family:company-product-2',
     });
     await actions.commandCenter(context, vi.fn());
     const data = context.body?.data as Record<string, any>;
@@ -655,12 +804,14 @@ describe('Ecobase inventory-planning public API seam', () => {
       'stuckInventory',
       'zeroStock',
       'dataReadiness',
+      'performanceReview',
       'untieredProducts',
     ]);
     expect(data.panes.dataReadiness).toMatchObject({ total: 0, rows: [] });
     expect(data.panes.supplyAction).toMatchObject({ total: 1, pageSize: 1 });
     expect(data.panes.supplyAction.rows[0]).toMatchObject({
-      id: 'gold-1',
+      id: 'test-family:gold-1',
+      actionSourceCompanyProductId: 'gold-1',
       tierScore: 250,
       recentUnits30: 10,
       tierEligibilityReason: 'eligible_recent_demand',
@@ -685,30 +836,39 @@ describe('Ecobase inventory-planning public API seam', () => {
     expect(data.panes.inPrepMonitoring.rows).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          id: 'gold-2',
+          id: 'test-family:company-product-2',
+          actionSourceCompanyProductId: 'company-product-2',
           daysUntilOos: 2,
           stockoutGapDays: 3,
           latestSupplierOrderActivityAt: '2026-07-01T10:00:00.000Z',
           latestSupplierOrderActivityNote: 'Paid confirmed',
         }),
-        expect.objectContaining({ id: 'gold-6', stuck: false, stuckClassification: 'none' }),
+        expect.objectContaining({ id: 'test-family:gold-6', stuck: false, stuckClassification: 'none' }),
       ]),
     );
     expect(data.panes.untieredProducts).toMatchObject({ total: 3 });
     expect(data.panes.untieredProducts.rows).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ id: 'gold-3', tier: undefined, stuckClassification: 'over_60_doc' }),
-        expect.objectContaining({ id: 'gold-4', estimatedProfitRisk: undefined, moneyRiskStatus: 'unknown_arrival' }),
-        expect.objectContaining({ id: 'gold-7', tier: undefined, profitPerUnit: undefined }),
+        expect.objectContaining({ id: 'test-family:gold-3', tier: undefined, stuckClassification: 'over_60_doc' }),
+        expect.objectContaining({
+          id: 'test-family:gold-4',
+          estimatedProfitRisk: undefined,
+          moneyRiskStatus: 'unknown_arrival',
+        }),
+        expect.objectContaining({ id: 'test-family:gold-7', tier: undefined, profitPerUnit: undefined }),
       ]),
     );
     expect(data.panes.excessInventory.rows).toEqual([
-      expect.objectContaining({ id: 'gold-5', stuckClassification: 'over_60_doc' }),
+      expect.objectContaining({ id: 'test-family:gold-5', stuckClassification: 'over_60_doc' }),
     ]);
-    expect(data.panes.supplyAction.rows.map((row: Record<string, unknown>) => row.id)).not.toContain('gold-5');
-    expect(data.panes.untieredProducts.rows.map((row: Record<string, unknown>) => row.id)).not.toContain('gold-6');
+    expect(data.panes.supplyAction.rows.map((row: Record<string, unknown>) => row.id)).not.toContain(
+      'test-family:gold-5',
+    );
+    expect(data.panes.untieredProducts.rows.map((row: Record<string, unknown>) => row.id)).not.toContain(
+      'test-family:gold-6',
+    );
     expect(data.selectedRow.row).toMatchObject({
-      id: 'gold-2',
+      id: 'test-family:company-product-2',
       tierScore: 250,
       previousTier: 'B',
       currentTier: 'A',
@@ -1140,9 +1300,18 @@ describe('Ecobase supplier-order workspace API seam', () => {
         productId: 'product-other',
       },
     });
+    await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).create({
+      values: {
+        id: 'supplier-order-api-published-run',
+        status: 'published',
+        calculationDate: '2025-07-10',
+        publishedAt: '2025-07-10T00:00:00.000Z',
+      },
+    });
     await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).create({
       values: {
         id: 'gold-product-eco',
+        refreshRunId: 'supplier-order-api-published-run',
         calculationDate: '2025-07-10',
         companyProductId: '22222222-2222-4222-8222-222222222222',
         company: 'Ecofission LLC',
@@ -3020,15 +3189,15 @@ describe('Ecobase import public API seam', () => {
       files: [
         expect.objectContaining({
           detectedShape: 'supplier-ids',
-          adapterName: 'supplier-order-csv',
+          adapterName: 'google-sheets-migration-csv',
           importable: true,
         }),
       ],
       groups: [
         expect.objectContaining({
-          adapterName: 'supplier-order-csv',
+          adapterName: 'google-sheets-migration-csv',
           sourceType: 'google_sheets',
-          domain: 'order_management',
+          domain: 'supplier_management',
         }),
       ],
     });
@@ -3252,9 +3421,18 @@ describe('Ecobase import public API seam', () => {
 describe('Ecobase alert public API seam', () => {
   it('evaluates deterministic alerts through the public resource action and lists open alerts', async () => {
     const db = new MemoryDatabase();
+    await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).create({
+      values: {
+        id: 'alert-api-published-run',
+        status: 'published',
+        calculationDate: '2025-07-10',
+        publishedAt: '2025-07-10T00:00:00.000Z',
+      },
+    });
     await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).create({
       values: {
         id: 'alert-gold-row',
+        refreshRunId: 'alert-api-published-run',
         calculationDate: '2025-07-10',
         companyProductId: 'alert-product-1',
         company: 'Alerts LLC',
@@ -3316,10 +3494,20 @@ describe('Ecobase supplier-management public API seam', () => {
         nextFollowUpAt: '2025-07-09T00:00:00.000Z',
       },
     });
+    await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).create({
+      values: {
+        id: 'supplier-management-api-published-run',
+        status: 'published',
+        calculationDate: '2025-07-10',
+        publishedAt: '2025-07-10T00:00:00.000Z',
+      },
+    });
     await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).create({
       values: {
         id: 'inventory-risk-a',
+        refreshRunId: 'supplier-management-api-published-run',
         calculationDate: '2025-07-10',
+        company: 'Money LLC',
         companyName: 'Money LLC',
         supplierId: 'supplier-a',
         supplierName: 'High Value Supplier',
@@ -3463,7 +3651,9 @@ describe('Ecobase supplier-management public API seam', () => {
     expect(detailContext.body.data.supplierProducts).toEqual([
       expect.objectContaining({ asin: 'B0MONEY', sku: 'SKU-MONEY', analysisStatus: 'approved' }),
     ]);
-    expect(detailContext.body.data.inventoryRisks).toEqual([expect.objectContaining({ id: 'inventory-risk-a' })]);
+    expect(detailContext.body.data.inventoryRisks).toEqual([
+      expect.objectContaining({ actionSourceCompanyProductId: 'inventory-risk-a' }),
+    ]);
     expect(detailContext.body.data.orderRisks).toEqual([expect.objectContaining({ id: 'order-risk-a' })]);
 
     const createOrderContext = createActionContext(db, {

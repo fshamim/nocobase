@@ -19,7 +19,10 @@ import {
   type OrderLifecycleStatus,
 } from './order-lifecycle';
 import { isProfitTier, profitTierRank } from '../../inventory-planning/server/profit-tier';
-import { EcobaseInventoryPlanningGoldAccess } from '../../inventory-planning/server/inventory-planning-gold-access';
+import {
+  EcobaseInventoryPlanningGoldAccess,
+  familyActionDecisionRecord,
+} from '../../inventory-planning/server/inventory-planning-gold-access';
 import {
   clickupOrderOperationalStatus,
   lifecycleStatusForOperationalStatus,
@@ -1355,12 +1358,16 @@ export class EcobaseOrderPlanningService {
     const wantedCompanies = new Set(companyNames.filter(Boolean));
     const rows = (
       await new EcobaseInventoryPlanningGoldAccess(this.db).readPublishedFamilyActions({ limit: 10000 })
-    ).rows.filter((row) => {
-      const company = text(row.company) ?? '';
-      return (
-        isProfitTier(row.tier) && text(row.supplierOrderRef) && (!wantedCompanies.size || wantedCompanies.has(company))
-      );
-    });
+    ).rows
+      .map(familyActionDecisionRecord)
+      .filter((row) => {
+        const company = text(row.company) ?? '';
+        return (
+          isProfitTier(row.tier) &&
+          text(row.supplierOrderRef) &&
+          (!wantedCompanies.size || wantedCompanies.has(company))
+        );
+      });
     const latestByCompany = new Map<string, string>();
     for (const row of rows) {
       const company = text(row.company) ?? '';

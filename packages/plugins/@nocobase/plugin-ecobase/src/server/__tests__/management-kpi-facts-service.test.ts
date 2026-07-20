@@ -201,7 +201,46 @@ describe('EcobaseManagementKpiFactsService', () => {
       },
     );
     for (const row of db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).records) {
+      const member = row.familyRole === 'member';
+      const companyProductId = String(row.id);
+      const familyId = member ? 'family:inventory-1' : `family:${companyProductId}`;
+      const targetCompanyProductId = member ? 'inventory-1' : companyProductId;
       row.refreshRunId = refreshRunId;
+      row.planningProductId = companyProductId;
+      row.companyProductId = companyProductId;
+      row.companyProductFamilyId = familyId;
+      row.companyId = 'company:Ecofission LLC';
+      row.amazonAccountId = 'account:Ecofission LLC';
+      row.marketplace = 'Amazon.com';
+      row.asin = `ASIN:${companyProductId}`;
+      row.sku = `SKU:${companyProductId}`;
+      row.familyRole ??= 'target';
+      row.isFrozenFamilyTarget = !member;
+      row.familyTargetCompanyProductId = targetCompanyProductId;
+      row.listingReviewCategories = [];
+      row.replenishmentEligibility = 'eligible';
+      row.replenishmentBlockReasonCode = 'eligible_informational_projection';
+      row.primaryActionPane = row.commandCenterPane;
+      row.primaryActionReasonCode =
+        row.commandCenterPane === 'healthyInventory' ? 'sufficient_stock' : 'trusted_reorder_due';
+      row.existingOrderFollowUp = row.commandCenterPane === 'inPrepMonitoring';
+      row.existingOrderFollowUpAction = row.existingOrderFollowUp ? 'follow_up_existing_order' : 'none';
+      row.newReplenishmentActionable = row.commandCenterPane === 'supplyAction';
+      row.oosAlertActionable = row.commandCenterPane === 'supplyAction';
+      row.supplyActionable = row.commandCenterPane === 'supplyAction';
+      row.calculationEvidence = {
+        familyActionSnapshot: {
+          familyKey: familyId,
+          companyProductFamilyId: familyId,
+          companyId: row.companyId,
+          amazonAccountId: row.amazonAccountId,
+          marketplace: row.marketplace,
+          canonicalAsin: member ? 'ASIN:inventory-1' : row.asin,
+          targetSelectionState: 'automatic',
+          targetCompanyProductId,
+          targetSelectionEvidence: { source: 'test' },
+        },
+      };
     }
     db.getRepository(ECOBASE_COLLECTIONS.goldOrderPlanningRows).records.push({
       id: 'order-1',

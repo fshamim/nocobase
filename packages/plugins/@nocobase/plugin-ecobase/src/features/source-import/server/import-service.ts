@@ -47,6 +47,7 @@ import { EcobasePlanningProductService } from '../../inventory-planning/server/p
 import { EcobaseSupplierManagementService } from '../../supplier-management/server/supplier-management-service';
 import { validateSupplierLeadTimeDays } from '../../supplier-management/server/supplier-order-service';
 import { EcobaseProtectedCatalogBoundary, type ProtectedCatalogReport } from './protected-catalog-boundary';
+import { EcobaseCoverageError, EcobaseSourceCoverageService } from './source-coverage-service';
 
 type Filter = Record<string, unknown>;
 
@@ -56,10 +57,16 @@ type RepositoryFindParams = {
   sort?: string[];
   limit?: number;
   appends?: string[];
+  transaction?: unknown;
 };
 
 type RepositoryCreateParams = { values: Record<string, unknown>; transaction?: unknown };
-type RepositoryUpdateParams = { filterByTk?: string | number | null; filter?: Filter; values: Record<string, unknown> };
+type RepositoryUpdateParams = {
+  filterByTk?: string | number | null;
+  filter?: Filter;
+  values: Record<string, unknown>;
+  transaction?: unknown;
+};
 type RepositoryDestroyParams = { filter?: Filter; filterByTk?: string | number; where?: Filter };
 
 type ImportFileSummary = {
@@ -1347,32 +1354,78 @@ export class EcobaseImportService {
 
     const finishedAt = new Date();
     const status = this.getFinalStatus(errorMessage, errorCount, normalizedCount, finalStatusOverride);
-    await importRunRepo.update({
-      filterByTk: importRunId,
-      values: {
-        finishedAt,
-        status,
-        rowCount,
-        normalizedCount,
-        warningCount,
-        errorCount,
-        errorMessage: errorMessage ?? statusMessage ?? (normalizedCount > 0 ? firstErrorIssueMessage : null),
-        summary: {
-          files: fileSummaries,
-          medallionNormalization,
-          familyReconciliation,
-          goldRefreshRequired,
-          migration: {
-            profileVersion: FOUR_COMPANY_MIGRATION_PROFILE.profileVersion,
-            asOfDate: sourceVersion.slice(0, 10),
-            ...stream.migrationSummary,
-          },
-          ...(params.summary ?? {}),
-          ...(catalogMutationMode ? { catalogMutationMode } : {}),
-          ...(stream.protectedCatalog ? { protectedCatalog: stream.protectedCatalog } : {}),
-        },
+    const runSummary = {
+      files: fileSummaries,
+      medallionNormalization,
+      familyReconciliation,
+      goldRefreshRequired,
+      migration: {
+        profileVersion: FOUR_COMPANY_MIGRATION_PROFILE.profileVersion,
+        asOfDate: sourceVersion.slice(0, 10),
+        ...stream.migrationSummary,
       },
-    });
+      ...(params.summary ?? {}),
+      ...(catalogMutationMode ? { catalogMutationMode } : {}),
+      ...(stream.protectedCatalog ? { protectedCatalog: stream.protectedCatalog } : {}),
+    };
+    const completionValues = {
+      finishedAt,
+      status,
+      rowCount,
+      normalizedCount,
+      warningCount,
+      errorCount,
+      errorMessage: errorMessage ?? statusMessage ?? (normalizedCount > 0 ? firstErrorIssueMessage : null),
+      summary: runSummary,
+    };
+    const maintainsSellerboardCoverage =
+      status === 'success' && ['sellerboard-api', 'sellerboard-history-csv'].includes(adapter.metadata.name);
+    const completeRun = async (transaction?: unknown) => {
+      await importRunRepo.update({ filterByTk: importRunId, values: completionValues, transaction });
+      if (!maintainsSellerboardCoverage) return;
+      const coverageMaintenance = await new EcobaseSourceCoverageService(this.db).maintainSuccessfulImport(
+        importRunId,
+        {
+          transaction,
+        },
+      );
+      await importRunRepo.update({
+        filterByTk: importRunId,
+        values: { summary: { ...runSummary, coverageMaintenance } },
+        transaction,
+      });
+    };
+    try {
+      if (maintainsSellerboardCoverage && this.db.sequelize?.transaction) {
+        await this.db.sequelize.transaction((transaction: unknown) => completeRun(transaction));
+      } else {
+        await completeRun();
+      }
+    } catch (coverageError) {
+      const coverageMessage =
+        coverageError instanceof EcobaseCoverageError
+          ? `${coverageError.code}: ${coverageError.message}`
+          : coverageError instanceof Error
+            ? `ECOBASE_COVERAGE_MAINTENANCE_FAILED: ${coverageError.message}`
+            : 'ECOBASE_COVERAGE_MAINTENANCE_FAILED: coverage maintenance threw a non-Error value.';
+      await importRunRepo.update({
+        filterByTk: importRunId,
+        values: {
+          ...completionValues,
+          status: normalizedCount > 0 ? 'partial' : 'failed',
+          errorCount: errorCount + 1,
+          errorMessage: coverageMessage,
+          summary: {
+            ...runSummary,
+            coverageMaintenance: {
+              recorded: false,
+              reasonCode: 'maintenance_failed',
+              error: coverageMessage,
+            },
+          },
+        },
+      });
+    }
 
     const completedRun = await importRunRepo.findOne({ filterByTk: importRunId });
     return toPlainRecord(completedRun ?? pendingRun);

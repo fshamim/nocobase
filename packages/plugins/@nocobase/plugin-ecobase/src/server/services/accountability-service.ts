@@ -11,7 +11,10 @@ import { randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import type { EcobaseDatabase } from '../../features/source-import/server/import-service';
 import { toPlainRecord } from '../../features/source-import/server/import-service';
-import { EcobaseInventoryPlanningGoldAccess } from '../../features/inventory-planning/server/inventory-planning-gold-access';
+import {
+  EcobaseInventoryPlanningGoldAccess,
+  familyActionDecisionRecord,
+} from '../../features/inventory-planning/server/inventory-planning-gold-access';
 
 const ACCOUNTABILITY_RULE_VERSION = 'ecobase_accountability_mvp_v1';
 const DEFAULT_ACCOUNTABILITY_CONFIG = {
@@ -343,20 +346,30 @@ export class EcobaseAccountabilityService {
         )
       : {};
     const planningProductId = asString(link.planningProductId);
+    const goldAccess = new EcobaseInventoryPlanningGoldAccess(this.db);
     const product = planningProductId
       ? (
-          await new EcobaseInventoryPlanningGoldAccess(this.db).readPublishedListingPerformance({
+          await goldAccess.readPublishedListingPerformance({
             filter: { companyProductId: planningProductId },
             sort: ['-calculationDate'],
             limit: 1,
           })
         ).rows[0] ?? {}
       : {};
+    const familyAction = product.companyProductFamilyId
+      ? (
+          await goldAccess.readPublishedFamilyActions({
+            filter: { companyProductFamilyId: product.companyProductFamilyId },
+            limit: 1,
+          })
+        ).rows.map(familyActionDecisionRecord)[0] ?? {}
+      : {};
     return {
       link,
       planningProductId,
       company: asString(product.company),
       canonicalAsin: asString(product.asin) ?? asString(product.canonicalAsin),
+      familyAction,
     };
   }
 

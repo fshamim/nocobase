@@ -170,6 +170,7 @@ async function seedLifecycleRun(db: MemoryDatabase, id: string, status: string, 
       calculationDate: date,
       status,
       rowCount: 1,
+      materializedAt: `${date}T00:00:00.000Z`,
       publishedAt: status === 'published' ? `${date}T00:00:00.000Z` : null,
     },
   });
@@ -180,9 +181,40 @@ async function seedLifecycleRun(db: MemoryDatabase, id: string, status: string, 
       naturalKey: `${id}:row`,
       planningProductId: `${id}:product`,
       companyProductId: `${id}:product`,
+      companyProductFamilyId: `${id}:family`,
+      companyId: `${id}:company`,
+      amazonAccountId: `${id}:account`,
+      marketplace: 'Amazon.com',
       company: 'ACME',
       asin: `B00${id.toUpperCase()}`,
+      sku: `${id}:sku`,
       calculationDate: date,
+      familyRole: 'target',
+      isFrozenFamilyTarget: true,
+      familyTargetCompanyProductId: `${id}:product`,
+      listingReviewCategories: [],
+      replenishmentEligibility: 'eligible',
+      replenishmentBlockReasonCode: 'eligible_informational_projection',
+      primaryActionPane: 'healthyInventory',
+      primaryActionReasonCode: 'sufficient_stock',
+      existingOrderFollowUp: false,
+      existingOrderFollowUpAction: 'none',
+      newReplenishmentActionable: false,
+      oosAlertActionable: false,
+      supplyActionable: false,
+      calculationEvidence: {
+        familyActionSnapshot: {
+          familyKey: `${id}:family`,
+          companyProductFamilyId: `${id}:family`,
+          companyId: `${id}:company`,
+          amazonAccountId: `${id}:account`,
+          marketplace: 'Amazon.com',
+          canonicalAsin: `B00${id.toUpperCase()}`,
+          targetSelectionState: 'automatic',
+          targetCompanyProductId: `${id}:product`,
+          targetSelectionEvidence: { source: 'test' },
+        },
+      },
       ...validStockContract(),
     },
   });
@@ -365,6 +397,91 @@ describe('Gold refresh publication control', () => {
     });
     await expect(new EcobaseGoldRefreshRunService(db).verify(String((result.run as Row).id))).resolves.toMatchObject({
       storedRowCount: 2,
+    });
+    expect(db.runs.rows.find((run) => run.id === (result.run as Row).id)).toMatchObject({
+      status: 'verified',
+      independentVerificationJson: {
+        valid: true,
+        verifierVersion: 'independent_gold_reference_v1',
+        contractMode: 'legacy_additive',
+        listingRowCount: 2,
+        mismatchCount: 0,
+      },
+      independentVerificationDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+  });
+
+  it('persists corrected listing/family projection provenance returned by materialization', async () => {
+    const db = new MemoryDatabase();
+    const service = new EcobaseGoldRefreshRunService(db);
+    const digest = (value: string) => createHash('sha256').update(value).digest('hex');
+    const result = await service.execute({
+      calculationDate: '2026-07-18',
+      idempotencyKey: 'corrected-projection-provenance',
+      candidateInputDigests: {
+        sourceInputDigest: digest('source'),
+        coverageInputDigest: digest('coverage'),
+        settingsDigest: digest('settings'),
+        algorithmContractVersion: 'individual_monthly_profit_performance_v1',
+      },
+      request: { calculationDate: '2026-07-18', ruleVersion: 'individual_dynamic_6m_profit_trend_v1' },
+      materialize: async ({ runId, candidateInputDigest }) => {
+        await db.gold.create({
+          values: {
+            id: `${runId}:row`,
+            refreshRunId: runId,
+            naturalKey: `${runId}:row`,
+            planningProductId: 'row',
+            company: 'ACME',
+            asin: 'B000000001',
+            calculationDate: '2026-07-18',
+            ...validStockContract(),
+          },
+        });
+        return {
+          calculationDate: '2026-07-18',
+          rowCount: 1,
+          created: 1,
+          updated: 0,
+          lastRefreshedAt: '2026-07-18T00:00:00.000Z',
+          ruleVersion: 'individual_dynamic_6m_profit_trend_v1',
+          algorithmContractVersion: 'individual_monthly_profit_performance_v1',
+          currentProjectionGateMode: 'informational',
+          resolvedPlanningSettingsDigest: digest('settings'),
+          sourceCoverageDigest: digest('coverage'),
+          sourceInputDigest: digest('source'),
+          protectedSilverFingerprint: digest('protected'),
+          candidateInputDigest,
+          canonicalSerializerVersion: 'canonical_json_decimal8_v1',
+          candidateInputDigestVersion: 'candidate_input_digest_v1',
+          sourceCoverageDigestVersion: 'source_coverage_digest_v1',
+          listingRowDigestVersion: 'listing_performance_digest_v1',
+          familyActionProjectionDigestVersion: 'family_action_digest_v1',
+          listingRowCount: 1,
+          listingRowDigest: digest('listing'),
+          familyActionProjectionCount: 1,
+          familyActionProjectionDigest: digest('family'),
+        };
+      },
+    });
+
+    expect(result.run).toMatchObject({
+      ruleVersion: 'individual_dynamic_6m_profit_trend_v1',
+      algorithmContractVersion: 'individual_monthly_profit_performance_v1',
+      currentProjectionGateMode: 'informational',
+      resolvedPlanningSettingsDigest: digest('settings'),
+      sourceCoverageDigest: digest('coverage'),
+      sourceInputsDigest: digest('source'),
+      protectedSilverFingerprint: digest('protected'),
+      canonicalSerializerVersion: 'canonical_json_decimal8_v1',
+      candidateInputDigestVersion: 'candidate_input_digest_v1',
+      sourceCoverageDigestVersion: 'source_coverage_digest_v1',
+      listingRowDigestVersion: 'listing_performance_digest_v1',
+      familyActionProjectionDigestVersion: 'family_action_digest_v1',
+      listingRowCount: 1,
+      listingRowDigest: digest('listing'),
+      familyActionProjectionCount: 1,
+      familyActionProjectionDigest: digest('family'),
     });
   });
 
@@ -567,8 +684,9 @@ describe('Gold refresh publication control', () => {
     expect(allowedContext.body).toMatchObject({
       data: {
         published: false,
+        banner: 'UNPUBLISHED CANDIDATE — NOT OPERATIONAL',
         rows: [expect.objectContaining({ refreshRunId: 'candidate-preview' })],
-        familyActions: [expect.objectContaining({ refreshRunId: 'candidate-preview' })],
+        familyActions: [expect.objectContaining({ runId: 'candidate-preview' })],
       },
     });
     expect(db.getRepository('goldInventoryPlanningAccessAudits').rows).toEqual(

@@ -68,6 +68,7 @@ export type FormulaHelpGroupKey =
   | 'inventoryInboundMonitoring'
   | 'inventoryHealthyInventory'
   | 'inventoryStuckInventory'
+  | 'inventoryPerformanceReview'
   | 'inventoryDrawer'
   | 'orderPlanning'
   | 'orderDrawer'
@@ -127,18 +128,10 @@ const FORMULAS: Record<FormulaKey, FormulaDefinition> = {
     note: 'Amazon-side pipeline is unavailable until sellable. Supplier pipeline is shown separately and netted to prevent double counting.',
   },
   salesVelocity: {
-    label: 'Sales velocity',
+    label: 'Trusted rolling velocity',
     source: 'eco_calc',
-    equation: [
-      'max(',
-      { text: '7-day units avg', source: 'sellerboard' },
-      ', ',
-      { text: '30-day units avg', source: 'sellerboard' },
-      ', ',
-      { text: 'Sellerboard stock velocity', source: 'sellerboard' },
-      ')',
-    ],
-    note: 'Stock velocity is Sellerboard Stock Daily “Estimated Sales Velocity” when present; otherwise EcoBase uses unit averages.',
+    equation: [{ text: 'Sellerboard units in the exact inclusive 30-day window', source: 'sellerboard' }, ' / 30'],
+    note: 'The window must have continuous product scope and reconciled unit evidence. A complete no-row window is trusted zero; missing, discontinuous, or mismatched coverage remains insufficient and never falls back to snapshot velocity.',
   },
   daysOfCover: {
     label: 'Current days of cover',
@@ -201,20 +194,23 @@ const FORMULAS: Record<FormulaKey, FormulaDefinition> = {
     note: 'Reserved stock is excluded. Supplier pipeline counts only reliable purchased quantity not already represented in Amazon pipeline.',
   },
   tierScore: {
-    label: 'Tier score',
+    label: 'Individual monthly profit tier score',
     source: 'eco_derived',
     equation: [
-      { text: 'profitPerUnit', source: 'eco_calc' },
-      ' × ',
-      { text: 'actual units sold in latest rolling 30 days', source: 'sellerboard' },
+      'sum(',
+      { text: 'eligible complete-month NetProfit', source: 'sellerboard' },
+      ') / ',
+      { text: 'eligible complete-month count in the dynamic six-closed-month window', source: 'eco_calc' },
     ],
-    note: 'Profit per unit is dollars per unit, not margin %. A product needs at least 4 actual units in the latest trusted rolling 30-day window and must not be stuck to qualify for A/B/C. Six-month quantities remain historical context only.',
+    note: 'Each listing is calculated independently. Missing scope, discontinuous coverage, invalid units, or missing NetProfit excludes that month and lowers confidence; it never becomes zero. Family member profit is never aggregated into another listing.',
   },
   profitTier: {
-    label: 'Tier',
+    label: 'Individual profit tier',
     source: 'eco_derived',
-    equation: [{ text: 'tierScore compared with Planning Settings thresholds', source: 'eco_calc' }],
-    note: 'A/B/C prioritization from tier score. The active Planning Settings thresholds are A ≥ 250, B ≥ 100, C > 0. Fewer than 4 recent units, stuck inventory, missing recent-sales evidence, or a missing/non-positive profit score is unclassified.',
+    equation: [
+      { text: 'unrounded average monthly NetProfit compared with Planning Settings thresholds', source: 'eco_calc' },
+    ],
+    note: 'A ≥ 250, B ≥ 100, C ≥ 0, and otherwise D. Trusted zero movement is no-movement rather than D. Only full six-month baseline confidence may enable a new replenishment action; current-month projection is informational for the replacement candidate.',
   },
   riskDays: {
     label: 'Uncovered stockout days',
@@ -1159,7 +1155,7 @@ const GROUPS: Record<FormulaHelpGroupKey, HelpGroup> = {
     ],
   },
   inventoryStuckInventory: {
-    title: 'Stuck & excess inventory',
+    title: 'Stuck inventory',
     formulas: [
       'stockParity',
       'pipelineStock',
@@ -1173,9 +1169,20 @@ const GROUPS: Record<FormulaHelpGroupKey, HelpGroup> = {
     tags: INVENTORY_STUCK_TAGS,
     notes: [
       'This pane has one action row per family and identifies the affected listings, units, value, reason, and active-order context.',
-      'A listing is stuck only for trusted DOC above 60, trusted rolling-30 zero sell-through with positive stock, or reserved/pipeline stock stalled past its expected date or activity SLA.',
-      'DOC from 31 through 60 and declining velocity stay in Watch. Missing velocity is a data warning, not a stuck classification.',
+      'A listing is stuck only for trusted rolling-30 zero sell-through with fresh positive sellable stock. Trusted cover strictly above 60 days is routed separately to Excess Inventory.',
+      'Missing or discontinuous velocity evidence is a data-readiness warning, never inferred zero sell-through.',
       'Active orders do not hide stuck stock. Expand the family to inspect each listing and its latest order evidence.',
+    ],
+  },
+  inventoryPerformanceReview: {
+    title: 'Performance Review',
+    formulas: ['tierScore', 'profitTier', 'salesVelocity', 'daysOfCover'],
+    fields: INVENTORY_DETAIL_FIELDS,
+    tags: INVENTORY_TAGS,
+    notes: [
+      'This is a non-action listing review surface for Tier D, no movement, closed/current decline, stuck, excess, and data-readiness evidence.',
+      'Listing filters never create or duplicate a family action. The frozen family target remains the sole action owner.',
+      'Baseline and exact last-closed tiers are separate from the informational current-month projection and show independent confidence and movement.',
     ],
   },
   inventoryDrawer: {

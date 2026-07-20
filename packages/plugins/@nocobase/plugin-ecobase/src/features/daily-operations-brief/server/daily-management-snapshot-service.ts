@@ -12,7 +12,10 @@ import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import type { DailyEvidencePack } from './daily-operations-brief-service';
 import type { EcobaseDatabase } from '../../source-import/server/import-service';
 import { toPlainRecord } from '../../source-import/server/import-service';
-import { EcobaseInventoryPlanningGoldAccess } from '../../inventory-planning/server/inventory-planning-gold-access';
+import {
+  EcobaseInventoryPlanningGoldAccess,
+  familyActionDecisionRecord,
+} from '../../inventory-planning/server/inventory-planning-gold-access';
 
 type PlainRecord = Record<string, unknown>;
 
@@ -685,7 +688,7 @@ export class EcobaseDailyManagementSnapshotService {
         sort: ['-estimatedProfitRisk'],
         limit: 10000,
       })
-    ).rows;
+    ).rows.map(familyActionDecisionRecord);
   }
 
   private async currentOrderRows(company?: string, evidencePack?: DailyEvidencePack) {

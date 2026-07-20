@@ -15,9 +15,18 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
-import { describe, expect, it } from 'vitest';
-import { sellerboardHistorySourceConnectionId } from '../../features/source-import/server/sellerboard-history-apply-service';
-import { previewSellerboardHistoryBackfill } from '../../features/source-import/server/sellerboard-history-backfill-service';
+import { describe, expect, it, vi } from 'vitest';
+import {
+  EcobaseSellerboardHistoryApplyService,
+  sellerboardHistorySourceConnectionId,
+} from '../../features/source-import/server/sellerboard-history-apply-service';
+import {
+  previewSellerboardHistoryBackfill,
+  sellerboardHistoryCompany,
+  sellerboardHistoryConfirmationToken,
+} from '../../features/source-import/server/sellerboard-history-backfill-service';
+import { EcobaseImportService, type EcobaseDatabase } from '../../features/source-import/server/import-service';
+import { ECOBASE_COLLECTIONS } from '../collections/names';
 
 const header =
   'Date;Marketplace;ASIN;SKU;Name;SalesOrganic;SalesPPC;UnitsOrganic;UnitsPPC;Refunds;GrossProfit;NetProfit';
@@ -64,5 +73,46 @@ describe('Sellerboard history backfill preview', () => {
     expect(result.totalNormalizedRows).toBe(0);
     expect(result.totalErrorCount).toBe(4);
     expect(result.fileSummaries[0].reasonCounts).toEqual({ sellerboard_history_date_invalid: 1 });
+  });
+
+  it('does not accept a partial history import as a successful complete apply', async () => {
+    const sourceFiles = files();
+    const preview = await previewSellerboardHistoryBackfill({ files: sourceFiles, sourceVersion: '2026-07-04' });
+    const companies = sourceFiles.map((file, index) => ({
+      id: `company-${index}`,
+      name: sellerboardHistoryCompany(file.name),
+    }));
+    const sourceConnections = companies.map((company, index) => ({
+      id: `source-${index}`,
+      sourceType: 'sellerboard',
+      companyId: company.id,
+    }));
+    const db = {
+      getRepository(name: string) {
+        const records =
+          name === ECOBASE_COLLECTIONS.sourceConnections
+            ? sourceConnections
+            : name === ECOBASE_COLLECTIONS.silverCompanies
+              ? companies
+              : [];
+        return { find: async () => records };
+      },
+    } as unknown as EcobaseDatabase;
+    const importSpy = vi
+      .spyOn(EcobaseImportService.prototype, 'runAdapterImport')
+      .mockResolvedValue({ id: 'partial-run', status: 'partial', normalizedCount: 1 });
+
+    try {
+      await expect(
+        new EcobaseSellerboardHistoryApplyService(db, {} as never).apply({
+          files: sourceFiles,
+          sourceVersion: '2026-07-04',
+          decisionDigest: preview.decisionDigest,
+          confirmation: sellerboardHistoryConfirmationToken(preview.decisionDigest),
+        }),
+      ).rejects.toThrow('import ended partial');
+    } finally {
+      importSpy.mockRestore();
+    }
   });
 });

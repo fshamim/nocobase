@@ -10,7 +10,10 @@
 import { randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import type { EcobaseDatabase } from '../../features/source-import/server/import-service';
-import { EcobaseInventoryPlanningGoldAccess } from '../../features/inventory-planning/server/inventory-planning-gold-access';
+import {
+  EcobaseInventoryPlanningGoldAccess,
+  familyActionDecisionRecord,
+} from '../../features/inventory-planning/server/inventory-planning-gold-access';
 
 type PlainRecord = Record<string, unknown>;
 type EvidenceReference = { type: string; id?: string; label?: string; warning?: string };
@@ -149,6 +152,32 @@ const INVENTORY_FACT_FIELDS = [
   'moneyAtRisk',
   'suggestedReorderQty',
   'recommendedBestQty',
+  'primaryActionPane',
+  'primaryActionReasonCode',
+  'replenishmentEligibility',
+  'replenishmentBlockReasonCode',
+  'existingOrderFollowUp',
+  'existingOrderFollowUpAction',
+];
+
+const LISTING_PERFORMANCE_FIELDS = [
+  'company',
+  'calculationDate',
+  'companyProductId',
+  'companyProductFamilyId',
+  'asin',
+  'sku',
+  'title',
+  'baselineTier',
+  'baselineTierScore',
+  'baselineConfidence',
+  'lastClosedMonthTier',
+  'closedTierMovement',
+  'currentProjectedTier',
+  'currentProjectionConfidence',
+  'projectedTierMovement',
+  'inventoryDisposition',
+  'listingReviewCategories',
 ];
 
 const SUPPLIER_ATTENTION_FIELDS = [
@@ -313,6 +342,7 @@ export class EcobaseAiRetrievalService {
   async retrieveFacts(params: AiAnswerParams) {
     const limit = limited(params.limit, 10, 25);
     const inventoryDigest = await this.inventoryDigest({ ...params, limit });
+    const listingPerformanceRows = await this.goldListingPerformanceRows(params, limit);
     const supplierOrders = await this.supplierOrderEvidence({ ...params, limit });
     return {
       sourceModel: 'silver-gold-medallion',
@@ -320,6 +350,7 @@ export class EcobaseAiRetrievalService {
       inventoryDigest,
       gold: {
         inventoryPlanningRows: inventoryDigest.sections.topRiskRows,
+        listingPerformanceRows: compactRows(listingPerformanceRows, LISTING_PERFORMANCE_FIELDS, limit),
         supplierAttentionRows: inventoryDigest.sections.supplierAttentionRows,
         alerts: inventoryDigest.sections.alerts,
       },
@@ -442,6 +473,7 @@ export class EcobaseAiRetrievalService {
       add('silver_supplier', facts.silver.suppliers, 'displayName');
     }
     if (group === 'comparative_strategic' || group === 'ai_query_system') {
+      add('gold_listing_performance_row', facts.gold.listingPerformanceRows, 'asin');
       add('silver_listing_daily_fact', facts.silver.listingDailyFacts, 'snapshotDate');
       add('silver_inventory_snapshot', facts.silver.inventorySnapshots, 'snapshotDate');
     }
@@ -517,8 +549,22 @@ export class EcobaseAiRetrievalService {
         sort: ['-calculationDate'],
         limit: Math.max(limit * 5, 100),
       })
-    ).rows;
+    ).rows.map(familyActionDecisionRecord);
     return sortByRisk(rows).slice(0, limit);
+  }
+
+  private async goldListingPerformanceRows(params: Partial<AiAnswerParams>, limit: number) {
+    const filter: PlainRecord = {};
+    const calculationDate = params.calculationDate ?? params.date;
+    if (params.company) filter.company = params.company;
+    if (calculationDate) filter.calculationDate = calculationDate;
+    return (
+      await new EcobaseInventoryPlanningGoldAccess(this.db).readPublishedListingPerformance({
+        filter: Object.keys(filter).length ? filter : undefined,
+        sort: ['-calculationDate'],
+        limit: Math.max(limit * 5, 100),
+      })
+    ).rows.slice(0, limit);
   }
 
   private async findRows(collection: string, params: PlainRecord = {}) {

@@ -40,6 +40,7 @@ export function createSourceImportResourceRegistration(
           'refreshGoldReadModels',
           'analyzeCsvBundle',
           'runCsvBundle',
+          'bootstrapSourceCoverage',
           'previewSellerboardHistoryBackfill',
           'applySellerboardHistoryBackfill',
           'verifySellerboardHistoryBackfillIdempotency',

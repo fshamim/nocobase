@@ -12,7 +12,10 @@ import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import type { EcobaseDatabase } from '../../source-import/server/import-service';
 import { toPlainRecord } from '../../source-import/server/import-service';
 import { validateSupplierLeadTimeDays, validateSupplierOrderStatus } from './supplier-order-service';
-import { EcobaseInventoryPlanningGoldAccess } from '../../inventory-planning/server/inventory-planning-gold-access';
+import {
+  EcobaseInventoryPlanningGoldAccess,
+  familyActionDecisionRecord,
+} from '../../inventory-planning/server/inventory-planning-gold-access';
 
 type PlainRecord = Record<string, unknown>;
 
@@ -438,7 +441,9 @@ export class EcobaseSupplierManagementService {
       ...supplier,
       approvalStatus: effectiveSupplierLifecycleStatus(supplier, orderedSupplierKeys),
     };
-    const inventoryRisks = familyActions.rows.filter((row) => matchesCompany(row, params.company));
+    const inventoryRisks = familyActions.rows
+      .map(familyActionDecisionRecord)
+      .filter((row) => matchesCompany(row, params.company));
     const listingEvidence = listingPerformance.rows.filter((row) => matchesCompany(row, params.company));
     const orderRisks = rawOrderRisks.filter((row) => matchesCompany(row, params.company) && isActiveOrderRiskRow(row));
     return {
@@ -798,7 +803,9 @@ export class EcobaseSupplierManagementService {
         repoRows(this.db, ECOBASE_COLLECTIONS.silverSupplierAccounts),
         repoRows(this.db, ECOBASE_COLLECTIONS.silverSupplierProducts),
       ]);
-    const inventoryRows = publishedInventory.rows.filter((row) => matchesCompany(row, filters.company));
+    const inventoryRows = publishedInventory.rows
+      .map(familyActionDecisionRecord)
+      .filter((row) => matchesCompany(row, filters.company));
     const orderRows = rawOrderRows.filter((row) => matchesCompany(row, filters.company));
     const orderedSupplierKeys = collectOrderedSupplierKeys([...silverOrders, ...orderRows]);
     const comments = rawComments.filter((comment) => comment.entityType === 'supplier' && !comment.deletedAt);

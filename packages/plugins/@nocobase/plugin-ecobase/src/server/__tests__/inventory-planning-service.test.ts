@@ -159,6 +159,81 @@ async function createRecord(db: MemoryDatabase, collection: string, values: Reco
     }
     values.refreshRunId = runId;
   }
+  if (collection === ECOBASE_COLLECTIONS.goldInventoryPlanningRows) {
+    const goldCalculationDate = String(values.calculationDate ?? '2026-07-15');
+    const companyProductId = String(values.companyProductId ?? values.planningProductId ?? values.id);
+    const companyProductFamilyId = String(values.companyProductFamilyId ?? `test-family:${companyProductId}`);
+    const existingFamilyTarget = db
+      .getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows)
+      .all()
+      .find(
+        (row) =>
+          row.companyProductFamilyId === companyProductFamilyId &&
+          (row.familyRole === 'target' || row.isFrozenFamilyTarget === true),
+      );
+    const targetCompanyProductId =
+      values.familyRole === 'review'
+        ? null
+        : String(
+            values.familyTargetCompanyProductId ??
+              values.replenishmentTargetCompanyProductId ??
+              existingFamilyTarget?.companyProductId ??
+              companyProductId,
+          );
+    values.companyProductId = companyProductId;
+    values.planningProductId ??= companyProductId;
+    values.companyProductFamilyId = companyProductFamilyId;
+    values.companyId ??= `test-company:${String(values.company ?? 'unknown')}`;
+    values.amazonAccountId ??= `test-account:${companyProductFamilyId}`;
+    values.marketplace ??= values.familyMarketplace ?? 'Amazon.com';
+    values.sku ??= `test-sku:${companyProductId}`;
+    values.familyTargetCompanyProductId = targetCompanyProductId;
+    values.isFrozenFamilyTarget = targetCompanyProductId === companyProductId;
+    values.listingReviewCategories ??=
+      values.baselineTier === 'D' || values.lastClosedMonthTier === 'D' || values.currentProjectedTier === 'D'
+        ? ['tier_d']
+        : [];
+    const requestedPane = String(values.commandCenterPane ?? '');
+    const canonicalPanes = new Set([
+      'adminExcluded',
+      'supplyAction',
+      'activeOrders',
+      'inPrepMonitoring',
+      'inboundMonitoring',
+      'healthyInventory',
+      'excessInventory',
+      'stuckInventory',
+      'zeroStock',
+      'dataReadiness',
+      'performanceReview',
+      'untieredProducts',
+    ]);
+    const derivedPane = commandCenterPaneForRow(values, goldCalculationDate).pane;
+    values.primaryActionPane ??= canonicalPanes.has(requestedPane) ? requestedPane : derivedPane;
+    values.primaryActionReasonCode ??=
+      values.commandCenterPaneReason ?? commandCenterPaneForRow(values, goldCalculationDate).reason;
+    values.replenishmentEligibility ??= 'eligible';
+    values.replenishmentBlockReasonCode ??= 'eligible_informational_projection';
+    values.newReplenishmentActionable ??= values.primaryActionPane === 'supplyAction';
+    values.oosAlertActionable ??= ['supplyAction', 'zeroStock'].includes(String(values.primaryActionPane));
+    values.supplyActionable ??= values.primaryActionPane === 'supplyAction';
+    values.existingOrderFollowUp ??= false;
+    values.existingOrderFollowUpAction ??= 'none';
+    values.calculationEvidence = {
+      ...(values.calculationEvidence as Record<string, unknown> | undefined),
+      familyActionSnapshot: {
+        familyKey: companyProductFamilyId,
+        companyProductFamilyId,
+        companyId: values.companyId,
+        amazonAccountId: values.amazonAccountId,
+        marketplace: values.marketplace,
+        canonicalAsin: values.familyCanonicalAsin ?? values.asin ?? companyProductId,
+        targetSelectionState: targetCompanyProductId ? 'automatic' : 'review',
+        targetCompanyProductId,
+        targetSelectionEvidence: {},
+      },
+    };
+  }
   await db.getRepository(collection).create({ values });
 }
 
@@ -1317,6 +1392,66 @@ describe('EcobaseInventoryPlanningService', () => {
     expect(rows.map((row) => row.asin)).toEqual(['B000CURRENT']);
   });
 
+  it('serves non-action listing review evidence only from the published run', async () => {
+    const db = new MemoryDatabase();
+    await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns, {
+      id: 'unpublished-review-run',
+      idempotencyKey: 'unpublished-review-run',
+      requestDigest: 'unpublished-review-run',
+      calculationDate: '2026-06-26',
+      status: 'verified',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns, {
+      id: 'published-review-run',
+      idempotencyKey: 'published-review-run',
+      requestDigest: 'published-review-run',
+      calculationDate: '2026-06-26',
+      status: 'published',
+      publishedAt: '2026-06-27T00:00:00.000Z',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
+      id: 'unpublished-review-row',
+      refreshRunId: 'unpublished-review-run',
+      calculationDate: '2026-06-26',
+      companyProductId: 'unpublished-product',
+      asin: 'B000UNPUBLISHED',
+      sku: 'UNPUBLISHED-SKU',
+      baselineTier: 'D',
+    });
+    await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
+      id: 'published-review-row',
+      refreshRunId: 'published-review-run',
+      calculationDate: '2026-06-26',
+      companyProductId: 'published-product',
+      asin: 'B000PUBLISHED',
+      sku: 'PUBLISHED-SKU',
+      baselineTier: 'D',
+      currentProjectedTier: 'C',
+    });
+
+    const review = await new EcobaseInventoryPlanningService(db).listingPerformanceReview({
+      calculationDate: '2026-06-26',
+      categories: ['tier_d'],
+    });
+
+    expect(review).toMatchObject({
+      listingCount: 1,
+      actionCount: 0,
+      selectedCategories: ['tier_d'],
+    });
+    expect(review.rows.map((row) => row.asin)).toEqual(['B000PUBLISHED']);
+    expect(review.rows[0].listingReviewCategories).toEqual(['tier_d']);
+    expect(review.rows[0].memberPerformanceEvidence).toEqual([
+      expect.objectContaining({ companyProductId: 'published-product', baselineTier: 'D' }),
+    ]);
+    await expect(
+      new EcobaseInventoryPlanningService(db).listingPerformanceReview({
+        calculationDate: '2026-06-26',
+        categories: ['unsupported_category' as never],
+      }),
+    ).rejects.toThrow('unsupported listing review category "unsupported_category"');
+  });
+
   it('omits administrative exclusions from the report panes', async () => {
     const db = new MemoryDatabase();
     await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
@@ -2303,6 +2438,7 @@ describe('EcobaseInventoryPlanningService', () => {
       'stuckInventory',
       'zeroStock',
       'dataReadiness',
+      'performanceReview',
       'untieredProducts',
     ]);
     expect(commandCenter.panes.inPrepMonitoring.metrics.map((metric) => metric.label)).toEqual([

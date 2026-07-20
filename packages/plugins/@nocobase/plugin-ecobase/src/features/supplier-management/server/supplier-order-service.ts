@@ -10,7 +10,10 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import { EcobaseCompanyProductFamilyService } from '../../inventory-planning/server/company-product-family-service';
-import { EcobaseInventoryPlanningGoldAccess } from '../../inventory-planning/server/inventory-planning-gold-access';
+import {
+  EcobaseInventoryPlanningGoldAccess,
+  familyActionDecisionRecord,
+} from '../../inventory-planning/server/inventory-planning-gold-access';
 import {
   EcobaseMedallionIdentityService,
   normalizeExternalSupplierCode,
@@ -550,11 +553,14 @@ export class EcobaseSupplierOrderService {
       filter: { company: filters.company },
       sort: ['company', 'asin'],
     });
-    const planningProducts: PlainRecord[] = publishedFamilyActions.rows.slice(0, limit).map((row) => ({
-      ...row,
-      id: asString(row.companyProductId) ?? asString(row.planningProductId) ?? asString(row.id),
-      canonicalAsin: asString(row.asin),
-    }));
+    const planningProducts: PlainRecord[] = publishedFamilyActions.rows
+      .slice(0, limit)
+      .map(familyActionDecisionRecord)
+      .map((row) => ({
+        ...row,
+        id: asString(row.actionSourceCompanyProductId) ?? asString(row.representativeCompanyProductId),
+        canonicalAsin: asString(row.canonicalAsin) ?? asString(row.asin),
+      }));
     const silverOrders = await silverSupplierOrderReadModel(this.db, { company: filters.company, limit });
     const supplierOrders: PlainRecord[] = silverOrders.supplierOrders
       .map((order) => ({ ...order, status: normalizeSupplierOrderStatus(asString(order.status)) }))

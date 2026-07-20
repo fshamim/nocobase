@@ -12,7 +12,10 @@ import { ECOBASE_COLLECTIONS } from '../collections/names';
 import type { EcobaseDatabase } from '../../features/source-import/server/import-service';
 import { toPlainRecord } from '../../features/source-import/server/import-service';
 import { EcobaseSupplierOrderService } from '../../features/supplier-management/server/supplier-order-service';
-import { EcobaseInventoryPlanningGoldAccess } from '../../features/inventory-planning/server/inventory-planning-gold-access';
+import {
+  EcobaseInventoryPlanningGoldAccess,
+  familyActionDecisionRecord,
+} from '../../features/inventory-planning/server/inventory-planning-gold-access';
 
 const ALERT_RULE_VERSION = 'ecobase_alerts_mvp_v1';
 const DEFAULT_ALERT_CONFIG = {
@@ -277,7 +280,7 @@ export class EcobaseAlertEvaluationService {
         sort: ['-calculationDate'],
         limit: 5000,
       })
-    ).rows;
+    ).rows.map(familyActionDecisionRecord);
     if (params.planningProductId) {
       const product = rows.find((row) =>
         [row.id, row.planningProductId, row.companyProductId].map(asString).includes(params.planningProductId),

@@ -99,7 +99,7 @@ async function seedProduct(db: MemoryDatabase, values: Record<string, unknown> =
   const id = String(values.id ?? 'product-1');
   const company = String(values.company ?? 'ACME');
   const asin = String(values.canonicalAsin ?? 'B00FOCUS');
-  const sku = typeof values.sku === 'string' ? values.sku : undefined;
+  const sku = typeof values.sku === 'string' ? values.sku : `SKU:${id}`;
   const title = String(values.title ?? 'Focus product');
   const refreshRunId = await ensurePublishedRefreshRun(db, '2026-06-10');
   await db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
@@ -111,34 +111,56 @@ async function seedProduct(db: MemoryDatabase, values: Record<string, unknown> =
   await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
     values: { id, companyId: `company:${company}`, productId: `product:${id}` },
   });
-  await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).create({
-    values: {
-      id: `gold:${id}`,
-      naturalKey: `gold:${id}`,
-      company,
-      planningProductId: id,
-      companyProductId: id,
-      asin,
-      sku,
-      title,
-      calculationDate: '2026-06-10',
-      refreshRunId,
-      actionStatus: 'watch',
-    },
+  await seedGoldInventoryRow(db, {
+    id: `gold:${id}`,
+    naturalKey: `gold:${id}`,
+    company,
+    planningProductId: id,
+    companyProductId: id,
+    asin,
+    sku,
+    title,
+    calculationDate: '2026-06-10',
+    refreshRunId,
+    actionStatus: 'watch',
   });
 }
 
 async function seedGoldInventoryRow(db: MemoryDatabase, values: Record<string, unknown>) {
   const calculationDate = String(values.calculationDate ?? '2026-06-10');
   const refreshRunId = await ensurePublishedRefreshRun(db, calculationDate);
+  const company = String(values.company ?? 'ACME');
+  const companyProductId = String(values.companyProductId ?? values.planningProductId ?? values.id);
+  const familyRole = String(values.familyRole ?? 'target');
+  const existingRows = await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).find({});
+  const existingTarget = existingRows.find(
+    (row) => row.familyRole === 'target' && row.company === company && row.refreshRunId === refreshRunId,
+  );
+  const targetCompanyProductId =
+    familyRole === 'review'
+      ? null
+      : familyRole === 'member'
+        ? String(existingTarget?.companyProductId ?? companyProductId)
+        : companyProductId;
+  const familyId =
+    familyRole === 'member'
+      ? String(existingTarget?.companyProductFamilyId ?? `family:${targetCompanyProductId}`)
+      : String(values.companyProductFamilyId ?? `family:${companyProductId}`);
+  const requestedPane = String(values.commandCenterPane ?? 'healthyInventory');
+  const primaryActionPane = requestedPane === 'watch' ? 'healthyInventory' : requestedPane;
   await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).create({
     values: {
       id: values.id,
       naturalKey: values.naturalKey ?? values.id,
-      company: values.company ?? 'ACME',
-      planningProductId: values.planningProductId ?? values.id,
+      company,
+      planningProductId: values.planningProductId ?? companyProductId,
+      companyProductId,
+      companyProductFamilyId: familyId,
+      companyId: `company:${company}`,
+      amazonAccountId: `account:${company}`,
+      marketplace: 'Amazon.com',
       asin: values.asin,
-      sku: values.sku,
+      sku: values.sku ?? `SKU:${companyProductId}`,
       title: values.title ?? values.asin,
       tier: values.tier ?? 'A',
       calculationDate,
@@ -148,7 +170,27 @@ async function seedGoldInventoryRow(db: MemoryDatabase, values: Record<string, u
       productStatus: values.productStatus ?? 'active',
       commandCenterPane: values.commandCenterPane ?? 'watch',
       commandCenterPaneReason: values.commandCenterPaneReason ?? 'not_in_action_population',
-      familyRole: values.familyRole,
+      familyRole,
+      isFrozenFamilyTarget: targetCompanyProductId === companyProductId,
+      familyTargetCompanyProductId: targetCompanyProductId,
+      listingReviewCategories: values.listingReviewCategories ?? [],
+      primaryActionPane,
+      primaryActionReasonCode: values.commandCenterPaneReason ?? 'sufficient_stock',
+      replenishmentEligibility:
+        values.replenishmentEligibility ??
+        (values.planningEligibilityStatus === 'eligible' ? 'eligible' : 'blocked_insufficient_evidence'),
+      replenishmentBlockReasonCode:
+        values.replenishmentBlockReasonCode ??
+        (values.planningEligibilityStatus === 'eligible'
+          ? 'eligible_informational_projection'
+          : 'blocked_insufficient_evidence'),
+      existingOrderFollowUp: ['activeOrders', 'inPrepMonitoring', 'inboundMonitoring'].includes(primaryActionPane),
+      existingOrderFollowUpAction: ['activeOrders', 'inPrepMonitoring', 'inboundMonitoring'].includes(primaryActionPane)
+        ? 'follow_up_existing_order'
+        : 'none',
+      newReplenishmentActionable: primaryActionPane === 'supplyAction',
+      oosAlertActionable: ['supplyAction', 'zeroStock'].includes(primaryActionPane),
+      supplyActionable: primaryActionPane === 'supplyAction',
       planningEligibilityStatus: values.planningEligibilityStatus ?? 'watch',
       planningEligibilityReason: values.planningEligibilityReason ?? 'not_in_action_population',
       dataQualityStatus: values.dataQualityStatus ?? 'ready',
@@ -197,6 +239,19 @@ async function seedGoldInventoryRow(db: MemoryDatabase, values: Record<string, u
       openOrderCoverageQty: values.openOrderCoverageQty ?? 0,
       digestPriority: values.digestPriority ?? 1,
       evidence: values.evidence ?? {},
+      calculationEvidence: {
+        familyActionSnapshot: {
+          familyKey: familyId,
+          companyProductFamilyId: familyId,
+          companyId: `company:${company}`,
+          amazonAccountId: `account:${company}`,
+          marketplace: 'Amazon.com',
+          canonicalAsin: familyRole === 'member' ? existingTarget?.asin ?? values.asin : values.asin,
+          targetSelectionState: targetCompanyProductId ? 'automatic' : 'review',
+          targetCompanyProductId,
+          targetSelectionEvidence: { source: 'test' },
+        },
+      },
     },
   });
 }

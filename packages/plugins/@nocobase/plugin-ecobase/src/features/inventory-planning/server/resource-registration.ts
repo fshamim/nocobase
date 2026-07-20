@@ -32,6 +32,7 @@ export function createInventoryPlanningResourceRegistration(): EcobaseFeatureRes
           'filters',
           'workspace',
           'commandCenter',
+          'listingPerformanceReview',
           'rows',
           'digestPreview',
           'rowWorkspace',

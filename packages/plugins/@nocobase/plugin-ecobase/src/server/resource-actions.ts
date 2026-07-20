@@ -44,6 +44,7 @@ import { EcobaseClickupOrderStatusService } from '../features/source-import/serv
 import { EcobaseOrderDetailsRelationshipVerifier } from '../features/source-import/server/order-details-relationship-verifier';
 import { EcobaseSellerboardCogsService } from '../features/source-import/server/sellerboard-cogs-service';
 import { EcobaseSellerboardHistoryApplyService } from '../features/source-import/server/sellerboard-history-apply-service';
+import { EcobaseSourceCoverageService } from '../features/source-import/server/source-coverage-service';
 import { EcobaseSupplierOrderImportApplyService } from '../features/source-import/server/supplier-order-import-apply-service';
 import { EcobaseSupplierOrderImportService } from '../features/source-import/server/supplier-order-import-service';
 import { EcobaseProtectedCatalogBoundary } from '../features/source-import/server/protected-catalog-boundary';
@@ -55,7 +56,9 @@ import {
   EcobaseInventoryPlanningService,
   type InventoryCommandCenterPane,
   type InventoryPlanningCommandCenterQuery,
+  type InventoryPlanningListingReviewQuery,
 } from '../features/inventory-planning/server/inventory-planning-service';
+import type { ListingReviewCategory } from '../features/inventory-planning/server/listing-family-projection';
 import { EcobaseOrderReceiptReconciliationService } from '../features/inventory-planning/server/order-receipt-reconciliation-service';
 import { EcobaseInventoryPlanningGoldAccess } from '../features/inventory-planning/server/inventory-planning-gold-access';
 import { EcobaseGoldError } from '../features/inventory-planning/server/gold-errors';
@@ -1159,6 +1162,13 @@ function inventoryPlanningQuery(values: Record<string, unknown>) {
   };
 }
 
+function inventoryPlanningListingReviewQuery(values: Record<string, unknown>): InventoryPlanningListingReviewQuery {
+  return {
+    ...inventoryPlanningQuery(values),
+    categories: (getOptionalStringArray(values, 'categories') ?? []) as ListingReviewCategory[],
+  };
+}
+
 function inventoryPlanningCommandCenterQuery(values: Record<string, unknown>): InventoryPlanningCommandCenterQuery {
   const sortDirection = getOptionalString(values, 'sortDirection');
   return {
@@ -1430,6 +1440,19 @@ export function createEcobaseInventoryPlanningActions() {
           };
         } catch (error) {
           ctx.throw(400, error instanceof Error ? error.message : 'Ecobase inventory command center request failed.');
+        }
+        await next();
+      },
+      listingPerformanceReview: async (ctx, next) => {
+        const service = new EcobaseInventoryPlanningService(ctx.db);
+        try {
+          ctx.body = {
+            data: await service.listingPerformanceReview(
+              inventoryPlanningListingReviewQuery(getValues(ctx.action.params)),
+            ),
+          };
+        } catch (error) {
+          ctx.throw(400, error instanceof Error ? error.message : 'Ecobase listing-performance review request failed.');
         }
         await next();
       },
@@ -2762,6 +2785,36 @@ export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
         }
         await next();
       },
+      bootstrapSourceCoverage: async (ctx, next) => {
+        const values = getValues(ctx.action.params);
+        const mode = getOptionalString(values, 'mode');
+        const expectedEvidenceDigest = getOptionalString(values, 'expectedEvidenceDigest');
+        const expectedPlanDigest = getOptionalString(values, 'expectedPlanDigest');
+        const confirmation = getOptionalString(values, 'confirmation');
+        const importRunIds = getOptionalStringArray(values, 'importRunIds');
+        if (!['dry-run', 'apply'].includes(mode ?? '') || !expectedEvidenceDigest || !importRunIds?.length) {
+          ctx.throw(
+            400,
+            'Ecobase source coverage bootstrap requires mode=dry-run|apply, expectedEvidenceDigest, and importRunIds.',
+          );
+          return;
+        }
+        try {
+          ctx.body = {
+            data: await new EcobaseSourceCoverageService(ctx.db).bootstrapFrozenSuccessfulImports({
+              mode: mode as 'dry-run' | 'apply',
+              expectedEvidenceDigest,
+              expectedPlanDigest,
+              confirmation,
+              importRunIds,
+            }),
+          };
+        } catch (error) {
+          ctx.throw(400, error instanceof Error ? error.message : 'Ecobase source coverage bootstrap failed.');
+          return;
+        }
+        await next();
+      },
       previewSellerboardHistoryBackfill: async (ctx, next) => {
         const values = getValues(ctx.action.params);
         const sourceVersion = getOptionalString(values, 'sourceVersion');
@@ -3068,6 +3121,7 @@ export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
       refreshGoldReadModels: 'admin',
       analyzeCsvBundle: 'admin',
       runCsvBundle: 'admin',
+      bootstrapSourceCoverage: 'admin',
       previewSellerboardHistoryBackfill: 'admin',
       applySellerboardHistoryBackfill: 'admin',
       verifySellerboardHistoryBackfillIdempotency: 'admin',

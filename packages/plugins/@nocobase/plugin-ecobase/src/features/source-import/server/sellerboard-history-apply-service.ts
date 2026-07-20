@@ -129,8 +129,12 @@ export class EcobaseSellerboardHistoryApplyService {
       });
       const runRecord = toPlainRecord(run);
       const status = text(runRecord.status);
-      if (!['success', 'partial'].includes(status ?? '')) {
-        throw new Error(`Sellerboard history apply failed for ${company}: import ended ${status ?? 'unknown'}.`);
+      if (status !== 'success') {
+        throw new Error(
+          `Sellerboard history apply failed for ${company}: import ended ${
+            status ?? 'unknown'
+          }; only a successful complete import may finish the apply.`,
+        );
       }
       runs.push({
         company,

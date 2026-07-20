@@ -42,8 +42,15 @@ import { selectCurrentFamilyOrderCycle, type FamilyOrderCycleSelection } from '.
 import { evaluatePlanningReadiness } from './planning-readiness';
 import { workflowStageForOperationalStatus } from '../../order-planning/order-operational-status';
 import { canonicalJson, EcobaseGoldRefreshRunService } from './gold-refresh-run-service';
-import { EcobaseInventoryPlanningGoldAccess } from './inventory-planning-gold-access';
+import { EcobaseInventoryPlanningGoldAccess, familyActionDecisionRecord } from './inventory-planning-gold-access';
 import { withGoldInventoryPlanningWriteAuthority } from './gold-write-guard';
+import {
+  deriveListingReviewCategories,
+  filterListingPerformanceReview,
+  listingMemberPerformanceEvidence,
+  type CorrectedListingPerformanceRow,
+  type ListingReviewCategory,
+} from './listing-family-projection';
 import {
   classifyInventoryFamily,
   INVENTORY_PLANNING_PANES,
@@ -111,6 +118,10 @@ export interface UpdateProductPlanningFieldsParams {
 }
 
 export type InventoryCommandCenterPane = InventoryPlanningPane;
+
+export interface InventoryPlanningListingReviewQuery extends InventoryPlanningQuery {
+  categories?: ListingReviewCategory[];
+}
 
 export interface InventoryPlanningCommandCenterQuery extends InventoryPlanningQuery {
   pane?: InventoryCommandCenterPane;
@@ -220,59 +231,62 @@ function familyActionKey(row: PlainRecord) {
   );
 }
 
-function buildFamilyActionProjection(
-  rows: PlainRecord[],
-  publishedRun: PlainRecord | undefined,
+function buildTypedFamilyActionProjection(
+  listingRows: PlainRecord[],
+  familyActions: PlainRecord[],
+  publishedRun: PlainRecord | null,
 ): FamilyActionProjection {
-  const selectedByFamily = new Map<string, PlainRecord>();
   const evidenceRowsByFamily = new Map<string, PlainRecord[]>();
-  const roleRank = (row: PlainRecord) => {
-    if (row.familyRole === 'target') return 3;
-    if (row.familyRole === 'review') return 2;
-    if (row.familyRole === 'unassigned') return 1;
-    return 0;
-  };
-
-  for (const row of rows) {
-    const key = familyActionKey(row);
-    evidenceRowsByFamily.set(key, [...(evidenceRowsByFamily.get(key) ?? []), row]);
-    if (asString(row.familyRole) === 'member') continue;
-    const selected = selectedByFamily.get(key);
-    if (!selected || roleRank(row) > roleRank(selected)) selectedByFamily.set(key, row);
+  for (const listing of listingRows) {
+    const key = familyActionKey(listing);
+    evidenceRowsByFamily.set(key, [...(evidenceRowsByFamily.get(key) ?? []), listing]);
   }
-
-  const calculationDate =
-    asString(publishedRun?.calculationDate) ??
-    asString([...selectedByFamily.values()][0]?.calculationDate) ??
-    isoDate(new Date());
-  const actionRows: PlainRecord[] = [...selectedByFamily.values()]
-    .map((row) => {
-      const decision = commandCenterPaneForRow(row, calculationDate);
+  const rows = familyActions
+    .map((action) => {
+      const row = familyActionDecisionRecord(action);
+      const representative = (evidenceRowsByFamily.get(familyActionKey(action)) ?? []).find(
+        (listing) => listing.companyProductId === action.representativeCompanyProductId,
+      );
+      const displayEvidence = representative
+        ? {
+            displayCompanyProductId: representative.companyProductId,
+            company: representative.company,
+            asin: representative.asin,
+            sku: representative.sku,
+            title: representative.title,
+            calculationDate: representative.calculationDate,
+            evidence: representative.evidence,
+            dataQualityStatus: representative.dataQualityStatus,
+            dataQualityIssues: representative.dataQualityIssues,
+            readinessReasonCodes: representative.readinessReasonCodes,
+          }
+        : {};
       return {
+        ...displayEvidence,
         ...row,
-        commandCenterPane: decision.pane,
-        commandCenterPaneReason: decision.reason,
+        commandCenterPane: row.primaryActionPane,
+        commandCenterPaneReason: row.primaryActionReasonCode,
         planningEligibilityStatus:
-          decision.pane === 'untieredProducts' ? 'ineligible_unclassified_tier' : row.planningEligibilityStatus,
+          row.planningEligibilityStatus ??
+          (row.replenishmentEligibility === 'eligible' ? 'eligible' : row.replenishmentEligibility),
       };
     })
     .filter((row) => row.commandCenterPane !== 'adminExcluded');
-  const moneyRiskDenominatorCount = actionRows.filter((row) =>
-    ['supplyAction', 'activeOrders', 'inPrepMonitoring', 'inboundMonitoring'].includes(
-      asString(row.commandCenterPane) ?? '',
-    ),
-  ).length;
   return {
-    rows: actionRows,
+    rows,
     evidenceRowsByFamily,
     metadata: {
       scope: 'family_action',
       rowUnit: 'family',
-      calculationDate,
-      publishedRunId: asString(publishedRun?.id) ?? asString(actionRows[0]?.refreshRunId) ?? null,
-      denominatorCount: actionRows.length,
-      hiddenEvidenceRowCount: Math.max(rows.length - actionRows.length, 0),
-      moneyRiskDenominatorCount,
+      calculationDate: asString(publishedRun?.calculationDate) ?? null,
+      publishedRunId: asString(publishedRun?.id) ?? null,
+      denominatorCount: rows.length,
+      hiddenEvidenceRowCount: Math.max(listingRows.length - rows.length, 0),
+      moneyRiskDenominatorCount: rows.filter((row) =>
+        ['supplyAction', 'activeOrders', 'inPrepMonitoring', 'inboundMonitoring'].includes(
+          asString(row.commandCenterPane) ?? '',
+        ),
+      ).length,
     },
   };
 }
@@ -1128,6 +1142,89 @@ const INVENTORY_PLANNING_ROW_FIELDS = [
   'familyStuckActiveOrderCount',
   'familyStuckEvidence',
   'familyRollupEvidence',
+  'companyId',
+  'amazonAccountId',
+  'marketplace',
+  'ruleVersion',
+  'algorithmContractVersion',
+  'resolvedPlanningSettingsDigest',
+  'productCoverageDigest',
+  'sourceAsOfDate',
+  'baselineWindowStartDate',
+  'baselineWindowEndDate',
+  'baselineEligibleMonthCount',
+  'baselineConfidence',
+  'monthlyPerformanceEvidence',
+  'baselineTotalUnits',
+  'baselineTotalProfit',
+  'baselineWeightedProfitPerUnit',
+  'averageMonthlyUnits',
+  'averageMonthlyProfit',
+  'baselineTierScore',
+  'baselineTier',
+  'baselineState',
+  'baselineReasonCodes',
+  'bestMonthlyUnits',
+  'bestUnitsMonth',
+  'bestMonthlyProfit',
+  'bestProfitMonth',
+  'worstMonthlyUnits',
+  'worstUnitsMonth',
+  'worstMonthlyProfit',
+  'worstProfitMonth',
+  'lastClosedMonth',
+  'lastClosedMonthUnits',
+  'lastClosedMonthProfit',
+  'lastClosedMonthTierScore',
+  'lastClosedMonthTier',
+  'lastClosedMonthState',
+  'lastClosedMonthReasonCodes',
+  'currentMonthStartDate',
+  'currentCoverageEndDate',
+  'currentCoveredDays',
+  'currentMonthUnits',
+  'currentMonthProfit',
+  'projectedMonthlyUnits',
+  'projectedMonthlyProfit',
+  'currentProjectedTierScore',
+  'currentProjectedTier',
+  'currentProjectedState',
+  'currentProjectionConfidence',
+  'currentProjectionReasonCodes',
+  'closedTierMovement',
+  'projectedTierMovement',
+  'trendReasonCodes',
+  'expectedAverageUnitsMtd',
+  'expectedBestUnitsMtd',
+  'expectedWorstUnitsMtd',
+  'expectedAverageProfitMtd',
+  'expectedBestProfitMtd',
+  'expectedWorstProfitMtd',
+  'quantityPaceStatus',
+  'profitPaceStatus',
+  'aggregatePaceStatus',
+  'paceCause',
+  'paceEvidence',
+  'rollingUnits30',
+  'rollingVelocityWindowStartDate',
+  'rollingVelocityWindowEndDate',
+  'rollingVelocityEvidenceStatus',
+  'inventoryDisposition',
+  'inventoryDispositionReasonCode',
+  'replenishmentEligibility',
+  'replenishmentBlockReasonCode',
+  'newReplenishmentActionable',
+  'oosAlertActionable',
+  'supplyActionable',
+  'recommendedOrderQty',
+  'existingOrderFollowUp',
+  'existingOrderFollowUpAction',
+  'primaryActionPane',
+  'primaryActionReasonCode',
+  'isFrozenFamilyTarget',
+  'familyTargetCompanyProductId',
+  'listingReviewCategories',
+  'calculationEvidence',
   'calculationDate',
   'company',
   'asin',
@@ -1320,6 +1417,33 @@ export class EcobaseInventoryPlanningService {
     return this.readGoldRows(query);
   }
 
+  async listingPerformanceReview(query: InventoryPlanningListingReviewQuery = {}) {
+    const listingRows = await this.readGoldRows({ ...query, limit: GOLD_SOURCE_RECORD_LIMIT });
+    const normalizedRows = listingRows.map((row) => ({
+      ...row,
+      listingReviewCategories: Array.isArray(row.listingReviewCategories)
+        ? [...new Set(row.listingReviewCategories.map(String))].sort()
+        : deriveListingReviewCategories(row),
+    })) as CorrectedListingPerformanceRow[];
+    const membersByFamily = new Map<string, CorrectedListingPerformanceRow[]>();
+    for (const row of normalizedRows) {
+      const familyKey = asString(row.companyProductFamilyId) ?? asString(row.companyProductId);
+      if (!familyKey) continue;
+      membersByFamily.set(familyKey, [...(membersByFamily.get(familyKey) ?? []), row]);
+    }
+    const rowsWithMemberEvidence = normalizedRows.map((row) => {
+      const familyKey = asString(row.companyProductFamilyId) ?? asString(row.companyProductId);
+      const members = familyKey ? membersByFamily.get(familyKey) ?? [] : [];
+      return {
+        ...row,
+        memberPerformanceEvidence: [...members]
+          .sort((left, right) => String(left.companyProductId).localeCompare(String(right.companyProductId)))
+          .map(listingMemberPerformanceEvidence),
+      };
+    });
+    return filterListingPerformanceReview(rowsWithMemberEvidence, query.categories ?? []);
+  }
+
   async workspace(query: InventoryPlanningQuery = {}) {
     const [filters, rows, digest] = await Promise.all([
       this.filterOptions(),
@@ -1340,8 +1464,10 @@ export class EcobaseInventoryPlanningService {
     }
 
     const allRows = await this.readGoldRows({ ...query, limit: undefined });
-    const publishedRun = await new EcobaseGoldRefreshRunService(this.db).getPublishedRun();
-    const projection = buildFamilyActionProjection(allRows, publishedRun);
+    const familyResult = await new EcobaseInventoryPlanningGoldAccess(this.db).readPublishedFamilyActions({
+      filter: query.company ? { company: query.company } : undefined,
+    });
+    const projection = buildTypedFamilyActionProjection(allRows, familyResult.rows, familyResult.run);
     const rows = projection.rows;
     const calculationDate = projection.metadata.calculationDate ?? isoDate(query.calculationDate ?? new Date());
     const targetCoverDays = asNumber(rows[0]?.targetCoverDays);
@@ -1418,6 +1544,12 @@ export class EcobaseInventoryPlanningService {
         stuckInventory: this.commandCenterPanePayload('stuckInventory', rows, projection.evidenceRowsByFamily, query),
         zeroStock: this.commandCenterPanePayload('zeroStock', rows, projection.evidenceRowsByFamily, query),
         dataReadiness: this.commandCenterPanePayload('dataReadiness', rows, projection.evidenceRowsByFamily, query),
+        performanceReview: this.commandCenterPanePayload(
+          'performanceReview',
+          rows,
+          projection.evidenceRowsByFamily,
+          query,
+        ),
         untieredProducts: this.commandCenterPanePayload(
           'untieredProducts',
           rows,
@@ -2074,6 +2206,9 @@ export class EcobaseInventoryPlanningService {
         planningProductId: companyProductId,
         companyProductId,
         companyProductFamilyId,
+        companyId: asString(companyProduct.companyId),
+        amazonAccountId: asString(companyProduct.amazonAccountId),
+        marketplace: asString(family.marketplace),
         familyAmazonAccountId: asString(family.amazonAccountId),
         familyMarketplace: asString(family.marketplace),
         familyCanonicalAsin: asString(family.canonicalAsin),
@@ -2322,19 +2457,38 @@ export class EcobaseInventoryPlanningService {
       asBoolean(row.supplierOrderStale) === true ? 'supplier_order_stale' : undefined,
     ].filter((issue): issue is string => Boolean(issue));
     const moneyRisk = calculateInventoryMoneyRisk(row);
-
-    return {
+    const companyProductId = asString(row.companyProductId) ?? asString(row.planningProductId) ?? '';
+    const companyProductFamilyId = asString(row.companyProductFamilyId) ?? `unassigned-family:${companyProductId}`;
+    const frozenTargetCompanyProductId =
+      familyRole === 'review'
+        ? null
+        : asString(row.familyTargetCompanyProductId) ??
+          asString(row.replenishmentTargetCompanyProductId) ??
+          (familyRole === 'unassigned' ? companyProductId : null);
+    const targetSelectionState = frozenTargetCompanyProductId ? 'automatic' : 'review';
+    const snapshotCompanyId = asString(row.companyId) ?? `company:${asString(row.company) ?? 'unknown'}`;
+    const snapshotAmazonAccountId =
+      asString(row.amazonAccountId) ?? asString(row.familyAmazonAccountId) ?? `account:${companyProductFamilyId}`;
+    const snapshotMarketplace = asString(row.marketplace) ?? asString(row.familyMarketplace) ?? 'unknown';
+    const primaryActionReasonCode =
+      asString(row.primaryActionReasonCode) ??
+      (commandCenterPane === 'dataReadiness'
+        ? readiness.reasonCodes[0] ?? classification.reason
+        : classification.reason);
+    const finalized = {
       ...row,
+      companyProductId,
+      companyProductFamilyId,
+      companyId: snapshotCompanyId,
+      amazonAccountId: snapshotAmazonAccountId,
+      marketplace: snapshotMarketplace,
       stuck: stuckInventory,
       stuckClassification: stuck,
       pipelineHealthStatus: pipelineHealth,
       stockoutGapDays: stockoutGapDays(row),
       daysUntilOos: daysUntilDate(operationalEstimatedOosDate(row), calculationDate),
       commandCenterPane,
-      commandCenterPaneReason:
-        commandCenterPane === 'dataReadiness'
-          ? readiness.reasonCodes[0] ?? classification.reason
-          : classification.reason,
+      commandCenterPaneReason: primaryActionReasonCode,
       planningEligibilityStatus,
       planningEligibilityReason:
         planningEligibilityStatus === 'eligible' ? `verified_${commandCenterPane}` : planningEligibilityStatus,
@@ -2349,6 +2503,44 @@ export class EcobaseInventoryPlanningService {
         commandCenterPane === 'untieredProducts'
           ? undefined
           : recommendedInventoryAction({ ...row, stuckClassification: stuck }),
+      isFrozenFamilyTarget: frozenTargetCompanyProductId === companyProductId,
+      familyTargetCompanyProductId: frozenTargetCompanyProductId,
+      primaryActionPane: asString(row.primaryActionPane) ?? commandCenterPane,
+      primaryActionReasonCode,
+      replenishmentEligibility:
+        asString(row.replenishmentEligibility) ??
+        (planningEligibilityStatus === 'eligible' ? 'eligible' : 'blocked_insufficient_evidence'),
+      replenishmentBlockReasonCode:
+        asString(row.replenishmentBlockReasonCode) ??
+        (planningEligibilityStatus === 'eligible'
+          ? 'eligible_informational_projection'
+          : 'blocked_insufficient_evidence'),
+      newReplenishmentActionable: asBoolean(row.newReplenishmentActionable) ?? commandCenterPane === 'supplyAction',
+      oosAlertActionable:
+        asBoolean(row.oosAlertActionable) ?? ['zeroStock', 'supplyAction'].includes(commandCenterPane),
+      supplyActionable: asBoolean(row.supplyActionable) ?? commandCenterPane === 'supplyAction',
+      existingOrderFollowUp: asBoolean(row.existingOrderFollowUp) ?? activeOrder,
+      existingOrderFollowUpAction:
+        asString(row.existingOrderFollowUpAction) ?? (activeOrder ? 'follow_up_existing_order' : 'none'),
+      recommendedOrderQty: row.recommendedOrderQty ?? row.suggestedReorderQty ?? null,
+      calculationEvidence: {
+        ...toPlainRecord(row.calculationEvidence),
+        familyActionSnapshot: {
+          familyKey: companyProductFamilyId,
+          companyProductFamilyId,
+          companyId: snapshotCompanyId,
+          amazonAccountId: snapshotAmazonAccountId,
+          marketplace: snapshotMarketplace,
+          canonicalAsin: asString(row.familyCanonicalAsin) ?? asString(row.asin) ?? companyProductId,
+          targetSelectionState,
+          targetCompanyProductId: frozenTargetCompanyProductId,
+          targetSelectionEvidence: toPlainRecord(toPlainRecord(row.familyRollupEvidence).targetSelection),
+        },
+      },
+    };
+    return {
+      ...finalized,
+      listingReviewCategories: deriveListingReviewCategories(finalized),
     };
   }
 
@@ -3012,6 +3204,22 @@ export class EcobaseInventoryPlanningService {
       familyCanonicalAsin: asString(row.familyCanonicalAsin),
       familyRole: asString(row.familyRole),
       familyMemberCount: asNumber(row.familyMemberCount),
+      targetSelectionState: asString(row.targetSelectionState),
+      targetCompanyProductId: asString(row.targetCompanyProductId),
+      representativeCompanyProductId: asString(row.representativeCompanyProductId),
+      actionSourceCompanyProductId: asString(row.actionSourceCompanyProductId),
+      memberCount: asNumber(row.memberCount),
+      primaryActionPane: asString(row.primaryActionPane),
+      primaryActionReasonCode: asString(row.primaryActionReasonCode),
+      replenishmentEligibility: asString(row.replenishmentEligibility),
+      replenishmentBlockReasonCode: asString(row.replenishmentBlockReasonCode),
+      newReplenishmentActionable: asBoolean(row.newReplenishmentActionable),
+      oosAlertActionable: asBoolean(row.oosAlertActionable),
+      supplyActionable: asBoolean(row.supplyActionable),
+      existingOrderFollowUp: asBoolean(row.existingOrderFollowUp),
+      existingOrderFollowUpAction: asString(row.existingOrderFollowUpAction),
+      recommendedOrderQty: row.recommendedOrderQty ?? null,
+      linkedMemberEvidence: Array.isArray(row.linkedMemberEvidence) ? row.linkedMemberEvidence : [],
       replenishmentTargetCompanyProductId: asString(row.replenishmentTargetCompanyProductId),
       replenishmentTargetSku: asString(row.replenishmentTargetSku),
       familyTier: asString(row.familyTier),
@@ -3059,6 +3267,35 @@ export class EcobaseInventoryPlanningService {
       productStatus: asString(row.productStatus),
       tier: asString(row.tier),
       tierScore: asNumber(row.tierScore),
+      baselineTier: asString(row.baselineTier),
+      baselineTierScore: asString(row.baselineTierScore),
+      baselineState: asString(row.baselineState),
+      baselineConfidence: asString(row.baselineConfidence),
+      baselineEligibleMonthCount: asNumber(row.baselineEligibleMonthCount),
+      baselineWindowStartDate: asString(row.baselineWindowStartDate),
+      baselineWindowEndDate: asString(row.baselineWindowEndDate),
+      averageMonthlyUnits: asString(row.averageMonthlyUnits),
+      averageMonthlyProfit: asString(row.averageMonthlyProfit),
+      bestMonthlyUnits: asString(row.bestMonthlyUnits),
+      bestMonthlyProfit: asString(row.bestMonthlyProfit),
+      worstMonthlyUnits: asString(row.worstMonthlyUnits),
+      worstMonthlyProfit: asString(row.worstMonthlyProfit),
+      lastClosedMonth: asString(row.lastClosedMonth),
+      lastClosedMonthTier: asString(row.lastClosedMonthTier),
+      lastClosedMonthState: asString(row.lastClosedMonthState),
+      closedTierMovement: asString(row.closedTierMovement),
+      currentProjectedTier: asString(row.currentProjectedTier),
+      currentProjectedState: asString(row.currentProjectedState),
+      currentProjectionConfidence: asString(row.currentProjectionConfidence),
+      currentProjectionGateMode: asString(row.currentProjectionGateMode),
+      projectedTierMovement: asString(row.projectedTierMovement),
+      quantityPaceStatus: asString(row.quantityPaceStatus),
+      profitPaceStatus: asString(row.profitPaceStatus),
+      aggregatePaceStatus: asString(row.aggregatePaceStatus),
+      paceCause: asString(row.paceCause),
+      inventoryDisposition: asString(row.inventoryDisposition),
+      inventoryDispositionReasonCode: asString(row.inventoryDispositionReasonCode),
+      listingReviewCategories: Array.isArray(row.listingReviewCategories) ? row.listingReviewCategories : [],
       recentUnits30: asNumber(row.recentUnits30),
       tierEligibilityReason: asString(row.tierEligibilityReason),
       tierRuleVersion: asString(row.tierRuleVersion),
@@ -3293,8 +3530,10 @@ export class EcobaseInventoryPlanningService {
 
   async digestPreview(query: InventoryPlanningQuery = {}) {
     const allRows = await this.listRows({ ...query, limit: undefined });
-    const publishedRun = await new EcobaseGoldRefreshRunService(this.db).getPublishedRun();
-    const projection = buildFamilyActionProjection(allRows, publishedRun);
+    const familyResult = await new EcobaseInventoryPlanningGoldAccess(this.db).readPublishedFamilyActions({
+      filter: query.company ? { company: query.company } : undefined,
+    });
+    const projection = buildTypedFamilyActionProjection(allRows, familyResult.rows, familyResult.run);
     const rows = projection.rows;
     const moneyRisk = familyActionMoneyRisk(rows);
     const digestRows = rows.filter(isDigestCandidateRow);

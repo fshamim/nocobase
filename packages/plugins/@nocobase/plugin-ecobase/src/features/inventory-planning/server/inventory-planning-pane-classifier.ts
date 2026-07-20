@@ -17,6 +17,7 @@ export const INVENTORY_PLANNING_PANES = [
   'stuckInventory',
   'zeroStock',
   'dataReadiness',
+  'performanceReview',
   'untieredProducts',
 ] as const;
 

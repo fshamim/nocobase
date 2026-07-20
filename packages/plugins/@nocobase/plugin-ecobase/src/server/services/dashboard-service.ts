@@ -13,7 +13,10 @@ import { EcobaseComparisonService } from './comparison-service';
 import { EcobaseDataWarningService } from './data-warning-service';
 import type { EcobaseDatabase } from '../../features/source-import/server/import-service';
 import { EcobaseSupplierOrderService } from '../../features/supplier-management/server/supplier-order-service';
-import { EcobaseInventoryPlanningGoldAccess } from '../../features/inventory-planning/server/inventory-planning-gold-access';
+import {
+  EcobaseInventoryPlanningGoldAccess,
+  familyActionDecisionRecord,
+} from '../../features/inventory-planning/server/inventory-planning-gold-access';
 
 type PlainRecord = Record<string, unknown>;
 
@@ -200,7 +203,7 @@ export class EcobaseDashboardService {
         planningProducts: productComparison,
         rawListings: rawListingComparison,
       },
-      atRiskProducts: this.atRiskProducts(familyActions.rows, openAlerts),
+      atRiskProducts: this.atRiskProducts(familyActions.rows.map(familyActionDecisionRecord), openAlerts),
       openAlerts,
       supplierOrderDelays: this.supplierOrderDelays(workspace, openAlerts),
       accountability: this.accountabilityPanel(taskSnapshots, okrSnapshots, openAlerts),

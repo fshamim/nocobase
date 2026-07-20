@@ -5,6 +5,9 @@
   "private": true,
   "version": "2.0.60",
   "main": "dist/server/index.js",
+  "dependencies": {
+    "decimal.js": "10.4.3"
+  },
   "devDependencies": {
     "sqlite3": "^6.0.1"
   },

@@ -188,6 +188,54 @@ describe('Sellerboard live URL import', () => {
     ]);
   });
 
+  it('records complete account-date and product-scope evidence only after a successful current apply', async () => {
+    const csv = ['Date,Marketplace,ASIN,SKU,Name,SalesOrganic,UnitsOrganic,NetProfit']
+      .concat([1, 2, 3, 4, 5].map((day) => `2026-06-0${day},Amazon.com,B007P55HOW,DC50944,Dampp Chaser,10,1,3`))
+      .join('\n');
+    const { db, service } = createService(csv);
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
+      values: { id: 'company-1', name: 'Ecofission LLC', companyKey: 'ECOFISSION_LLC' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
+      filterByTk: 'sellerboard-source-1',
+      values: {
+        companyId: 'company-1',
+        config: {
+          catalogMutationMode: 'rebuild',
+          reportUrls: [
+            {
+              name: 'Profit by Product Dashboard Daily Data',
+              category: 'profit_by_product_daily',
+              url: 'https://sellerboard.test/report.csv?t=redacted',
+            },
+          ],
+          requireFreshData: true,
+          defaultCompany: 'Ecofission LLC',
+        },
+      },
+    });
+
+    const run = await service.runAdapterImport({
+      sourceConnectionId: 'sellerboard-source-1',
+      adapterName: 'sellerboard-api',
+      sourceIdentifier: 'coverage-current',
+      sourceVersion: '2026-06-05',
+      preserveAuditRun: true,
+    });
+
+    expect(run).toMatchObject({
+      status: 'success',
+      summary: {
+        coverageMaintenance: {
+          recorded: true,
+          intervalCount: 1,
+          membershipCount: 1,
+          reconciliation: { intervalCreatedCount: 1, membershipCreatedCount: 1 },
+        },
+      },
+    });
+  });
+
   it('uses the source company relation when Sellerboard rows omit company', async () => {
     const { db, service } = createService('ASIN,SKU,FBA/FBM Stock,"ROI, %"\nB000TEST,S-1,12,45');
     await db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
@@ -491,6 +539,8 @@ describe('Sellerboard live URL import', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toEqual([
       expect.objectContaining({ issueCode: 'csv_shape_unknown', normalizationStatus: 'failed' }),
     ]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.sourceCoverageIntervals).all()).toEqual([]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.sourceCoverageMemberships).all()).toEqual([]);
   });
 
   it('ties row-level live Sellerboard CSV warnings to the import run while keeping valid sibling rows', async () => {

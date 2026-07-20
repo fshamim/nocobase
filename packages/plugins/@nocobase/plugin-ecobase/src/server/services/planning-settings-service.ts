@@ -412,10 +412,11 @@ export class EcobasePlanningSettingsService {
       values[key] = statusList(params[key], key) ?? statusList(existing[key], key) ?? defaultSettings()[key];
     }
     const normalized = normalize(values);
+    const persistenceValues: Record<string, unknown> = { ...normalized };
     if (existing.id) {
-      await repository.update({ filterByTk: id, values: normalized });
+      await repository.update({ filterByTk: id, values: persistenceValues });
     } else {
-      await repository.create({ values: normalized });
+      await repository.create({ values: persistenceValues });
     }
     return normalize(toPlainRecord(await repository.findOne({ filterByTk: id })));
   }
