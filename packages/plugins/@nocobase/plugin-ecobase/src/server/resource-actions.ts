@@ -1201,8 +1201,8 @@ export function createEcobaseInventoryPlanningActions() {
         requireMaintenanceAdministrator(ctx, 'Gold maintenance');
         const values = getValues(ctx.action.params);
         const idempotencyKey = getOptionalString(values, 'idempotencyKey');
-        if (!idempotencyKey || getOptionalString(values, 'confirmation') !== 'REBUILD GOLD') {
-          ctx.throw(400, 'Ecobase Gold rebuild requires idempotencyKey and confirmation "REBUILD GOLD".');
+        if (getOptionalString(values, 'confirmation') !== 'REBUILD GOLD') {
+          ctx.throw(400, 'Ecobase Gold rebuild requires confirmation "REBUILD GOLD".');
           return;
         }
         const service = new EcobaseInventoryPlanningService(ctx.db);

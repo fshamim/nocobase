@@ -224,7 +224,7 @@ function fixture() {
 
 function publicRefreshInvocation(
   db: MemoryDatabase,
-  idempotencyKey = 'corrected-candidate-public-seam',
+  idempotencyKey: string | null = 'corrected-candidate-public-seam',
   overrides: Row = {},
 ) {
   const action = createEcobaseInventoryPlanningActions().refreshReadModel;
@@ -236,7 +236,7 @@ function publicRefreshInvocation(
       params: {
         values: {
           calculationDate: '2026-07-16',
-          idempotencyKey,
+          ...(idempotencyKey ? { idempotencyKey } : {}),
           confirmation: 'REBUILD GOLD',
           ...overrides,
         },
@@ -249,7 +249,10 @@ function publicRefreshInvocation(
   return { action, ctx, next };
 }
 
-async function refreshThroughPublicAction(db: MemoryDatabase, idempotencyKey = 'corrected-candidate-public-seam') {
+async function refreshThroughPublicAction(
+  db: MemoryDatabase,
+  idempotencyKey: string | null = 'corrected-candidate-public-seam',
+) {
   const { action, ctx, next } = publicRefreshInvocation(db, idempotencyKey);
   await action(ctx as never, next);
   expect(next).toHaveBeenCalledOnce();
@@ -326,6 +329,30 @@ describe('corrected candidate public refresh seam', () => {
     ).rejects.toMatchObject({ code: 'ECOBASE_CORRECTED_CANDIDATE_CARDINALITY_MISMATCH' });
     expect(missingFamily.goldRows.rows).toHaveLength(0);
     expect(missingFamily.rows(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns)).toHaveLength(0);
+  });
+
+  it('derives and reuses the mandated idempotency key when the admin action omits it', async () => {
+    const db = fixture();
+
+    const first = await refreshThroughPublicAction(db, null);
+    const firstRun = first.run as Row;
+    expect(first).toMatchObject({ reused: false, published: false });
+    expect(firstRun.idempotencyKey).toBe(`inventory-planning:${firstRun.candidateInputDigest}`);
+
+    const replay = await refreshThroughPublicAction(db, null);
+    expect(replay).toMatchObject({
+      reused: true,
+      published: false,
+      run: {
+        id: firstRun.id,
+        idempotencyKey: firstRun.idempotencyKey,
+        candidateInputDigest: firstRun.candidateInputDigest,
+        listingRowDigest: firstRun.listingRowDigest,
+        familyActionProjectionDigest: firstRun.familyActionProjectionDigest,
+      },
+    });
+    expect(db.goldRows.rows).toHaveLength(2363);
+    expect(db.rows(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns)).toHaveLength(1);
   });
 
   it('materializes only the corrected unpublished listing/family contract through the admin action', async () => {
