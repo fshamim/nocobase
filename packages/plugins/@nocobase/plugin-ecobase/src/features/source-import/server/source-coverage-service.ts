@@ -14,6 +14,7 @@ import type { EcobaseDatabase } from './import-service';
 
 export const SELLERBOARD_COVERAGE_METRIC_SET = 'sellerboard_units_net_profit_v1';
 export const SELLERBOARD_SCOPE_EVIDENCE_VERSION = 'sellerboard_listing_scope_v1';
+const SELLERBOARD_CURRENT_REPORT_DAY_COUNT = 31;
 
 export const FROZEN_COVERAGE_BOOTSTRAP_MANIFEST = {
   version: 'td02a_frozen_coverage_evidence_v1',
@@ -396,11 +397,38 @@ function monthEndFor(value: string) {
   return isoDate(new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 0)));
 }
 
-function reportKind(record: PlainRecord) {
-  const key = text(record.sourceRecordKey) ?? text(record.sourceKey) ?? '';
-  if (key.startsWith('profit_by_product_daily-')) return 'profit_by_product_daily' as const;
-  if (key.startsWith('stock_daily-')) return 'stock_daily' as const;
+type SellerboardCoverageAdapter = 'sellerboard-api' | 'sellerboard-history-csv';
+type CoverageReportKind = 'profit_by_product_daily' | 'stock_daily';
+
+function reportKind(record: PlainRecord, adapterName: SellerboardCoverageAdapter): CoverageReportKind | undefined {
+  const sourceDataset = text(record.sourceDataset)?.toLowerCase();
+  if (
+    sourceDataset === 'sellerboard_daily_facts' &&
+    (adapterName === 'sellerboard-api' || adapterName === 'sellerboard-history-csv')
+  ) {
+    return 'profit_by_product_daily';
+  }
+  if (sourceDataset === 'amazon_listing_inventory' && adapterName === 'sellerboard-api') return 'stock_daily';
   return undefined;
+}
+
+function canonicalStoredDate(value: unknown) {
+  const candidate = text(value);
+  if (!candidate || !/^\d{4}-\d{2}-\d{2}$/.test(candidate)) return undefined;
+  const [year, month, day] = candidate.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.toISOString().slice(0, 10) === candidate ? candidate : undefined;
+}
+
+function coverageEvidenceDate(kind: CoverageReportKind, sourceAsOfDate: string, linkedFact?: PlainRecord) {
+  if (kind === 'stock_daily') return canonicalStoredDate(sourceAsOfDate);
+  return linkedFact ? canonicalStoredDate(linkedFact.snapshotDate) : undefined;
+}
+
+function currentReportWindowStart(sourceAsOfDate: string) {
+  const date = dateOnly(sourceAsOfDate, 'sourceAsOfDate');
+  date.setUTCDate(date.getUTCDate() - (SELLERBOARD_CURRENT_REPORT_DAY_COUNT - 1));
+  return isoDate(date);
 }
 
 function identityKey(asin: unknown, sku: unknown) {
@@ -883,7 +911,9 @@ export class EcobaseSourceCoverageService {
     if (!runRows.length) return { intervals: [], memberships: [] };
 
     const currentMonth = monthStartFor(params.sourceAsOfDate);
+    const currentWindowStart = currentReportWindowStart(params.sourceAsOfDate);
     const intervalRows = new Map<string, PlainRecord[]>();
+    const evidenceDateByRowId = new Map<string, string>();
     const membershipEvidence = new Map<
       string,
       {
@@ -914,13 +944,28 @@ export class EcobaseSourceCoverageService {
     };
 
     for (const row of runRows) {
-      const kind = reportKind(row);
+      const kind = reportKind(row, params.adapterName as SellerboardCoverageAdapter);
       if (!kind) continue;
       const payload = toPlainRecord(row.payload);
       const marketplace = text(payload.marketplace);
-      const period = text(payload.period)?.slice(0, 10);
-      const monthStart = period && /^\d{4}-\d{2}-\d{2}$/.test(period) ? targetMonth(period) : undefined;
-      if (!marketplace || !monthStart) continue;
+      let metricLinks: PlainRecord[] = [];
+      let linkedFact: PlainRecord | undefined;
+      if (kind === 'profit_by_product_daily') {
+        metricLinks = (linksByBronze.get(String(row.id)) ?? []).filter(
+          (link) => link.silverEntityType === 'silverListingDailyFact',
+        );
+        linkedFact = metricLinks.length === 1 ? factById.get(String(metricLinks[0].silverEntityId)) : undefined;
+      }
+      const linkedPeriod = coverageEvidenceDate(kind, params.sourceAsOfDate, linkedFact);
+      const currentMetricDateMismatch = Boolean(
+        kind === 'profit_by_product_daily' &&
+          params.adapterName === 'sellerboard-api' &&
+          linkedPeriod &&
+          (linkedPeriod < currentWindowStart || linkedPeriod > params.sourceAsOfDate),
+      );
+      const period = currentMetricDateMismatch ? params.sourceAsOfDate : linkedPeriod;
+      const monthStart = period ? targetMonth(period) : undefined;
+      if (!marketplace || !period || !monthStart) continue;
       const accountMatches = accountsByKey.get(accountKey(params.companyId, marketplace) ?? '') ?? [];
       if (accountMatches.length !== 1) {
         accountAmbiguity = true;
@@ -929,17 +974,13 @@ export class EcobaseSourceCoverageService {
       const account = accountMatches[0];
       const intervalKey = `${account.id}\u0000${monthStart}`;
       intervalRows.set(intervalKey, [...(intervalRows.get(intervalKey) ?? []), row]);
+      evidenceDateByRowId.set(String(row.id), period);
       const sourceIdentity = identityKey(payload.asin, payload.listingSku);
       if (!sourceIdentity) continue;
 
       let companyProduct = catalogCompanyProduct(account, payload);
-      let metricLinks: PlainRecord[] = [];
       let reconciled = kind === 'stock_daily';
       if (kind === 'profit_by_product_daily') {
-        metricLinks = (linksByBronze.get(String(row.id)) ?? []).filter(
-          (link) => link.silverEntityType === 'silverListingDailyFact',
-        );
-        const linkedFact = metricLinks.length === 1 ? factById.get(String(metricLinks[0].silverEntityId)) : undefined;
         const linkedCompanyProduct = linkedFact
           ? companyProductById.get(String(linkedFact.companyProductId))
           : undefined;
@@ -952,7 +993,7 @@ export class EcobaseSourceCoverageService {
             linkedCompanyProduct &&
             linkedCompanyProduct.amazonAccountId === account.id &&
             identityKey(linkedProduct?.asin, linkedProduct?.sku) === sourceIdentity &&
-            linkedFact.snapshotDate === period &&
+            !currentMetricDateMismatch &&
             metricLinks[0].sourceRowHash === row.rowHash &&
             sameNumber(sourceUnits(payload), linkedFact.units) &&
             sameNumber(payload.netProfit, linkedFact.profit),
@@ -981,7 +1022,7 @@ export class EcobaseSourceCoverageService {
     }
     if (accountAmbiguity) return 'account_scope_unproven';
 
-    if (params.adapterName === 'sellerboard-api') {
+    if (params.adapterName === 'sellerboard-api' && intervalRows.size > 0) {
       for (const account of companyAccounts) {
         const intervalKey = `${account.id}\u0000${currentMonth}`;
         if (!intervalRows.has(intervalKey)) intervalRows.set(intervalKey, []);
@@ -996,7 +1037,7 @@ export class EcobaseSourceCoverageService {
         params.adapterName === 'sellerboard-api' ? params.sourceAsOfDate : monthEndFor(evidence.monthStart);
       const observedDates = new Set(
         intervalRowsForScope
-          .map((row) => text(toPlainRecord(row.payload).period)?.slice(0, 10))
+          .map((row) => evidenceDateByRowId.get(String(row.id)))
           .filter((value): value is string => Boolean(value)),
       );
       const requiredDates = completeDateRange(evidence.monthStart, coveredEndDate);
@@ -1046,8 +1087,10 @@ export class EcobaseSourceCoverageService {
       const observedDates = [
         ...new Set(
           rows
-            .filter((row) => reportKind(row) === 'profit_by_product_daily')
-            .map((row) => text(toPlainRecord(row.payload).period)?.slice(0, 10))
+            .filter(
+              (row) => reportKind(row, params.adapterName as SellerboardCoverageAdapter) === 'profit_by_product_daily',
+            )
+            .map((row) => evidenceDateByRowId.get(String(row.id)))
             .filter((value): value is string => Boolean(value)),
         ),
       ].sort();

@@ -14,6 +14,10 @@ import {
   type CoverageEvidencePlan,
 } from '../../features/source-import/server/source-coverage-service';
 import { frozenCoverageBootstrapFixture } from './fixtures/frozen-coverage-bootstrap-fixture';
+import {
+  FROZEN_COVERAGE_IMPORT_PLAN_DIGEST,
+  frozenCoverageImportProjectionFixture,
+} from './fixtures/frozen-coverage-import-projection-fixture';
 import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 
@@ -299,6 +303,431 @@ describe('EcoBase source coverage ledger', () => {
     expect(ambiguousDb.getRepository(ECOBASE_COLLECTIONS.sourceCoverageMemberships).all()).toEqual([]);
   });
 
+  it('projects history rows by authoritative dataset and normalized fact date instead of source-key and slash-date heuristics', async () => {
+    const db = new MemoryDatabase({
+      [ECOBASE_COLLECTIONS.importRuns]: [
+        {
+          id: 'history-run',
+          status: 'success',
+          adapterName: 'sellerboard-history-csv',
+          sourceConnectionId: 'source-1',
+          sourceVersion: '2026-07-16',
+        },
+      ],
+      [ECOBASE_COLLECTIONS.sourceConnections]: [{ id: 'source-1', companyId: 'company-1' }],
+      [ECOBASE_COLLECTIONS.silverAmazonAccounts]: [
+        { id: 'account-1', companyId: 'company-1', marketplace: 'Amazon.com' },
+      ],
+      [ECOBASE_COLLECTIONS.silverProducts]: [{ id: 'product-1', asin: 'B007P55HOW', sku: 'DC50944' }],
+      [ECOBASE_COLLECTIONS.silverCompanyProducts]: [
+        {
+          id: 'company-product-1',
+          companyId: 'company-1',
+          amazonAccountId: 'account-1',
+          productId: 'product-1',
+        },
+      ],
+      [ECOBASE_COLLECTIONS.bronzeSourceRecords]: [
+        {
+          id: 'bronze-history-1',
+          importRunId: 'history-run',
+          sourceDataset: 'sellerboard_daily_facts',
+          sourceRecordKey: 'Company_Dashboard_by_product.csv:B007P55HOW:DC50944:2',
+          observedAt: '2026-07-16',
+          rowHash: 'a'.repeat(64),
+          payload: {
+            period: '05/03/2026',
+            marketplace: 'Amazon.com',
+            asin: 'B007P55HOW',
+            listingSku: 'DC50944',
+            units: 2,
+            netProfit: 3,
+          },
+        },
+      ],
+      [ECOBASE_COLLECTIONS.silverListingDailyFacts]: [
+        {
+          id: 'fact-history-1',
+          companyProductId: 'company-product-1',
+          snapshotDate: '2026-03-05',
+          units: 2,
+          profit: 3,
+        },
+      ],
+      [ECOBASE_COLLECTIONS.silverNormalizationLinks]: [
+        {
+          id: 'link-history-1',
+          importRunId: 'history-run',
+          bronzeRecordId: 'bronze-history-1',
+          silverEntityType: 'silverListingDailyFact',
+          silverEntityId: 'fact-history-1',
+          sourceRowHash: 'a'.repeat(64),
+        },
+      ],
+    });
+
+    await expect(new EcobaseSourceCoverageService(db).maintainSuccessfulImport('history-run')).resolves.toMatchObject({
+      recorded: true,
+      intervalCount: 1,
+      membershipCount: 1,
+      reconciliation: { intervalCreatedCount: 1, membershipCreatedCount: 1 },
+    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.sourceCoverageIntervals).all()).toEqual([
+      expect.objectContaining({
+        coveredStartDate: '2026-03-01',
+        coveredEndDate: '2026-03-31',
+        continuousCoverage: false,
+        evidenceJson: expect.objectContaining({ adapterName: 'sellerboard-history-csv', observedDateCount: 1 }),
+      }),
+    ]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.sourceCoverageMemberships).all()).toEqual([
+      expect.objectContaining({
+        companyProductId: 'company-product-1',
+        monthStart: '2026-03-01',
+        scopeEvidenceKinds: ['profit_by_product_daily'],
+        metricReconciliationStatus: 'complete',
+      }),
+    ]);
+  });
+
+  it('fails closed instead of guessing a current metric date from an ambiguous slash-formatted payload', async () => {
+    const db = new MemoryDatabase({
+      [ECOBASE_COLLECTIONS.importRuns]: [
+        {
+          id: 'current-run',
+          status: 'success',
+          adapterName: 'sellerboard-api',
+          sourceConnectionId: 'source-1',
+          sourceVersion: '2026-07-16',
+        },
+      ],
+      [ECOBASE_COLLECTIONS.sourceConnections]: [{ id: 'source-1', companyId: 'company-1' }],
+      [ECOBASE_COLLECTIONS.silverAmazonAccounts]: [
+        { id: 'account-1', companyId: 'company-1', marketplace: 'Amazon.com' },
+      ],
+      [ECOBASE_COLLECTIONS.bronzeSourceRecords]: [
+        {
+          id: 'bronze-current-ambiguous-date',
+          importRunId: 'current-run',
+          sourceDataset: 'sellerboard_daily_facts',
+          sourceRecordKey: 'profit_by_product_daily-Profit by Product.csv:B007P55HOW:DC50944',
+          rowHash: 'b'.repeat(64),
+          payload: {
+            period: '7/3/2026',
+            marketplace: 'Amazon.com',
+            asin: 'B007P55HOW',
+            listingSku: 'DC50944',
+            units: 2,
+            netProfit: 3,
+          },
+        },
+      ],
+    });
+
+    await expect(new EcobaseSourceCoverageService(db).maintainSuccessfulImport('current-run')).resolves.toEqual({
+      recorded: false,
+      importRunId: 'current-run',
+      reasonCode: 'source_evidence_empty',
+    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.sourceCoverageIntervals).all()).toEqual([]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.sourceCoverageMemberships).all()).toEqual([]);
+  });
+
+  it.each([
+    ['missing', []],
+    [
+      'duplicate',
+      [
+        {
+          id: 'link-history-1',
+          importRunId: 'history-run',
+          bronzeRecordId: 'bronze-history-1',
+          silverEntityType: 'silverListingDailyFact',
+          silverEntityId: 'fact-history-1',
+          sourceRowHash: 'a'.repeat(64),
+        },
+        {
+          id: 'link-history-2',
+          importRunId: 'history-run',
+          bronzeRecordId: 'bronze-history-1',
+          silverEntityType: 'silverListingDailyFact',
+          silverEntityId: 'fact-history-1',
+          sourceRowHash: 'a'.repeat(64),
+        },
+      ],
+    ],
+  ])('fails closed when normalized metric-link evidence is %s', async (_case, links) => {
+    const db = new MemoryDatabase({
+      [ECOBASE_COLLECTIONS.importRuns]: [
+        {
+          id: 'history-run',
+          status: 'success',
+          adapterName: 'sellerboard-history-csv',
+          sourceConnectionId: 'source-1',
+          sourceVersion: '2026-07-16',
+        },
+      ],
+      [ECOBASE_COLLECTIONS.sourceConnections]: [{ id: 'source-1', companyId: 'company-1' }],
+      [ECOBASE_COLLECTIONS.silverAmazonAccounts]: [
+        { id: 'account-1', companyId: 'company-1', marketplace: 'Amazon.com' },
+      ],
+      [ECOBASE_COLLECTIONS.silverProducts]: [{ id: 'product-1', asin: 'B007P55HOW', sku: 'DC50944' }],
+      [ECOBASE_COLLECTIONS.silverCompanyProducts]: [
+        {
+          id: 'company-product-1',
+          companyId: 'company-1',
+          amazonAccountId: 'account-1',
+          productId: 'product-1',
+        },
+      ],
+      [ECOBASE_COLLECTIONS.bronzeSourceRecords]: [
+        {
+          id: 'bronze-history-1',
+          importRunId: 'history-run',
+          sourceDataset: 'sellerboard_daily_facts',
+          sourceRecordKey: 'Company_Dashboard_by_product.csv:B007P55HOW:DC50944:2',
+          observedAt: '2026-07-16',
+          rowHash: 'a'.repeat(64),
+          payload: {
+            period: '05/03/2026',
+            marketplace: 'Amazon.com',
+            asin: 'B007P55HOW',
+            listingSku: 'DC50944',
+            units: 2,
+            netProfit: 3,
+          },
+        },
+      ],
+      [ECOBASE_COLLECTIONS.silverListingDailyFacts]: [
+        {
+          id: 'fact-history-1',
+          companyProductId: 'company-product-1',
+          snapshotDate: '2026-03-05',
+          units: 2,
+          profit: 3,
+        },
+      ],
+      [ECOBASE_COLLECTIONS.silverNormalizationLinks]: links as PlainRecord[],
+    });
+
+    await expect(new EcobaseSourceCoverageService(db).maintainSuccessfulImport('history-run')).resolves.toEqual({
+      recorded: false,
+      importRunId: 'history-run',
+      reasonCode: 'source_evidence_empty',
+    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.sourceCoverageIntervals).all()).toEqual([]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.sourceCoverageMemberships).all()).toEqual([]);
+  });
+
+  it('uses the linked fact date while preserving fail-closed metric reconciliation', async () => {
+    const dates = Array.from({ length: 31 }, (_, index) => `2026-03-${String(index + 1).padStart(2, '0')}`);
+    const bronzeRows = dates.map((snapshotDate, index) => ({
+      id: `bronze-history-${index}`,
+      importRunId: 'history-run',
+      sourceDataset: 'sellerboard_daily_facts',
+      sourceRecordKey: `Company_Dashboard_by_product.csv:B007P55HOW:DC50944:${index + 2}`,
+      observedAt: '2026-07-16',
+      rowHash: String(index).padStart(64, 'a').slice(-64),
+      payload: {
+        period: `${index + 1}/03/2026`,
+        marketplace: 'Amazon.com',
+        asin: 'B007P55HOW',
+        listingSku: 'DC50944',
+        units: 2,
+        netProfit: 3,
+      },
+    }));
+    const facts = dates.map((snapshotDate, index) => ({
+      id: `fact-history-${index}`,
+      companyProductId: 'company-product-1',
+      snapshotDate,
+      units: 2,
+      profit: 3,
+    }));
+    const links = dates.map((_snapshotDate, index) => ({
+      id: `link-history-${index}`,
+      importRunId: 'history-run',
+      bronzeRecordId: `bronze-history-${index}`,
+      silverEntityType: 'silverListingDailyFact',
+      silverEntityId: `fact-history-${index}`,
+      sourceRowHash: index === 14 ? 'f'.repeat(64) : bronzeRows[index].rowHash,
+    }));
+    const db = new MemoryDatabase({
+      [ECOBASE_COLLECTIONS.importRuns]: [
+        {
+          id: 'history-run',
+          status: 'success',
+          adapterName: 'sellerboard-history-csv',
+          sourceConnectionId: 'source-1',
+          sourceVersion: '2026-07-16',
+        },
+      ],
+      [ECOBASE_COLLECTIONS.sourceConnections]: [{ id: 'source-1', companyId: 'company-1' }],
+      [ECOBASE_COLLECTIONS.silverAmazonAccounts]: [
+        { id: 'account-1', companyId: 'company-1', marketplace: 'Amazon.com' },
+      ],
+      [ECOBASE_COLLECTIONS.silverProducts]: [{ id: 'product-1', asin: 'B007P55HOW', sku: 'DC50944' }],
+      [ECOBASE_COLLECTIONS.silverCompanyProducts]: [
+        {
+          id: 'company-product-1',
+          companyId: 'company-1',
+          amazonAccountId: 'account-1',
+          productId: 'product-1',
+        },
+      ],
+      [ECOBASE_COLLECTIONS.bronzeSourceRecords]: bronzeRows,
+      [ECOBASE_COLLECTIONS.silverListingDailyFacts]: facts,
+      [ECOBASE_COLLECTIONS.silverNormalizationLinks]: links,
+    });
+    const service = new EcobaseSourceCoverageService(db);
+
+    await expect(service.maintainSuccessfulImport('history-run')).resolves.toMatchObject({
+      recorded: true,
+      intervalCount: 1,
+      membershipCount: 1,
+    });
+    await expect(service.evaluateProductMonth({ ...scope, monthStart: '2026-03-01' })).resolves.toMatchObject({
+      eligible: false,
+      reasonCode: 'metric_normalization_mismatch',
+      trustedZeroWhenNoFacts: false,
+    });
+  });
+
+  it('keeps out-of-window linked current facts visible as fail-closed metric mismatches', async () => {
+    const currentDates = Array.from({ length: 16 }, (_, index) => `2026-07-${String(index + 1).padStart(2, '0')}`);
+    const factDates = [...currentDates, '2026-01-07'];
+    const bronzeRows = factDates.map((_factDate, index) => ({
+      id: `bronze-current-${index}`,
+      importRunId: 'current-run',
+      sourceDataset: 'sellerboard_daily_facts',
+      sourceRecordKey: `profit_by_product_daily-Profit by Product.csv:B007P55HOW:DC50944:${index + 2}`,
+      observedAt: '2026-07-16',
+      rowHash: String(index).padStart(64, 'b').slice(-64),
+      payload: {
+        period: index < 16 ? `7/${index + 1}/2026` : '7/1/2026',
+        marketplace: 'Amazon.com',
+        asin: 'B007P55HOW',
+        listingSku: 'DC50944',
+        units: 2,
+        netProfit: 3,
+      },
+    }));
+    const facts = factDates.map((snapshotDate, index) => ({
+      id: `fact-current-${index}`,
+      companyProductId: 'company-product-1',
+      snapshotDate,
+      units: 2,
+      profit: 3,
+    }));
+    const links = factDates.map((_snapshotDate, index) => ({
+      id: `link-current-${index}`,
+      importRunId: 'current-run',
+      bronzeRecordId: `bronze-current-${index}`,
+      silverEntityType: 'silverListingDailyFact',
+      silverEntityId: `fact-current-${index}`,
+      sourceRowHash: bronzeRows[index].rowHash,
+    }));
+    const db = new MemoryDatabase({
+      [ECOBASE_COLLECTIONS.importRuns]: [
+        {
+          id: 'current-run',
+          status: 'success',
+          adapterName: 'sellerboard-api',
+          sourceConnectionId: 'source-1',
+          sourceVersion: '2026-07-16',
+        },
+      ],
+      [ECOBASE_COLLECTIONS.sourceConnections]: [{ id: 'source-1', companyId: 'company-1' }],
+      [ECOBASE_COLLECTIONS.silverAmazonAccounts]: [
+        { id: 'account-1', companyId: 'company-1', marketplace: 'Amazon.com' },
+      ],
+      [ECOBASE_COLLECTIONS.silverProducts]: [{ id: 'product-1', asin: 'B007P55HOW', sku: 'DC50944' }],
+      [ECOBASE_COLLECTIONS.silverCompanyProducts]: [
+        {
+          id: 'company-product-1',
+          companyId: 'company-1',
+          amazonAccountId: 'account-1',
+          productId: 'product-1',
+        },
+      ],
+      [ECOBASE_COLLECTIONS.bronzeSourceRecords]: bronzeRows,
+      [ECOBASE_COLLECTIONS.silverListingDailyFacts]: facts,
+      [ECOBASE_COLLECTIONS.silverNormalizationLinks]: links,
+    });
+    const service = new EcobaseSourceCoverageService(db);
+
+    await expect(service.maintainSuccessfulImport('current-run')).resolves.toMatchObject({
+      recorded: true,
+      intervalCount: 1,
+      membershipCount: 1,
+    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.sourceCoverageIntervals).all()).toEqual([
+      expect.objectContaining({ continuousCoverage: true }),
+    ]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.sourceCoverageMemberships).all()).toEqual([
+      expect.objectContaining({ metricReconciliationStatus: 'incomplete' }),
+    ]);
+  });
+
+  it('dates current stock evidence from the explicit Sellerboard import as-of contract', async () => {
+    const db = new MemoryDatabase({
+      [ECOBASE_COLLECTIONS.importRuns]: [
+        {
+          id: 'current-run',
+          status: 'success',
+          adapterName: 'sellerboard-api',
+          sourceConnectionId: 'source-1',
+          sourceVersion: '2026-07-16',
+        },
+      ],
+      [ECOBASE_COLLECTIONS.sourceConnections]: [{ id: 'source-1', companyId: 'company-1' }],
+      [ECOBASE_COLLECTIONS.silverAmazonAccounts]: [
+        { id: 'account-1', companyId: 'company-1', marketplace: 'Amazon.com' },
+      ],
+      [ECOBASE_COLLECTIONS.silverProducts]: [{ id: 'product-1', asin: 'B007P55HOW', sku: 'DC50944' }],
+      [ECOBASE_COLLECTIONS.silverCompanyProducts]: [
+        {
+          id: 'company-product-1',
+          companyId: 'company-1',
+          amazonAccountId: 'account-1',
+          productId: 'product-1',
+        },
+      ],
+      [ECOBASE_COLLECTIONS.bronzeSourceRecords]: [
+        {
+          id: 'bronze-stock-1',
+          importRunId: 'current-run',
+          sourceDataset: 'amazon_listing_inventory',
+          sourceRecordKey: 'stock_daily-Stock Daily Data.csv:B007P55HOW:DC50944',
+          observedAt: '2026-07-16',
+          rowHash: 'c'.repeat(64),
+          payload: {
+            period: '7/3/2026',
+            marketplace: 'Amazon.com',
+            asin: 'B007P55HOW',
+            listingSku: 'DC50944',
+          },
+        },
+      ],
+    });
+
+    await expect(new EcobaseSourceCoverageService(db).maintainSuccessfulImport('current-run')).resolves.toMatchObject({
+      recorded: true,
+      intervalCount: 1,
+      membershipCount: 1,
+    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.sourceCoverageIntervals).all()).toEqual([
+      expect.objectContaining({ coveredStartDate: '2026-07-01', coveredEndDate: '2026-07-16' }),
+    ]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.sourceCoverageMemberships).all()).toEqual([
+      expect.objectContaining({
+        monthStart: '2026-07-01',
+        scopeEvidenceKinds: ['stock_daily'],
+        metricReconciliationStatus: 'incomplete',
+      }),
+    ]);
+  });
+
   it('dry-runs the digest-bound frozen bootstrap with the exact TD-02A partition and zero writes', async () => {
     const fixture = frozenCoverageBootstrapFixture();
     const db = new MemoryDatabase({
@@ -319,6 +748,88 @@ describe('EcoBase source coverage ledger', () => {
     ).resolves.toMatchObject({
       mode: 'dry-run',
       planDigest: '38d0e58d18e3a24a073bcb66251d81bb1a3ff864fa9a44958c16620df461d4c8',
+      history: {
+        intervalCount: 54,
+        continuousIntervalCount: 42,
+        discontinuousIntervalCount: 12,
+        membershipCount: 3729,
+      },
+      baseline: {
+        listingCount: 2363,
+        productMonthCount: 14178,
+        eligibleCompleteCount: 3683,
+        productScopeUnknownCount: 10353,
+        coverageDiscontinuousCount: 142,
+        metricNormalizationMismatchCount: 0,
+        confidenceCounts: { full: 264, moderate: 396, low: 413, none: 1290 },
+      },
+      current: {
+        intervalCount: 10,
+        continuousIntervalCount: 5,
+        incompleteIntervalCount: 5,
+        membershipCount: 2317,
+        metricNormalizationMismatchCount: 57,
+        completeScopeMetricNormalizationMismatchCount: 52,
+      },
+      predictedLedgerWriteCount: 6110,
+      predictedProtectedDomainMutationCount: 0,
+      reconciliation: null,
+    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.sourceCoverageIntervals).all()).toEqual([]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.sourceCoverageMemberships).all()).toEqual([]);
+    expect(JSON.stringify(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).all())).toBe(protectedBefore);
+  });
+
+  it('projects all eight frozen runs deterministically to the digest-bound TD-02A plan without writes', async () => {
+    const fixture = frozenCoverageImportProjectionFixture();
+    const importRuns = fixture.seeds[ECOBASE_COLLECTIONS.importRuns];
+    const historyRunIds = new Set(
+      importRuns.filter((run) => run.adapterName === 'sellerboard-history-csv').map((run) => String(run.id)),
+    );
+    const bronzeRows = fixture.seeds[ECOBASE_COLLECTIONS.bronzeSourceRecords];
+    const historyRows = bronzeRows.filter((row) => historyRunIds.has(String(row.importRunId)));
+    const historyPeriods = historyRows.map((row) => String((row.payload as PlainRecord).period));
+    expect(fixture.importRunIds).toHaveLength(8);
+    expect(importRuns.filter((run) => run.adapterName === 'sellerboard-history-csv')).toHaveLength(4);
+    expect(importRuns.filter((run) => run.adapterName === 'sellerboard-api')).toHaveLength(4);
+    expect(historyRows.every((row) => row.sourceDataset === 'sellerboard_daily_facts')).toBe(true);
+    expect(
+      historyRows.every(
+        (row) =>
+          !String(row.sourceRecordKey).startsWith('profit_by_product_daily-') &&
+          !String(row.sourceRecordKey).startsWith('stock_daily-'),
+      ),
+    ).toBe(true);
+    expect(historyRows.every((row) => row.observedAt === '2026-07-16')).toBe(true);
+    expect(historyPeriods).toContain('13/1/2026');
+    expect(historyPeriods).toContain('4/13/2026');
+    const stockRows = bronzeRows.filter((row) => row.sourceDataset === 'amazon_listing_inventory');
+    expect(stockRows).toHaveLength(10);
+    expect(stockRows.every((row) => row.observedAt === '2026-07-16')).toBe(true);
+    expect(stockRows.every((row) => (row.payload as PlainRecord).period === undefined)).toBe(true);
+
+    const db = new MemoryDatabase(fixture.seeds);
+    const protectedBefore = JSON.stringify(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).all());
+    const service = new EcobaseSourceCoverageService(db);
+
+    const first = await service.bootstrapFrozenSuccessfulImports({
+      mode: 'dry-run',
+      expectedEvidenceDigest: FROZEN_COVERAGE_BOOTSTRAP_EVIDENCE_DIGEST,
+      importRunIds: fixture.importRunIds,
+    });
+    const replay = await service.bootstrapFrozenSuccessfulImports({
+      mode: 'dry-run',
+      expectedEvidenceDigest: FROZEN_COVERAGE_BOOTSTRAP_EVIDENCE_DIGEST,
+      expectedPlanDigest: first.planDigest,
+      importRunIds: [...fixture.importRunIds].reverse(),
+    });
+
+    expect(first).toEqual(replay);
+    expect(first).toMatchObject({
+      mode: 'dry-run',
+      evidenceDigest: 'd4ab92cbf038620da8a89ada5b6976bf69bd46d9e3b485731627718c9dfff750',
+      planDigest: FROZEN_COVERAGE_IMPORT_PLAN_DIGEST,
+      applyConfirmation: `APPLY_TD02A_COVERAGE_${FROZEN_COVERAGE_IMPORT_PLAN_DIGEST.slice(0, 16)}`,
       history: {
         intervalCount: 54,
         continuousIntervalCount: 42,
