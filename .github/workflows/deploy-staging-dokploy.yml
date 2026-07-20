@@ -33,32 +33,197 @@ jobs:
           echo "Commit: ${GITHUB_SHA}"
           echo "Compose: ${DOKPLOY_STAGING_COMPOSE_ID}"
 
-      - name: Trigger Dokploy compose deploy
+      - name: Pin exact staging image and trigger Dokploy compose deploy
         env:
           DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
           DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
+          DOKPLOY_STAGING_APP_NAME: ecobase-staging-2ndggj
+          DOKPLOY_STAGING_BRANCH: ecobase/staging
+          DOKPLOY_STAGING_COMPOSE_PATH: deploy/dokploy/staging/docker-compose.yml
         run: |
           set -euo pipefail
           : "${DOKPLOY_URL:?GitHub secret DOKPLOY_URL is required}"
           : "${DOKPLOY_API_KEY:?GitHub secret DOKPLOY_API_KEY is required}"
+          [[ "${GITHUB_SHA}" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "Refusing invalid GitHub SHA: ${GITHUB_SHA}" >&2
+            exit 1
+          }
 
           base_url="${DOKPLOY_URL%/}"
-          payload="$(jq -nc \
-            --arg composeId "${DOKPLOY_STAGING_COMPOSE_ID}" \
-            --arg title "Deploy staging ${GITHUB_SHA:0:12}" \
-            --arg description "GitHub Actions run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
-            '{composeId: $composeId, title: $title, description: $description}')"
+          desired_image="ecobase/nocobase:staging-${GITHUB_SHA:0:7}"
+          current_compose="${RUNNER_TEMP}/dokploy-compose-current.json"
+          current_env="${RUNNER_TEMP}/dokploy-compose-current.env"
+          desired_env="${RUNNER_TEMP}/dokploy-compose-desired.env"
+          persisted_compose="${RUNNER_TEMP}/dokploy-compose-persisted.json"
+          persisted_env="${RUNNER_TEMP}/dokploy-compose-persisted.env"
           response_file="${RUNNER_TEMP}/dokploy-response.json"
 
-          status_code="$(curl --silent --show-error \
-            --output "${response_file}" \
-            --write-out '%{http_code}' \
-            --request POST "${base_url}/api/compose.deploy" \
-            --header 'Content-Type: application/json' \
-            --header "x-api-key: ${DOKPLOY_API_KEY}" \
-            --data "${payload}")"
+          dokploy_request() {
+            local method="$1"
+            local endpoint="$2"
+            local output_file="$3"
+            local payload_file="${4:-}"
+            local request=(
+              curl --silent --show-error
+              --output "${output_file}"
+              --write-out '%{http_code}'
+              --request "${method}" "${base_url}${endpoint}"
+              --header "x-api-key: ${DOKPLOY_API_KEY}"
+            )
+            if [ -n "${payload_file}" ]; then
+              request+=(
+                --header 'Content-Type: application/json'
+                --data-binary "@${payload_file}"
+              )
+            fi
+            local status_code
+            status_code="$("${request[@]}")"
+            case "${status_code}" in
+              2*) ;;
+              *)
+                echo "Dokploy ${method} ${endpoint} returned HTTP ${status_code}" >&2
+                exit 1
+                ;;
+            esac
+          }
 
-          echo "Dokploy HTTP status: ${status_code}"
+          validate_compose() {
+            local response_file="$1"
+            local environment_file="$2"
+            python3 - \
+              "${response_file}" \
+              "${environment_file}" \
+              "${DOKPLOY_STAGING_COMPOSE_ID}" \
+              "${DOKPLOY_STAGING_APP_NAME}" \
+              "${DOKPLOY_STAGING_BRANCH}" \
+              "${DOKPLOY_STAGING_COMPOSE_PATH}" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          response_path, environment_path, compose_id, app_name, branch, compose_path = sys.argv[1:]
+          try:
+              value = json.loads(Path(response_path).read_text(encoding="utf-8"))
+          except (OSError, json.JSONDecodeError) as error:
+              raise SystemExit(f"Dokploy compose response is invalid JSON: {error}")
+
+          expected = {
+              "composeId": compose_id,
+              "appName": app_name,
+              "customGitBranch": branch,
+              "composePath": compose_path,
+              "triggerType": "push",
+          }
+          mismatches = {
+              key: {"expected": expected_value, "actual": value.get(key)}
+              for key, expected_value in expected.items()
+              if value.get(key) != expected_value
+          }
+          if mismatches:
+              raise SystemExit(f"Dokploy staging compose identity mismatch: {json.dumps(mismatches, sort_keys=True)}")
+
+          status = value.get("composeStatus")
+          if status not in {"idle", "done", "error"}:
+              raise SystemExit(f"Dokploy staging compose has unsafe status: {status!r}")
+          environment = value.get("env")
+          if not isinstance(environment, str):
+              raise SystemExit("Dokploy staging compose response omitted its environment string.")
+          Path(environment_path).write_text(environment, encoding="utf-8")
+          print(f"Validated Dokploy staging compose identity; status={status}")
+          PY
+          }
+
+          dokploy_request \
+            GET \
+            "/api/compose.one?composeId=${DOKPLOY_STAGING_COMPOSE_ID}" \
+            "${current_compose}"
+          validate_compose "${current_compose}" "${current_env}"
+
+          python3 - "${current_env}" "${desired_env}" "${desired_image}" "${GITHUB_SHA}" <<'PY'
+          import sys
+          from pathlib import Path
+
+          source_path, target_path, image, revision = sys.argv[1:]
+          raw = Path(source_path).read_text(encoding="utf-8")
+          lines = raw.splitlines()
+          replacements = {
+              "ECOBASE_APP_IMAGE": image,
+              "ECOBASE_IMAGE_REVISION": revision,
+          }
+          changed_keys = []
+          for key, value in replacements.items():
+              indexes = [index for index, line in enumerate(lines) if line.startswith(f"{key}=")]
+              if len(indexes) != 1:
+                  raise SystemExit(f"{key} must occur exactly once; observed {len(indexes)}.")
+              index = indexes[0]
+              desired = f"{key}={value}"
+              if lines[index] != desired:
+                  changed_keys.append(key)
+                  lines[index] = desired
+
+          ending = "\n" if raw.endswith("\n") else ""
+          desired_raw = "\n".join(lines) + ending
+          before = raw.splitlines()
+          after = desired_raw.splitlines()
+          unexpected = [
+              index
+              for index, (left, right) in enumerate(zip(before, after), start=1)
+              if left != right and not any(left.startswith(f"{key}=") for key in replacements)
+          ]
+          if len(before) != len(after) or unexpected:
+              raise SystemExit(f"Dokploy environment mutation escaped locked pin lines: {unexpected}")
+          Path(target_path).write_text(desired_raw, encoding="utf-8")
+          print("Prepared exact staging pins; changed=" + ",".join(changed_keys or ["none"]))
+          PY
+
+          if ! cmp -s "${current_env}" "${desired_env}"; then
+            environment_payload="${RUNNER_TEMP}/dokploy-environment-payload.json"
+            python3 - "${environment_payload}" "${desired_env}" "${DOKPLOY_STAGING_COMPOSE_ID}" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          payload_path, environment_path, compose_id = sys.argv[1:]
+          payload = {
+              "composeId": compose_id,
+              "env": Path(environment_path).read_text(encoding="utf-8"),
+          }
+          Path(payload_path).write_text(
+              json.dumps(payload, sort_keys=True, separators=(",", ":")),
+              encoding="utf-8",
+          )
+          PY
+            dokploy_request \
+              POST \
+              "/api/compose.saveEnvironment" \
+              "${response_file}" \
+              "${environment_payload}"
+          fi
+
+          dokploy_request \
+            GET \
+            "/api/compose.one?composeId=${DOKPLOY_STAGING_COMPOSE_ID}" \
+            "${persisted_compose}"
+          validate_compose "${persisted_compose}" "${persisted_env}"
+          if ! cmp -s "${persisted_env}" "${desired_env}"; then
+            echo "Dokploy did not persist the exact requested staging environment" >&2
+            exit 1
+          fi
+          echo "Verified persisted image=${desired_image} revision=${GITHUB_SHA}"
+
+          payload_file="${RUNNER_TEMP}/dokploy-deploy-payload.json"
+          jq -nc \
+            --arg composeId "${DOKPLOY_STAGING_COMPOSE_ID}" \
+            --arg title "Deploy staging ${GITHUB_SHA:0:12}" \
+            --arg description "GitHub Actions run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}; expected revision ${GITHUB_SHA}" \
+            '{composeId: $composeId, title: $title, description: $description}' \
+            > "${payload_file}"
+          dokploy_request \
+            POST \
+            "/api/compose.deploy" \
+            "${response_file}" \
+            "${payload_file}"
+
           python3 - <<'PY' "${response_file}"
           import json
           import sys
@@ -67,15 +232,10 @@ jobs:
           path = Path(sys.argv[1])
           raw = path.read_text().strip()
           if not raw:
-              print("Dokploy response: <empty>")
+              print("Dokploy deploy response: <empty>")
               raise SystemExit(0)
           try:
-              print("Dokploy response:", json.dumps(json.loads(raw), sort_keys=True))
+              print("Dokploy deploy response:", json.dumps(json.loads(raw), sort_keys=True))
           except json.JSONDecodeError:
-              print("Dokploy response:", raw[:1000])
+              print("Dokploy deploy response:", raw[:1000])
           PY
-
-          case "${status_code}" in
-            2*) ;;
-            *) echo "Dokploy staging deploy trigger failed" >&2; exit 1 ;;
-          esac
