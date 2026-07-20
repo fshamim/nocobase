@@ -25,6 +25,7 @@ const InventoryPlanningPage = lazy(() => import('../features/inventory-planning/
 const OrderPlanningPage = lazy(() => import('../features/order-planning/client/OrderPlanningPage'));
 const PlanningSettingsPage = lazy(() => import('./pages/PlanningSettingsPage'));
 const GoldMaintenancePage = lazy(() => import('./pages/GoldMaintenancePage'));
+const CandidatePreviewPage = lazy(() => import('./pages/CandidatePreviewPage'));
 const SellerboardSourcesPage = lazy(() => import('../features/source-import/client/SellerboardSourcesPage'));
 const SilverDataPage = lazy(() => import('../features/semantic-model/client/SilverDataPage'));
 const SupplierManagementPage = lazy(() => import('../features/supplier-management/client/SupplierManagementPage'));
@@ -170,6 +171,11 @@ const EcobaseWorkspacePage = () => {
 };
 
 export const ecobaseWorkspaceRoutes = [
+  {
+    name: 'admin.ecobase.inventory-planning.candidate-preview',
+    path: `${ECOBASE_WORKSPACE_ROOT}/inventory-planning/candidate-preview`,
+    Component: CandidatePreviewPage,
+  },
   {
     name: 'admin.ecobase.workspace',
     path: `${ECOBASE_WORKSPACE_ROOT}/*`,

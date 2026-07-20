@@ -10,12 +10,8 @@
 import { useAPIClient } from '@nocobase/client';
 import { Alert, Button, Card, Descriptions, Input, Space, Typography } from 'antd';
 import React, { useState } from 'react';
+import { CandidatePreviewLoader } from '../../features/inventory-planning/client/CandidatePreviewLoader';
 import { useT } from '../locale';
-import {
-  CandidatePreviewPanel,
-  type CorrectedFamilyActionEvidenceRow,
-  type CorrectedInventoryEvidenceRow,
-} from '../../features/inventory-planning/client/CorrectedInventoryEvidence';
 
 type PlainRecord = Record<string, unknown>;
 
@@ -41,7 +37,6 @@ export default function GoldMaintenancePage() {
   const [result, setResult] = useState<PlainRecord>({});
   const [verification, setVerification] = useState<PlainRecord>({});
   const [previewRunId, setPreviewRunId] = useState('');
-  const [candidatePreview, setCandidatePreview] = useState<PlainRecord>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
@@ -80,26 +75,6 @@ export default function GoldMaintenancePage() {
       setPreviewRunId(runId);
     } catch (cause) {
       setError(cause instanceof Error ? cause : new Error(t('Gold refresh verification failed.')));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const previewCandidate = async () => {
-    const explicitRunId = previewRunId.trim();
-    if (!explicitRunId) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await api.request({
-        url: 'ecobaseInventoryPlanning:candidatePreview',
-        method: 'post',
-        data: { runId: explicitRunId },
-      });
-      setCandidatePreview(unwrapData(response));
-    } catch (cause) {
-      setCandidatePreview({});
-      setError(cause instanceof Error ? cause : new Error(t('Candidate preview failed.')));
     } finally {
       setLoading(false);
     }
@@ -167,45 +142,7 @@ export default function GoldMaintenancePage() {
         ) : null}
 
         <Card title={t('3. Preview a verified unpublished candidate')}>
-          <Space direction="vertical" style={{ width: '100%' }}>
-            <Typography.Text strong>{t('Explicit verified run ID')}</Typography.Text>
-            <Input
-              aria-label={t('Explicit verified run ID')}
-              value={previewRunId}
-              onChange={(event) => {
-                setPreviewRunId(event.target.value);
-                setCandidatePreview({});
-              }}
-            />
-            <Button loading={loading} disabled={!previewRunId.trim()} onClick={previewCandidate}>
-              {t('Load read-only candidate preview')}
-            </Button>
-            {Array.isArray(candidatePreview.rows) && text(candidatePreview.banner) !== '—' ? (
-              <CandidatePreviewPanel
-                runId={previewRunId.trim()}
-                banner={text(candidatePreview.banner)}
-                rows={candidatePreview.rows.filter(
-                  (row): row is CorrectedInventoryEvidenceRow =>
-                    Boolean(row) &&
-                    typeof row === 'object' &&
-                    !Array.isArray(row) &&
-                    typeof (row as PlainRecord).companyProductId === 'string',
-                )}
-                familyActions={
-                  Array.isArray(candidatePreview.familyActions)
-                    ? candidatePreview.familyActions.filter(
-                        (row): row is CorrectedFamilyActionEvidenceRow =>
-                          Boolean(row) &&
-                          typeof row === 'object' &&
-                          !Array.isArray(row) &&
-                          typeof (row as PlainRecord).companyProductFamilyId === 'string',
-                      )
-                    : []
-                }
-                t={t}
-              />
-            ) : null}
-          </Space>
+          <CandidatePreviewLoader initialRunId={previewRunId} />
         </Card>
       </Space>
     </div>
