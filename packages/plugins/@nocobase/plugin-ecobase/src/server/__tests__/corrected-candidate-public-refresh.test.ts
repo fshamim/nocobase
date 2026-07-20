@@ -16,10 +16,19 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
+import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
-import { EcobaseGoldRefreshRunService } from '../../features/inventory-planning/server/gold-refresh-run-service';
+import {
+  canonicalJson,
+  EcobaseGoldRefreshRunService,
+} from '../../features/inventory-planning/server/gold-refresh-run-service';
 import { OBSOLETE_INVENTORY_PLANNING_ROW_FIELDS } from '../../features/inventory-planning/server/gold-schema-contract';
 import { EcobaseIndependentGoldReferenceVerifier } from '../../features/inventory-planning/server/independent-gold-reference-verifier';
+import {
+  CORRECTED_CANONICAL_SERIALIZER_VERSION,
+  CORRECTED_FAMILY_ACTION_DIGEST_VERSION,
+  CORRECTED_LISTING_ROW_DIGEST_VERSION,
+} from '../../features/inventory-planning/server/listing-family-projection';
 import { EcobaseInventoryPlanningService } from '../../features/inventory-planning/server/inventory-planning-service';
 import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
@@ -338,6 +347,29 @@ describe('corrected candidate public refresh seam', () => {
     const firstRun = first.run as Row;
     expect(first).toMatchObject({ reused: false, published: false });
     expect(firstRun.idempotencyKey).toBe(`inventory-planning:${firstRun.candidateInputDigest}`);
+    const request = firstRun.requestJson as Row;
+    expect(request).toMatchObject({
+      canonicalSerializerVersion: CORRECTED_CANONICAL_SERIALIZER_VERSION,
+      listingRowDigestVersion: CORRECTED_LISTING_ROW_DIGEST_VERSION,
+      familyActionProjectionDigestVersion: CORRECTED_FAMILY_ACTION_DIGEST_VERSION,
+    });
+    const digest = (value: unknown) => createHash('sha256').update(canonicalJson(value)).digest('hex');
+    const requestDigest = digest(request);
+    const candidateInputs = {
+      sourceInputDigest: firstRun.sourceInputDigest,
+      coverageInputDigest: firstRun.coverageInputDigest,
+      settingsDigest: firstRun.settingsDigest,
+      algorithmContractVersion: firstRun.algorithmContractVersion,
+    };
+    expect(firstRun.requestDigest).toBe(requestDigest);
+    expect(firstRun.candidateInputDigest).toBe(digest({ requestDigest, ...candidateInputs }));
+    const requestWithoutDigestVersions = { ...request };
+    delete requestWithoutDigestVersions.canonicalSerializerVersion;
+    delete requestWithoutDigestVersions.listingRowDigestVersion;
+    delete requestWithoutDigestVersions.familyActionProjectionDigestVersion;
+    expect(digest({ requestDigest: digest(requestWithoutDigestVersions), ...candidateInputs })).not.toBe(
+      firstRun.candidateInputDigest,
+    );
 
     const replay = await refreshThroughPublicAction(db, null);
     expect(replay).toMatchObject({

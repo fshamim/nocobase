@@ -89,7 +89,7 @@ const MONTHS = [
   ['2026-06-01', '2026-06-30', 10],
 ] as const;
 
-async function fixture(unitsPerMonth = 10) {
+async function fixture(unitsPerMonth = 10, emulatePersistenceCoercions = false) {
   const db = new MemoryDatabase();
   const companyProductId = '11111111-1111-4111-8111-111111111111';
   const familyId = '22222222-2222-4222-8222-222222222222';
@@ -209,7 +209,11 @@ async function fixture(unitsPerMonth = 10) {
           existingOrderFollowUp: false,
           existingOrderFollowUpAction: 'none',
         },
-        recommendedOrderQty: fixed(25),
+        daysOfCover: '12.5',
+        pipelineStock: '2',
+        reservedStock: '1',
+        salesVelocity: '3.25',
+        recommendedOrderQty: 25,
       },
     ],
     families: [
@@ -238,7 +242,19 @@ async function fixture(unitsPerMonth = 10) {
     },
   });
   await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).create({
-    values: { id: '66666666-6666-4666-8666-666666666666', ...result.listingRows[0] },
+    values: {
+      id: '66666666-6666-4666-8666-666666666666',
+      ...result.listingRows[0],
+      ...(emulatePersistenceCoercions
+        ? {
+            daysOfCover: 12.5,
+            pipelineStock: 2,
+            reservedStock: 1,
+            salesVelocity: 3.25,
+            recommendedOrderQty: '25.00000000',
+          }
+        : {}),
+    },
   });
   return { db, facts };
 }
@@ -265,6 +281,17 @@ describe('independent Gold reference verifier', () => {
     await expect(new EcobaseIndependentGoldReferenceVerifier(db).verify('reference-run')).resolves.toMatchObject({
       valid: true,
       formulaVerifiedListingCount: 1,
+      mismatchCount: 0,
+    });
+  });
+
+  it('reconciles the proven pre/post-persistence Gold field coercions', async () => {
+    const { db } = await fixture(10, true);
+
+    await expect(new EcobaseIndependentGoldReferenceVerifier(db).verify('reference-run')).resolves.toMatchObject({
+      valid: true,
+      listingRowCount: 1,
+      familyActionProjectionCount: 1,
       mismatchCount: 0,
     });
   });

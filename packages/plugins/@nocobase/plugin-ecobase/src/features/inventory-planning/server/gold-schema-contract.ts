@@ -16,6 +16,8 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
+import Decimal from 'decimal.js';
+
 export const OBSOLETE_INVENTORY_PLANNING_ROW_FIELDS = [
   'planningProductId',
   'tier',
@@ -300,6 +302,49 @@ export const CORRECTED_INVENTORY_PLANNING_ROW_FIELDS = [
   'digestPriority',
   'evidence',
 ] as const;
+
+const DIGEST_DOUBLE_FIELDS = new Set(['daysOfCover', 'pipelineStock', 'reservedStock', 'salesVelocity']);
+const DIGEST_DECIMAL8_FIELDS = new Set(['recommendedOrderQty']);
+const DigestDecimal = Decimal.clone({ precision: 40, rounding: Decimal.ROUND_HALF_EVEN });
+
+export function normalizeCorrectedInventoryPlanningDigestValue(field: string, value: unknown) {
+  if (value === null || value === undefined) return null;
+  if (DIGEST_DOUBLE_FIELDS.has(field)) {
+    if (value === '' || (typeof value !== 'number' && typeof value !== 'string')) {
+      throw new Error(`EcoBase corrected digest requires ${field} as a finite number.`);
+    }
+    const normalized = Number(value);
+    if (!Number.isFinite(normalized)) {
+      throw new Error(`EcoBase corrected digest requires ${field} as a finite number.`);
+    }
+    return normalized;
+  }
+  if (DIGEST_DECIMAL8_FIELDS.has(field)) {
+    let normalized: Decimal;
+    try {
+      normalized = new DigestDecimal(String(value));
+    } catch {
+      throw new Error(`EcoBase corrected digest requires ${field} as a finite decimal8 value.`);
+    }
+    if (!normalized.isFinite()) {
+      throw new Error(`EcoBase corrected digest requires ${field} as a finite decimal8 value.`);
+    }
+    return normalized.toDecimalPlaces(8, DigestDecimal.ROUND_HALF_EVEN).toFixed(8);
+  }
+  return value;
+}
+
+export function correctedInventoryPlanningDigestProjection(row: Readonly<Record<string, unknown>>) {
+  return {
+    naturalKey: row.naturalKey ?? null,
+    ...Object.fromEntries(
+      CORRECTED_INVENTORY_PLANNING_ROW_FIELDS.map((field) => [
+        field,
+        normalizeCorrectedInventoryPlanningDigestValue(field, row[field]),
+      ]),
+    ),
+  };
+}
 
 const OBSOLETE_INVENTORY_PLANNING_ROW_FIELD_SET = new Set<string>(OBSOLETE_INVENTORY_PLANNING_ROW_FIELDS);
 

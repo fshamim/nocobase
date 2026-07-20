@@ -134,6 +134,9 @@ describe('corrected listing and frozen-target family projection', () => {
       ruleVersion: provenance.ruleVersion,
       algorithmContractVersion: provenance.algorithmContractVersion,
       currentProjectionGateMode: 'informational',
+      canonicalSerializerVersion: 'canonical_json_schema_normalized_bytewise_v2',
+      listingRowDigestVersion: 'listing_performance_digest_v2',
+      familyActionProjectionDigestVersion: 'family_action_digest_v2',
       resolvedPlanningSettingsDigest: provenance.resolvedPlanningSettingsDigest,
       sourceCoverageDigest: provenance.sourceCoverageDigest,
       sourceInputDigest: provenance.sourceInputDigest,
@@ -287,6 +290,90 @@ describe('corrected listing and frozen-target family projection', () => {
       result.runMetadata.familyActionProjectionDigest,
     );
     expect(correctedFamilyActionProjectionDigest(sparseActions)).toBe(result.runMetadata.familyActionProjectionDigest);
+  });
+
+  it('normalizes only proven ORM coercions before listing and family digesting', () => {
+    const frozen = fixture();
+    const result = buildCorrectedGoldProjection({
+      ...provenance,
+      ...frozen,
+      expectedListingCount: 2363,
+      expectedFamilyActionCount: 1919,
+    });
+    const prePersistence = result.listingRows.map((row, index) =>
+      index === 0
+        ? {
+            ...row,
+            daysOfCover: '12.5',
+            pipelineStock: '2',
+            reservedStock: '1',
+            salesVelocity: '3.25',
+            recommendedOrderQty: 25,
+          }
+        : row,
+    );
+    const postPersistence = prePersistence.map((row, index) =>
+      index === 0
+        ? {
+            ...row,
+            daysOfCover: 12.5,
+            pipelineStock: 2,
+            reservedStock: 1,
+            salesVelocity: 3.25,
+            recommendedOrderQty: '25.00000000',
+          }
+        : row,
+    );
+    const options = { runId: provenance.runId, generatedAt: provenance.generatedAt };
+
+    expect(correctedListingRowDigest(prePersistence)).toBe(correctedListingRowDigest(postPersistence));
+    expect(
+      correctedFamilyActionProjectionDigest(deriveCorrectedFamilyActionsFromListingRows(prePersistence, options)),
+    ).toBe(
+      correctedFamilyActionProjectionDigest(deriveCorrectedFamilyActionsFromListingRows(postPersistence, options)),
+    );
+  });
+
+  it('uses bytewise ordering for adversarial punctuation and case regardless of host locale behavior', () => {
+    const frozen = fixture();
+    const result = buildCorrectedGoldProjection({
+      ...provenance,
+      ...frozen,
+      expectedListingCount: 2363,
+      expectedFamilyActionCount: 1919,
+    });
+    const orderValues = ['A-', 'a.', 'A0', 'a_', 'Aa', 'a~'];
+    const rows = result.listingRows.slice(0, orderValues.length).map((row, index) => ({
+      ...row,
+      companyId: 'ordering-company',
+      amazonAccountId: 'ordering-account',
+      marketplace: index % 2 ? 'AMAZON.COM' : 'amazon.com',
+      asin: `B${String(index).padStart(9, '0')}`,
+      sku: orderValues[index],
+      companyProductId: `ordering-listing-${index}`,
+      naturalKey: `ordering-listing-${index}`,
+    }));
+    const actions = result.familyActions.slice(0, orderValues.length).map((action, index) => ({
+      ...action,
+      naturalKey: orderValues[index],
+      familyKey: orderValues[index],
+    }));
+    const listingDigest = correctedListingRowDigest(rows);
+    const familyDigest = correctedFamilyActionProjectionDigest(actions);
+    const descriptor = Object.getOwnPropertyDescriptor(String.prototype, 'localeCompare');
+    Object.defineProperty(String.prototype, 'localeCompare', {
+      configurable: true,
+      writable: true,
+      value() {
+        return 0;
+      },
+    });
+    try {
+      expect(correctedListingRowDigest(rows)).toBe(listingDigest);
+      expect(correctedFamilyActionProjectionDigest(actions)).toBe(familyDigest);
+    } finally {
+      if (descriptor) Object.defineProperty(String.prototype, 'localeCompare', descriptor);
+    }
   });
 
   it('fails closed on count, membership, duplicate identity, review-target, and frozen-target drift', () => {

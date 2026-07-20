@@ -10,7 +10,10 @@
 import { createHash } from 'node:crypto';
 import Decimal from 'decimal.js';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
-import { CORRECTED_INVENTORY_PLANNING_ROW_FIELDS } from './gold-schema-contract';
+import {
+  correctedInventoryPlanningDigestProjection,
+  normalizeCorrectedInventoryPlanningDigestValue,
+} from './gold-schema-contract';
 import type { EcobaseDatabase } from '../../source-import/server/import-service';
 import { EcobaseGoldError } from './gold-errors';
 import { EcobaseInventoryPlanningGoldAccess } from './inventory-planning-gold-access';
@@ -20,9 +23,9 @@ const ReferenceDecimal = Decimal.clone({ precision: 40, rounding: Decimal.ROUND_
 const REFERENCE_VERIFIER_VERSION = 'independent_gold_reference_v1';
 const CORRECTED_RULE_VERSION = 'individual_dynamic_6m_profit_trend_v1';
 const CORRECTED_ALGORITHM_VERSION = 'individual_monthly_profit_performance_v1';
-const CORRECTED_SERIALIZER_VERSION = 'canonical_json_decimal8_v1';
-const CORRECTED_LISTING_DIGEST_VERSION = 'listing_performance_digest_v1';
-const CORRECTED_FAMILY_DIGEST_VERSION = 'family_action_digest_v1';
+const CORRECTED_SERIALIZER_VERSION = 'canonical_json_schema_normalized_bytewise_v2';
+const CORRECTED_LISTING_DIGEST_VERSION = 'listing_performance_digest_v2';
+const CORRECTED_FAMILY_DIGEST_VERSION = 'family_action_digest_v2';
 const SHA256 = /^[a-f0-9]{64}$/;
 
 const PROTECTED_SILVER_COLLECTIONS = [
@@ -155,10 +158,7 @@ function withoutEnvelope(row: PlainRecord) {
 }
 
 function correctedPersistedListingProjection(row: PlainRecord) {
-  return {
-    naturalKey: row.naturalKey ?? null,
-    ...Object.fromEntries(CORRECTED_INVENTORY_PLANNING_ROW_FIELDS.map((field) => [field, row[field] ?? null])),
-  };
+  return correctedInventoryPlanningDigestProjection(row);
 }
 
 function normalizedIdentity(row: PlainRecord) {
@@ -391,7 +391,12 @@ function actionDigest(actions: PlainRecord[]) {
     [...actions]
       .sort((left, right) => compareText(String(left.familyKey), String(right.familyKey)))
       .map((action) =>
-        Object.fromEntries(REFERENCE_FAMILY_ACTION_DIGEST_FIELDS.map((field) => [field, action[field] ?? null])),
+        Object.fromEntries(
+          REFERENCE_FAMILY_ACTION_DIGEST_FIELDS.map((field) => [
+            field,
+            normalizeCorrectedInventoryPlanningDigestValue(field, action[field]),
+          ]),
+        ),
       ),
   );
 }

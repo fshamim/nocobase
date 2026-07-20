@@ -60,6 +60,9 @@ import { withGoldInventoryPlanningWriteAuthority } from './gold-write-guard';
 import { OBSOLETE_INVENTORY_PLANNING_ROW_FIELDS } from './gold-schema-contract';
 import {
   CORRECTED_ALGORITHM_CONTRACT_VERSION,
+  CORRECTED_CANONICAL_SERIALIZER_VERSION,
+  CORRECTED_FAMILY_ACTION_DIGEST_VERSION,
+  CORRECTED_LISTING_ROW_DIGEST_VERSION,
   CORRECTED_TIER_RULE_VERSION,
   deriveListingReviewCategories,
   filterListingPerformanceReview,
@@ -2485,6 +2488,9 @@ export class EcobaseInventoryPlanningService {
       calculationDate,
       ruleVersion: CORRECTED_TIER_RULE_VERSION,
       algorithmContractVersion: CORRECTED_ALGORITHM_CONTRACT_VERSION,
+      canonicalSerializerVersion: CORRECTED_CANONICAL_SERIALIZER_VERSION,
+      listingRowDigestVersion: CORRECTED_LISTING_ROW_DIGEST_VERSION,
+      familyActionProjectionDigestVersion: CORRECTED_FAMILY_ACTION_DIGEST_VERSION,
       currentProjectionGateMode: 'informational',
       resolvedPlanningSettingsDigest,
       sourceCoverageDigest,

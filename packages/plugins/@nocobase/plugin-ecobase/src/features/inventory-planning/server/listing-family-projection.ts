@@ -10,6 +10,8 @@
 import { createHash } from 'node:crypto';
 import {
   CORRECTED_INVENTORY_PLANNING_ROW_FIELDS,
+  correctedInventoryPlanningDigestProjection,
+  normalizeCorrectedInventoryPlanningDigestValue,
   omitObsoleteInventoryPlanningRowFields,
 } from './gold-schema-contract';
 import type { CurrentProjectionGateMode } from './monthly-performance';
@@ -17,11 +19,11 @@ import type { ReplenishmentDecisionResult } from './replenishment-decision';
 
 export const CORRECTED_TIER_RULE_VERSION = 'individual_dynamic_6m_profit_trend_v1';
 export const CORRECTED_ALGORITHM_CONTRACT_VERSION = 'individual_monthly_profit_performance_v1';
-export const CORRECTED_CANONICAL_SERIALIZER_VERSION = 'canonical_json_decimal8_v1';
+export const CORRECTED_CANONICAL_SERIALIZER_VERSION = 'canonical_json_schema_normalized_bytewise_v2';
 export const CORRECTED_CANDIDATE_INPUT_DIGEST_VERSION = 'candidate_input_digest_v1';
 export const CORRECTED_SOURCE_COVERAGE_DIGEST_VERSION = 'source_coverage_digest_v1';
-export const CORRECTED_LISTING_ROW_DIGEST_VERSION = 'listing_performance_digest_v1';
-export const CORRECTED_FAMILY_ACTION_DIGEST_VERSION = 'family_action_digest_v1';
+export const CORRECTED_LISTING_ROW_DIGEST_VERSION = 'listing_performance_digest_v2';
+export const CORRECTED_FAMILY_ACTION_DIGEST_VERSION = 'family_action_digest_v2';
 
 export type ListingReviewCategory =
   | 'tier_d'
@@ -244,15 +246,16 @@ function normalizedIdentity(row: ListingIdentity) {
   ];
 }
 
+function compareText(left: string, right: string) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 function compareListings(left: ListingIdentity, right: ListingIdentity) {
-  return normalizedIdentity(left).join('\u0000').localeCompare(normalizedIdentity(right).join('\u0000'));
+  return compareText(normalizedIdentity(left).join('\u0000'), normalizedIdentity(right).join('\u0000'));
 }
 
 function listingDigestProjection(row: CorrectedListingPerformanceRow) {
-  return {
-    naturalKey: row.naturalKey ?? null,
-    ...Object.fromEntries(CORRECTED_INVENTORY_PLANNING_ROW_FIELDS.map((field) => [field, row[field] ?? null])),
-  };
+  return correctedInventoryPlanningDigestProjection(row);
 }
 
 const FAMILY_ACTION_DIGEST_FIELDS = [
@@ -285,7 +288,12 @@ const FAMILY_ACTION_DIGEST_FIELDS = [
 ] as const;
 
 function familyDigestProjection(action: CorrectedFamilyActionProjection) {
-  return Object.fromEntries(FAMILY_ACTION_DIGEST_FIELDS.map((field) => [field, action[field] ?? null]));
+  return Object.fromEntries(
+    FAMILY_ACTION_DIGEST_FIELDS.map((field) => [
+      field,
+      normalizeCorrectedInventoryPlanningDigestValue(field, action[field]),
+    ]),
+  );
 }
 
 export function correctedListingRowDigest(rows: CorrectedListingPerformanceRow[]) {
@@ -294,7 +302,7 @@ export function correctedListingRowDigest(rows: CorrectedListingPerformanceRow[]
 
 export function correctedFamilyActionProjectionDigest(actions: CorrectedFamilyActionProjection[]) {
   return digest(
-    [...actions].sort((left, right) => left.familyKey.localeCompare(right.familyKey)).map(familyDigestProjection),
+    [...actions].sort((left, right) => compareText(left.familyKey, right.familyKey)).map(familyDigestProjection),
   );
 }
 
@@ -485,7 +493,7 @@ export function deriveCorrectedFamilyActionsFromListingRows(
     rowsByFamily.set(snapshot.familyKey, [...(rowsByFamily.get(snapshot.familyKey) ?? []), row]);
   }
   return [...snapshotsByFamily]
-    .sort(([left], [right]) => left.localeCompare(right))
+    .sort(([left], [right]) => compareText(left, right))
     .map(([familyKey, snapshot]) => correctedFamilyAction(snapshot, rowsByFamily.get(familyKey) ?? [], options));
 }
 
@@ -588,7 +596,7 @@ export function buildCorrectedGoldProjection(input: CorrectedGoldProjectionInput
   const familyKeys = new Set<string>();
   const assignedMembers = new Set<string>();
   const familyActions: CorrectedFamilyActionProjection[] = [];
-  for (const frozenFamily of [...input.families].sort((left, right) => left.familyKey.localeCompare(right.familyKey))) {
+  for (const frozenFamily of [...input.families].sort((left, right) => compareText(left.familyKey, right.familyKey))) {
     const familyKey = required(frozenFamily.familyKey, 'family.familyKey');
     if (familyKeys.has(familyKey)) {
       throw new CorrectedGoldProjectionError(
