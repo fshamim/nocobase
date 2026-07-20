@@ -11,7 +11,11 @@ import { useAPIClient } from '@nocobase/client';
 import { Alert, Button, Card, Descriptions, Input, Space, Typography } from 'antd';
 import React, { useState } from 'react';
 import { useT } from '../locale';
-import { CandidatePreviewPanel } from '../../features/inventory-planning/client/CorrectedInventoryEvidence';
+import {
+  CandidatePreviewPanel,
+  type CorrectedFamilyActionEvidenceRow,
+  type CorrectedInventoryEvidenceRow,
+} from '../../features/inventory-planning/client/CorrectedInventoryEvidence';
 
 type PlainRecord = Record<string, unknown>;
 
@@ -181,8 +185,23 @@ export default function GoldMaintenancePage() {
                 runId={previewRunId.trim()}
                 banner={text(candidatePreview.banner)}
                 rows={candidatePreview.rows.filter(
-                  (row): row is PlainRecord => Boolean(row) && typeof row === 'object' && !Array.isArray(row),
+                  (row): row is CorrectedInventoryEvidenceRow =>
+                    Boolean(row) &&
+                    typeof row === 'object' &&
+                    !Array.isArray(row) &&
+                    typeof (row as PlainRecord).companyProductId === 'string',
                 )}
+                familyActions={
+                  Array.isArray(candidatePreview.familyActions)
+                    ? candidatePreview.familyActions.filter(
+                        (row): row is CorrectedFamilyActionEvidenceRow =>
+                          Boolean(row) &&
+                          typeof row === 'object' &&
+                          !Array.isArray(row) &&
+                          typeof (row as PlainRecord).companyProductFamilyId === 'string',
+                      )
+                    : []
+                }
                 t={t}
               />
             ) : null}

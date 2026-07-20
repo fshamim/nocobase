@@ -17,6 +17,8 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
+import { EcobaseGoldRefreshRunService } from '../../features/inventory-planning/server/gold-refresh-run-service';
+import { OBSOLETE_INVENTORY_PLANNING_ROW_FIELDS } from '../../features/inventory-planning/server/gold-schema-contract';
 import { EcobaseIndependentGoldReferenceVerifier } from '../../features/inventory-planning/server/independent-gold-reference-verifier';
 import { EcobaseInventoryPlanningService } from '../../features/inventory-planning/server/inventory-planning-service';
 import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
@@ -253,6 +255,38 @@ async function refreshThroughPublicAction(db: MemoryDatabase, idempotencyKey = '
   return (ctx.body as { data: Row }).data;
 }
 
+async function readThroughPublicAction(
+  db: MemoryDatabase,
+  actionName: 'workspace' | 'commandCenter' | 'digestPreview' | 'listingPerformanceReview',
+  values: Row = {},
+) {
+  const action = createEcobaseInventoryPlanningActions()[actionName];
+  const next = vi.fn(async () => undefined);
+  const ctx: Row = {
+    db,
+    action: { params: { values } },
+    body: undefined,
+    throw(status: number, message: string) {
+      throw new Error(`HTTP ${status}: ${message}`);
+    },
+  };
+  await action(ctx as never, next);
+  expect(next).toHaveBeenCalledOnce();
+  return (ctx.body as { data: Row }).data;
+}
+
+function exactNames(value: unknown, names = new Set<string>()) {
+  if (typeof value === 'string') names.add(value);
+  if (Array.isArray(value)) value.forEach((item) => exactNames(item, names));
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    for (const [key, nested] of Object.entries(value)) {
+      names.add(key);
+      exactNames(nested, names);
+    }
+  }
+  return names;
+}
+
 describe('corrected candidate public refresh seam', () => {
   it('rejects company-scoped and limited rebuilds before any lifecycle or Gold write', async () => {
     for (const [key, overrides] of [
@@ -347,56 +381,35 @@ describe('corrected candidate public refresh seam', () => {
     const clean = await refreshThroughPublicAction(cleanDb, 'clean-operational-snapshot');
     const cleanRun = clean.run as Row;
 
-    type CalculateRowsSeam = {
-      calculateRows(query?: Row): Promise<Row[]>;
-    };
-    const prototype = EcobaseInventoryPlanningService.prototype as unknown as CalculateRowsSeam;
-    const originalCalculateRows = prototype.calculateRows;
-    const calculateRowsSpy = vi.spyOn(prototype, 'calculateRows').mockImplementation(async function (query) {
-      const rows = await originalCalculateRows.call(this, query);
-      return rows.map((row) => ({
-        ...row,
-        tier: 'D',
-        tierScore: -999999,
-        actionStatus: 'overdue',
-        suggestedReorderQty: 999999,
-        replenishmentTargetCompanyProductId: 'poison-target',
-        familyTargetCompanyProductId: 'poison-target',
-      }));
+    expect(EcobaseInventoryPlanningService.prototype).not.toHaveProperty('calculateRows');
+    const poisonedDb = fixture();
+    Object.assign(poisonedDb.rows(ECOBASE_COLLECTIONS.silverCompanyProducts)[0], {
+      tier: 'D',
+      tierScore: -999999,
+      actionStatus: 'overdue',
+      suggestedReorderQty: 999999,
+      replenishmentTargetCompanyProductId: 'poison-target',
     });
-    try {
-      const poisonedDb = fixture();
-      Object.assign(poisonedDb.rows(ECOBASE_COLLECTIONS.silverCompanyProducts)[0], {
-        tier: 'D',
-        tierScore: -999999,
-        actionStatus: 'overdue',
-        suggestedReorderQty: 999999,
-        replenishmentTargetCompanyProductId: 'poison-target',
-      });
-      Object.assign(poisonedDb.rows(ECOBASE_COLLECTIONS.silverInventorySnapshots)[0], {
-        tier: 'D',
-        actionStatus: 'overdue',
-        suggestedReorderQty: 999999,
-      });
-      const poisoned = await refreshThroughPublicAction(poisonedDb, 'poisoned-operational-snapshot');
-      const poisonedRun = poisoned.run as Row;
-      const first = poisonedDb.goldRows.rows[0];
+    Object.assign(poisonedDb.rows(ECOBASE_COLLECTIONS.silverInventorySnapshots)[0], {
+      tier: 'D',
+      actionStatus: 'overdue',
+      suggestedReorderQty: 999999,
+    });
+    const poisoned = await refreshThroughPublicAction(poisonedDb, 'poisoned-operational-snapshot');
+    const poisonedRun = poisoned.run as Row;
+    const first = poisonedDb.goldRows.rows[0];
 
-      expect(calculateRowsSpy).not.toHaveBeenCalled();
-      expect(poisonedRun.sourceInputsDigest).toBe(cleanRun.sourceInputsDigest);
-      expect(first).toMatchObject({
-        companyProductId: 'cp-0000',
-        baselineTier: 'A',
-        familyTargetCompanyProductId: 'cp-0000',
-      });
-      expect(first.actionStatus).not.toBe('overdue');
-      expect(first.recommendedOrderQty).not.toBe(999999);
-      expect(first).not.toHaveProperty('tier');
-      expect(first).not.toHaveProperty('suggestedReorderQty');
-      expect(first).not.toHaveProperty('replenishmentTargetCompanyProductId');
-    } finally {
-      calculateRowsSpy.mockRestore();
-    }
+    expect(poisonedRun.sourceInputsDigest).toBe(cleanRun.sourceInputsDigest);
+    expect(first).toMatchObject({
+      companyProductId: 'cp-0000',
+      baselineTier: 'A',
+      familyTargetCompanyProductId: 'cp-0000',
+    });
+    expect(first.actionStatus).not.toBe('overdue');
+    expect(first.recommendedOrderQty).not.toBe(999999);
+    expect(first).not.toHaveProperty('tier');
+    expect(first).not.toHaveProperty('suggestedReorderQty');
+    expect(first).not.toHaveProperty('replenishmentTargetCompanyProductId');
   });
 
   it('reuses an identical request and rejects same-key changed source input without another Gold write', async () => {
@@ -501,6 +514,178 @@ describe('corrected candidate public refresh seam', () => {
       primaryActionPane: 'supplyAction',
       newReplenishmentActionable: true,
     });
+  });
+
+  it('serves a locally published corrected candidate through every family-action consumer without legacy names', async () => {
+    const db = fixture();
+    const legacyNames = new Set([
+      ...OBSOLETE_INVENTORY_PLANNING_ROW_FIELDS,
+      'actionStatus',
+      'digestPriority',
+      'estimatedProfitRisk',
+      'estimatedProfitRiskBasis',
+      'moneyRiskInputs',
+      'moneyRiskStatus',
+      'moneyRiskUncoveredDays',
+      'recommendedBestQty',
+      'recommendedEscalation',
+      'salesVelocity',
+      'salesVelocityBasis',
+      'salesVelocityStatus',
+    ]);
+    const [emptyWorkspace, emptyCommandCenter, emptyDigest, emptyListingReview] = await Promise.all([
+      readThroughPublicAction(db, 'workspace'),
+      readThroughPublicAction(db, 'commandCenter'),
+      readThroughPublicAction(db, 'digestPreview'),
+      readThroughPublicAction(db, 'listingPerformanceReview'),
+    ]);
+    expect(emptyWorkspace.rows).toEqual([]);
+    expect(emptyCommandCenter.metadata).toMatchObject({ denominatorCount: 0, publishedRunId: null });
+    expect(emptyDigest.metadata).toMatchObject({ denominatorCount: 0, publishedRunId: null });
+    expect(emptyListingReview).toMatchObject({ listingCount: 0, actionCount: 0, rows: [] });
+    expect(
+      [...legacyNames].filter((name) =>
+        exactNames({ emptyWorkspace, emptyCommandCenter, emptyDigest, emptyListingReview }).has(name),
+      ),
+    ).toEqual([]);
+
+    const dTierCompanyProductId = 'cp-0002';
+    const noMovementCompanyProductId = 'cp-0004';
+    for (const [prefix, companyProductId, units, profit] of [
+      ['d-tier', dTierCompanyProductId, 10, -50],
+      ['no-movement', noMovementCompanyProductId, 0, 0],
+    ] as const) {
+      db.rows(ECOBASE_COLLECTIONS.silverListingDailyFacts).push(
+        ...[...monthStarts(), '2026-07-16'].map((snapshotDate, index) => ({
+          id: `${prefix}-fact-${index + 1}`,
+          companyProductId,
+          snapshotDate,
+          units,
+          netProfit: profit,
+          profit,
+        })),
+      );
+      db.rows(ECOBASE_COLLECTIONS.sourceCoverageMemberships).push(
+        ...[...monthStarts(), '2026-07-01'].map((monthStart, index) => ({
+          id: `${prefix}-membership-${index + 1}`,
+          coverageIntervalId: 'coverage-1',
+          companyProductId,
+          monthStart,
+          membershipStatus: 'in_scope',
+          metricReconciliationStatus: 'complete',
+          normalizedFactLinkCount: 1,
+        })),
+      );
+    }
+    const materialized = await refreshThroughPublicAction(db, 'published-consumer-contract');
+    const runId = String((materialized.run as Row).id);
+    const lifecycle = new EcobaseGoldRefreshRunService(db);
+    await lifecycle.verify(runId);
+    await lifecycle.publish(runId);
+
+    const [workspace, commandCenter, digest, listingReview] = await Promise.all([
+      readThroughPublicAction(db, 'workspace'),
+      readThroughPublicAction(db, 'commandCenter'),
+      readThroughPublicAction(db, 'digestPreview'),
+      readThroughPublicAction(db, 'listingPerformanceReview'),
+    ]);
+    const paneRows = Object.values(commandCenter.panes).flatMap((pane) =>
+      Array.isArray((pane as Row).rows) ? ((pane as Row).rows as Row[]) : [],
+    );
+    const digestRows = Object.values(digest.sections).flatMap((rows) => (Array.isArray(rows) ? rows : []));
+    const responseNames = exactNames({ workspace, commandCenter, digest, listingReview });
+
+    expect(workspace.rows).toHaveLength(2363);
+    expect(workspace.filters).toMatchObject({ baselineTiers: ['A', 'B', 'C', 'D'] });
+    const correctedCalculationEvidence = (workspace.rows.find((row) => row.companyProductId === 'cp-0000') as Row)
+      .calculationEvidence as Row;
+    expect(correctedCalculationEvidence).toMatchObject({
+      coverage: {
+        closedMonths: expect.arrayContaining([
+          expect.objectContaining({
+            monthStart: '2026-01-01',
+            intervalIds: ['coverage-1'],
+            membershipIds: ['membership-1'],
+          }),
+        ]),
+        current: expect.objectContaining({
+          intervalIds: ['coverage-1'],
+          membershipIds: ['membership-7'],
+        }),
+      },
+      pace: {
+        quantity: expect.any(Object),
+        profit: expect.any(Object),
+      },
+      disposition: expect.objectContaining({
+        rollingUnits30: '10.00000000',
+        inventoryDisposition: 'none',
+        inventoryDispositionReasonCode: 'none',
+      }),
+      familyActionSnapshot: expect.objectContaining({
+        familyKey: 'family-0000',
+        companyProductFamilyId: 'family-0000',
+        targetSelectionState: 'automatic',
+        targetCompanyProductId: 'cp-0000',
+      }),
+    });
+    expect(exactNames(correctedCalculationEvidence).has('salesVelocity')).toBe(false);
+    expect(commandCenter.metadata).toMatchObject({
+      denominatorCount: 1919,
+      publishedRunId: runId,
+      baselineTierCounts: expect.objectContaining({ D: 1 }),
+      baselineStateCounts: expect.objectContaining({ no_movement: 1 }),
+      dataReadinessCount: expect.any(Number),
+      nullAverageMonthlyProfitCount: expect.any(Number),
+      actionDecisionCounts: {
+        newReplenishment: 1,
+        existingOrderFollowUp: 0,
+        mutualExclusivityViolations: 0,
+      },
+    });
+    expect(commandCenter.metadata.historyReadiness.fields).toEqual(
+      expect.arrayContaining(['baselineTier', 'baselineWeightedProfitPerUnit', 'averageMonthlyProfit']),
+    );
+    expect(commandCenter.metadata.dataReadinessCount).toBeGreaterThan(0);
+    expect(commandCenter.metadata.nullAverageMonthlyProfitCount).toBeGreaterThan(0);
+    expect(
+      Object.values(commandCenter.panes).reduce((total, pane) => total + Number((pane as Row).total ?? 0), 0),
+    ).toBe(1919);
+    expect(paneRows.length).toBeGreaterThan(0);
+    expect(paneRows).toEqual(
+      expect.arrayContaining([expect.objectContaining({ companyProductId: dTierCompanyProductId, baselineTier: 'D' })]),
+    );
+    expect(digest.metadata).toMatchObject({ denominatorCount: 1919, publishedRunId: runId });
+    expect(digestRows.length).toBeGreaterThan(0);
+    expect(listingReview).toMatchObject({ listingCount: 2363, actionCount: 0 });
+    expect(listingReview.rows).toHaveLength(2363);
+    expect(listingReview.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ companyProductId: dTierCompanyProductId, baselineTier: 'D' }),
+        expect.objectContaining({
+          companyProductId: noMovementCompanyProductId,
+          baselineState: 'no_movement',
+          baselineTier: null,
+        }),
+        expect.objectContaining({ companyProductId: 'cp-0006', averageMonthlyProfit: null }),
+      ]),
+    );
+    const [secondCommandCenter, secondListingReview] = await Promise.all([
+      readThroughPublicAction(db, 'commandCenter'),
+      readThroughPublicAction(db, 'listingPerformanceReview'),
+    ]);
+    for (const pane of Object.keys(commandCenter.panes)) {
+      const firstPane = (commandCenter.panes as Row)[pane] as Row;
+      const secondPane = (secondCommandCenter.panes as Row)[pane] as Row;
+      expect(secondPane).toMatchObject({
+        total: firstPane.total,
+        rows: (firstPane.rows as Row[]).map((row) => expect.objectContaining({ naturalKey: row.naturalKey })),
+      });
+    }
+    expect(secondListingReview.rows.map((row) => row.naturalKey)).toEqual(
+      listingReview.rows.map((row) => row.naturalKey),
+    );
+    expect([...legacyNames].filter((name) => responseNames.has(name))).toEqual([]);
   });
 
   it('preserves trusted zero movement as unranked and non-actionable', async () => {

@@ -237,6 +237,50 @@ async function createRecord(db: MemoryDatabase, collection: string, values: Reco
   await db.getRepository(collection).create({ values });
 }
 
+async function seedCorrectedFamilyListing(db: MemoryDatabase, values: Record<string, unknown>) {
+  await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
+    calculationDate: '2026-07-10',
+    company: 'ACME',
+    companyProductFamilyId: 'family-corrected',
+    asin: String(values.asin ?? values.companyProductFamilyId ?? 'family-corrected'),
+    familyRole: 'target',
+    baselineTier: 'A',
+    baselineTierScore: '300.00000000',
+    baselineState: 'ranked',
+    baselineConfidence: 'full',
+    averageMonthlyProfit: '300.00000000',
+    averageMonthlyUnits: '30.00000000',
+    rollingUnits30: '30.00000000',
+    inventoryDisposition: 'none',
+    currentPlanningStock: 0,
+    onHandStock: 0,
+    onHandSellableStock: 0,
+    reservedStock: 0,
+    amazonPipelineStock: 0,
+    supplierPipelineStock: 0,
+    inventoryPositionStock: 0,
+    futurePositionStock: 0,
+    sellableStock: 0,
+    pipelineStock: 0,
+    inboundStock: 0,
+    orderedStock: 0,
+    prepStock: 0,
+    awdStock: 0,
+    targetCoverDays: 45,
+    unitCost: 2,
+    supplierOrderState: 'no_open_order',
+    primaryActionPane: 'healthyInventory',
+    primaryActionReasonCode: 'sufficient_stock',
+    replenishmentEligibility: 'eligible',
+    replenishmentBlockReasonCode: 'eligible_informational_projection',
+    newReplenishmentActionable: false,
+    existingOrderFollowUp: false,
+    existingOrderFollowUpAction: 'none',
+    listingReviewCategories: [],
+    ...values,
+  });
+}
+
 async function createSilverOrderRecord(db: MemoryDatabase, values: Record<string, unknown>) {
   const company = String(values.company ?? '');
   const companyId = `silver-company:${company}`;
@@ -584,300 +628,18 @@ describe('EcobaseInventoryPlanningService', () => {
       moneyRiskUncoveredDays: 20,
     });
   });
-
-  it('materializes exclusive target supply, active-order, stuck, member, and watch boundaries', () => {
-    const service = new EcobaseInventoryPlanningService(new MemoryDatabase()) as unknown as {
-      finalizeGoldContract: (row: Record<string, unknown>, calculationDate: string) => Record<string, unknown>;
-      commandCenterRiskBars: (rows: Record<string, unknown>[]) => Record<string, Record<string, unknown>[]>;
-    };
-    const materialize = (values: Record<string, unknown>) =>
-      service.finalizeGoldContract(
-        {
-          productStatus: 'Active',
-          familyRole: 'target',
-          actionStatus: 'order_soon',
-          tier: 'A',
-          salesVelocity: 1,
-          salesVelocityBasis: 'historical_rolling_30_days',
-          salesVelocityStatus: 'trusted_positive',
-          currentPlanningStock: 30,
-          onHandStock: 30,
-          onHandSellableStock: 30,
-          sellableStock: 30,
-          daysOfCover: 30,
-          targetCoverDays: 45,
-          supplierOrderState: 'no_open_order',
-          estimatedOosDate: '2026-08-09',
-          inventoryAsOfDate: '2026-07-10',
-          supplierAvailability: 'resolved_silver_link',
-          leadTimeAvailability: 'resolved_silver_link',
-          unitCostAvailability: 'resolved_cogs',
-          profitAvailability: 'resolved_history',
-          effectiveLeadTimeDays: 30,
-          profitPerUnit: 5,
-          openOrderCoverageQty: 0,
-          ...values,
-        },
-        '2026-07-10',
-      );
-
-    expect(materialize({})).toMatchObject({
-      commandCenterPane: 'supplyAction',
-      sourceFreshnessStatus: 'fresh',
-    });
-    expect(materialize({ inventoryAsOfDate: undefined })).toMatchObject({
-      commandCenterPane: 'dataReadiness',
-      dataQualityStatus: 'blocked',
-    });
-    expect(materialize({ daysOfCover: 30.01 }).commandCenterPane).toBe('supplyAction');
-    expect(materialize({ daysOfCover: 30.01 }).stuckClassification).toBe('over_30_doc_watch');
-    expect(materialize({ daysOfCover: 60, lastMonthQty: 5, sixMonthAverageQty: 10 }).stuckClassification).toBe(
-      'declining_velocity_watch',
-    );
-    expect(
-      materialize({ daysOfCover: 60.01, familyStuckAction: true, familyStuckClassification: 'over_60_doc' }),
-    ).toMatchObject({ commandCenterPane: 'excessInventory', stuckClassification: 'over_60_doc' });
-    expect(
-      service.commandCenterRiskBars([
-        materialize({ daysOfCover: 61, familyStuckAction: true, familyStuckClassification: 'over_60_doc' }),
-        materialize({ daysOfCover: 45 }),
-        materialize({ daysOfCover: 45, lastMonthQty: 5, sixMonthAverageQty: 10 }),
-      ]).inventoryHealth,
-    ).toEqual([
-      { key: 'healthyInventory', count: 0 },
-      { key: 'excessInventory', count: 1 },
-      { key: 'stuckInventory', count: 0 },
-      { key: 'zeroStock', count: 0 },
-      { key: 'dataReadiness', count: 0 },
-    ]);
-    expect(
-      materialize({
-        currentPlanningStock: 0,
-        onHandStock: 0,
-        onHandSellableStock: 0,
-        sellableStock: 0,
-        daysOfCover: 0,
-      }).stuck,
-    ).toBe(false);
-    expect(
-      materialize({
-        onHandStock: 0,
-        onHandSellableStock: 0,
-        sellableStock: 0,
-        reservedStock: 10,
-        expectedArrivalDate: '2026-07-01',
-      }).stuckClassification,
-    ).toBe('reserved_stalled');
-    expect(
-      materialize({
-        salesVelocity: 0,
-        salesVelocityStatus: 'trusted_zero',
-        daysOfCover: undefined,
-        familyStuckAction: true,
-        familyStuckClassification: 'no_sell_through_with_stock',
-      }),
-    ).toMatchObject({
-      commandCenterPane: 'stuckInventory',
-      stuckClassification: 'no_sell_through_with_stock',
-    });
-    expect(
-      materialize({
-        salesVelocity: 0,
-        salesVelocityStatus: 'trusted_zero',
-        daysOfCover: undefined,
-        pipelineStock: 10,
-      }),
-    ).toMatchObject({ commandCenterPane: 'stuckInventory', stuckClassification: 'no_sell_through_with_stock' });
-    expect(
-      materialize({ salesVelocity: undefined, salesVelocityStatus: 'missing', daysOfCover: undefined }),
-    ).toMatchObject({ commandCenterPane: 'dataReadiness', stuckClassification: 'insufficient_velocity_data' });
-    expect(materialize({ familyRole: 'member', actionStatus: 'family_member_no_reorder' }).commandCenterPane).toBe(
-      'adminExcluded',
-    );
-    expect(materialize({ productStatus: 'Inactive' }).commandCenterPane).toBe('adminExcluded');
-    expect(
-      materialize({
-        daysOfCover: 90,
-        supplierOrderState: 'purchased_pipeline',
-        supplierOrderWorkflowStage: 'in_prep',
-        expectedArrivalDate: '2026-07-01',
-        expectedArrivalStatus: 'imported',
-        pipelineStock: 10,
-        familyStuckAction: true,
-        familyStuckClassification: 'pipeline_stalled',
-      }),
-    ).toMatchObject({
-      commandCenterPane: 'inPrepMonitoring',
-      stuck: true,
-      stuckClassification: 'pipeline_stalled',
-      supplierOrderState: 'purchased_pipeline',
-    });
-    expect(
-      materialize({
-        daysOfCover: 90,
-        supplierOrderState: 'purchased_pipeline',
-        supplierOrderAuthorityEvidence: { clickupStatusEvidence: { clickupStatus: 'inbound-monitoring' } },
-        amazonReceiptStatus: 'awaiting_amazon_stock',
-        familyStuckAction: true,
-        familyStuckClassification: 'pipeline_stalled',
-      }).commandCenterPane,
-    ).toBe('inboundMonitoring');
-    expect(materialize({ supplierAvailability: 'unavailable_no_evidence' })).toMatchObject({
-      commandCenterPane: 'dataReadiness',
-    });
-    expect(
-      materialize({
-        familyRole: 'review',
-        actionStatus: 'family_review_required',
-        salesVelocity: undefined,
-        salesVelocityStatus: 'missing',
-        daysOfCover: undefined,
-      }).commandCenterPane,
-    ).toBe('dataReadiness');
-  });
-
-  it('emits one readiness row and no duplicate actions when a family target needs review', () => {
-    const service = new EcobaseInventoryPlanningService(new MemoryDatabase()) as unknown as {
-      applyFamilyRollups: (rows: Record<string, unknown>[], calculationDate: string) => Record<string, unknown>[];
-      finalizeGoldContract: (row: Record<string, unknown>, calculationDate: string) => Record<string, unknown>;
-    };
-    const members = ['member-b', 'member-a'].map((companyProductId) => ({
-      companyProductId,
-      companyProductFamilyId: 'family-review',
+  it('projects exactly one operator action per family across panes, totals, digest, search, and nested evidence', async () => {
+    const db = new MemoryDatabase({ historyLoaded: false });
+    const common = {
+      company: 'ACME',
+      calculationDate: '2026-07-15',
+      amazonAccountId: '11111111-1111-4111-8111-111111111111',
+      marketplace: 'Amazon.com',
       productStatus: 'Active',
-      actionStatus: 'missing_velocity',
-      salesVelocityStatus: 'missing',
-      targetCoverDays: 45,
-      tier: 'A',
-      inventoryAsOfDate: '2026-07-10',
-      onHandStock: 10,
-      onHandSellableStock: 10,
-      currentPlanningStock: 10,
-      supplierOrderState: 'no_open_order',
-    }));
-
-    const materialized = service
-      .applyFamilyRollups(members, '2026-07-10')
-      .map((row) => service.finalizeGoldContract(row, '2026-07-10'));
-
-    expect(materialized.map((row) => [row.companyProductId, row.familyRole, row.commandCenterPane])).toEqual([
-      ['member-b', 'member', 'adminExcluded'],
-      ['member-a', 'review', 'zeroStock'],
-    ]);
-  });
-
-  it('projects family source-order receipt evidence onto the replenishment target', () => {
-    const service = new EcobaseInventoryPlanningService(new MemoryDatabase()) as unknown as {
-      applyFamilyRollups: (rows: Record<string, unknown>[], calculationDate: string) => Record<string, unknown>[];
-    };
-    const receiptEvidence = { evidenceKey: 'receipt-evidence' };
-    const rows = service.applyFamilyRollups(
-      [
-        {
-          companyProductId: 'family-target',
-          companyProductFamilyId: 'family-receipt',
-          replenishmentTargetCompanyProductId: 'family-target',
-          familyRollupEvidence: { supplierSelection: { sourceCompanyProductId: 'family-source' } },
-        },
-        {
-          companyProductId: 'family-source',
-          companyProductFamilyId: 'family-receipt',
-          replenishmentTargetCompanyProductId: 'family-target',
-          supplierOrderId: 'order-1',
-          supplierOrderRef: 'PO-1',
-          supplierOrderSortValue: '2026-07-10:PO-1',
-          amazonReceiptStatus: 'awaiting_amazon_stock',
-          amazonReceiptObservedAt: '2026-07-10T00:00:00.000Z',
-          amazonReceiptCompletionReason: 'source_inbound_monitoring',
-          amazonReceiptEvidenceJson: receiptEvidence,
-        },
-      ],
-      '2026-07-16',
-    );
-
-    expect(rows.find((row) => row.companyProductId === 'family-target')).toMatchObject({
-      supplierOrderId: 'order-1',
-      supplierOrderRef: 'PO-1',
-      amazonReceiptStatus: 'awaiting_amazon_stock',
-      amazonReceiptObservedAt: '2026-07-10T00:00:00.000Z',
-      amazonReceiptCompletionReason: 'source_inbound_monitoring',
-      amazonReceiptEvidenceJson: receiptEvidence,
-    });
-  });
-
-  it('keeps untiered current-operational targets visible without history enrichment', () => {
-    const service = new EcobaseInventoryPlanningService(new MemoryDatabase({ historyLoaded: false })) as unknown as {
-      finalizeGoldContract: (row: Record<string, unknown>, calculationDate: string) => Record<string, unknown>;
-    };
-    const materialize = (values: Record<string, unknown>) =>
-      service.finalizeGoldContract(
-        {
-          productStatus: 'Active',
-          familyRole: 'target',
-          tier: undefined,
-          salesVelocity: 2,
-          salesVelocityBasis: 'inventory_snapshot_fallback',
-          salesVelocityStatus: 'fallback_positive',
-          currentPlanningStock: 20,
-          daysOfCover: 10,
-          targetCoverDays: 45,
-          actionStatus: 'overdue',
-          supplierOrderState: 'no_open_order',
-          inventoryAsOfDate: '2026-07-10',
-          supplierAvailability: 'unavailable_no_evidence',
-          leadTimeAvailability: 'resolved_default_supplier_lead_time',
-          unitCostAvailability: 'unavailable_no_evidence',
-          profitAvailability: 'unavailable_no_history',
-          ...values,
-        },
-        '2026-07-10',
-      );
-
-    expect(materialize({})).toMatchObject({
-      commandCenterPane: 'untieredProducts',
-      planningEligibilityStatus: 'ineligible_unclassified_tier',
-    });
-    expect(materialize({ actionStatus: 'sufficient_stock', currentPlanningStock: 180, daysOfCover: 90 })).toMatchObject(
-      {
-        commandCenterPane: 'untieredProducts',
-        planningEligibilityStatus: 'ineligible_unclassified_tier',
-      },
-    );
-    expect(
-      materialize({
-        actionStatus: 'missing_velocity',
-        salesVelocity: undefined,
-        salesVelocityStatus: 'missing',
-        daysOfCover: undefined,
-      }),
-    ).toMatchObject({
-      commandCenterPane: 'untieredProducts',
-      planningEligibilityStatus: 'ineligible_unclassified_tier',
-    });
-  });
-
-  it('applies the exclusive report-pane precedence without dropping source evidence', () => {
-    const service = new EcobaseInventoryPlanningService(new MemoryDatabase()) as unknown as {
-      finalizeGoldContract: (row: Record<string, unknown>, calculationDate: string) => Record<string, unknown>;
-    };
-    const sourceEvidence = { clickupStatusEvidence: { taskRef: 'task-1', clickupStatus: 'paid' } };
-    const base = {
-      productStatus: 'Active',
-      familyRole: 'target',
-      tier: 'A',
-      supplierAvailability: 'resolved_silver_link',
-      leadTimeAvailability: 'resolved_silver_link',
-      unitCostAvailability: 'resolved_supplier_product',
-      profitAvailability: 'resolved_history',
-      salesVelocityStatus: 'trusted_positive',
-      salesVelocity: 1,
-      daysOfCover: 100,
-      inventoryAsOfDate: '2026-07-10',
-      supplierOrderState: 'no_open_order',
-      actionStatus: 'no_reorder_needed',
-      targetCoverDays: 45,
-      effectiveLeadTimeDays: 30,
-      onHandSellableStock: 100,
+      baselineTier: 'A',
+      baselineState: 'ranked',
+      baselineConfidence: 'full',
+      inventoryAsOfDate: '2026-07-15',
       sellableStock: 100,
       reservedStock: 0,
       orderedStock: 0,
@@ -885,68 +647,11 @@ describe('EcobaseInventoryPlanningService', () => {
       inboundStock: 0,
       awdStock: 0,
       supplierPipelineStock: 0,
-      commandCenterPane: 'legacy',
-      supplierOrderAuthorityEvidence: sourceEvidence,
-    };
-    const pane = (values: Record<string, unknown>) =>
-      service.finalizeGoldContract({ ...base, ...values }, '2026-07-10');
-
-    const rows = [
-      pane({ productStatus: 'Inactive', supplierOrderState: 'purchased_pipeline', expectedArrivalDate: '2026-07-09' }),
-      pane({
-        supplierOrderState: 'purchased_pipeline',
-        supplierOrderWorkflowStage: 'amazon_inbound',
-        expectedArrivalStatus: 'imported',
-        expectedArrivalDate: '2026-07-09',
-      }),
-      pane({
-        supplierOrderState: 'purchased_pipeline',
-        supplierOrderWorkflowStage: 'in_prep',
-        expectedArrivalStatus: 'imported',
-        expectedArrivalDate: '2026-07-15',
-        estimatedOosDate: '2026-07-20',
-      }),
-      pane({ supplierAvailability: 'unavailable_no_evidence', actionStatus: 'order_today' }),
-      pane({ actionStatus: 'order_today', daysOfCover: 10 }),
-      pane({}),
-    ];
-
-    expect(rows.map((row) => row.commandCenterPane)).toEqual([
-      'adminExcluded',
-      'inboundMonitoring',
-      'inPrepMonitoring',
-      'dataReadiness',
-      'supplyAction',
-      'healthyInventory',
-    ]);
-    expect(rows.every((row) => row.supplierOrderAuthorityEvidence === sourceEvidence)).toBe(true);
-  });
-
-  it('projects exactly one operator action per family across panes, totals, digest, search, and nested evidence', async () => {
-    const db = new MemoryDatabase({ historyLoaded: false });
-    const common = {
-      company: 'ACME',
-      calculationDate: '2026-07-15',
-      familyAmazonAccountId: '11111111-1111-4111-8111-111111111111',
-      familyMarketplace: 'Amazon.com',
-      productStatus: 'Active',
-      planningEligibilityStatus: 'eligible',
-      tier: 'A',
-      inventoryAsOfDate: '2026-07-15',
-      familySellableStock: 100,
-      familyReservedStock: 0,
-      familyOrderedStock: 0,
-      familyPrepStock: 0,
-      familyInboundStock: 0,
-      familyAwdStock: 0,
-      familySupplierPipelineStock: 0,
-      familyOnHandSellableStock: 100,
+      onHandSellableStock: 100,
       supplierAvailability: 'resolved_silver_link',
       effectiveLeadTimeDays: 30,
-      salesVelocity: 2,
-      familySalesVelocity: 2,
-      profitPerUnit: 5,
-      moneyRiskStatus: 'resolved_positive',
+      rollingUnits30: 60,
+      baselineWeightedProfitPerUnit: 5,
     };
     await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
       ...common,
@@ -957,10 +662,12 @@ describe('EcobaseInventoryPlanningService', () => {
       familyRole: 'target',
       asin: 'B00FAMILYONE',
       sku: 'TARGET-ONE',
-      actionStatus: 'overdue',
-      commandCenterPane: 'orderNow',
-      supplierAvailability: 'resolved_silver_link',
-      estimatedProfitRisk: 100,
+      primaryActionPane: 'supplyAction',
+      primaryActionReasonCode: 'new_replenishment_action',
+      replenishmentEligibility: 'eligible',
+      newReplenishmentActionable: true,
+      supplyActionable: true,
+      averageMonthlyProfit: 100,
     });
     await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
       ...common,
@@ -971,9 +678,11 @@ describe('EcobaseInventoryPlanningService', () => {
       familyRole: 'member',
       asin: 'B00FAMILYONE',
       sku: 'MEMBER-ONE',
-      actionStatus: 'family_member_no_reorder',
-      commandCenterPane: 'watchlist',
-      estimatedProfitRisk: 999,
+      primaryActionPane: 'performanceReview',
+      primaryActionReasonCode: 'family_member_evidence_only',
+      replenishmentEligibility: 'review_missing_target',
+      newReplenishmentActionable: false,
+      averageMonthlyProfit: 999,
     });
     await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
       ...common,
@@ -984,14 +693,17 @@ describe('EcobaseInventoryPlanningService', () => {
       familyRole: 'target',
       asin: 'B00FAMILYTWO',
       sku: 'TARGET-TWO',
-      actionStatus: 'already_ordered',
-      commandCenterPane: 'orderedPipeline',
+      primaryActionPane: 'inPrepMonitoring',
+      primaryActionReasonCode: 'existing_order_follow_up',
+      replenishmentEligibility: 'blocked_existing_order',
+      newReplenishmentActionable: false,
+      existingOrderFollowUp: true,
       supplierOrderState: 'purchased_pipeline',
       supplierOrderId: 'order-current',
       supplierOrderRef: 'PO-CURRENT-42',
       supplierOrderStatus: 'paid',
       supplierOrderWorkflowStage: 'in_prep',
-      estimatedProfitRisk: 200,
+      averageMonthlyProfit: 200,
     });
     await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
       ...common,
@@ -1002,14 +714,16 @@ describe('EcobaseInventoryPlanningService', () => {
       familyRole: 'review',
       asin: 'B00FAMILYTHREE',
       sku: 'REVIEW-THREE',
-      actionStatus: 'missing_velocity',
-      commandCenterPane: 'dataQuality',
-      planningEligibilityStatus: 'needs_data_readiness',
-      estimatedProfitRisk: null,
-      salesVelocity: null,
-      familySalesVelocity: null,
-      profitPerUnit: null,
-      moneyRiskStatus: 'unknown_missing_inputs',
+      baselineTier: null,
+      baselineState: 'unclassified',
+      baselineConfidence: 'low',
+      primaryActionPane: 'dataReadiness',
+      primaryActionReasonCode: 'insufficient_baseline_evidence',
+      replenishmentEligibility: 'blocked_insufficient_evidence',
+      newReplenishmentActionable: false,
+      averageMonthlyProfit: null,
+      rollingUnits30: null,
+      baselineWeightedProfitPerUnit: null,
     });
     await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
       ...common,
@@ -1021,10 +735,11 @@ describe('EcobaseInventoryPlanningService', () => {
       asin: 'B00FAMILYFOUR',
       sku: 'INACTIVE-FOUR',
       productStatus: 'Inactive',
-      actionStatus: 'sufficient_stock',
-      commandCenterPane: 'legacyInactivePane',
-      planningEligibilityStatus: 'ineligible_inactive',
-      estimatedProfitRisk: 0,
+      primaryActionPane: 'adminExcluded',
+      primaryActionReasonCode: 'inactive_listing',
+      replenishmentEligibility: 'excluded',
+      newReplenishmentActionable: false,
+      averageMonthlyProfit: 0,
     });
 
     const service = new EcobaseInventoryPlanningService(db);
@@ -1034,7 +749,7 @@ describe('EcobaseInventoryPlanningService', () => {
       pageSize: 100,
     });
     const projectedRows = Object.values(commandCenter.panes).flatMap((pane) => pane.rows);
-    const moneyRisk = commandCenter.summaryCards.find((card) => card.key === 'moneyAtRisk');
+    const averageMonthlyProfit = commandCenter.summaryCards.find((card) => card.key === 'averageMonthlyProfit');
 
     expect(commandCenter.metadata).toMatchObject({
       scope: 'family_action',
@@ -1043,7 +758,7 @@ describe('EcobaseInventoryPlanningService', () => {
       publishedRunId: 'test-published-gold:2026-07-15',
       denominatorCount: 3,
       hiddenEvidenceRowCount: 2,
-      moneyRiskDenominatorCount: 2,
+      averageMonthlyProfitDenominatorCount: 2,
     });
     expect(projectedRows).toHaveLength(3);
     expect(Object.values(commandCenter.panes).reduce((total, pane) => total + pane.total, 0)).toBe(3);
@@ -1054,20 +769,15 @@ describe('EcobaseInventoryPlanningService', () => {
         expect.objectContaining({ companyProductId: 'cp-family-one-target' }),
         expect.objectContaining({ companyProductId: 'cp-family-one-member' }),
       ]),
-      familyMetrics: expect.objectContaining({
-        familyId: 'family-one',
-        company: 'ACME',
-        amazonAccountId: '11111111-1111-4111-8111-111111111111',
-        marketplace: 'Amazon.com',
-        asin: 'B00FAMILYONE',
-      }),
-      targetListingMetrics: expect.objectContaining({ companyProductId: 'cp-family-one-target', sku: 'TARGET-ONE' }),
-      familySupplier: expect.any(Object),
-      targetOffer: expect.any(Object),
-      currentCycle: expect.any(Object),
-      readiness: expect.any(Object),
+      amazonAccountId: '11111111-1111-4111-8111-111111111111',
+      marketplace: 'Amazon.com',
+      asin: 'B00FAMILYONE',
+      baselineTier: 'A',
+      averageMonthlyProfit: 100,
+      primaryActionPane: 'supplyAction',
+      newReplenishmentActionable: true,
     });
-    expect(moneyRisk).toMatchObject({ value: 300, knownCount: 2, unknownCount: 0, denominatorCount: 2 });
+    expect(averageMonthlyProfit).toMatchObject({ value: 300, knownCount: 2, unknownCount: 0, denominatorCount: 2 });
 
     const searched = await service.commandCenter({
       company: 'ACME',
@@ -1083,16 +793,339 @@ describe('EcobaseInventoryPlanningService', () => {
     const digest = await service.digestPreview({ company: 'ACME', calculationDate: '2026-07-15' });
     expect(digest.metadata).toMatchObject({ scope: 'family_action', denominatorCount: 3, hiddenEvidenceRowCount: 2 });
     expect(digest.summary).toMatchObject({
-      moneyAtRiskKnownTotal: 300,
-      moneyAtRiskKnownCount: 2,
-      moneyAtRiskUnknownCount: 0,
-      moneyAtRiskDenominatorCount: 2,
+      averageMonthlyProfitKnownTotal: 300,
+      averageMonthlyProfitKnownCount: 2,
+      averageMonthlyProfitUnknownCount: 0,
+      averageMonthlyProfitDenominatorCount: 2,
     });
     expect(
       Object.values(digest.sections)
         .flat()
         .some((row) => row.companyProductId === 'cp-family-one-member'),
     ).toBe(false);
+  });
+
+  it('materializes exclusive target supply, active-order, stuck, member, and watch boundaries', async () => {
+    const db = new MemoryDatabase();
+    await seedCorrectedFamilyListing(db, {
+      id: 'exclusive-target',
+      companyProductId: 'exclusive-target',
+      sku: 'TARGET',
+      familyRole: 'target',
+      primaryActionPane: 'supplyAction',
+      primaryActionReasonCode: 'new_replenishment_action',
+      newReplenishmentActionable: true,
+      supplyActionable: true,
+      recommendedOrderQty: 20,
+    });
+    await seedCorrectedFamilyListing(db, {
+      id: 'exclusive-member',
+      companyProductId: 'exclusive-member',
+      sku: 'MEMBER',
+      familyRole: 'member',
+      primaryActionPane: 'stuckInventory',
+      replenishmentEligibility: 'blocked_stuck_inventory',
+      newReplenishmentActionable: false,
+      inventoryDisposition: 'no_sell_through',
+      currentPlanningStock: 5,
+    });
+
+    const commandCenter = await new EcobaseInventoryPlanningService(db).commandCenter({ pageSize: 100 });
+    const allRows = Object.values(commandCenter.panes).flatMap((pane) => pane.rows);
+
+    expect(Object.values(commandCenter.panes).reduce((total, pane) => total + pane.total, 0)).toBe(1);
+    expect(allRows).toEqual([
+      expect.objectContaining({
+        companyProductId: 'exclusive-target',
+        targetCompanyProductId: 'exclusive-target',
+        memberCount: 2,
+        newReplenishmentActionable: true,
+      }),
+    ]);
+    expect(allRows[0].familyMembers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ companyProductId: 'exclusive-target' }),
+        expect.objectContaining({ companyProductId: 'exclusive-member' }),
+      ]),
+    );
+  });
+
+  it('emits one readiness row and no duplicate actions when a family target needs review', async () => {
+    const db = new MemoryDatabase();
+    for (const [index, id] of ['review-one', 'review-two'].entries()) {
+      await seedCorrectedFamilyListing(db, {
+        id,
+        companyProductId: id,
+        companyProductFamilyId: 'family-review',
+        familyRole: 'review',
+        baselineTier: null,
+        baselineState: 'unclassified',
+        baselineConfidence: 'low',
+        averageMonthlyProfit: null,
+        primaryActionPane: index === 0 ? 'supplyAction' : 'dataReadiness',
+        primaryActionReasonCode: index === 0 ? 'representative_must_not_own_action' : 'frozen_family_target_review',
+        replenishmentEligibility: index === 0 ? 'eligible' : 'review_missing_target',
+        replenishmentBlockReasonCode: index === 0 ? 'eligible_informational_projection' : 'review_missing_target',
+        newReplenishmentActionable: index === 0,
+        recommendedOrderQty: index === 0 ? 999 : null,
+        listingReviewCategories: ['data_readiness'],
+      });
+    }
+
+    const service = new EcobaseInventoryPlanningService(db);
+    const [commandCenter, review] = await Promise.all([
+      service.commandCenter({ pageSize: 100 }),
+      service.listingPerformanceReview(),
+    ]);
+
+    expect(commandCenter.panes.dataReadiness).toMatchObject({ total: 1 });
+    expect(commandCenter.panes.dataReadiness.rows).toEqual([
+      expect.objectContaining({
+        companyProductFamilyId: 'family-review',
+        targetSelectionState: 'review_required',
+        targetCompanyProductId: null,
+        actionSourceCompanyProductId: null,
+        memberCount: 2,
+        primaryActionPane: 'dataReadiness',
+        replenishmentEligibility: 'review_missing_target',
+        newReplenishmentActionable: false,
+        recommendedOrderQty: null,
+      }),
+    ]);
+    expect(Object.values(commandCenter.panes).reduce((total, pane) => total + pane.total, 0)).toBe(1);
+    expect(review).toMatchObject({ listingCount: 2, actionCount: 0 });
+  });
+
+  it('keeps member receipt evidence linked without overriding the digest-bound target action', async () => {
+    const db = new MemoryDatabase();
+    await seedCorrectedFamilyListing(db, {
+      id: 'receipt-target',
+      companyProductId: 'receipt-target',
+      companyProductFamilyId: 'family-receipt',
+      familyRole: 'target',
+      primaryActionPane: 'supplyAction',
+      newReplenishmentActionable: true,
+      supplyActionable: true,
+    });
+    await seedCorrectedFamilyListing(db, {
+      id: 'receipt-source',
+      companyProductId: 'receipt-source',
+      companyProductFamilyId: 'family-receipt',
+      familyRole: 'member',
+      supplierOrderState: 'purchased_pipeline',
+      supplierOrderId: 'order-receipt',
+      supplierOrderRef: 'PO-RECEIPT',
+      supplierOrderStatus: 'paid',
+      supplierOrderWorkflowStage: 'in_prep',
+      supplierOrderOpenQty: 12,
+      amazonReceiptStatus: 'partially_observed',
+      amazonReceiptObservedAt: '2026-07-09T12:00:00.000Z',
+      amazonReceiptEvidenceJson: { source: 'amazon_inventory' },
+      primaryActionPane: 'inPrepMonitoring',
+      existingOrderFollowUp: true,
+      newReplenishmentActionable: false,
+    });
+
+    const commandCenter = await new EcobaseInventoryPlanningService(db).commandCenter({ pageSize: 100 });
+
+    expect(commandCenter.panes.supplyAction.rows).toEqual([
+      expect.objectContaining({
+        companyProductId: 'receipt-target',
+        actionSourceCompanyProductId: 'receipt-target',
+        primaryActionPane: 'supplyAction',
+        existingOrderFollowUp: false,
+        newReplenishmentActionable: true,
+        familyMembers: expect.arrayContaining([
+          expect.objectContaining({
+            companyProductId: 'receipt-source',
+            supplierOrderRef: 'PO-RECEIPT',
+            amazonReceiptStatus: 'partially_observed',
+            amazonReceiptObservedAt: '2026-07-09T12:00:00.000Z',
+            amazonReceiptEvidenceJson: { source: 'amazon_inventory' },
+          }),
+        ]),
+      }),
+    ]);
+    expect(commandCenter.panes.inPrepMonitoring.total).toBe(0);
+  });
+
+  it('keeps untiered current-operational targets visible without history enrichment', async () => {
+    const db = new MemoryDatabase();
+    await seedCorrectedFamilyListing(db, {
+      id: 'untiered-target',
+      companyProductId: 'untiered-target',
+      companyProductFamilyId: 'family-untiered',
+      baselineTier: null,
+      baselineState: 'no_movement',
+      baselineConfidence: 'full',
+      averageMonthlyProfit: '0.00000000',
+      primaryActionPane: 'untieredProducts',
+      primaryActionReasonCode: 'baseline_no_movement',
+      replenishmentEligibility: 'not_eligible_no_movement',
+      replenishmentBlockReasonCode: 'baseline_no_movement',
+      listingReviewCategories: ['no_movement'],
+    });
+
+    const commandCenter = await new EcobaseInventoryPlanningService(db).commandCenter({ pageSize: 100 });
+
+    expect(commandCenter.panes.untieredProducts.rows).toEqual([
+      expect.objectContaining({
+        companyProductId: 'untiered-target',
+        baselineTier: null,
+        baselineState: 'no_movement',
+        averageMonthlyProfit: '0.00000000',
+        newReplenishmentActionable: false,
+      }),
+    ]);
+  });
+
+  it('applies the exclusive report-pane precedence without dropping source evidence', async () => {
+    const db = new MemoryDatabase();
+    await seedCorrectedFamilyListing(db, {
+      id: 'precedence-review',
+      companyProductId: 'precedence-review',
+      companyProductFamilyId: 'family-precedence-review',
+      familyRole: 'review',
+      primaryActionPane: 'dataReadiness',
+      replenishmentEligibility: 'review_missing_target',
+      supplierOrderState: 'purchased_pipeline',
+      supplierOrderWorkflowStage: 'inbound',
+      supplierOrderRef: 'PO-REVIEW-EVIDENCE',
+    });
+    await seedCorrectedFamilyListing(db, {
+      id: 'precedence-action',
+      companyProductId: 'precedence-action',
+      companyProductFamilyId: 'family-precedence-action',
+      primaryActionPane: 'supplyAction',
+      newReplenishmentActionable: true,
+      supplyActionable: true,
+      supplierOrderState: 'no_open_order',
+    });
+
+    const commandCenter = await new EcobaseInventoryPlanningService(db).commandCenter({ pageSize: 100 });
+
+    expect(commandCenter.panes.dataReadiness.rows).toEqual([
+      expect.objectContaining({
+        companyProductId: 'precedence-review',
+        supplierOrderRef: 'PO-REVIEW-EVIDENCE',
+        newReplenishmentActionable: false,
+      }),
+    ]);
+    expect(commandCenter.panes.supplyAction.rows).toEqual([
+      expect.objectContaining({ companyProductId: 'precedence-action', newReplenishmentActionable: true }),
+    ]);
+    expect(Object.values(commandCenter.panes).reduce((total, pane) => total + pane.total, 0)).toBe(2);
+  });
+
+  it('keeps the digest-bound stuck pane while exposing target order and linked member evidence', async () => {
+    const db = new MemoryDatabase();
+    await seedCorrectedFamilyListing(db, {
+      id: 'stuck-order-target',
+      companyProductId: 'stuck-order-target',
+      companyProductFamilyId: 'family-stuck-order',
+      familyRole: 'target',
+      supplierOrderState: 'purchased_pipeline',
+      supplierOrderRef: 'PO-STUCK',
+      supplierOrderWorkflowStage: 'in_prep',
+      primaryActionPane: 'stuckInventory',
+      replenishmentEligibility: 'blocked_stuck_inventory',
+      inventoryDisposition: 'no_sell_through',
+      currentPlanningStock: 61,
+      existingOrderFollowUp: true,
+      existingOrderFollowUpAction: 'follow_up_existing_order',
+      newReplenishmentActionable: false,
+    });
+    await seedCorrectedFamilyListing(db, {
+      id: 'stuck-order-member',
+      companyProductId: 'stuck-order-member',
+      companyProductFamilyId: 'family-stuck-order',
+      familyRole: 'member',
+      inventoryDisposition: 'none',
+      currentPlanningStock: 10,
+    });
+
+    const commandCenter = await new EcobaseInventoryPlanningService(db).commandCenter({ pageSize: 100 });
+
+    expect(commandCenter.panes.stuckInventory.rows).toEqual([
+      expect.objectContaining({
+        companyProductId: 'stuck-order-target',
+        actionSourceCompanyProductId: 'stuck-order-target',
+        primaryActionPane: 'stuckInventory',
+        supplierOrderRef: 'PO-STUCK',
+        inventoryDisposition: 'no_sell_through',
+        currentPlanningStock: 61,
+        existingOrderFollowUp: true,
+        newReplenishmentActionable: false,
+        familyMembers: expect.arrayContaining([
+          expect.objectContaining({
+            companyProductId: 'stuck-order-member',
+            inventoryDisposition: 'none',
+            currentPlanningStock: 10,
+          }),
+        ]),
+      }),
+    ]);
+    expect(commandCenter.panes.inPrepMonitoring.total).toBe(0);
+  });
+
+  it('keeps target stock, velocity, and order quantity immutable while linking member stock evidence', async () => {
+    const db = new MemoryDatabase();
+    await seedCorrectedFamilyListing(db, {
+      id: 'position-target',
+      companyProductId: 'position-target',
+      companyProductFamilyId: 'family-position',
+      onHandStock: 10,
+      onHandSellableStock: 10,
+      currentPlanningStock: 10,
+      sellableStock: 10,
+      amazonPipelineStock: 5,
+      supplierPipelineStock: 20,
+      inventoryPositionStock: 15,
+      futurePositionStock: 35,
+      rollingUnits30: '30.00000000',
+      primaryActionPane: 'supplyAction',
+      newReplenishmentActionable: true,
+      supplyActionable: true,
+      recommendedOrderQty: 10,
+    });
+    await seedCorrectedFamilyListing(db, {
+      id: 'position-member',
+      companyProductId: 'position-member',
+      companyProductFamilyId: 'family-position',
+      onHandSellableStock: 100,
+      currentPlanningStock: 100,
+      inventoryPositionStock: 120,
+      futurePositionStock: 140,
+      rollingUnits30: '300.00000000',
+      recommendedOrderQty: 999,
+    });
+
+    const commandCenter = await new EcobaseInventoryPlanningService(db).commandCenter({ pageSize: 100 });
+
+    expect(commandCenter.panes.supplyAction.rows).toEqual([
+      expect.objectContaining({
+        companyProductId: 'position-target',
+        actionSourceCompanyProductId: 'position-target',
+        onHandSellableStock: 10,
+        amazonPipelineStock: 5,
+        supplierPipelineStock: 20,
+        inventoryPositionStock: 15,
+        futurePositionStock: 35,
+        rollingUnits30: '30.00000000',
+        positionDaysOfCover: null,
+        recommendedOrderQty: 10,
+        familyMembers: expect.arrayContaining([
+          expect.objectContaining({
+            companyProductId: 'position-member',
+            onHandSellableStock: 100,
+            inventoryPositionStock: 120,
+            futurePositionStock: 140,
+            rollingUnits30: '300.00000000',
+            recommendedOrderQty: 999,
+          }),
+        ]),
+      }),
+    ]);
   });
 
   it('loads the current order and full family order-line history in the row workspace', async () => {
@@ -1160,10 +1193,14 @@ describe('EcobaseInventoryPlanningService', () => {
     ]);
   });
 
-  it('requires a positive optimizer budget', async () => {
-    await expect(
-      new EcobaseInventoryPlanningService(new MemoryDatabase()).optimizeBudget({ budget: 0 }),
-    ).rejects.toThrow('Ecobase budget optimizer requires a budget greater than zero.');
+  it('rejects invalid budgets and fails the uncontracted corrected optimizer closed', async () => {
+    const service = new EcobaseInventoryPlanningService(new MemoryDatabase());
+    await expect(service.optimizeBudget({ budget: 0 })).rejects.toThrow(
+      'Ecobase budget optimizer requires a budget greater than zero.',
+    );
+    await expect(service.optimizeBudget({ budget: 100 })).rejects.toMatchObject({
+      code: 'ECOBASE_CORRECTED_BUDGET_OPTIMIZER_UNAVAILABLE',
+    });
   });
 
   it('reads only the explicitly published Gold refresh run', async () => {
@@ -1302,9 +1339,13 @@ describe('EcobaseInventoryPlanningService', () => {
       calculationDate: '2026-06-07',
       company: 'Ecofission LLC',
       asin: 'LOW',
-      actionStatus: 'overdue',
-      tier: 'A',
-      estimatedProfitRisk: 50,
+      baselineTier: 'A',
+      baselineState: 'ranked',
+      baselineConfidence: 'full',
+      averageMonthlyProfit: 50,
+      primaryActionPane: 'supplyAction',
+      replenishmentEligibility: 'eligible',
+      newReplenishmentActionable: true,
     });
     await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
       id: 'high-risk',
@@ -1312,9 +1353,13 @@ describe('EcobaseInventoryPlanningService', () => {
       calculationDate: '2026-06-07',
       company: 'Ecofission LLC',
       asin: 'HIGH',
-      actionStatus: 'order_soon',
-      tier: 'B',
-      estimatedProfitRisk: 500,
+      baselineTier: 'B',
+      baselineState: 'ranked',
+      baselineConfidence: 'full',
+      averageMonthlyProfit: 500,
+      primaryActionPane: 'supplyAction',
+      replenishmentEligibility: 'eligible',
+      newReplenishmentActionable: true,
     });
     await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
       id: 'excluded-risk',
@@ -1322,9 +1367,13 @@ describe('EcobaseInventoryPlanningService', () => {
       calculationDate: '2026-06-07',
       company: 'Ecofission LLC',
       asin: 'EXCLUDED',
-      actionStatus: 'excluded',
-      tier: 'A',
-      estimatedProfitRisk: 5000,
+      baselineTier: 'A',
+      baselineState: 'ranked',
+      baselineConfidence: 'full',
+      averageMonthlyProfit: 5000,
+      primaryActionPane: 'adminExcluded',
+      replenishmentEligibility: 'excluded',
+      newReplenishmentActionable: false,
     });
 
     const rows = await new EcobaseInventoryPlanningService(db).listRows({
@@ -1351,8 +1400,9 @@ describe('EcobaseInventoryPlanningService', () => {
       asin: 'B000WORK',
       sku: 'WORK-SKU',
       title: 'Workspace product',
-      actionStatus: 'order_today',
-      tier: 'A',
+      baselineTier: 'A',
+      baselineState: 'ranked',
+      baselineConfidence: 'full',
       productStatus: 'Active',
       familyRole: 'target',
       sellableStock: 20,
@@ -1365,7 +1415,11 @@ describe('EcobaseInventoryPlanningService', () => {
       onHandSellableStock: 20,
       supplierAvailability: 'resolved_silver_link',
       effectiveLeadTimeDays: 30,
-      estimatedProfitRisk: 250,
+      averageMonthlyProfit: 250,
+      primaryActionPane: 'supplyAction',
+      primaryActionReasonCode: 'new_replenishment_action',
+      replenishmentEligibility: 'eligible',
+      newReplenishmentActionable: true,
       supplierOrderState: 'no_open_order',
       leadTimeFreshness: 'fresh',
       lastRefreshedAt: '2026-06-07T10:00:00.000Z',
@@ -1379,8 +1433,13 @@ describe('EcobaseInventoryPlanningService', () => {
 
     expect(workspace.filters.companies).toContain('Ecofission LLC');
     expect(workspace.rows).toHaveLength(1);
-    expect(workspace.rows[0]).toMatchObject({ asin: 'B000WORK', actionStatus: 'order_today' });
-    expect(workspace.digest.summary).toMatchObject({ orderToday: 1, atRisk: 1 });
+    expect(workspace.rows[0]).toMatchObject({
+      asin: 'B000WORK',
+      baselineTier: 'A',
+      primaryActionPane: 'supplyAction',
+      newReplenishmentActionable: true,
+    });
+    expect(workspace.digest.summary).toMatchObject({ actionable: 1, atRisk: 1 });
     expect(workspace.digest.sections.orderNow[0]).toMatchObject({ asin: 'B000WORK' });
   });
 
@@ -1469,7 +1528,7 @@ describe('EcobaseInventoryPlanningService', () => {
     });
     expect(row('B000AMBIG')).toMatchObject({
       unitCostAvailability: 'unavailable_ambiguous',
-      estimatedOrderCost: undefined,
+      estimatedOrderCost: null,
     });
   });
 
@@ -1553,122 +1612,6 @@ describe('EcobaseInventoryPlanningService', () => {
     );
     expect(commandCenter.panes.healthyInventory.rows.map((row) => row.sku)).toContain('FAR-MISSING-LT');
   });
-
-  it('preserves family stuck evidence while active-order precedence owns the action pane', () => {
-    const service = new EcobaseInventoryPlanningService(new MemoryDatabase()) as unknown as {
-      applyFamilyRollups: (rows: Record<string, unknown>[], calculationDate: string) => Record<string, unknown>[];
-      finalizeGoldContract: (row: Record<string, unknown>, calculationDate: string) => Record<string, unknown>;
-    };
-    const base = {
-      companyProductFamilyId: 'family-stuck',
-      replenishmentTargetCompanyProductId: 'target-product',
-      familyPreferredSupplierName: 'Preferred Supplier',
-      productStatus: 'Active',
-      targetCoverDays: 45,
-      orderSoonWindowDays: 14,
-      safetyBufferDays: 15,
-      salesVelocityBasis: 'historical_rolling_30_days',
-      inventoryAsOfDate: '2026-07-10',
-      supplierAvailability: 'resolved_silver_link',
-      leadTimeAvailability: 'resolved_silver_link',
-      unitCostAvailability: 'resolved_supplier_product',
-      profitAvailability: 'resolved_history',
-      tier: 'A',
-    };
-    const rows = service.applyFamilyRollups(
-      [
-        {
-          ...base,
-          companyProductId: 'target-product',
-          sku: 'TARGET',
-          currentPlanningStock: 61,
-          onHandStock: 61,
-          onHandSellableStock: 61,
-          sellableStock: 61,
-          salesVelocity: 1,
-          salesVelocityStatus: 'trusted_positive',
-          daysOfCover: 61,
-          unitCost: 2,
-          supplierOrderState: 'purchased_pipeline',
-          supplierOrderWorkflowStage: 'in_prep',
-          supplierOrderRef: 'EF-STUCK',
-          openOrderCoverageQty: 5,
-          expectedArrivalDate: '2026-07-20',
-        },
-        {
-          ...base,
-          companyProductId: 'member-product',
-          sku: 'MEMBER',
-          currentPlanningStock: 10,
-          onHandStock: 0,
-          onHandSellableStock: 0,
-          sellableStock: 0,
-          reservedStock: 10,
-          salesVelocity: 0,
-          salesVelocityStatus: 'trusted_zero',
-          unitCost: 3,
-          supplierOrderState: 'no_open_order',
-          openOrderCoverageQty: 0,
-        },
-      ],
-      '2026-07-10',
-    );
-    const materialized = rows.map((row) => service.finalizeGoldContract(row, '2026-07-10'));
-
-    expect(materialized.filter((row) => row.commandCenterPane === 'inPrepMonitoring')).toEqual([
-      expect.objectContaining({
-        companyProductId: 'target-product',
-        familyStuckAction: true,
-        familyStuckAffectedMemberCount: 1,
-        familyStuckAffectedUnits: 61,
-        familyStuckAffectedValue: 122,
-        familyStuckActiveOrderCount: 1,
-        supplierOrderState: 'purchased_pipeline',
-        recommendedEscalation: 'review_stuck_inventory',
-      }),
-    ]);
-    expect(materialized.find((row) => row.companyProductId === 'member-product')).toMatchObject({
-      familyStuck: true,
-      familyStuckAction: false,
-      commandCenterPane: 'adminExcluded',
-      stuckClassification: 'none',
-    });
-  });
-
-  it('separates family inventory position from supplier pipeline future position', () => {
-    const service = new EcobaseInventoryPlanningService(new MemoryDatabase()) as unknown as {
-      applyFamilyRollups: (rows: Record<string, unknown>[], calculationDate: string) => Record<string, unknown>[];
-    };
-
-    const [row] = service.applyFamilyRollups(
-      [
-        {
-          companyProductFamilyId: 'family-position',
-          replenishmentTargetCompanyProductId: 'target-position',
-          companyProductId: 'target-position',
-          familyRole: 'target',
-          onHandSellableStock: 10,
-          amazonPipelineStock: 5,
-          supplierOrderPurchasedOpenQty: 25,
-          supplierOrderStale: false,
-          salesVelocity: 1,
-          targetCoverDays: 45,
-        },
-      ],
-      '2026-07-10',
-    );
-
-    expect(row).toMatchObject({
-      familyOnHandSellableStock: 10,
-      familyAmazonPipelineStock: 5,
-      familySupplierPipelineStock: 20,
-      familyInventoryPositionStock: 15,
-      familyFuturePositionStock: 35,
-      familyPositionDaysOfCover: 35,
-      familySuggestedReorderQty: 10,
-    });
-  });
-
   it('projects persisted latest active-order activity without request-time reclassification', async () => {
     const db = new MemoryDatabase();
     const orderId = '11111111-1111-4111-8111-111111111111';
@@ -1895,20 +1838,26 @@ describe('EcobaseInventoryPlanningService', () => {
     await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
       id: 'gold-risk-1',
       calculationDate: '2026-06-07',
-      planningProductId: 'planning-product-1',
+      companyProductId: 'planning-product-1',
       company: 'Ecofission LLC',
       asin: 'B000RISK',
       sku: 'SKU-RISK',
-      tier: 'A',
+      baselineTier: 'A',
+      baselineState: 'ranked',
+      baselineConfidence: 'full',
+      averageMonthlyProfit: 100,
       productStatus: 'Active',
       familyRole: 'target',
-      actionStatus: 'order_today',
+      primaryActionPane: 'supplyAction',
+      primaryActionReasonCode: 'new_replenishment_action',
+      replenishmentEligibility: 'eligible',
+      newReplenishmentActionable: true,
       supplierName: 'Digest Supplier',
-      supplierOrderState: 'placed_not_purchased',
+      supplierOrderState: 'no_open_order',
       supplierOrderStatus: 'approval_pending',
       supplierOrderRef: 'ORD-1',
       leadTimeFreshness: 'fresh',
-      digestPriority: 1,
+      recommendedOrderQty: 5,
     });
     await createSilverOrderRecord(db, {
       id: '11111111-1111-4111-8111-111111111111',
@@ -1953,7 +1902,7 @@ describe('EcobaseInventoryPlanningService', () => {
       calculationDate: '2026-06-07',
     });
 
-    expect(digest.summary).toMatchObject({ orderToday: 1, atRisk: 1, suppliersToContact: 0 });
+    expect(digest.summary).toMatchObject({ actionable: 1, atRisk: 1, suppliersToContact: 0 });
     expect(digest.sections.orderNow).toHaveLength(1);
     expect(digest.sections.orderNow[0]).toMatchObject({
       supplierOrderRef: 'ORD-1',
@@ -1963,62 +1912,75 @@ describe('EcobaseInventoryPlanningService', () => {
     expect(digest.sections.suppliersToContactFirst).toEqual([]);
   });
 
-  it('puts no-order digest rows before placed-but-not-purchased rows and excludes purchased pipeline rows', async () => {
+  it('keeps new actions in the digest and excludes existing-order follow-ups and purchased pipeline rows', async () => {
     const db = new MemoryDatabase();
     const digestRows = [
       {
         id: 'no-order',
-        actionStatus: 'overdue',
+        primaryActionPane: 'supplyAction',
+        replenishmentEligibility: 'eligible',
+        newReplenishmentActionable: true,
+        existingOrderFollowUp: false,
         supplierOrderState: 'no_open_order',
         leadTimeFreshness: 'fresh',
-        digestPriority: 1,
       },
       {
         id: 'payment-pending',
-        actionStatus: 'order_today',
+        primaryActionPane: 'activeOrders',
+        replenishmentEligibility: 'blocked_existing_order',
+        newReplenishmentActionable: false,
+        existingOrderFollowUp: true,
         supplierOrderState: 'placed_not_purchased',
         supplierOrderStatus: 'payment_pending',
         supplierOrderRef: 'PP-1',
         leadTimeFreshness: 'stale',
-        digestPriority: 2,
       },
       {
         id: 'approval-soon',
-        actionStatus: 'order_soon',
+        primaryActionPane: 'activeOrders',
+        replenishmentEligibility: 'blocked_existing_order',
+        newReplenishmentActionable: false,
+        existingOrderFollowUp: true,
         supplierOrderState: 'placed_not_purchased',
         supplierOrderStatus: 'approval_pending',
         supplierOrderRef: 'APP-1',
         leadTimeFreshness: 'fresh',
-        digestPriority: 3,
       },
       {
         id: 'paid-pipeline',
-        actionStatus: 'order_today',
+        primaryActionPane: 'inPrepMonitoring',
+        replenishmentEligibility: 'blocked_existing_order',
+        newReplenishmentActionable: false,
+        existingOrderFollowUp: true,
         supplierOrderState: 'purchased_pipeline',
         supplierOrderStatus: 'paid',
         supplierOrderRef: 'PAID-1',
         leadTimeFreshness: 'fresh',
-        digestPriority: 4,
       },
       {
         id: 'paid-evidence',
-        actionStatus: 'order_today',
+        primaryActionPane: 'inPrepMonitoring',
+        replenishmentEligibility: 'blocked_existing_order',
+        newReplenishmentActionable: false,
+        existingOrderFollowUp: true,
         supplierOrderState: 'purchased_pipeline',
         supplierOrderStatus: 'paid',
         supplierOrderRef: 'PAID-EVIDENCE-1',
         leadTimeFreshness: 'fresh',
-        digestPriority: 5,
       },
     ];
     for (const row of digestRows) {
       await createRecord(db, ECOBASE_COLLECTIONS.goldInventoryPlanningRows, {
         id: `gold-${row.id}`,
         calculationDate: '2026-06-07',
-        planningProductId: row.id,
+        companyProductId: row.id,
         company: 'Ecofission LLC',
         asin: `ASIN-${row.id}`,
         sku: `SKU-${row.id}`,
-        tier: 'A',
+        baselineTier: 'A',
+        baselineState: 'ranked',
+        baselineConfidence: 'full',
+        averageMonthlyProfit: 100,
         productStatus: 'Active',
         familyRole: 'target',
         supplierName: 'Digest Supplier',
@@ -2152,30 +2114,28 @@ describe('EcobaseInventoryPlanningService', () => {
       limit: 1,
     });
 
-    expect(digest.summary).toMatchObject({ noSupplierOrder: 1, placedNotPurchased: 2, purchasedPipelineExcluded: 2 });
-    expect(digest.sections.orderNow.map((row) => row.planningProductId)).toEqual([
-      'no-order',
-      'payment-pending',
-      'approval-soon',
-    ]);
-    expect(digest.sections.orderNow[0]).toMatchObject({ supplierOrderState: 'no_open_order' });
-    expect(digest.sections.noOrderProducts.map((row) => row.planningProductId)).toEqual(['no-order']);
-    expect(digest.sections.orderNow[1]).toMatchObject({
-      supplierOrderState: 'placed_not_purchased',
-      supplierOrderStatus: 'payment_pending',
-      supplierOrderRef: 'PP-1',
-      openOrderCoverageQty: 0,
+    expect(digest.summary).toMatchObject({
+      actionable: 1,
+      existingOrderFollowUp: 4,
+      noSupplierOrder: 1,
+      placedNotPurchased: 0,
+      purchasedPipelineExcluded: 2,
     });
-    expect(digest.sections.orderNow[2]).toMatchObject({
-      actionStatus: 'order_soon',
-      supplierOrderState: 'placed_not_purchased',
-      supplierOrderStatus: 'approval_pending',
-      supplierOrderRef: 'APP-1',
-      openOrderCoverageQty: 0,
+    expect(digest.sections.orderNow.map((row) => row.companyProductId)).toEqual(['no-order']);
+    expect(digest.sections.orderNow[0]).toMatchObject({
+      supplierOrderState: 'no_open_order',
+      newReplenishmentActionable: true,
+      existingOrderFollowUp: false,
     });
-    expect(digest.sections.supplierActionItems.map((row) => row.planningProductId)).toEqual(['payment-pending']);
-    expect(digest.sections.suppliersToContactFirst).toEqual([
-      expect.objectContaining({ supplierName: 'Digest Supplier', urgentCount: 1 }),
-    ]);
+    expect(digest.sections.noOrderProducts.map((row) => row.companyProductId)).toEqual(['no-order']);
+    expect(digest.sections.orderNow).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ companyProductId: 'payment-pending' }),
+        expect.objectContaining({ companyProductId: 'approval-soon' }),
+        expect.objectContaining({ companyProductId: 'paid-pipeline' }),
+      ]),
+    );
+    expect(digest.sections.supplierActionItems).toEqual([]);
+    expect(digest.sections.suppliersToContactFirst).toEqual([]);
   });
 });

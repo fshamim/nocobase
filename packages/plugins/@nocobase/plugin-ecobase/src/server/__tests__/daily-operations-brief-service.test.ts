@@ -162,7 +162,9 @@ async function seedGoldInventoryRow(db: MemoryDatabase, values: Record<string, u
       asin: values.asin,
       sku: values.sku ?? `SKU:${companyProductId}`,
       title: values.title ?? values.asin,
-      tier: values.tier ?? 'A',
+      baselineTier: values.baselineTier ?? values.tier ?? 'A',
+      baselineState: values.baselineState ?? 'ranked',
+      baselineConfidence: values.baselineConfidence ?? 'full',
       calculationDate,
       refreshRunId,
       lastRefreshedAt: values.lastRefreshedAt ?? '2026-06-10T08:00:00.000Z',
@@ -201,16 +203,24 @@ async function seedGoldInventoryRow(db: MemoryDatabase, values: Record<string, u
       supplierOrderStatus: values.supplierOrderStatus,
       supplierOrderWorkflowStage: values.supplierOrderWorkflowStage,
       supplierOrderRef: values.supplierOrderRef,
+      averageMonthlyProfit: Object.prototype.hasOwnProperty.call(values, 'averageMonthlyProfit')
+        ? values.averageMonthlyProfit
+        : Object.prototype.hasOwnProperty.call(values, 'estimatedProfitRisk')
+          ? values.estimatedProfitRisk
+          : 0,
       estimatedProfitRisk: Object.prototype.hasOwnProperty.call(values, 'estimatedProfitRisk')
         ? values.estimatedProfitRisk
         : 0,
       estimatedProfitRiskBasis: values.estimatedProfitRiskBasis ?? 'test_fixture',
       moneyRiskStatus: values.moneyRiskStatus ?? 'resolved_zero',
       moneyRiskInputs: values.moneyRiskInputs ?? {},
+      rollingUnits30: values.rollingUnits30 ?? Number(values.salesVelocity ?? 1) * 30,
       salesVelocity: values.salesVelocity ?? 1,
+      baselineWeightedProfitPerUnit: values.baselineWeightedProfitPerUnit ?? values.profitPerUnit ?? 1,
       profitPerUnit: values.profitPerUnit ?? 1,
       leadTimeFreshness: values.leadTimeFreshness ?? 'fresh',
       leadTimeDays: values.leadTimeDays ?? 14,
+      recommendedOrderQty: values.recommendedOrderQty ?? values.suggestedReorderQty ?? 10,
       suggestedReorderQty: values.suggestedReorderQty ?? 10,
       targetCoverDays: values.targetCoverDays ?? 45,
       currentPlanningStock: values.currentPlanningStock ?? 0,
@@ -230,6 +240,7 @@ async function seedGoldInventoryRow(db: MemoryDatabase, values: Record<string, u
       expectedArrivalDate: values.expectedArrivalDate,
       expectedArrivalStatus: values.expectedArrivalStatus,
       pipelineHealthStatus: values.pipelineHealthStatus ?? 'none',
+      inventoryDisposition: values.inventoryDisposition ?? values.stuckClassification ?? 'none',
       stuck: values.stuck ?? false,
       stuckClassification: values.stuckClassification ?? 'none',
       recommendedEscalation: values.recommendedEscalation,
@@ -321,19 +332,27 @@ describe('EcobaseDailyOperationsBriefService broader evidence focus', () => {
 
     expect(evidence.focus).toBe('inventory_risk');
     expect(evidence.inventoryCommandCenter.alerts.supplyActionNeeded).toEqual([
-      expect.objectContaining({ asin: 'B00NOORDER', actionStatus: 'overdue' }),
+      expect.objectContaining({
+        asin: 'B00NOORDER',
+        primaryActionPane: 'supplyAction',
+        newReplenishmentActionable: true,
+      }),
     ]);
     expect(evidence.inventoryCommandCenter.alerts.activeOrdersOffTrack).toEqual([
       expect.objectContaining({ asin: 'B00LATEPO', pipelineHealthStatus: 'late' }),
     ]);
     expect(evidence.inventoryCommandCenter.alerts.followUpsDueToday).toEqual([
-      expect.objectContaining({ asin: 'B00LATEPO', recommendedEscalation: 'follow_up_order' }),
+      expect.objectContaining({
+        asin: 'B00LATEPO',
+        existingOrderFollowUp: true,
+        existingOrderFollowUpAction: 'follow_up_existing_order',
+      }),
     ]);
     expect(evidence.inventoryCommandCenter.alerts.leadTimeDataGaps).toEqual([
       expect.objectContaining({ asin: 'B00NOORDER' }),
     ]);
     expect(evidence.inventoryCommandCenter.alerts.stuckInventoryReview).toEqual([
-      expect.objectContaining({ asin: 'B00STUCK', stuckClassification: 'pipeline_stalled' }),
+      expect.objectContaining({ asin: 'B00STUCK', inventoryDisposition: 'pipeline_stalled' }),
     ]);
     expect(evidence.summaryCounts).toMatchObject({
       supplyActionCount: 1,
@@ -346,7 +365,7 @@ describe('EcobaseDailyOperationsBriefService broader evidence focus', () => {
     });
   });
 
-  it('keeps current-only actions visible and reports readiness and unknown money risk without duplicate members', async () => {
+  it('keeps corrected actions visible and reports readiness and unknown average monthly profit without duplicate members', async () => {
     const { db, brief } = service();
     const currentOnlyEvidence = { historyLoadStatus: 'not_loaded' };
     await seedGoldInventoryRow(db, {
@@ -358,6 +377,10 @@ describe('EcobaseDailyOperationsBriefService broader evidence focus', () => {
       sellableStock: 1,
       commandCenterPane: 'supplyAction',
       planningEligibilityStatus: 'eligible',
+      baselineTier: 'A',
+      baselineState: 'ranked',
+      baselineConfidence: 'full',
+      averageMonthlyProfit: 100,
       estimatedProfitRisk: null,
       moneyRiskStatus: 'unknown_missing_inputs',
       evidence: currentOnlyEvidence,
@@ -372,6 +395,10 @@ describe('EcobaseDailyOperationsBriefService broader evidence focus', () => {
       planningEligibilityStatus: 'needs_data_readiness',
       dataQualityStatus: 'blocked',
       dataQualityIssues: ['velocity_missing'],
+      baselineTier: null,
+      baselineState: 'unclassified',
+      baselineConfidence: 'low',
+      averageMonthlyProfit: null,
       estimatedProfitRisk: null,
       moneyRiskStatus: 'unknown_missing_inputs',
       evidence: currentOnlyEvidence,
@@ -394,6 +421,10 @@ describe('EcobaseDailyOperationsBriefService broader evidence focus', () => {
       latestSupplierOrderActivityNote: 'ClickUp follow-up required',
       latestSupplierOrderActivityActor: 'Operations User',
       recommendedEscalation: 'follow_up_order',
+      baselineTier: null,
+      baselineState: 'unclassified',
+      baselineConfidence: 'moderate',
+      averageMonthlyProfit: null,
       estimatedProfitRisk: null,
       moneyRiskStatus: 'unknown_missing_inputs',
       evidence: currentOnlyEvidence,
@@ -422,10 +453,15 @@ describe('EcobaseDailyOperationsBriefService broader evidence focus', () => {
     });
 
     expect(evidence.inventoryRisks).toEqual([
-      expect.objectContaining({ asin: 'B00CURRENTSUPPLY', estimatedProfitRisk: undefined }),
+      expect.objectContaining({
+        asin: 'B00CURRENTSUPPLY',
+        baselineTier: 'A',
+        averageMonthlyProfit: 100,
+        newReplenishmentActionable: true,
+      }),
     ]);
     expect(evidence.inventoryCommandCenter.alerts.dataReadiness).toEqual([
-      expect.objectContaining({ asin: 'B00CURRENTREADY', commandCenterPane: 'dataReadiness' }),
+      expect.objectContaining({ asin: 'B00CURRENTREADY', primaryActionPane: 'dataReadiness' }),
     ]);
     expect(evidence.inventoryCommandCenter.alerts.activeOrdersOffTrack).toEqual([
       expect.objectContaining({
@@ -439,10 +475,10 @@ describe('EcobaseDailyOperationsBriefService broader evidence focus', () => {
       activeOrderCount: 1,
       activeOrderOffTrackCount: 1,
       dataReadinessCount: 1,
-      historyReadinessAffectedCount: 3,
-      moneyAtRiskKnownTotal: 0,
-      moneyAtRiskUnknownCount: 2,
-      moneyAtRiskDenominatorCount: 2,
+      historyReadinessAffectedCount: 2,
+      averageMonthlyProfitKnownTotal: 100,
+      averageMonthlyProfitUnknownCount: 1,
+      averageMonthlyProfitDenominatorCount: 2,
     });
     expect(evidence.dataWarnings).toEqual(
       expect.arrayContaining([
@@ -527,8 +563,8 @@ describe('EcobaseDailyOperationsBriefService broader evidence focus', () => {
       activeOrderCount: 105,
       activeOrderOffTrackCount: 0,
       activeOrderUnknownTimingCount: 1,
-      moneyAtRiskKnownTotal: 1280,
-      moneyAtRiskUnknownCount: 1,
+      averageMonthlyProfitKnownTotal: 1280,
+      averageMonthlyProfitUnknownCount: 1,
     });
     expect(evidence.inventoryCommandCenter.panes.inPrepMonitoring).toMatchObject({ total: 105 });
     expect(evidence.inventoryCommandCenter.alerts.activeOrdersOffTrack).toEqual([]);

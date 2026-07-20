@@ -382,11 +382,16 @@ describe('Ecobase AI public API seam', () => {
 });
 
 describe('Ecobase inventory-planning public API seam', () => {
-  it('rejects budget optimization without a positive budget', async () => {
+  it('rejects invalid budgets and fails uncontracted corrected optimization closed', async () => {
     const actions = createEcobaseInventoryPlanningActions();
     await expect(
       actions.optimizeBudget(createActionContext(new MemoryDatabase(), { budget: 0 }), vi.fn()),
     ).rejects.toThrow('Ecobase budget optimizer requires a budget greater than zero.');
+    await expect(
+      actions.optimizeBudget(createActionContext(new MemoryDatabase(), { budget: 100 }), vi.fn()),
+    ).rejects.toThrow(
+      'EcoBase corrected budget optimization is unavailable until an explicit corrected scoring contract is published.',
+    );
   });
 
   it('exposes the read-only Silver integrity verifier as an independent maintenance action', async () => {
@@ -506,7 +511,12 @@ describe('Ecobase inventory-planning public API seam', () => {
     const actions = createEcobaseInventoryPlanningActions();
     const goldRows = db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows);
     await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).create({
-      values: { id: 'run-1', status: 'published', publishedAt: '2026-07-05T08:00:00.000Z' },
+      values: {
+        id: 'run-1',
+        calculationDate: '2026-07-05',
+        status: 'published',
+        publishedAt: '2026-07-05T08:00:00.000Z',
+      },
     });
     const baseRow = {
       refreshRunId: 'run-1',
@@ -517,6 +527,19 @@ describe('Ecobase inventory-planning public API seam', () => {
       tier: 'A',
       productStatus: 'Active',
       familyRole: 'target',
+      baselineTier: 'A',
+      baselineTierScore: 250,
+      baselineState: 'ranked',
+      baselineConfidence: 'full',
+      baselineWeightedProfitPerUnit: 25,
+      averageMonthlyUnits: 22,
+      averageMonthlyProfit: 100,
+      lastClosedMonthTier: 'B',
+      currentProjectedTier: 'A',
+      projectedTierMovement: 'improved',
+      rollingUnits30: 10,
+      inventoryDisposition: 'none',
+      recommendedOrderQty: 215,
       tierScore: 250,
       recentUnits30: 10,
       tierEligibilityReason: 'eligible_recent_demand',
@@ -568,6 +591,7 @@ describe('Ecobase inventory-planning public API seam', () => {
         daysUntilOos: 3,
         supplierOrderState: 'no_open_order',
         commandCenterPane: 'orderNow',
+        primaryActionPane: 'supplyAction',
       },
     });
     await goldRows.create({
@@ -580,6 +604,7 @@ describe('Ecobase inventory-planning public API seam', () => {
         title: 'Pipeline risk product',
         actionStatus: 'overdue',
         estimatedProfitRisk: 500,
+        averageMonthlyProfit: 500,
         estimatedOosDate: '2026-07-07',
         daysUntilOos: 2,
         expectedArrivalDate: '2026-07-10',
@@ -590,6 +615,7 @@ describe('Ecobase inventory-planning public API seam', () => {
         supplierOrderWorkflowStage: 'in_prep',
         supplierOrderId: 'supplier-order-po-2',
         commandCenterPane: 'orderedPipeline',
+        primaryActionPane: 'inPrepMonitoring',
         supplierOrderStatus: 'paid',
         supplierOrderRef: 'PO-2',
         companyProductId: 'company-product-2',
@@ -610,13 +636,17 @@ describe('Ecobase inventory-planning public API seam', () => {
         sku: 'SKU-3',
         title: 'Stuck product',
         tier: null,
+        baselineTier: null,
+        baselineState: 'no_movement',
         actionStatus: 'watch',
         estimatedProfitRisk: 0,
         daysOfCover: 90,
         supplierOrderState: 'closed_history',
         stuck: true,
         stuckClassification: 'over_60_doc',
+        inventoryDisposition: 'over_60_days_cover',
         commandCenterPane: 'watchlist',
+        primaryActionPane: 'untieredProducts',
       },
     });
     await goldRows.create({
@@ -628,8 +658,11 @@ describe('Ecobase inventory-planning public API seam', () => {
         sku: 'SKU-4',
         title: 'Untiered active order product',
         tier: null,
+        baselineTier: null,
+        baselineState: 'unclassified',
         actionStatus: 'overdue',
         estimatedProfitRisk: null,
+        averageMonthlyProfit: null,
         moneyRiskStatus: 'unknown_arrival',
         estimatedOosDate: '2026-07-06',
         daysUntilOos: 1,
@@ -638,6 +671,7 @@ describe('Ecobase inventory-planning public API seam', () => {
         pipelineHealthStatus: 'unknown_timing',
         supplierOrderState: 'purchased_pipeline',
         commandCenterPane: 'orderedPipeline',
+        primaryActionPane: 'untieredProducts',
         supplierOrderStatus: 'paid',
         supplierOrderRef: 'PO-4',
         stuck: false,
@@ -652,13 +686,17 @@ describe('Ecobase inventory-planning public API seam', () => {
         sku: 'SKU-5',
         title: 'No active order stuck product',
         tier: 'C',
+        baselineTier: 'C',
         actionStatus: 'stale_lead_time',
         estimatedProfitRisk: 0,
+        averageMonthlyProfit: 0,
         daysOfCover: 75,
         supplierOrderState: 'closed_history',
         stuck: true,
         stuckClassification: 'over_60_doc',
+        inventoryDisposition: 'over_60_days_cover',
         commandCenterPane: 'watchlist',
+        primaryActionPane: 'excessInventory',
       },
     });
     await goldRows.create({
@@ -670,8 +708,10 @@ describe('Ecobase inventory-planning public API seam', () => {
         sku: 'SKU-6',
         title: 'Active order stuck product',
         tier: 'C',
+        baselineTier: 'C',
         actionStatus: 'already_ordered',
         estimatedProfitRisk: 0,
+        averageMonthlyProfit: 0,
         daysOfCover: 90,
         estimatedOosDate: '2026-09-30',
         daysUntilOos: 87,
@@ -681,6 +721,7 @@ describe('Ecobase inventory-planning public API seam', () => {
         supplierOrderState: 'purchased_pipeline',
         supplierOrderWorkflowStage: 'in_prep',
         commandCenterPane: 'inPrepMonitoring',
+        primaryActionPane: 'inPrepMonitoring',
         supplierOrderStatus: 'paid',
         supplierOrderRef: 'PO-6',
         stuck: false,
@@ -696,13 +737,19 @@ describe('Ecobase inventory-planning public API seam', () => {
         sku: 'SKU-7',
         title: 'Current-only readiness product',
         tier: null,
+        baselineTier: null,
+        baselineState: 'unclassified',
+        baselineConfidence: 'low',
         profitPerUnit: null,
         estimatedProfitRisk: null,
+        averageMonthlyProfit: null,
         moneyRiskStatus: 'unknown_missing_inputs',
         salesVelocity: null,
+        rollingUnits30: null,
         salesVelocityStatus: 'missing',
         actionStatus: 'missing_velocity',
         commandCenterPane: 'dataQuality',
+        primaryActionPane: 'untieredProducts',
         dataQualityStatus: 'blocked',
         dataQualityIssues: ['velocity_missing'],
         evidence: { historyLoadStatus: 'not_loaded' },
@@ -765,9 +812,9 @@ describe('Ecobase inventory-planning public API seam', () => {
       calculationDate: '2026-07-05',
       pane: 'supplyAction',
       pageSize: 1,
-      sortBy: 'estimatedProfitRisk',
+      sortBy: 'averageMonthlyProfit',
       sortDirection: 'desc',
-      selectedRowId: 'test-family:company-product-2',
+      selectedRowId: 'gold-2',
     });
     await actions.commandCenter(context, vi.fn());
     const data = context.body?.data as Record<string, any>;
@@ -776,19 +823,21 @@ describe('Ecobase inventory-planning public API seam', () => {
       company: 'ACME',
       calculationDate: '2026-07-05',
       targetCoverDays: 45,
-      planningMode: 'current_operational',
+      planningMode: 'corrected_monthly_performance',
       historyReadiness: { status: 'partial', affectedRowCount: 1, totalRowCount: 7 },
     });
     expect(data.summaryCards.map((card: Record<string, unknown>) => card.label)).toEqual([
       'Urgent stockout risk',
-      'Money at risk',
+      'Average monthly profit',
       'Supply action needed',
       'Active orders off-track',
       'Follow-ups due today',
       'Stuck inventory',
     ]);
     expect(data.macroRisk.map((item: Record<string, unknown>) => item.label)).toContain('Stuck current stock');
-    expect(data.summaryCards.find((card: Record<string, unknown>) => card.key === 'moneyAtRisk')).toMatchObject({
+    expect(
+      data.summaryCards.find((card: Record<string, unknown>) => card.key === 'averageMonthlyProfit'),
+    ).toMatchObject({
       value: 600,
       knownCount: 3,
       unknownCount: 0,
@@ -810,71 +859,92 @@ describe('Ecobase inventory-planning public API seam', () => {
     expect(data.panes.dataReadiness).toMatchObject({ total: 0, rows: [] });
     expect(data.panes.supplyAction).toMatchObject({ total: 1, pageSize: 1 });
     expect(data.panes.supplyAction.rows[0]).toMatchObject({
-      id: 'test-family:gold-1',
+      id: 'gold-1',
+      naturalKey: 'test-family:gold-1',
       actionSourceCompanyProductId: 'gold-1',
-      tierScore: 250,
-      recentUnits30: 10,
-      tierEligibilityReason: 'eligible_recent_demand',
-      tierRuleVersion: 'rolling_30d_min_4_v1',
-      previousTier: 'B',
-      tierMovement: 'up',
-      currentTier: 'A',
-      currentTierScore: 250,
-      averageTier: 'B',
-      averageTierScore: 175,
-      bestTier: 'A',
-      bestTierScore: 300,
-      profitPerUnit: 25,
-      recommendedBestQty: 10,
+      baselineTier: 'A',
+      baselineTierScore: 250,
+      baselineWeightedProfitPerUnit: 25,
+      averageMonthlyUnits: 22,
+      averageMonthlyProfit: 100,
+      lastClosedMonthTier: 'B',
+      currentProjectedTier: 'A',
+      projectedTierMovement: 'improved',
+      rollingUnits30: 10,
+      recommendedOrderQty: 215,
+      primaryActionPane: 'supplyAction',
+      newReplenishmentActionable: true,
       daysUntilOos: 3,
       sellableStock: 4,
       reservedStock: 2,
       pipelineStock: 4,
-      sixMonthAverageQty: 22,
     });
+    for (const legacyField of ['tier', 'tierScore', 'salesVelocity', 'suggestedReorderQty', 'commandCenterPane']) {
+      expect(data.panes.supplyAction.rows[0]).not.toHaveProperty(legacyField);
+    }
     expect(data.panes.inPrepMonitoring).toMatchObject({ total: 2 });
     expect(data.panes.inPrepMonitoring.rows).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          id: 'test-family:company-product-2',
+          id: 'gold-2',
+          naturalKey: 'test-family:company-product-2',
           actionSourceCompanyProductId: 'company-product-2',
+          primaryActionPane: 'inPrepMonitoring',
+          existingOrderFollowUp: true,
           daysUntilOos: 2,
           stockoutGapDays: 3,
           latestSupplierOrderActivityAt: '2026-07-01T10:00:00.000Z',
           latestSupplierOrderActivityNote: 'Paid confirmed',
         }),
-        expect.objectContaining({ id: 'test-family:gold-6', stuck: false, stuckClassification: 'none' }),
+        expect.objectContaining({
+          id: 'gold-6',
+          primaryActionPane: 'inPrepMonitoring',
+          baselineTier: 'C',
+          inventoryDisposition: 'none',
+        }),
       ]),
     );
     expect(data.panes.untieredProducts).toMatchObject({ total: 3 });
     expect(data.panes.untieredProducts.rows).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ id: 'test-family:gold-3', tier: undefined, stuckClassification: 'over_60_doc' }),
         expect.objectContaining({
-          id: 'test-family:gold-4',
-          estimatedProfitRisk: undefined,
-          moneyRiskStatus: 'unknown_arrival',
+          id: 'gold-3',
+          baselineTier: null,
+          baselineState: 'no_movement',
+          inventoryDisposition: 'over_60_days_cover',
         }),
-        expect.objectContaining({ id: 'test-family:gold-7', tier: undefined, profitPerUnit: undefined }),
+        expect.objectContaining({
+          id: 'gold-4',
+          baselineTier: null,
+          baselineState: 'unclassified',
+          averageMonthlyProfit: null,
+        }),
+        expect.objectContaining({
+          id: 'gold-7',
+          baselineTier: null,
+          baselineConfidence: 'low',
+          averageMonthlyProfit: null,
+        }),
       ]),
     );
     expect(data.panes.excessInventory.rows).toEqual([
-      expect.objectContaining({ id: 'test-family:gold-5', stuckClassification: 'over_60_doc' }),
+      expect.objectContaining({
+        id: 'gold-5',
+        baselineTier: 'C',
+        inventoryDisposition: 'over_60_days_cover',
+      }),
     ]);
-    expect(data.panes.supplyAction.rows.map((row: Record<string, unknown>) => row.id)).not.toContain(
-      'test-family:gold-5',
-    );
-    expect(data.panes.untieredProducts.rows.map((row: Record<string, unknown>) => row.id)).not.toContain(
-      'test-family:gold-6',
-    );
+    expect(data.panes.supplyAction.rows.map((row: Record<string, unknown>) => row.id)).not.toContain('gold-5');
+    expect(data.panes.untieredProducts.rows.map((row: Record<string, unknown>) => row.id)).not.toContain('gold-6');
     expect(data.selectedRow.row).toMatchObject({
-      id: 'test-family:company-product-2',
-      tierScore: 250,
-      previousTier: 'B',
-      currentTier: 'A',
-      bestTierScore: 300,
-      recommendedBestQty: 10,
-      recommendedEscalation: 'follow_up_order',
+      id: 'gold-2',
+      naturalKey: 'test-family:company-product-2',
+      baselineTier: 'A',
+      baselineTierScore: 250,
+      lastClosedMonthTier: 'B',
+      currentProjectedTier: 'A',
+      recommendedOrderQty: 215,
+      existingOrderFollowUp: true,
       orderedStock: 2,
     });
     expect(data.selectedRow.workspace.orderLineHistory).toHaveLength(1);

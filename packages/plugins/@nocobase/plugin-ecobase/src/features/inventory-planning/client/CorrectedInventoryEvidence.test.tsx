@@ -20,6 +20,7 @@ const t = (value: string) => value;
 
 const correctedRow = {
   companyProductId: 'cp-1',
+  companyProductFamilyId: 'family-1',
   asin: 'B000000001',
   sku: 'SKU-1',
   algorithmContractVersion: 'individual_monthly_profit_performance_v1',
@@ -28,8 +29,18 @@ const correctedRow = {
   baselineState: 'ranked',
   baselineConfidence: 'full',
   monthlyPerformanceEvidence: [
-    { monthStart: '2026-01-01', monthlyUnits: '10.00000000', monthlyProfit: '100.00000000', tier: 'B' },
-    { monthStart: '2026-02-01', monthlyUnits: '8.00000000', monthlyProfit: '80.00000000', tier: 'C' },
+    {
+      monthStart: '2026-01-01',
+      monthlyUnits: '10.00000000',
+      monthlyProfit: '100.00000000',
+      monthlyTierScore: '100.00000000',
+    },
+    {
+      monthStart: '2026-02-01',
+      monthlyUnits: '8.00000000',
+      monthlyProfit: '80.00000000',
+      monthlyTierScore: '80.00000000',
+    },
   ],
   lastClosedMonth: '2026-02-01',
   lastClosedMonthTier: 'C',
@@ -122,6 +133,18 @@ describe('corrected Inventory Planning evidence UI', () => {
             baselineTier: 'D',
           },
         ]}
+        familyActions={[
+          {
+            ...correctedRow,
+            targetCompanyProductId: 'cp-1',
+            actionSourceCompanyProductId: 'cp-1',
+            representativeCompanyProductId: 'cp-1',
+            primaryActionPane: 'stuckInventory',
+            replenishmentBlockReasonCode: 'blocked_stuck_inventory',
+            newReplenishmentActionable: false,
+            existingOrderFollowUp: true,
+          },
+        ]}
         t={t}
       />,
     );
@@ -130,7 +153,10 @@ describe('corrected Inventory Planning evidence UI', () => {
     const bannerAlert = within(preview).getByText('UNPUBLISHED CANDIDATE — NOT OPERATIONAL').closest('[role="alert"]');
     expect(bannerAlert).toHaveTextContent('UNPUBLISHED CANDIDATE — NOT OPERATIONAL');
     expect(screen.getByText(/verified-run-1/)).toBeTruthy();
-    expect(screen.getByText('Listing evidence only · 0 family actions created')).toBeTruthy();
+    expect(screen.getByText('1 read-only family-action projections · 0 operational actions created')).toBeTruthy();
+    expect(preview).toHaveTextContent('Candidate family decision');
+    expect(preview).toHaveTextContent('stuckInventory');
+    expect(preview).toHaveTextContent('candidate blocked');
     for (const category of [
       'tier_d',
       'no_movement',

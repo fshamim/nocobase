@@ -54,6 +54,8 @@ import type {
 } from '../features/source-import/server/supplier-order-import/supplier-order-import-preflight';
 import {
   EcobaseInventoryPlanningService,
+  projectCorrectedInventoryPlanningFamilyActions,
+  projectCorrectedInventoryPlanningListingRows,
   type InventoryCommandCenterPane,
   type InventoryPlanningCommandCenterQuery,
   type InventoryPlanningListingReviewQuery,
@@ -1243,6 +1245,9 @@ export function createEcobaseInventoryPlanningActions() {
           ctx.body = {
             data: {
               ...result,
+              rows: projectCorrectedInventoryPlanningListingRows(result.rows),
+              familyActionProjectionCount: result.familyActions.length,
+              familyActions: projectCorrectedInventoryPlanningFamilyActions(result.familyActions, result.rows),
               banner: 'UNPUBLISHED CANDIDATE — NOT OPERATIONAL',
             },
           };

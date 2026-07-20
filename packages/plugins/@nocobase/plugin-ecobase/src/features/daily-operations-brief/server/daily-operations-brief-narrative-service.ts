@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { createHash } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import type { EcobaseDatabase } from '../../source-import/server/import-service';
@@ -371,7 +380,7 @@ function collectKnownValues(pack: DailyEvidencePack) {
     if (risk.supplierOrderRef) orders.add(risk.supplierOrderRef.toUpperCase());
     addDate(risk.estimatedOosDate);
     addDate(risk.latestSafeReorderDate);
-    addMoney(risk.estimatedProfitRisk);
+    addMoney(risk.averageMonthlyProfit);
   }
   for (const order of list(pack.supplierOrderContext)) {
     if (order.externalOrderRef) orders.add(order.externalOrderRef.toUpperCase());

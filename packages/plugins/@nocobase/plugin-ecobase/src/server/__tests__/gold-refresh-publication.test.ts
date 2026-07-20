@@ -136,10 +136,35 @@ async function buildRun(
             refreshRunId: runId,
             naturalKey: `${runId}:${rowId}`,
             companyProductId: rowId,
+            companyProductFamilyId: `${rowId}:family`,
+            companyId: `${rowId}:company`,
+            amazonAccountId: `${rowId}:account`,
+            marketplace: 'Amazon.com',
             company: 'ACME',
             asin: rowId,
+            sku: `${rowId}:sku`,
             calculationDate: params.date,
-            actionStatus: 'watch',
+            baselineState: 'unclassified',
+            baselineConfidence: 'low',
+            listingReviewCategories: ['data_readiness'],
+            replenishmentEligibility: 'blocked_insufficient_evidence',
+            primaryActionPane: 'dataReadiness',
+            primaryActionReasonCode: 'insufficient_baseline_evidence',
+            newReplenishmentActionable: false,
+            existingOrderFollowUp: false,
+            calculationEvidence: {
+              familyActionSnapshot: {
+                familyKey: `${rowId}:family`,
+                companyProductFamilyId: `${rowId}:family`,
+                companyId: `${rowId}:company`,
+                amazonAccountId: `${rowId}:account`,
+                marketplace: 'Amazon.com',
+                canonicalAsin: rowId,
+                targetSelectionState: 'automatic',
+                targetCompanyProductId: rowId,
+                targetSelectionEvidence: { source: 'test' },
+              },
+            },
             ...validStockContract(),
           },
         });
@@ -179,7 +204,6 @@ async function seedLifecycleRun(db: MemoryDatabase, id: string, status: string, 
       id: `${id}:row`,
       refreshRunId: id,
       naturalKey: `${id}:row`,
-      companyProductId: `${id}:product`,
       companyProductId: `${id}:product`,
       companyProductFamilyId: `${id}:family`,
       companyId: `${id}:company`,
@@ -641,6 +665,30 @@ describe('Gold refresh publication control', () => {
   it('requires an authorized explicit verified run for audited candidate preview', async () => {
     const db = new MemoryDatabase();
     await seedLifecycleRun(db, 'candidate-preview', 'verified', '2026-07-15');
+    const candidateRow = db.gold.rows[0];
+    const familyActionSnapshot = ((candidateRow.calculationEvidence as Row).familyActionSnapshot ?? {}) as Row;
+    candidateRow.calculationEvidence = {
+      sourceEvidence: { salesVelocity: 99, source: 'test' },
+      coverage: {
+        closedMonths: [
+          {
+            monthStart: '2026-01-01',
+            reasonCode: 'eligible_complete_month',
+            intervalIds: ['coverage-preview'],
+            membershipIds: ['membership-preview'],
+            coveredThroughDate: '2026-01-31',
+          },
+        ],
+      },
+      pace: { quantity: { actualMtd: '1.00000000' }, profit: { actualMtd: '2.00000000' } },
+      disposition: {
+        rollingUnits30: '30.00000000',
+        salesVelocity: '1.00000000',
+        inventoryDisposition: 'none',
+        inventoryDispositionReasonCode: 'none',
+      },
+      familyActionSnapshot,
+    };
     const actions = createEcobaseInventoryPlanningActions() as unknown as Record<
       string,
       ((ctx: Row, next: () => Promise<void>) => Promise<void>) | undefined
@@ -685,10 +733,56 @@ describe('Gold refresh publication control', () => {
       data: {
         published: false,
         banner: 'UNPUBLISHED CANDIDATE — NOT OPERATIONAL',
-        rows: [expect.objectContaining({ refreshRunId: 'candidate-preview' })],
-        familyActions: [expect.objectContaining({ runId: 'candidate-preview' })],
+        rows: [
+          expect.objectContaining({
+            refreshRunId: 'candidate-preview',
+            calculationEvidence: expect.objectContaining({
+              coverage: expect.objectContaining({
+                closedMonths: [
+                  expect.objectContaining({
+                    intervalIds: ['coverage-preview'],
+                    membershipIds: ['membership-preview'],
+                  }),
+                ],
+              }),
+              pace: expect.objectContaining({ quantity: expect.any(Object), profit: expect.any(Object) }),
+              disposition: expect.objectContaining({
+                rollingUnits30: '30.00000000',
+                inventoryDisposition: 'none',
+              }),
+              familyActionSnapshot: expect.objectContaining({
+                companyProductFamilyId: 'candidate-preview:family',
+              }),
+            }),
+          }),
+        ],
+        familyActionProjectionCount: 1,
+        familyActions: [
+          expect.objectContaining({
+            refreshRunId: 'candidate-preview',
+            companyProductFamilyId: 'candidate-preview:family',
+            targetSelectionState: 'frozen_target',
+            targetCompanyProductId: 'candidate-preview:product',
+            actionSourceCompanyProductId: 'candidate-preview:product',
+            listing: expect.objectContaining({ refreshRunId: 'candidate-preview' }),
+          }),
+        ],
       },
     });
+    const previewNames = new Set<string>();
+    const collectNames = (value: unknown) => {
+      if (Array.isArray(value)) {
+        value.forEach(collectNames);
+        return;
+      }
+      if (!value || typeof value !== 'object') return;
+      for (const [name, nested] of Object.entries(value as Row)) {
+        previewNames.add(name);
+        collectNames(nested);
+      }
+    };
+    collectNames((allowedContext.body as Row).data);
+    expect(previewNames.has('salesVelocity')).toBe(false);
     expect(db.getRepository('goldInventoryPlanningAccessAudits').rows).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ runId: 'candidate-preview', outcome: 'denied' }),

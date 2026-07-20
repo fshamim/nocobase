@@ -75,21 +75,23 @@ export type SourceStatusEvidence = {
 export type InventoryRiskEvidence = {
   evidenceId: string;
   company?: string;
-  planningProductId?: string;
+  companyProductId?: string;
   asin?: string;
   sku?: string;
   title?: string;
-  tier?: string;
-  actionStatus?: string;
+  baselineTier?: 'A' | 'B' | 'C' | 'D';
+  replenishmentEligibility?: string;
+  newReplenishmentActionable: boolean;
+  existingOrderFollowUp: boolean;
   sellableStock?: number;
   reservedStock?: number;
   pipelineStock?: number;
-  velocityPerDay?: number;
+  rollingUnits30?: number;
   estimatedOosDate?: string;
   latestSafeReorderDate?: string;
   overdueDays?: number;
   daysUntilAction?: number;
-  suggestedReorderQty?: number;
+  recommendedOrderQty?: number;
   supplierId?: string;
   supplierName?: string;
   supplierEvidenceState: 'known' | 'fallback_or_inferred' | 'missing';
@@ -103,11 +105,8 @@ export type InventoryRiskEvidence = {
   latestSupplierOrderActivityNote?: string;
   latestSupplierOrderActivityActor?: string;
   latestClosedOrCancelledOrderRef?: string;
-  estimatedProfitRisk?: number;
-  estimatedProfitRiskBasis?: string;
-  moneyRiskStatus?: string;
-  moneyRiskInputs: PlainRecord;
-  commandCenterPane?: string;
+  averageMonthlyProfit: number | null;
+  primaryActionPane?: string;
   caveats: string[];
   sourceWarnings: PlainRecord[];
 };
@@ -464,7 +463,7 @@ type DailyBriefEvidenceItem =
   | DataWarningEvidence;
 
 function isInventoryRiskEvidence(item: DailyBriefEvidenceItem): item is InventoryRiskEvidence {
-  return Object.prototype.hasOwnProperty.call(item, 'actionStatus');
+  return Object.prototype.hasOwnProperty.call(item, 'replenishmentEligibility');
 }
 
 function isSupplierOrderEvidence(item: DailyBriefEvidenceItem): item is SupplierOrderEvidence {
@@ -493,7 +492,7 @@ function isOkrAccountabilityRiskEvidence(item: DailyBriefEvidenceItem): item is 
 
 function reportItemTitle(item: DailyBriefEvidenceItem) {
   if (isInventoryRiskEvidence(item)) {
-    return `Inventory risk: ${item.asin ?? item.planningProductId ?? item.sku ?? 'unknown product'}`;
+    return `Inventory action: ${item.asin ?? item.companyProductId ?? item.sku ?? 'unknown product'}`;
   }
   if (isSupplierOrderEvidence(item)) {
     return `Supplier order: ${item.externalOrderRef ?? item.supplierOrderId ?? 'unknown order'}`;
@@ -522,8 +521,8 @@ function reportItemTitle(item: DailyBriefEvidenceItem) {
 
 function reportItemBody(item: DailyBriefEvidenceItem) {
   if (isInventoryRiskEvidence(item)) {
-    return `Action ${item.actionStatus ?? 'review'} for ${
-      item.asin ?? item.planningProductId ?? item.sku ?? 'unknown product'
+    return `Replenishment ${item.replenishmentEligibility ?? 'review'} for ${
+      item.asin ?? item.companyProductId ?? item.sku ?? 'unknown product'
     }; supplier ${item.supplierName ?? 'unknown'}; lead time ${
       item.leadTimeDays ?? 'missing'
     } days; trusted open coverage ${item.openSupplierOrderCoverageQty ?? 0}.`;
@@ -570,11 +569,7 @@ function reportItemBody(item: DailyBriefEvidenceItem) {
 }
 
 function reportSeverity(item: DailyBriefEvidenceItem) {
-  if (
-    isInventoryRiskEvidence(item) &&
-    ['overdue', 'order_today', 'missing_lead_time'].includes(item.actionStatus ?? '')
-  )
-    return 'warning';
+  if (isInventoryRiskEvidence(item) && item.newReplenishmentActionable) return 'warning';
   if (isSupplierOrderEvidence(item) && ['approval_pending', 'payment_pending', 'blocked'].includes(item.coverageState))
     return 'warning';
   if (isOrderPlanningRiskEvidence(item)) return 'warning';
@@ -694,18 +689,12 @@ function commandCenterAlerts(commandCenter: PlainRecord, maxItems: number): Inve
     activeOrdersUnknownTiming: activeOrders
       .filter((row) => asString(row.pipelineHealthStatus) === 'unknown_timing')
       .slice(0, maxItems),
-    followUpsDueToday: activeOrders
-      .filter((row) => asString(row.recommendedEscalation) === 'follow_up_order')
-      .slice(0, maxItems),
+    followUpsDueToday: activeOrders.filter((row) => row.existingOrderFollowUp === true).slice(0, maxItems),
     leadTimeDataGaps: [...supplyAction, ...dataReadiness, ...activeOrders]
-      .filter(
-        (row) =>
-          ['missing_lead_time', 'stale_lead_time'].includes(asString(row.actionStatus) ?? '') ||
-          ['missing', 'stale'].includes(asString(row.leadTimeFreshness) ?? ''),
-      )
+      .filter((row) => ['missing', 'stale'].includes(asString(row.leadTimeFreshness) ?? ''))
       .slice(0, maxItems),
     stuckInventoryReview: [...stuckInventory, ...activeOrders]
-      .filter((row) => !['none', undefined].includes(asString(row.stuckClassification)))
+      .filter((row) => !['none', 'unknown', undefined].includes(asString(row.inventoryDisposition)))
       .slice(0, maxItems),
   };
 }
@@ -864,7 +853,7 @@ export class EcobaseDailyOperationsBriefService {
     const rows = (
       await new EcobaseInventoryPlanningGoldAccess(this.db).readPublishedListingPerformance({
         filter: { ...(company ? { company } : {}), calculationDate },
-        sort: ['digestPriority', 'daysUntilSafeReorder', '-estimatedProfitRisk'],
+        sort: ['companyProductId'],
       })
     ).rows;
     const latestRefresh = rows
@@ -885,23 +874,24 @@ export class EcobaseDailyOperationsBriefService {
     const inventoryPlanning = new EcobaseInventoryPlanningService(this.db);
     const commandCenterRaw = await this.fullInventoryCommandCenter(inventoryPlanning, params);
     const inventoryCommandCenter = inventoryCommandCenterEvidence(commandCenterRaw, params.maxItems);
-    const moneyAtRiskCard = (
+    const averageMonthlyProfitCard = (
       Array.isArray(commandCenterRaw.summaryCards)
         ? (commandCenterRaw.summaryCards as PlainRecord[]).map(toPlainRecord)
         : []
-    ).find((card) => asString(card.key) === 'moneyAtRisk');
+    ).find((card) => asString(card.key) === 'averageMonthlyProfit');
     const rows = await this.goldInventoryRows(params.company, params.date);
     const sortedRows = rows.map(toPlainRecord).sort((left, right) => {
-      const priority = safeNumber(left.digestPriority) - safeNumber(right.digestPriority);
-      if (priority !== 0) return priority;
-      const safeReorder = safeNumber(left.daysUntilSafeReorder) - safeNumber(right.daysUntilSafeReorder);
-      if (safeReorder !== 0) return safeReorder;
-      return safeNumber(right.estimatedProfitRisk) - safeNumber(left.estimatedProfitRisk);
+      const actionable =
+        Number(right.newReplenishmentActionable === true) - Number(left.newReplenishmentActionable === true);
+      if (actionable !== 0) return actionable;
+      const profit = safeNumber(right.averageMonthlyProfit) - safeNumber(left.averageMonthlyProfit);
+      if (profit !== 0) return profit;
+      return String(left.companyProductId ?? '').localeCompare(String(right.companyProductId ?? ''));
     });
     const riskRows = commandPaneRows(commandCenterRaw, 'supplyAction');
     const cappedRiskRows = riskRows.slice(0, params.maxItems);
     const omissions = this.buildOmissions({ riskRows, cappedRiskRows, sourceStatus, params });
-    const inventoryRisks = this.buildInventoryRisks(cappedRiskRows, params.date);
+    const inventoryRisks = this.buildInventoryRisks(cappedRiskRows);
     const supplierOrderContext = await this.buildSupplierOrderContext(cappedRiskRows, params.company, params.maxItems);
     const orderPlanningRisks = await this.buildOrderPlanningRisks(params).then((items) =>
       items.slice(0, params.maxItems),
@@ -994,9 +984,9 @@ export class EcobaseDailyOperationsBriefService {
         activeOrderUnknownTimingCount: inventoryCommandCenter.alerts.activeOrdersUnknownTiming.length,
         followUpDueTodayCount: inventoryCommandCenter.alerts.followUpsDueToday.length,
         stuckInventoryReviewCount: inventoryCommandCenter.alerts.stuckInventoryReview.length,
-        moneyAtRiskKnownTotal: asNumber(moneyAtRiskCard?.value) ?? 0,
-        moneyAtRiskUnknownCount: asNumber(moneyAtRiskCard?.unknownCount) ?? 0,
-        moneyAtRiskDenominatorCount: asNumber(moneyAtRiskCard?.denominatorCount) ?? 0,
+        averageMonthlyProfitKnownTotal: asNumber(averageMonthlyProfitCard?.value) ?? 0,
+        averageMonthlyProfitUnknownCount: asNumber(averageMonthlyProfitCard?.unknownCount) ?? 0,
+        averageMonthlyProfitDenominatorCount: asNumber(averageMonthlyProfitCard?.denominatorCount) ?? 0,
         supplierOrderContextCount: supplierOrderContext.length,
         orderPlanningRiskCount: orderPlanningRisks.length,
         taskRiskCount: okrAccountabilityRisks.filter(
@@ -1023,7 +1013,7 @@ export class EcobaseDailyOperationsBriefService {
       assumptions: [
         'This slice prepares deterministic evidence for inventory, order planning, supplier-order, performance, Buy Box, OKR/accountability, task, and source-quality exceptions.',
         'Purchased or inbound supplier orders count as trusted coverage; draft, approval pending, payment pending, blocked, cancelled, and completed orders are evidence but not safe coverage.',
-        'Money at Risk uses applicable family action rows only: uncovered stockout days × positive trusted daily velocity × positive profit per unit; missing inputs remain unknown.',
+        'Average monthly profit uses applicable family-action baseline evidence only; missing monthly coverage remains unknown and is never treated as zero.',
         'Source credentials, raw URLs with tokens, OAuth tokens, and secret references are excluded from the evidence pack.',
       ],
     };
@@ -1069,10 +1059,11 @@ export class EcobaseDailyOperationsBriefService {
     return sourceStatus;
   }
 
-  private buildInventoryRisks(rows: PlainRecord[], date: string): InventoryRiskEvidence[] {
+  private buildInventoryRisks(rows: PlainRecord[]): InventoryRiskEvidence[] {
     return rows.map((row) => {
       const daysUntilAction = asNumber(row.daysUntilSafeReorder);
-      const estimatedProfitRisk = asNumber(row.estimatedProfitRisk);
+      const averageMonthlyProfit =
+        row.averageMonthlyProfit === null ? null : asNumber(row.averageMonthlyProfit) ?? null;
       const supplierEvidenceState = !asString(row.supplierName)
         ? 'missing'
         : asString(row.supplierAvailability)?.startsWith('resolved_')
@@ -1083,21 +1074,25 @@ export class EcobaseDailyOperationsBriefService {
         caveats.push('Supplier identity is missing or inferred from fallback/order history evidence.');
       if ((asString(row.leadTimeFreshness) ?? 'missing') !== 'fresh')
         caveats.push('Lead time is missing or stale and needs supplier confirmation.');
-      if (estimatedProfitRisk === undefined)
-        caveats.push('Money at Risk is unknown because required Gold inputs are missing.');
+      if (averageMonthlyProfit === null)
+        caveats.push('Average monthly profit is unknown because eligible closed-month evidence is incomplete.');
       return {
         evidenceId: evidenceId('inventory', productIdentity(row)),
         company: asString(row.company),
-        planningProductId: asString(row.planningProductId),
+        companyProductId: asString(row.companyProductId),
         asin: asString(row.asin),
         sku: asString(row.sku),
         title: asString(row.title),
-        tier: asString(row.tier),
-        actionStatus: asString(row.actionStatus),
+        baselineTier: ['A', 'B', 'C', 'D'].includes(asString(row.baselineTier) ?? '')
+          ? (asString(row.baselineTier) as 'A' | 'B' | 'C' | 'D')
+          : undefined,
+        replenishmentEligibility: asString(row.replenishmentEligibility),
+        newReplenishmentActionable: row.newReplenishmentActionable === true,
+        existingOrderFollowUp: row.existingOrderFollowUp === true,
         sellableStock: asNumber(row.sellableStock),
         reservedStock: asNumber(row.reservedStock),
         pipelineStock: asNumber(row.pipelineStock),
-        velocityPerDay: asNumber(row.salesVelocity),
+        rollingUnits30: asNumber(row.rollingUnits30),
         estimatedOosDate: asString(row.estimatedOosDate),
         latestSafeReorderDate: asString(row.latestSafeReorderDate),
         overdueDays:
@@ -1105,7 +1100,7 @@ export class EcobaseDailyOperationsBriefService {
             ? Math.abs(Math.floor(daysUntilAction))
             : undefined,
         daysUntilAction,
-        suggestedReorderQty: asNumber(row.suggestedReorderQty),
+        recommendedOrderQty: asNumber(row.recommendedOrderQty),
         supplierId: asString(row.supplierId),
         supplierName: asString(row.supplierName),
         supplierEvidenceState,
@@ -1120,11 +1115,8 @@ export class EcobaseDailyOperationsBriefService {
         latestSupplierOrderActivityActor: asString(row.latestSupplierOrderActivityActor),
         latestClosedOrCancelledOrderRef:
           asString(row.supplierOrderState) === 'closed_history' ? asString(row.supplierOrderRef) : undefined,
-        estimatedProfitRisk,
-        estimatedProfitRiskBasis: asString(row.estimatedProfitRiskBasis),
-        moneyRiskStatus: asString(row.moneyRiskStatus),
-        moneyRiskInputs: toPlainRecord(row.moneyRiskInputs),
-        commandCenterPane: asString(row.commandCenterPane),
+        averageMonthlyProfit,
+        primaryActionPane: asString(row.primaryActionPane),
         caveats,
         sourceWarnings: Array.isArray(toPlainRecord(row.evidence).dataWarnings)
           ? (toPlainRecord(row.evidence).dataWarnings as PlainRecord[])
@@ -1810,13 +1802,13 @@ export class EcobaseDailyOperationsBriefService {
     dataWarnings: DataWarningEvidence[];
   }) {
     if (params.focus === 'inventory_risk') {
-      const overdue = params.inventoryRisks.filter((risk) => risk.actionStatus === 'overdue').length;
+      const actionable = params.inventoryRisks.filter((risk) => risk.newReplenishmentActionable).length;
       const commandAlerts = params.inventoryCommandCenter.alerts;
       const missingLeadTime = Math.max(params.leadTimeIssues.length, commandAlerts.leadTimeDataGaps.length);
-      return `${overdue} included overdue reorder action(s), ${commandPaneTotal(
+      return `${actionable} included new replenishment action(s), ${commandPaneTotal(
         params.inventoryCommandCenter,
         'supplyAction',
-      )} Gold order-now row(s), ${missingLeadTime} included lead-time blocker(s), and ${
+      )} Gold supply-action row(s), ${missingLeadTime} included lead-time blocker(s), and ${
         commandAlerts.stuckInventoryReview.length
       } stuck-inventory row(s) outrank other current signals.`;
     }

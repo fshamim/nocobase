@@ -28,9 +28,31 @@ vi.mock('../../../client/role-boundary', () => ({
   useEcobaseRoleCapabilities: () => ({ canOperate: false, canAdminister: false }),
 }));
 
-const emptyPane = { rows: [], total: 0, page: 1, pageSize: 50 };
+const emptyPane = { rows: [], total: 0, page: 1, pageSize: 50, metrics: [] };
+const correctedAction = {
+  naturalKey: 'action-family-1',
+  companyProductId: 'action-product-1',
+  companyProductFamilyId: 'family-action-1',
+  company: 'ACME',
+  asin: 'B000ACTION',
+  sku: 'ACTION-SKU',
+  baselineTier: 'A',
+  baselineTierScore: '300.00000000',
+  baselineState: 'ranked',
+  baselineConfidence: 'full',
+  averageMonthlyProfit: '300.00000000',
+  averageMonthlyUnits: '10.00000000',
+  primaryActionPane: 'supplyAction',
+  primaryActionReasonCode: 'new_replenishment_action',
+  replenishmentEligibility: 'eligible',
+  newReplenishmentActionable: true,
+  existingOrderFollowUp: false,
+  recommendedOrderQty: '12.00000000',
+  listingReviewCategories: [],
+  monthlyPerformanceEvidence: [],
+};
 const panes = {
-  supplyAction: emptyPane,
+  supplyAction: { ...emptyPane, rows: [correctedAction], total: 1 },
   activeOrders: emptyPane,
   inPrepMonitoring: emptyPane,
   inboundMonitoring: emptyPane,
@@ -52,11 +74,39 @@ describe('Inventory Planning corrected listing integration', () => {
     request.mockReset();
     request.mockImplementation(({ url }: { url: string }) => {
       if (url === 'ecobasePlanningConfiguration:get') return response({ settings: {} });
-      if (url === 'ecobaseInventoryPlanning:filters') return response({ filters: { companies: [] } });
+      if (url === 'ecobaseInventoryPlanning:workspace') {
+        return response({
+          filters: { companies: ['ACME'], baselineTiers: ['A', 'B', 'C', 'D'] },
+          rows: [correctedAction],
+          digest: {
+            metadata: { denominatorCount: 1, publishedRunId: 'published-run-1' },
+            summary: { actionable: 1, atRisk: 1 },
+            sections: {
+              orderNow: [correctedAction],
+              noOrderProducts: [correctedAction],
+              suppliersToContactFirst: [],
+              supplierActionItems: [correctedAction],
+              staleLeadTimes: [],
+            },
+          },
+        });
+      }
       if (url === 'ecobaseInventoryPlanning:commandCenter') {
         return response({
-          metadata: { historyReadiness: { status: 'loaded', affectedRowCount: 0, totalRowCount: 0 } },
-          summaryCards: [],
+          metadata: {
+            denominatorCount: 1,
+            publishedRunId: 'published-run-1',
+            baselineTierCounts: { A: 1, B: 0, C: 0, D: 0 },
+            historyReadiness: { status: 'ready', affectedRowCount: 0, totalRowCount: 1 },
+          },
+          summaryCards: [
+            {
+              key: 'averageMonthlyProfit',
+              label: 'Average monthly profit',
+              value: 300,
+              format: 'currency',
+            },
+          ],
           macroRisk: [],
           riskBars: [],
           panes,
@@ -117,6 +167,9 @@ describe('Inventory Planning corrected listing integration', () => {
         }),
       ),
     );
+    expect(await screen.findByText('ACTION-SKU')).toBeTruthy();
+    expect(screen.getAllByText('Average monthly profit').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Money at risk')).toBeNull();
     expect(screen.queryByText('UNPUBLISHED CANDIDATE — NOT OPERATIONAL')).toBeNull();
   });
 });

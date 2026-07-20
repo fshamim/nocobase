@@ -698,7 +698,7 @@ export function filterListingPerformanceReview(
   }
   const rows = listingRows.filter((row) => {
     const categories = Array.isArray(row.listingReviewCategories) ? row.listingReviewCategories : [];
-    if (selectedCategories.length === 0) return categories.length > 0;
+    if (selectedCategories.length === 0) return true;
     return selectedCategories.some((category) => categories.includes(category));
   });
   return {

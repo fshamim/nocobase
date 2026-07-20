@@ -38,9 +38,26 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FormulaHelp, type FormulaHelpGroupKey } from '../../../client/formula-help';
 import { useT } from '../../../client/locale';
 import { useEcobaseRoleCapabilities } from '../../../client/role-boundary';
-import { CorrectedInventoryEvidencePanel, ListingPerformanceReviewPanel } from './CorrectedInventoryEvidence';
+import {
+  CorrectedInventoryEvidencePanel,
+  ListingPerformanceReviewPanel,
+  type CorrectedInventoryEvidenceRow,
+} from './CorrectedInventoryEvidence';
 
 type PlainRecord = Record<string, any>;
+
+interface CorrectedListingRow extends CorrectedInventoryEvidenceRow {
+  primaryActionPane: CommandCenterPaneKey;
+}
+
+interface CorrectedFamilyActionRow extends CorrectedListingRow {
+  targetCompanyProductId: string | null;
+  representativeCompanyProductId: string;
+  memberCount: number;
+  newReplenishmentActionable: boolean;
+  existingOrderFollowUp: boolean;
+  recommendedOrderQty: string | null;
+}
 
 function asPlainRecord(value: unknown): PlainRecord {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as PlainRecord) : {};
@@ -54,7 +71,7 @@ type OrderNowQuickFilter =
   | 'lead_time_issues'
   | 'no_order'
   | 'placed_not_purchased';
-type OrderNowSortKey = 'urgency' | 'oos_asc' | 'risk_desc' | 'tier' | 'supplier';
+type OrderNowSortKey = 'urgency' | 'oos_asc' | 'profit_desc' | 'baseline_tier' | 'supplier';
 type CommandCenterPaneKey =
   | 'supplyAction'
   | 'activeOrders'
@@ -85,11 +102,11 @@ const COMMAND_CENTER_PANES: CommandCenterPaneKey[] = [
 interface DigestPreview {
   summary: PlainRecord;
   sections: {
-    orderNow: PlainRecord[];
-    noOrderProducts: PlainRecord[];
+    orderNow: CorrectedFamilyActionRow[];
+    noOrderProducts: CorrectedFamilyActionRow[];
     suppliersToContactFirst: PlainRecord[];
-    supplierActionItems: PlainRecord[];
-    staleLeadTimes: PlainRecord[];
+    supplierActionItems: CorrectedFamilyActionRow[];
+    staleLeadTimes: CorrectedFamilyActionRow[];
   };
 }
 
@@ -166,7 +183,7 @@ const SUPPLIER_ORDER_STATUS_OPTIONS = [
   'cancelled',
 ].map((value) => ({ value, label: value }));
 
-function unwrapRows(response: any): PlainRecord[] {
+function unwrapRows<T extends PlainRecord = PlainRecord>(response: any): T[] {
   let data = response;
   for (let i = 0; i < 4; i += 1) {
     if (!data || typeof data !== 'object' || Array.isArray(data) || !('data' in data)) {
@@ -174,7 +191,7 @@ function unwrapRows(response: any): PlainRecord[] {
     }
     data = data.data;
   }
-  return Array.isArray(data) ? data : [];
+  return Array.isArray(data) ? (data as T[]) : [];
 }
 
 function unwrapData(response: any): PlainRecord {
@@ -214,43 +231,25 @@ function todayIsoDate() {
   return new Date().toISOString().slice(0, 10);
 }
 
-const ACTION_PRIORITY: Record<string, number> = {
-  overdue: 0,
-  order_today: 1,
-  missing_lead_time: 2,
-  stale_lead_time: 2,
-  order_soon: 3,
-  already_ordered: 4,
-  watch: 5,
-  sufficient_stock: 6,
+const REPLENISHMENT_PRIORITY: Record<string, number> = {
+  eligible: 0,
+  review_insufficient_baseline_confidence: 1,
+  review_current_projection_evidence: 2,
+  review_projected_tier_decline: 3,
+  blocked_existing_order: 4,
+  blocked_stuck_inventory: 5,
+  blocked_baseline_tier_d: 6,
   excluded: 7,
 };
 
-const TIER_PRIORITY: Record<string, number> = { A: 0, B: 1, C: 2 };
+const BASELINE_TIER_PRIORITY: Record<string, number> = { A: 0, B: 1, C: 2, D: 3 };
 
 function actionColor(value?: string) {
-  switch (value) {
-    case 'overdue':
-      return 'red';
-    case 'order_today':
-      return 'volcano';
-    case 'missing_lead_time':
-      return 'gold';
-    case 'stale_lead_time':
-      return 'orange';
-    case 'order_soon':
-      return 'orange';
-    case 'already_ordered':
-      return 'blue';
-    case 'watch':
-      return 'cyan';
-    case 'sufficient_stock':
-      return 'green';
-    case 'excluded':
-      return 'default';
-    default:
-      return 'default';
-  }
+  if (value === 'eligible') return 'green';
+  if (value === 'excluded') return 'default';
+  if (value?.startsWith('blocked_')) return 'red';
+  if (value?.startsWith('review_')) return 'orange';
+  return 'default';
 }
 
 function supplierOrderStateLabel(row: PlainRecord, t: (key: string) => string, onEdit?: () => void) {
@@ -469,7 +468,9 @@ function StockStatus({ row, t }: { row: PlainRecord; t: (key: string) => string 
         <Tag color="blue">
           {t('Inventory position')} {formatNumber(row.inventoryPositionStock)}
         </Tag>
-        {row.stuck ? <Tag color="purple">{t('STUCK')}</Tag> : null}
+        {['no_sell_through', 'over_60_days_cover'].includes(String(row.inventoryDisposition ?? '')) ? (
+          <Tag color="purple">{t('STUCK')}</Tag>
+        ) : null}
       </Space>
       <Space size={4} wrap>
         <Tag color={sellable > 0 ? 'green' : 'red'}>
@@ -532,24 +533,12 @@ function leadTimeSourceText(row: PlainRecord) {
   return 'Lead time source is not yet classified.';
 }
 
-function monetaryRiskText(row: PlainRecord) {
-  if (row.estimatedProfitRiskBasis === 'uncovered_oos_days × sales_velocity × profit_per_unit') {
-    return 'Potential profit loss if this product remains uncovered: max(lead time + safety buffer − days of cover, 0) × sales velocity × profit per unit. Profit per unit is dollars/unit, not margin %.';
-  }
-  if (row.estimatedProfitRiskBasis === 'planning_calculation_estimated_profit_risk') {
-    return 'Potential profit loss from the planning calculation service. It uses uncovered days, sales velocity, and profit per unit when those inputs are available. Profit per unit is dollars/unit, not margin %.';
-  }
-  if (row.estimatedProfitRiskBasis === 'imported_missed_profit_or_30_day_profit_forecast') {
-    return 'Imported missed-profit estimate or 30-day profit forecast for a tiered product because uncovered-day math was unavailable.';
-  }
-  if (row.estimatedProfitRiskBasis === 'not_tiered_profit_inputs_missing') {
-    return 'No active money at risk: this product is not in profit tier A, B, or C because profit inputs are missing or zero.';
-  }
-  return 'Money at risk is unavailable until tierable profit data is imported.';
+function averageMonthlyProfitText() {
+  return 'Average monthly profit is the arithmetic mean of eligible closed-month NetProfit values in the dynamic baseline window. Missing coverage remains unknown and is never treated as zero.';
 }
 
-function profitInputText() {
-  return 'Profit per unit is dollar profit per sold unit, not profit margin %. When six-month Sellerboard history exists, EcoBase derives it from total net profit ÷ total units; otherwise it falls back to planning sheet profit inputs.';
+function baselineProfitInputText() {
+  return 'Baseline weighted profit per unit is total eligible closed-month NetProfit divided by total eligible closed-month units.';
 }
 
 function productStatusText() {
@@ -557,35 +546,33 @@ function productStatusText() {
 }
 
 function orderCoverageText() {
-  return 'Coverage counts only reliable purchased pipeline that can still prevent OOS: paid, supplier preparing, or shipped inbound orders in the current recovery cycle. Draft, approval/payment-pending, cancelled, reached-FBA, and old historical rows do not reduce suggested reorder quantity, so this is often zero.';
+  return 'Coverage counts only reliable purchased pipeline that can still prevent OOS. Draft, approval/payment-pending, cancelled, reached-FBA, and historical rows do not reduce the corrected recommended order quantity.';
 }
 
-function tierScoreText() {
-  return 'Tier score = profit per unit × actual units sold in the latest rolling 30-day window. A product needs at least 4 units and must not be stuck to qualify for A/B/C; otherwise it is Unclassified. Six-month quantities remain historical context only.';
+function baselineTierScoreText() {
+  return 'Baseline tier score is average monthly NetProfit across eligible closed months: A ≥ 250, B ≥ 100, C ≥ 0, otherwise D. Trusted zero movement remains unranked.';
 }
 
 function TierMovementTag({ row, t }: { row: PlainRecord; t: (key: string) => string }) {
-  const movement = String(row.tierMovement ?? '');
-  if (!['up', 'down', 'new', 'lost_tier'].includes(movement)) return null;
-  const previous = formatTier(row.previousTier);
-  const current = formatTier(row.tier);
-  return (
-    <Tag color={movement === 'down' || movement === 'lost_tier' ? 'red' : 'green'}>{t(`${previous}→${current}`)}</Tag>
-  );
+  const movement = String(row.projectedTierMovement ?? '');
+  if (!['improved', 'declined'].includes(movement)) return null;
+  const previous = formatTier(row.baselineTier);
+  const current = formatTier(row.currentProjectedTier);
+  return <Tag color={movement === 'declined' ? 'red' : 'green'}>{t(`${previous}→${current}`)}</Tag>;
 }
 
-function MarginAlertTag({ row, t }: { row: PlainRecord; t: (key: string) => string }) {
-  const margin = finiteNumber(row.sixMonthMargin);
-  return typeof margin === 'number' && margin < 8 ? <Tag color="red">{t('Margin < 8%')}</Tag> : null;
+function AverageProfitAlertTag({ row, t }: { row: PlainRecord; t: (key: string) => string }) {
+  const profit = finiteNumber(row.averageMonthlyProfit);
+  return typeof profit === 'number' && profit < 0 ? <Tag color="red">{t('Negative average profit')}</Tag> : null;
 }
 
 function HistoricalQuantityTags({ row, t }: { row: PlainRecord; t: (key: string) => string }) {
   return (
     <Space size={4} wrap>
-      <Tag>{`${t('Last')} ${formatNumber(row.lastMonthQty)}`}</Tag>
-      <Tag>{`${t('Avg')} ${formatNumber(row.sixMonthAverageQty)}`}</Tag>
-      <Tag>{`${t('Worst')} ${formatNumber(row.sixMonthWorstQty)}`}</Tag>
-      <Tag>{`${t('Best')} ${formatNumber(row.sixMonthBestQty)}`}</Tag>
+      <Tag>{`${t('Last')} ${formatNumber(row.lastClosedMonthUnits)}`}</Tag>
+      <Tag>{`${t('Avg')} ${formatNumber(row.averageMonthlyUnits)}`}</Tag>
+      <Tag>{`${t('Worst')} ${formatNumber(row.worstMonthlyUnits)}`}</Tag>
+      <Tag>{`${t('Best')} ${formatNumber(row.bestMonthlyUnits)}`}</Tag>
     </Space>
   );
 }
@@ -606,7 +593,7 @@ function isUuid(value: any) {
 }
 
 function defaultOrderQty(row: PlainRecord) {
-  const qty = Number(row.suggestedReorderQty);
+  const qty = Number(row.recommendedOrderQty);
   return Number.isFinite(qty) && qty > 0 ? Math.ceil(qty) : 1;
 }
 
@@ -621,15 +608,13 @@ function textValue(value: any) {
 
 function orderNowMatchesQuickFilter(row: PlainRecord, filter: OrderNowQuickFilter) {
   if (filter === 'urgent_today') {
-    return ['overdue', 'order_today'].includes(String(row.actionStatus ?? ''));
+    return row.newReplenishmentActionable === true;
   }
   if (filter === 'missing_supplier') {
     return !row.supplierName;
   }
   if (filter === 'lead_time_issues') {
-    return (
-      row.actionStatus === 'missing_lead_time' || ['missing', 'stale'].includes(String(row.leadTimeFreshness ?? ''))
-    );
+    return ['missing', 'stale'].includes(String(row.leadTimeFreshness ?? ''));
   }
   if (filter === 'no_order') {
     return ['no_open_order', 'closed_history'].includes(String(row.supplierOrderState ?? ''));
@@ -651,22 +636,24 @@ function digestOrderStatePriority(row: PlainRecord) {
 
 function sortOrderNowRows(rows: PlainRecord[], sortKey: OrderNowSortKey, calculationDate: string) {
   return [...rows].sort((left, right) => {
-    if (sortKey === 'risk_desc') {
-      return numericValue(right.estimatedProfitRisk, -1) - numericValue(left.estimatedProfitRisk, -1);
+    if (sortKey === 'profit_desc') {
+      return numericValue(right.averageMonthlyProfit, -1) - numericValue(left.averageMonthlyProfit, -1);
     }
     if (sortKey === 'oos_asc') {
       return String(left.estimatedOosDate ?? '9999-12-31').localeCompare(
         String(right.estimatedOosDate ?? '9999-12-31'),
       );
     }
-    if (sortKey === 'tier') {
-      const tierDiff = (TIER_PRIORITY[String(left.tier ?? '')] ?? 99) - (TIER_PRIORITY[String(right.tier ?? '')] ?? 99);
+    if (sortKey === 'baseline_tier') {
+      const tierDiff =
+        (BASELINE_TIER_PRIORITY[String(left.baselineTier ?? '')] ?? 99) -
+        (BASELINE_TIER_PRIORITY[String(right.baselineTier ?? '')] ?? 99);
       if (tierDiff !== 0) return tierDiff;
       const actionDiff =
-        (ACTION_PRIORITY[String(left.actionStatus ?? '')] ?? 99) -
-        (ACTION_PRIORITY[String(right.actionStatus ?? '')] ?? 99);
+        (REPLENISHMENT_PRIORITY[String(left.replenishmentEligibility ?? '')] ?? 99) -
+        (REPLENISHMENT_PRIORITY[String(right.replenishmentEligibility ?? '')] ?? 99);
       if (actionDiff !== 0) return actionDiff;
-      return numericValue(right.estimatedProfitRisk, -1) - numericValue(left.estimatedProfitRisk, -1);
+      return numericValue(right.averageMonthlyProfit, -1) - numericValue(left.averageMonthlyProfit, -1);
     }
     if (sortKey === 'supplier') {
       return String(left.supplierName ?? 'Find supplier from OrderDetails').localeCompare(
@@ -676,13 +663,13 @@ function sortOrderNowRows(rows: PlainRecord[], sortKey: OrderNowSortKey, calcula
     const orderStateDiff = digestOrderStatePriority(left) - digestOrderStatePriority(right);
     if (orderStateDiff !== 0) return orderStateDiff;
     const actionDiff =
-      (ACTION_PRIORITY[String(left.actionStatus ?? '')] ?? 99) -
-      (ACTION_PRIORITY[String(right.actionStatus ?? '')] ?? 99);
+      (REPLENISHMENT_PRIORITY[String(left.replenishmentEligibility ?? '')] ?? 99) -
+      (REPLENISHMENT_PRIORITY[String(right.replenishmentEligibility ?? '')] ?? 99);
     if (actionDiff !== 0) return actionDiff;
     const leftOos = dayjs(left.estimatedOosDate ?? '9999-12-31').diff(dayjs(calculationDate), 'day');
     const rightOos = dayjs(right.estimatedOosDate ?? '9999-12-31').diff(dayjs(calculationDate), 'day');
     if (leftOos !== rightOos) return leftOos - rightOos;
-    return numericValue(right.estimatedProfitRisk, -1) - numericValue(left.estimatedProfitRisk, -1);
+    return numericValue(right.averageMonthlyProfit, -1) - numericValue(left.averageMonthlyProfit, -1);
   });
 }
 
@@ -709,9 +696,12 @@ function latestActivity(rows: PlainRecord[]) {
     )[0];
 }
 
-function tierCounts(rows: PlainRecord[]) {
-  return ['A', 'B', 'C']
-    .map((tier) => ({ tier, count: rows.filter((row) => row.tier === tier).length }))
+function baselineTierCounts(rows: PlainRecord[]) {
+  return ['A', 'B', 'C', 'D']
+    .map((baselineTier) => ({
+      baselineTier,
+      count: rows.filter((row) => row.baselineTier === baselineTier).length,
+    }))
     .filter((item) => item.count > 0);
 }
 
@@ -746,15 +736,15 @@ function groupOrderNowRows(rows: PlainRecord[], calculationDate: string) {
       supplierName: group.supplierName ?? firstProduct.supplierName,
       productCount: groupRows.length,
       firstProduct,
-      tierCounts: tierCounts(groupRows),
-      totalMoneyAtRisk: groupRows.reduce((sum, row) => sum + numericValue(row.estimatedProfitRisk, 0), 0),
+      baselineTierCounts: baselineTierCounts(groupRows),
+      totalAverageMonthlyProfit: groupRows.reduce((sum, row) => sum + numericValue(row.averageMonthlyProfit, 0), 0),
       earliestOosDate: groupRows
         .map((row) => String(row.estimatedOosDate ?? ''))
         .filter(Boolean)
         .sort()[0],
       leadTimeIssueCount: groupRows.filter((row) => ['missing', 'stale'].includes(String(row.leadTimeFreshness ?? '')))
         .length,
-      topActionStatus: firstProduct.actionStatus,
+      topReplenishmentEligibility: firstProduct.replenishmentEligibility,
       latestSupplierOrderActivityNote: latest.latestSupplierOrderActivityNote,
       latestSupplierOrderActivityAt: latest.latestSupplierOrderActivityAt,
     };
@@ -783,8 +773,8 @@ export default function InventoryPlanningPage() {
   const screens = Grid.useBreakpoint();
   const [company, setCompany] = useState('');
   const [calculationDate, setCalculationDate] = useState('');
-  const [actionStatus, setActionStatus] = useState<string | undefined>();
-  const [tier, setTier] = useState<string | undefined>();
+  const [replenishmentEligibility, setReplenishmentEligibility] = useState<string | undefined>();
+  const [baselineTier, setBaselineTier] = useState<string | undefined>();
   const [leadTimeFreshnessDays, setLeadTimeFreshnessDays] = useState(60);
   const [orderSoonWindowDays, setOrderSoonWindowDays] = useState(14);
   const [safetyBufferDays, setSafetyBufferDays] = useState(7);
@@ -793,20 +783,20 @@ export default function InventoryPlanningPage() {
   const [planningSettingsWarning, setPlanningSettingsWarning] = useState<string | undefined>();
   const [limit] = useState(50);
   const [orderNowQuickFilter, setOrderNowQuickFilter] = useState<OrderNowQuickFilter>('all');
-  const [orderNowTierFilter, setOrderNowTierFilter] = useState<string[]>([]);
+  const [orderNowBaselineTierFilter, setOrderNowBaselineTierFilter] = useState<string[]>([]);
   const [orderNowCompanyFilter, setOrderNowCompanyFilter] = useState<string[]>([]);
   const [orderNowSearch, setOrderNowSearch] = useState('');
-  const [orderNowSort, setOrderNowSort] = useState<OrderNowSortKey>('tier');
+  const [orderNowSort, setOrderNowSort] = useState<OrderNowSortKey>('baseline_tier');
   const [filterOptions, setFilterOptions] = useState<PlainRecord>({});
-  const [rows, setRows] = useState<PlainRecord[]>([]);
-  const [listingPerformanceRows, setListingPerformanceRows] = useState<PlainRecord[]>([]);
+  const [rows, setRows] = useState<CorrectedFamilyActionRow[]>([]);
+  const [listingPerformanceRows, setListingPerformanceRows] = useState<CorrectedListingRow[]>([]);
   const [digest, setDigest] = useState<DigestPreview>(() => unwrapDigest({}));
   const [commandCenter, setCommandCenter] = useState<PlainRecord>({});
   const [activeCommandPane, setActiveCommandPane] = useState<CommandCenterPaneKey>('supplyAction');
   const [openCommandPane, setOpenCommandPane] = useState<CommandCenterPaneKey | null>('supplyAction');
   const [commandCenterSearch, setCommandCenterSearch] = useState('');
   const [commandCenterPage, setCommandCenterPage] = useState(1);
-  const [commandCenterSortBy, setCommandCenterSortBy] = useState('estimatedProfitRisk');
+  const [commandCenterSortBy, setCommandCenterSortBy] = useState('averageMonthlyProfit');
   const [selectedCommandPane, setSelectedCommandPane] = useState<CommandCenterPaneKey | null>(null);
   const [selectedRow, setSelectedRow] = useState<PlainRecord | null>(null);
   const [actionValues, setActionValues] = useState<DrawerActionValues | null>(null);
@@ -825,10 +815,6 @@ export default function InventoryPlanningPage() {
   const [orderCommentText, setOrderCommentText] = useState('');
   const [activityCommentEdit, setActivityCommentEdit] = useState<ActivityCommentEditValues | null>(null);
   const [managePanels, setManagePanels] = useState<string[]>([]);
-  const [budgetAmount, setBudgetAmount] = useState<number | null>(null);
-  const [budgetHorizonDays, setBudgetHorizonDays] = useState(30);
-  const [budgetResult, setBudgetResult] = useState<PlainRecord | null>(null);
-  const [budgetLoading, setBudgetLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [targetUpdatingFamilyId, setTargetUpdatingFamilyId] = useState<string>();
   const [pendingFamilyTarget, setPendingFamilyTarget] = useState<{
@@ -873,8 +859,8 @@ export default function InventoryPlanningPage() {
         purchasedPipelineGraceDays,
         limit,
       };
-      const [filtersResponse, commandCenterResponse, listingPerformanceResponse] = await Promise.all([
-        api.request({ url: 'ecobaseInventoryPlanning:filters', method: 'post', data: {} }),
+      const [workspaceResponse, commandCenterResponse, listingPerformanceResponse] = await Promise.all([
+        api.request({ url: 'ecobaseInventoryPlanning:workspace', method: 'post', data: payload }),
         api.request({
           url: 'ecobaseInventoryPlanning:commandCenter',
           method: 'post',
@@ -886,8 +872,8 @@ export default function InventoryPlanningPage() {
             sortBy: commandCenterSortBy,
             sortDirection: 'desc',
             filters: {
-              actionStatus,
-              tier,
+              replenishmentEligibility,
+              baselineTier,
               search: commandCenterSearch.trim() || undefined,
             },
           },
@@ -902,20 +888,21 @@ export default function InventoryPlanningPage() {
           },
         }),
       ]);
+      const workspace = unwrapData(workspaceResponse);
       const center = unwrapData(commandCenterResponse);
       const panes = unwrapData(center.panes);
-      setFilterOptions(unwrapData(unwrapData(filtersResponse).filters ?? filtersResponse));
+      setFilterOptions(unwrapData(workspace.filters));
       setCommandCenter(center);
-      setRows(COMMAND_CENTER_PANES.flatMap((key) => unwrapRows(unwrapData(panes[key]).rows)));
-      setListingPerformanceRows(unwrapRows(unwrapData(listingPerformanceResponse).rows));
-      setDigest(unwrapDigest({}));
+      setRows(COMMAND_CENTER_PANES.flatMap((key) => unwrapRows<CorrectedFamilyActionRow>(unwrapData(panes[key]).rows)));
+      setListingPerformanceRows(unwrapRows<CorrectedListingRow>(unwrapData(listingPerformanceResponse).rows));
+      setDigest(unwrapDigest(workspace.digest));
     } catch (err) {
       setError(err as Error);
     } finally {
       setLoading(false);
     }
   }, [
-    actionStatus,
+    replenishmentEligibility,
     activeCommandPane,
     api,
     calculationDate,
@@ -929,13 +916,13 @@ export default function InventoryPlanningPage() {
     purchasedPipelineGraceDays,
     safetyBufferDays,
     targetCoverDays,
-    tier,
+    baselineTier,
   ]);
 
   const updateFamilyTarget = useCallback(
     async (row: PlainRecord, companyProductId: string, reason: string) => {
       const familyId = String(row.companyProductFamilyId ?? '');
-      if (!familyId || !companyProductId || companyProductId === row.replenishmentTargetCompanyProductId) return false;
+      if (!familyId || !companyProductId || companyProductId === row.targetCompanyProductId) return false;
       if (!reason.trim()) {
         message.error(t('A reason is required to change the replenishment target.'));
         return false;
@@ -974,60 +961,14 @@ export default function InventoryPlanningPage() {
     void loadPlanning();
   }, [loadPlanning]);
 
-  const runBudgetOptimizer = useCallback(async () => {
-    if (!budgetAmount || budgetAmount <= 0) {
-      message.error(t('Enter a budget greater than zero to run the optimizer.'));
-      return;
-    }
-    setBudgetLoading(true);
-    setError(null);
-    try {
-      const response = await api.request({
-        url: 'ecobaseInventoryPlanning:optimizeBudget',
-        method: 'post',
-        data: {
-          company: company || undefined,
-          calculationDate: calculationDate || undefined,
-          leadTimeFreshnessDays,
-          orderSoonWindowDays,
-          safetyBufferDays,
-          targetCoverDays,
-          purchasedPipelineGraceDays,
-          limit,
-          budget: budgetAmount,
-          horizonDays: budgetHorizonDays,
-        },
-      });
-      setBudgetResult(unwrapData(response));
-    } catch (err) {
-      setError(err as Error);
-    } finally {
-      setBudgetLoading(false);
-    }
-  }, [
-    api,
-    budgetAmount,
-    budgetHorizonDays,
-    calculationDate,
-    company,
-    leadTimeFreshnessDays,
-    limit,
-    message,
-    orderSoonWindowDays,
-    purchasedPipelineGraceDays,
-    safetyBufferDays,
-    targetCoverDays,
-    t,
-  ]);
-
   const filteredRows = useMemo(
     () =>
       rows.filter((row) => {
-        if (actionStatus && row.actionStatus !== actionStatus) return false;
-        if (tier && row.tier !== tier) return false;
+        if (replenishmentEligibility && row.replenishmentEligibility !== replenishmentEligibility) return false;
+        if (baselineTier && row.baselineTier !== baselineTier) return false;
         return true;
       }),
-    [actionStatus, rows, tier],
+    [baselineTier, replenishmentEligibility, rows],
   );
 
   const relativeBaseDate = calculationDate || String(rows[0]?.calculationDate ?? todayIsoDate());
@@ -1037,8 +978,9 @@ export default function InventoryPlanningPage() {
     [digest.sections.orderNow],
   );
 
-  const orderNowTiers = useMemo(
-    () => Array.from(new Set(digest.sections.orderNow.map((row) => String(row.tier ?? '')).filter(Boolean))).sort(),
+  const orderNowBaselineTiers = useMemo(
+    () =>
+      Array.from(new Set(digest.sections.orderNow.map((row) => String(row.baselineTier ?? '')).filter(Boolean))).sort(),
     [digest.sections.orderNow],
   );
 
@@ -1046,7 +988,8 @@ export default function InventoryPlanningPage() {
     const search = orderNowSearch.trim().toLowerCase();
     const filtered = digest.sections.orderNow.filter((row) => {
       if (!orderNowMatchesQuickFilter(row, orderNowQuickFilter)) return false;
-      if (orderNowTierFilter.length > 0 && !orderNowTierFilter.includes(String(row.tier ?? ''))) return false;
+      if (orderNowBaselineTierFilter.length > 0 && !orderNowBaselineTierFilter.includes(String(row.baselineTier ?? '')))
+        return false;
       if (orderNowCompanyFilter.length > 0 && !orderNowCompanyFilter.includes(String(row.company ?? ''))) return false;
       if (search) {
         const haystack = [
@@ -1057,8 +1000,8 @@ export default function InventoryPlanningPage() {
           row.supplierName,
           row.supplierOrderRef,
           row.supplierOrderStatus,
-          row.actionStatus,
-          row.tier,
+          row.replenishmentEligibility,
+          row.baselineTier,
         ]
           .map(textValue)
           .join(' ');
@@ -1074,7 +1017,7 @@ export default function InventoryPlanningPage() {
     orderNowQuickFilter,
     orderNowSearch,
     orderNowSort,
-    orderNowTierFilter,
+    orderNowBaselineTierFilter,
   ]);
 
   const orderNowGroups = useMemo(
@@ -1116,25 +1059,25 @@ export default function InventoryPlanningPage() {
       'Families blocked or held for Tier D, closed/current decline, no-movement, or confidence review.',
     ),
     untieredProducts: t(
-      'Products without A, B, or C tier evidence. Supplier, order, lead-time, and stock evidence stays visible, but no automatic replenishment action is generated.',
+      'Products with unclassified or no-movement baseline evidence. Supplier, order, lead-time, and stock evidence stays visible, but no automatic replenishment action is generated.',
     ),
   };
   const commandPaneSortOptions: Record<CommandCenterPaneKey, { value: string; label: string }[]> = {
     supplyAction: [
-      { value: 'estimatedProfitRisk', label: t('Money at risk') },
+      { value: 'averageMonthlyProfit', label: t('Average monthly profit') },
       { value: 'daysUntilOos', label: t('OOS days left') },
       { value: 'daysUntilSafeReorder', label: t('Order-by urgency') },
-      { value: 'tier', label: t('Tier') },
+      { value: 'baselineTier', label: t('Baseline tier') },
     ],
     activeOrders: [
       { value: 'daysUntilOos', label: t('OOS days left') },
-      { value: 'estimatedProfitRisk', label: t('Money at risk') },
+      { value: 'averageMonthlyProfit', label: t('Average monthly profit') },
       { value: 'supplierName', label: t('Supplier') },
     ],
     inPrepMonitoring: [
       { value: 'expectedArrivalDate', label: t('Expected arrival') },
       { value: 'stockoutGapDays', label: t('Stockout gap') },
-      { value: 'estimatedProfitRisk', label: t('Money at risk') },
+      { value: 'averageMonthlyProfit', label: t('Average monthly profit') },
     ],
     inboundMonitoring: [
       { value: 'stockoutGapDays', label: t('Stockout gap') },
@@ -1144,26 +1087,26 @@ export default function InventoryPlanningPage() {
     healthyInventory: [
       { value: 'daysOfCover', label: t('Days cover') },
       { value: 'inventoryPositionStock', label: t('Inventory position') },
-      { value: 'tier', label: t('Tier') },
+      { value: 'baselineTier', label: t('Baseline tier') },
     ],
     excessInventory: [
       { value: 'daysOfCover', label: t('Days cover') },
       { value: 'currentPlanningStock', label: t('Current stock') },
-      { value: 'estimatedProfitRisk', label: t('Money at risk') },
+      { value: 'averageMonthlyProfit', label: t('Average monthly profit') },
     ],
     stuckInventory: [
-      { value: 'familyStuckAffectedValue', label: t('Affected value') },
+      { value: 'currentPlanningStock', label: t('Affected value') },
       { value: 'daysOfCover', label: t('Days cover') },
       { value: 'currentPlanningStock', label: t('Current stock') },
     ],
     zeroStock: [
-      { value: 'estimatedProfitRisk', label: t('Money at risk') },
+      { value: 'averageMonthlyProfit', label: t('Average monthly profit') },
       { value: 'daysUntilSafeReorder', label: t('Order-by urgency') },
-      { value: 'tier', label: t('Tier') },
+      { value: 'baselineTier', label: t('Baseline tier') },
     ],
     dataReadiness: [
       { value: 'company', label: t('Company') },
-      { value: 'familyCanonicalAsin', label: t('Family ASIN') },
+      { value: 'asin', label: t('Family ASIN') },
       { value: 'inventoryAsOfDate', label: t('Inventory date') },
     ],
     performanceReview: [
@@ -1258,7 +1201,7 @@ export default function InventoryPlanningPage() {
           ? `${formatNumber(Math.abs(daysLeft))} ${t('days overdue')}`
           : `${formatNumber(daysLeft)} ${t('days left')}`
         : t('No velocity');
-    const salesVelocity = finiteNumber(row.salesVelocity);
+    const rollingUnits30 = finiteNumber(row.rollingUnits30);
     const date = formatDate(row.estimatedOosDate);
     const daysOfCover = finiteNumber(row.daysOfCover);
     const targetCover = finiteNumber(targetCoverDays);
@@ -1274,7 +1217,7 @@ export default function InventoryPlanningPage() {
       <Space direction="vertical" size={0}>
         <Tag color={daysLeftColor}>{daysLeftLabel}</Tag>
         <Typography.Text type="secondary">
-          {date} · {typeof salesVelocity === 'number' ? formatNumber(salesVelocity) : '—'}/{t('day')}
+          {date} · {t('30d units')} {formatNumber(rollingUnits30)}
         </Typography.Text>
         <Typography.Text type="secondary">{shortfallLabel}</Typography.Text>
       </Space>
@@ -1298,7 +1241,7 @@ export default function InventoryPlanningPage() {
         <TierMovementTag row={row} t={t} />
       </Space>
       <Typography.Text type="secondary">
-        {t('30d units')} {formatNumber(row.recentUnits30)} · {t(formatStatusLabel(row.tierEligibilityReason))}
+        {t('30d units')} {formatNumber(row.rollingUnits30)} · {t(formatStatusLabel(row.replenishmentBlockReasonCode))}
       </Typography.Text>
     </Space>
   );
@@ -1367,7 +1310,7 @@ export default function InventoryPlanningPage() {
     );
   };
   const renderSuggestedQtyCell = (_value: any, row: PlainRecord) => {
-    const suggestedQty = finiteNumber(row.suggestedReorderQty);
+    const suggestedQty = finiteNumber(row.recommendedOrderQty);
     const unitCost = finiteNumber(row.unitCost);
     const estimatedOrderCost =
       finiteNumber(row.estimatedOrderCost) ??
@@ -1381,10 +1324,10 @@ export default function InventoryPlanningPage() {
           : t('COGS missing');
     return (
       <Space direction="vertical" size={0}>
-        <Typography.Text strong>{formatNumber(row.suggestedReorderQty)}</Typography.Text>
+        <Typography.Text strong>{formatNumber(row.recommendedOrderQty)}</Typography.Text>
         <Typography.Text type="secondary">{costText}</Typography.Text>
         <Typography.Text type="secondary">
-          {t('Margin')} {formatPercent(row.sixMonthMargin)}
+          {t('Average monthly profit')} {formatCurrency(row.averageMonthlyProfit)}
         </Typography.Text>
       </Space>
     );
@@ -1510,7 +1453,7 @@ export default function InventoryPlanningPage() {
   };
   const renderActiveRiskCell = (_value: any, row: PlainRecord) => {
     const pipeline = String(row.pipelineHealthStatus ?? 'none');
-    const followUpDue = row.recommendedEscalation === 'follow_up_order';
+    const followUpDue = row.existingOrderFollowUp === true;
     const label =
       pipeline === 'late'
         ? 'off-track'
@@ -1544,7 +1487,7 @@ export default function InventoryPlanningPage() {
       <Space direction="vertical" size={0}>
         <Tag color={typeof doc === 'number' && doc >= 60 ? 'red' : 'orange'}>{t(threshold)}</Tag>
         <Typography.Text type="secondary">
-          {t(formatStatusLabel(row.stuckClassification ?? 'stuck inventory'))}
+          {t(formatStatusLabel(row.inventoryDisposition ?? 'stuck inventory'))}
         </Typography.Text>
       </Space>
     );
@@ -1552,34 +1495,33 @@ export default function InventoryPlanningPage() {
   const renderSellThroughEvidenceCell = (_value: any, row: PlainRecord) => (
     <Space direction="vertical" size={0}>
       <Typography.Text>
-        {formatNumber(row.salesVelocity)}
-        {t('/day')}
+        {t('30d units')} {formatNumber(row.rollingUnits30)}
       </Typography.Text>
       <Typography.Text type="secondary">
-        {t('6M average')} {formatNumber(row.sixMonthAverageQty)}
+        {t('Baseline average')} {formatNumber(row.averageMonthlyUnits)}
       </Typography.Text>
     </Space>
   );
   const familyMembers = (row: PlainRecord) => unwrapRows(row.familyMembers);
   const renderFamilyStockCell = (_value: any, row: PlainRecord) =>
     renderCurrentStockCell(undefined, {
-      inventoryPositionStock: row.familyInventoryPositionStock,
-      onHandSellableStock: row.familyOnHandSellableStock,
-      amazonPipelineStock: row.familyAmazonPipelineStock,
-      supplierPipelineStock: row.familySupplierPipelineStock,
-      sellableStock: row.familySellableStock,
-      reservedStock: row.familyReservedStock,
-      orderedStock: row.familyOrderedStock,
-      prepStock: row.familyPrepStock,
-      inboundStock: row.familyInboundStock,
-      awdStock: row.familyAwdStock,
+      inventoryPositionStock: row.inventoryPositionStock,
+      onHandSellableStock: row.onHandSellableStock,
+      amazonPipelineStock: row.amazonPipelineStock,
+      supplierPipelineStock: row.supplierPipelineStock,
+      sellableStock: row.sellableStock,
+      reservedStock: row.reservedStock,
+      orderedStock: row.orderedStock,
+      prepStock: row.prepStock,
+      inboundStock: row.inboundStock,
+      awdStock: row.awdStock,
     });
   const renderFamilyIdentityCell = (_value: any, row: PlainRecord) => (
     <Space direction="vertical" size={0} style={{ maxWidth: 180 }}>
-      <Typography.Text strong>{row.familyCanonicalAsin ?? row.asin ?? '—'}</Typography.Text>
+      <Typography.Text strong>{row.asin ?? '—'}</Typography.Text>
       <Typography.Text type="secondary">{row.company ?? '—'}</Typography.Text>
       <Typography.Text type="secondary">
-        {formatNumber(row.familyMemberCount)} {t('listings')} · {row.familyMarketplace ?? '—'}
+        {formatNumber(row.memberCount)} {t('listings')} · {row.marketplace ?? '—'}
       </Typography.Text>
     </Space>
   );
@@ -1590,13 +1532,13 @@ export default function InventoryPlanningPage() {
       <Space direction="vertical" size={4} onClick={(event) => event.stopPropagation()}>
         <Space size={4}>
           <Tag color="blue">{t('Target')}</Tag>
-          <Typography.Text strong>{row.replenishmentTargetSku ?? row.sku ?? '—'}</Typography.Text>
+          <Typography.Text strong>{row.sku ?? '—'}</Typography.Text>
         </Space>
         {canOperate ? (
           <Select
             size="small"
             aria-label={t('Change replenishment target')}
-            value={row.replenishmentTargetCompanyProductId}
+            value={row.targetCompanyProductId}
             loading={targetUpdatingFamilyId === familyId}
             disabled={!familyId || members.length < 2 || targetUpdatingFamilyId === familyId}
             onChange={(companyProductId) => {
@@ -1606,56 +1548,44 @@ export default function InventoryPlanningPage() {
             style={{ minWidth: 170 }}
             options={members.map((member) => ({
               value: String(member.companyProductId),
-              label: `${member.sku ?? member.asin ?? '—'}${member.familyRole === 'target' ? ` · ${t('Target')}` : ''}`,
+              label: `${member.sku ?? member.asin ?? '—'}${
+                member.companyProductId === row.targetCompanyProductId ? ` · ${t('Target')}` : ''
+              }`,
             }))}
           />
         ) : null}
       </Space>
     );
   };
-  const renderLeadTimeComponents = (row: PlainRecord) => {
-    const supplier = asPlainRecord(row.familySupplier);
-    const components = asPlainRecord(supplier.leadTimeComponents ?? row.leadTimeComponents);
-    return (
-      <>
-        {t('Supplier')} {formatNumber(asPlainRecord(components.supplierLeadTime).days)} + {t('Prep / logistics')}{' '}
-        {formatNumber(asPlainRecord(components.prepAndLogistics).days)} + {t('FBA receiving')}{' '}
-        {formatNumber(asPlainRecord(components.fbaReceivingBuffer).days)} = {t('Effective')}{' '}
-        {formatNumber(supplier.effectiveLeadTimeDays ?? row.effectiveLeadTimeDays)} {t('days')}
-      </>
-    );
-  };
+  const renderLeadTimeComponents = (row: PlainRecord) => leadTimeFreshnessText(row);
   const renderFamilySupplierCell = (_value: any, row: PlainRecord) => (
     <Space direction="vertical" size={0} style={{ maxWidth: 220 }}>
-      <Typography.Text strong>
-        {row.familyPreferredSupplierName ?? row.supplierName ?? t('Supplier missing')}
-      </Typography.Text>
+      <Typography.Text strong>{row.supplierName ?? t('Supplier missing')}</Typography.Text>
       <Typography.Text type="secondary">{renderLeadTimeComponents(row)}</Typography.Text>
       <Typography.Text type="secondary">
-        {t('Unit cost')} {formatCurrency(row.familyUnitCost ?? row.unitCost)}
+        {t('Unit cost')} {formatCurrency(row.unitCost)}
       </Typography.Text>
     </Space>
   );
   const renderFamilyVelocityCell = (_value: any, row: PlainRecord) => (
     <Space direction="vertical" size={0}>
       <Typography.Text strong>
-        {formatNumber(row.familySalesVelocity)} {t('/day')}
+        {formatNumber(row.rollingUnits30)} {t('/day')}
       </Typography.Text>
       <Typography.Text type="secondary">
-        {t('Current')} {formatNumber(row.familyDaysOfCover)} {t('days')} · {t('OOS')}{' '}
-        {formatDate(row.familyEstimatedOosDate)}
+        {t('Current')} {formatNumber(row.daysOfCover)} {t('days')} · {t('OOS')} {formatDate(row.estimatedOosDate)}
       </Typography.Text>
       <Typography.Text type="secondary">
-        {t('Position')} {formatNumber(row.familyPositionDaysOfCover)} {t('days')} · {t('OOS')}{' '}
-        {formatDate(row.familyPositionEstimatedOosDate)}
+        {t('Position')} {formatNumber(row.positionDaysOfCover)} {t('days')} · {t('OOS')}{' '}
+        {formatDate(row.positionEstimatedOosDate)}
       </Typography.Text>
     </Space>
   );
   const renderFamilyPriorityCell = (_value: any, row: PlainRecord) => (
     <Space direction="vertical" size={0}>
-      <Tag color={tierColor(row.familyTier ?? row.tier)}>{formatTier(row.familyTier ?? row.tier)}</Tag>
+      <Tag color={tierColor(row.baselineTier)}>{formatTier(row.baselineTier)}</Tag>
       <Typography.Text type="secondary">
-        {t(formatStatusLabel(row.actionStatus ?? row.commandCenterPane))}
+        {t(formatStatusLabel(row.replenishmentEligibility ?? row.primaryActionPane))}
       </Typography.Text>
       {row.amazonReceiptStatus === 'review_required' ? <Tag color="red">{t('Receipt evidence review')}</Tag> : null}
     </Space>
@@ -1664,19 +1594,17 @@ export default function InventoryPlanningPage() {
     if (pane === 'stuckInventory') {
       return (
         <Space direction="vertical" size={0}>
-          <Tag color="red">{t(formatStatusLabel(row.familyStuckClassification ?? row.stuckClassification))}</Tag>
+          <Tag color="red">{t(formatStatusLabel(row.inventoryDisposition))}</Tag>
           <Typography.Text>
-            {formatNumber(row.familyStuckAffectedMemberCount)} {t('affected listings')} ·{' '}
-            {formatNumber(row.familyStuckAffectedUnits)} {t('units')}
+            {formatNumber(row.memberCount)} {t('affected listings')} · {formatNumber(row.currentPlanningStock)}{' '}
+            {t('units')}
           </Typography.Text>
-          <Typography.Text strong style={{ color: MONEY_AT_RISK_COLOR }}>
-            {formatCurrency(row.familyStuckAffectedValue)}
+          <Typography.Text type="secondary">
+            {t('Average monthly profit')} {formatCurrency(row.averageMonthlyProfit)}
           </Typography.Text>
-          {finiteNumber(row.familyStuckActiveOrderCount) ? (
+          {row.existingOrderFollowUp === true ? (
             <>
-              <Typography.Text type="secondary">
-                {formatNumber(row.familyStuckActiveOrderCount)} {t('active order(s)')}
-              </Typography.Text>
+              <Typography.Text type="secondary">{t('Existing order follow-up')}</Typography.Text>
               <Typography.Text type="secondary">
                 {t('Current order reference')} {row.supplierOrderRef ?? '—'} ·{' '}
                 {formatNumber(row.supplierOrderReferenceOpenQty ?? row.openOrderCoverageQty)} {t('units')}
@@ -1723,11 +1651,11 @@ export default function InventoryPlanningPage() {
         <Space direction="vertical" size={0}>
           <Tag color="green">{t('Current coverage sufficient')}</Tag>
           <Typography.Text strong>
-            {formatNumber(row.familyOnHandStock ?? row.onHandStock)} {t('units on hand')}
+            {formatNumber(row.onHandStock)} {t('units on hand')}
           </Typography.Text>
           <Typography.Text type="secondary">
-            {t('Current')} {formatNumber(row.familyDaysOfCover ?? row.daysOfCover)} {t('days')} · {t('Position')}{' '}
-            {formatNumber(row.familyPositionDaysOfCover ?? row.positionDaysOfCover)} {t('days')}
+            {t('Current')} {formatNumber(row.daysOfCover)} {t('days')} · {t('Position')}{' '}
+            {formatNumber(row.positionDaysOfCover)} {t('days')}
           </Typography.Text>
         </Space>
       );
@@ -1802,11 +1730,11 @@ export default function InventoryPlanningPage() {
         <Space direction="vertical" size={0}>
           <Tag color="orange">{t('Excess inventory')}</Tag>
           <Typography.Text strong>
-            {formatNumber(row.familyDaysOfCover ?? row.daysOfCover)} {t('days cover')}
+            {formatNumber(row.daysOfCover)} {t('days cover')}
           </Typography.Text>
           <Typography.Text type="secondary">
-            {formatNumber(row.familyCurrentPlanningStock ?? row.currentPlanningStock)} {t('current units')} ·{' '}
-            {formatNumber(row.familyInventoryPositionStock ?? row.inventoryPositionStock)} {t('position units')}
+            {formatNumber(row.currentPlanningStock)} {t('current units')} · {formatNumber(row.inventoryPositionStock)}{' '}
+            {t('position units')}
           </Typography.Text>
         </Space>
       );
@@ -1816,10 +1744,10 @@ export default function InventoryPlanningPage() {
         <Space direction="vertical" size={0}>
           <Tag color="red">{t('Zero stock')}</Tag>
           <Typography.Text strong>
-            {formatNumber(row.familySuggestedReorderQty ?? row.suggestedReorderQty)} {t('units to order')}
+            {formatNumber(row.recommendedOrderQty)} {t('units to order')}
           </Typography.Text>
           <Typography.Text type="secondary">
-            {t('Velocity')} {formatNumber(row.familySalesVelocity ?? row.salesVelocity)} {t('/day')}
+            {t('30d units')} {formatNumber(row.rollingUnits30)}
           </Typography.Text>
         </Space>
       );
@@ -1830,8 +1758,7 @@ export default function InventoryPlanningPage() {
           <Tag>{t('Untiered')}</Tag>
           <Typography.Text strong>{t('No automatic replenishment action')}</Typography.Text>
           <Typography.Text type="secondary">
-            {t('Stock')} {formatNumber(row.familyCurrentPlanningStock ?? row.currentPlanningStock)} · {t('Supplier')}{' '}
-            {row.familyPreferredSupplierName ?? row.supplierName ?? t('Missing')}
+            {t('Stock')} {formatNumber(row.currentPlanningStock)} · {t('Supplier')} {row.supplierName ?? t('Missing')}
           </Typography.Text>
           <Typography.Text type="secondary">
             {t('Current order')} {row.supplierOrderRef ?? t('None')}
@@ -1841,15 +1768,17 @@ export default function InventoryPlanningPage() {
     }
     return (
       <Space direction="vertical" size={0}>
-        <Tag color={actionColor(row.actionStatus)}>{t(formatStatusLabel(row.actionStatus))}</Tag>
+        <Tag color={actionColor(row.replenishmentEligibility)}>
+          {t(formatStatusLabel(row.replenishmentEligibility))}
+        </Tag>
         <Typography.Text strong>
-          {formatNumber(row.familySuggestedReorderQty ?? row.suggestedReorderQty)} {t('units to order')}
+          {formatNumber(row.recommendedOrderQty)} {t('units to order')}
         </Typography.Text>
         <Typography.Text type="secondary">
-          {t('Est. COGS')} {formatCurrency(row.familyEstimatedOrderCost ?? row.estimatedOrderCost)}
+          {t('Est. COGS')} {formatCurrency(row.estimatedOrderCost)}
         </Typography.Text>
         <Typography.Text strong style={{ color: MONEY_AT_RISK_COLOR }}>
-          {formatCurrency(row.estimatedProfitRisk)}
+          {formatCurrency(row.averageMonthlyProfit)}
         </Typography.Text>
       </Space>
     );
@@ -1873,7 +1802,7 @@ export default function InventoryPlanningPage() {
       key: 'sku',
       render: (_value: any, row: PlainRecord) => (
         <Space size={4}>
-          {row.familyRole === 'target' ? <Tag color="blue">{t('Target')}</Tag> : null}
+          {row.isFrozenFamilyTarget === true ? <Tag color="blue">{t('Target')}</Tag> : null}
           <Typography.Text strong>{row.sku ?? '—'}</Typography.Text>
         </Space>
       ),
@@ -1890,7 +1819,7 @@ export default function InventoryPlanningPage() {
       render: (_value: any, row: PlainRecord) => (
         <Space direction="vertical" size={0}>
           <Typography.Text>
-            {formatNumber(row.salesVelocity)} {t('/day')}
+            {t('30d units')} {formatNumber(row.rollingUnits30)}
           </Typography.Text>
           <Typography.Text type="secondary">
             {t('Current')} {formatNumber(row.daysOfCover)} {t('days')} · {t('Position')}{' '}
@@ -1899,7 +1828,7 @@ export default function InventoryPlanningPage() {
         </Space>
       ),
     },
-    { title: String(t('Tier movement')), dataIndex: 'tier', render: renderCommandTierCell },
+    { title: String(t('Tier movement')), dataIndex: 'baselineTier', render: renderCommandTierCell },
     {
       title: String(t('Current order reference')),
       key: 'order',
@@ -2120,7 +2049,7 @@ export default function InventoryPlanningPage() {
 
   const saveProductPlanning = async () => {
     if (!selectedRow || !productPlanningValues) return;
-    const companyProductId = String(selectedRow.companyProductId ?? selectedRow.planningProductId ?? '');
+    const companyProductId = String(selectedRow.companyProductId ?? selectedRow.companyProductId ?? '');
     if (!companyProductId) {
       message.error(t('Company product identity is required.'));
       return;
@@ -2129,7 +2058,7 @@ export default function InventoryPlanningPage() {
       message.error(t('Explain the product planning change before saving.'));
       return;
     }
-    const currentSupplierId = String(selectedRow.familyPreferredSupplierId ?? selectedRow.supplierId ?? '');
+    const currentSupplierId = String(selectedRow.supplierId ?? selectedRow.supplierId ?? '');
     const supplierChanged = Boolean(
       productPlanningValues.supplierId && productPlanningValues.supplierId !== currentSupplierId,
     );
@@ -2217,7 +2146,6 @@ export default function InventoryPlanningPage() {
           company: row.company,
           familyId: row.companyProductFamilyId,
           currentOrderId: row.supplierOrderId,
-          planningProductId: row.planningProductId,
           companyProductId: row.companyProductId,
           asin: row.asin,
           sku: row.sku,
@@ -2268,7 +2196,7 @@ export default function InventoryPlanningPage() {
     setActionValues(newActionValues(row));
     setProductPlanningValues({
       planningExcluded: row.planningExcluded === true,
-      supplierId: String(row.familyPreferredSupplierId ?? row.supplierId ?? '') || undefined,
+      supplierId: String(row.supplierId ?? '') || undefined,
       reorderCycleDays: finiteNumber(row.reorderCycleDays),
       targetCoverDays: finiteNumber(row.targetCoverDays),
       reason: '',
@@ -2302,7 +2230,7 @@ export default function InventoryPlanningPage() {
       method: 'post',
       data: {
         company: selectedRow.company,
-        planningProductId: selectedRow.planningProductId,
+        planningProductId: selectedRow.companyProductId,
         supplierId: actionValues.draftSupplierId.trim(),
         orderedQty: actionValues.draftQty,
         expectedDeliveryDate: actionValues.draftExpectedDeliveryDate,
@@ -2330,7 +2258,7 @@ export default function InventoryPlanningPage() {
       data: {
         supplierOrderId: actionValues.addSupplierOrderId.trim(),
         company: selectedRow.company,
-        planningProductId: selectedRow.planningProductId,
+        planningProductId: selectedRow.companyProductId,
         orderedQty: actionValues.addQty,
         expectedDeliveryDate: actionValues.addExpectedDeliveryDate,
         expectedSellableDate: actionValues.addExpectedSellableDate,
@@ -2537,7 +2465,7 @@ export default function InventoryPlanningPage() {
       data: {
         company: selectedRow.company,
         supplierId: actionValues.leadSupplierId.trim(),
-        planningProductId: selectedRow.planningProductId,
+        planningProductId: selectedRow.companyProductId,
         asin: selectedRow.asin,
         sku: selectedRow.sku,
         leadTimeDays: actionValues.leadTimeDays,
@@ -2608,10 +2536,9 @@ export default function InventoryPlanningPage() {
           <Space direction="vertical" style={{ width: '100%' }}>
             <Tag color="green">{t('Current coverage sufficient')}</Tag>
             <Typography.Text>
-              {formatNumber(selectedRow.familyOnHandStock ?? selectedRow.onHandStock)} {t('units on hand')} ·{' '}
-              {t('Current')} {formatNumber(selectedRow.familyDaysOfCover ?? selectedRow.daysOfCover)} {t('days')} ·{' '}
-              {t('Position')} {formatNumber(selectedRow.familyPositionDaysOfCover ?? selectedRow.positionDaysOfCover)}{' '}
-              {t('days')}
+              {formatNumber(selectedRow.onHandStock ?? selectedRow.onHandStock)} {t('units on hand')} · {t('Current')}{' '}
+              {formatNumber(selectedRow.daysOfCover ?? selectedRow.daysOfCover)} {t('days')} · {t('Position')}{' '}
+              {formatNumber(selectedRow.positionDaysOfCover ?? selectedRow.positionDaysOfCover)} {t('days')}
             </Typography.Text>
             <Button onClick={() => setManagePanels(['history'])}>{t('Review inventory evidence')}</Button>
           </Space>
@@ -2714,11 +2641,11 @@ export default function InventoryPlanningPage() {
           <Space direction="vertical" style={{ width: '100%' }}>
             <Space direction="vertical" size={4}>
               <Space size={4} wrap>
-                <Tag color="purple">{t(selectedRow.stuckClassification ?? 'stuck')}</Tag>
+                <Tag color="purple">{t(selectedRow.inventoryDisposition ?? 'stuck')}</Tag>
                 <Typography.Text>
                   {formatNumber(selectedRow.daysOfCover)} {t('days cover')} · {t('Capital/risk')}{' '}
                   <Typography.Text strong style={{ color: MONEY_AT_RISK_COLOR }}>
-                    {formatCurrency(selectedRow.estimatedProfitRisk)}
+                    {formatCurrency(selectedRow.averageMonthlyProfit)}
                   </Typography.Text>
                 </Typography.Text>
               </Space>
@@ -2742,9 +2669,8 @@ export default function InventoryPlanningPage() {
           <Space direction="vertical" style={{ width: '100%' }}>
             <Tag color="orange">{t('Excess inventory')}</Tag>
             <Typography.Text>
-              {formatNumber(selectedRow.familyCurrentPlanningStock ?? selectedRow.currentPlanningStock)}{' '}
-              {t('current units')} · {formatNumber(selectedRow.familyDaysOfCover ?? selectedRow.daysOfCover)}{' '}
-              {t('days cover')}
+              {formatNumber(selectedRow.currentPlanningStock ?? selectedRow.currentPlanningStock)} {t('current units')}{' '}
+              · {formatNumber(selectedRow.daysOfCover ?? selectedRow.daysOfCover)} {t('days cover')}
             </Typography.Text>
             <Button onClick={() => setManagePanels(['history'])}>{t('Review sell-through/order history')}</Button>
           </Space>
@@ -2758,9 +2684,9 @@ export default function InventoryPlanningPage() {
             <Tag>{t('No A, B, or C tier')}</Tag>
             <Typography.Text strong>{t('No automatic replenishment action is generated.')}</Typography.Text>
             <Typography.Text>
-              {t('Supplier')} {selectedRow.familyPreferredSupplierName ?? selectedRow.supplierName ?? t('Missing')} ·{' '}
+              {t('Supplier')} {selectedRow.supplierName ?? selectedRow.supplierName ?? t('Missing')} ·{' '}
               {t('Current order')} {selectedRow.supplierOrderRef ?? t('None')} · {t('Stock')}{' '}
-              {formatNumber(selectedRow.familyCurrentPlanningStock ?? selectedRow.currentPlanningStock)}
+              {formatNumber(selectedRow.currentPlanningStock ?? selectedRow.currentPlanningStock)}
             </Typography.Text>
             <Button onClick={() => setManagePanels(['history'])}>{t('Review available evidence')}</Button>
           </Space>
@@ -2771,11 +2697,13 @@ export default function InventoryPlanningPage() {
       <Card size="small" title={t(selectedCommandPane === 'zeroStock' ? 'Zero-stock recovery' : 'Supply action plan')}>
         <Space direction="vertical" style={{ width: '100%' }}>
           <Space size={4} wrap>
-            <Tag color={actionColor(selectedRow.actionStatus)}>{t(selectedRow.actionStatus ?? 'action needed')}</Tag>
+            <Tag color={actionColor(selectedRow.replenishmentEligibility)}>
+              {t(selectedRow.replenishmentEligibility ?? 'action needed')}
+            </Tag>
             <Typography.Text>
-              {t('Recommended qty')} {formatNumber(selectedRow.suggestedReorderQty)} · {t('Target cover')}{' '}
+              {t('Recommended qty')} {formatNumber(selectedRow.recommendedOrderQty)} · {t('Target cover')}{' '}
               {formatNumber(selectedRow.targetCoverDays)} {t('days')} · {t('Velocity')}{' '}
-              {formatNumber(selectedRow.salesVelocity)}
+              {formatNumber(selectedRow.rollingUnits30)} {t('30d units')}
             </Typography.Text>
           </Space>
           {canOperate ? (
@@ -2811,20 +2739,20 @@ export default function InventoryPlanningPage() {
           'Status tells the operator whether to order now, contact the supplier first, watch, or review existing coverage.',
         ),
       ),
-      dataIndex: 'actionStatus',
+      dataIndex: 'replenishmentEligibility',
       fixed: 'left' as const,
       width: 155,
       render: (value: string) => <Tag color={actionColor(value)}>{t(value ?? 'unknown')}</Tag>,
     },
     {
-      title: columnHelp(t('Tier'), t(tierScoreText())),
-      dataIndex: 'tier',
+      title: columnHelp(t('Tier'), t(baselineTierScoreText())),
+      dataIndex: 'baselineTier',
       width: 170,
       render: (value: string, row: PlainRecord) => (
         <Space size={4} wrap>
           <Tag color={tierColor(value)}>{formatTier(value)}</Tag>
           <TierMovementTag row={row} t={t} />
-          <MarginAlertTag row={row} t={t} />
+          <AverageProfitAlertTag row={row} t={t} />
         </Space>
       ),
     },
@@ -2836,7 +2764,7 @@ export default function InventoryPlanningPage() {
     },
     {
       title: columnHelp(t('6M margin'), t('Total six-month net profit ÷ sales. Values below 8% are flagged.')),
-      dataIndex: 'sixMonthMargin',
+      dataIndex: 'averageMonthlyProfit',
       width: 120,
       render: (value: number) => {
         const margin = finiteNumber(value);
@@ -2925,7 +2853,7 @@ export default function InventoryPlanningPage() {
         t('Suggest qty'),
         t('Formula: velocity × target cover days − stock − reliable open-order coverage.'),
       ),
-      dataIndex: 'suggestedReorderQty',
+      dataIndex: 'recommendedOrderQty',
       width: 125,
       render: formatNumber,
     },
@@ -2963,7 +2891,7 @@ export default function InventoryPlanningPage() {
         t('Profit risk'),
         t('Estimated missed profit if the product remains uncovered during the projected stockout window.'),
       ),
-      dataIndex: 'estimatedProfitRisk',
+      dataIndex: 'averageMonthlyProfit',
       width: 125,
       render: formatNumber,
     },
@@ -2983,13 +2911,13 @@ export default function InventoryPlanningPage() {
         </Typography.Paragraph>
         {error ? <Alert type="error" message={error.message} /> : null}
         {planningSettingsWarning ? <Alert type="warning" message={planningSettingsWarning} showIcon /> : null}
-        {commandHistoryReadiness.status && commandHistoryReadiness.status !== 'loaded' ? (
+        {commandHistoryReadiness.status && commandHistoryReadiness.status !== 'ready' ? (
           <Alert
             type="warning"
             showIcon
-            message={t('Current-only planning is active')}
+            message={t('Baseline evidence requires review')}
             description={`${formatNumber(commandHistoryReadiness.affectedRowCount)} ${t(
-              'rows are operationally visible; tier, profit, and history fields are not loaded.',
+              'family actions remain fail-closed because their corrected baseline evidence is incomplete.',
             )}`}
           />
         ) : null}
@@ -3016,9 +2944,9 @@ export default function InventoryPlanningPage() {
               <Typography.Text strong>{t('History window')}</Typography.Text>
               <Select
                 disabled
-                value="six-months"
+                value="dynamic-baseline"
                 style={{ width: '100%', marginTop: 4 }}
-                options={[{ value: 'six-months', label: t('Last 6 months') }]}
+                options={[{ value: 'dynamic-baseline', label: t('Dynamic baseline window') }]}
               />
             </Col>
             <Col xs={24} md={8} xl={4}>
@@ -3048,7 +2976,7 @@ export default function InventoryPlanningPage() {
             <Col xs={24} xl={24}>
               <Space size="middle" wrap>
                 <Typography.Text type="secondary">
-                  {t('Data as of')} {formatDate(commandMetadata.latestDataAsOf)} · {t('Last 6 months sales history')}
+                  {t('Data as of')} {formatDate(commandMetadata.latestDataAsOf)} · {t('Corrected monthly performance')}
                 </Typography.Text>
                 {canAdminister ? (
                   <Button href="/admin/ecobase/planning-settings">
@@ -3066,12 +2994,12 @@ export default function InventoryPlanningPage() {
 
         <Space size="small" wrap>
           <Typography.Text strong>{t('Quick navigation')}</Typography.Text>
-          {['A', 'B', 'C'].map((category) => (
+          {['A', 'B', 'C', 'D'].map((category) => (
             <Button
               key={category}
-              type={tier === category ? 'primary' : 'default'}
+              type={baselineTier === category ? 'primary' : 'default'}
               onClick={() => {
-                setTier((current) => (current === category ? undefined : category));
+                setBaselineTier((current) => (current === category ? undefined : category));
                 setCommandCenterPage(1);
               }}
             >
@@ -3222,9 +3150,8 @@ export default function InventoryPlanningPage() {
             <Card title={t('Family action and target listing scopes')} size="small">
               <Descriptions bordered column={1} size="small">
                 <Descriptions.Item label={t('Family action scope')}>
-                  {selectedRow.company ?? '—'} · {selectedRow.familyAmazonAccountId ?? t('Account unknown')} ·{' '}
-                  {selectedRow.familyMarketplace ?? t('Marketplace unknown')} ·{' '}
-                  {selectedRow.familyCanonicalAsin ?? selectedRow.asin ?? '—'}
+                  {selectedRow.company ?? '—'} · {selectedRow.amazonAccountId ?? t('Account unknown')} ·{' '}
+                  {selectedRow.marketplace ?? t('Marketplace unknown')} · {selectedRow.asin ?? selectedRow.asin ?? '—'}
                 </Descriptions.Item>
                 <Descriptions.Item label={t('Target listing scope')}>
                   {selectedRow.sku ?? '—'} · {selectedRow.companyProductId ?? '—'}
@@ -3233,7 +3160,7 @@ export default function InventoryPlanningPage() {
             </Card>
             {selectedRow.algorithmContractVersion === 'individual_monthly_profit_performance_v1' ||
             selectedRow.baselineTier !== undefined ? (
-              <CorrectedInventoryEvidencePanel row={selectedRow} t={t} />
+              <CorrectedInventoryEvidencePanel row={selectedRow as CorrectedInventoryEvidenceRow} t={t} />
             ) : null}
             {canOperate && productPlanningValues ? (
               <Card title={t('Product manager')} size="small">
@@ -3323,45 +3250,47 @@ export default function InventoryPlanningPage() {
             ) : null}
             <Descriptions bordered column={1} size="small">
               <Descriptions.Item label={t('Action')}>
-                <Tag color={actionColor(selectedRow.actionStatus)}>{t(selectedRow.actionStatus ?? 'unknown')}</Tag>
+                <Tag color={actionColor(selectedRow.replenishmentEligibility)}>
+                  {t(selectedRow.replenishmentEligibility ?? 'unknown')}
+                </Tag>
               </Descriptions.Item>
               <Descriptions.Item label={columnHelp(t('Product status'), t(productStatusText()))}>
                 <Tag>{selectedRow.productStatus ?? '—'}</Tag>
               </Descriptions.Item>
-              <Descriptions.Item label={columnHelp(t('Tier'), t(tierScoreText()))}>
+              <Descriptions.Item label={columnHelp(t('Tier'), t(baselineTierScoreText()))}>
                 <Space direction="vertical" size={4}>
                   <Space size={4} wrap>
-                    <Tag color={tierColor(selectedRow.tier)}>{formatTier(selectedRow.tier)}</Tag>
+                    <Tag color={tierColor(selectedRow.baselineTier)}>{formatTier(selectedRow.baselineTier)}</Tag>
                     <span>
-                      {t('Score')} {formatTierScore(selectedRow.tierScore)}
+                      {t('Score')} {formatTierScore(selectedRow.baselineTierScore)}
                     </span>
                     <TierMovementTag row={selectedRow} t={t} />
-                    <MarginAlertTag row={selectedRow} t={t} />
+                    <AverageProfitAlertTag row={selectedRow} t={t} />
                   </Space>
                   <Typography.Text type="secondary">
-                    {t('30d units')} {formatNumber(selectedRow.recentUnits30)} ·{' '}
-                    {t(formatStatusLabel(selectedRow.tierEligibilityReason))}
+                    {t('30d units')} {formatNumber(selectedRow.rollingUnits30)} ·{' '}
+                    {t(formatStatusLabel(selectedRow.replenishmentBlockReasonCode))}
                   </Typography.Text>
                 </Space>
               </Descriptions.Item>
               <Descriptions.Item label={t('Six-month history')}>
                 <Space direction="vertical" size={4}>
                   <HistoricalQuantityTags row={selectedRow} t={t} />
-                  <Tag color={(finiteNumber(selectedRow.sixMonthMargin) ?? 99) < 8 ? 'red' : 'blue'}>
-                    {t('6M margin')} {formatPercent(selectedRow.sixMonthMargin)}
+                  <Tag color={(finiteNumber(selectedRow.averageMonthlyProfit) ?? 99) < 8 ? 'red' : 'blue'}>
+                    {t('6M margin')} {formatPercent(selectedRow.averageMonthlyProfit)}
                   </Tag>
                 </Space>
               </Descriptions.Item>
-              <Descriptions.Item label={columnHelp(t('Profit inputs'), t(profitInputText()))}>
+              <Descriptions.Item label={columnHelp(t('Profit inputs'), t(baselineProfitInputText()))}>
                 <Space size={4} wrap>
                   <Tag color="green">
-                    {t('Profit/unit')} {formatCurrency(selectedRow.profitPerUnit)}
+                    {t('Profit/unit')} {formatCurrency(selectedRow.baselineWeightedProfitPerUnit)}
                   </Tag>
                   <Tag color="purple">
-                    {t('30d units')} {formatNumber(selectedRow.recentUnits30)}
+                    {t('30d units')} {formatNumber(selectedRow.rollingUnits30)}
                   </Tag>
                   <Tag color="orange">
-                    {t('Current score')} {formatTierScore(selectedRow.tierScore)}
+                    {t('Current score')} {formatTierScore(selectedRow.baselineTierScore)}
                   </Tag>
                 </Space>
               </Descriptions.Item>
@@ -3379,8 +3308,7 @@ export default function InventoryPlanningPage() {
                 {formatDate(selectedRow.inventoryAsOfDate)}
               </Descriptions.Item>
               <Descriptions.Item label={t('Family supplier')}>
-                {selectedRow.familyPreferredSupplierName ?? '—'} · {formatNumber(selectedRow.familyLeadTimeDays)}{' '}
-                {t('days')}
+                {selectedRow.supplierName ?? '—'} · {formatNumber(selectedRow.leadTimeDays)} {t('days')}
               </Descriptions.Item>
               <Descriptions.Item label={t('Source supplier / target offer')}>
                 {selectedRow.supplierName ?? '—'} · {formatStatusLabel(selectedRow.supplierAvailability ?? 'unknown')} ·{' '}
@@ -3411,14 +3339,14 @@ export default function InventoryPlanningPage() {
                   t('Formula: velocity × target cover days − on-hand sellable − Amazon pipeline − supplier pipeline.'),
                 )}
               >
-                {formatNumber(selectedRow.suggestedReorderQty)}
+                {formatNumber(selectedRow.recommendedOrderQty)}
               </Descriptions.Item>
-              <Descriptions.Item label={columnHelp(t('Money at risk'), t(monetaryRiskText(selectedRow)))}>
+              <Descriptions.Item label={columnHelp(t('Average monthly profit'), t(averageMonthlyProfitText()))}>
                 <Typography.Text
                   strong
                   style={{ background: '#fff1f0', color: MONEY_AT_RISK_COLOR, padding: '2px 8px', borderRadius: 4 }}
                 >
-                  {formatCurrency(selectedRow.estimatedProfitRisk)}
+                  {formatCurrency(selectedRow.averageMonthlyProfit)}
                 </Typography.Text>
               </Descriptions.Item>
               <Descriptions.Item label={t('Month to date')}>

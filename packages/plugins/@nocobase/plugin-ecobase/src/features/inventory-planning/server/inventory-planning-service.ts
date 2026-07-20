@@ -55,14 +55,16 @@ import {
   type CorrectedCandidateSourceFact,
   type CorrectedOperationalListingSnapshot,
 } from './corrected-candidate-builder';
-import { EcobaseInventoryPlanningGoldAccess, familyActionDecisionRecord } from './inventory-planning-gold-access';
+import { EcobaseInventoryPlanningGoldAccess } from './inventory-planning-gold-access';
 import { withGoldInventoryPlanningWriteAuthority } from './gold-write-guard';
+import { OBSOLETE_INVENTORY_PLANNING_ROW_FIELDS } from './gold-schema-contract';
 import {
   CORRECTED_ALGORITHM_CONTRACT_VERSION,
   CORRECTED_TIER_RULE_VERSION,
   deriveListingReviewCategories,
   filterListingPerformanceReview,
   listingMemberPerformanceEvidence,
+  type CorrectedFamilyActionProjection,
   type CorrectedListingPerformanceRow,
   type ListingReviewCategory,
 } from './listing-family-projection';
@@ -164,9 +166,12 @@ export interface InventoryPlanningCommandCenterQuery extends InventoryPlanningQu
 }
 
 type PlainRecord = Record<string, unknown>;
-type FamilyActionProjection = {
-  rows: PlainRecord[];
-  evidenceRowsByFamily: Map<string, PlainRecord[]>;
+type CorrectedFamilyActionReadRow = CorrectedListingPerformanceRow & CorrectedFamilyActionProjection;
+
+type PublishedInventoryPlanningReadModel = {
+  listingRows: CorrectedListingPerformanceRow[];
+  familyActions: CorrectedFamilyActionReadRow[];
+  evidenceRowsByFamily: Map<string, CorrectedListingPerformanceRow[]>;
   metadata: {
     scope: 'family_action';
     rowUnit: 'family';
@@ -174,7 +179,16 @@ type FamilyActionProjection = {
     publishedRunId: string | null;
     denominatorCount: number;
     hiddenEvidenceRowCount: number;
-    moneyRiskDenominatorCount: number;
+    averageMonthlyProfitDenominatorCount: number;
+    baselineTierCounts: Record<'A' | 'B' | 'C' | 'D', number>;
+    baselineStateCounts: Record<string, number>;
+    dataReadinessCount: number;
+    nullAverageMonthlyProfitCount: number;
+    actionDecisionCounts: {
+      newReplenishment: number;
+      existingOrderFollowUp: number;
+      mutualExclusivityViolations: number;
+    };
   };
 };
 type GoldTransactionRepository = {
@@ -185,28 +199,25 @@ type GoldTransactionRepository = {
 const COMMAND_CENTER_PANES: InventoryCommandCenterPane[] = [...INVENTORY_PLANNING_PANES];
 
 const COMMAND_CENTER_SORT_KEYS = new Set([
-  'actionStatus',
   'amazonReceiptObservedAt',
   'asin',
+  'averageMonthlyProfit',
+  'baselineTier',
+  'closedTierMovement',
   'company',
+  'currentPlanningStock',
   'daysOfCover',
   'daysUntilOos',
   'daysUntilSafeReorder',
-  'estimatedProfitRisk',
-  'currentPlanningStock',
-  'inventoryPositionStock',
-  'familyCurrentPlanningStock',
-  'familyInventoryPositionStock',
-  'familyCanonicalAsin',
-  'familyDaysOfCover',
-  'familyStuckAffectedValue',
   'expectedArrivalDate',
   'inventoryAsOfDate',
+  'inventoryPositionStock',
+  'primaryActionPane',
+  'projectedTierMovement',
+  'recommendedOrderQty',
   'sku',
   'stockoutGapDays',
-  'suggestedReorderQty',
   'supplierName',
-  'tier',
   'title',
 ]);
 
@@ -248,90 +259,209 @@ function asBoolean(value: unknown): boolean | undefined {
   return typeof value === 'boolean' ? value : undefined;
 }
 
-function familyActionKey(row: PlainRecord) {
-  return (
-    asString(row.companyProductFamilyId) ??
-    [row.company, row.familyAmazonAccountId, row.familyMarketplace, row.familyCanonicalAsin ?? row.asin, row.id]
-      .map((value) => String(value ?? ''))
-      .join(':')
+function publishedReadModelValue(value: unknown) {
+  if (value instanceof Date) return value.toISOString();
+  return value === undefined ? null : value;
+}
+
+function sanitizePublishedCalculationEvidence(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sanitizePublishedCalculationEvidence);
+  if (value instanceof Date) return value.toISOString();
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value as PlainRecord)
+      .filter(([field]) => !LEGACY_PUBLIC_INVENTORY_PLANNING_FIELDS.has(field))
+      .map(([field, nested]) => [field, sanitizePublishedCalculationEvidence(nested)]),
   );
 }
 
-function buildTypedFamilyActionProjection(
+function publishedReadModelFieldValue(field: string, value: unknown) {
+  return field === 'calculationEvidence' ? sanitizePublishedCalculationEvidence(value) : publishedReadModelValue(value);
+}
+
+function correctedTierRank(value: unknown) {
+  const rank = { A: 0, B: 1, C: 2, D: 3 }[asString(value) ?? ''];
+  return rank ?? 4;
+}
+
+function familyActionKey(row: PlainRecord) {
+  return (
+    asString(row.companyProductFamilyId) ??
+    [row.company, row.amazonAccountId, row.marketplace, row.asin, row.id].map((value) => String(value ?? '')).join(':')
+  );
+}
+
+export function projectCorrectedInventoryPlanningListingRow(row: PlainRecord) {
+  return {
+    ...Object.fromEntries(
+      PUBLISHED_INVENTORY_PLANNING_ROW_FIELDS.map((field) => [field, publishedReadModelFieldValue(field, row[field])]),
+    ),
+    id: publishedReadModelValue(row.id),
+    naturalKey: publishedReadModelValue(row.naturalKey),
+    refreshRunId: publishedReadModelValue(row.refreshRunId),
+  };
+}
+
+export function projectCorrectedInventoryPlanningListingRows(rows: PlainRecord[]) {
+  return rows.map(projectCorrectedInventoryPlanningListingRow);
+}
+
+const FAMILY_ACTION_CONSUMER_FIELDS = [
+  'runId',
+  'generatedAt',
+  'naturalKey',
+  'familyKey',
+  'companyProductFamilyId',
+  'companyId',
+  'amazonAccountId',
+  'marketplace',
+  'canonicalAsin',
+  'targetSelectionState',
+  'targetCompanyProductId',
+  'representativeCompanyProductId',
+  'actionSourceCompanyProductId',
+  'memberCount',
+  'primaryActionPane',
+  'primaryActionReasonCode',
+  'replenishmentEligibility',
+  'replenishmentBlockReasonCode',
+  'newReplenishmentActionable',
+  'oosAlertActionable',
+  'supplyActionable',
+  'existingOrderFollowUp',
+  'existingOrderFollowUpAction',
+  'recommendedOrderQty',
+  'alternateRecommendationCompanyProductIds',
+  'targetSelectionEvidence',
+  'linkedMemberEvidence',
+  'listing',
+  'memberPerformanceEvidence',
+] as const;
+
+/**
+ * TD-19 family-action consumer mapping:
+ * 1. One immutable action is exposed per derived family.
+ * 2. Frozen targets own action identity and decisions.
+ * 3. Review-family representatives provide display evidence only.
+ * 4. Pane, eligibility, actionability, and quantity stay digest-bound.
+ * 5. Member order/receipt and disposition evidence stays nested and cannot override the action.
+ * 6. Member stock and velocity stay listing-scoped and are never aggregated or recomputed here.
+ * 7. Linked listings remain evidence and never create duplicate family actions.
+ */
+export function projectCorrectedInventoryPlanningFamilyAction(
+  action: PlainRecord,
+  publishedMembers: CorrectedListingPerformanceRow[],
+) {
+  const sortedMembers = [...publishedMembers].sort((left, right) =>
+    String(left.companyProductId).localeCompare(String(right.companyProductId)),
+  );
+  const target = sortedMembers.find((row) => row.companyProductId === action.actionSourceCompanyProductId);
+  const representative =
+    target ?? sortedMembers.find((row) => row.companyProductId === action.representativeCompanyProductId);
+  if (!representative) {
+    throw new Error(
+      `EcoBase family-action read projection is missing representative listing "${String(
+        action.representativeCompanyProductId ?? '',
+      )}" for family "${String(action.companyProductFamilyId ?? '')}".`,
+    );
+  }
+  if (action.targetSelectionState === 'frozen_target' && !target) {
+    throw new Error(
+      `EcoBase family-action read projection is missing frozen action source "${String(
+        action.actionSourceCompanyProductId ?? '',
+      )}" for family "${String(action.companyProductFamilyId ?? '')}".`,
+    );
+  }
+  return {
+    ...projectCorrectedInventoryPlanningListingRow(representative),
+    ...Object.fromEntries(
+      FAMILY_ACTION_CONSUMER_FIELDS.map((field) => [field, sanitizePublishedCalculationEvidence(action[field])]),
+    ),
+    id: publishedReadModelValue(representative?.id),
+    refreshRunId: publishedReadModelValue(action.runId),
+    listing: target ? projectCorrectedInventoryPlanningListingRow(target) : null,
+    memberPerformanceEvidence: sortedMembers.map(listingMemberPerformanceEvidence),
+  } as unknown as CorrectedFamilyActionReadRow;
+}
+
+export function projectCorrectedInventoryPlanningFamilyActions(actions: PlainRecord[], listingRows: PlainRecord[]) {
+  const publishedListings = projectCorrectedInventoryPlanningListingRows(listingRows).map(
+    (row) => row as unknown as CorrectedListingPerformanceRow,
+  );
+  const membersByFamily = new Map<string, CorrectedListingPerformanceRow[]>();
+  for (const listing of publishedListings) {
+    const key = familyActionKey(listing);
+    membersByFamily.set(key, [...(membersByFamily.get(key) ?? []), listing]);
+  }
+  return actions.map((action) =>
+    projectCorrectedInventoryPlanningFamilyAction(action, membersByFamily.get(familyActionKey(action)) ?? []),
+  );
+}
+
+function buildPublishedInventoryPlanningReadModel(
   listingRows: PlainRecord[],
   familyActions: PlainRecord[],
   publishedRun: PlainRecord | null,
-): FamilyActionProjection {
-  const evidenceRowsByFamily = new Map<string, PlainRecord[]>();
-  for (const listing of listingRows) {
+): PublishedInventoryPlanningReadModel {
+  const correctedListingRows = projectCorrectedInventoryPlanningListingRows(listingRows)
+    .map((listing) => listing as unknown as CorrectedListingPerformanceRow)
+    .sort((left, right) => String(left.companyProductId).localeCompare(String(right.companyProductId)));
+  const evidenceRowsByFamily = new Map<string, CorrectedListingPerformanceRow[]>();
+  for (const listing of correctedListingRows) {
     const key = familyActionKey(listing);
     evidenceRowsByFamily.set(key, [...(evidenceRowsByFamily.get(key) ?? []), listing]);
   }
-  const rows = familyActions
-    .map((action) => {
-      const row = familyActionDecisionRecord(action);
-      const representative = (evidenceRowsByFamily.get(familyActionKey(action)) ?? []).find(
-        (listing) => listing.companyProductId === action.representativeCompanyProductId,
-      );
-      const displayEvidence = representative
-        ? {
-            displayCompanyProductId: representative.companyProductId,
-            company: representative.company,
-            asin: representative.asin,
-            sku: representative.sku,
-            title: representative.title,
-            calculationDate: representative.calculationDate,
-            evidence: representative.evidence,
-            dataQualityStatus: representative.dataQualityStatus,
-            dataQualityIssues: representative.dataQualityIssues,
-            readinessReasonCodes: representative.readinessReasonCodes,
-          }
-        : {};
-      return {
-        ...displayEvidence,
-        ...row,
-        commandCenterPane: row.primaryActionPane,
-        commandCenterPaneReason: row.primaryActionReasonCode,
-        planningEligibilityStatus:
-          row.planningEligibilityStatus ??
-          (row.replenishmentEligibility === 'eligible' ? 'eligible' : row.replenishmentEligibility),
-      };
-    })
-    .filter((row) => row.commandCenterPane !== 'adminExcluded');
+  const correctedFamilyActions = projectCorrectedInventoryPlanningFamilyActions(familyActions, correctedListingRows)
+    .filter((row) => row.primaryActionPane !== 'adminExcluded')
+    .sort((left, right) => String(left.companyProductFamilyId).localeCompare(String(right.companyProductFamilyId)));
   return {
-    rows,
+    listingRows: correctedListingRows,
+    familyActions: correctedFamilyActions,
     evidenceRowsByFamily,
     metadata: {
       scope: 'family_action',
       rowUnit: 'family',
       calculationDate: asString(publishedRun?.calculationDate) ?? null,
       publishedRunId: asString(publishedRun?.id) ?? null,
-      denominatorCount: rows.length,
-      hiddenEvidenceRowCount: Math.max(listingRows.length - rows.length, 0),
-      moneyRiskDenominatorCount: rows.filter((row) =>
+      denominatorCount: correctedFamilyActions.length,
+      hiddenEvidenceRowCount: Math.max(correctedListingRows.length - correctedFamilyActions.length, 0),
+      averageMonthlyProfitDenominatorCount: correctedFamilyActions.filter((row) =>
         ['supplyAction', 'activeOrders', 'inPrepMonitoring', 'inboundMonitoring'].includes(
-          asString(row.commandCenterPane) ?? '',
+          asString(row.primaryActionPane) ?? '',
         ),
       ).length,
+      baselineTierCounts: Object.fromEntries(
+        ['A', 'B', 'C', 'D'].map((tier) => [
+          tier,
+          correctedFamilyActions.filter((row) => row.baselineTier === tier).length,
+        ]),
+      ) as Record<'A' | 'B' | 'C' | 'D', number>,
+      baselineStateCounts: correctedFamilyActions.reduce<Record<string, number>>((counts, row) => {
+        const state = asString(row.baselineState) ?? 'unknown';
+        counts[state] = (counts[state] ?? 0) + 1;
+        return counts;
+      }, {}),
+      dataReadinessCount: correctedFamilyActions.filter((row) => row.primaryActionPane === 'dataReadiness').length,
+      nullAverageMonthlyProfitCount: correctedFamilyActions.filter((row) => row.averageMonthlyProfit == null).length,
+      actionDecisionCounts: {
+        newReplenishment: correctedFamilyActions.filter((row) => row.newReplenishmentActionable === true).length,
+        existingOrderFollowUp: correctedFamilyActions.filter((row) => row.existingOrderFollowUp === true).length,
+        mutualExclusivityViolations: correctedFamilyActions.filter(
+          (row) => row.newReplenishmentActionable === true && row.existingOrderFollowUp === true,
+        ).length,
+      },
     },
   };
 }
 
-function familyActionMoneyRisk(rows: PlainRecord[]) {
+function familyActionAverageMonthlyProfit(rows: PlainRecord[]) {
   const denominatorRows = rows.filter((row) =>
     ['supplyAction', 'activeOrders', 'inPrepMonitoring', 'inboundMonitoring'].includes(
-      asString(row.commandCenterPane) ?? '',
+      asString(row.primaryActionPane) ?? '',
     ),
   );
   const knownValues = denominatorRows
-    .map((row) => {
-      const velocity = asNumber(row.familySalesVelocity) ?? asNumber(row.salesVelocity);
-      const profitPerUnit = asNumber(row.profitPerUnit);
-      const risk = asNumber(row.estimatedProfitRisk);
-      return typeof velocity === 'number' && velocity > 0 && typeof profitPerUnit === 'number' && profitPerUnit > 0
-        ? risk
-        : undefined;
-    })
+    .map((row) => asNumber(row.averageMonthlyProfit))
     .filter((value): value is number => typeof value === 'number');
   return {
     value: Math.round(knownValues.reduce((total, value) => total + value, 0) * 100) / 100,
@@ -980,41 +1110,21 @@ function summarizeSupplierOrderState(
   };
 }
 
-const DIGEST_ACTION_STATUSES = new Set([
-  'overdue',
-  'order_today',
-  'order_soon',
-  'missing_lead_time',
-  'stale_lead_time',
-]);
-
-function digestOrderStateRank(row: PlainRecord) {
-  const state = asString(row.supplierOrderState);
-  if (state === 'no_open_order') return 0;
-  if (state === 'placed_not_purchased') return 1;
-  if (state === 'closed_history') return 1;
-  if (state === 'purchased_pipeline') return 2;
-  return 3;
-}
-
 function isDigestCandidateRow(row: PlainRecord) {
-  return isProfitTier(row.tier);
+  return ['A', 'B', 'C', 'D'].includes(asString(row.baselineTier) ?? '');
 }
 
 function isUrgentDigestRow(row: PlainRecord) {
   return (
-    DIGEST_ACTION_STATUSES.has(String(row.actionStatus)) &&
-    row.supplierOrderState !== 'purchased_pipeline' &&
+    row.newReplenishmentActionable === true &&
+    row.primaryActionPane === 'supplyAction' &&
+    row.existingOrderFollowUp !== true &&
     isDigestCandidateRow(row)
   );
 }
 
 function needsSupplierAction(row: PlainRecord) {
-  return (
-    !asString(row.supplierName) ||
-    leadTimeNeedsReview(row.leadTimeFreshness) ||
-    ['missing_lead_time', 'stale_lead_time'].includes(String(row.actionStatus))
-  );
+  return !asString(row.supplierName) || leadTimeNeedsReview(row.leadTimeFreshness);
 }
 
 function plainArray(value: unknown): PlainRecord[] {
@@ -1326,6 +1436,31 @@ export const INVENTORY_PLANNING_ROW_FIELDS = [
   'evidence',
 ] as const;
 
+const LEGACY_PUBLIC_INVENTORY_PLANNING_FIELDS = new Set<string>([
+  ...OBSOLETE_INVENTORY_PLANNING_ROW_FIELDS,
+  'actionStatus',
+  'calculationProvenanceJson',
+  'digestPriority',
+  'evidence',
+  'estimatedProfitRisk',
+  'estimatedProfitRiskBasis',
+  'moneyRiskInputs',
+  'moneyRiskStatus',
+  'moneyRiskUncoveredDays',
+  'recommendedBestQty',
+  'recommendedEscalation',
+  'salesVelocity',
+  'salesVelocityAsOfDate',
+  'salesVelocityBasis',
+  'salesVelocityStatus',
+  'salesVelocityWindowEnd',
+  'salesVelocityWindowStart',
+]);
+
+const PUBLISHED_INVENTORY_PLANNING_ROW_FIELDS = INVENTORY_PLANNING_ROW_FIELDS.filter(
+  (field) => !LEGACY_PUBLIC_INVENTORY_PLANNING_FIELDS.has(field),
+);
+
 export class EcobaseInventoryPlanningService {
   constructor(private db: EcobaseDatabase) {}
 
@@ -1376,8 +1511,8 @@ export class EcobaseInventoryPlanningService {
   }
 
   async listingPerformanceReview(query: InventoryPlanningListingReviewQuery = {}) {
-    const listingRows = await this.readGoldRows({ ...query, limit: GOLD_SOURCE_RECORD_LIMIT });
-    const normalizedRows = listingRows.map((row) => ({
+    const readModel = await this.readPublishedPlanningModel(query);
+    const normalizedRows = readModel.listingRows.map((row) => ({
       ...row,
       listingReviewCategories: Array.isArray(row.listingReviewCategories)
         ? [...new Set(row.listingReviewCategories.map(String))].sort()
@@ -1403,12 +1538,12 @@ export class EcobaseInventoryPlanningService {
   }
 
   async workspace(query: InventoryPlanningQuery = {}) {
-    const [filters, rows, digest] = await Promise.all([
-      this.filterOptions(),
-      this.listRows(query),
-      this.digestPreview(query),
-    ]);
-    return { filters, rows, digest };
+    const readModel = await this.readPublishedPlanningModel(query);
+    return {
+      filters: this.filterOptionsFromReadModel(readModel),
+      rows: readModel.listingRows.slice(0, query.limit ?? readModel.listingRows.length),
+      digest: await this.digestFromReadModel(readModel, query),
+    };
   }
 
   async commandCenter(query: InventoryPlanningCommandCenterQuery = {}) {
@@ -1421,25 +1556,20 @@ export class EcobaseInventoryPlanningService {
       );
     }
 
-    const allRows = await this.readGoldRows({ ...query, limit: undefined });
-    const familyResult = await new EcobaseInventoryPlanningGoldAccess(this.db).readPublishedFamilyActions({
-      filter: query.company ? { company: query.company } : undefined,
-    });
-    const projection = buildTypedFamilyActionProjection(allRows, familyResult.rows, familyResult.run);
-    const rows = projection.rows;
+    const projection = await this.readPublishedPlanningModel(query);
+    const allRows = projection.listingRows;
+    const rows = projection.familyActions;
     const calculationDate = projection.metadata.calculationDate ?? isoDate(query.calculationDate ?? new Date());
     const targetCoverDays = asNumber(rows[0]?.targetCoverDays);
-    const historyNotLoadedCount = rows.filter(
-      (row) => asString(toPlainRecord(row.evidence).historyLoadStatus) === 'not_loaded',
-    ).length;
-    const historyReadinessStatus =
+    const incompleteBaselineCount = rows.filter((row) => row.baselineConfidence !== 'full').length;
+    const baselineReadinessStatus =
       rows.length === 0
         ? 'unknown'
-        : historyNotLoadedCount === rows.length
-          ? 'not_loaded'
-          : historyNotLoadedCount > 0
+        : incompleteBaselineCount === rows.length
+          ? 'not_ready'
+          : incompleteBaselineCount > 0
             ? 'partial'
-            : 'loaded';
+            : 'ready';
     const selectedEvidenceRow = this.findCommandCenterSelectedRow(allRows, query);
     const selectedRow =
       this.findCommandCenterSelectedRow(rows, query) ??
@@ -1453,24 +1583,27 @@ export class EcobaseInventoryPlanningService {
         company: query.company ?? null,
         calculationDate,
         latestDataAsOf: this.latestCommandCenterTimestamp(rows),
-        planningMode: historyReadinessStatus === 'loaded' ? 'history_enriched' : 'current_operational',
+        planningMode: 'corrected_monthly_performance',
         historyReadiness: {
-          status: historyReadinessStatus,
-          affectedRowCount: historyNotLoadedCount,
+          status: baselineReadinessStatus,
+          affectedRowCount: incompleteBaselineCount,
           totalRowCount: rows.length,
           fields: [
-            'tier',
-            'profitPerUnit',
-            'sixMonthMargin',
-            'lastMonthQty',
-            'sixMonthAverageQty',
-            'sixMonthWorstQty',
-            'sixMonthBestQty',
+            'baselineTier',
+            'baselineWeightedProfitPerUnit',
+            'averageMonthlyProfit',
+            'averageMonthlyUnits',
+            'lastClosedMonthProfit',
+            'lastClosedMonthUnits',
+            'bestMonthlyProfit',
+            'bestMonthlyUnits',
+            'worstMonthlyProfit',
+            'worstMonthlyUnits',
           ],
         },
         historyWindow: {
-          label: '6 months',
-          fields: ['lastMonthQty', 'sixMonthAverageQty', 'sixMonthWorstQty', 'sixMonthBestQty', 'sixMonthMargin'],
+          label: 'dynamic baseline window',
+          fields: ['baselineWindowStartDate', 'baselineWindowEndDate', 'monthlyPerformanceEvidence'],
         },
         targetCoverDays,
       },
@@ -1702,1127 +1835,6 @@ export class EcobaseInventoryPlanningService {
       },
     };
   }
-
-  private async calculateRows(query: InventoryPlanningQuery = {}) {
-    const calculationDate = isoDate(query.calculationDate ?? new Date());
-    const settings = await new EcobasePlanningSettingsService(this.db).getResolvedSettings(query);
-    const safetyBufferDays = settings.safetyBufferDays;
-    const defaultReorderCycleDays = settings.reorderCycleDays;
-    const orderSoonWindowDays = settings.orderSoonWindowDays;
-    const defaultTargetCoverDays = settings.targetCoverDays;
-    const leadTimeFreshnessDays = settings.leadTimeFreshnessDays;
-    const purchasedPipelineGraceDays = settings.purchasedPipelineGraceDays;
-    const defaultSupplierLeadTimeDays = settings.defaultSupplierLeadTimeDays;
-    const fbaReceivingBufferDays = settings.fbaReceivingBufferDays;
-    const profitTierThresholds: ProfitTierThresholds = settings;
-    const statusRules = supplierOrderStatusRules(settings);
-    const sellerboardSourceConnectionIds = await this.sellerboardSourceConnectionIds();
-
-    const [
-      companies,
-      products,
-      companyProducts,
-      companyProductFamilies,
-      inventorySnapshots,
-      dailyFacts,
-      suppliers,
-      supplierProducts,
-      productSuppliers,
-      orders,
-      orderLines,
-      activityComments,
-    ] = await Promise.all([
-      this.repoRows(ECOBASE_COLLECTIONS.silverCompanies),
-      this.repoRows(ECOBASE_COLLECTIONS.silverProducts),
-      this.repoRows(ECOBASE_COLLECTIONS.silverCompanyProducts),
-      this.repoRows(ECOBASE_COLLECTIONS.silverCompanyProductFamilies),
-      this.repoRows(ECOBASE_COLLECTIONS.silverInventorySnapshots),
-      this.repoRows(ECOBASE_COLLECTIONS.silverListingDailyFacts),
-      this.repoRows(ECOBASE_COLLECTIONS.silverSuppliers),
-      this.repoRows(ECOBASE_COLLECTIONS.silverSupplierProducts),
-      this.repoRows(ECOBASE_COLLECTIONS.silverCompanyProductSuppliers),
-      this.repoRows(ECOBASE_COLLECTIONS.silverOrders),
-      this.repoRows(ECOBASE_COLLECTIONS.silverOrderLines),
-      this.repoRows(ECOBASE_COLLECTIONS.silverActivityComments),
-    ]);
-
-    const companiesById = new Map(companies.map((row) => [asString(row.id), row]));
-    const productsById = new Map(products.map((row) => [asString(row.id), row]));
-    const suppliersById = new Map(suppliers.map((row) => [asString(row.id), row]));
-    const supplierProductsById = new Map(supplierProducts.map((row) => [asString(row.id), row]));
-    const supplierOffersByCompanyProductId = new Map<string, PlainRecord[]>();
-    for (const link of productSuppliers) {
-      const companyProductId = asString(link.companyProductId);
-      const supplierProduct = supplierProductsById.get(asString(link.supplierProductId));
-      const supplier = suppliersById.get(asString(supplierProduct?.supplierId));
-      if (!companyProductId || !supplierProduct || !supplier) continue;
-      supplierOffersByCompanyProductId.set(companyProductId, [
-        ...(supplierOffersByCompanyProductId.get(companyProductId) ?? []),
-        { link, supplierProduct, supplier },
-      ]);
-    }
-    const supplierOfferFor = (companyProductId: string | undefined, supplierId?: string) =>
-      [...(supplierOffersByCompanyProductId.get(companyProductId ?? '') ?? [])]
-        .filter((offer) => !supplierId || asString(toPlainRecord(offer.supplier).id) === supplierId)
-        .sort((left, right) => {
-          const roleRank = (offer: PlainRecord) => {
-            const role = asString(toPlainRecord(offer.link).role);
-            return role === 'preferred' ? 0 : role === 'latest_used' ? 1 : role === 'historical_purchase' ? 2 : 3;
-          };
-          return (
-            roleRank(left) - roleRank(right) ||
-            String(toPlainRecord(left.supplierProduct).id ?? '').localeCompare(
-              String(toPlainRecord(right.supplierProduct).id ?? ''),
-            )
-          );
-        })[0];
-
-    const sellerboardHistoryLoaded = (await this.repoRows(ECOBASE_COLLECTIONS.importRuns)).some(
-      (run) =>
-        asString(run.adapterName) === 'sellerboard-history-csv' &&
-        asString(run.status) === 'success' &&
-        (asNumber(run.normalizedCount) ?? 0) > 0,
-    );
-    const historicalDailyFacts = sellerboardHistoryLoaded ? dailyFacts : [];
-    const sellerboardCostResolver = await new EcobaseSellerboardCogsService(this.db).createResolver(
-      companies.map((company) => asString(company.name)).filter((company): company is string => Boolean(company)),
-    );
-    const snapshotsByCompanyProduct = this.groupBy(inventorySnapshots, 'companyProductId');
-    const factsByCompanyProduct = this.groupBy(historicalDailyFacts, 'companyProductId');
-    const companyProductsById = new Map(companyProducts.map((row) => [asString(row.id), row]));
-    const familiesById = new Map(companyProductFamilies.map((row) => [asString(row.id), row]));
-    const latestFactDateByCompanyId = new Map<string, string>();
-    for (const fact of historicalDailyFacts) {
-      const companyId = asString(companyProductsById.get(asString(fact.companyProductId))?.companyId);
-      const snapshotDate = asString(fact.snapshotDate);
-      if (!companyId || !snapshotDate || snapshotDate > calculationDate) continue;
-      const current = latestFactDateByCompanyId.get(companyId);
-      if (!current || snapshotDate > current) latestFactDateByCompanyId.set(companyId, snapshotDate);
-    }
-    const ordersById = new Map<string | undefined, PlainRecord>(
-      orders.map((order): [string | undefined, PlainRecord] => {
-        const rawStatus = normalizeSupplierOrderStatus(
-          asString(order.canonicalStatus) ?? asString(order.lifecycleStatus) ?? asString(order.lifecyclePhase),
-        );
-        const configuredStatus =
-          statusRules.placedNotPurchased.has(rawStatus) ||
-          statusRules.purchasedPipeline.has(rawStatus) ||
-          statusRules.closed.has(rawStatus);
-        return [
-          asString(order.id),
-          {
-            ...order,
-            status: configuredStatus ? rawStatus : silverOrderStatus(order),
-            externalOrderRef: asString(order.orderRef),
-          },
-        ];
-      }),
-    );
-    const normalizedOrderLines: PlainRecord[] = orderLines
-      .filter((line) => asString(line.companyProductId) && asString(line.productMappingStatus) !== 'unresolved')
-      .map((line) => {
-        const companyProduct = companyProductsById.get(asString(line.companyProductId));
-        const family = familiesById.get(asString(companyProduct?.companyProductFamilyId));
-        const exactLeadTimeDays = asNumber(supplierProductsById.get(asString(line.supplierProductId))?.leadTimeDays);
-        const familyLeadTimeDays = asNumber(
-          supplierProductsById.get(asString(family?.preferredSupplierProductId))?.leadTimeDays,
-        );
-        const leadTimeDays = exactLeadTimeDays ?? familyLeadTimeDays;
-        return {
-          ...line,
-          supplierOrderId: asString(line.orderId),
-          receivedQty: amazonReceivedQty(line),
-          leadTimeDays,
-          leadTimeSource:
-            exactLeadTimeDays !== undefined
-              ? 'silver_order_line.supplier_product_lead_time'
-              : familyLeadTimeDays !== undefined
-                ? 'silver_family.preferred_supplier_product_lead_time'
-                : undefined,
-        };
-      });
-    const linesByCompanyProduct = this.groupBy(normalizedOrderLines, 'companyProductId');
-    const cycleLinesByFamilyId = new Map<string, Parameters<typeof selectCurrentFamilyOrderCycle>[0]>();
-    for (const line of normalizedOrderLines) {
-      const orderId = asString(line.supplierOrderId);
-      const order = ordersById.get(orderId);
-      const familyId = asString(companyProductsById.get(asString(line.companyProductId))?.companyProductFamilyId);
-      if (!orderId || !order || !familyId) continue;
-      const status = supplierCoverageStatus(order, statusRules);
-      const coverageState = isActivePurchasedPipelineStatus(status, statusRules)
-        ? 'purchased_pipeline'
-        : isPlacedNotPurchasedSupplierOrderStatus(status, statusRules)
-          ? 'placed_not_purchased'
-          : 'closed';
-      const arrival = expectedArrivalEvidence(line, order, calculationDate, fbaReceivingBufferDays);
-      const cycleLine = {
-        lineId: asString(line.id) ?? `${orderId}:${asString(line.companyProductId) ?? ''}`,
-        orderId,
-        orderRef: asString(order.externalOrderRef) ?? asString(order.id),
-        authorityAsOf: asString(order.authorityAsOf),
-        orderDate: asString(order.orderDate),
-        expectedArrivalDate: asString(arrival.expectedArrivalDate),
-        expectedArrivalStatus: asString(arrival.expectedArrivalStatus),
-        amazonReceiptStatus: asString(order.amazonReceiptStatus) ?? asString(line.amazonReceiptStatus),
-        openQty: Math.max((asNumber(line.orderedQty) ?? 0) - (asNumber(line.receivedQty) ?? 0), 0),
-        coverageState,
-      } as const;
-      cycleLinesByFamilyId.set(familyId, [...(cycleLinesByFamilyId.get(familyId) ?? []), cycleLine]);
-    }
-    const cycleSelectionByFamilyId = settings.enableCurrentOrderCycleSelection
-      ? new Map<string, FamilyOrderCycleSelection>(
-          [...cycleLinesByFamilyId].map(([familyId, lines]) => [familyId, selectCurrentFamilyOrderCycle(lines)]),
-        )
-      : new Map<string, FamilyOrderCycleSelection>();
-    const latestActivityByOrderId = new Map<string, PlainRecord>();
-    for (const comment of await this.withActivityAuthors(activityComments)) {
-      if (comment.deletedAt) continue;
-      const orderId = asString(comment.entityId);
-      const occurredAt =
-        asString(comment.occurredAt) ??
-        asString(toPlainRecord(comment.contextSnapshotJson).occurredAt) ??
-        asString(comment.createdAt);
-      if (!orderId || !occurredAt) continue;
-      const current = latestActivityByOrderId.get(orderId);
-      const currentAt =
-        asString(current?.occurredAt) ??
-        asString(toPlainRecord(current?.contextSnapshotJson).occurredAt) ??
-        asString(current?.createdAt);
-      if (!currentAt || occurredAt > currentAt) latestActivityByOrderId.set(orderId, comment);
-    }
-
-    const rows: PlainRecord[] = [];
-    for (const companyProduct of companyProducts) {
-      const company = companiesById.get(asString(companyProduct.companyId));
-      const companyName = asString(company?.name);
-      if (query.company && companyName !== query.company) continue;
-      const product = productsById.get(asString(companyProduct.productId));
-      const companyProductId = asString(companyProduct.id);
-      if (!companyProductId || !companyName || !product) continue;
-      const reorderCycleDays = asNumber(companyProduct.reorderCycleDays) ?? defaultReorderCycleDays;
-      const targetCoverDays = asNumber(companyProduct.targetCoverDays) ?? defaultTargetCoverDays;
-      const planningExcluded =
-        asBoolean(companyProduct.planningExcluded) === true ||
-        isPlanningExcluded(asString(companyProduct.lifecycleStatus));
-      const companyProductFamilyId = asString(companyProduct.companyProductFamilyId);
-      const family = familiesById.get(companyProductFamilyId) ?? {};
-      const requestedPreferredSupplierId = asString(family.preferredSupplierId);
-      const familyPreferredSupplierId = suppliersById.has(requestedPreferredSupplierId)
-        ? requestedPreferredSupplierId
-        : undefined;
-      const targetCompanyProductId = asString(family.replenishmentTargetCompanyProductId);
-      const targetProductId = asString(companyProductsById.get(targetCompanyProductId)?.productId);
-      const requestedPreferredSupplierProductId = asString(family.preferredSupplierProductId);
-      const preferredSupplierProductCandidate = supplierProductsById.get(requestedPreferredSupplierProductId);
-      const requestedOfferIsExactTarget = Boolean(
-        familyPreferredSupplierId &&
-          asString(preferredSupplierProductCandidate?.supplierId) === familyPreferredSupplierId &&
-          asString(preferredSupplierProductCandidate?.productId) === targetProductId,
-      );
-      const preferredTargetOffer = requestedOfferIsExactTarget
-        ? {
-            supplierProduct: preferredSupplierProductCandidate,
-            supplier: suppliersById.get(familyPreferredSupplierId),
-          }
-        : familyPreferredSupplierId
-          ? supplierOfferFor(targetCompanyProductId, familyPreferredSupplierId)
-          : undefined;
-      const preferredSupplierProduct = toPlainRecord(preferredTargetOffer?.supplierProduct);
-      const familyPreferredSupplierProductId = asString(preferredSupplierProduct.id);
-      const preferredSupplier = suppliersById.get(familyPreferredSupplierId);
-      const asin = asString(product.asin);
-      const sku = asString(product.sku);
-
-      const inventory = latestPreferredInventorySnapshot(
-        snapshotsByCompanyProduct.get(companyProductId) ?? [],
-        sellerboardSourceConnectionIds,
-      );
-      const stockBuckets = inventory
-        ? this.stockBuckets(
-            {
-              stock: asNumber(inventory.sellableStock),
-              reserved: asNumber(inventory.reserved),
-              inbound: asNumber(inventory.inbound),
-              ordered: asNumber(inventory.ordered),
-              prepStock: asNumber(inventory.prepStock),
-              awdStock: asNumber(inventory.awdStock),
-            },
-            {},
-          )
-        : {
-            sellableStock: undefined,
-            reservedStock: undefined,
-            inboundStock: undefined,
-            orderedStock: undefined,
-            prepStock: undefined,
-            awdStock: undefined,
-            pipelineStock: undefined,
-            currentPlanningStock: undefined,
-            onHandSellableStock: undefined,
-            amazonPipelineStock: undefined,
-            supplierPipelineStock: undefined,
-            inventoryPositionStock: undefined,
-          };
-      const historical = summarizeHistoricalProductFacts(
-        factsByCompanyProduct.get(companyProductId) ?? [],
-        calculationDate,
-        latestFactDateByCompanyId.get(asString(companyProduct.companyId) ?? ''),
-      );
-      const snapshotVelocity = asNumber(inventory?.salesVelocity);
-      const hasRecentVelocity = typeof historical.recentUnits30 === 'number';
-      const salesVelocity = hasRecentVelocity
-        ? (historical.recentUnits30 ?? 0) / 30
-        : typeof snapshotVelocity === 'number' && snapshotVelocity > 0
-          ? snapshotVelocity
-          : undefined;
-      const salesVelocityBasis = hasRecentVelocity
-        ? 'historical_rolling_30_days'
-        : typeof salesVelocity === 'number'
-          ? 'inventory_snapshot_fallback'
-          : 'unavailable';
-      const salesVelocityStatus = hasRecentVelocity
-        ? salesVelocity > 0
-          ? 'trusted_positive'
-          : 'trusted_zero'
-        : typeof salesVelocity === 'number'
-          ? 'fallback_positive'
-          : 'missing';
-      const salesVelocityWindowStart = hasRecentVelocity
-        ? historical.recentWindowStartDate
-        : typeof salesVelocity === 'number'
-          ? asString(inventory?.snapshotDate)
-          : undefined;
-      const salesVelocityWindowEnd = hasRecentVelocity
-        ? historical.recentWindowEndDate
-        : typeof salesVelocity === 'number'
-          ? asString(inventory?.snapshotDate)
-          : undefined;
-      const salesVelocityAsOfDate = hasRecentVelocity
-        ? historical.recentWindowEndDate
-        : typeof salesVelocity === 'number'
-          ? asString(inventory?.snapshotDate)
-          : undefined;
-      const supplierContext = supplierOfferFor(companyProductId, familyPreferredSupplierId);
-      const supplierProduct = toPlainRecord(supplierContext?.supplierProduct);
-      const supplier = toPlainRecord(supplierContext?.supplier ?? preferredSupplier);
-      const hasExactSupplierOffer = Boolean(asString(supplierProduct.id));
-      const hasSupplier = Boolean(asString(supplier.id));
-      const allProductOrderLines = linesByCompanyProduct.get(companyProductId) ?? [];
-      const cycleSelection = companyProductFamilyId ? cycleSelectionByFamilyId.get(companyProductFamilyId) : undefined;
-      const selectedLineIds = new Set(cycleSelection?.selectedLineIds ?? []);
-      const productOrderLines = cycleSelection?.selectedOrderId
-        ? allProductOrderLines.filter((line) => selectedLineIds.has(asString(line.id) ?? ''))
-        : allProductOrderLines;
-      const hasOrderSupplierEvidence = allProductOrderLines.some((line) => {
-        const order = ordersById.get(asString(line.supplierOrderId));
-        return Boolean(asString(line.supplierProductId) || asString(toPlainRecord(order).supplierId));
-      });
-      const hasOrderCostEvidence = allProductOrderLines.some((line) => typeof asNumber(line.unitCost) === 'number');
-      const sourceLeadTimeDays = asNumber(supplierProduct.leadTimeDays);
-      const leadTimeDays = sourceLeadTimeDays ?? defaultSupplierLeadTimeDays;
-      const effectiveLeadTimeDays = leadTimeDays + fbaReceivingBufferDays;
-      const supplierAvailability = hasExactSupplierOffer
-        ? 'resolved_silver_link'
-        : familyPreferredSupplierId
-          ? 'resolved_family_preferred_supplier'
-          : supplierContext || hasOrderSupplierEvidence
-            ? 'link_defect'
-            : 'unavailable_no_evidence';
-      const leadTimeAvailability =
-        typeof sourceLeadTimeDays === 'number' ? 'resolved_silver_link' : 'resolved_default_supplier_lead_time';
-      const leadTimeFreshness = typeof sourceLeadTimeDays === 'number' ? 'fresh' : 'default';
-      const openOrder = {
-        ...summarizeSupplierOrderState(
-          productOrderLines,
-          ordersById,
-          calculationDate,
-          fbaReceivingBufferDays,
-          statusRules,
-        ),
-        supplierOrderCycleSelection: cycleSelection,
-        supplierOrderCycleReviewRequired: cycleSelection?.reviewRequired ?? false,
-      };
-      const openOrderCoverageQty =
-        (asNumber(openOrder.supplierOrderPurchasedOpenQty) ?? 0) +
-        (asNumber(openOrder.supplierOrderPlacedNotPurchasedOpenQty) ?? 0);
-      const expectedArrivalDate = optionalIsoDate(asString(openOrder.expectedArrivalDate) ?? '');
-      const supplierOrderStale = Boolean(
-        openOrder.supplierOrderState === 'purchased_pipeline' &&
-          expectedArrivalDate &&
-          diffDays(calculationDate, expectedArrivalDate) > purchasedPipelineGraceDays,
-      );
-      const latestActivity = latestActivityByOrderId.get(asString(openOrder.supplierOrderId) ?? '');
-      const latestActivityContext = toPlainRecord(latestActivity?.contextSnapshotJson);
-      const onHandStock = stockBuckets.onHandSellableStock;
-      const trustedSupplierOrderCoverageQty =
-        typeof stockBuckets.amazonPipelineStock === 'number'
-          ? supplierOrderStale
-            ? 0
-            : Math.max((asNumber(openOrder.supplierOrderPurchasedOpenQty) ?? 0) - stockBuckets.amazonPipelineStock, 0)
-          : undefined;
-      const supplierPipelineStock = trustedSupplierOrderCoverageQty;
-      const inventoryPositionStock =
-        typeof stockBuckets.onHandSellableStock === 'number' && typeof stockBuckets.amazonPipelineStock === 'number'
-          ? stockBuckets.onHandSellableStock + stockBuckets.amazonPipelineStock
-          : undefined;
-      const futurePositionStock =
-        typeof inventoryPositionStock === 'number' ? inventoryPositionStock + (supplierPipelineStock ?? 0) : undefined;
-      const estimatedOosDate =
-        salesVelocity > 0 && typeof onHandStock === 'number'
-          ? addDays(calculationDate, Math.floor(onHandStock / salesVelocity))
-          : undefined;
-      const positionDaysOfCover =
-        salesVelocity > 0 && typeof futurePositionStock === 'number' ? futurePositionStock / salesVelocity : undefined;
-      const positionEstimatedOosDate =
-        typeof positionDaysOfCover === 'number' ? addDays(calculationDate, Math.floor(positionDaysOfCover)) : undefined;
-      const latestSafeReorderDate = estimatedOosDate
-        ? addDays(estimatedOosDate, -(effectiveLeadTimeDays + safetyBufferDays))
-        : undefined;
-      const daysUntilSafeReorder = latestSafeReorderDate ? diffDays(latestSafeReorderDate, calculationDate) : undefined;
-      const suggestedReorderQty =
-        typeof futurePositionStock === 'number'
-          ? this.suggestedReorderQuantity({ salesVelocity, targetCoverDays, futurePositionStock })
-          : undefined;
-      const supplierUnitCost = asNumber(supplierProduct.unitCost);
-      const cogs = sellerboardCostResolver.resolve({ company: companyName, asin, sku, suggestedReorderQty });
-      const unitCost = supplierUnitCost ?? cogs.unitCost;
-      const unitCostSource = typeof supplierUnitCost === 'number' ? 'silver_supplier_product' : cogs.unitCostSource;
-      const unitCostAvailability =
-        typeof supplierUnitCost === 'number'
-          ? 'resolved_supplier_product'
-          : typeof cogs.unitCost === 'number'
-            ? 'resolved_cogs'
-            : cogs.unitCostStatus === 'ambiguous'
-              ? 'unavailable_ambiguous'
-              : supplierContext || hasOrderCostEvidence
-                ? 'source_incomplete'
-                : 'unavailable_no_evidence';
-      const profitAvailability =
-        historical.units > 0
-          ? typeof historical.profitPerUnit === 'number'
-            ? 'resolved_history'
-            : 'source_incomplete'
-          : historical.availableMonthCount > 0
-            ? 'unavailable_no_sales'
-            : 'unavailable_no_history';
-      const productStatus = derivedProductStatus(asString(companyProduct.lifecycleStatus), stockBuckets);
-      const daysOfCover =
-        salesVelocity > 0 && typeof onHandStock === 'number' ? onHandStock / salesVelocity : undefined;
-      const actionStatus = planningExcluded
-        ? 'excluded'
-        : typeof stockBuckets.currentPlanningStock === 'number'
-          ? this.actionStatus({
-              excluded: planningExcluded,
-              salesVelocity,
-              salesVelocityStatus,
-              leadTimeFreshness,
-              daysUntilSafeReorder,
-              orderSoonWindowDays,
-              openOrderCoverageQty,
-            })
-          : 'missing_inventory';
-      const recentUnits30 = historical.recentUnits30;
-      const provisionalStuck = stuckClassification(
-        {
-          ...stockBuckets,
-          daysOfCover,
-          salesVelocity,
-          salesVelocityBasis,
-          salesVelocityStatus,
-          productStatus,
-          actionStatus,
-          supplierOrderState: openOrder.supplierOrderState,
-          expectedArrivalDate: openOrder.expectedArrivalDate,
-          latestSupplierOrderActivityAt:
-            asString(latestActivity?.occurredAt) ??
-            asString(latestActivityContext.occurredAt) ??
-            asString(latestActivity?.createdAt),
-          purchasedPipelineGraceDays,
-          lastMonthQty: historical.lastMonthQty,
-          sixMonthAverageQty: historical.sixMonthAverageQty,
-        },
-        calculationDate,
-      );
-      const tierResult = rollingDemandProfitTier({
-        profitPerUnit: historical.profitPerUnit,
-        recentUnits30,
-        stuckInventory: ['over_60_doc', 'reserved_stalled', 'pipeline_stalled', 'no_sell_through_with_stock'].includes(
-          provisionalStuck,
-        ),
-        thresholds: profitTierThresholds,
-      });
-      const { tier, tierScore, tierEligibilityReason, tierRuleVersion } = tierResult;
-      const currentTierResult = profitTierFor(historical.profitPerUnit, historical.lastMonthQty, profitTierThresholds);
-      const averageTierResult = profitTierFor(
-        historical.profitPerUnit,
-        historical.sixMonthAverageQty,
-        profitTierThresholds,
-      );
-      const bestTierResult = profitTierFor(historical.profitPerUnit, historical.sixMonthBestQty, profitTierThresholds);
-
-      rows.push({
-        planningProductId: companyProductId,
-        companyProductId,
-        companyProductFamilyId,
-        companyId: asString(companyProduct.companyId),
-        amazonAccountId: asString(companyProduct.amazonAccountId),
-        marketplace: asString(family.marketplace),
-        familyAmazonAccountId: asString(family.amazonAccountId),
-        familyMarketplace: asString(family.marketplace),
-        familyCanonicalAsin: asString(family.canonicalAsin),
-        replenishmentTargetCompanyProductId: asString(family.replenishmentTargetCompanyProductId),
-        familyPreferredSupplierId,
-        familyPreferredSupplierProductId,
-        familyPreferredSupplierName: asString(preferredSupplier?.displayName),
-        familyUnitCost: asNumber(preferredSupplierProduct.unitCost),
-        familyLeadTimeDays: asNumber(preferredSupplierProduct.leadTimeDays),
-        familyRollupEvidence: {
-          targetSelection: toPlainRecord(family.targetSelectionEvidenceJson),
-          supplierSelection: toPlainRecord(family.supplierSelectionEvidenceJson),
-          targetReviewRequired: family.targetReviewRequired === true,
-          supplierReviewRequired: family.supplierReviewRequired === true,
-        },
-        productId: asString(product.id),
-        calculationDate,
-        company: companyName,
-        asin,
-        sku,
-        title: asString(product.title),
-        productStatus,
-        planningExcluded,
-        actionStatus,
-        tier,
-        tierScore,
-        recentUnits30,
-        tierEligibilityReason,
-        tierRuleVersion,
-        currentTier: currentTierResult.tier ?? 'unclassified',
-        currentTierScore: currentTierResult.tierScore,
-        averageTier: averageTierResult.tier ?? 'unclassified',
-        averageTierScore: averageTierResult.tierScore,
-        bestTier: bestTierResult.tier ?? 'unclassified',
-        bestTierScore: bestTierResult.tierScore,
-        salesVelocity,
-        salesVelocityBasis,
-        salesVelocityStatus,
-        salesVelocityWindowStart,
-        salesVelocityWindowEnd,
-        salesVelocityAsOfDate,
-        profitPerUnit: historical.profitPerUnit,
-        sixMonthMargin: historical.margin,
-        lastMonthQty: historical.lastMonthQty,
-        sixMonthAverageQty: historical.sixMonthAverageQty,
-        sixMonthWorstQty: historical.sixMonthWorstQty,
-        sixMonthBestQty: historical.sixMonthBestQty,
-        ...stockBuckets,
-        onHandStock,
-        supplierPipelineStock,
-        inventoryPositionStock,
-        futurePositionStock,
-        trustedSupplierOrderCoverageQty,
-        inventoryAsOfDate: asString(inventory?.snapshotDate),
-        daysOfCover,
-        estimatedOosDate,
-        positionDaysOfCover,
-        positionEstimatedOosDate,
-        latestSafeReorderDate,
-        daysUntilSafeReorder,
-        suggestedReorderQty,
-        safetyBufferDays,
-        reorderCycleDays,
-        targetCoverDays,
-        orderSoonWindowDays,
-        leadTimeFreshnessDays,
-        purchasedPipelineGraceDays,
-        leadTimeDays,
-        effectiveLeadTimeDays,
-        leadTimeFreshness,
-        supplierId: asString(supplier.id),
-        supplierName: asString(supplier.displayName),
-        supplierSource: hasExactSupplierOffer
-          ? 'silver_supplier_product'
-          : familyPreferredSupplierId
-            ? 'silver_family_preferred_supplier'
-            : undefined,
-        supplierRole: hasExactSupplierOffer
-          ? asString(toPlainRecord(supplierContext?.link).role) ?? 'historical_purchase'
-          : familyPreferredSupplierId
-            ? 'preferred_for_family'
-            : undefined,
-        supplierConfidence: hasSupplier ? 1 : undefined,
-        supplierAvailability,
-        leadTimeAvailability,
-        unitCost,
-        unitCostSource,
-        unitCostAvailability,
-        profitAvailability,
-        estimatedOrderCost:
-          typeof unitCost === 'number' && typeof suggestedReorderQty === 'number'
-            ? unitCost * suggestedReorderQty
-            : undefined,
-        openOrderCoverageQty,
-        ...openOrder,
-        supplierOrderStale,
-        latestSupplierOrderActivityType: asString(latestActivity?.commentType),
-        latestSupplierOrderActivityAt:
-          asString(latestActivity?.occurredAt) ??
-          asString(latestActivityContext.occurredAt) ??
-          asString(latestActivity?.createdAt),
-        latestSupplierOrderActivityNote: asString(latestActivity?.body),
-        latestSupplierOrderActivityActor: asString(latestActivityContext.actor),
-        latestSupplierOrderActivityActorUserId: asRecordIdString(latestActivity?.actorUserId),
-        latestSupplierOrderActivityActorDisplayName: asString(latestActivity?.actorDisplayName),
-        latestSupplierOrderActivityActorEmail: asString(latestActivity?.actorEmail),
-        latestSupplierOrderActivitySource: asString(latestActivityContext.source),
-        stuck: false,
-        digestPriority: this.digestPriority(actionStatus, tier),
-        evidence: {
-          sourceLayer: 'silver',
-          inventorySnapshotId: asString(inventory?.id),
-          supplierProductId: asString(supplierProduct.id),
-          historicalFactCount: (factsByCompanyProduct.get(companyProductId) ?? []).length,
-          historyLoadStatus: sellerboardHistoryLoaded ? 'loaded' : 'not_loaded',
-          velocity: {
-            basis: salesVelocityBasis,
-            status: salesVelocityStatus,
-            windowStart: salesVelocityWindowStart,
-            windowEnd: salesVelocityWindowEnd,
-            asOfDate: salesVelocityAsOfDate,
-          },
-          familySupplier: {
-            supplierId: familyPreferredSupplierId,
-            supplierProductId: familyPreferredSupplierProductId,
-            selectionSource: asString(family.supplierSelectionSource),
-            selectionEvidence: toPlainRecord(family.supplierSelectionEvidenceJson),
-          },
-          leadTime: {
-            days: leadTimeDays,
-            source:
-              typeof sourceLeadTimeDays === 'number'
-                ? 'silver_supplier_product'
-                : 'planning_settings.default_supplier_lead_time_days',
-            effectiveLeadTimeDays,
-            effectiveLeadTimeWithSafetyDays: effectiveLeadTimeDays + safetyBufferDays,
-            components: {
-              supplierLeadTime: {
-                days: leadTimeDays,
-                source:
-                  typeof sourceLeadTimeDays === 'number'
-                    ? 'silver_supplier_product.lead_time_days'
-                    : 'planning_settings.default_supplier_lead_time_days',
-              },
-              prepAndLogistics: { days: null, source: 'unavailable' },
-              fbaReceivingBuffer: {
-                days: fbaReceivingBufferDays,
-                source: 'planning_settings.fba_receiving_buffer_days',
-              },
-              safetyBuffer: { days: safetyBufferDays, source: 'planning_settings.safety_buffer_days' },
-            },
-          },
-          orderCycle: cycleSelection,
-        },
-      });
-    }
-
-    const resolvedRows = this.applyFamilyRollups(rows, calculationDate).map((row) =>
-      this.finalizeGoldContract(row, calculationDate),
-    );
-    return this.sortPlanningRows(resolvedRows).slice(0, query.limit ?? resolvedRows.length);
-  }
-
-  private finalizeGoldContract(row: PlainRecord, calculationDate: string) {
-    const productStatus = asString(row.productStatus)?.toLowerCase();
-    const familyRole = asString(row.familyRole);
-    const planningTarget = familyRole !== 'member';
-    const familyReview = familyRole === 'review';
-    const live = productStatus === 'active' || productStatus === 'live';
-    const tiered = isProfitTier(row.tier);
-    const actionStatus = asString(row.actionStatus) ?? '';
-    const excluded = actionStatus === 'excluded' || asBoolean(row.planningExcluded) === true;
-    const supplierOrderState = asString(row.supplierOrderState) ?? '';
-    const activeOrder =
-      planningTarget &&
-      !familyReview &&
-      live &&
-      !excluded &&
-      ['purchased_pipeline', 'placed_not_purchased'].includes(supplierOrderState);
-    const listingStuck = stuckClassification(row, calculationDate);
-    const familyStuckAction = asBoolean(row.familyStuckAction) === true;
-    const stuck = familyStuckAction ? asString(row.familyStuckClassification) ?? listingStuck : listingStuck;
-    const stuckInventory =
-      planningTarget &&
-      !familyReview &&
-      !excluded &&
-      (familyStuckAction ||
-        (familyRole === 'unassigned' &&
-          ['over_60_doc', 'no_sell_through_with_stock', 'reserved_stalled', 'pipeline_stalled'].includes(stuck)));
-    const inventoryAsOfDate = optionalIsoDate(asString(row.inventoryAsOfDate) ?? '');
-    const inventoryAgeDays = inventoryAsOfDate ? diffDays(calculationDate, inventoryAsOfDate) : undefined;
-    const sourceFreshnessStatus =
-      typeof inventoryAgeDays !== 'number'
-        ? 'unknown'
-        : inventoryAgeDays < 0
-          ? 'invalid_future'
-          : inventoryAgeDays <= 1
-            ? 'fresh'
-            : 'stale';
-    const readiness = evaluatePlanningReadiness({
-      familyRole,
-      inventoryFreshnessStatus: sourceFreshnessStatus,
-      salesVelocityStatus: asString(row.salesVelocityStatus),
-      supplierAvailability: asString(row.supplierAvailability),
-      leadTimeAvailability: asString(row.leadTimeAvailability),
-      unitCostAvailability: asString(row.unitCostAvailability),
-      profitAvailability: asString(row.profitAvailability),
-      activeOrder,
-      expectedArrivalStatus: asString(row.expectedArrivalStatus),
-      expectedArrivalConfidence: asString(row.expectedArrivalConfidence),
-      expectedArrivalFreshness: asString(row.expectedArrivalFreshness),
-      orderCycleReviewRequired: asBoolean(row.supplierOrderCycleReviewRequired) === true,
-    });
-    const pipelineHealth = pipelineHealthStatus(row, calculationDate);
-    const classification = commandCenterPaneForRow(
-      {
-        ...row,
-        planningReadinessStatus: readiness.status,
-        readinessReasonCodes: readiness.reasonCodes,
-        stuckClassification: stuck,
-      },
-      calculationDate,
-    );
-    const commandCenterPane = classification.pane;
-    const planningEligibilityStatus = excluded
-      ? 'ineligible_excluded'
-      : familyRole === 'member'
-        ? 'ineligible_family_member'
-        : !live
-          ? 'ineligible_inactive'
-          : !tiered
-            ? 'ineligible_unclassified_tier'
-            : commandCenterPane === 'dataReadiness'
-              ? 'needs_data_readiness'
-              : 'eligible';
-    const operationalIssues = [
-      [
-        'reserved_stalled',
-        'pipeline_stalled',
-        'no_sell_through_with_stock',
-        'insufficient_velocity_data',
-        'untrusted_velocity_data',
-      ].includes(stuck)
-        ? stuck
-        : undefined,
-      asBoolean(row.supplierOrderStale) === true ? 'supplier_order_stale' : undefined,
-    ].filter((issue): issue is string => Boolean(issue));
-    const moneyRisk = calculateInventoryMoneyRisk(row);
-    const companyProductId = asString(row.companyProductId) ?? asString(row.planningProductId) ?? '';
-    const companyProductFamilyId = asString(row.companyProductFamilyId) ?? `unassigned-family:${companyProductId}`;
-    const frozenTargetCompanyProductId =
-      familyRole === 'review'
-        ? null
-        : asString(row.familyTargetCompanyProductId) ??
-          asString(row.replenishmentTargetCompanyProductId) ??
-          (familyRole === 'unassigned' ? companyProductId : null);
-    const targetSelectionState = frozenTargetCompanyProductId ? 'automatic' : 'review';
-    const snapshotCompanyId = asString(row.companyId) ?? `company:${asString(row.company) ?? 'unknown'}`;
-    const snapshotAmazonAccountId =
-      asString(row.amazonAccountId) ?? asString(row.familyAmazonAccountId) ?? `account:${companyProductFamilyId}`;
-    const snapshotMarketplace = asString(row.marketplace) ?? asString(row.familyMarketplace) ?? 'unknown';
-    const primaryActionReasonCode =
-      asString(row.primaryActionReasonCode) ??
-      (commandCenterPane === 'dataReadiness'
-        ? readiness.reasonCodes[0] ?? classification.reason
-        : classification.reason);
-    const finalized = {
-      ...row,
-      companyProductId,
-      companyProductFamilyId,
-      companyId: snapshotCompanyId,
-      amazonAccountId: snapshotAmazonAccountId,
-      marketplace: snapshotMarketplace,
-      stuck: stuckInventory,
-      stuckClassification: stuck,
-      pipelineHealthStatus: pipelineHealth,
-      stockoutGapDays: stockoutGapDays(row),
-      daysUntilOos: daysUntilDate(operationalEstimatedOosDate(row), calculationDate),
-      commandCenterPane,
-      commandCenterPaneReason: primaryActionReasonCode,
-      planningEligibilityStatus,
-      planningEligibilityReason:
-        planningEligibilityStatus === 'eligible' ? `verified_${commandCenterPane}` : planningEligibilityStatus,
-      ...moneyRisk,
-      sourceFreshnessStatus,
-      dataQualityStatus: readiness.status,
-      dataQualityIssues: readiness.reasonCodes,
-      readinessDomains: readiness.domains,
-      readinessReasonCodes: readiness.reasonCodes,
-      operationalIssues,
-      recommendedEscalation:
-        commandCenterPane === 'untieredProducts'
-          ? undefined
-          : recommendedInventoryAction({ ...row, stuckClassification: stuck }),
-      isFrozenFamilyTarget: frozenTargetCompanyProductId === companyProductId,
-      familyTargetCompanyProductId: frozenTargetCompanyProductId,
-      primaryActionPane: asString(row.primaryActionPane) ?? commandCenterPane,
-      primaryActionReasonCode,
-      replenishmentEligibility:
-        asString(row.replenishmentEligibility) ??
-        (planningEligibilityStatus === 'eligible' ? 'eligible' : 'blocked_insufficient_evidence'),
-      replenishmentBlockReasonCode:
-        asString(row.replenishmentBlockReasonCode) ??
-        (planningEligibilityStatus === 'eligible'
-          ? 'eligible_informational_projection'
-          : 'blocked_insufficient_evidence'),
-      newReplenishmentActionable: asBoolean(row.newReplenishmentActionable) ?? commandCenterPane === 'supplyAction',
-      oosAlertActionable:
-        asBoolean(row.oosAlertActionable) ?? ['zeroStock', 'supplyAction'].includes(commandCenterPane),
-      supplyActionable: asBoolean(row.supplyActionable) ?? commandCenterPane === 'supplyAction',
-      existingOrderFollowUp: asBoolean(row.existingOrderFollowUp) ?? activeOrder,
-      existingOrderFollowUpAction:
-        asString(row.existingOrderFollowUpAction) ?? (activeOrder ? 'follow_up_existing_order' : 'none'),
-      recommendedOrderQty: row.recommendedOrderQty ?? row.suggestedReorderQty ?? null,
-      calculationEvidence: {
-        ...toPlainRecord(row.calculationEvidence),
-        familyActionSnapshot: {
-          familyKey: companyProductFamilyId,
-          companyProductFamilyId,
-          companyId: snapshotCompanyId,
-          amazonAccountId: snapshotAmazonAccountId,
-          marketplace: snapshotMarketplace,
-          canonicalAsin: asString(row.familyCanonicalAsin) ?? asString(row.asin) ?? companyProductId,
-          targetSelectionState,
-          targetCompanyProductId: frozenTargetCompanyProductId,
-          targetSelectionEvidence: toPlainRecord(toPlainRecord(row.familyRollupEvidence).targetSelection),
-        },
-      },
-    };
-    return {
-      ...finalized,
-      listingReviewCategories: deriveListingReviewCategories(finalized),
-    };
-  }
-
-  private applyFamilyRollups(rows: PlainRecord[], calculationDate: string) {
-    const groups = this.groupBy(rows, 'companyProductFamilyId');
-    const resolvedByCompanyProductId = new Map<string, PlainRecord>();
-    const sum = (members: PlainRecord[], field: string) =>
-      members.reduce((total, row) => total + (asNumber(row[field]) ?? 0), 0);
-    const actionableStuckReasons = new Set([
-      'over_60_doc',
-      'no_sell_through_with_stock',
-      'reserved_stalled',
-      'pipeline_stalled',
-    ]);
-    const supplierOrderFields = [
-      'supplierOrderState',
-      'supplierOrderStale',
-      'supplierOrderId',
-      'supplierOrderStatus',
-      'supplierOrderOperationalStatus',
-      'supplierOrderWorkflowStage',
-      'supplierOrderSourceMemberSku',
-      'supplierOrderLineMappingScope',
-      'supplierOrderRef',
-      'supplierOrderAuthorityStatus',
-      'supplierOrderAuthoritySource',
-      'supplierOrderAuthorityTaskRef',
-      'supplierOrderAuthorityAsOf',
-      'supplierOrderAuthorityEvidence',
-      'amazonReceiptStatus',
-      'amazonReceiptObservedAt',
-      'amazonReceiptCompletionReason',
-      'amazonReceiptEvidenceJson',
-      'supplierOrderOpenQty',
-      'supplierOrderReferenceOpenQty',
-      'supplierOrderPurchasedOpenQty',
-      'supplierOrderPlacedNotPurchasedOpenQty',
-      'supplierOrderCycleSelection',
-      'supplierOrderCycleReviewRequired',
-      'expectedArrivalDate',
-      'expectedArrivalStatus',
-      'expectedArrivalSource',
-      'expectedArrivalAsOf',
-      'expectedArrivalConfidence',
-      'expectedArrivalFreshness',
-      'latestSupplierOrderActivityType',
-      'latestSupplierOrderActivityAt',
-      'latestSupplierOrderActivityNote',
-      'latestSupplierOrderActivityActor',
-      'latestSupplierOrderActivityActorUserId',
-      'latestSupplierOrderActivityActorDisplayName',
-      'latestSupplierOrderActivityActorEmail',
-      'latestSupplierOrderActivitySource',
-    ];
-
-    for (const [familyId, members] of groups) {
-      const targetId = asString(members[0]?.replenishmentTargetCompanyProductId);
-      const target = members.find((row) => asString(row.companyProductId) === targetId);
-      const review = target
-        ? undefined
-        : [...members].sort((left, right) =>
-            String(left.companyProductId ?? '').localeCompare(String(right.companyProductId ?? '')),
-          )[0];
-      const targetSku = asString(target?.sku);
-      const supplierEvidence = toPlainRecord(toPlainRecord(members[0]?.familyRollupEvidence).supplierSelection);
-      const sourceCompanyProductId = asString(supplierEvidence.sourceCompanyProductId);
-      const orderedMembers = [...members].sort((left, right) =>
-        (asString(right.supplierOrderSortValue) ?? '').localeCompare(asString(left.supplierOrderSortValue) ?? ''),
-      );
-      const orderSource =
-        members.find((row) => asString(row.companyProductId) === sourceCompanyProductId) ??
-        orderedMembers.find((row) => asString(row.supplierOrderRef));
-      const stock = {
-        familyCurrentPlanningStock: sum(members, 'currentPlanningStock'),
-        familyOnHandSellableStock: sum(members, 'onHandSellableStock'),
-        familySellableStock: sum(members, 'sellableStock'),
-        familyReservedStock: sum(members, 'reservedStock'),
-        familyAmazonPipelineStock: sum(members, 'amazonPipelineStock'),
-        familyPipelineStock: sum(members, 'pipelineStock'),
-        familyInboundStock: sum(members, 'inboundStock'),
-        familyOrderedStock: sum(members, 'orderedStock'),
-        familyPrepStock: sum(members, 'prepStock'),
-        familyAwdStock: sum(members, 'awdStock'),
-      };
-      const velocityValues = members.map((row) => asNumber(row.salesVelocity)).filter((value) => value !== undefined);
-      const familySalesVelocity = velocityValues.length
-        ? velocityValues.reduce((total, value) => total + value, 0)
-        : undefined;
-      const grossOpenOrderCoverageQty = sum(members, 'openOrderCoverageQty');
-      const grossTrustedSupplierOrderCoverageQty = members.reduce(
-        (total, row) =>
-          total + (asBoolean(row.supplierOrderStale) ? 0 : asNumber(row.supplierOrderPurchasedOpenQty) ?? 0),
-        0,
-      );
-      const familyOpenOrderCoverageQty = Math.max(0, grossOpenOrderCoverageQty - stock.familyAmazonPipelineStock);
-      const familyTrustedSupplierOrderCoverageQty = Math.max(
-        0,
-        grossTrustedSupplierOrderCoverageQty - stock.familyAmazonPipelineStock,
-      );
-      const familyOnHandStock = stock.familyOnHandSellableStock;
-      const familySupplierPipelineStock = familyTrustedSupplierOrderCoverageQty;
-      const familyInventoryPositionStock = familyOnHandStock + stock.familyAmazonPipelineStock;
-      const familyFuturePositionStock = familyInventoryPositionStock + familySupplierPipelineStock;
-      const familyDaysOfCover =
-        typeof familySalesVelocity === 'number' && familySalesVelocity > 0
-          ? familyOnHandStock / familySalesVelocity
-          : undefined;
-      const familyEstimatedOosDate =
-        typeof familyDaysOfCover === 'number' ? addDays(calculationDate, Math.floor(familyDaysOfCover)) : undefined;
-      const familyPositionDaysOfCover =
-        typeof familySalesVelocity === 'number' && familySalesVelocity > 0
-          ? familyFuturePositionStock / familySalesVelocity
-          : undefined;
-      const familyPositionEstimatedOosDate =
-        typeof familyPositionDaysOfCover === 'number'
-          ? addDays(calculationDate, Math.floor(familyPositionDaysOfCover))
-          : undefined;
-      const familySuggestedReorderQty = target
-        ? this.suggestedReorderQuantity({
-            salesVelocity: familySalesVelocity,
-            targetCoverDays: asNumber(target.targetCoverDays) ?? 0,
-            futurePositionStock: familyFuturePositionStock,
-          })
-        : undefined;
-      const familyUnitCost = asNumber(target?.familyUnitCost) ?? asNumber(target?.unitCost);
-      const familyLeadTimeDays =
-        asNumber(target?.familyLeadTimeDays) ??
-        asNumber((target ?? review ?? members[0])?.leadTimeDays) ??
-        DEFAULT_PLANNING_SETTINGS.defaultSupplierLeadTimeDays;
-      const familyEffectiveLeadTimeDays =
-        asNumber(target?.effectiveLeadTimeDays) ??
-        asNumber(toPlainRecord(toPlainRecord(target?.evidence).leadTime).effectiveLeadTimeDays) ??
-        familyLeadTimeDays;
-      const latestSafeReorderDate = familyEstimatedOosDate
-        ? addDays(familyEstimatedOosDate, -(familyEffectiveLeadTimeDays + (asNumber(target?.safetyBufferDays) ?? 0)))
-        : undefined;
-      const daysUntilSafeReorder = latestSafeReorderDate ? diffDays(latestSafeReorderDate, calculationDate) : undefined;
-      const familyActionStatus = target
-        ? this.actionStatus({
-            excluded: asString(target.actionStatus) === 'excluded',
-            salesVelocity: familySalesVelocity,
-            salesVelocityStatus:
-              typeof familySalesVelocity !== 'number'
-                ? 'missing'
-                : familySalesVelocity > 0
-                  ? 'trusted_positive'
-                  : 'trusted_zero',
-            leadTimeFreshness: asNumber(target.familyLeadTimeDays) === undefined ? 'default' : 'fresh',
-            daysUntilSafeReorder,
-            orderSoonWindowDays: asNumber(target.orderSoonWindowDays) ?? 0,
-            openOrderCoverageQty: familyOpenOrderCoverageQty,
-          })
-        : 'family_review_required';
-      const classifiedMembers = members.map((row) => ({
-        row,
-        reason: stuckClassification(row, calculationDate),
-      }));
-      const affectedMembers = classifiedMembers.filter(({ reason }) => actionableStuckReasons.has(reason));
-      const familyStuckReasons = [...new Set(affectedMembers.map(({ reason }) => reason))];
-      const familyStuckReason = [
-        'pipeline_stalled',
-        'reserved_stalled',
-        'no_sell_through_with_stock',
-        'over_60_doc',
-      ].find((reason) => familyStuckReasons.includes(reason));
-      const familyStuckAffectedUnits = affectedMembers.reduce(
-        (total, { row }) => total + (asNumber(row.onHandSellableStock) ?? 0),
-        0,
-      );
-      const affectedWithCost = affectedMembers.filter(({ row }) => typeof asNumber(row.unitCost) === 'number');
-      const familyStuckAffectedValue = affectedWithCost.reduce(
-        (total, { row }) => total + (asNumber(row.onHandSellableStock) ?? 0) * (asNumber(row.unitCost) ?? 0),
-        0,
-      );
-      const familyStuckActionRow = target ?? review ?? affectedMembers[0]?.row;
-      const familyStuckActiveOrderCount = members.filter((row) =>
-        ['purchased_pipeline', 'placed_not_purchased'].includes(asString(row.supplierOrderState) ?? ''),
-      ).length;
-      const familyStuckEvidence = {
-        reasons: familyStuckReasons,
-        affectedMembers: affectedMembers.map(({ row, reason }) => ({
-          companyProductId: asString(row.companyProductId),
-          sku: asString(row.sku),
-          reason,
-          units: asNumber(row.onHandSellableStock) ?? 0,
-          unitCost: asNumber(row.unitCost),
-          value:
-            typeof asNumber(row.unitCost) === 'number'
-              ? (asNumber(row.onHandSellableStock) ?? 0) * (asNumber(row.unitCost) ?? 0)
-              : undefined,
-          supplierOrderState: asString(row.supplierOrderState),
-          expectedArrivalDate: asString(row.expectedArrivalDate),
-        })),
-        valueStatus:
-          affectedMembers.length === 0
-            ? 'not_applicable'
-            : affectedWithCost.length === affectedMembers.length
-              ? 'complete'
-              : affectedWithCost.length
-                ? 'partial'
-                : 'missing',
-        activeOrderCount: familyStuckActiveOrderCount,
-      };
-      const targetOrderValues = Object.fromEntries(supplierOrderFields.map((field) => [field, orderSource?.[field]]));
-      const familyValues = {
-        familyMemberCount: members.length,
-        replenishmentTargetSku: targetSku,
-        familyTier: asString(target?.tier),
-        familyTierScore: asNumber(target?.tierScore),
-        ...stock,
-        familyOnHandStock,
-        familySupplierPipelineStock,
-        familyInventoryPositionStock,
-        familyFuturePositionStock,
-        familySalesVelocity,
-        familyDaysOfCover,
-        familyEstimatedOosDate,
-        familyPositionDaysOfCover,
-        familyPositionEstimatedOosDate,
-        familyOpenOrderCoverageQty,
-        familyTrustedSupplierOrderCoverageQty,
-        familySuggestedReorderQty,
-        familyUnitCost,
-        familyLeadTimeDays,
-        familyEffectiveLeadTimeDays,
-        familyEstimatedOrderCost:
-          typeof familyUnitCost === 'number' && typeof familySuggestedReorderQty === 'number'
-            ? familyUnitCost * familySuggestedReorderQty
-            : undefined,
-        familyStuck: affectedMembers.length > 0,
-        familyStuckClassification: familyStuckReason ?? 'none',
-        familyStuckAffectedMemberCount: affectedMembers.length,
-        familyStuckAffectedUnits,
-        familyStuckAffectedValue: affectedWithCost.length ? familyStuckAffectedValue : undefined,
-        familyStuckActiveOrderCount,
-        familyStuckEvidence,
-      };
-      const familyRollup = {
-        familyId,
-        boundary: 'company_amazon_account_marketplace_asin',
-        memberCompanyProductIds: members.map((row) => asString(row.companyProductId)),
-        targetCompanyProductId: targetId,
-        targetSku,
-        sourceCompanyProductId,
-        sourceSku: asString(supplierEvidence.sourceSku) ?? asString(orderSource?.sku),
-        sourceOrderRef: asString(supplierEvidence.sourceOrderRef) ?? asString(orderSource?.supplierOrderRef),
-        grossOpenOrderCoverageQty,
-        grossTrustedSupplierOrderCoverageQty,
-        sellerboardPipelineQty: stock.familyAmazonPipelineStock,
-        netOpenOrderCoverageQty: familyOpenOrderCoverageQty,
-        netTrustedSupplierOrderCoverageQty: familyTrustedSupplierOrderCoverageQty,
-        supplierOrderCoverageTreatment: 'pipeline_netting',
-        supplierSelection: supplierEvidence,
-        leadTime: {
-          supplierLeadTimeDays: familyLeadTimeDays,
-          effectiveLeadTimeDays: familyEffectiveLeadTimeDays,
-          components: toPlainRecord(toPlainRecord(target?.evidence).leadTime).components,
-        },
-      };
-
-      for (const row of members) {
-        const isTarget = row === target;
-        const preferredSupplierName =
-          asString(target?.familyPreferredSupplierName) ?? asString(orderSource?.supplierName);
-        const resolved = {
-          ...row,
-          ...familyValues,
-          familyRole: isTarget ? 'target' : row === review ? 'review' : 'member',
-          familyStuckAction: row === familyStuckActionRow && affectedMembers.length > 0,
-          familySuggestedReorderQty: isTarget ? familySuggestedReorderQty : undefined,
-          familyEstimatedOrderCost: isTarget ? familyValues.familyEstimatedOrderCost : undefined,
-          actionStatus: isTarget || row === review ? familyActionStatus : 'family_member_no_reorder',
-          suggestedReorderQty: isTarget ? familySuggestedReorderQty : undefined,
-          estimatedOrderCost: isTarget ? familyValues.familyEstimatedOrderCost : undefined,
-          ...(isTarget
-            ? {
-                ...targetOrderValues,
-                openOrderCoverageQty: familyOpenOrderCoverageQty,
-                latestSafeReorderDate,
-                daysUntilSafeReorder,
-                supplierId: asString(target?.familyPreferredSupplierId) ?? asString(orderSource?.supplierId),
-                supplierName: preferredSupplierName,
-                supplierSource: preferredSupplierName ? 'family_preferred_supplier' : undefined,
-                supplierRole: preferredSupplierName ? 'preferred_for_family' : undefined,
-                supplierConfidence: preferredSupplierName ? 1 : undefined,
-                supplierAvailability: preferredSupplierName
-                  ? 'resolved_family_preferred_supplier'
-                  : target?.supplierAvailability,
-                leadTimeDays: familyLeadTimeDays,
-                effectiveLeadTimeDays: familyEffectiveLeadTimeDays,
-                leadTimeFreshness: asNumber(target?.familyLeadTimeDays) === undefined ? 'default' : 'fresh',
-                leadTimeAvailability:
-                  asNumber(target?.familyLeadTimeDays) === undefined
-                    ? 'resolved_default_supplier_lead_time'
-                    : 'resolved_family_preferred_supplier',
-                unitCost: familyUnitCost,
-                unitCostSource:
-                  asNumber(target?.familyUnitCost) === undefined ? target?.unitCostSource : 'family_preferred_supplier',
-                unitCostAvailability:
-                  asNumber(target?.familyUnitCost) === undefined
-                    ? target?.unitCostAvailability
-                    : 'resolved_family_preferred_supplier',
-              }
-            : {}),
-          familyRollupEvidence: familyRollup,
-          evidence: { ...toPlainRecord(row.evidence), familyRollup },
-        };
-        const companyProductId = asString(row.companyProductId);
-        if (companyProductId) resolvedByCompanyProductId.set(companyProductId, resolved);
-      }
-    }
-
-    return rows.map((row) => {
-      const companyProductId = asString(row.companyProductId);
-      return (
-        (companyProductId ? resolvedByCompanyProductId.get(companyProductId) : undefined) ?? {
-          ...row,
-          familyRole: 'unassigned',
-          familyMemberCount: 1,
-        }
-      );
-    });
-  }
-
   private async repoRows(collectionName: string, limit = GOLD_SOURCE_RECORD_LIMIT) {
     return (await this.db.getRepository(collectionName).find({ limit })).map(toPlainRecord);
   }
@@ -2837,30 +1849,49 @@ export class EcobaseInventoryPlanningService {
     return grouped;
   }
 
-  private async readGoldRows(query: InventoryPlanningQuery = {}) {
-    const result = await new EcobaseInventoryPlanningGoldAccess(this.db).readPublishedListingPerformance({
-      filter: query.company ? { company: query.company } : undefined,
-      sort: ['-estimatedProfitRisk'],
-    });
-    const publishedDate = asString(result.run?.calculationDate);
+  private async readPublishedPlanningModel(
+    query: InventoryPlanningQuery = {},
+  ): Promise<PublishedInventoryPlanningReadModel> {
+    const access = new EcobaseInventoryPlanningGoldAccess(this.db);
+    const filter = query.company ? { company: query.company } : undefined;
+    const [listingResult, familyResult] = await Promise.all([
+      access.readPublishedListingPerformance({ filter }),
+      access.readPublishedFamilyActions({ filter }),
+    ]);
+    if (!listingResult.published && !familyResult.published) {
+      return buildPublishedInventoryPlanningReadModel([], [], null);
+    }
+    const listingRunId = asString(listingResult.run?.id);
+    const familyRunId = asString(familyResult.run?.id);
+    if (!listingResult.published || !familyResult.published || !listingRunId || listingRunId !== familyRunId) {
+      throw new Error(
+        `EcoBase published inventory-planning read model mismatch: listing run ${
+          listingRunId ?? 'none'
+        }, family-action run ${familyRunId ?? 'none'}.`,
+      );
+    }
     const requestedDate = query.calculationDate ? isoDate(query.calculationDate) : undefined;
-    if (!result.published || (requestedDate && requestedDate !== publishedDate)) return [];
-    return this.sortPlanningRows(result.rows).slice(0, query.limit ?? result.rows.length);
+    if (requestedDate && requestedDate !== asString(listingResult.run?.calculationDate)) {
+      return buildPublishedInventoryPlanningReadModel([], [], null);
+    }
+    return buildPublishedInventoryPlanningReadModel(listingResult.rows, familyResult.rows, listingResult.run);
+  }
+
+  private async readGoldRows(query: InventoryPlanningQuery = {}) {
+    const readModel = await this.readPublishedPlanningModel(query);
+    return this.sortPlanningRows(readModel.listingRows).slice(0, query.limit ?? readModel.listingRows.length);
   }
 
   private sortPlanningRows(rows: PlainRecord[]) {
     return [...rows].sort((left, right) => {
-      const queue = riskQueueRank(left.actionStatus) - riskQueueRank(right.actionStatus);
-      if (queue !== 0) return queue;
-      const risk = (asNumber(right.estimatedProfitRisk) ?? 0) - (asNumber(left.estimatedProfitRisk) ?? 0);
-      if (risk !== 0) return risk;
-      const action =
-        actionRank(left.actionStatus as InventoryPlanningActionStatus) -
-        actionRank(right.actionStatus as InventoryPlanningActionStatus);
-      if (action !== 0) return action;
-      const tier = profitTierRank(left.tier) - profitTierRank(right.tier);
+      const actionable =
+        Number(right.newReplenishmentActionable === true) - Number(left.newReplenishmentActionable === true);
+      if (actionable !== 0) return actionable;
+      const profit = (asNumber(right.averageMonthlyProfit) ?? 0) - (asNumber(left.averageMonthlyProfit) ?? 0);
+      if (profit !== 0) return profit;
+      const tier = correctedTierRank(left.baselineTier) - correctedTierRank(right.baselineTier);
       if (tier !== 0) return tier;
-      return (asNumber(right.suggestedReorderQty) ?? 0) - (asNumber(left.suggestedReorderQty) ?? 0);
+      return (asNumber(right.recommendedOrderQty) ?? 0) - (asNumber(left.recommendedOrderQty) ?? 0);
     });
   }
 
@@ -2875,7 +1906,7 @@ export class EcobaseInventoryPlanningService {
   }
 
   private commandCenterSummaryCards(rows: PlainRecord[]) {
-    const moneyRisk = familyActionMoneyRisk(rows);
+    const averageMonthlyProfit = familyActionAverageMonthlyProfit(rows);
     const supplyRows = this.commandCenterRowsForPane('supplyAction', rows);
     const orderRows = [
       ...this.commandCenterRowsForPane('activeOrders', rows),
@@ -2883,8 +1914,8 @@ export class EcobaseInventoryPlanningService {
       ...this.commandCenterRowsForPane('inboundMonitoring', rows),
     ];
     const offTrackRows = orderRows.filter((row) => asString(row.pipelineHealthStatus) === 'late');
-    const urgentRows = supplyRows.filter((row) => ['overdue', 'order_today'].includes(String(row.actionStatus)));
-    const followUpRows = orderRows.filter((row) => asString(row.recommendedEscalation) === 'follow_up_order');
+    const urgentRows = supplyRows.filter((row) => row.newReplenishmentActionable === true);
+    const followUpRows = orderRows.filter((row) => row.existingOrderFollowUp === true);
     return [
       {
         key: 'urgentStockoutRisk',
@@ -2893,13 +1924,13 @@ export class EcobaseInventoryPlanningService {
         value: urgentRows.length,
       },
       {
-        key: 'moneyAtRisk',
-        label: 'Money at risk',
-        description: 'Applicable tiered family-action profit exposure',
-        value: moneyRisk.value,
-        unknownCount: moneyRisk.unknownCount,
-        denominatorCount: moneyRisk.denominatorCount,
-        knownCount: moneyRisk.knownCount,
+        key: 'averageMonthlyProfit',
+        label: 'Average monthly profit',
+        description: 'Applicable family-action baseline average monthly profit',
+        value: averageMonthlyProfit.value,
+        unknownCount: averageMonthlyProfit.unknownCount,
+        denominatorCount: averageMonthlyProfit.denominatorCount,
+        knownCount: averageMonthlyProfit.knownCount,
         format: 'currency',
       },
       {
@@ -2936,19 +1967,29 @@ export class EcobaseInventoryPlanningService {
     const inboundRows = this.commandCenterRowsForPane('inboundMonitoring', rows);
     const orderRows = [...activeRows, ...prepRows, ...inboundRows];
     const stuckRows = this.commandCenterRowsForPane('stuckInventory', rows);
-    const risk = (items: PlainRecord[]) => familyActionMoneyRisk(items);
-    const followUpRows = orderRows.filter((row) => asString(row.recommendedEscalation) === 'follow_up_order');
+    const averageProfit = (items: PlainRecord[]) => familyActionAverageMonthlyProfit(items);
+    const followUpRows = orderRows.filter((row) => row.existingOrderFollowUp === true);
     const leadTimeGapRows = rows.filter(
-      (row) => asString(row.commandCenterPane) !== 'untieredProducts' && leadTimeNeedsReview(row.leadTimeFreshness),
+      (row) => asString(row.primaryActionPane) !== 'untieredProducts' && leadTimeNeedsReview(row.leadTimeFreshness),
     );
     return [
-      { key: 'noOrderUrgent', label: 'Supply action risk', ...risk(supplyRows), format: 'currency' },
-      { key: 'activeOrderLate', label: 'Active order risk', ...risk(orderRows), format: 'currency' },
+      {
+        key: 'supplyActionAverageMonthlyProfit',
+        label: 'Supply action average monthly profit',
+        ...averageProfit(supplyRows),
+        format: 'currency',
+      },
+      {
+        key: 'activeOrderAverageMonthlyProfit',
+        label: 'Active order average monthly profit',
+        ...averageProfit(orderRows),
+        format: 'currency',
+      },
       { key: 'followUpsToday', label: 'Follow-ups today', value: followUpRows.length, suffix: 'orders' },
       {
         key: 'stuckCurrentStock',
         label: 'Stuck current stock',
-        value: stuckRows.reduce((total, row) => total + (asNumber(row.familyStuckAffectedUnits) ?? 0), 0),
+        value: stuckRows.reduce((total, row) => total + (asNumber(row.currentPlanningStock) ?? 0), 0),
         suffix: 'sellable units',
       },
       { key: 'leadTimeGaps', label: 'Lead-time gaps', value: leadTimeGapRows.length, suffix: 'rows' },
@@ -2960,13 +2001,17 @@ export class EcobaseInventoryPlanningService {
     const activeRows = this.commandCenterRowsForPane('activeOrders', rows);
     const prepRows = this.commandCenterRowsForPane('inPrepMonitoring', rows);
     const inboundRows = this.commandCenterRowsForPane('inboundMonitoring', rows);
-    const countByAction = (values: string[]) =>
-      values.map((value) => ({
-        key: value,
-        count: supplyRows.filter((row) => String(row.actionStatus) === value).length,
-      }));
     return {
-      supplyAction: countByAction(['overdue', 'order_today', 'order_soon']),
+      supplyAction: [
+        { key: 'actionable', count: supplyRows.filter((row) => row.newReplenishmentActionable === true).length },
+        { key: 'follow_up', count: supplyRows.filter((row) => row.existingOrderFollowUp === true).length },
+        {
+          key: 'review',
+          count: supplyRows.filter(
+            (row) => row.newReplenishmentActionable !== true && row.existingOrderFollowUp !== true,
+          ).length,
+        },
+      ],
       orderStages: [
         { key: 'activeOrders', count: activeRows.length },
         { key: 'inPrepMonitoring', count: prepRows.length },
@@ -2981,7 +2026,7 @@ export class EcobaseInventoryPlanningService {
       inventoryHealth: ['healthyInventory', 'excessInventory', 'stuckInventory', 'zeroStock', 'dataReadiness'].map(
         (value) => ({
           key: value,
-          count: rows.filter((row) => asString(row.commandCenterPane) === value).length,
+          count: rows.filter((row) => asString(row.primaryActionPane) === value).length,
         }),
       ),
     };
@@ -3022,10 +2067,8 @@ export class EcobaseInventoryPlanningService {
   }
 
   private commandCenterPaneMetrics(rows: PlainRecord[]) {
-    const value = (row: PlainRecord, familyField: string, listingField: string) =>
-      asNumber(row[familyField]) ?? asNumber(row[listingField]);
-    const sumTile = (label: string, familyField: string, listingField: string, format = 'number') => {
-      const values = rows.map((row) => value(row, familyField, listingField));
+    const sumTile = (label: string, field: string, format = 'number') => {
+      const values = rows.map((row) => asNumber(row[field]));
       const known = values.filter((item): item is number => typeof item === 'number');
       return {
         label,
@@ -3038,12 +2081,12 @@ export class EcobaseInventoryPlanningService {
     const knownStockoutDays = stockoutDays.filter((item): item is number => typeof item === 'number');
     return [
       { label: 'Product count', value: rows.length, unknownCount: 0, format: 'number' },
-      sumTile('Current Sellable', 'familyOnHandSellableStock', 'onHandSellableStock'),
-      sumTile('Amazon Pipeline', 'familyAmazonPipelineStock', 'amazonPipelineStock'),
-      sumTile('Supplier Pipeline', 'familySupplierPipelineStock', 'supplierPipelineStock'),
-      sumTile('Inventory Position', 'familyInventoryPositionStock', 'inventoryPositionStock'),
-      sumTile('Estimated Reorder', 'familySuggestedReorderQty', 'suggestedReorderQty'),
-      sumTile('Value', 'familyEstimatedOrderCost', 'estimatedOrderCost', 'currency'),
+      sumTile('Current Sellable', 'onHandSellableStock'),
+      sumTile('Amazon Pipeline', 'amazonPipelineStock'),
+      sumTile('Supplier Pipeline', 'supplierPipelineStock'),
+      sumTile('Inventory Position', 'inventoryPositionStock'),
+      sumTile('Recommended Order', 'recommendedOrderQty'),
+      sumTile('Average Monthly Profit', 'averageMonthlyProfit', 'currency'),
       {
         label: 'Days until Stockout',
         value: knownStockoutDays.length > 0 ? Math.min(...knownStockoutDays) : null,
@@ -3054,7 +2097,7 @@ export class EcobaseInventoryPlanningService {
   }
 
   private commandCenterRowsForPane(pane: InventoryCommandCenterPane, rows: PlainRecord[]) {
-    return rows.filter((row) => asString(row.commandCenterPane) === pane);
+    return rows.filter((row) => asString(row.primaryActionPane) === pane);
   }
 
   private matchesCommandCenterFilters(row: PlainRecord, filters: Record<string, unknown> | undefined) {
@@ -3063,13 +2106,13 @@ export class EcobaseInventoryPlanningService {
       const expected = Array.isArray(value) ? value : typeof value === 'string' && value ? [value] : [];
       return expected.length === 0 || expected.includes(row[field]);
     };
-    if (!matchesList('tier', filters.tier)) return false;
-    if (!matchesList('actionStatus', filters.actionStatus)) return false;
+    if (!matchesList('baselineTier', filters.baselineTier)) return false;
+    if (!matchesList('primaryActionPane', filters.primaryActionPane)) return false;
     if (!matchesList('supplierOrderState', filters.supplierOrderState)) return false;
     if (!matchesList('leadTimeFreshness', filters.leadTimeFreshness)) return false;
-    if (typeof filters.minProfitRisk === 'number') {
-      const risk = asNumber(row.estimatedProfitRisk);
-      if (typeof risk !== 'number' || risk < filters.minProfitRisk) return false;
+    if (typeof filters.minAverageMonthlyProfit === 'number') {
+      const profit = asNumber(row.averageMonthlyProfit);
+      if (typeof profit !== 'number' || profit < filters.minAverageMonthlyProfit) return false;
     }
     if (typeof filters.maxDaysUntilOos === 'number') {
       const daysUntilOos = asNumber(row.daysUntilOos);
@@ -3103,7 +2146,7 @@ export class EcobaseInventoryPlanningService {
     if (['healthyInventory', 'excessInventory', 'stuckInventory', 'untieredProducts'].includes(pane)) {
       return 'daysOfCover';
     }
-    return 'estimatedProfitRisk';
+    return 'averageMonthlyProfit';
   }
 
   private sortCommandCenterRows(rows: PlainRecord[], sortBy: string, direction: 'asc' | 'desc') {
@@ -3121,20 +2164,16 @@ export class EcobaseInventoryPlanningService {
   private commandCenterSortValue(row: PlainRecord, sortBy: string): string | number | undefined {
     if (sortBy === 'daysUntilOos') return asNumber(row.daysUntilOos);
     if (sortBy === 'stockoutGapDays') return asNumber(row.stockoutGapDays);
-    if (sortBy === 'tier') return profitTierRank(row.tier);
-    if (sortBy === 'actionStatus') return actionRank(row.actionStatus as InventoryPlanningActionStatus);
+    if (sortBy === 'baselineTier') return correctedTierRank(row.baselineTier);
+    if (sortBy === 'primaryActionPane') return asString(row.primaryActionPane);
     if (
       [
-        'estimatedProfitRisk',
-        'suggestedReorderQty',
+        'averageMonthlyProfit',
+        'recommendedOrderQty',
         'daysUntilSafeReorder',
         'daysOfCover',
         'currentPlanningStock',
         'inventoryPositionStock',
-        'familyCurrentPlanningStock',
-        'familyInventoryPositionStock',
-        'familyDaysOfCover',
-        'familyStuckAffectedValue',
       ].includes(sortBy)
     ) {
       return asNumber(row[sortBy]);
@@ -3143,310 +2182,9 @@ export class EcobaseInventoryPlanningService {
   }
 
   private compactCommandCenterRow(row: PlainRecord) {
-    const daysUntilOos = asNumber(row.daysUntilOos);
-    const gapDays = asNumber(row.stockoutGapDays);
-    const leadTimeEvidence = toPlainRecord(toPlainRecord(row.evidence).leadTime);
-    const familyLeadTimeEvidence = toPlainRecord(toPlainRecord(row.familyRollupEvidence).leadTime);
-    const familyLeadTimeComponents = toPlainRecord(familyLeadTimeEvidence.components);
     return {
-      id:
-        asString(row.id) ??
-        asString(row.naturalKey) ??
-        `${asString(row.company) ?? ''}:${asString(row.asin) ?? ''}:${asString(row.sku) ?? ''}`,
-      company: asString(row.company),
-      planningProductId: asString(row.planningProductId),
-      companyProductId: asString(row.companyProductId),
-      companyProductFamilyId: asString(row.companyProductFamilyId),
-      familyAmazonAccountId: asString(row.familyAmazonAccountId),
-      familyMarketplace: asString(row.familyMarketplace),
-      familyCanonicalAsin: asString(row.familyCanonicalAsin),
-      familyRole: asString(row.familyRole),
-      familyMemberCount: asNumber(row.familyMemberCount),
-      targetSelectionState: asString(row.targetSelectionState),
-      targetCompanyProductId: asString(row.targetCompanyProductId),
-      representativeCompanyProductId: asString(row.representativeCompanyProductId),
-      actionSourceCompanyProductId: asString(row.actionSourceCompanyProductId),
-      memberCount: asNumber(row.memberCount),
-      primaryActionPane: asString(row.primaryActionPane),
-      primaryActionReasonCode: asString(row.primaryActionReasonCode),
-      replenishmentEligibility: asString(row.replenishmentEligibility),
-      replenishmentBlockReasonCode: asString(row.replenishmentBlockReasonCode),
-      newReplenishmentActionable: asBoolean(row.newReplenishmentActionable),
-      oosAlertActionable: asBoolean(row.oosAlertActionable),
-      supplyActionable: asBoolean(row.supplyActionable),
-      existingOrderFollowUp: asBoolean(row.existingOrderFollowUp),
-      existingOrderFollowUpAction: asString(row.existingOrderFollowUpAction),
-      recommendedOrderQty: row.recommendedOrderQty ?? null,
-      linkedMemberEvidence: Array.isArray(row.linkedMemberEvidence) ? row.linkedMemberEvidence : [],
-      replenishmentTargetCompanyProductId: asString(row.replenishmentTargetCompanyProductId),
-      replenishmentTargetSku: asString(row.replenishmentTargetSku),
-      familyTier: asString(row.familyTier),
-      familyTierScore: asNumber(row.familyTierScore),
-      familyCurrentPlanningStock: asNumber(row.familyCurrentPlanningStock),
-      familyOnHandStock: asNumber(row.familyOnHandStock),
-      familyOnHandSellableStock: asNumber(row.familyOnHandSellableStock),
-      familyAmazonPipelineStock: asNumber(row.familyAmazonPipelineStock),
-      familySupplierPipelineStock: asNumber(row.familySupplierPipelineStock),
-      familyInventoryPositionStock: asNumber(row.familyInventoryPositionStock),
-      familyFuturePositionStock: asNumber(row.familyFuturePositionStock),
-      familySellableStock: asNumber(row.familySellableStock),
-      familyReservedStock: asNumber(row.familyReservedStock),
-      familyPipelineStock: asNumber(row.familyPipelineStock),
-      familyInboundStock: asNumber(row.familyInboundStock),
-      familyOrderedStock: asNumber(row.familyOrderedStock),
-      familyPrepStock: asNumber(row.familyPrepStock),
-      familyAwdStock: asNumber(row.familyAwdStock),
-      familySalesVelocity: asNumber(row.familySalesVelocity),
-      familyDaysOfCover: asNumber(row.familyDaysOfCover),
-      familyEstimatedOosDate: asString(row.familyEstimatedOosDate),
-      familyPositionDaysOfCover: asNumber(row.familyPositionDaysOfCover),
-      familyPositionEstimatedOosDate: asString(row.familyPositionEstimatedOosDate),
-      familyOpenOrderCoverageQty: asNumber(row.familyOpenOrderCoverageQty),
-      familyTrustedSupplierOrderCoverageQty: asNumber(row.familyTrustedSupplierOrderCoverageQty),
-      familySuggestedReorderQty: asNumber(row.familySuggestedReorderQty),
-      familyPreferredSupplierId: asString(row.familyPreferredSupplierId),
-      familyPreferredSupplierProductId: asString(row.familyPreferredSupplierProductId),
-      familyPreferredSupplierName: asString(row.familyPreferredSupplierName),
-      familyUnitCost: asNumber(row.familyUnitCost),
-      familyLeadTimeDays: asNumber(row.familyLeadTimeDays),
-      familyEstimatedOrderCost: asNumber(row.familyEstimatedOrderCost),
-      familyStuck: asBoolean(row.familyStuck),
-      familyStuckAction: asBoolean(row.familyStuckAction),
-      familyStuckClassification: asString(row.familyStuckClassification),
-      familyStuckAffectedMemberCount: asNumber(row.familyStuckAffectedMemberCount),
-      familyStuckAffectedUnits: asNumber(row.familyStuckAffectedUnits),
-      familyStuckAffectedValue: asNumber(row.familyStuckAffectedValue),
-      familyStuckActiveOrderCount: asNumber(row.familyStuckActiveOrderCount),
-      familyStuckEvidence: toPlainRecord(row.familyStuckEvidence),
-      familyRollupEvidence: toPlainRecord(row.familyRollupEvidence),
-      asin: asString(row.asin),
-      sku: asString(row.sku),
-      title: asString(row.title),
-      productStatus: asString(row.productStatus),
-      tier: asString(row.tier),
-      tierScore: asNumber(row.tierScore),
-      baselineTier: asString(row.baselineTier),
-      baselineTierScore: asString(row.baselineTierScore),
-      baselineState: asString(row.baselineState),
-      baselineConfidence: asString(row.baselineConfidence),
-      baselineEligibleMonthCount: asNumber(row.baselineEligibleMonthCount),
-      baselineWindowStartDate: asString(row.baselineWindowStartDate),
-      baselineWindowEndDate: asString(row.baselineWindowEndDate),
-      averageMonthlyUnits: asString(row.averageMonthlyUnits),
-      averageMonthlyProfit: asString(row.averageMonthlyProfit),
-      bestMonthlyUnits: asString(row.bestMonthlyUnits),
-      bestMonthlyProfit: asString(row.bestMonthlyProfit),
-      worstMonthlyUnits: asString(row.worstMonthlyUnits),
-      worstMonthlyProfit: asString(row.worstMonthlyProfit),
-      lastClosedMonth: asString(row.lastClosedMonth),
-      lastClosedMonthTier: asString(row.lastClosedMonthTier),
-      lastClosedMonthState: asString(row.lastClosedMonthState),
-      closedTierMovement: asString(row.closedTierMovement),
-      currentProjectedTier: asString(row.currentProjectedTier),
-      currentProjectedState: asString(row.currentProjectedState),
-      currentProjectionConfidence: asString(row.currentProjectionConfidence),
-      currentProjectionGateMode: asString(row.currentProjectionGateMode),
-      projectedTierMovement: asString(row.projectedTierMovement),
-      quantityPaceStatus: asString(row.quantityPaceStatus),
-      profitPaceStatus: asString(row.profitPaceStatus),
-      aggregatePaceStatus: asString(row.aggregatePaceStatus),
-      paceCause: asString(row.paceCause),
-      inventoryDisposition: asString(row.inventoryDisposition),
-      inventoryDispositionReasonCode: asString(row.inventoryDispositionReasonCode),
-      listingReviewCategories: Array.isArray(row.listingReviewCategories) ? row.listingReviewCategories : [],
-      recentUnits30: asNumber(row.recentUnits30),
-      tierEligibilityReason: asString(row.tierEligibilityReason),
-      tierRuleVersion: asString(row.tierRuleVersion),
-      previousTier: asString(row.previousTier),
-      currentTier: asString(row.currentTier),
-      currentTierScore: asNumber(row.currentTierScore),
-      averageTier: asString(row.averageTier),
-      averageTierScore: asNumber(row.averageTierScore),
-      bestTier: asString(row.bestTier),
-      bestTierScore: asNumber(row.bestTierScore),
-      actionStatus: asString(row.actionStatus),
-      estimatedProfitRisk: asNumber(row.estimatedProfitRisk),
-      estimatedProfitRiskBasis: asString(row.estimatedProfitRiskBasis),
-      moneyRiskStatus: asString(row.moneyRiskStatus),
-      moneyRiskUncoveredDays: asNumber(row.moneyRiskUncoveredDays),
-      moneyRiskInputs: toPlainRecord(row.moneyRiskInputs),
-      salesVelocity: asNumber(row.salesVelocity),
-      salesVelocityBasis: asString(row.salesVelocityBasis),
-      salesVelocityStatus: asString(row.salesVelocityStatus),
-      salesVelocityWindowStart: asString(row.salesVelocityWindowStart),
-      salesVelocityWindowEnd: asString(row.salesVelocityWindowEnd),
-      salesVelocityAsOfDate: asString(row.salesVelocityAsOfDate),
-      profitPerUnit: asNumber(row.profitPerUnit),
-      recommendedBestQty: asNumber(row.recommendedBestQty),
-      targetCoverDays: asNumber(row.targetCoverDays),
-      suggestedReorderQty: asNumber(row.suggestedReorderQty),
-      unitCost: asNumber(row.unitCost),
-      unitCostSource: asString(row.unitCostSource),
-      supplierAvailability: asString(row.supplierAvailability),
-      leadTimeAvailability: asString(row.leadTimeAvailability),
-      unitCostAvailability: asString(row.unitCostAvailability),
-      profitAvailability: asString(row.profitAvailability),
-      planningEligibilityStatus: asString(row.planningEligibilityStatus),
-      planningEligibilityReason: asString(row.planningEligibilityReason),
-      dataQualityStatus: asString(row.dataQualityStatus),
-      dataQualityIssues: Array.isArray(row.dataQualityIssues) ? row.dataQualityIssues : [],
-      readinessDomains: toPlainRecord(row.readinessDomains),
-      readinessReasonCodes: Array.isArray(row.readinessReasonCodes) ? row.readinessReasonCodes : [],
-      operationalIssues: Array.isArray(row.operationalIssues) ? row.operationalIssues : [],
-      inventoryAsOfDate: asString(row.inventoryAsOfDate),
-      sourceFreshnessStatus: asString(row.sourceFreshnessStatus),
-      inboundMonitoringEvidence: inboundMonitoringEvidence(row),
-      commandCenterPane: asString(row.commandCenterPane),
-      commandCenterPaneReason: asString(row.commandCenterPaneReason),
-      estimatedOrderCost: asNumber(row.estimatedOrderCost),
-      currentPlanningStock: asNumber(row.currentPlanningStock),
-      onHandStock: asNumber(row.onHandStock),
-      onHandSellableStock: asNumber(row.onHandSellableStock),
-      amazonPipelineStock: asNumber(row.amazonPipelineStock),
-      supplierPipelineStock: asNumber(row.supplierPipelineStock),
-      inventoryPositionStock: asNumber(row.inventoryPositionStock),
-      futurePositionStock: asNumber(row.futurePositionStock),
-      sellableStock: asNumber(row.sellableStock),
-      reservedStock: asNumber(row.reservedStock),
-      pipelineStock: asNumber(row.pipelineStock),
-      inboundStock: asNumber(row.inboundStock),
-      orderedStock: asNumber(row.orderedStock),
-      prepStock: asNumber(row.prepStock),
-      awdStock: asNumber(row.awdStock),
-      daysOfCover: asNumber(row.daysOfCover),
-      estimatedOosDate: asString(row.estimatedOosDate),
-      positionDaysOfCover: asNumber(row.positionDaysOfCover),
-      positionEstimatedOosDate: asString(row.positionEstimatedOosDate),
-      daysUntilOos,
-      latestSafeReorderDate: asString(row.latestSafeReorderDate),
-      daysUntilSafeReorder: asNumber(row.daysUntilSafeReorder),
-      leadTimeDays: asNumber(row.leadTimeDays),
-      effectiveLeadTimeDays: asNumber(leadTimeEvidence.effectiveLeadTimeDays),
-      leadTimeComponents: toPlainRecord(leadTimeEvidence.components),
-      leadTimeFreshness: asString(row.leadTimeFreshness),
-      supplierName: asString(row.supplierName),
-      supplierSource: asString(row.supplierSource),
-      supplierConfidence: asString(row.supplierConfidence),
-      supplierOrderState: asString(row.supplierOrderState),
-      supplierOrderId: asString(row.supplierOrderId),
-      supplierOrderStatus: asString(row.supplierOrderStatus),
-      supplierOrderRawStatus: exactWorkflowStatus(row),
-      supplierOrderOperationalStatus: asString(row.supplierOrderOperationalStatus),
-      supplierOrderWorkflowStage: asString(row.supplierOrderWorkflowStage),
-      supplierOrderLineMappingScope: asString(row.supplierOrderLineMappingScope),
-      supplierOrderSourceMemberSku: asString(row.supplierOrderSourceMemberSku),
-      supplierOrderRef: asString(row.supplierOrderRef),
-      supplierOrderAuthorityStatus: asString(row.supplierOrderAuthorityStatus),
-      supplierOrderAuthoritySource: asString(row.supplierOrderAuthoritySource),
-      supplierOrderAuthorityTaskRef: asString(row.supplierOrderAuthorityTaskRef),
-      supplierOrderAuthorityAsOf: asString(row.supplierOrderAuthorityAsOf),
-      supplierOrderAuthorityEvidence: toPlainRecord(row.supplierOrderAuthorityEvidence),
-      supplierOrderOpenQty: asNumber(row.supplierOrderOpenQty),
-      supplierOrderReferenceOpenQty: asNumber(row.supplierOrderReferenceOpenQty),
-      supplierOrderCycleSelection: Object.keys(toPlainRecord(row.supplierOrderCycleSelection)).length
-        ? toPlainRecord(row.supplierOrderCycleSelection)
-        : toPlainRecord(toPlainRecord(row.evidence).orderCycle),
-      supplierOrderCycleReviewRequired:
-        asBoolean(row.supplierOrderCycleReviewRequired) ??
-        (Array.isArray(row.dataQualityIssues) && row.dataQualityIssues.includes('order_cycle_review_required')),
-      amazonReceiptStatus: asString(row.amazonReceiptStatus),
-      amazonReceiptObservedAt: asString(row.amazonReceiptObservedAt),
-      amazonReceiptCompletionReason: asString(row.amazonReceiptCompletionReason),
-      amazonReceiptEvidenceJson: toPlainRecord(row.amazonReceiptEvidenceJson),
-      latestSupplierOrderActivityType: asString(row.latestSupplierOrderActivityType),
-      latestSupplierOrderActivityAt: sortableDateValue(row.latestSupplierOrderActivityAt) || undefined,
-      latestSupplierOrderActivityNote: asString(row.latestSupplierOrderActivityNote),
-      latestSupplierOrderActivityActor: asString(row.latestSupplierOrderActivityActor),
-      latestSupplierOrderActivityActorUserId: asRecordIdString(row.latestSupplierOrderActivityActorUserId),
-      latestSupplierOrderActivityActorDisplayName: asString(row.latestSupplierOrderActivityActorDisplayName),
-      latestSupplierOrderActivityActorEmail: asString(row.latestSupplierOrderActivityActorEmail),
-      latestSupplierOrderActivitySource: asString(row.latestSupplierOrderActivitySource),
-      openOrderCoverageQty: asNumber(row.openOrderCoverageQty),
-      trustedSupplierOrderCoverageQty: asNumber(row.trustedSupplierOrderCoverageQty),
-      expectedArrivalDate: asString(row.expectedArrivalDate),
-      expectedArrivalStatus: asString(row.expectedArrivalStatus),
-      expectedArrivalSource: asString(row.expectedArrivalSource),
-      expectedArrivalAsOf: asString(row.expectedArrivalAsOf),
-      expectedArrivalConfidence: asString(row.expectedArrivalConfidence),
-      expectedArrivalFreshness: asString(row.expectedArrivalFreshness),
-      pipelineHealthStatus: asString(row.pipelineHealthStatus),
-      stockoutGapDays: gapDays,
-      stuck: asBoolean(row.stuck),
-      stuckClassification: asString(row.stuckClassification),
-      tierMovement: asString(row.tierMovement),
-      recommendedEscalation: asString(row.recommendedEscalation),
-      lastMonthQty: asNumber(row.lastMonthQty),
-      sixMonthAverageQty: asNumber(row.sixMonthAverageQty),
-      sixMonthWorstQty: asNumber(row.sixMonthWorstQty),
-      sixMonthBestQty: asNumber(row.sixMonthBestQty),
-      sixMonthMargin: asNumber(row.sixMonthMargin),
-      familyMetrics: {
-        familyId: asString(row.companyProductFamilyId),
-        company: asString(row.company),
-        amazonAccountId: asString(row.familyAmazonAccountId),
-        marketplace: asString(row.familyMarketplace),
-        asin: asString(row.familyCanonicalAsin) ?? asString(row.asin),
-        onHandSellableStock: asNumber(row.familyOnHandSellableStock) ?? asNumber(row.onHandSellableStock),
-        reservedStock: asNumber(row.familyReservedStock) ?? asNumber(row.reservedStock),
-        amazonPipelineStock: asNumber(row.familyAmazonPipelineStock) ?? asNumber(row.amazonPipelineStock),
-        supplierPipelineStock: asNumber(row.familySupplierPipelineStock) ?? asNumber(row.supplierPipelineStock),
-        inventoryPositionStock: asNumber(row.familyInventoryPositionStock) ?? asNumber(row.inventoryPositionStock),
-        futurePositionStock: asNumber(row.familyFuturePositionStock) ?? asNumber(row.futurePositionStock),
-        daysOfCover: asNumber(row.familyDaysOfCover) ?? asNumber(row.daysOfCover),
-        targetCompanyProductId: asString(row.replenishmentTargetCompanyProductId),
-        targetSku: asString(row.replenishmentTargetSku) ?? asString(row.sku),
-      },
-      targetListingMetrics: {
-        companyProductId: asString(row.companyProductId),
-        sku: asString(row.sku),
-        listingStatus: asString(row.productStatus),
-        onHandSellableStock: asNumber(row.onHandSellableStock),
-        reservedStock: asNumber(row.reservedStock),
-        amazonPipelineStock: asNumber(row.amazonPipelineStock),
-        supplierPipelineStock: asNumber(row.supplierPipelineStock),
-        inventoryPositionStock: asNumber(row.inventoryPositionStock),
-        futurePositionStock: asNumber(row.futurePositionStock),
-        daysOfCover: asNumber(row.daysOfCover),
-      },
-      familySupplier: {
-        supplierId: asString(row.familyPreferredSupplierId),
-        supplierName: asString(row.familyPreferredSupplierName),
-        supplierProductId: asString(row.familyPreferredSupplierProductId),
-        leadTimeDays: asNumber(row.familyLeadTimeDays),
-        effectiveLeadTimeDays:
-          asNumber(familyLeadTimeEvidence.effectiveLeadTimeDays) ?? asNumber(leadTimeEvidence.effectiveLeadTimeDays),
-        leadTimeComponents: Object.keys(familyLeadTimeComponents).length
-          ? familyLeadTimeComponents
-          : toPlainRecord(leadTimeEvidence.components),
-        unitCost: asNumber(row.familyUnitCost),
-      },
-      targetOffer: {
-        supplierId: asString(row.supplierId),
-        supplierName: asString(row.supplierName),
-        supplierProductId: asString(toPlainRecord(row.evidence).supplierProductId),
-        availability: asString(row.supplierAvailability),
-        leadTimeDays: asNumber(row.leadTimeDays),
-        effectiveLeadTimeDays: asNumber(leadTimeEvidence.effectiveLeadTimeDays),
-        leadTimeComponents: toPlainRecord(leadTimeEvidence.components),
-        unitCost: asNumber(row.unitCost),
-      },
-      currentCycle: {
-        orderId: asString(row.supplierOrderId),
-        orderRef: asString(row.supplierOrderRef),
-        rawStatus: exactWorkflowStatus(row),
-        canonicalStatus: asString(row.supplierOrderStatus),
-        workflowStage: asString(row.supplierOrderWorkflowStage),
-        mappingScope: asString(row.supplierOrderLineMappingScope),
-        expectedArrivalDate: asString(row.expectedArrivalDate),
-        receiptStatus: asString(row.amazonReceiptStatus),
-      },
-      readiness: {
-        category: asString(row.planningEligibilityStatus),
-        primaryIssue: Array.isArray(row.dataQualityIssues) ? row.dataQualityIssues[0] : undefined,
-        primaryAction: asString(row.actionStatus),
-        issueCodes: Array.isArray(row.readinessReasonCodes) ? row.readinessReasonCodes : [],
-      },
-      evidence: toPlainRecord(row.evidence),
+      ...projectCorrectedInventoryPlanningListingRow(row),
+      ...Object.fromEntries(FAMILY_ACTION_CONSUMER_FIELDS.map((field) => [field, publishedReadModelValue(row[field])])),
     };
   }
 
@@ -3462,14 +2200,21 @@ export class EcobaseInventoryPlanningService {
         prepStock: asNumber(row.prepStock),
         awdStock: asNumber(row.awdStock),
       },
-      history: {
-        lastMonthQty: asNumber(row.lastMonthQty),
-        sixMonthAverageQty: asNumber(row.sixMonthAverageQty),
-        sixMonthWorstQty: asNumber(row.sixMonthWorstQty),
-        sixMonthBestQty: asNumber(row.sixMonthBestQty),
-        sixMonthMargin: asNumber(row.sixMonthMargin),
+      performanceEvidence: {
+        baselineTier: asString(row.baselineTier),
+        baselineState: asString(row.baselineState),
+        baselineConfidence: asString(row.baselineConfidence),
+        baselineWeightedProfitPerUnit: row.baselineWeightedProfitPerUnit ?? null,
+        averageMonthlyUnits: row.averageMonthlyUnits ?? null,
+        averageMonthlyProfit: row.averageMonthlyProfit ?? null,
+        lastClosedMonthUnits: row.lastClosedMonthUnits ?? null,
+        lastClosedMonthProfit: row.lastClosedMonthProfit ?? null,
+        bestMonthlyUnits: row.bestMonthlyUnits ?? null,
+        bestMonthlyProfit: row.bestMonthlyProfit ?? null,
+        worstMonthlyUnits: row.worstMonthlyUnits ?? null,
+        worstMonthlyProfit: row.worstMonthlyProfit ?? null,
+        monthlyPerformanceEvidence: Array.isArray(row.monthlyPerformanceEvidence) ? row.monthlyPerformanceEvidence : [],
       },
-      evidence: toPlainRecord(row.evidence),
     };
   }
 
@@ -3487,13 +2232,12 @@ export class EcobaseInventoryPlanningService {
   }
 
   async digestPreview(query: InventoryPlanningQuery = {}) {
-    const allRows = await this.listRows({ ...query, limit: undefined });
-    const familyResult = await new EcobaseInventoryPlanningGoldAccess(this.db).readPublishedFamilyActions({
-      filter: query.company ? { company: query.company } : undefined,
-    });
-    const projection = buildTypedFamilyActionProjection(allRows, familyResult.rows, familyResult.run);
-    const rows = projection.rows;
-    const moneyRisk = familyActionMoneyRisk(rows);
+    return this.digestFromReadModel(await this.readPublishedPlanningModel(query), query);
+  }
+
+  private async digestFromReadModel(projection: PublishedInventoryPlanningReadModel, query: InventoryPlanningQuery) {
+    const rows = projection.familyActions;
+    const averageMonthlyProfit = familyActionAverageMonthlyProfit(rows);
     const digestRows = rows.filter(isDigestCandidateRow);
     const urgentRows = await this.withLatestSupplierOrderActivity(
       this.sortDigestRows(digestRows.filter(isUrgentDigestRow)),
@@ -3505,9 +2249,11 @@ export class EcobaseInventoryPlanningService {
       company: query.company ?? null,
       metadata: projection.metadata,
       summary: {
-        overdue: digestRows.filter((row) => row.actionStatus === 'overdue').length,
-        orderToday: digestRows.filter((row) => row.actionStatus === 'order_today').length,
-        orderSoon: digestRows.filter((row) => row.actionStatus === 'order_soon').length,
+        actionable: digestRows.filter((row) => row.newReplenishmentActionable === true).length,
+        existingOrderFollowUp: digestRows.filter((row) => row.existingOrderFollowUp === true).length,
+        reviewRequired: digestRows.filter(
+          (row) => row.newReplenishmentActionable !== true && row.existingOrderFollowUp !== true,
+        ).length,
         atRisk: urgentRows.length,
         staleOrMissingLeadTime: digestRows.filter((row) => leadTimeNeedsReview(row.leadTimeFreshness)).length,
         suppliersToContact: new Set(supplierContactRows.map((row) => row.supplierName).filter(Boolean)).size,
@@ -3515,10 +2261,10 @@ export class EcobaseInventoryPlanningService {
         closedOrderHistoryOnly: urgentRows.filter((row) => row.supplierOrderState === 'closed_history').length,
         placedNotPurchased: urgentRows.filter((row) => row.supplierOrderState === 'placed_not_purchased').length,
         purchasedPipelineExcluded: digestRows.filter((row) => row.supplierOrderState === 'purchased_pipeline').length,
-        moneyAtRiskKnownTotal: moneyRisk.value,
-        moneyAtRiskKnownCount: moneyRisk.knownCount,
-        moneyAtRiskUnknownCount: moneyRisk.unknownCount,
-        moneyAtRiskDenominatorCount: moneyRisk.denominatorCount,
+        averageMonthlyProfitKnownTotal: averageMonthlyProfit.value,
+        averageMonthlyProfitKnownCount: averageMonthlyProfit.knownCount,
+        averageMonthlyProfitUnknownCount: averageMonthlyProfit.unknownCount,
+        averageMonthlyProfitDenominatorCount: averageMonthlyProfit.denominatorCount,
       },
       sections: {
         orderNow: urgentRows,
@@ -3535,280 +2281,31 @@ export class EcobaseInventoryPlanningService {
     if (typeof budget !== 'number' || budget <= 0) {
       throw new Error('Ecobase budget optimizer requires a budget greater than zero.');
     }
-    const calculationDate = isoDate(query.calculationDate ?? new Date());
-    const horizonDays = Math.max(Math.round(query.horizonDays ?? 30), 1);
-    const rows = await this.listRows({ ...query, calculationDate, limit: query.limit ?? 500 });
-    const urgentRows = this.sortDigestRows(
-      rows.filter(
-        (row) =>
-          isProfitTier(row.tier) &&
-          ['overdue', 'order_today', 'order_soon', 'missing_lead_time', 'stale_lead_time'].includes(
-            String(row.actionStatus),
-          ) &&
-          row.supplierOrderState !== 'purchased_pipeline',
+    throw Object.assign(
+      new Error(
+        'EcoBase corrected budget optimization is unavailable until an explicit corrected scoring contract is published.',
       ),
+      { code: 'ECOBASE_CORRECTED_BUDGET_OPTIMIZER_UNAVAILABLE' },
     );
-    const silverOrders = await silverSupplierOrderReadModel(this.db, { company: query.company, limit: 1000 });
-    const supplierOrders = silverOrders.supplierOrders;
-    const supplierOrderLines = silverOrders.supplierOrderLines;
-    const orderById = new Map(
-      supplierOrders
-        .map((order) => [asString(order.id), order] as const)
-        .filter((entry): entry is [string, PlainRecord] => Boolean(entry[0])),
-    );
-    const ordersByCompanyAndRef = new Map(
-      supplierOrders
-        .map(
-          (order) =>
-            [
-              `${asString(order.company) ?? ''}:${asString(order.externalOrderRef) ?? asString(order.id) ?? ''}`,
-              order,
-            ] as const,
-        )
-        .filter(([key]) => !key.endsWith(':')),
-    );
-    const linesByOrderId = new Map<string, PlainRecord[]>();
-    for (const line of supplierOrderLines) {
-      const orderId = asString(line.supplierOrderId);
-      if (!orderId) continue;
-      const current = linesByOrderId.get(orderId) ?? [];
-      current.push(line);
-      linesByOrderId.set(orderId, current);
-    }
-
-    const candidates = new Map<
-      string,
-      PlainRecord & { rows: PlainRecord[]; lineIds: Set<string>; reasonSet: Set<string>; urgency: number }
-    >();
-    const latestLineForRow = (row: PlainRecord) => supplierOrderLines.find((line) => lineMatchesRow(line, row));
-    const addCandidateRow = (
-      candidate: PlainRecord & { rows: PlainRecord[]; lineIds: Set<string>; reasonSet: Set<string>; urgency: number },
-      row: PlainRecord,
-    ) => {
-      const identity = productIdentity(row);
-      if (!candidate.rows.some((existing) => productIdentity(existing) === identity)) {
-        candidate.rows.push(row);
-        candidate.protectedProfit =
-          Math.round(((asNumber(candidate.protectedProfit) ?? 0) + (asNumber(row.estimatedProfitRisk) ?? 0)) * 100) /
-          100;
-      }
-      candidate.urgency = Math.max(candidate.urgency, urgencyWeight(row));
-      const actionStatus = asString(row.actionStatus);
-      const tier = asString(row.tier);
-      if (actionStatus) candidate.reasonSet.add(actionStatus);
-      if (tier) candidate.reasonSet.add(`tier_${tier.toLowerCase()}`);
-      if (!asString(row.supplierName)) candidate.reasonSet.add('missing_supplier');
-    };
-
-    for (const row of urgentRows) {
-      const supplierOrderRef = asString(row.supplierOrderRef);
-      const company = asString(row.company) ?? '';
-      const existingOrder = supplierOrderRef
-        ? ordersByCompanyAndRef.get(`${company}:${supplierOrderRef}`) ?? orderById.get(supplierOrderRef)
-        : undefined;
-      if (existingOrder && row.supplierOrderState === 'placed_not_purchased') {
-        const orderId = asString(existingOrder.id) ?? supplierOrderRef;
-        const key = `order:${orderId}`;
-        const orderLines = linesByOrderId.get(orderId) ?? [];
-        let candidate = candidates.get(key);
-        if (!candidate) {
-          let spend = 0;
-          let missingCost = false;
-          let openQuantity = 0;
-          const lineSummaries = [] as PlainRecord[];
-          for (const line of orderLines) {
-            const quantity = openQty(line);
-            if (quantity <= 0) continue;
-            openQuantity += quantity;
-            const unitCost = asNumber(line.unitCost);
-            if (typeof unitCost !== 'number' || unitCost <= 0) {
-              missingCost = true;
-            } else {
-              spend += quantity * unitCost;
-            }
-            lineSummaries.push({
-              supplierOrderLineId: asString(line.id),
-              planningProductId: asString(line.planningProductId),
-              asin: asString(line.asin),
-              sku: asString(line.sku),
-              brand: asString(line.brand),
-              openQty: quantity,
-              unitCost,
-              lineSpend:
-                typeof unitCost === 'number' && unitCost > 0 ? Math.round(quantity * unitCost * 100) / 100 : undefined,
-            });
-          }
-          candidate = {
-            key,
-            candidateType: 'supplier_order',
-            recommendedAction: recommendedActionForStatus(existingOrder.status),
-            supplierOrderId: orderId,
-            supplierOrderRef: asString(existingOrder.externalOrderRef) ?? orderId,
-            supplierOrderStatus: asString(existingOrder.status),
-            company,
-            supplierId: asString(existingOrder.supplierId),
-            supplierName: asString(existingOrder.supplierName),
-            spend: missingCost || spend <= 0 ? undefined : Math.round(spend * 100) / 100,
-            openQty: openQuantity,
-            protectedProfit: 0,
-            score: 0,
-            adjustedScore: 0,
-            lineSummaries,
-            rows: [],
-            lineIds: new Set(lineSummaries.map((line) => String(line.supplierOrderLineId ?? '')).filter(Boolean)),
-            reasonSet: new Set<string>(),
-            urgency: 0,
-          };
-          if (missingCost || spend <= 0) candidate.reasonSet.add('missing_unit_cost');
-          if (asString(existingOrder.status)) candidate.reasonSet.add(asString(existingOrder.status) as string);
-          candidates.set(key, candidate);
-        }
-        addCandidateRow(candidate, row);
-        continue;
-      }
-
-      const suggestedQty = asNumber(row.suggestedReorderQty) ?? 0;
-      const historyLine = latestLineForRow(row);
-      const unitCost = asNumber(historyLine?.unitCost);
-      const spend =
-        suggestedQty > 0 && typeof unitCost === 'number' && unitCost > 0 ? suggestedQty * unitCost : undefined;
-      const key = `product:${productIdentity(row)}`;
-      const candidate: PlainRecord & {
-        rows: PlainRecord[];
-        lineIds: Set<string>;
-        reasonSet: Set<string>;
-        urgency: number;
-      } = {
-        key,
-        candidateType: 'planning_product',
-        recommendedAction: spend ? 'create_order' : 'recover_supplier_or_cost',
-        planningProductId: asString(row.planningProductId),
-        company: asString(row.company),
-        asin: asString(row.asin),
-        sku: asString(row.sku),
-        title: asString(row.title),
-        supplierId: asString(row.supplierId),
-        supplierName: asString(row.supplierName),
-        suggestedReorderQty: suggestedQty,
-        unitCost,
-        spend: spend ? Math.round(spend * 100) / 100 : undefined,
-        protectedProfit: 0,
-        score: 0,
-        adjustedScore: 0,
-        rows: [],
-        lineIds: new Set<string>(),
-        reasonSet: new Set<string>(),
-        urgency: 0,
-      };
-      if (!spend) candidate.reasonSet.add('missing_unit_cost');
-      addCandidateRow(candidate, row);
-      candidates.set(key, candidate);
-    }
-
-    const rankedCandidates = [...candidates.values()]
-      .map((candidate): PlainRecord => {
-        const spend = asNumber(candidate.spend);
-        const protectedProfit = asNumber(candidate.protectedProfit) ?? 0;
-        const score = spend && spend > 0 ? protectedProfit / spend : 0;
-        const adjustedScore = score * (1 + candidate.urgency / 100);
-        const { rows: candidateRows, lineIds: _lineIds, reasonSet, urgency: _urgency, ...publicCandidate } = candidate;
-        return {
-          ...publicCandidate,
-          score: Math.round(score * 10000) / 10000,
-          adjustedScore: Math.round(adjustedScore * 10000) / 10000,
-          urgencyScore: candidate.urgency,
-          reasonCodes: [...reasonSet].sort(),
-          rows: candidateRows.map((row) => ({
-            planningProductId: asString(row.planningProductId),
-            company: asString(row.company),
-            asin: asString(row.asin),
-            sku: asString(row.sku),
-            title: asString(row.title),
-            tier: asString(row.tier),
-            actionStatus: asString(row.actionStatus),
-            estimatedOosDate: asString(row.estimatedOosDate),
-            estimatedProfitRisk: asNumber(row.estimatedProfitRisk) ?? 0,
-            suggestedReorderQty: asNumber(row.suggestedReorderQty) ?? 0,
-          })),
-        };
-      })
-      .sort((left, right) => {
-        const leftSpend = asNumber(left.spend);
-        const rightSpend = asNumber(right.spend);
-        if (!leftSpend && rightSpend) return 1;
-        if (leftSpend && !rightSpend) return -1;
-        const scoreDiff = (asNumber(right.adjustedScore) ?? 0) - (asNumber(left.adjustedScore) ?? 0);
-        if (scoreDiff !== 0) return scoreDiff;
-        const urgencyDiff = (asNumber(right.urgencyScore) ?? 0) - (asNumber(left.urgencyScore) ?? 0);
-        if (urgencyDiff !== 0) return urgencyDiff;
-        return (asNumber(right.protectedProfit) ?? 0) - (asNumber(left.protectedProfit) ?? 0);
-      });
-
-    let selectedSpend = 0;
-    let expectedProtectedProfit = 0;
-    const recommendations: PlainRecord[] = [];
-    const skipped: PlainRecord[] = [];
-    for (const candidate of rankedCandidates) {
-      const spend = asNumber(candidate.spend);
-      if (!spend || spend <= 0) {
-        skipped.push({ ...candidate, skipReason: 'missing_unit_cost' });
-        continue;
-      }
-      if (selectedSpend + spend <= budget) {
-        selectedSpend += spend;
-        expectedProtectedProfit += asNumber(candidate.protectedProfit) ?? 0;
-        recommendations.push(candidate);
-      } else {
-        skipped.push({ ...candidate, skipReason: 'exceeds_remaining_budget' });
-      }
-    }
-
-    return {
-      mode: 'budget_optimizer',
-      generatedAt: new Date().toISOString(),
-      company: query.company ?? null,
-      calculationDate,
-      horizonDays,
-      budget: Math.round(budget * 100) / 100,
-      candidateCount: rankedCandidates.length,
-      selectedCount: recommendations.length,
-      selectedSpend: Math.round(selectedSpend * 100) / 100,
-      remainingBudget: Math.round((budget - selectedSpend) * 100) / 100,
-      expectedProtectedProfit: Math.round(expectedProtectedProfit * 100) / 100,
-      recommendations,
-      skipped: skipped.slice(0, 25),
-      assumptions: [
-        'Budget optimization is optional; empty budget keeps the normal daily digest unchanged.',
-        'Spend uses open quantity multiplied by imported or previously observed unit cost.',
-        'Candidates missing unit cost are shown as skipped instead of selected silently.',
-        'Protected profit uses the inventory-planning estimated profit risk for the selected horizon.',
-      ],
-    };
   }
 
   async filterOptions() {
-    const sourceConnectionCompanies = await this.sourceConnectionCompanies();
-    const rows = await this.listRows({ limit: 500 });
-    const companies = [
-      ...new Set([...sourceConnectionCompanies.values(), ...rows.map((row) => asString(row.company)).filter(Boolean)]),
-    ].sort();
+    return this.filterOptionsFromReadModel(await this.readPublishedPlanningModel());
+  }
+
+  private filterOptionsFromReadModel(readModel: PublishedInventoryPlanningReadModel) {
+    const rows = readModel.listingRows;
+    const companies = [...new Set(rows.map((row) => asString(row.company)).filter(Boolean))].sort();
     const productStatuses = [...new Set(rows.map((row) => asString(row.productStatus)).filter(Boolean))].sort();
     return {
       companies,
       productStatuses,
-      actionStatuses: [
-        'missing_inventory',
-        'overdue',
-        'order_today',
-        'missing_lead_time',
-        'stale_lead_time',
-        'order_soon',
-        'already_ordered',
-        'watch',
-        'sufficient_stock',
-        'excluded',
-      ],
-      tiers: ['A', 'B', 'C'],
+      baselineTiers: ['A', 'B', 'C', 'D'],
+      baselineConfidence: ['full', 'moderate', 'low'],
+      primaryActionPanes: [...INVENTORY_PLANNING_PANES],
+      replenishmentEligibility: [
+        ...new Set(rows.map((row) => asString(row.replenishmentEligibility)).filter(Boolean)),
+      ].sort(),
       leadTimeFreshness: ['fresh', 'default', 'stale', 'missing'],
     };
   }
@@ -4498,40 +2995,6 @@ export class EcobaseInventoryPlanningService {
       amazonPipelineStock,
     };
   }
-
-  private async sellerboardSourceConnectionIds() {
-    return new Set(
-      (await this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).find({}))
-        .map(toPlainRecord)
-        .filter(
-          (connection) => asString(connection.sourceType) === 'sellerboard' && asBoolean(connection.active) !== false,
-        )
-        .map((connection) => asString(connection.id))
-        .filter((id): id is string => Boolean(id)),
-    );
-  }
-
-  private async sourceConnectionCompanies() {
-    const connections = (await this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).find({}))
-      .map(toPlainRecord)
-      .filter((connection) => asBoolean(connection.active) !== false);
-    const companyRows = (await this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).find({})).map(toPlainRecord);
-    const companyNamesById = new Map(
-      companyRows
-        .map((company) => [asString(company.id), asString(company.name)] as const)
-        .filter((entry): entry is [string, string] => Boolean(entry[0] && entry[1])),
-    );
-    const companies = new Map<string, string>();
-    for (const connection of connections) {
-      const id = asString(connection.id);
-      const label = companyLabelFromSourceConnection(connection, companyNamesById);
-      if (id && label) {
-        companies.set(id, label);
-      }
-    }
-    return companies;
-  }
-
   private async supplierOrdersByLine(lines: PlainRecord[]) {
     const orderIds = [
       ...new Set(
@@ -4865,74 +3328,16 @@ export class EcobaseInventoryPlanningService {
       })
       .sort((left, right) => String(right.observedAt ?? '').localeCompare(String(left.observedAt ?? '')));
   }
-
-  private async findOrderHistorySupplier(params: { company?: string; asin?: string; sku?: string }) {
-    const lines = await this.findOrderLinesByProduct(params);
-    const latestLine = latestByDate(lines, 'observedAt') ?? latestByDate(lines, 'expectedDeliveryDate') ?? lines[0];
-    const supplierId = asString(latestLine?.supplierId);
-    if (!supplierId) return {};
-    return {
-      supplierId,
-      supplierName:
-        asString(latestLine.supplierName) ?? payloadString(latestLine, ['Supplier', 'Supplier Name', 'supplierName']),
-      evidence: {
-        source: 'silver_order_lines',
-        sourceOrderLineRef: asString(latestLine.sourceOrderLineRef),
-        observedAt: asString(latestLine.observedAt),
-      },
-    };
-  }
-
-  private suggestedReorderQuantity(params: {
-    salesVelocity?: number;
-    targetCoverDays: number;
-    futurePositionStock: number;
-  }) {
-    if (!params.salesVelocity || params.salesVelocity <= 0) return 0;
-    const neededUnits = params.salesVelocity * params.targetCoverDays;
-    return Math.max(Math.ceil(neededUnits - params.futurePositionStock), 0);
-  }
-
-  private actionStatus(params: {
-    excluded: boolean;
-    salesVelocity?: number;
-    salesVelocityStatus?: string;
-    leadTimeFreshness: string;
-    daysUntilSafeReorder?: number;
-    orderSoonWindowDays: number;
-    openOrderCoverageQty: number;
-  }): InventoryPlanningActionStatus {
-    if (params.excluded) return 'excluded';
-    if (params.salesVelocityStatus === 'trusted_zero') return 'no_sell_through';
-    if (!params.salesVelocity || params.salesVelocity <= 0) return 'missing_velocity';
-    if (params.leadTimeFreshness === 'missing') return 'missing_lead_time';
-    if (params.leadTimeFreshness === 'stale') return 'stale_lead_time';
-    if (typeof params.daysUntilSafeReorder !== 'number') return 'missing_lead_time';
-    if (params.openOrderCoverageQty > 0 && params.daysUntilSafeReorder <= params.orderSoonWindowDays)
-      return 'already_ordered';
-    if (params.daysUntilSafeReorder < 0) return 'overdue';
-    if (params.daysUntilSafeReorder === 0) return 'order_today';
-    if (params.daysUntilSafeReorder <= params.orderSoonWindowDays) return 'order_soon';
-    return params.daysUntilSafeReorder <= params.orderSoonWindowDays * 2 ? 'watch' : 'sufficient_stock';
-  }
-
-  private digestPriority(actionStatus: InventoryPlanningActionStatus, tier: unknown) {
-    return profitTierRank(tier) * 100 + actionRank(actionStatus) * 10;
-  }
-
   private sortDigestRows(rows: PlainRecord[]) {
     return [...rows].sort((left, right) => {
-      const priority =
-        (asNumber(left.digestPriority) ??
-          this.digestPriority(left.actionStatus as InventoryPlanningActionStatus, left.tier)) -
-        (asNumber(right.digestPriority) ??
-          this.digestPriority(right.actionStatus as InventoryPlanningActionStatus, right.tier));
-      if (priority !== 0) return priority;
-      const orderState = digestOrderStateRank(left) - digestOrderStateRank(right);
-      if (orderState !== 0) return orderState;
-      const risk = (asNumber(right.estimatedProfitRisk) ?? 0) - (asNumber(left.estimatedProfitRisk) ?? 0);
-      if (risk !== 0) return risk;
-      return (asNumber(right.suggestedReorderQty) ?? 0) - (asNumber(left.suggestedReorderQty) ?? 0);
+      const actionable =
+        Number(right.newReplenishmentActionable === true) - Number(left.newReplenishmentActionable === true);
+      if (actionable !== 0) return actionable;
+      const tier = correctedTierRank(left.baselineTier) - correctedTierRank(right.baselineTier);
+      if (tier !== 0) return tier;
+      const profit = (asNumber(right.averageMonthlyProfit) ?? 0) - (asNumber(left.averageMonthlyProfit) ?? 0);
+      if (profit !== 0) return profit;
+      return (asNumber(right.recommendedOrderQty) ?? 0) - (asNumber(left.recommendedOrderQty) ?? 0);
     });
   }
 
@@ -4942,10 +3347,11 @@ export class EcobaseInventoryPlanningService {
       {
         supplierName: string;
         urgentCount: number;
-        tierA: number;
-        tierB: number;
-        tierC: number;
-        estimatedProfitRisk: number;
+        baselineTierA: number;
+        baselineTierB: number;
+        baselineTierC: number;
+        baselineTierD: number;
+        averageMonthlyProfit: number;
       }
     >();
     for (const row of rows) {
@@ -4954,24 +3360,27 @@ export class EcobaseInventoryPlanningService {
       const existing = bySupplier.get(supplierName) ?? {
         supplierName,
         urgentCount: 0,
-        tierA: 0,
-        tierB: 0,
-        tierC: 0,
-        estimatedProfitRisk: 0,
+        baselineTierA: 0,
+        baselineTierB: 0,
+        baselineTierC: 0,
+        baselineTierD: 0,
+        averageMonthlyProfit: 0,
       };
       existing.urgentCount += 1;
-      existing.tierA += row.tier === 'A' ? 1 : 0;
-      existing.tierB += row.tier === 'B' ? 1 : 0;
-      existing.tierC += row.tier === 'C' ? 1 : 0;
-      existing.estimatedProfitRisk += asNumber(row.estimatedProfitRisk) ?? 0;
+      existing.baselineTierA += row.baselineTier === 'A' ? 1 : 0;
+      existing.baselineTierB += row.baselineTier === 'B' ? 1 : 0;
+      existing.baselineTierC += row.baselineTier === 'C' ? 1 : 0;
+      existing.baselineTierD += row.baselineTier === 'D' ? 1 : 0;
+      existing.averageMonthlyProfit += asNumber(row.averageMonthlyProfit) ?? 0;
       bySupplier.set(supplierName, existing);
     }
     return [...bySupplier.values()].sort((left, right) => {
-      if (right.estimatedProfitRisk !== left.estimatedProfitRisk)
-        return right.estimatedProfitRisk - left.estimatedProfitRisk;
-      if (right.tierA !== left.tierA) return right.tierA - left.tierA;
-      if (right.tierB !== left.tierB) return right.tierB - left.tierB;
-      if (right.tierC !== left.tierC) return right.tierC - left.tierC;
+      if (right.averageMonthlyProfit !== left.averageMonthlyProfit)
+        return right.averageMonthlyProfit - left.averageMonthlyProfit;
+      if (right.baselineTierA !== left.baselineTierA) return right.baselineTierA - left.baselineTierA;
+      if (right.baselineTierB !== left.baselineTierB) return right.baselineTierB - left.baselineTierB;
+      if (right.baselineTierC !== left.baselineTierC) return right.baselineTierC - left.baselineTierC;
+      if (right.baselineTierD !== left.baselineTierD) return right.baselineTierD - left.baselineTierD;
       return right.urgentCount - left.urgentCount;
     });
   }

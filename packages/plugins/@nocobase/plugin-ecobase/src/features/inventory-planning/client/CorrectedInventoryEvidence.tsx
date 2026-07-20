@@ -13,6 +13,34 @@ import React, { useMemo, useState } from 'react';
 export type EvidenceTranslator = (value: string) => string;
 type PlainRecord = Record<string, any>;
 
+export interface CorrectedInventoryEvidenceRow extends PlainRecord {
+  companyProductId: string;
+  companyProductFamilyId: string;
+  baselineTier: 'A' | 'B' | 'C' | 'D' | null;
+  baselineState: string;
+  baselineConfidence: string;
+  averageMonthlyProfit: string | null;
+  averageMonthlyUnits: string | null;
+  replenishmentEligibility: string;
+  listingReviewCategories: string[];
+  monthlyPerformanceEvidence: Array<{
+    monthStart: string;
+    monthlyTierScore: string | null;
+    monthlyUnits: string | null;
+    monthlyProfit: string | null;
+  }>;
+}
+
+export interface CorrectedFamilyActionEvidenceRow extends CorrectedInventoryEvidenceRow {
+  targetCompanyProductId: string | null;
+  actionSourceCompanyProductId: string | null;
+  representativeCompanyProductId: string;
+  primaryActionPane: string;
+  replenishmentBlockReasonCode: string;
+  newReplenishmentActionable: boolean;
+  existingOrderFollowUp: boolean;
+}
+
 const REVIEW_CATEGORIES = [
   'tier_d',
   'no_movement',
@@ -33,7 +61,13 @@ function evidenceRows(value: unknown) {
     : [];
 }
 
-export function CorrectedInventoryEvidencePanel({ row, t }: { row: PlainRecord; t: EvidenceTranslator }) {
+export function CorrectedInventoryEvidencePanel({
+  row,
+  t,
+}: {
+  row: CorrectedInventoryEvidenceRow;
+  t: EvidenceTranslator;
+}) {
   const monthly = evidenceRows(row.monthlyPerformanceEvidence);
   const members = evidenceRows(row.memberPerformanceEvidence);
   const categories = Array.isArray(row.listingReviewCategories) ? row.listingReviewCategories.map(String) : [];
@@ -57,8 +91,8 @@ export function CorrectedInventoryEvidencePanel({ row, t }: { row: PlainRecord; 
               {monthly.length ? (
                 monthly.map((item) => (
                   <Tag key={text(item.monthStart)}>
-                    {text(item.monthStart)} · {text(item.tier)} · {t('Units')} {text(item.monthlyUnits)} · {t('Profit')}{' '}
-                    {text(item.monthlyProfit)}
+                    {text(item.monthStart)} · {t('Score')} {text(item.monthlyTierScore)} · {t('Units')}{' '}
+                    {text(item.monthlyUnits)} · {t('Profit')} {text(item.monthlyProfit)}
                   </Tag>
                 ))
               ) : (
@@ -130,7 +164,13 @@ export function CorrectedInventoryEvidencePanel({ row, t }: { row: PlainRecord; 
   );
 }
 
-export function ListingPerformanceReviewPanel({ rows, t }: { rows: PlainRecord[]; t: EvidenceTranslator }) {
+export function ListingPerformanceReviewPanel({
+  rows,
+  t,
+}: {
+  rows: CorrectedInventoryEvidenceRow[];
+  t: EvidenceTranslator;
+}) {
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [selectedKey, setSelectedKey] = useState('');
   const filteredRows = useMemo(() => {
@@ -207,11 +247,13 @@ export function CandidatePreviewPanel({
   runId,
   banner,
   rows,
+  familyActions,
   t,
 }: {
   runId: string;
   banner: string;
-  rows: PlainRecord[];
+  rows: CorrectedInventoryEvidenceRow[];
+  familyActions: CorrectedFamilyActionEvidenceRow[];
   t: EvidenceTranslator;
 }) {
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
@@ -250,11 +292,35 @@ export function CandidatePreviewPanel({
         memberPerformanceEvidence: selectedRow.memberPerformanceEvidence ?? selectedFamilyMembers,
       }
     : undefined;
+  const selectedFamilyAction = selectedRow
+    ? familyActions.find((action) => action.companyProductFamilyId === selectedRow.companyProductFamilyId)
+    : undefined;
   return (
     <section aria-label={t('Unpublished candidate preview')}>
       <Space direction="vertical" size="middle" style={{ width: '100%' }}>
         <Alert role="alert" type="warning" showIcon banner message={banner} description={`${t('Run ID')}: ${runId}`} />
-        <Typography.Text strong>{t('Listing evidence only · 0 family actions created')}</Typography.Text>
+        <Typography.Text strong>
+          {familyActions.length} {t('read-only family-action projections · 0 operational actions created')}
+        </Typography.Text>
+        {selectedFamilyAction ? (
+          <Card title={t('Candidate family decision')} size="small">
+            <Descriptions bordered size="small" column={1}>
+              <Descriptions.Item label={t('Target listing')}>
+                {text(selectedFamilyAction.targetCompanyProductId)}
+              </Descriptions.Item>
+              <Descriptions.Item label={t('Primary action pane')}>
+                {t(text(selectedFamilyAction.primaryActionPane))}
+              </Descriptions.Item>
+              <Descriptions.Item label={t('Replenishment decision')}>
+                {t(text(selectedFamilyAction.replenishmentEligibility))} ·{' '}
+                {t(text(selectedFamilyAction.replenishmentBlockReasonCode))}
+              </Descriptions.Item>
+              <Descriptions.Item label={t('Actionability')}>
+                {selectedFamilyAction.newReplenishmentActionable ? t('candidate actionable') : t('candidate blocked')}
+              </Descriptions.Item>
+            </Descriptions>
+          </Card>
+        ) : null}
         <fieldset>
           <legend>{t('Non-action listing performance filters')}</legend>
           <Space wrap>
