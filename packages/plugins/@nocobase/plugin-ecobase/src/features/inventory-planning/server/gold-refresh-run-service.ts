@@ -147,22 +147,13 @@ function obeysPositionContract(values: unknown[]) {
 }
 
 function obeysStockConservationContract(row: PlainRecord) {
-  return (
-    obeysPositionContract([
-      row.onHandSellableStock,
-      row.amazonPipelineStock,
-      row.supplierPipelineStock,
-      row.inventoryPositionStock,
-      row.futurePositionStock,
-    ]) &&
-    obeysPositionContract([
-      row.familyOnHandSellableStock,
-      row.familyAmazonPipelineStock,
-      row.familySupplierPipelineStock,
-      row.familyInventoryPositionStock,
-      row.familyFuturePositionStock,
-    ])
-  );
+  return obeysPositionContract([
+    row.onHandSellableStock,
+    row.amazonPipelineStock,
+    row.supplierPipelineStock,
+    row.inventoryPositionStock,
+    row.futurePositionStock,
+  ]);
 }
 
 export function canonicalJson(value: unknown): string {
@@ -639,7 +630,7 @@ export class EcobaseGoldRefreshRunService {
         text(row.calculationDate) !== calculationDate ||
         !text(row.id) ||
         !text(row.naturalKey) ||
-        !text(row.planningProductId) ||
+        !text(row.companyProductId) ||
         !text(row.company) ||
         Object.values(row).some((value) => typeof value === 'number' && !Number.isFinite(value)),
     );

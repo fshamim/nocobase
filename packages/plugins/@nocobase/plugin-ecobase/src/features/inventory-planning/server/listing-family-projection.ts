@@ -8,6 +8,10 @@
  */
 
 import { createHash } from 'node:crypto';
+import {
+  CORRECTED_INVENTORY_PLANNING_ROW_FIELDS,
+  omitObsoleteInventoryPlanningRowFields,
+} from './gold-schema-contract';
 import type { CurrentProjectionGateMode } from './monthly-performance';
 import type { ReplenishmentDecisionResult } from './replenishment-decision';
 
@@ -515,9 +519,10 @@ export function buildCorrectedGoldProjection(input: CorrectedGoldProjectionInput
   const listingRows = [...input.listings].sort(compareListings).map((listing): CorrectedListingPerformanceRow => {
     const cloned = structuredClone(listing) as CorrectedListingPerformanceInput;
     const { replenishmentDecision, ...performance } = cloned;
-    const naturalKey = `listing:${digest(normalizedIdentity(listing))}`;
+    const cleanPerformance = omitObsoleteInventoryPlanningRowFields(performance);
+    const naturalKey = `${runId}:listing:${digest(normalizedIdentity(listing))}`;
     const performanceRow = {
-      ...performance,
+      ...cleanPerformance,
       productCoverageDigest: sha256Digest(
         listing.productCoverageDigest,
         `listing.${listing.companyProductId}.productCoverageDigest`,
@@ -535,9 +540,16 @@ export function buildCorrectedGoldProjection(input: CorrectedGoldProjectionInput
       candidateInputDigest,
       ...replenishmentDecision,
     };
-    return {
+    const correctedRow = {
       ...performanceRow,
       listingReviewCategories: deriveListingReviewCategories(performanceRow),
+    };
+    return {
+      ...Object.fromEntries(
+        CORRECTED_INVENTORY_PLANNING_ROW_FIELDS.map((field) => [field, correctedRow[field] ?? null]),
+      ),
+      naturalKey,
+      refreshRunId: runId,
     } as CorrectedListingPerformanceRow;
   });
   const projectedListingById = new Map(listingRows.map((row) => [row.companyProductId, row]));
@@ -600,7 +612,6 @@ export function buildCorrectedGoldProjection(input: CorrectedGoldProjectionInput
       return member;
     });
     const sortedMembers = members.sort((left, right) => compareListings(left, right));
-    const representative = sortedMembers[0];
     const target = frozenFamily.targetCompanyProductId
       ? projectedListingById.get(frozenFamily.targetCompanyProductId)
       : undefined;
@@ -625,18 +636,8 @@ export function buildCorrectedGoldProjection(input: CorrectedGoldProjectionInput
     };
     for (const member of sortedMembers) {
       const isTarget = member.companyProductId === frozenFamily.targetCompanyProductId;
-      const isRepresentative = member.companyProductId === representative.companyProductId;
-      member.familyRole = isTarget
-        ? 'target'
-        : frozenFamily.targetSelectionState === 'review' && isRepresentative
-          ? 'review'
-          : 'member';
       member.isFrozenFamilyTarget = isTarget;
       member.familyTargetCompanyProductId = frozenFamily.targetCompanyProductId;
-      member.familyAmazonAccountId = snapshot.amazonAccountId;
-      member.familyMarketplace = snapshot.marketplace;
-      member.familyCanonicalAsin = snapshot.canonicalAsin;
-      member.familyMemberCount = sortedMembers.length;
       member.calculationEvidence = {
         ...plainRecord(member.calculationEvidence),
         familyActionSnapshot: structuredClone(snapshot),

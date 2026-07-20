@@ -26,6 +26,7 @@ import { addDays, diffDays, isoDate, optionalIsoDate } from './planning-date';
 import {
   DEFAULT_PLANNING_SETTINGS,
   EcobasePlanningSettingsService,
+  type EcobasePlanningSettings,
   type SupplierOrderStatusBuckets,
 } from '../../../server/services/planning-settings-service';
 import {
@@ -42,9 +43,23 @@ import { selectCurrentFamilyOrderCycle, type FamilyOrderCycleSelection } from '.
 import { evaluatePlanningReadiness } from './planning-readiness';
 import { workflowStageForOperationalStatus } from '../../order-planning/order-operational-status';
 import { canonicalJson, EcobaseGoldRefreshRunService } from './gold-refresh-run-service';
+import {
+  buildCorrectedInventoryPlanningCandidate,
+  CORRECTED_CANDIDATE_FAMILY_COUNT,
+  CORRECTED_CANDIDATE_LISTING_COUNT,
+  CorrectedCandidateBuilderError,
+  type CorrectedCandidateCoverageInterval,
+  type CorrectedCandidateCoverageMembership,
+  type CorrectedCandidateFamilySnapshot,
+  type CorrectedCandidateSettings,
+  type CorrectedCandidateSourceFact,
+  type CorrectedOperationalListingSnapshot,
+} from './corrected-candidate-builder';
 import { EcobaseInventoryPlanningGoldAccess, familyActionDecisionRecord } from './inventory-planning-gold-access';
 import { withGoldInventoryPlanningWriteAuthority } from './gold-write-guard';
 import {
+  CORRECTED_ALGORITHM_CONTRACT_VERSION,
+  CORRECTED_TIER_RULE_VERSION,
   deriveListingReviewCategories,
   filterListingPerformanceReview,
   listingMemberPerformanceEvidence,
@@ -58,6 +73,17 @@ import {
 } from './inventory-planning-pane-classifier';
 
 const GOLD_SOURCE_RECORD_LIMIT = 100000;
+const CORRECTED_CANDIDATE_PROTECTED_COLLECTIONS = [
+  ECOBASE_COLLECTIONS.silverCompanies,
+  ECOBASE_COLLECTIONS.silverAmazonAccounts,
+  ECOBASE_COLLECTIONS.silverProducts,
+  ECOBASE_COLLECTIONS.silverCompanyProducts,
+  ECOBASE_COLLECTIONS.silverCompanyProductFamilies,
+  ECOBASE_COLLECTIONS.silverInventorySnapshots,
+  ECOBASE_COLLECTIONS.silverListingDailyFacts,
+  ECOBASE_COLLECTIONS.silverTrafficSnapshots,
+  ECOBASE_COLLECTIONS.sellerboardProductCosts,
+] as const;
 export type InventoryPlanningActionStatus =
   | 'excluded'
   | 'missing_inventory'
@@ -1092,62 +1118,20 @@ function recommendedActionForStatus(status: unknown) {
   return 'review';
 }
 
-const INVENTORY_PLANNING_ROW_FIELDS = [
-  'planningProductId',
+export const INVENTORY_PLANNING_ROW_FIELDS = [
   'companyProductId',
   'companyProductFamilyId',
-  'familyAmazonAccountId',
-  'familyMarketplace',
-  'familyCanonicalAsin',
-  'familyRole',
-  'familyMemberCount',
-  'replenishmentTargetCompanyProductId',
-  'replenishmentTargetSku',
-  'familyTier',
-  'familyTierScore',
-  'familyCurrentPlanningStock',
-  'familyOnHandStock',
-  'familyOnHandSellableStock',
-  'familyAmazonPipelineStock',
-  'familySupplierPipelineStock',
-  'familyInventoryPositionStock',
-  'familyFuturePositionStock',
-  'familySellableStock',
-  'familyReservedStock',
-  'familyPipelineStock',
-  'familyInboundStock',
-  'familyOrderedStock',
-  'familyPrepStock',
-  'familyAwdStock',
-  'familySalesVelocity',
-  'familyDaysOfCover',
-  'familyEstimatedOosDate',
-  'familyPositionDaysOfCover',
-  'familyPositionEstimatedOosDate',
-  'familyOpenOrderCoverageQty',
-  'familyTrustedSupplierOrderCoverageQty',
-  'familySuggestedReorderQty',
-  'familyPreferredSupplierId',
-  'familyPreferredSupplierProductId',
-  'familyPreferredSupplierName',
-  'familyUnitCost',
-  'familyLeadTimeDays',
-  'familyEstimatedOrderCost',
-  'familyStuck',
-  'familyStuckAction',
-  'familyStuckClassification',
-  'familyStuckAffectedMemberCount',
-  'familyStuckAffectedUnits',
-  'familyStuckAffectedValue',
-  'familyStuckActiveOrderCount',
-  'familyStuckEvidence',
-  'familyRollupEvidence',
   'companyId',
   'amazonAccountId',
   'marketplace',
   'ruleVersion',
   'algorithmContractVersion',
+  'currentProjectionGateMode',
   'resolvedPlanningSettingsDigest',
+  'sourceCoverageDigest',
+  'sourceInputDigest',
+  'protectedSilverFingerprint',
+  'candidateInputDigest',
   'productCoverageDigest',
   'sourceAsOfDate',
   'baselineWindowStartDate',
@@ -1225,6 +1209,7 @@ const INVENTORY_PLANNING_ROW_FIELDS = [
   'familyTargetCompanyProductId',
   'listingReviewCategories',
   'calculationEvidence',
+  'calculationProvenanceJson',
   'calculationDate',
   'company',
   'asin',
@@ -1234,25 +1219,6 @@ const INVENTORY_PLANNING_ROW_FIELDS = [
   'productStatus',
   'planningExcluded',
   'actionStatus',
-  'tier',
-  'tierScore',
-  'recentUnits30',
-  'tierEligibilityReason',
-  'tierRuleVersion',
-  'currentTier',
-  'currentTierScore',
-  'averageTier',
-  'averageTierScore',
-  'bestTier',
-  'bestTierScore',
-  'lastMonthQty',
-  'sixMonthAverageQty',
-  'sixMonthWorstQty',
-  'sixMonthBestQty',
-  'sixMonthMargin',
-  'previousTier',
-  'tierMovement',
-  'profitPerUnit',
   'estimatedProfitRisk',
   'estimatedProfitRiskBasis',
   'moneyRiskStatus',
@@ -1265,14 +1231,12 @@ const INVENTORY_PLANNING_ROW_FIELDS = [
   'unitCostAvailability',
   'profitAvailability',
   'estimatedOrderCost',
-  'recommendedBestQty',
   'salesVelocity',
   'salesVelocityBasis',
   'salesVelocityStatus',
   'salesVelocityWindowStart',
   'salesVelocityWindowEnd',
   'salesVelocityAsOfDate',
-  'suggestedReorderQty',
   'safetyBufferDays',
   'reorderCycleDays',
   'targetCoverDays',
@@ -1321,12 +1285,6 @@ const INVENTORY_PLANNING_ROW_FIELDS = [
   'supplierOrderPlacedNotPurchasedOpenQty',
   'pipelineHealthStatus',
   'stockoutGapDays',
-  'stuck',
-  'stuckClassification',
-  'commandCenterPane',
-  'commandCenterPaneReason',
-  'planningEligibilityStatus',
-  'planningEligibilityReason',
   'dataQualityStatus',
   'dataQualityIssues',
   'readinessDomains',
@@ -3856,133 +3814,243 @@ export class EcobaseInventoryPlanningService {
   }
 
   async refreshReadModel(query: InventoryPlanningRefreshQuery = {}) {
-    const calculationDate = isoDate(query.calculationDate ?? new Date());
-    const runService = new EcobaseGoldRefreshRunService(this.db);
-    const request = {
-      calculationDate,
-      company: query.company ?? null,
-      leadTimeFreshnessDays: query.leadTimeFreshnessDays ?? null,
-      safetyBufferDays: query.safetyBufferDays ?? null,
-      orderSoonWindowDays: query.orderSoonWindowDays ?? null,
-      reorderCycleDays: query.reorderCycleDays ?? null,
-      targetCoverDays: query.targetCoverDays ?? null,
-      purchasedPipelineGraceDays: query.purchasedPipelineGraceDays ?? null,
-      limit: query.limit ?? GOLD_SOURCE_RECORD_LIMIT,
-    };
-
-    const rows = await this.calculateRows({
-      ...query,
-      company: undefined,
-      calculationDate,
-      limit: query.limit ?? GOLD_SOURCE_RECORD_LIMIT,
-    });
-    const algorithmVersions = [
-      ...new Set(rows.map((row) => asString(row.tierRuleVersion)).filter((value): value is string => Boolean(value))),
-    ];
-    if (algorithmVersions.length > 1) {
-      throw new Error(
-        `Ecobase inventory-planning refresh failed: candidate rows contain multiple algorithm contracts (${algorithmVersions.join(
-          ', ',
-        )}).`,
+    const scopedInputs = [
+      ['company', query.company],
+      ['limit', query.limit],
+    ].filter(([, value]) => value !== undefined);
+    if (scopedInputs.length) {
+      throw new CorrectedCandidateBuilderError(
+        'ECOBASE_CORRECTED_CANDIDATE_CARDINALITY_MISMATCH',
+        'EcoBase corrected candidate refresh is full-catalog only; company and limit scopes are forbidden.',
+        { scopedInputs: scopedInputs.map(([field]) => field) },
       );
     }
-    const candidateInputDigests = {
-      sourceInputDigest: sha256Canonical(rows),
-      coverageInputDigest: sha256Canonical(
-        rows.map((row) => ({
-          planningProductId: row.planningProductId,
-          companyProductId: row.companyProductId,
-          inventoryAsOfDate: row.inventoryAsOfDate,
-          recentUnitsWindowStart: row.recentUnitsWindowStart,
-          recentUnitsWindowEnd: row.recentUnitsWindowEnd,
-          evidence: toPlainRecord(row.evidence),
-        })),
-      ),
-      settingsDigest: sha256Canonical({
-        request,
-        rowSettings: rows.map((row) => ({
-          planningProductId: row.planningProductId,
-          targetCoverDays: row.targetCoverDays,
-          reorderCycleDays: row.reorderCycleDays,
-          tierRuleVersion: row.tierRuleVersion,
-        })),
-      }),
-      algorithmContractVersion: algorithmVersions[0] ?? 'rolling_30d_min_4_v1',
+    const calculationDate = isoDate(query.calculationDate ?? new Date());
+    const [
+      resolvedSettings,
+      companies,
+      accounts,
+      products,
+      companyProducts,
+      familyRows,
+      sourceConnections,
+      inventorySnapshots,
+      suppliers,
+      supplierProducts,
+      productSuppliers,
+      orders,
+      orderLines,
+      sourceFacts,
+      coverageIntervals,
+      coverageMemberships,
+      protectedSilverFingerprint,
+    ] = await Promise.all([
+      new EcobasePlanningSettingsService(this.db).getResolvedSettings(),
+      this.repoRows(ECOBASE_COLLECTIONS.silverCompanies),
+      this.repoRows(ECOBASE_COLLECTIONS.silverAmazonAccounts),
+      this.repoRows(ECOBASE_COLLECTIONS.silverProducts),
+      this.repoRows(ECOBASE_COLLECTIONS.silverCompanyProducts),
+      this.repoRows(ECOBASE_COLLECTIONS.silverCompanyProductFamilies),
+      this.repoRows(ECOBASE_COLLECTIONS.sourceConnections),
+      this.repoRows(ECOBASE_COLLECTIONS.silverInventorySnapshots),
+      this.repoRows(ECOBASE_COLLECTIONS.silverSuppliers),
+      this.repoRows(ECOBASE_COLLECTIONS.silverSupplierProducts),
+      this.repoRows(ECOBASE_COLLECTIONS.silverCompanyProductSuppliers),
+      this.repoRows(ECOBASE_COLLECTIONS.silverOrders),
+      this.repoRows(ECOBASE_COLLECTIONS.silverOrderLines),
+      this.repoRows(ECOBASE_COLLECTIONS.silverListingDailyFacts),
+      this.repoRows(ECOBASE_COLLECTIONS.sourceCoverageIntervals),
+      this.repoRows(ECOBASE_COLLECTIONS.sourceCoverageMemberships),
+      this.correctedCandidateProtectedSilverFingerprint(),
+    ]);
+    if (companyProducts.length !== CORRECTED_CANDIDATE_LISTING_COUNT) {
+      throw this.correctedCandidateCardinalityError(companyProducts.length, undefined);
+    }
+    const settings = this.correctedCandidateSettings(resolvedSettings);
+    const candidateFamilies = this.correctedCandidateFamilies({
+      companyProducts,
+      familyRows,
+      products,
+      accounts,
+    });
+    if (candidateFamilies.length !== CORRECTED_CANDIDATE_FAMILY_COUNT) {
+      throw this.correctedCandidateCardinalityError(companyProducts.length, candidateFamilies.length);
+    }
+
+    const operationalRowsByCompanyProductId = this.correctedOperationalRowsFromSilver({
+      calculationDate,
+      settings: resolvedSettings,
+      sourceConnections,
+      inventorySnapshots,
+      suppliers,
+      supplierProducts,
+      productSuppliers,
+      orders,
+      orderLines,
+      companyProducts,
+    });
+    const companiesById = new Map(companies.map((row) => [asString(row.id), row]));
+    const accountsById = new Map(accounts.map((row) => [asString(row.id), row]));
+    const productsById = new Map(products.map((row) => [asString(row.id), row]));
+    const familiesById = new Map(familyRows.map((row) => [asString(row.id), row]));
+    const operationalListings = companyProducts
+      .map((companyProduct) =>
+        this.correctedOperationalListingSnapshot({
+          companyProduct,
+          company: companiesById.get(asString(companyProduct.companyId)),
+          account: accountsById.get(asString(companyProduct.amazonAccountId)),
+          product: productsById.get(asString(companyProduct.productId)),
+          family: familiesById.get(asString(companyProduct.companyProductFamilyId)),
+          operationalRow: operationalRowsByCompanyProductId.get(asString(companyProduct.id) ?? ''),
+          settings,
+        }),
+      )
+      .sort((left, right) => left.identity.companyProductId.localeCompare(right.identity.companyProductId));
+    const companyProductIds = new Set(operationalListings.map((listing) => listing.identity.companyProductId));
+    const candidateFacts: CorrectedCandidateSourceFact[] = sourceFacts
+      .filter(
+        (fact) =>
+          companyProductIds.has(asString(fact.companyProductId) ?? '') &&
+          String(fact.snapshotDate ?? '') <= calculationDate,
+      )
+      .map((fact) => ({
+        companyProductId: this.correctedCandidateRequiredText(fact.companyProductId, 'fact.companyProductId'),
+        snapshotDate: this.correctedCandidateRequiredText(fact.snapshotDate, 'fact.snapshotDate'),
+        units: fact.units,
+        netProfit: fact.netProfit ?? fact.profit,
+      }))
+      .sort((left, right) => canonicalJson(left).localeCompare(canonicalJson(right)));
+    const activeCoverageIntervals: CorrectedCandidateCoverageInterval[] = coverageIntervals
+      .filter((interval) => interval.coverageStatus === 'active')
+      .map((interval) => ({
+        id: this.correctedCandidateRequiredText(interval.id, 'coverageInterval.id'),
+        companyId: this.correctedCandidateRequiredText(interval.companyId, 'coverageInterval.companyId'),
+        amazonAccountId: this.correctedCandidateRequiredText(
+          interval.amazonAccountId,
+          'coverageInterval.amazonAccountId',
+        ),
+        marketplace: this.correctedCandidateRequiredText(interval.marketplace, 'coverageInterval.marketplace'),
+        metricSet: this.correctedCandidateRequiredText(interval.metricSet, 'coverageInterval.metricSet'),
+        coveredStartDate: this.correctedCandidateRequiredText(
+          interval.coveredStartDate,
+          'coverageInterval.coveredStartDate',
+        ),
+        coveredEndDate: this.correctedCandidateRequiredText(interval.coveredEndDate, 'coverageInterval.coveredEndDate'),
+        continuousCoverage: interval.continuousCoverage === true,
+        coverageStatus: 'active',
+        sourceAsOfDate: this.correctedCandidateRequiredText(interval.sourceAsOfDate, 'coverageInterval.sourceAsOfDate'),
+        sourceVersion: this.correctedCandidateRequiredText(interval.sourceVersion, 'coverageInterval.sourceVersion'),
+      }))
+      .sort((left, right) => canonicalJson(left).localeCompare(canonicalJson(right)));
+    const activeCoverageIntervalIds = new Set(activeCoverageIntervals.map((interval) => interval.id));
+    const candidateCoverageMemberships: CorrectedCandidateCoverageMembership[] = coverageMemberships
+      .filter(
+        (membership) =>
+          activeCoverageIntervalIds.has(String(membership.coverageIntervalId)) &&
+          companyProductIds.has(asString(membership.companyProductId) ?? ''),
+      )
+      .map((membership) => ({
+        id: this.correctedCandidateRequiredText(membership.id, 'coverageMembership.id'),
+        coverageIntervalId: this.correctedCandidateRequiredText(
+          membership.coverageIntervalId,
+          'coverageMembership.coverageIntervalId',
+        ),
+        companyProductId: this.correctedCandidateRequiredText(
+          membership.companyProductId,
+          'coverageMembership.companyProductId',
+        ),
+        monthStart: this.correctedCandidateRequiredText(membership.monthStart, 'coverageMembership.monthStart'),
+        membershipStatus: this.correctedCandidateRequiredText(
+          membership.membershipStatus,
+          'coverageMembership.membershipStatus',
+        ),
+        metricReconciliationStatus: this.correctedCandidateRequiredText(
+          membership.metricReconciliationStatus,
+          'coverageMembership.metricReconciliationStatus',
+        ),
+      }))
+      .sort((left, right) => canonicalJson(left).localeCompare(canonicalJson(right)));
+    const resolvedPlanningSettingsDigest = sha256Canonical(settings);
+    const sourceCoverageDigest = sha256Canonical({
+      intervals: activeCoverageIntervals,
+      memberships: candidateCoverageMemberships,
+    });
+    const sourceInputDigest = sha256Canonical({
+      listings: operationalListings,
+      families: candidateFamilies,
+      sourceFacts: candidateFacts,
+    });
+    const request = {
+      calculationDate,
+      ruleVersion: CORRECTED_TIER_RULE_VERSION,
+      algorithmContractVersion: CORRECTED_ALGORITHM_CONTRACT_VERSION,
+      currentProjectionGateMode: 'informational',
+      resolvedPlanningSettingsDigest,
+      sourceCoverageDigest,
+      sourceInputDigest,
+      protectedSilverFingerprint,
+      expectedListingCount: CORRECTED_CANDIDATE_LISTING_COUNT,
+      expectedFamilyActionCount: CORRECTED_CANDIDATE_FAMILY_COUNT,
     };
 
-    return runService.execute({
+    return new EcobaseGoldRefreshRunService(this.db).execute({
       calculationDate,
       idempotencyKey: query.idempotencyKey,
       requestedByUserId: query.requestedByUserId,
-      candidateInputDigests,
+      candidateInputDigests: {
+        sourceInputDigest,
+        coverageInputDigest: sourceCoverageDigest,
+        settingsDigest: resolvedPlanningSettingsDigest,
+        algorithmContractVersion: CORRECTED_ALGORITHM_CONTRACT_VERSION,
+      },
       publish: query.publish,
       request,
-      materialize: async ({ runId, transaction, previousPublishedRunId }) => {
+      materialize: async ({ runId, candidateInputDigest, transaction }) => {
+        const refreshedAt = new Date().toISOString();
+        const projection = buildCorrectedInventoryPlanningCandidate({
+          runId,
+          candidateInputDigest,
+          calculationDate,
+          generatedAt: refreshedAt,
+          settings,
+          resolvedPlanningSettingsDigest,
+          sourceCoverageDigest,
+          sourceInputDigest,
+          protectedSilverFingerprint,
+          listings: operationalListings,
+          families: candidateFamilies,
+          sourceFacts: candidateFacts,
+          coverageIntervals: activeCoverageIntervals,
+          coverageMemberships: candidateCoverageMemberships,
+        });
         const repository = this.db.getRepository(
           ECOBASE_COLLECTIONS.goldInventoryPlanningRows,
         ) as GoldTransactionRepository;
-        const previousRows = previousPublishedRunId
-          ? (
-              await new EcobaseInventoryPlanningGoldAccess(this.db).readExplicitListingPerformance({
-                runId: previousPublishedRunId,
-                purpose: 'maintenance',
-                actor: { type: 'system' },
-                limit: GOLD_SOURCE_RECORD_LIMIT,
-                transaction,
-              })
-            ).rows
-          : [];
-        const refreshedAt = new Date().toISOString();
-        const naturalKeys = new Set<string>();
-
-        for (const row of rows) {
-          const planningProductId = asString(row.planningProductId);
-          const company = asString(row.company);
-          if (!planningProductId || !company || (!asString(row.asin) && !asString(row.sku))) {
-            throw new Error(
-              'Ecobase inventory-planning refresh failed: planningProductId, company, and ASIN or SKU are required.',
-            );
-          }
-          const naturalKey = `${runId}:${calculationDate}:${company}:${planningProductId}`;
-          if (naturalKeys.has(naturalKey)) {
-            throw new Error(`Ecobase inventory-planning refresh failed: duplicate natural key "${naturalKey}".`);
-          }
-          naturalKeys.add(naturalKey);
-          const id = stableUuid(naturalKey);
-          if (!isUuidValue(id)) {
-            throw new Error(
-              `Ecobase inventory-planning refresh failed: "${naturalKey}" did not produce a stable UUID.`,
-            );
-          }
+        for (const row of projection.listingRows) {
+          const naturalKey = asString(row.naturalKey);
+          if (!naturalKey) throw new Error('EcoBase corrected candidate produced a listing without a natural key.');
           const values: PlainRecord = {
-            id,
+            id: stableUuid(`${runId}:${naturalKey}`),
             naturalKey,
             refreshRunId: runId,
             lastRefreshedAt: refreshedAt,
           };
           for (const field of INVENTORY_PLANNING_ROW_FIELDS) {
-            const value = field === 'calculationDate' ? calculationDate : row[field] ?? null;
+            const value = row[field] ?? null;
             if (typeof value === 'number' && !Number.isFinite(value)) {
-              throw new Error(`Ecobase inventory-planning refresh failed: ${naturalKey}.${field} must be finite.`);
+              throw new Error(`EcoBase corrected candidate requires ${naturalKey}.${field} to be finite.`);
             }
             values[field] = value;
           }
-          values.supplierName = asString(row.supplierName) ?? 'Unknown supplier';
-          const previousSnapshot = this.previousTierSnapshotForRow(row, previousRows, calculationDate);
-          const sameTierRule =
-            Boolean(previousSnapshot) && asString(previousSnapshot?.tierRuleVersion) === asString(row.tierRuleVersion);
-          const previousTier = sameTierRule && isProfitTier(previousSnapshot?.tier) ? previousSnapshot.tier : undefined;
-          values.previousTier = previousTier ?? null;
-          values.tierMovement = sameTierRule ? profitTierMovement(row.tier, previousSnapshot?.tier) ?? null : null;
           await withGoldInventoryPlanningWriteAuthority(() => repository.create({ values, transaction }));
         }
-
         return {
           calculationDate,
-          rowCount: rows.length,
-          created: rows.length,
+          rowCount: projection.listingRows.length,
+          created: projection.listingRows.length,
           updated: 0,
           lastRefreshedAt: refreshedAt,
+          ...projection.runMetadata,
         };
       },
     });
@@ -3996,18 +4064,414 @@ export class EcobaseInventoryPlanningService {
     return new EcobaseGoldRefreshRunService(this.db).publish(runId);
   }
 
-  private previousTierSnapshotForRow(row: PlainRecord, previousRows: PlainRecord[], calculationDate: string) {
-    const planningProductId = asString(row.planningProductId);
-    const company = asString(row.company);
-    if (!planningProductId || !company) return undefined;
-    return previousRows
-      .filter(
-        (candidate) =>
-          asString(candidate.planningProductId) === planningProductId &&
-          asString(candidate.company) === company &&
-          String(candidate.calculationDate ?? '') < calculationDate,
-      )
-      .sort((left, right) => String(right.calculationDate ?? '').localeCompare(String(left.calculationDate ?? '')))[0];
+  private correctedCandidateCardinalityError(actualListingCount: number, actualFamilyCount?: number) {
+    return new CorrectedCandidateBuilderError(
+      'ECOBASE_CORRECTED_CANDIDATE_CARDINALITY_MISMATCH',
+      `EcoBase corrected candidate requires exactly ${CORRECTED_CANDIDATE_LISTING_COUNT} catalog listings and ${CORRECTED_CANDIDATE_FAMILY_COUNT} catalog families; received ${actualListingCount} and ${
+        actualFamilyCount ?? 'unresolved'
+      }.`,
+      {
+        expectedListingCount: CORRECTED_CANDIDATE_LISTING_COUNT,
+        actualListingCount,
+        expectedFamilyCount: CORRECTED_CANDIDATE_FAMILY_COUNT,
+        actualFamilyCount: actualFamilyCount ?? null,
+      },
+    );
+  }
+
+  private correctedCandidateRequiredText(value: unknown, field: string) {
+    const normalized = asString(value);
+    if (!normalized) {
+      throw new CorrectedCandidateBuilderError(
+        'ECOBASE_CORRECTED_CANDIDATE_CATALOG_DRIFT',
+        `EcoBase corrected candidate requires ${field}.`,
+        { field },
+      );
+    }
+    return normalized;
+  }
+
+  private correctedCandidateSettings(settings: EcobasePlanningSettings): CorrectedCandidateSettings {
+    return {
+      profitTierAThreshold: asNumber(settings.profitTierAThreshold) ?? 250,
+      profitTierBThreshold: asNumber(settings.profitTierBThreshold) ?? 100,
+      profitTierCThreshold: asNumber(settings.profitTierCThreshold) ?? 0,
+      minimumProjectionCoveredDays: asNumber(settings.minimumProjectionCoveredDays) ?? 14,
+      paceTolerancePercent: asNumber(settings.paceTolerancePercent) ?? 0,
+      safetyBufferDays: asNumber(settings.safetyBufferDays) ?? DEFAULT_PLANNING_SETTINGS.safetyBufferDays,
+      reorderCycleDays: asNumber(settings.reorderCycleDays) ?? DEFAULT_PLANNING_SETTINGS.reorderCycleDays,
+      targetCoverDays: asNumber(settings.targetCoverDays) ?? DEFAULT_PLANNING_SETTINGS.targetCoverDays,
+      orderSoonWindowDays: asNumber(settings.orderSoonWindowDays) ?? DEFAULT_PLANNING_SETTINGS.orderSoonWindowDays,
+      leadTimeFreshnessDays:
+        asNumber(settings.leadTimeFreshnessDays) ?? DEFAULT_PLANNING_SETTINGS.leadTimeFreshnessDays,
+      purchasedPipelineGraceDays:
+        asNumber(settings.purchasedPipelineGraceDays) ?? DEFAULT_PLANNING_SETTINGS.purchasedPipelineGraceDays,
+      defaultSupplierLeadTimeDays:
+        asNumber(settings.defaultSupplierLeadTimeDays) ?? DEFAULT_PLANNING_SETTINGS.defaultSupplierLeadTimeDays,
+    };
+  }
+
+  private correctedCandidateFamilies(input: {
+    companyProducts: PlainRecord[];
+    familyRows: PlainRecord[];
+    products: PlainRecord[];
+    accounts: PlainRecord[];
+  }): CorrectedCandidateFamilySnapshot[] {
+    const familiesById = new Map(input.familyRows.map((row) => [asString(row.id), row]));
+    const productsById = new Map(input.products.map((row) => [asString(row.id), row]));
+    const accountsById = new Map(input.accounts.map((row) => [asString(row.id), row]));
+    const membersByFamilyId = new Map<string, PlainRecord[]>();
+    for (const companyProduct of input.companyProducts) {
+      const familyId = this.correctedCandidateRequiredText(
+        companyProduct.companyProductFamilyId,
+        'companyProduct.companyProductFamilyId',
+      );
+      membersByFamilyId.set(familyId, [...(membersByFamilyId.get(familyId) ?? []), companyProduct]);
+    }
+    return [...membersByFamilyId]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([familyId, members]) => {
+        const family = familiesById.get(familyId);
+        if (!family) {
+          throw new CorrectedCandidateBuilderError(
+            'ECOBASE_CORRECTED_CANDIDATE_CATALOG_DRIFT',
+            `EcoBase corrected candidate catalog family "${familyId}" is missing.`,
+            { familyId },
+          );
+        }
+        const sortedMembers = [...members].sort((left, right) =>
+          String(left.id ?? '').localeCompare(String(right.id ?? '')),
+        );
+        const representative = sortedMembers[0];
+        const representativeProduct = productsById.get(asString(representative.productId));
+        const amazonAccountId = this.correctedCandidateRequiredText(
+          family.amazonAccountId ?? representative.amazonAccountId,
+          `family.${familyId}.amazonAccountId`,
+        );
+        const account = accountsById.get(amazonAccountId);
+        const targetCompanyProductId = asString(family.replenishmentTargetCompanyProductId) ?? null;
+        return {
+          familyKey: familyId,
+          companyProductFamilyId: familyId,
+          companyId: this.correctedCandidateRequiredText(
+            family.companyId ?? representative.companyId,
+            `family.${familyId}.companyId`,
+          ),
+          amazonAccountId,
+          marketplace: this.correctedCandidateRequiredText(
+            family.marketplace ?? account?.marketplace ?? representativeProduct?.marketplace,
+            `family.${familyId}.marketplace`,
+          ),
+          canonicalAsin: this.correctedCandidateRequiredText(
+            family.canonicalAsin ?? representativeProduct?.asin,
+            `family.${familyId}.canonicalAsin`,
+          ),
+          targetCompanyProductId,
+          memberCompanyProductIds: sortedMembers.map((member) =>
+            this.correctedCandidateRequiredText(member.id, `family.${familyId}.memberCompanyProductId`),
+          ),
+          targetSelectionEvidence:
+            family.targetSelectionEvidenceJson ??
+            family.targetSelectionEvidence ??
+            family.reconciliationEvidenceJson ??
+            {},
+        };
+      });
+  }
+
+  private correctedOperationalRowsFromSilver(input: {
+    calculationDate: string;
+    settings: EcobasePlanningSettings;
+    sourceConnections: PlainRecord[];
+    inventorySnapshots: PlainRecord[];
+    suppliers: PlainRecord[];
+    supplierProducts: PlainRecord[];
+    productSuppliers: PlainRecord[];
+    orders: PlainRecord[];
+    orderLines: PlainRecord[];
+    companyProducts: PlainRecord[];
+  }) {
+    const sellerboardSourceConnectionIds = new Set(
+      input.sourceConnections
+        .filter(
+          (connection) =>
+            asBoolean(connection.active) !== false &&
+            (asString(connection.sourceType) ?? '').toLowerCase().startsWith('sellerboard'),
+        )
+        .map((connection) => asString(connection.id))
+        .filter((id): id is string => Boolean(id)),
+    );
+    const inventoryByCompanyProduct = this.groupBy(input.inventorySnapshots, 'companyProductId');
+    const suppliersById = new Map(input.suppliers.map((row) => [asString(row.id), row]));
+    const supplierProductsById = new Map(input.supplierProducts.map((row) => [asString(row.id), row]));
+    const supplierLinksByCompanyProduct = this.groupBy(input.productSuppliers, 'companyProductId');
+    const statusRules = supplierOrderStatusRules(input.settings);
+    const ordersById = new Map<string | undefined, PlainRecord>(
+      input.orders.map((order): [string | undefined, PlainRecord] => {
+        const rawStatus = normalizeSupplierOrderStatus(
+          asString(order.canonicalStatus) ?? asString(order.lifecycleStatus) ?? asString(order.lifecyclePhase),
+        );
+        const configuredStatus =
+          statusRules.placedNotPurchased.has(rawStatus) ||
+          statusRules.purchasedPipeline.has(rawStatus) ||
+          statusRules.closed.has(rawStatus);
+        return [
+          asString(order.id),
+          {
+            ...order,
+            status: configuredStatus ? rawStatus : silverOrderStatus(order),
+            externalOrderRef: asString(order.orderRef),
+          },
+        ];
+      }),
+    );
+    const normalizedLines = input.orderLines
+      .filter((line) => asString(line.companyProductId) && asString(line.productMappingStatus) !== 'unresolved')
+      .map((line) => {
+        const supplierProduct = supplierProductsById.get(asString(line.supplierProductId));
+        return {
+          ...line,
+          supplierOrderId: asString(line.orderId),
+          receivedQty: amazonReceivedQty(line),
+          leadTimeDays: asNumber(supplierProduct?.leadTimeDays),
+          leadTimeSource: supplierProduct ? 'silver_order_line.supplier_product_lead_time' : undefined,
+        };
+      });
+    const linesByCompanyProduct = this.groupBy(normalizedLines, 'companyProductId');
+    const fbaReceivingBufferDays =
+      asNumber(input.settings.fbaReceivingBufferDays) ?? DEFAULT_PLANNING_SETTINGS.fbaReceivingBufferDays;
+    const purchasedPipelineGraceDays =
+      asNumber(input.settings.purchasedPipelineGraceDays) ?? DEFAULT_PLANNING_SETTINGS.purchasedPipelineGraceDays;
+    const rows = new Map<string, PlainRecord>();
+
+    for (const companyProduct of input.companyProducts) {
+      const companyProductId = this.correctedCandidateRequiredText(companyProduct.id, 'companyProduct.id');
+      const inventory = latestPreferredInventorySnapshot(
+        inventoryByCompanyProduct.get(companyProductId) ?? [],
+        sellerboardSourceConnectionIds,
+      );
+      const stock = inventory
+        ? this.stockBuckets(
+            {
+              stock: asNumber(inventory.sellableStock),
+              reserved: asNumber(inventory.reserved),
+              inbound: asNumber(inventory.inbound),
+              ordered: asNumber(inventory.ordered),
+              prepStock: asNumber(inventory.prepStock),
+              awdStock: asNumber(inventory.awdStock),
+            },
+            {},
+          )
+        : undefined;
+      const openOrder = summarizeSupplierOrderState(
+        linesByCompanyProduct.get(companyProductId) ?? [],
+        ordersById,
+        input.calculationDate,
+        fbaReceivingBufferDays,
+        statusRules,
+      );
+      const expectedArrivalDate = optionalIsoDate(asString(openOrder.expectedArrivalDate) ?? '');
+      const supplierOrderStale = Boolean(
+        openOrder.supplierOrderState === 'purchased_pipeline' &&
+          expectedArrivalDate &&
+          diffDays(input.calculationDate, expectedArrivalDate) > purchasedPipelineGraceDays,
+      );
+      const supplierPipelineStock = stock
+        ? supplierOrderStale
+          ? 0
+          : Math.max((asNumber(openOrder.supplierOrderPurchasedOpenQty) ?? 0) - stock.amazonPipelineStock, 0)
+        : undefined;
+      const inventoryPositionStock = stock ? stock.onHandSellableStock + stock.amazonPipelineStock : undefined;
+      const futurePositionStock =
+        inventoryPositionStock === undefined ? undefined : inventoryPositionStock + (supplierPipelineStock ?? 0);
+      const supplierOffer = [...(supplierLinksByCompanyProduct.get(companyProductId) ?? [])]
+        .map((link) => {
+          const supplierProduct = supplierProductsById.get(asString(link.supplierProductId));
+          const supplier = suppliersById.get(asString(supplierProduct?.supplierId));
+          return supplierProduct && supplier ? { link, supplierProduct, supplier } : undefined;
+        })
+        .filter((offer): offer is NonNullable<typeof offer> => Boolean(offer))
+        .sort((left, right) => {
+          const rank = (role: unknown) =>
+            role === 'preferred' ? 0 : role === 'latest_used' ? 1 : role === 'historical_purchase' ? 2 : 3;
+          return (
+            rank(left.link.role) - rank(right.link.role) ||
+            String(left.supplierProduct.id ?? '').localeCompare(String(right.supplierProduct.id ?? ''))
+          );
+        })[0];
+      const supplierProduct = supplierOffer?.supplierProduct;
+      const supplier = supplierOffer?.supplier;
+      rows.set(companyProductId, {
+        inventoryAsOfDate: asString(inventory?.snapshotDate),
+        onHandSellableStock: stock?.onHandSellableStock,
+        amazonPipelineStock: stock?.amazonPipelineStock,
+        supplierPipelineStock,
+        inventoryPositionStock,
+        futurePositionStock,
+        sellableStock: stock?.sellableStock,
+        reservedStock: stock?.reservedStock,
+        pipelineStock: stock?.pipelineStock,
+        inboundStock: stock?.inboundStock,
+        orderedStock: stock?.orderedStock,
+        prepStock: stock?.prepStock,
+        awdStock: stock?.awdStock,
+        ...openOrder,
+        supplierOrderStale,
+        pipelineHealthStatus: supplierOrderStale ? 'late' : openOrder.supplierOrderState,
+        supplierId: asString(supplier?.id),
+        supplierName: asString(supplier?.name),
+        supplierSource: supplier ? 'silver_company_product_supplier' : undefined,
+        supplierRole: asString(supplierOffer?.link.role),
+        supplierConfidence: supplier ? 'resolved_silver_link' : undefined,
+        unitCost: asNumber(supplierProduct?.unitCost),
+        unitCostSource: supplierProduct ? 'silver_supplier_product' : undefined,
+        supplierAvailability: supplier ? 'resolved_silver_link' : 'unavailable_no_evidence',
+        leadTimeAvailability: supplierProduct ? 'resolved_silver_link' : 'resolved_default_supplier_lead_time',
+        unitCostAvailability:
+          asNumber(supplierProduct?.unitCost) === undefined ? 'unavailable' : 'resolved_silver_link',
+        leadTimeDays: asNumber(supplierProduct?.leadTimeDays),
+        leadTimeConfirmedAt: asString(supplierProduct?.updatedAt),
+        leadTimeFreshness: supplierProduct ? 'fresh' : 'default',
+        evidence: {
+          inventorySnapshotId: asString(inventory?.id) ?? null,
+          supplierProductId: asString(supplierProduct?.id) ?? null,
+          supplierOrderId: asString(openOrder.supplierOrderId) ?? null,
+        },
+      });
+    }
+    return rows;
+  }
+
+  private correctedOperationalListingSnapshot(input: {
+    companyProduct: PlainRecord;
+    company?: PlainRecord;
+    account?: PlainRecord;
+    product?: PlainRecord;
+    family?: PlainRecord;
+    operationalRow?: PlainRecord;
+    settings: CorrectedCandidateSettings;
+  }): CorrectedOperationalListingSnapshot {
+    const { companyProduct, company, account, product, family, operationalRow, settings } = input;
+    const companyProductId = this.correctedCandidateRequiredText(companyProduct.id, 'companyProduct.id');
+    if (!company || !account || !product || !family || !operationalRow) {
+      throw new CorrectedCandidateBuilderError(
+        'ECOBASE_CORRECTED_CANDIDATE_CATALOG_DRIFT',
+        `EcoBase corrected candidate catalog/operational snapshot is incomplete for "${companyProductId}".`,
+        {
+          companyProductId,
+          companyPresent: Boolean(company),
+          accountPresent: Boolean(account),
+          productPresent: Boolean(product),
+          familyPresent: Boolean(family),
+          operationalRowPresent: Boolean(operationalRow),
+        },
+      );
+    }
+    const numeric = (value: unknown) => asNumber(value) ?? null;
+    return {
+      identity: {
+        companyProductId,
+        companyProductFamilyId: this.correctedCandidateRequiredText(
+          companyProduct.companyProductFamilyId,
+          `companyProduct.${companyProductId}.companyProductFamilyId`,
+        ),
+        companyId: this.correctedCandidateRequiredText(
+          companyProduct.companyId,
+          `companyProduct.${companyProductId}.companyId`,
+        ),
+        amazonAccountId: this.correctedCandidateRequiredText(
+          companyProduct.amazonAccountId,
+          `companyProduct.${companyProductId}.amazonAccountId`,
+        ),
+        marketplace: this.correctedCandidateRequiredText(
+          family.marketplace ?? account.marketplace ?? product.marketplace,
+          `companyProduct.${companyProductId}.marketplace`,
+        ),
+        asin: this.correctedCandidateRequiredText(product.asin, `companyProduct.${companyProductId}.asin`),
+        sku: this.correctedCandidateRequiredText(product.sku, `companyProduct.${companyProductId}.sku`),
+        company: this.correctedCandidateRequiredText(company.name, `companyProduct.${companyProductId}.company`),
+        title: asString(product.title) ?? null,
+        brand: asString(product.brand) ?? null,
+        productStatus: asString(companyProduct.lifecycleStatus) ?? asString(product.lifecycleStatus) ?? null,
+      },
+      planning: {
+        planningExcluded:
+          asBoolean(companyProduct.planningExcluded) === true ||
+          isPlanningExcluded(asString(companyProduct.lifecycleStatus)),
+        safetyBufferDays: settings.safetyBufferDays,
+        reorderCycleDays: asNumber(companyProduct.reorderCycleDays) ?? settings.reorderCycleDays,
+        targetCoverDays: asNumber(companyProduct.targetCoverDays) ?? settings.targetCoverDays,
+        orderSoonWindowDays: settings.orderSoonWindowDays,
+        leadTimeFreshnessDays: settings.leadTimeFreshnessDays,
+        purchasedPipelineGraceDays: settings.purchasedPipelineGraceDays,
+        leadTimeDays: asNumber(operationalRow.leadTimeDays) ?? settings.defaultSupplierLeadTimeDays,
+      },
+      inventory: {
+        inventoryAsOfDate: asString(operationalRow.inventoryAsOfDate) ?? null,
+        onHandSellableStock: numeric(operationalRow.onHandSellableStock),
+        amazonPipelineStock: numeric(operationalRow.amazonPipelineStock),
+        supplierPipelineStock: numeric(operationalRow.supplierPipelineStock),
+        inventoryPositionStock: numeric(operationalRow.inventoryPositionStock),
+        futurePositionStock: numeric(operationalRow.futurePositionStock),
+        sellableStock: numeric(operationalRow.sellableStock),
+        reservedStock: numeric(operationalRow.reservedStock),
+        pipelineStock: numeric(operationalRow.pipelineStock),
+        inboundStock: numeric(operationalRow.inboundStock),
+        orderedStock: numeric(operationalRow.orderedStock),
+        prepStock: numeric(operationalRow.prepStock),
+        awdStock: numeric(operationalRow.awdStock),
+      },
+      order: {
+        state: asString(operationalRow.supplierOrderState) ?? null,
+        stale: asBoolean(operationalRow.supplierOrderStale) === true,
+        workflowStage: asString(operationalRow.supplierOrderWorkflowStage) ?? null,
+        operationalStatus: asString(operationalRow.supplierOrderOperationalStatus) ?? null,
+        orderId: asString(operationalRow.supplierOrderId) ?? null,
+        status: asString(operationalRow.supplierOrderStatus) ?? null,
+        reference: asString(operationalRow.supplierOrderRef) ?? null,
+        openQty: numeric(operationalRow.supplierOrderOpenQty),
+        purchasedOpenQty: numeric(operationalRow.supplierOrderPurchasedOpenQty),
+        placedNotPurchasedOpenQty: numeric(operationalRow.supplierOrderPlacedNotPurchasedOpenQty),
+        pipelineHealthStatus: asString(operationalRow.pipelineHealthStatus) ?? null,
+        expectedArrivalDate: asString(operationalRow.expectedArrivalDate) ?? null,
+        expectedArrivalStatus: asString(operationalRow.expectedArrivalStatus) ?? null,
+        authorityStatus: asString(operationalRow.supplierOrderAuthorityStatus) ?? null,
+        authoritySource: asString(operationalRow.supplierOrderAuthoritySource) ?? null,
+        authorityTaskRef: asString(operationalRow.supplierOrderAuthorityTaskRef) ?? null,
+        authorityAsOf: asString(operationalRow.supplierOrderAuthorityAsOf) ?? null,
+        authorityEvidence: operationalRow.supplierOrderAuthorityEvidence ?? {},
+        receiptStatus: asString(operationalRow.amazonReceiptStatus) ?? null,
+        receiptObservedAt: asString(operationalRow.amazonReceiptObservedAt) ?? null,
+        receiptCompletionReason: asString(operationalRow.amazonReceiptCompletionReason) ?? null,
+        receiptEvidence: operationalRow.amazonReceiptEvidenceJson ?? {},
+      },
+      supplier: {
+        supplierId: asString(operationalRow.supplierId) ?? null,
+        supplierName: asString(operationalRow.supplierName) ?? null,
+        supplierSource: asString(operationalRow.supplierSource) ?? null,
+        supplierRole: asString(operationalRow.supplierRole) ?? null,
+        supplierConfidence: asString(operationalRow.supplierConfidence) ?? null,
+        unitCost: numeric(operationalRow.unitCost),
+        unitCostSource: asString(operationalRow.unitCostSource) ?? null,
+        supplierAvailability: asString(operationalRow.supplierAvailability) ?? null,
+        leadTimeAvailability: asString(operationalRow.leadTimeAvailability) ?? null,
+        unitCostAvailability: asString(operationalRow.unitCostAvailability) ?? null,
+        leadTimeConfirmedAt: asString(operationalRow.leadTimeConfirmedAt) ?? null,
+        leadTimeFreshness: asString(operationalRow.leadTimeFreshness) ?? null,
+      },
+      sourceEvidence: operationalRow.evidence ?? {},
+    };
+  }
+
+  private async correctedCandidateProtectedSilverFingerprint() {
+    const fingerprints: Record<string, string> = {};
+    for (const collection of CORRECTED_CANDIDATE_PROTECTED_COLLECTIONS) {
+      const rows = (await this.repoRows(collection))
+        .map(({ createdAt: _createdAt, updatedAt: _updatedAt, ...businessFields }) => businessFields)
+        .sort((left, right) => canonicalJson(left).localeCompare(canonicalJson(right)));
+      fingerprints[collection] = sha256Canonical(rows);
+    }
+    return sha256Canonical(fingerprints);
   }
 
   private stockBuckets(inventory: PlainRecord, calculation: PlainRecord) {

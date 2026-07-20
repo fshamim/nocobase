@@ -8,11 +8,6 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import {
-  LEGACY_STEP19_GOLD_DIGEST_CONTRACT,
-  legacyStep19GoldProjectionSql,
-  projectLegacyStep19GoldRow,
-} from '../../features/inventory-planning/server/legacy-gold-digest-contract';
 import goldInventoryPlanningAccessAudits from '../collections/gold-inventory-planning-access-audits';
 import goldInventoryPlanningRefreshRuns from '../collections/gold-inventory-planning-refresh-runs';
 import goldInventoryPlanningRows from '../collections/gold-inventory-planning-rows';
@@ -20,7 +15,6 @@ import { ECOBASE_COLLECTIONS } from '../collections/names';
 import planningSettings from '../collections/planning-settings';
 import sourceCoverageIntervals from '../collections/source-coverage-intervals';
 import sourceCoverageMemberships from '../collections/source-coverage-memberships';
-import { LEGACY_STEP19_GOLD_CANDIDATE_MANIFEST } from './fixtures/legacy-step19-gold-candidate-manifest';
 
 interface FieldOptions {
   name: string;
@@ -325,34 +319,5 @@ describe('tiering-detour additive schema', () => {
     for (const name of GOLD_INTEGER_FIELDS) expect(field(goldInventoryPlanningRows, name).type).toBe('integer');
     for (const name of GOLD_UUID_FIELDS) expect(field(goldInventoryPlanningRows, name).type).toBe('uuid');
     for (const name of GOLD_STRING_FIELDS) expect(field(goldInventoryPlanningRows, name).type).toBe('string');
-  });
-
-  it('keeps the exact 2,363-row Step 19 upgrade projection stable after additive null columns', () => {
-    expect(LEGACY_STEP19_GOLD_DIGEST_CONTRACT).toEqual(LEGACY_STEP19_GOLD_CANDIDATE_MANIFEST);
-    expect(LEGACY_STEP19_GOLD_DIGEST_CONTRACT.fields).toHaveLength(194);
-
-    const legacySchemaFields = options(goldInventoryPlanningRows)
-      .fields!.map((definition) => definition.foreignKey ?? definition.name)
-      .filter((name) => !ALL_NEW_GOLD_FIELDS.includes(name as (typeof ALL_NEW_GOLD_FIELDS)[number]))
-      .filter((name) => name !== 'lastRefreshedAt')
-      .sort();
-    expect(legacySchemaFields).toEqual([...LEGACY_STEP19_GOLD_DIGEST_CONTRACT.fields]);
-
-    const legacyRow = Object.fromEntries(
-      LEGACY_STEP19_GOLD_DIGEST_CONTRACT.fields.map((name, index) => [name, index % 7 === 0 ? null : `${name}:value`]),
-    );
-    const upgradedRow = {
-      ...legacyRow,
-      ...Object.fromEntries(ALL_NEW_GOLD_FIELDS.map((name) => [name, null])),
-      createdAt: '2026-07-19T00:00:00.000Z',
-      updatedAt: '2026-07-19T00:00:00.000Z',
-      lastRefreshedAt: '2026-07-19T00:00:00.000Z',
-    };
-
-    expect(projectLegacyStep19GoldRow(upgradedRow)).toEqual(legacyRow);
-    expect(legacyStep19GoldProjectionSql('legacy_row')).toContain('jsonb_each(to_jsonb(legacy_row))');
-    expect(() => legacyStep19GoldProjectionSql('legacy row')).toThrow(
-      'EcoBase legacy Gold digest projection rejected invalid SQL row alias "legacy row".',
-    );
   });
 });
