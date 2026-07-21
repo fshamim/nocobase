@@ -66,6 +66,7 @@ const InventoryDashboardPage: React.FC<InventoryDashboardPageProps> = ({
   const [supersededBy, setSupersededBy] = useState<string | null>(null);
   const [slowHeaderLoad, setSlowHeaderLoad] = useState(false);
   const [drawerTarget, setDrawerTarget] = useState<DrawerTarget | null>(null);
+  const drawerTriggerRef = useRef<HTMLElement | null>(null);
   const paneRefs = useRef(new Map<PaneKey, PaneSectionHandle | null>());
   const navigate = useNavigate();
 
@@ -133,8 +134,20 @@ const InventoryDashboardPage: React.FC<InventoryDashboardPageProps> = ({
     paneRefs.current.get(pane)?.focusAndLoad();
   }, []);
 
-  const onRowClick = useCallback((row: DashboardRow) => {
-    setDrawerTarget({ pane: row.pane, familyId: row.identity.familyKey, orderId: row.order?.orderId });
+  const onRowClick = useCallback((row: DashboardRow, trigger: HTMLElement | null) => {
+    drawerTriggerRef.current = trigger;
+    setDrawerTarget({
+      pane: row.pane,
+      familyId: row.identity.familyKey,
+      orderId: row.order?.orderId,
+      listingRowId: row.identity.listingRowId,
+    });
+  }, []);
+
+  // QA item 4: closing the drawer returns focus to the row that opened it.
+  const onDrawerClose = useCallback(() => {
+    setDrawerTarget(null);
+    drawerTriggerRef.current?.focus();
   }, []);
 
   // G3 scoped refresh: a drawer mutation reloads ONLY the affected pane + header.
@@ -252,7 +265,7 @@ const InventoryDashboardPage: React.FC<InventoryDashboardPageProps> = ({
         runId={runId}
         api={api}
         t={t}
-        onClose={() => setDrawerTarget(null)}
+        onClose={onDrawerClose}
         onMutated={onDrawerMutated}
         onSuperseded={onSuperseded}
         navigate={(path) => navigate(path)}

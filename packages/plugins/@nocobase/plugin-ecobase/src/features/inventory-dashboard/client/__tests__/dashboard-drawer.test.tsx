@@ -269,6 +269,74 @@ describe('PaneDrawer (Gate G3)', () => {
     const dialog = await openDrawer('supplyAction');
     expect(within(dialog).getAllByText(/Suggested order quantity/).length).toBeGreaterThan(0);
     fireEvent.click(within(dialog).getByRole('button', { name: 'Open in Order Planning' }));
-    expect(navigateSpy).toHaveBeenCalledWith(expect.stringContaining('/admin/ecobase/order-planning?search='));
+    const call = navigateSpy.mock.calls.at(-1)?.[0] as string;
+    expect(call).toContain('/admin/ecobase/order-planning?search=');
+    // QA item 6: the param must actually carry a value.
+    expect(call.split('?search=')[1]?.length).toBeGreaterThan(0);
+  });
+
+  it('QA item 6: data-readiness deep links carry non-empty search params', async () => {
+    const dialog = await openDrawer('dataReadiness');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Open Inventory Planning' }));
+    const inv = navigateSpy.mock.calls.at(-1)?.[0] as string;
+    expect(inv).toContain('/admin/ecobase/inventory-planning?search=');
+    expect(inv.split('?search=')[1]?.length).toBeGreaterThan(0);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Open Supplier Management' }));
+    const sup = navigateSpy.mock.calls.at(-1)?.[0] as string;
+    expect(sup).toContain('/admin/ecobase/supplier-management?search=');
+  });
+
+  it('QA item 4: focus moves into the drawer on open and returns to the trigger row on close', async () => {
+    const dialog = await openDrawer('inPrepMonitoring');
+    const triggerRow = document.querySelector(
+      'section[data-pane="inPrepMonitoring"] tbody tr.ant-table-row',
+    ) as HTMLElement;
+    await waitFor(() => {
+      expect(document.activeElement).not.toBe(document.body);
+      expect(dialog.contains(document.activeElement)).toBe(true);
+    });
+    fireEvent.click(dialog.querySelector('.ant-drawer-close') as HTMLElement);
+    await waitFor(() => expect(document.activeElement).toBe(triggerRow));
+  });
+
+  it('QA item 5: shows a progress hint when the drawer context is still loading after 10s', async () => {
+    request.mockReset();
+    request.mockImplementation((args: { url: string; data: Record<string, unknown> }) => {
+      if (args.url === 'ecobaseInventoryDashboard:header') return respond(headerFixture);
+      if (args.url === 'ecobaseInventoryDashboard:pane') return respond(PANE_FIXTURES[String(args.data.pane)]);
+      if (args.url === 'ecobaseInventoryDashboard:drawerContext') return new Promise(() => undefined); // hangs
+      return respond({ ok: true });
+    });
+    render(
+      <App>
+        <InventoryDashboardPage observeVisibility={observeOnly('inPrepMonitoring')} />
+      </App>,
+    );
+    await waitFor(() =>
+      expect(
+        document.querySelectorAll('section[data-pane="inPrepMonitoring"] tbody tr.ant-table-row').length,
+      ).toBeGreaterThan(0),
+    );
+    // Fake timers BEFORE opening so the 10s hint timer is armed under them.
+    vi.useFakeTimers();
+    await act(async () => {
+      fireEvent.click(
+        document.querySelector('section[data-pane="inPrepMonitoring"] tbody tr.ant-table-row') as HTMLElement,
+      );
+    });
+    expect(requests('ecobaseInventoryDashboard:drawerContext')).toHaveLength(1);
+    expect(document.body.textContent).not.toContain('Still loading');
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+    vi.useRealTimers();
+    expect(document.body.textContent).toContain('Still loading');
+  });
+
+  it('QA item 7: the drawerContext request carries the clicked listing id', async () => {
+    await openDrawer('healthyInventory');
+    const [args] = requests('ecobaseInventoryDashboard:drawerContext')[0];
+    expect(typeof args.data.listingRowId).toBe('string');
+    expect((args.data.listingRowId as string).length).toBeGreaterThan(0);
   });
 });

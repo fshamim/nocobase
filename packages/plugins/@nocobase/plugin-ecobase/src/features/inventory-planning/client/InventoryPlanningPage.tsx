@@ -794,7 +794,10 @@ export default function InventoryPlanningPage() {
   const [commandCenter, setCommandCenter] = useState<PlainRecord>({});
   const [activeCommandPane, setActiveCommandPane] = useState<CommandCenterPaneKey>('supplyAction');
   const [openCommandPane, setOpenCommandPane] = useState<CommandCenterPaneKey | null>('supplyAction');
-  const [commandCenterSearch, setCommandCenterSearch] = useState('');
+  // Inventory Dashboard deep-link prefill (coordinator-adjudicated one-line touch).
+  const [commandCenterSearch, setCommandCenterSearch] = useState(
+    () => new URLSearchParams(window.location.search).get('search') ?? '',
+  );
   const [commandCenterPage, setCommandCenterPage] = useState(1);
   const [commandCenterSortBy, setCommandCenterSortBy] = useState('averageMonthlyProfit');
   const [selectedCommandPane, setSelectedCommandPane] = useState<CommandCenterPaneKey | null>(null);

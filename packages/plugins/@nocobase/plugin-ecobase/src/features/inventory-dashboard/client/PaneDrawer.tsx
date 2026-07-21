@@ -47,6 +47,7 @@ export interface DrawerTarget {
   pane: PaneKey;
   familyId: string;
   orderId?: string;
+  listingRowId?: string;
 }
 
 export interface PaneDrawerProps {
@@ -83,6 +84,28 @@ const PaneDrawer: React.FC<PaneDrawerProps> = ({
   const [state, setState] = useState<DrawerState>({ status: 'idle' });
   const [submitting, setSubmitting] = useState(false);
   const [mutationError, setMutationError] = useState<string | null>(null);
+  const [slowLoad, setSlowLoad] = useState(false);
+  const bodyRef = React.useRef<HTMLDivElement | null>(null);
+
+  // QA item 4: move focus INTO the drawer on open (jsdom + browser reliable,
+  // no dependency on motion end events).
+  useEffect(() => {
+    if (target) {
+      const timer = setTimeout(() => bodyRef.current?.focus(), 0);
+      return () => clearTimeout(timer);
+    }
+    return undefined;
+  }, [target]);
+
+  // QA item 5: progress hint when the drawer context takes unusually long.
+  useEffect(() => {
+    if (state.status !== 'loading') {
+      setSlowLoad(false);
+      return undefined;
+    }
+    const timer = setTimeout(() => setSlowLoad(true), 10_000);
+    return () => clearTimeout(timer);
+  }, [state.status]);
 
   const load = useCallback(async () => {
     if (!target) return;
@@ -93,7 +116,13 @@ const PaneDrawer: React.FC<PaneDrawerProps> = ({
         await api.request({
           url: 'ecobaseInventoryDashboard:drawerContext',
           method: 'post',
-          data: { pane: target.pane, runId, familyId: target.familyId, orderId: target.orderId },
+          data: {
+            pane: target.pane,
+            runId,
+            familyId: target.familyId,
+            orderId: target.orderId,
+            listingRowId: target.listingRowId,
+          },
         }),
       );
       if (!isDrawerContextPayload(data)) throw new Error(t(TEXT.unexpectedResponse));
@@ -116,7 +145,7 @@ const PaneDrawer: React.FC<PaneDrawerProps> = ({
       setMutationError(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [target?.pane, target?.familyId, target?.orderId, runId]);
+  }, [target?.pane, target?.familyId, target?.orderId, target?.listingRowId, runId]);
 
   const runMutation: RunDrawerMutation = useCallback(
     async (url, data) => {
@@ -150,37 +179,42 @@ const PaneDrawer: React.FC<PaneDrawerProps> = ({
       title={target ? `${t(paneTitle(target.pane))} — ${row?.identity?.sku ?? row?.identity?.asin ?? ''}` : ''}
       destroyOnClose
     >
-      {mutationError ? <Alert type="error" showIcon message={mutationError} style={{ marginBottom: 12 }} /> : null}
-      {state.status === 'loading' || state.status === 'idle' ? (
-        <Spin aria-label={t(TEXT.loading)} />
-      ) : state.status === 'error' ? (
-        <Alert
-          type="error"
-          showIcon
-          message={`${t(TEXT.loadFailed)}: ${state.message}`}
-          action={
-            <Button size="small" onClick={() => load()}>
-              {t(TEXT.retry)}
-            </Button>
-          }
-        />
-      ) : context && row && target ? (
-        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-          <ProductSummary row={row} t={t} />
-          {row.order ? <OrderSummary row={row} t={t} /> : null}
-          <Divider style={{ margin: '4px 0' }} />
-          <DrawerBody
-            pane={target.pane}
-            row={row}
-            context={context}
-            run={runMutation}
-            submitting={submitting}
-            t={t}
-            navigate={navigate}
+      <div ref={bodyRef} tabIndex={-1} aria-label={target ? t(paneTitle(target.pane)) : undefined}>
+        {mutationError ? <Alert type="error" showIcon message={mutationError} style={{ marginBottom: 12 }} /> : null}
+        {state.status === 'loading' || state.status === 'idle' ? (
+          <Space direction="vertical">
+            <Spin aria-label={t(TEXT.loading)} />
+            {slowLoad ? <Typography.Text type="secondary">{t(TEXT.slowLoadHint)}</Typography.Text> : null}
+          </Space>
+        ) : state.status === 'error' ? (
+          <Alert
+            type="error"
+            showIcon
+            message={`${t(TEXT.loadFailed)}: ${state.message}`}
+            action={
+              <Button size="small" onClick={() => load()}>
+                {t(TEXT.retry)}
+              </Button>
+            }
           />
-          <FamilyContext context={context} t={t} />
-        </Space>
-      ) : null}
+        ) : context && row && target ? (
+          <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+            <ProductSummary row={row} t={t} />
+            {row.order ? <OrderSummary row={row} t={t} /> : null}
+            <Divider style={{ margin: '4px 0' }} />
+            <DrawerBody
+              pane={target.pane}
+              row={row}
+              context={context}
+              run={runMutation}
+              submitting={submitting}
+              t={t}
+              navigate={navigate}
+            />
+            <FamilyContext context={context} t={t} />
+          </Space>
+        ) : null}
+      </div>
     </Drawer>
   );
 };
@@ -301,10 +335,28 @@ function DrawerBody({ pane, row, context, run, submitting, t, navigate }: Drawer
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
           <ReasonList title={t(TEXT.drawerReadinessReasons)} reasons={row.reasonCodes} t={t} />
           <Space wrap>
-            <Button size="small" onClick={() => navigate?.('/admin/ecobase/inventory-planning')}>
+            <Button
+              size="small"
+              onClick={() =>
+                navigate?.(
+                  `/admin/ecobase/inventory-planning?search=${encodeURIComponent(
+                    row.identity?.sku ?? row.identity?.asin ?? '',
+                  )}`,
+                )
+              }
+            >
               {t(TEXT.drawerOpenInventoryPlanning)}
             </Button>
-            <Button size="small" onClick={() => navigate?.('/admin/ecobase/supplier-management')}>
+            <Button
+              size="small"
+              onClick={() =>
+                navigate?.(
+                  `/admin/ecobase/supplier-management?search=${encodeURIComponent(
+                    row.order?.supplierName ?? row.identity?.sku ?? '',
+                  )}`,
+                )
+              }
+            >
               {t(TEXT.drawerOpenSupplierManagement)}
             </Button>
           </Space>

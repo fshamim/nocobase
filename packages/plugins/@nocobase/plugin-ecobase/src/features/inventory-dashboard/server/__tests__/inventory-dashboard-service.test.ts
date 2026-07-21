@@ -55,7 +55,8 @@ class RecordingRepository implements DashboardRepository {
   }
 
   async create(params: { values: Record<string, unknown> }) {
-    this.rows.push({ ...params.values });
+    // Mirror the real DB: timestamps are stamped on insert.
+    this.rows.push({ createdAt: new Date(FIXED_NOW).toISOString(), ...params.values });
     return params.values;
   }
 
@@ -423,6 +424,99 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
     const projected = untiered.rows.find((row) => row.identity.asin === 'B0021');
     expect(projected).toBeDefined();
     expect(projected?.reasonCodes).toContain('untiered_projected');
+  });
+
+  it('surfaces a freshly posted order comment in lastActivity and follow-up immediately (QA item 1)', async () => {
+    // order-1a starts with NO activity and >48h in stage -> needsFollowUp true.
+    const before = await service(db).pane({
+      pane: 'inPrepMonitoring',
+      runId: PUBLISHED_RUN_ID,
+      page: 1,
+      pageSize: 200,
+    });
+    if (isRunSuperseded(before)) throw new Error('bad');
+    const beforeRow = before.rows.find((row) => row.order?.orderId === 'order-1a');
+    expect(beforeRow?.lastActivity).toBeNull();
+    expect(beforeRow?.order?.needsFollowUp).toBe(true);
+
+    // Persist a comment in the exact shape order-planning addComment writes
+    // (the action->row persistence itself is proven in drawer-actions.test.ts).
+    await db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).create({
+      values: {
+        id: 'comment-fresh-1',
+        entityType: 'order',
+        entityId: 'order-1a',
+        actorType: 'operator',
+        actorUserId: 4,
+        commentType: 'note',
+        body: 'Fresh drawer comment',
+        workflowDetectionStatus: 'none',
+      },
+    });
+
+    // The scoped refetch (same pinned run, NO gold refresh) must show it.
+    const after = await service(db).pane({ pane: 'inPrepMonitoring', runId: PUBLISHED_RUN_ID, page: 1, pageSize: 200 });
+    if (isRunSuperseded(after)) throw new Error('bad');
+    const afterRow = after.rows.find((row) => row.order?.orderId === 'order-1a');
+    expect(afterRow?.lastActivity?.preview).toBe('Fresh drawer comment');
+    // A fresh comment resets the follow-up flag (activity is now recent).
+    expect(afterRow?.order?.needsFollowUp).toBe(false);
+
+    // Drawer context shows it too.
+    const drawer = await service(db).drawerContext({
+      pane: 'inPrepMonitoring',
+      runId: PUBLISHED_RUN_ID,
+      familyId: afterRow?.identity.familyKey ?? '',
+      orderId: 'order-1a',
+    });
+    if (isRunSuperseded(drawer)) throw new Error('bad');
+    expect(drawer.primaryRow.lastActivity?.preview).toBe('Fresh drawer comment');
+
+    // Header tile respects the fresh activity as well.
+    const header = await service(db).header();
+    const tile = header.tiles.find((candidate) => candidate.key === 'needsFollowUp');
+    expect(tile?.count).toBe(5); // was 6 before the comment
+  });
+
+  it('uses the clicked listing as the drawer primary row (QA item 7)', async () => {
+    const clicked = 'f13b-split-healthy'; // family-13 member that is NOT the supply-action row
+    const drawer = await service(db).drawerContext({
+      pane: 'healthyInventory',
+      runId: PUBLISHED_RUN_ID,
+      familyId: 'family-13',
+      listingRowId: clicked,
+    });
+    if (isRunSuperseded(drawer)) throw new Error('bad');
+    expect(drawer.primaryRow.identity.listingRowId).toBe(clicked);
+    expect(drawer.familyMembers.length).toBe(2);
+  });
+
+  it('falls back to primaryActionReasonCode when readinessReasonCodes is empty (QA item 7b)', async () => {
+    const local = new RecordingDatabase();
+    local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).rows.push({
+      id: PUBLISHED_RUN_ID,
+      status: 'published',
+      calculationDate: FIXED_TODAY,
+      publishedAt: `${FIXED_TODAY}T00:00:00.000Z`,
+    });
+    local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).rows.push({
+      id: 'readiness-empty',
+      naturalKey: 'readiness-empty',
+      refreshRunId: PUBLISHED_RUN_ID,
+      primaryActionPane: 'dataReadiness',
+      primaryActionReasonCode: 'missing_or_invalid_baseline_evidence',
+      companyProductFamilyId: 'family-readiness-empty',
+      baselineTier: 'A',
+      readinessReasonCodes: [],
+    });
+    const response = await service(local).pane({
+      pane: 'dataReadiness',
+      runId: PUBLISHED_RUN_ID,
+      page: 1,
+      pageSize: 25,
+    });
+    if (isRunSuperseded(response)) throw new Error('bad');
+    expect(response.rows[0]?.reasonCodes).toEqual(['missing_or_invalid_baseline_evidence']);
   });
 
   it('handles Postgres Date instances in datetime columns (G4 audit regression)', async () => {

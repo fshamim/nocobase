@@ -193,6 +193,8 @@ export interface DrawerContextRequest {
   runId: string;
   familyId: string;
   orderId?: string;
+  /** The exact listing the user clicked — becomes the drawer's primary row (QA item 7). */
+  listingRowId?: string;
 }
 
 export interface MonthlyEvidencePoint {

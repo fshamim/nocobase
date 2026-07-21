@@ -136,6 +136,7 @@ export function createEcobaseInventoryDashboardActions() {
               runId,
               familyId,
               orderId: optionalString(values, 'orderId'),
+              listingRowId: optionalString(values, 'listingRowId'),
             }),
           };
         } catch (error) {

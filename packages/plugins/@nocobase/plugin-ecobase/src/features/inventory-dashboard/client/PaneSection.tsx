@@ -71,7 +71,7 @@ export interface PaneSectionProps {
   onRowsLoaded?: (rows: DashboardRow[]) => void;
   observeVisibility: ObserveVisibility;
   t: Translate;
-  onRowClick?: (row: DashboardRow) => void;
+  onRowClick?: (row: DashboardRow, trigger: HTMLElement | null) => void;
   /** Test probe (render-isolation assertion): called on every render of this section. */
   onRender?: (pane: PaneConfig['pane']) => void;
 }
@@ -204,11 +204,11 @@ function PaneSectionInner(props: PaneSectionProps, ref: React.Ref<PaneSectionHan
           dataSource={Array.isArray(response?.rows) ? response.rows : []}
           locale={{ emptyText: t(TEXT.empty) }}
           onRow={(row) => ({
-            onClick: () => onRowClick?.(row),
+            onClick: (event) => onRowClick?.(row, event.currentTarget as HTMLElement),
             onKeyDown: (event) => {
               if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault();
-                onRowClick?.(row);
+                onRowClick?.(row, event.currentTarget as HTMLElement);
               }
             },
             tabIndex: 0,

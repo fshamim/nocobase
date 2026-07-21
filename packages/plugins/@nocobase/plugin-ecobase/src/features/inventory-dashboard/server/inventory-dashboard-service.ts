@@ -165,6 +165,11 @@ interface SupplierView {
   shipDestination: 'direct_fba' | 'prep_center' | null;
 }
 
+interface LatestCommentView {
+  body: string;
+  at: string;
+}
+
 function asShipDestination(value: unknown): 'direct_fba' | 'prep_center' | null {
   return value === 'direct_fba' || value === 'prep_center' ? value : null;
 }
@@ -193,7 +198,12 @@ export class EcobaseInventoryDashboardService {
     const goldRows = await this.reader.findRowsForRun(run.id, request.companyId);
     const projected = this.projectRows(goldRows);
     const silverById = await this.loadSilverOrders(projected.map((row) => row.supplierOrderId));
-    const tiles = this.buildTiles(projected, silverById);
+    const commentsById = await this.loadLatestComments(
+      projected
+        .filter((row) => row.pane === 'inPrepMonitoring' || row.pane === 'inboundMonitoring')
+        .map((row) => row.supplierOrderId),
+    );
+    const tiles = this.buildTiles(projected, silverById, commentsById);
     return {
       publishedRunId: run.id,
       calculationDate: run.calculationDate,
@@ -235,8 +245,11 @@ export class EcobaseInventoryDashboardService {
     const suppliersById = ORDER_PANES.has(pane)
       ? await this.loadSuppliers(pageSlice.map((row) => asString(row.raw.supplierId)))
       : new Map<string, SupplierView>();
+    const commentsById = ORDER_PANES.has(pane)
+      ? await this.loadLatestComments(pageSlice.map((row) => row.supplierOrderId))
+      : new Map<string, LatestCommentView>();
 
-    const rows = pageSlice.map((row) => this.buildRow(row, familyPaneSets, silverById, suppliersById));
+    const rows = pageSlice.map((row) => this.buildRow(row, familyPaneSets, silverById, suppliersById, commentsById));
     return {
       pane,
       publishedRunId: run.id,
@@ -265,8 +278,13 @@ export class EcobaseInventoryDashboardService {
     const orderRowsRaw = members.filter((row) => row.supplierOrderId !== null);
     const silverById = await this.loadSilverOrders(orderRowsRaw.map((row) => row.supplierOrderId));
     const suppliersById = await this.loadSuppliers(members.map((row) => asString(row.raw.supplierId)));
+    const commentsById = await this.loadLatestComments(orderRowsRaw.map((row) => row.supplierOrderId));
+    // QA item 7: the drawer represents the listing the user clicked, not the
+    // family-primary listing; order and family-target are fallbacks.
     const primarySource =
-      members.find((row) => (request.orderId ? row.supplierOrderId === request.orderId : row.isFamilyTarget)) ??
+      (request.listingRowId ? members.find((row) => row.listingRowId === request.listingRowId) : undefined) ??
+      (request.orderId ? members.find((row) => row.supplierOrderId === request.orderId) : undefined) ??
+      members.find((row) => row.isFamilyTarget) ??
       members[0];
     return {
       pane,
@@ -279,8 +297,8 @@ export class EcobaseInventoryDashboardService {
         sku: asString(row.raw.sku),
         pane: row.pane,
       })),
-      primaryRow: this.buildRow(primarySource, familyPaneSets, silverById, suppliersById),
-      orderRows: orderRowsRaw.map((row) => this.buildRow(row, familyPaneSets, silverById, suppliersById)),
+      primaryRow: this.buildRow(primarySource, familyPaneSets, silverById, suppliersById, commentsById),
+      orderRows: orderRowsRaw.map((row) => this.buildRow(row, familyPaneSets, silverById, suppliersById, commentsById)),
     };
   }
 
@@ -483,6 +501,32 @@ export class EcobaseInventoryDashboardService {
     return map;
   }
 
+  /**
+   * Fresh order comments (QA item 1): the gold latestSupplierOrderActivity*
+   * columns only refresh with a gold run, so a comment posted from the drawer
+   * would stay invisible until the next refresh. This scoped $in join surfaces
+   * the newest silver comment per order immediately.
+   */
+  private async loadLatestComments(orderIds: Array<string | null>): Promise<Map<string, LatestCommentView>> {
+    const ids = [...new Set(orderIds.filter((id): id is string => id !== null))];
+    if (ids.length === 0) return new Map();
+    const rows = await this.db
+      .getRepository(ECOBASE_COLLECTIONS.silverActivityComments)
+      .find({ filter: { entityType: 'order', entityId: { $in: ids } }, limit: Math.min(ids.length * 100, 10_000) });
+    const map = new Map<string, LatestCommentView>();
+    for (const value of rows) {
+      const record = (typeof value === 'object' && value !== null ? value : {}) as Record<string, unknown>;
+      if (record.deletedAt) continue;
+      const orderId = asString(record.entityId);
+      const body = asString(record.body);
+      const at = asString(record.occurredAt) ?? asString(record.createdAt);
+      if (!orderId || !body || !at) continue;
+      const existing = map.get(orderId);
+      if (!existing || at > existing.at) map.set(orderId, { body, at });
+    }
+    return map;
+  }
+
   private async loadSuppliers(supplierIds: Array<string | null>): Promise<Map<string, SupplierView>> {
     const ids = [...new Set(supplierIds.filter((id): id is string => id !== null))];
     if (ids.length === 0) return new Map();
@@ -507,6 +551,7 @@ export class EcobaseInventoryDashboardService {
     familyPaneSets: Map<string, Set<PaneKey>>,
     silverById: Map<string, SilverOrderView>,
     suppliersById: Map<string, SupplierView> = new Map(),
+    commentsById: Map<string, LatestCommentView> = new Map(),
   ): DashboardRow {
     const raw = row.raw;
     const silver = row.supplierOrderId ? silverById.get(row.supplierOrderId) ?? null : null;
@@ -537,8 +582,15 @@ export class EcobaseInventoryDashboardService {
       latestSafeReorderDate: asString(raw.latestSafeReorderDate),
       estimatedProfitRisk: asNumber(raw.estimatedProfitRisk),
       recommendedOrderQty: asNumber(raw.recommendedOrderQty),
+      // QA item 7b: readinessReasonCodes is empty on live gold rows; the actual
+      // reason lives in primaryActionReasonCode — fall back so P9/P7 drawers
+      // and badges never show an empty reason list.
       reasonCodes: [
-        ...asStringArray(raw.readinessReasonCodes),
+        ...(asStringArray(raw.readinessReasonCodes).length
+          ? asStringArray(raw.readinessReasonCodes)
+          : asString(raw.primaryActionReasonCode)
+            ? [asString(raw.primaryActionReasonCode) as string]
+            : []),
         ...(row.untieredProjected ? ['untiered_projected'] : []),
       ],
       velocityTrend: velocityTrend(asNumber(raw.projectedMonthlyUnits), asNumber(raw.lastClosedMonthUnits)),
@@ -556,9 +608,13 @@ export class EcobaseInventoryDashboardService {
     if (row.supplierOrderId) {
       const enteredAt = silver?.workflowStageEnteredAt ?? null;
       const stageDays = daysInStage(enteredAt, this.now);
+      const freshComment = commentsById.get(row.supplierOrderId) ?? null;
+      const goldActivityAt = asString(raw.latestSupplierOrderActivityAt);
+      const effectiveActivityAt =
+        freshComment && (!goldActivityAt || freshComment.at > goldActivityAt) ? freshComment.at : goldActivityAt;
       const followUp = needsFollowUp({
         daysInStage: stageDays,
-        latestActivityAt: asString(raw.latestSupplierOrderActivityAt),
+        latestActivityAt: effectiveActivityAt,
         workflowStageEnteredAt: enteredAt,
         thresholdHours: this.followUpThresholdHours,
         now: this.now,
@@ -592,12 +648,15 @@ export class EcobaseInventoryDashboardService {
           safetyBufferDays: asNumber(raw.safetyBufferDays),
         });
       }
-      dashboardRow.lastActivity = pickLastActivity({
-        note: asString(raw.latestSupplierOrderActivityNote),
-        actorDisplayName: asString(raw.latestSupplierOrderActivityActorDisplayName),
-        actor: asString(raw.latestSupplierOrderActivityActor),
-        at: asString(raw.latestSupplierOrderActivityAt),
-      });
+      const useFreshComment = freshComment && (!goldActivityAt || freshComment.at > goldActivityAt);
+      dashboardRow.lastActivity = useFreshComment
+        ? pickLastActivity({ note: freshComment.body, actorDisplayName: null, actor: null, at: freshComment.at })
+        : pickLastActivity({
+            note: asString(raw.latestSupplierOrderActivityNote),
+            actorDisplayName: asString(raw.latestSupplierOrderActivityActorDisplayName),
+            actor: asString(raw.latestSupplierOrderActivityActor),
+            at: goldActivityAt,
+          });
     }
 
     if (row.pane === 'performanceReview') {
@@ -606,7 +665,11 @@ export class EcobaseInventoryDashboardService {
     return dashboardRow;
   }
 
-  private buildTiles(projected: ProjectedRow[], silverById: Map<string, SilverOrderView>): DashboardHeaderTile[] {
+  private buildTiles(
+    projected: ProjectedRow[],
+    silverById: Map<string, SilverOrderView>,
+    commentsById: Map<string, LatestCommentView> = new Map(),
+  ): DashboardHeaderTile[] {
     const today = todayDateOnly(this.now);
 
     const urgent = projected.filter(
@@ -625,9 +688,12 @@ export class EcobaseInventoryDashboardService {
       if (!row.supplierOrderId) return false;
       if (row.pane !== 'inPrepMonitoring' && row.pane !== 'inboundMonitoring') return false;
       const enteredAt = silverById.get(row.supplierOrderId)?.workflowStageEnteredAt ?? null;
+      const goldAt = asString(row.raw.latestSupplierOrderActivityAt);
+      const comment = commentsById.get(row.supplierOrderId) ?? null;
+      const effectiveAt = comment && (!goldAt || comment.at > goldAt) ? comment.at : goldAt;
       return needsFollowUp({
         daysInStage: daysInStage(enteredAt, this.now),
-        latestActivityAt: asString(row.raw.latestSupplierOrderActivityAt),
+        latestActivityAt: effectiveAt,
         workflowStageEnteredAt: enteredAt,
         thresholdHours: this.followUpThresholdHours,
         now: this.now,
