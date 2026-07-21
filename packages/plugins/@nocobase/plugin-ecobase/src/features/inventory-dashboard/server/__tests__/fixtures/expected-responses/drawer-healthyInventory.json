@@ -1,0 +1,52 @@
+{
+  "pane": "healthyInventory",
+  "publishedRunId": "run-published-0001",
+  "familyKey": "family-13",
+  "performanceEvidence": [],
+  "familyMembers": [
+    {
+      "listingRowId": "f13a-split-supply",
+      "asin": "B0013",
+      "sku": "SKU-13A",
+      "pane": "supplyAction"
+    },
+    {
+      "listingRowId": "f13b-split-healthy",
+      "asin": "B0013",
+      "sku": "SKU-13B",
+      "pane": "healthyInventory"
+    }
+  ],
+  "primaryRow": {
+    "identity": {
+      "familyKey": "family-13",
+      "listingRowId": "f13a-split-supply",
+      "company": "Acme",
+      "amazonAccountId": "account-acme-us",
+      "marketplace": "Amazon.com",
+      "asin": "B0013",
+      "sku": "SKU-13A",
+      "title": "Fixture product f13a-split-supply"
+    },
+    "pane": "supplyAction",
+    "tier": {
+      "baseline": "A",
+      "current": "A"
+    },
+    "stock": {
+      "currentPlanningStock": 8,
+      "inventoryPositionStock": 100,
+      "unitCost": 5
+    },
+    "daysOfCover": 4,
+    "estimatedOosDate": "2026-07-25",
+    "latestSafeReorderDate": "2026-07-22",
+    "estimatedProfitRisk": 300,
+    "recommendedOrderQty": null,
+    "reasonCodes": [],
+    "velocityTrend": "unknown",
+    "performanceBand": "insufficient_evidence",
+    "familySplit": true
+  },
+  "orderRows": []
+}

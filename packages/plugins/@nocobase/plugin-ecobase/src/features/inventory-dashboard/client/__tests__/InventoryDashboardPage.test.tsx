@@ -44,6 +44,10 @@ vi.mock('../../../../client/locale', () => ({
   useT: () => (value: string) => value,
 }));
 
+vi.mock('react-router-dom', () => ({
+  useNavigate: () => vi.fn(),
+}));
+
 const PANE_FIXTURES: Record<string, unknown> = {
   supplyAction: paneSupplyAction,
   activeOrders: paneActiveOrders,

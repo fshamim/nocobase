@@ -1,0 +1,167 @@
+{
+  "pane": "activeOrders",
+  "publishedRunId": "run-published-0001",
+  "familyKey": "family-4",
+  "performanceEvidence": [],
+  "familyMembers": [
+    {
+      "listingRowId": "f4a-order-prepurchase",
+      "asin": "B0004",
+      "sku": "SKU-4A",
+      "pane": "activeOrders"
+    },
+    {
+      "listingRowId": "f4b-order-inprep",
+      "asin": "B0004",
+      "sku": "SKU-4B",
+      "pane": "inPrepMonitoring"
+    }
+  ],
+  "primaryRow": {
+    "identity": {
+      "familyKey": "family-4",
+      "listingRowId": "f4a-order-prepurchase",
+      "company": "Acme",
+      "amazonAccountId": "account-acme-us",
+      "marketplace": "Amazon.com",
+      "asin": "B0004",
+      "sku": "SKU-4A",
+      "title": "Fixture product f4a-order-prepurchase"
+    },
+    "pane": "activeOrders",
+    "tier": {
+      "baseline": "A",
+      "current": "A"
+    },
+    "stock": {
+      "currentPlanningStock": 100,
+      "inventoryPositionStock": 100,
+      "unitCost": 5
+    },
+    "daysOfCover": 40,
+    "estimatedOosDate": null,
+    "latestSafeReorderDate": null,
+    "estimatedProfitRisk": null,
+    "recommendedOrderQty": null,
+    "reasonCodes": [],
+    "velocityTrend": "unknown",
+    "performanceBand": "insufficient_evidence",
+    "familySplit": true,
+    "order": {
+      "orderId": "order-4a",
+      "orderNumber": null,
+      "clickupStatus": "approved-to-order",
+      "workflowStage": "pre_purchase",
+      "workflowStageEnteredAt": "2026-07-20T06:00:00.000Z",
+      "daysInStage": 1,
+      "needsFollowUp": false,
+      "supplierId": null,
+      "supplierName": null,
+      "supplierShipDestination": null
+    },
+    "lastActivity": {
+      "preview": "Approved to order",
+      "author": null,
+      "at": "2026-07-21T02:00:00.000Z"
+    }
+  },
+  "orderRows": [
+    {
+      "identity": {
+        "familyKey": "family-4",
+        "listingRowId": "f4a-order-prepurchase",
+        "company": "Acme",
+        "amazonAccountId": "account-acme-us",
+        "marketplace": "Amazon.com",
+        "asin": "B0004",
+        "sku": "SKU-4A",
+        "title": "Fixture product f4a-order-prepurchase"
+      },
+      "pane": "activeOrders",
+      "tier": {
+        "baseline": "A",
+        "current": "A"
+      },
+      "stock": {
+        "currentPlanningStock": 100,
+        "inventoryPositionStock": 100,
+        "unitCost": 5
+      },
+      "daysOfCover": 40,
+      "estimatedOosDate": null,
+      "latestSafeReorderDate": null,
+      "estimatedProfitRisk": null,
+      "recommendedOrderQty": null,
+      "reasonCodes": [],
+      "velocityTrend": "unknown",
+      "performanceBand": "insufficient_evidence",
+      "familySplit": true,
+      "order": {
+        "orderId": "order-4a",
+        "orderNumber": null,
+        "clickupStatus": "approved-to-order",
+        "workflowStage": "pre_purchase",
+        "workflowStageEnteredAt": "2026-07-20T06:00:00.000Z",
+        "daysInStage": 1,
+        "needsFollowUp": false,
+        "supplierId": null,
+        "supplierName": null,
+        "supplierShipDestination": null
+      },
+      "lastActivity": {
+        "preview": "Approved to order",
+        "author": null,
+        "at": "2026-07-21T02:00:00.000Z"
+      }
+    },
+    {
+      "identity": {
+        "familyKey": "family-4",
+        "listingRowId": "f4b-order-inprep",
+        "company": "Acme",
+        "amazonAccountId": "account-acme-us",
+        "marketplace": "Amazon.com",
+        "asin": "B0004",
+        "sku": "SKU-4B",
+        "title": "Fixture product f4b-order-inprep"
+      },
+      "pane": "inPrepMonitoring",
+      "tier": {
+        "baseline": "A",
+        "current": "A"
+      },
+      "stock": {
+        "currentPlanningStock": 100,
+        "inventoryPositionStock": 100,
+        "unitCost": 5
+      },
+      "daysOfCover": 40,
+      "estimatedOosDate": null,
+      "latestSafeReorderDate": null,
+      "estimatedProfitRisk": null,
+      "recommendedOrderQty": null,
+      "reasonCodes": [],
+      "velocityTrend": "unknown",
+      "performanceBand": "insufficient_evidence",
+      "familySplit": true,
+      "order": {
+        "orderId": "order-4b",
+        "orderNumber": null,
+        "clickupStatus": "ordered",
+        "workflowStage": "in_prep",
+        "workflowStageEnteredAt": "2026-07-20T16:00:00.000Z",
+        "daysInStage": 0,
+        "needsFollowUp": false,
+        "supplierId": null,
+        "supplierName": null,
+        "supplierShipDestination": null,
+        "prepPath": "unknown"
+      },
+      "lastActivity": {
+        "preview": "Paid, awaiting prep",
+        "author": null,
+        "at": "2026-07-21T07:00:00.000Z"
+      }
+    }
+  ]
+}

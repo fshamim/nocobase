@@ -1,0 +1,104 @@
+{
+  "pane": "inPrepMonitoring",
+  "publishedRunId": "run-published-0001",
+  "familyKey": "family-f1a-inprep-followup",
+  "performanceEvidence": [],
+  "familyMembers": [
+    {
+      "listingRowId": "f1a-inprep-followup",
+      "asin": "B0001A",
+      "sku": "SKU-1A",
+      "pane": "inPrepMonitoring"
+    }
+  ],
+  "primaryRow": {
+    "identity": {
+      "familyKey": "family-f1a-inprep-followup",
+      "listingRowId": "f1a-inprep-followup",
+      "company": "Acme",
+      "amazonAccountId": "account-acme-us",
+      "marketplace": "Amazon.com",
+      "asin": "B0001A",
+      "sku": "SKU-1A",
+      "title": "Fixture product f1a-inprep-followup"
+    },
+    "pane": "inPrepMonitoring",
+    "tier": {
+      "baseline": "A",
+      "current": "A"
+    },
+    "stock": {
+      "currentPlanningStock": 100,
+      "inventoryPositionStock": 100,
+      "unitCost": 5
+    },
+    "daysOfCover": 40,
+    "estimatedOosDate": null,
+    "latestSafeReorderDate": null,
+    "estimatedProfitRisk": null,
+    "recommendedOrderQty": null,
+    "reasonCodes": [],
+    "velocityTrend": "unknown",
+    "performanceBand": "insufficient_evidence",
+    "order": {
+      "orderId": "order-1a",
+      "orderNumber": "PO-1A",
+      "clickupStatus": "prep-in-progress",
+      "workflowStage": "in_prep",
+      "workflowStageEnteredAt": "2026-07-18T12:00:00.000Z",
+      "daysInStage": 3,
+      "needsFollowUp": true,
+      "supplierId": "supplier-prep-center",
+      "supplierName": "Prep Center Supplier",
+      "supplierShipDestination": "prep_center",
+      "prepPath": "own_prep_center"
+    },
+    "lastActivity": null
+  },
+  "orderRows": [
+    {
+      "identity": {
+        "familyKey": "family-f1a-inprep-followup",
+        "listingRowId": "f1a-inprep-followup",
+        "company": "Acme",
+        "amazonAccountId": "account-acme-us",
+        "marketplace": "Amazon.com",
+        "asin": "B0001A",
+        "sku": "SKU-1A",
+        "title": "Fixture product f1a-inprep-followup"
+      },
+      "pane": "inPrepMonitoring",
+      "tier": {
+        "baseline": "A",
+        "current": "A"
+      },
+      "stock": {
+        "currentPlanningStock": 100,
+        "inventoryPositionStock": 100,
+        "unitCost": 5
+      },
+      "daysOfCover": 40,
+      "estimatedOosDate": null,
+      "latestSafeReorderDate": null,
+      "estimatedProfitRisk": null,
+      "recommendedOrderQty": null,
+      "reasonCodes": [],
+      "velocityTrend": "unknown",
+      "performanceBand": "insufficient_evidence",
+      "order": {
+        "orderId": "order-1a",
+        "orderNumber": "PO-1A",
+        "clickupStatus": "prep-in-progress",
+        "workflowStage": "in_prep",
+        "workflowStageEnteredAt": "2026-07-18T12:00:00.000Z",
+        "daysInStage": 3,
+        "needsFollowUp": true,
+        "supplierId": "supplier-prep-center",
+        "supplierName": "Prep Center Supplier",
+        "supplierShipDestination": "prep_center",
+        "prepPath": "own_prep_center"
+      },
+      "lastActivity": null
+    }
+  ]
+}

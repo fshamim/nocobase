@@ -1,0 +1,110 @@
+{
+  "pane": "inboundMonitoring",
+  "publishedRunId": "run-published-0001",
+  "familyKey": "family-f2a-inbound-null-null",
+  "performanceEvidence": [],
+  "familyMembers": [
+    {
+      "listingRowId": "f2a-inbound-null-null",
+      "asin": "B0002A",
+      "sku": "SKU-f2a-inbound-null-null",
+      "pane": "inboundMonitoring"
+    }
+  ],
+  "primaryRow": {
+    "identity": {
+      "familyKey": "family-f2a-inbound-null-null",
+      "listingRowId": "f2a-inbound-null-null",
+      "company": "Acme",
+      "amazonAccountId": "account-acme-us",
+      "marketplace": "Amazon.com",
+      "asin": "B0002A",
+      "sku": "SKU-f2a-inbound-null-null",
+      "title": "Fixture product f2a-inbound-null-null"
+    },
+    "pane": "inboundMonitoring",
+    "tier": {
+      "baseline": "A",
+      "current": "A"
+    },
+    "stock": {
+      "currentPlanningStock": 100,
+      "inventoryPositionStock": 100,
+      "unitCost": 5
+    },
+    "daysOfCover": 40,
+    "estimatedOosDate": null,
+    "latestSafeReorderDate": null,
+    "estimatedProfitRisk": null,
+    "recommendedOrderQty": null,
+    "reasonCodes": [],
+    "velocityTrend": "unknown",
+    "performanceBand": "insufficient_evidence",
+    "order": {
+      "orderId": "order-2a",
+      "orderNumber": null,
+      "clickupStatus": "inbound-monitoring",
+      "workflowStage": "amazon_inbound",
+      "workflowStageEnteredAt": "2026-07-17T12:00:00.000Z",
+      "daysInStage": 4,
+      "needsFollowUp": true,
+      "supplierId": "supplier-direct",
+      "supplierName": "Direct FBA Supplier",
+      "supplierShipDestination": "direct_fba",
+      "prepPath": "direct_fba",
+      "expectedArrivalDate": null,
+      "arrivalProvenance": null,
+      "bufferStatus": "unknown"
+    },
+    "lastActivity": null
+  },
+  "orderRows": [
+    {
+      "identity": {
+        "familyKey": "family-f2a-inbound-null-null",
+        "listingRowId": "f2a-inbound-null-null",
+        "company": "Acme",
+        "amazonAccountId": "account-acme-us",
+        "marketplace": "Amazon.com",
+        "asin": "B0002A",
+        "sku": "SKU-f2a-inbound-null-null",
+        "title": "Fixture product f2a-inbound-null-null"
+      },
+      "pane": "inboundMonitoring",
+      "tier": {
+        "baseline": "A",
+        "current": "A"
+      },
+      "stock": {
+        "currentPlanningStock": 100,
+        "inventoryPositionStock": 100,
+        "unitCost": 5
+      },
+      "daysOfCover": 40,
+      "estimatedOosDate": null,
+      "latestSafeReorderDate": null,
+      "estimatedProfitRisk": null,
+      "recommendedOrderQty": null,
+      "reasonCodes": [],
+      "velocityTrend": "unknown",
+      "performanceBand": "insufficient_evidence",
+      "order": {
+        "orderId": "order-2a",
+        "orderNumber": null,
+        "clickupStatus": "inbound-monitoring",
+        "workflowStage": "amazon_inbound",
+        "workflowStageEnteredAt": "2026-07-17T12:00:00.000Z",
+        "daysInStage": 4,
+        "needsFollowUp": true,
+        "supplierId": "supplier-direct",
+        "supplierName": "Direct FBA Supplier",
+        "supplierShipDestination": "direct_fba",
+        "prepPath": "direct_fba",
+        "expectedArrivalDate": null,
+        "arrivalProvenance": null,
+        "bufferStatus": "unknown"
+      },
+      "lastActivity": null
+    }
+  ]
+}

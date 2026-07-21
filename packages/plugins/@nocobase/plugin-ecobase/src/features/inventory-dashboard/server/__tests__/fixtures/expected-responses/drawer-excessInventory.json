@@ -1,0 +1,45 @@
+{
+  "pane": "excessInventory",
+  "publishedRunId": "run-published-0001",
+  "familyKey": "family-f-excess",
+  "performanceEvidence": [],
+  "familyMembers": [
+    {
+      "listingRowId": "f-excess",
+      "asin": "B0016",
+      "sku": "SKU-f-excess",
+      "pane": "excessInventory"
+    }
+  ],
+  "primaryRow": {
+    "identity": {
+      "familyKey": "family-f-excess",
+      "listingRowId": "f-excess",
+      "company": "Acme",
+      "amazonAccountId": "account-acme-us",
+      "marketplace": "Amazon.com",
+      "asin": "B0016",
+      "sku": "SKU-f-excess",
+      "title": "Fixture product f-excess"
+    },
+    "pane": "excessInventory",
+    "tier": {
+      "baseline": "A",
+      "current": "A"
+    },
+    "stock": {
+      "currentPlanningStock": 100,
+      "inventoryPositionStock": 100,
+      "unitCost": 5
+    },
+    "daysOfCover": 120,
+    "estimatedOosDate": null,
+    "latestSafeReorderDate": null,
+    "estimatedProfitRisk": null,
+    "recommendedOrderQty": null,
+    "reasonCodes": [],
+    "velocityTrend": "unknown",
+    "performanceBand": "insufficient_evidence"
+  },
+  "orderRows": []
+}

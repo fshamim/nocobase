@@ -1,0 +1,76 @@
+{
+  "pane": "performanceReview",
+  "publishedRunId": "run-published-0001",
+  "familyKey": "family-f8a-band-3-trusted",
+  "performanceEvidence": [
+    {
+      "month": "2026-01",
+      "units": 100,
+      "trusted": true
+    },
+    {
+      "month": "2026-02",
+      "units": 200,
+      "trusted": true
+    },
+    {
+      "month": "2026-03",
+      "units": 150,
+      "trusted": true
+    },
+    {
+      "month": "2026-04",
+      "units": null,
+      "trusted": false
+    },
+    {
+      "month": "2026-05",
+      "units": null,
+      "trusted": false
+    },
+    {
+      "month": "2026-06",
+      "units": null,
+      "trusted": false
+    }
+  ],
+  "familyMembers": [
+    {
+      "listingRowId": "f8a-band-3-trusted",
+      "asin": "B0008A",
+      "sku": "SKU-f8a-band-3-trusted",
+      "pane": "performanceReview"
+    }
+  ],
+  "primaryRow": {
+    "identity": {
+      "familyKey": "family-f8a-band-3-trusted",
+      "listingRowId": "f8a-band-3-trusted",
+      "company": "Acme",
+      "amazonAccountId": "account-acme-us",
+      "marketplace": "Amazon.com",
+      "asin": "B0008A",
+      "sku": "SKU-f8a-band-3-trusted",
+      "title": "Fixture product f8a-band-3-trusted"
+    },
+    "pane": "performanceReview",
+    "tier": {
+      "baseline": "A",
+      "current": "B"
+    },
+    "stock": {
+      "currentPlanningStock": 100,
+      "inventoryPositionStock": 100,
+      "unitCost": 5
+    },
+    "daysOfCover": 40,
+    "estimatedOosDate": null,
+    "latestSafeReorderDate": null,
+    "estimatedProfitRisk": null,
+    "recommendedOrderQty": null,
+    "reasonCodes": [],
+    "velocityTrend": "down",
+    "performanceBand": "below_band"
+  },
+  "orderRows": []
+}

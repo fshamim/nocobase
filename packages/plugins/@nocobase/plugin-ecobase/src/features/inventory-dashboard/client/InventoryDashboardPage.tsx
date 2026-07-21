@@ -18,8 +18,10 @@ import { useAPIClient } from '@nocobase/client';
 import { Alert, Button, Input, Select, Space, Spin, Typography } from 'antd';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DashboardHeader as DashboardHeaderData, DashboardRow, PaneKey, PaneResult } from '../server/contract';
+import { useNavigate } from 'react-router-dom';
 import { useT } from '../../../client/locale';
 import DashboardHeaderStrip from './DashboardHeader';
+import PaneDrawer, { type DrawerTarget } from './PaneDrawer';
 import { isDashboardHeaderPayload, isPaneResultPayload, unwrapEnvelope } from './envelope';
 import PaneSection, {
   defaultObserveVisibility,
@@ -40,10 +42,13 @@ interface EcobaseRequestClient {
 
 export interface InventoryDashboardPageProps {
   observeVisibility?: ObserveVisibility;
+  /** Test probe: called whenever a pane section renders (render-isolation assertion). */
+  onPaneRender?: (pane: PaneKey) => void;
 }
 
 const InventoryDashboardPage: React.FC<InventoryDashboardPageProps> = ({
   observeVisibility = defaultObserveVisibility,
+  onPaneRender,
 }) => {
   const t = useT();
   // Stable reference for async callbacks: `t` may change identity per render
@@ -60,7 +65,9 @@ const InventoryDashboardPage: React.FC<InventoryDashboardPageProps> = ({
   const [search, setSearch] = useState('');
   const [supersededBy, setSupersededBy] = useState<string | null>(null);
   const [slowHeaderLoad, setSlowHeaderLoad] = useState(false);
+  const [drawerTarget, setDrawerTarget] = useState<DrawerTarget | null>(null);
   const paneRefs = useRef(new Map<PaneKey, PaneSectionHandle | null>());
+  const navigate = useNavigate();
 
   // T-3.0c(a): surface a progress hint when the header takes unusually long.
   useEffect(() => {
@@ -125,6 +132,19 @@ const InventoryDashboardPage: React.FC<InventoryDashboardPageProps> = ({
   const onTileClick = useCallback((pane: PaneKey) => {
     paneRefs.current.get(pane)?.focusAndLoad();
   }, []);
+
+  const onRowClick = useCallback((row: DashboardRow) => {
+    setDrawerTarget({ pane: row.pane, familyId: row.identity.familyKey, orderId: row.order?.orderId });
+  }, []);
+
+  // G3 scoped refresh: a drawer mutation reloads ONLY the affected pane + header.
+  const onDrawerMutated = useCallback(
+    (pane: PaneKey) => {
+      loadHeader();
+      paneRefs.current.get(pane)?.refresh();
+    },
+    [loadHeader],
+  );
 
   const companySelectOptions = useMemo(
     () => companyOptions.map((company) => ({ label: company, value: company })),
@@ -222,9 +242,21 @@ const InventoryDashboardPage: React.FC<InventoryDashboardPageProps> = ({
               onRowsLoaded={onRowsLoaded}
               observeVisibility={observeVisibility}
               t={t}
+              onRowClick={onRowClick}
+              onRender={onPaneRender}
             />
           ))
         : null}
+      <PaneDrawer
+        target={drawerTarget}
+        runId={runId}
+        api={api}
+        t={t}
+        onClose={() => setDrawerTarget(null)}
+        onMutated={onDrawerMutated}
+        onSuperseded={onSuperseded}
+        navigate={(path) => navigate(path)}
+      />
     </div>
   );
 };

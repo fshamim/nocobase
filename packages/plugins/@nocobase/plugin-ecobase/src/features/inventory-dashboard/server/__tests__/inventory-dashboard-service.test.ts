@@ -422,6 +422,17 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
     for (const pane of DASHBOARD_PANE_KEYS) {
       const response = await svc.pane({ pane, runId: PUBLISHED_RUN_ID, page: 1, pageSize: 200 });
       writeFileSync(join(outputDir, `pane-${pane}.json`), `${JSON.stringify(response, null, 2)}\n`);
+      // Drawer-context snapshot for the pane's first row (G3 client mocks).
+      if (!isRunSuperseded(response) && response.rows.length > 0) {
+        const first = response.rows[0];
+        const drawer = await svc.drawerContext({
+          pane,
+          runId: PUBLISHED_RUN_ID,
+          familyId: first.identity.familyKey,
+          orderId: first.order?.orderId,
+        });
+        writeFileSync(join(outputDir, `drawer-${pane}.json`), `${JSON.stringify(drawer, null, 2)}\n`);
+      }
     }
     expect(header.tiles).toHaveLength(5);
   });

@@ -55,6 +55,8 @@ export interface PaneFetchRequest {
 export interface PaneSectionHandle {
   /** Tile deep-link (REQ-H6): trigger this pane's fetch if unloaded and move focus to its heading. */
   focusAndLoad: () => void;
+  /** Scoped refresh after a drawer mutation (G3): re-fetch this pane only. */
+  refresh: () => void;
 }
 
 export interface PaneSectionProps {
@@ -69,6 +71,9 @@ export interface PaneSectionProps {
   onRowsLoaded?: (rows: DashboardRow[]) => void;
   observeVisibility: ObserveVisibility;
   t: Translate;
+  onRowClick?: (row: DashboardRow) => void;
+  /** Test probe (render-isolation assertion): called on every render of this section. */
+  onRender?: (pane: PaneConfig['pane']) => void;
 }
 
 type PaneLoadState =
@@ -78,8 +83,21 @@ type PaneLoadState =
   | { status: 'error'; message: string };
 
 function PaneSectionInner(props: PaneSectionProps, ref: React.Ref<PaneSectionHandle>) {
-  const { config, runId, companyId, search, frozen, fetchPane, onSuperseded, onRowsLoaded, observeVisibility, t } =
-    props;
+  const {
+    config,
+    runId,
+    companyId,
+    search,
+    frozen,
+    fetchPane,
+    onSuperseded,
+    onRowsLoaded,
+    observeVisibility,
+    t,
+    onRowClick,
+    onRender,
+  } = props;
+  onRender?.(config.pane);
   const pageSize = props.pageSize ?? 25;
   const [visible, setVisible] = useState(false);
   const [page, setPage] = useState(1);
@@ -128,8 +146,12 @@ function PaneSectionInner(props: PaneSectionProps, ref: React.Ref<PaneSectionHan
         heading?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
         heading?.focus();
       },
+      refresh: () => {
+        setVisible(true);
+        load(page);
+      },
     }),
-    [],
+    [load, page],
   );
 
   const response = state.status === 'loaded' ? state.response : undefined;
@@ -181,6 +203,20 @@ function PaneSectionInner(props: PaneSectionProps, ref: React.Ref<PaneSectionHan
           columns={columns}
           dataSource={Array.isArray(response?.rows) ? response.rows : []}
           locale={{ emptyText: t(TEXT.empty) }}
+          onRow={(row) => ({
+            onClick: () => onRowClick?.(row),
+            onKeyDown: (event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                onRowClick?.(row);
+              }
+            },
+            tabIndex: 0,
+            role: 'button',
+            'aria-label': `${t(config.titleKey)}: ${
+              row.identity?.sku ?? row.identity?.asin ?? row.identity?.familyKey
+            }`,
+          })}
           pagination={{
             current: response?.pagination?.page ?? page,
             pageSize: response?.pagination?.pageSize ?? pageSize,

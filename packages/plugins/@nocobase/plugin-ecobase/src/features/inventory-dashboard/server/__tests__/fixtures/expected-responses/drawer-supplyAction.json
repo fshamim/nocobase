@@ -1,0 +1,45 @@
+{
+  "pane": "supplyAction",
+  "publishedRunId": "run-published-0001",
+  "familyKey": "family-f9b-supply-null-risk",
+  "performanceEvidence": [],
+  "familyMembers": [
+    {
+      "listingRowId": "f9b-supply-null-risk",
+      "asin": "B0009B",
+      "sku": "SKU-f9b-supply-null-risk",
+      "pane": "supplyAction"
+    }
+  ],
+  "primaryRow": {
+    "identity": {
+      "familyKey": "family-f9b-supply-null-risk",
+      "listingRowId": "f9b-supply-null-risk",
+      "company": "Acme",
+      "amazonAccountId": "account-acme-us",
+      "marketplace": "Amazon.com",
+      "asin": "B0009B",
+      "sku": "SKU-f9b-supply-null-risk",
+      "title": "Fixture product f9b-supply-null-risk"
+    },
+    "pane": "supplyAction",
+    "tier": {
+      "baseline": "A",
+      "current": "A"
+    },
+    "stock": {
+      "currentPlanningStock": 5,
+      "inventoryPositionStock": 100,
+      "unitCost": 5
+    },
+    "daysOfCover": 2,
+    "estimatedOosDate": "2026-07-23",
+    "latestSafeReorderDate": "2026-07-19",
+    "estimatedProfitRisk": null,
+    "recommendedOrderQty": null,
+    "reasonCodes": [],
+    "velocityTrend": "unknown",
+    "performanceBand": "insufficient_evidence"
+  },
+  "orderRows": []
+}

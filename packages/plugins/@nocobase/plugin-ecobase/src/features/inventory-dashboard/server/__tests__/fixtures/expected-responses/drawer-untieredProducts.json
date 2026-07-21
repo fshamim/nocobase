@@ -1,0 +1,45 @@
+{
+  "pane": "untieredProducts",
+  "publishedRunId": "run-published-0001",
+  "familyKey": "family-f7-untiered-in-healthy",
+  "performanceEvidence": [],
+  "familyMembers": [
+    {
+      "listingRowId": "f7-untiered-in-healthy",
+      "asin": "B0007",
+      "sku": "SKU-f7-untiered-in-healthy",
+      "pane": "untieredProducts"
+    }
+  ],
+  "primaryRow": {
+    "identity": {
+      "familyKey": "family-f7-untiered-in-healthy",
+      "listingRowId": "f7-untiered-in-healthy",
+      "company": "Acme",
+      "amazonAccountId": "account-acme-us",
+      "marketplace": "Amazon.com",
+      "asin": "B0007",
+      "sku": "SKU-f7-untiered-in-healthy",
+      "title": "Fixture product f7-untiered-in-healthy"
+    },
+    "pane": "untieredProducts",
+    "tier": {
+      "baseline": null,
+      "current": null
+    },
+    "stock": {
+      "currentPlanningStock": 100,
+      "inventoryPositionStock": 100,
+      "unitCost": 5
+    },
+    "daysOfCover": 40,
+    "estimatedOosDate": null,
+    "latestSafeReorderDate": null,
+    "estimatedProfitRisk": null,
+    "recommendedOrderQty": null,
+    "reasonCodes": ["untiered_projected"],
+    "velocityTrend": "unknown",
+    "performanceBand": "insufficient_evidence"
+  },
+  "orderRows": []
+}
