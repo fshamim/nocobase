@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { ECOBASE_WORKSPACE_ROOT, ecobaseWorkspaceRoutes } from './client-routes';
+import { ECOBASE_WORKSPACE_ROOT, ecobaseWorkspacePages, ecobaseWorkspaceRoutes } from './client-routes';
 
 describe('EcoBase client route precedence', () => {
   it('routes the exact candidate-preview path before the workspace wildcard without replacing the ordinary route', () => {
@@ -28,5 +28,23 @@ describe('EcoBase client route precedence', () => {
     expect(ordinaryRoute?.name).toBe('admin.ecobase.inventory-planning');
     expect(ecobaseWorkspaceRoutes[previewIndex].name).not.toMatch(/^admin\.ecobase\.inventory-planning\./);
     expect(ordinaryRoute?.Component).not.toBe(ecobaseWorkspaceRoutes[previewIndex].Component);
+  });
+
+  it('lists Inventory Dashboard as a sibling workspace page next to Inventory Planning (REQ-X4)', () => {
+    const entry = ecobaseWorkspacePages.find((page) => page.key === 'inventory-dashboard');
+    expect(entry).toMatchObject({
+      key: 'inventory-dashboard',
+      label: 'Inventory Dashboard',
+      icon: 'FundViewOutlined',
+      path: `${ECOBASE_WORKSPACE_ROOT}/inventory-dashboard`,
+    });
+    // No role gate: visible to every logged-in workspace member, like Inventory Planning.
+    expect(entry && 'access' in entry).toBe(false);
+    const planningIndex = ecobaseWorkspacePages.findIndex((page) => page.key === 'inventory-planning');
+    const dashboardIndex = ecobaseWorkspacePages.findIndex((page) => page.key === 'inventory-dashboard');
+    expect(planningIndex).toBeGreaterThanOrEqual(0);
+    expect(dashboardIndex).toBe(planningIndex + 1);
+    const route = ecobaseWorkspaceRoutes.find((candidate) => candidate.name === 'admin.ecobase.inventory-dashboard');
+    expect(route?.path).toBe(`${ECOBASE_WORKSPACE_ROOT}/inventory-dashboard`);
   });
 });

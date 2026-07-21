@@ -21,6 +21,7 @@ const DailyBriefPromptSettingsPage = lazy(
 );
 const DataSourcesPage = lazy(() => import('../features/source-import/client/DataSourcesPage'));
 const ImportStatusPage = lazy(() => import('../features/source-import/client/ImportStatusPage'));
+const InventoryDashboardPage = lazy(() => import('../features/inventory-dashboard/client/InventoryDashboardPage'));
 const InventoryPlanningPage = lazy(() => import('../features/inventory-planning/client/InventoryPlanningPage'));
 const OrderPlanningPage = lazy(() => import('../features/order-planning/client/OrderPlanningPage'));
 const PlanningSettingsPage = lazy(() => import('./pages/PlanningSettingsPage'));
@@ -32,7 +33,7 @@ const SupplierManagementPage = lazy(() => import('../features/supplier-managemen
 
 export const ECOBASE_WORKSPACE_ROOT = '/admin/ecobase';
 
-const ecobaseWorkspacePages = [
+export const ecobaseWorkspacePages = [
   {
     key: 'daily-operations-brief',
     label: 'Daily Operations Brief',
@@ -54,6 +55,13 @@ const ecobaseWorkspacePages = [
     icon: 'InboxOutlined',
     path: `${ECOBASE_WORKSPACE_ROOT}/inventory-planning`,
     Component: InventoryPlanningPage,
+  },
+  {
+    key: 'inventory-dashboard',
+    label: 'Inventory Dashboard',
+    icon: 'FundViewOutlined',
+    path: `${ECOBASE_WORKSPACE_ROOT}/inventory-dashboard`,
+    Component: InventoryDashboardPage,
   },
   {
     key: 'gold-maintenance',
