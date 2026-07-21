@@ -299,6 +299,18 @@ describe('PaneDrawer (Gate G3)', () => {
     await waitFor(() => expect(document.activeElement).toBe(triggerRow));
   });
 
+  it('polish item 2: focus stays inside the drawer after a mutation-driven scoped refresh', async () => {
+    const dialog = await openDrawer('inPrepMonitoring');
+    fireEvent.change(within(dialog).getByLabelText('Comment'), { target: { value: 'focus check' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add comment' }));
+    await waitFor(() => expect(requests('ecobaseOrderPlanning:addComment')).toHaveLength(1));
+    // The scoped refresh re-renders page + drawer; focus must remain usable inside it.
+    await waitFor(() => {
+      expect(document.activeElement).not.toBe(document.body);
+      expect(dialog.contains(document.activeElement)).toBe(true);
+    });
+  });
+
   it('QA item 5: shows a progress hint when the drawer context is still loading after 10s', async () => {
     request.mockReset();
     request.mockImplementation((args: { url: string; data: Record<string, unknown> }) => {
@@ -331,6 +343,21 @@ describe('PaneDrawer (Gate G3)', () => {
     });
     vi.useRealTimers();
     expect(document.body.textContent).toContain('Still loading');
+  });
+
+  it('polish item 1: renders the last activity from the drawer snapshot in the order summary', async () => {
+    // drawer-activeOrders.json primary row (order-4a) carries lastActivity
+    // "Approved to order" emitted by the G1 suite.
+    const dialog = await openDrawer('activeOrders');
+    expect(within(dialog).getAllByText('Last activity').length).toBeGreaterThan(0);
+    expect(within(dialog).getAllByText('Approved to order').length).toBeGreaterThan(0);
+  });
+
+  it('polish item 3: reason badges render friendly labels with raw-code fallback', async () => {
+    const dialog = await openDrawer('dataReadiness');
+    // drawer-dataReadiness.json primary row reasonCodes = ['family_review_required'].
+    expect(within(dialog).getAllByText('Family review required').length).toBeGreaterThan(0);
+    expect(within(dialog).queryByText('family_review_required')).toBeNull();
   });
 
   it('QA item 7: the drawerContext request carries the clicked listing id', async () => {

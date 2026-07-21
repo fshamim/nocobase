@@ -17,7 +17,7 @@ import { Button, Descriptions, Input, InputNumber, Progress, Select, Space, Tag,
 import React, { useState } from 'react';
 import type { DashboardRow, DrawerContextResponse, MonthlyEvidencePoint } from '../server/contract';
 import { DASHBOARD_CLICKUP_OPERATIONAL_STATUSES } from '../server/workflow-stage';
-import { TEXT } from './dashboard-text';
+import { reasonLabel, TEXT } from './dashboard-text';
 import { DASHBOARD_TAG_COLORS, TIER_TAG_COLOR } from './dashboard-tokens';
 import { formatDate, formatDays, formatMoney, formatNumber, type Translate } from './format';
 
@@ -54,6 +54,20 @@ export function OrderSummary({ row, t }: { row: DashboardRow; t: Translate }) {
       <Descriptions.Item label={t(TEXT.drawerSupplier)}>{row.order.supplierName ?? t(TEXT.unknown)}</Descriptions.Item>
       <Descriptions.Item label={t(TEXT.colExpectedArrival)}>
         {formatDate(row.order.expectedArrivalDate, t)}
+      </Descriptions.Item>
+      <Descriptions.Item label={t(TEXT.colLastActivity)} span={2}>
+        {row.lastActivity ? (
+          <span>
+            <Typography.Text>{row.lastActivity.preview || t(TEXT.unknown)}</Typography.Text>
+            <Typography.Text type="secondary" style={{ display: 'block' }}>
+              {[row.lastActivity.author, row.lastActivity.at ? row.lastActivity.at.slice(0, 10) : null]
+                .filter(Boolean)
+                .join(' · ')}
+            </Typography.Text>
+          </span>
+        ) : (
+          <Typography.Text type="secondary">{t(TEXT.noActivityYet)}</Typography.Text>
+        )}
       </Descriptions.Item>
     </Descriptions>
   );
@@ -322,7 +336,7 @@ export function ReasonList({ title, reasons, t }: { title: string; reasons: stri
         <Space wrap>
           {reasons.map((reason) => (
             <Tag key={reason} color={DASHBOARD_TAG_COLORS.warning}>
-              {reason}
+              {reasonLabel(reason, t)}
             </Tag>
           ))}
         </Space>

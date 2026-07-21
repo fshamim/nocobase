@@ -162,6 +162,13 @@ const PaneDrawer: React.FC<PaneDrawerProps> = ({
         return false;
       } finally {
         setSubmitting(false);
+        // QA polish item 2: the scoped refresh re-renders page + drawer; if
+        // focus fell out of the drawer (to body), pull it back in so Esc and
+        // keyboard flows keep working.
+        setTimeout(() => {
+          const body = bodyRef.current;
+          if (body && !body.contains(document.activeElement)) body.focus();
+        }, 0);
       }
     },
     [api, submitting, target, onMutated],

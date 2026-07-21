@@ -67,6 +67,9 @@ export const TEXT = {
   badgeStale: 'Stale data',
   badgeFamilySplit: 'Family split',
   badgeUntieredProjected: 'Untiered (projected)',
+  reasonFrozenFamilyTargetReview: 'Family target review',
+  reasonMissingBaselineEvidence: 'Missing baseline evidence',
+  reasonFamilyReviewRequired: 'Family review required',
   badgeDirectFba: 'Direct FBA',
   badgeOwnPrep: 'Own prep center',
   badgePrepUnknown: 'Prep path unknown',
@@ -112,6 +115,22 @@ export const TEXT = {
 } as const;
 
 export type DashboardTextKey = keyof typeof TEXT;
+
+/**
+ * Known reason-code -> friendly label map (QA polish item 3). Unknown codes
+ * fall back to the raw code so nothing ever breaks on new gold vocabulary.
+ */
+export const REASON_CODE_LABELS: Record<string, string> = {
+  frozen_family_target_review: TEXT.reasonFrozenFamilyTargetReview,
+  missing_or_invalid_baseline_evidence: TEXT.reasonMissingBaselineEvidence,
+  family_review_required: TEXT.reasonFamilyReviewRequired,
+  untiered_projected: TEXT.badgeUntieredProjected,
+};
+
+export function reasonLabel(code: string, t: (key: string) => string): string {
+  const label = REASON_CODE_LABELS[code];
+  return label ? t(label) : code;
+}
 
 /** Every literal the dashboard renders — the i18n parity test iterates this. */
 export const DASHBOARD_I18N_KEYS: string[] = Object.values(TEXT);

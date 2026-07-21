@@ -19,7 +19,7 @@
 import { Tag, Tooltip, Typography } from 'antd';
 import React from 'react';
 import type { BufferStatus, DashboardRow, PaneKey, PerformanceBand, VelocityTrend } from '../server/contract';
-import { TEXT } from './dashboard-text';
+import { reasonLabel, TEXT } from './dashboard-text';
 import {
   BAND_TAG_COLOR,
   BUFFER_TAG_COLOR,
@@ -191,7 +191,7 @@ function signalsCell(row: DashboardRow, t: Translate, options: SignalOptions = {
     for (const reason of reasonCodes.filter((code) => code !== 'untiered_projected').slice(0, 2)) {
       tags.push(
         <Tag key={`reason-${reason}`} color={DASHBOARD_TAG_COLORS.warning}>
-          {reason}
+          {reasonLabel(reason, t)}
         </Tag>,
       );
     }
