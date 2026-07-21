@@ -7,15 +7,6 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
-/**
- * This file is part of the NocoBase (R) project.
- * Copyright (c) 2020-2024 NocoBase Team.
- * Authors: NocoBase Team.
- *
- * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
- * For more information, please refer to: https://www.nocobase.com/agreement.
- */
-
 import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
@@ -52,6 +43,8 @@ describe('dedicated candidate preview page', () => {
     request.mockResolvedValue({
       data: {
         data: {
+          runId,
+          banner: 'UNPUBLISHED CANDIDATE — NOT OPERATIONAL',
           rows: [
             {
               companyProductId: 'cp-1',
@@ -99,6 +92,25 @@ describe('dedicated candidate preview page', () => {
     expect(screen.getByText('Candidate family decision')).toBeInTheDocument();
     expect(screen.queryByRole('textbox')).toBeNull();
     expect(screen.queryByRole('button', { name: /build|verify|publish/i })).toBeNull();
+  });
+
+  it.each([
+    [
+      'run ID',
+      { runId: 'different-run', banner: 'UNPUBLISHED CANDIDATE — NOT OPERATIONAL', rows: [], familyActions: [] },
+    ],
+    ['banner', { runId, banner: 'candidate', rows: [], familyActions: [] }],
+    ['listing rows', { runId, banner: 'UNPUBLISHED CANDIDATE — NOT OPERATIONAL', rows: {}, familyActions: [] }],
+    ['family actions', { runId, banner: 'UNPUBLISHED CANDIDATE — NOT OPERATIONAL', rows: [], familyActions: {} }],
+  ])('rejects a mismatched %s payload without rendering a preview', async (_case, data) => {
+    request.mockResolvedValue({ data: { data } });
+
+    renderPage();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Candidate preview response did not match the requested verified run contract.',
+    );
+    expect(screen.queryByRole('region', { name: 'Unpublished candidate preview' })).toBeNull();
   });
 
   it('lets the server deny a non-admin request so the authoritative audit path executes', async () => {

@@ -31,6 +31,7 @@ describe('Gold maintenance candidate preview', () => {
     request.mockResolvedValue({
       data: {
         data: {
+          runId: 'verified-run-1',
           banner: 'UNPUBLISHED CANDIDATE — NOT OPERATIONAL',
           rows: [
             {
@@ -54,6 +55,7 @@ describe('Gold maintenance candidate preview', () => {
               listingReviewCategories: ['tier_d'],
             },
           ],
+          familyActions: [],
         },
       },
     });

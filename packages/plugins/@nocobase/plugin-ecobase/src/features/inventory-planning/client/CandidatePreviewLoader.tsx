@@ -7,15 +7,6 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
-/**
- * This file is part of the NocoBase (R) project.
- * Copyright (c) 2020-2024 NocoBase Team.
- * Authors: NocoBase Team.
- *
- * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
- * For more information, please refer to: https://www.nocobase.com/agreement.
- */
-
 import { useAPIClient } from '@nocobase/client';
 import { Alert, Button, Input, Space, Spin, Typography } from 'antd';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -37,6 +28,19 @@ function unwrapData(response: unknown): PlainRecord {
     data = (data as PlainRecord).data;
   }
   return data && typeof data === 'object' && !Array.isArray(data) ? (data as PlainRecord) : {};
+}
+
+function validatedCandidatePreview(response: unknown, requestedRunId: string): PlainRecord {
+  const preview = unwrapData(response);
+  if (
+    preview.runId !== requestedRunId ||
+    preview.banner !== UNPUBLISHED_CANDIDATE_BANNER ||
+    !Array.isArray(preview.rows) ||
+    !Array.isArray(preview.familyActions)
+  ) {
+    throw new Error('Candidate preview response did not match the requested verified run contract.');
+  }
+  return preview;
 }
 
 function listingRows(value: unknown): CorrectedInventoryEvidenceRow[] {
@@ -97,7 +101,7 @@ export function CandidatePreviewLoader({
           method: 'post',
           data: { runId: explicitRunId },
         });
-        setCandidatePreview(unwrapData(response));
+        setCandidatePreview(validatedCandidatePreview(response, explicitRunId));
       } catch (cause) {
         setCandidatePreview({});
         setError(cause instanceof Error ? cause : new Error(t('Candidate preview failed.')));
@@ -145,7 +149,7 @@ export function CandidatePreviewLoader({
       {Array.isArray(candidatePreview.rows) ? (
         <CandidatePreviewPanel
           runId={initialRunId.trim() || runId.trim()}
-          banner={UNPUBLISHED_CANDIDATE_BANNER}
+          banner={String(candidatePreview.banner)}
           rows={rows}
           familyActions={actions}
           t={t}
