@@ -42,7 +42,7 @@ import { latestPreferredInventorySnapshot } from './order-receipt-evidence';
 import { selectCurrentFamilyOrderCycle, type FamilyOrderCycleSelection } from './order-cycle-selection';
 import { evaluatePlanningReadiness } from './planning-readiness';
 import { workflowStageForOperationalStatus } from '../../order-planning/order-operational-status';
-import { canonicalJson, EcobaseGoldRefreshRunService } from './gold-refresh-run-service';
+import { canonicalJson, EcobaseGoldRefreshRunService, type GoldPublicationPayload } from './gold-refresh-run-service';
 import {
   buildCorrectedInventoryPlanningCandidate,
   CORRECTED_CANDIDATE_FAMILY_COUNT,
@@ -2567,8 +2567,8 @@ export class EcobaseInventoryPlanningService {
     return new EcobaseGoldRefreshRunService(this.db).verify(runId);
   }
 
-  async publishRefreshRun(runId: string) {
-    return new EcobaseGoldRefreshRunService(this.db).publish(runId);
+  async publishRefreshRun(payload: GoldPublicationPayload) {
+    return new EcobaseGoldRefreshRunService(this.db).publish(payload);
   }
 
   private correctedCandidateCardinalityError(actualListingCount: number, actualFamilyCount?: number) {

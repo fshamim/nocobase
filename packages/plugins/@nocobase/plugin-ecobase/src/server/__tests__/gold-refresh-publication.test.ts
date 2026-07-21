@@ -11,7 +11,11 @@ import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { EcobaseGoldRefreshRunService } from '../../features/inventory-planning/server/gold-refresh-run-service';
+import {
+  canonicalJson,
+  EcobaseGoldRefreshRunService,
+  type GoldPublicationPayload,
+} from '../../features/inventory-planning/server/gold-refresh-run-service';
 import { EcobaseInventoryPlanningService } from '../../features/inventory-planning/server/inventory-planning-service';
 import { EcobaseInventoryPlanningGoldAccess } from '../../features/inventory-planning/server/inventory-planning-gold-access';
 import {
@@ -117,6 +121,65 @@ function testCandidateInputDigests(seed: string) {
   };
 }
 
+const PUBLICATION_PAYLOAD_FIELDS = [
+  'runId',
+  'status',
+  'ruleVersion',
+  'algorithmContractVersion',
+  'canonicalSerializerVersion',
+  'candidateInputDigestVersion',
+  'sourceCoverageDigestVersion',
+  'listingRowDigestVersion',
+  'familyActionProjectionDigestVersion',
+  'resolvedPlanningSettingsDigest',
+  'currentProjectionGateMode',
+  'protectedSilverFingerprint',
+  'sourceCoverageDigest',
+  'sourceInputsDigest',
+  'candidateInputDigest',
+  'listingRowCount',
+  'listingRowDigest',
+  'familyActionProjectionCount',
+  'familyActionProjectionDigest',
+  'productionVerificationDigest',
+  'independentVerificationDigest',
+  'confirmation',
+] as const;
+
+function publicationPayloadFixture(db: MemoryDatabase, runId: string): GoldPublicationPayload {
+  const run = db.runs.rows.find((candidate) => candidate.id === runId);
+  if (!run) throw new Error(`Publication payload fixture could not find run "${runId}".`);
+  const digest = (part: string) => createHash('sha256').update(`${runId}:${part}`).digest('hex');
+  Object.assign(run, {
+    ruleVersion: 'test_publication_rule_v1',
+    algorithmContractVersion: 'test_algorithm_v1',
+    canonicalSerializerVersion: 'canonical_json_schema_normalized_bytewise_v2',
+    candidateInputDigestVersion: 'candidate_input_digest_v1',
+    sourceCoverageDigestVersion: 'source_coverage_digest_v1',
+    listingRowDigestVersion: 'listing_performance_digest_v2',
+    familyActionProjectionDigestVersion: 'family_action_digest_v2',
+    resolvedPlanningSettingsDigest: digest('settings'),
+    currentProjectionGateMode: 'informational',
+    protectedSilverFingerprint: digest('protected'),
+    sourceCoverageDigest: digest('coverage'),
+    sourceInputsDigest: digest('source'),
+    listingRowCount: run.rowCount,
+    listingRowDigest: digest('listings'),
+    familyActionProjectionCount: new Set(
+      db.gold.rows.filter((row) => row.refreshRunId === runId).map((row) => row.companyProductFamilyId),
+    ).size,
+    familyActionProjectionDigest: digest('family-actions'),
+  });
+  return Object.fromEntries(
+    PUBLICATION_PAYLOAD_FIELDS.map((field) => {
+      if (field === 'runId') return [field, run.id];
+      if (field === 'status') return [field, 'verified'];
+      if (field === 'confirmation') return [field, 'PUBLISH GOLD'];
+      return [field, run[field]];
+    }),
+  ) as unknown as GoldPublicationPayload;
+}
+
 async function buildRun(
   db: MemoryDatabase,
   params: { date: string; key: string; publish?: boolean; rowIds?: string[] },
@@ -182,7 +245,7 @@ async function buildRun(
   if (params.publish !== true) return materialized;
   const runId = String((materialized.run as Row).id);
   await service.verify(runId);
-  return service.publish(runId);
+  return service.publish(publicationPayloadFixture(db, runId));
 }
 
 async function seedLifecycleRun(db: MemoryDatabase, id: string, status: string, date: string) {
@@ -348,7 +411,10 @@ describe('Gold refresh publication control', () => {
     const failed = db.runs.rows.find((run) => run.idempotencyKey === 'failed');
     expect(db.runs.rows.find((run) => run.status === 'published')?.id).toBe((published.run as Row).id);
     expect(failed).toMatchObject({ status: 'failed', errorJson: { message: 'fixture materialization failed' } });
-    await expect(new EcobaseGoldRefreshRunService(db).publish(String(failed?.id))).rejects.toMatchObject({
+    const failedRunId = String(failed?.id);
+    await expect(
+      new EcobaseGoldRefreshRunService(db).publish(publicationPayloadFixture(db, failedRunId)),
+    ).rejects.toMatchObject({
       code: 'ECOBASE_GOLD_INVALID_TRANSITION',
     });
   });
@@ -390,6 +456,36 @@ describe('Gold refresh publication control', () => {
     });
   });
 
+  it('binds every locked Step-20 field and rejects one-field tampering before publication mutation', async () => {
+    const db = new MemoryDatabase();
+    await seedLifecycleRun(db, 'existing-publication', 'published', '2026-07-14');
+    const candidate = await buildRun(db, { date: '2026-07-15', key: 'locked-publication', publish: false });
+    const runId = String((candidate.run as Row).id);
+    const service = new EcobaseGoldRefreshRunService(db);
+    await service.verify(runId);
+    const payload = publicationPayloadFixture(db, runId);
+    const before = structuredClone(db.runs.rows);
+
+    expect(Object.keys(payload)).toEqual(PUBLICATION_PAYLOAD_FIELDS);
+    for (const field of PUBLICATION_PAYLOAD_FIELDS) {
+      const value = payload[field];
+      const tampered = {
+        ...payload,
+        [field]: typeof value === 'number' ? value + 1 : `${String(value)}-tampered`,
+      };
+      await expect(service.publish(tampered as GoldPublicationPayload)).rejects.toMatchObject({
+        code: field === 'runId' ? 'ECOBASE_GOLD_RUN_NOT_FOUND' : 'ECOBASE_GOLD_PUBLICATION_MISMATCH',
+      });
+      expect(db.runs.rows).toEqual(before);
+    }
+
+    const published = await service.publish(payload);
+    expect((published.run as Row).publicationPayloadDigest).toBe(
+      createHash('sha256').update(canonicalJson(payload)).digest('hex'),
+    );
+    expect(db.runs.rows.find((run) => run.id === 'existing-publication')).toMatchObject({ status: 'retired' });
+  });
+
   it('switches the published pointer to one verified successful run', async () => {
     const db = new MemoryDatabase();
     const first = await buildRun(db, { date: '2026-07-14', key: 'first', publish: true });
@@ -397,7 +493,8 @@ describe('Gold refresh publication control', () => {
     const service = new EcobaseGoldRefreshRunService(db);
     await service.verify(String((second.run as Row).id));
 
-    const published = await service.publish(String((second.run as Row).id));
+    const secondRunId = String((second.run as Row).id);
+    const published = await service.publish(publicationPayloadFixture(db, secondRunId));
 
     expect(db.runs.rows.filter((run) => run.status === 'published')).toHaveLength(1);
     expect(db.runs.rows.find((run) => run.id === (first.run as Row).id)?.status).toBe('retired');
@@ -523,7 +620,10 @@ describe('Gold refresh publication control', () => {
     const db = new MemoryDatabase();
     await seedLifecycleRun(db, `run-${status}`, status, '2026-07-15');
 
-    await expect(new EcobaseGoldRefreshRunService(db).publish(`run-${status}`)).rejects.toMatchObject({
+    const runId = `run-${status}`;
+    await expect(
+      new EcobaseGoldRefreshRunService(db).publish(publicationPayloadFixture(db, runId)),
+    ).rejects.toMatchObject({
       code: 'ECOBASE_GOLD_INVALID_TRANSITION',
     });
   });
@@ -531,13 +631,15 @@ describe('Gold refresh publication control', () => {
   it('retires the previous publication and never makes it republishable', async () => {
     const db = new MemoryDatabase();
     await seedLifecycleRun(db, 'old-published', 'published', '2026-07-14');
-    await seedLifecycleRun(db, 'replacement', 'verified', '2026-07-15');
+    const replacement = await buildRun(db, { date: '2026-07-15', key: 'replacement', publish: false });
+    const replacementRunId = String((replacement.run as Row).id);
     const service = new EcobaseGoldRefreshRunService(db);
+    await service.verify(replacementRunId);
 
-    await service.publish('replacement');
+    await service.publish(publicationPayloadFixture(db, replacementRunId));
 
     expect(db.runs.rows.find((run) => run.id === 'old-published')).toMatchObject({ status: 'retired' });
-    await expect(service.publish('old-published')).rejects.toMatchObject({
+    await expect(service.publish(publicationPayloadFixture(db, 'old-published'))).rejects.toMatchObject({
       code: 'ECOBASE_GOLD_INVALID_TRANSITION',
     });
   });
@@ -586,7 +688,9 @@ describe('Gold refresh publication control', () => {
       }
 
       await expect(execute()).rejects.toMatchObject({ code: 'ECOBASE_GOLD_TERMINAL_RUN_REUSE' });
-      await expect(service.publish(runId)).rejects.toMatchObject({ code: 'ECOBASE_GOLD_INVALID_TRANSITION' });
+      await expect(service.publish(publicationPayloadFixture(db, runId))).rejects.toMatchObject({
+        code: 'ECOBASE_GOLD_INVALID_TRANSITION',
+      });
       expect(materializationCount).toBe(1);
     },
   );

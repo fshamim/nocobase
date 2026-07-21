@@ -81,6 +81,56 @@ export interface GoldRefreshProjectionMetadata {
   familyActionProjectionDigest: string;
 }
 
+export const GOLD_PUBLICATION_PAYLOAD_FIELDS = [
+  'runId',
+  'status',
+  'ruleVersion',
+  'algorithmContractVersion',
+  'canonicalSerializerVersion',
+  'candidateInputDigestVersion',
+  'sourceCoverageDigestVersion',
+  'listingRowDigestVersion',
+  'familyActionProjectionDigestVersion',
+  'resolvedPlanningSettingsDigest',
+  'currentProjectionGateMode',
+  'protectedSilverFingerprint',
+  'sourceCoverageDigest',
+  'sourceInputsDigest',
+  'candidateInputDigest',
+  'listingRowCount',
+  'listingRowDigest',
+  'familyActionProjectionCount',
+  'familyActionProjectionDigest',
+  'productionVerificationDigest',
+  'independentVerificationDigest',
+  'confirmation',
+] as const;
+
+export interface GoldPublicationPayload {
+  runId: string;
+  status: 'verified';
+  ruleVersion: string;
+  algorithmContractVersion: string;
+  canonicalSerializerVersion: string;
+  candidateInputDigestVersion: string;
+  sourceCoverageDigestVersion: string;
+  listingRowDigestVersion: string;
+  familyActionProjectionDigestVersion: string;
+  resolvedPlanningSettingsDigest: string;
+  currentProjectionGateMode: 'informational' | 'evidence_driven';
+  protectedSilverFingerprint: string;
+  sourceCoverageDigest: string;
+  sourceInputsDigest: string;
+  candidateInputDigest: string;
+  listingRowCount: number;
+  listingRowDigest: string;
+  familyActionProjectionCount: number;
+  familyActionProjectionDigest: string;
+  productionVerificationDigest: string;
+  independentVerificationDigest: string;
+  confirmation: 'PUBLISH GOLD';
+}
+
 export interface GoldRefreshMaterialization extends Partial<GoldRefreshProjectionMetadata> {
   calculationDate: string;
   rowCount: number;
@@ -171,6 +221,62 @@ export function canonicalJson(value: unknown): string {
 
 function requestDigest(request: unknown) {
   return createHash('sha256').update(canonicalJson(request)).digest('hex');
+}
+
+function publicationMismatch(runId: string, details: PlainRecord = {}) {
+  return new EcobaseGoldError(
+    'ECOBASE_GOLD_PUBLICATION_MISMATCH',
+    `EcoBase Gold publication payload does not match verified run "${runId}".`,
+    { runId, ...details },
+  );
+}
+
+function requiredPublicationText(run: PlainRecord, field: string, runId: string) {
+  const value = text(run[field]);
+  if (!value) throw publicationMismatch(runId, { missingField: field });
+  return value;
+}
+
+function requiredPublicationCount(run: PlainRecord, field: string, runId: string) {
+  const value = integer(run[field]);
+  if (value === undefined) throw publicationMismatch(runId, { missingField: field });
+  return value;
+}
+
+function publicationPayloadFromRun(
+  run: PlainRecord,
+  productionVerificationDigest: string,
+  independentVerificationDigest: string,
+): GoldPublicationPayload {
+  const runId = requiredPublicationText(run, 'id', String(run.id ?? 'unknown'));
+  const currentProjectionGateMode = requiredPublicationText(run, 'currentProjectionGateMode', runId);
+  if (currentProjectionGateMode !== 'informational' && currentProjectionGateMode !== 'evidence_driven') {
+    throw publicationMismatch(runId, { field: 'currentProjectionGateMode', value: currentProjectionGateMode });
+  }
+  return {
+    runId,
+    status: 'verified',
+    ruleVersion: requiredPublicationText(run, 'ruleVersion', runId),
+    algorithmContractVersion: requiredPublicationText(run, 'algorithmContractVersion', runId),
+    canonicalSerializerVersion: requiredPublicationText(run, 'canonicalSerializerVersion', runId),
+    candidateInputDigestVersion: requiredPublicationText(run, 'candidateInputDigestVersion', runId),
+    sourceCoverageDigestVersion: requiredPublicationText(run, 'sourceCoverageDigestVersion', runId),
+    listingRowDigestVersion: requiredPublicationText(run, 'listingRowDigestVersion', runId),
+    familyActionProjectionDigestVersion: requiredPublicationText(run, 'familyActionProjectionDigestVersion', runId),
+    resolvedPlanningSettingsDigest: requiredPublicationText(run, 'resolvedPlanningSettingsDigest', runId),
+    currentProjectionGateMode,
+    protectedSilverFingerprint: requiredPublicationText(run, 'protectedSilverFingerprint', runId),
+    sourceCoverageDigest: requiredPublicationText(run, 'sourceCoverageDigest', runId),
+    sourceInputsDigest: requiredPublicationText(run, 'sourceInputsDigest', runId),
+    candidateInputDigest: requiredPublicationText(run, 'candidateInputDigest', runId),
+    listingRowCount: requiredPublicationCount(run, 'listingRowCount', runId),
+    listingRowDigest: requiredPublicationText(run, 'listingRowDigest', runId),
+    familyActionProjectionCount: requiredPublicationCount(run, 'familyActionProjectionCount', runId),
+    familyActionProjectionDigest: requiredPublicationText(run, 'familyActionProjectionDigest', runId),
+    productionVerificationDigest,
+    independentVerificationDigest,
+    confirmation: 'PUBLISH GOLD',
+  };
 }
 
 function candidateInputDigests(values: GoldCandidateInputDigests) {
@@ -481,9 +587,9 @@ export class EcobaseGoldRefreshRunService {
     });
   }
 
-  async publish(runId: string) {
+  async publish(payload: GoldPublicationPayload) {
     return this.withLockedTransaction(async (transaction) => {
-      const run = await this.publishWithinTransaction(runId, transaction);
+      const run = await this.publishWithinTransaction(payload, transaction);
       return this.result(run, false);
     });
   }
@@ -513,33 +619,31 @@ export class EcobaseGoldRefreshRunService {
     });
   }
 
-  private async publishWithinTransaction(runId: string, transaction?: Transaction) {
+  private async publishWithinTransaction(payload: GoldPublicationPayload, transaction?: Transaction) {
+    const runId = text(payload?.runId) ?? 'unknown';
     const run = await this.getRun(runId, transaction);
-    if (run.status === 'published') {
-      const published = await this.runRepository().find({ filter: { status: 'published' }, limit: 2, transaction });
-      if (published.length === 1 && String(toPlainRecord(published[0]).id) === runId) return run;
-      throw new EcobaseGoldError(
-        'ECOBASE_GOLD_PUBLICATION_MISMATCH',
-        `EcoBase Gold publication payload does not match verified run "${runId}".`,
-        { runId, publishedRunIds: published.map((value) => toPlainRecord(value).id) },
-      );
-    }
     if (run.status !== 'verified') throw this.invalidTransition(runId, String(run.status), 'published');
     const expectedRowCount = integer(run.rowCount);
     const calculationDate = text(run.calculationDate);
     if (expectedRowCount === undefined || !calculationDate) {
-      throw new EcobaseGoldError(
-        'ECOBASE_GOLD_PUBLICATION_MISMATCH',
-        `EcoBase Gold publication payload does not match verified run "${runId}".`,
-        { runId, rowCount: run.rowCount, calculationDate: run.calculationDate },
-      );
+      throw publicationMismatch(runId, { rowCount: run.rowCount, calculationDate: run.calculationDate });
     }
     const verification = await this.verifyRows(runId, calculationDate, expectedRowCount, transaction);
+    const productionVerificationDigest = requestDigest(verification);
     const independentVerification = await new EcobaseIndependentGoldReferenceVerifier(this.db).verify(
       runId,
       transaction,
     );
     const independentVerificationDigest = requestDigest(independentVerification);
+    const expectedPayload = publicationPayloadFromRun(run, productionVerificationDigest, independentVerificationDigest);
+    const expectedCanonicalPayload = canonicalJson(expectedPayload);
+    const receivedCanonicalPayload = canonicalJson(payload);
+    if (receivedCanonicalPayload !== expectedCanonicalPayload) {
+      throw publicationMismatch(runId, {
+        expectedPayloadDigest: requestDigest(expectedPayload),
+        receivedPayloadDigest: requestDigest(payload),
+      });
+    }
     const published = await this.runRepository().find({ filter: { status: 'published' }, transaction });
     const retiredAt = new Date().toISOString();
     for (const current of published.map(toPlainRecord)) {
@@ -556,21 +660,7 @@ export class EcobaseGoldRefreshRunService {
       });
     }
     const publishedAt = new Date().toISOString();
-    const publicationPayloadDigest = requestDigest({
-      runId,
-      status: 'verified',
-      calculationDate,
-      candidateInputDigest: run.candidateInputDigest,
-      sourceInputsDigest: run.sourceInputsDigest ?? run.sourceInputDigest,
-      sourceCoverageDigest: run.sourceCoverageDigest ?? run.coverageInputDigest,
-      resolvedPlanningSettingsDigest: run.resolvedPlanningSettingsDigest ?? run.settingsDigest,
-      algorithmContractVersion: run.algorithmContractVersion,
-      rowCount: expectedRowCount,
-      productionVerification: verification,
-      independentVerification,
-      independentVerificationDigest,
-      confirmation: 'PUBLISH GOLD',
-    });
+    const publicationPayloadDigest = requestDigest(expectedPayload);
     await this.runRepository().update({
       filterByTk: runId,
       values: {

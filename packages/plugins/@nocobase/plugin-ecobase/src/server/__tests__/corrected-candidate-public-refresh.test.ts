@@ -21,6 +21,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   canonicalJson,
   EcobaseGoldRefreshRunService,
+  type GoldPublicationPayload,
 } from '../../features/inventory-planning/server/gold-refresh-run-service';
 import { OBSOLETE_INVENTORY_PLANNING_ROW_FIELDS } from '../../features/inventory-planning/server/gold-schema-contract';
 import { EcobaseIndependentGoldReferenceVerifier } from '../../features/inventory-planning/server/independent-gold-reference-verifier';
@@ -268,6 +269,35 @@ async function refreshThroughPublicAction(
   return (ctx.body as { data: Row }).data;
 }
 
+function publicationPayload(db: MemoryDatabase, runId: string): GoldPublicationPayload {
+  const run = db.rows(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).find((candidate) => candidate.id === runId);
+  if (!run) throw new Error(`Corrected publication payload could not find run "${runId}".`);
+  return {
+    runId,
+    status: 'verified',
+    ruleVersion: String(run.ruleVersion),
+    algorithmContractVersion: String(run.algorithmContractVersion),
+    canonicalSerializerVersion: String(run.canonicalSerializerVersion),
+    candidateInputDigestVersion: String(run.candidateInputDigestVersion),
+    sourceCoverageDigestVersion: String(run.sourceCoverageDigestVersion),
+    listingRowDigestVersion: String(run.listingRowDigestVersion),
+    familyActionProjectionDigestVersion: String(run.familyActionProjectionDigestVersion),
+    resolvedPlanningSettingsDigest: String(run.resolvedPlanningSettingsDigest),
+    currentProjectionGateMode: run.currentProjectionGateMode as GoldPublicationPayload['currentProjectionGateMode'],
+    protectedSilverFingerprint: String(run.protectedSilverFingerprint),
+    sourceCoverageDigest: String(run.sourceCoverageDigest),
+    sourceInputsDigest: String(run.sourceInputsDigest),
+    candidateInputDigest: String(run.candidateInputDigest),
+    listingRowCount: Number(run.listingRowCount),
+    listingRowDigest: String(run.listingRowDigest),
+    familyActionProjectionCount: Number(run.familyActionProjectionCount),
+    familyActionProjectionDigest: String(run.familyActionProjectionDigest),
+    productionVerificationDigest: String(run.productionVerificationDigest),
+    independentVerificationDigest: String(run.independentVerificationDigest),
+    confirmation: 'PUBLISH GOLD',
+  };
+}
+
 async function readThroughPublicAction(
   db: MemoryDatabase,
   actionName: 'workspace' | 'commandCenter' | 'digestPreview' | 'listingPerformanceReview',
@@ -476,7 +506,7 @@ describe('corrected candidate public refresh seam', () => {
     const runId = String((materialized.run as Row).id);
     const lifecycle = new EcobaseGoldRefreshRunService(db);
     await lifecycle.verify(runId);
-    await lifecycle.publish(runId);
+    await lifecycle.publish(publicationPayload(db, runId));
     const workspace = await readThroughPublicAction(db, 'workspace');
     const row = workspace.rows.find((candidate) => candidate.companyProductId === 'cp-0000');
 
@@ -754,7 +784,7 @@ describe('corrected candidate public refresh seam', () => {
     const runId = String((materialized.run as Row).id);
     const lifecycle = new EcobaseGoldRefreshRunService(db);
     await lifecycle.verify(runId);
-    await lifecycle.publish(runId);
+    await lifecycle.publish(publicationPayload(db, runId));
 
     const [workspace, commandCenter, digest, listingReview] = await Promise.all([
       readThroughPublicAction(db, 'workspace'),
