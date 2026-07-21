@@ -306,7 +306,13 @@ export function databaseInTransaction(db: EcobaseDatabase, transaction: unknown)
   };
 }
 
-const SELLERBOARD_REPORT_KINDS = new Set(['profit_dashboard', 'stock_daily', 'profit_by_product_daily']);
+export type SellerboardReportKind = 'profit_dashboard' | 'stock_daily' | 'profit_by_product_daily';
+
+const SELLERBOARD_REPORT_KINDS = new Set<SellerboardReportKind>([
+  'profit_dashboard',
+  'stock_daily',
+  'profit_by_product_daily',
+]);
 const SELLERBOARD_REPORT_UNIT_MAX_ATTEMPTS = 3;
 const SELLERBOARD_REPORT_UNIT_BACKOFF_MS = [25, 75] as const;
 
@@ -332,7 +338,52 @@ function classifySellerboardReportUnitFailure(message: string): {
 
 function sellerboardReportKind(params: RunAdapterImportParams) {
   const reportKind = getString(params.runtimeConfig ?? {}, 'reportKind');
-  return reportKind && SELLERBOARD_REPORT_KINDS.has(reportKind) ? reportKind : undefined;
+  return reportKind && SELLERBOARD_REPORT_KINDS.has(reportKind as SellerboardReportKind)
+    ? (reportKind as SellerboardReportKind)
+    : undefined;
+}
+
+function configuredSellerboardReports(config: Record<string, unknown>) {
+  const configured = config.reportUrls ?? config.sellerboardReportUrls ?? config.urls;
+  const reports: Array<{ reportKind: SellerboardReportKind; reportName: string }> = [];
+  if (Array.isArray(configured)) {
+    for (const [index, value] of configured.entries()) {
+      if (typeof value === 'string') {
+        reports.push({ reportKind: 'profit_dashboard', reportName: `sellerboard-report-${index + 1}` });
+        continue;
+      }
+      if (!isRecord(value) || !getString(value, 'url')) continue;
+      const category = getString(value, 'category') ?? 'profit_dashboard';
+      if (!SELLERBOARD_REPORT_KINDS.has(category as SellerboardReportKind)) {
+        throw new Error(
+          `Ecobase Sellerboard report "${getString(value, 'name') ?? index + 1}" has unsupported report kind "${category}".`,
+        );
+      }
+      reports.push({
+        reportKind: category as SellerboardReportKind,
+        reportName: getString(value, 'name') ?? `sellerboard-report-${index + 1}`,
+      });
+    }
+  } else if (getString(config, 'reportUrl')) {
+    const category = getString(config, 'reportCategory') ?? 'profit_dashboard';
+    if (!SELLERBOARD_REPORT_KINDS.has(category as SellerboardReportKind)) {
+      throw new Error(`Ecobase Sellerboard report has unsupported report kind "${category}".`);
+    }
+    reports.push({
+      reportKind: category as SellerboardReportKind,
+      reportName: getString(config, 'reportName') ?? 'sellerboard-report',
+    });
+  }
+  const seen = new Set<SellerboardReportKind>();
+  for (const report of reports) {
+    if (seen.has(report.reportKind)) {
+      throw new Error(
+        `Ecobase Sellerboard configuration has duplicate report kind "${report.reportKind}"; each source/report unit must be unique.`,
+      );
+    }
+    seen.add(report.reportKind);
+  }
+  return reports;
 }
 
 export interface RunNoopImportParams {
@@ -393,9 +444,31 @@ interface ClickupOrderStatusOrchestrationResult extends ClickupOrderStatusImport
   receiptReconciliation: ReceiptReconciliationResult | null;
 }
 
+export interface SellerboardReportUnitDescriptor {
+  sourceConnectionId: string;
+  sourceName: string;
+  sourceActive: boolean;
+  scheduleEnabled: boolean;
+  reportKind: SellerboardReportKind;
+  reportName: string;
+}
+
+export interface RunSellerboardReportUnitParams {
+  sourceConnectionId: string;
+  reportKind: SellerboardReportKind;
+}
+
+interface SellerboardReportUnitExecutionParams {
+  sourceIdentifier: string;
+  sourceVersion: string;
+  startedAt: Date;
+  skipExistingNormalizedKinds?: string[];
+}
+
 export interface RunScheduledSellerboardImportsParams {
   now?: string;
   sourceConnectionId?: string;
+  onCommittedUnit?: (unit: SellerboardReportUnitDescriptor & { importRunId: string }) => void | Promise<void>;
 }
 
 export interface RunMedallionPipelineParams {
@@ -540,6 +613,18 @@ function sellerboardReportInputDigest(items: AdapterStreamItem[]) {
 function sellerboardReportUnitBackoff(attempt: number) {
   const delay = SELLERBOARD_REPORT_UNIT_BACKOFF_MS[attempt - 1];
   return delay ?? SELLERBOARD_REPORT_UNIT_BACKOFF_MS[SELLERBOARD_REPORT_UNIT_BACKOFF_MS.length - 1];
+}
+
+function isSystemicSellerboardCoordinatorFailure(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  const code = getString(error, 'code') ?? '';
+  return (
+    error.message.includes('requires database transaction support') ||
+    error.name.startsWith('Sequelize') ||
+    code === 'ECONNREFUSED' ||
+    code === '57P01' ||
+    code.startsWith('08')
+  );
 }
 
 function wait(milliseconds: number) {
@@ -2081,6 +2166,64 @@ export class EcobaseImportService {
     );
   }
 
+  async sellerboardReportUnits(sourceConnectionId?: string): Promise<SellerboardReportUnitDescriptor[]> {
+    const sourceConnections = await this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).find({
+      filter: sourceConnectionId ? { id: sourceConnectionId } : { sourceType: 'sellerboard' },
+      sort: ['name'],
+    });
+    return sourceConnections.flatMap((sourceConnection) => {
+      const id = getString(sourceConnection, 'id');
+      if (!id || getString(sourceConnection, 'sourceType') !== 'sellerboard') return [];
+      const config = getConfig(sourceConnection);
+      const schedule = this.readSellerboardSchedule(config);
+      return configuredSellerboardReports(config).map((report) => ({
+        sourceConnectionId: id,
+        sourceName: getString(sourceConnection, 'name') ?? id,
+        sourceActive: getBoolean(sourceConnection, 'active', true),
+        scheduleEnabled: schedule.enabled,
+        ...report,
+      }));
+    });
+  }
+
+  async runSellerboardReportUnit(params: RunSellerboardReportUnitParams) {
+    const now = new Date();
+    return this.executeSellerboardReportUnit(params, {
+      sourceIdentifier: `sellerboard:${params.reportKind}`,
+      sourceVersion: now.toISOString(),
+      startedAt: now,
+    });
+  }
+
+  private async executeSellerboardReportUnit(
+    params: RunSellerboardReportUnitParams,
+    execution: SellerboardReportUnitExecutionParams,
+  ) {
+    if (!params.sourceConnectionId) {
+      throw new Error('Ecobase Sellerboard report-unit import requires sourceConnectionId.');
+    }
+    if (!SELLERBOARD_REPORT_KINDS.has(params.reportKind)) {
+      throw new Error(`Ecobase Sellerboard report-unit import received unsupported report kind "${params.reportKind}".`);
+    }
+    const unit = (await this.sellerboardReportUnits(params.sourceConnectionId)).find(
+      (candidate) => candidate.reportKind === params.reportKind,
+    );
+    if (!unit) {
+      throw new Error(
+        `Ecobase Sellerboard source "${params.sourceConnectionId}" does not configure report kind "${params.reportKind}".`,
+      );
+    }
+    return this.runAdapterImport({
+      sourceConnectionId: params.sourceConnectionId,
+      adapterName: 'sellerboard-api',
+      sourceIdentifier: execution.sourceIdentifier,
+      sourceVersion: execution.sourceVersion,
+      startedAt: execution.startedAt,
+      skipExistingNormalizedKinds: execution.skipExistingNormalizedKinds,
+      runtimeConfig: { reportKind: params.reportKind },
+    });
+  }
+
   async runScheduledSellerboardImports(params: RunScheduledSellerboardImportsParams = {}) {
     const now = params.now ? new Date(params.now) : new Date();
     if (Number.isNaN(now.getTime())) {
@@ -2115,6 +2258,25 @@ export class EcobaseImportService {
         results.push({ sourceConnectionId, status: 'ignored', reason: 'schedule_disabled' });
         continue;
       }
+      let reports: ReturnType<typeof configuredSellerboardReports>;
+      try {
+        reports = configuredSellerboardReports(config);
+      } catch (error) {
+        results.push({
+          sourceConnectionId,
+          status: 'failed',
+          reasonCode: 'invalid_report_configuration',
+          message:
+            error instanceof Error
+              ? error.message
+              : 'Ecobase Sellerboard report configuration failed with a non-Error value.',
+        });
+        continue;
+      }
+      if (!reports.length) {
+        results.push({ sourceConnectionId, status: 'ignored', reason: 'no_configured_report_units' });
+        continue;
+      }
       if (!schedule.refreshIntervalMinutes && minuteOfDay < schedule.dailyMinuteOfDay) {
         results.push({
           sourceConnectionId,
@@ -2125,83 +2287,133 @@ export class EcobaseImportService {
         continue;
       }
 
-      const latestScheduledRun = schedule.refreshIntervalMinutes
-        ? await importRunRepo.findOne({
-            filter: { sourceConnectionId, sourceIdentifier: 'sellerboard-scheduled' },
-            sort: ['-startedAt'],
-          })
-        : null;
-      const latestScheduledStatus = getString(latestScheduledRun, 'status');
-      const latestScheduledStartedAt = getDateString(latestScheduledRun, 'startedAt');
-      if (latestScheduledStartedAt && schedule.refreshIntervalMinutes) {
-        if (
-          (latestScheduledStatus === 'success' ||
-            latestScheduledStatus === 'stale' ||
-            latestScheduledStatus === 'skipped') &&
-          !this.retryDue(now, latestScheduledStartedAt, schedule.refreshIntervalMinutes)
-        ) {
+      for (const report of reports) {
+        const sourceIdentifier = `sellerboard-scheduled:${report.reportKind}`;
+        const latestScheduledRun = schedule.refreshIntervalMinutes
+          ? await importRunRepo.findOne({
+              filter: { sourceConnectionId, sourceIdentifier },
+              sort: ['-startedAt'],
+            })
+          : null;
+        const latestScheduledStatus = getString(latestScheduledRun, 'status');
+        const latestScheduledStartedAt = getDateString(latestScheduledRun, 'startedAt');
+        if (latestScheduledStartedAt && schedule.refreshIntervalMinutes) {
+          if (
+            latestScheduledStatus === 'success' &&
+            !this.retryDue(now, latestScheduledStartedAt, schedule.refreshIntervalMinutes)
+          ) {
+            results.push({
+              sourceConnectionId,
+              ...report,
+              status: 'not_due',
+              refreshIntervalMinutes: schedule.refreshIntervalMinutes,
+              latestRunStatus: latestScheduledStatus,
+              latestRunStartedAt: latestScheduledStartedAt,
+              now: now.toISOString(),
+            });
+            continue;
+          }
+          if (
+            latestScheduledStatus !== 'success' &&
+            !this.retryDue(now, latestScheduledStartedAt, schedule.retryIntervalMinutes)
+          ) {
+            results.push({
+              sourceConnectionId,
+              ...report,
+              status: 'waiting_retry',
+              retryIntervalMinutes: schedule.retryIntervalMinutes,
+              latestRunStatus: latestScheduledStatus,
+              latestRunStartedAt: latestScheduledStartedAt,
+            });
+            continue;
+          }
+        }
+
+        const sourceVersion = schedule.refreshIntervalMinutes ? now.toISOString() : today;
+        const latestForVersion = schedule.refreshIntervalMinutes
+          ? null
+          : await importRunRepo.findOne({
+              filter: { sourceConnectionId, sourceIdentifier, sourceVersion },
+              sort: ['-startedAt'],
+            });
+        const latestStatus = getString(latestForVersion, 'status');
+        const latestStartedAt = getDateString(latestForVersion, 'startedAt');
+        if (latestStatus === 'success') {
           results.push({
             sourceConnectionId,
+            ...report,
             status: 'not_due',
-            refreshIntervalMinutes: schedule.refreshIntervalMinutes,
-            latestRunStatus: latestScheduledStatus,
-            latestRunStartedAt: latestScheduledStartedAt,
-            now: now.toISOString(),
+            reason: 'report_unit_already_committed',
+            sourceVersion,
           });
           continue;
         }
-        if (
-          latestScheduledStatus !== 'success' &&
-          latestScheduledStatus !== 'stale' &&
-          latestScheduledStatus !== 'skipped' &&
-          !this.retryDue(now, latestScheduledStartedAt, schedule.retryIntervalMinutes)
-        ) {
+        if (latestStartedAt && !this.retryDue(now, latestStartedAt, schedule.retryIntervalMinutes)) {
           results.push({
             sourceConnectionId,
+            ...report,
             status: 'waiting_retry',
+            sourceVersion,
             retryIntervalMinutes: schedule.retryIntervalMinutes,
-            latestRunStatus: latestScheduledStatus,
-            latestRunStartedAt: latestScheduledStartedAt,
+            latestRunStatus: latestStatus,
+            latestRunStartedAt: latestStartedAt,
           });
           continue;
         }
-      }
 
-      const sourceVersion = schedule.refreshIntervalMinutes ? now.toISOString() : today;
-      const latestForVersion = await importRunRepo.findOne({
-        filter: { sourceConnectionId, sourceIdentifier: 'sellerboard-scheduled', sourceVersion },
-        sort: ['-startedAt'],
-      });
-      const latestStatus = getString(latestForVersion, 'status');
-      const latestStartedAt = getDateString(latestForVersion, 'startedAt');
-      if (
-        latestStartedAt &&
-        latestStatus !== 'success' &&
-        !this.retryDue(now, latestStartedAt, schedule.retryIntervalMinutes)
-      ) {
-        results.push({
-          sourceConnectionId,
-          status: 'waiting_retry',
-          sourceVersion,
-          retryIntervalMinutes: schedule.retryIntervalMinutes,
-          latestRunStatus: latestStatus,
-          latestRunStartedAt: latestStartedAt,
-        });
-        continue;
+        let run: Record<string, unknown>;
+        try {
+          run = await this.executeSellerboardReportUnit(
+            { sourceConnectionId, reportKind: report.reportKind },
+            {
+              sourceIdentifier,
+              sourceVersion,
+              startedAt: now,
+              skipExistingNormalizedKinds: ['listing_daily_fact', 'traffic_snapshot'],
+            },
+          );
+        } catch (error) {
+          if (isSystemicSellerboardCoordinatorFailure(error)) throw error;
+          results.push({
+            sourceConnectionId,
+            ...report,
+            status: 'failed',
+            reasonCode: 'report_unit_execution_exception',
+            message:
+              error instanceof Error
+                ? error.message
+                : 'Ecobase Sellerboard report-unit execution failed with a non-Error value.',
+          });
+          continue;
+        }
+        const status = getString(run, 'status') ?? 'unknown';
+        const result: Record<string, unknown> = { sourceConnectionId, ...report, status, run };
+        if (status === 'success' && run.reused !== true && params.onCommittedUnit) {
+          const importRunId = getString(run, 'id');
+          if (!importRunId) {
+            result.goldTrigger = { status: 'failed', reasonCode: 'committed_import_run_id_missing' };
+          } else {
+            try {
+              await params.onCommittedUnit({
+                sourceConnectionId,
+                sourceName: getString(sourceConnection, 'name') ?? sourceConnectionId,
+                sourceActive: true,
+                scheduleEnabled: true,
+                ...report,
+                importRunId,
+              });
+              result.goldTrigger = { status: 'scheduled' };
+            } catch (error) {
+              result.goldTrigger = {
+                status: 'failed',
+                reasonCode: 'gold_trigger_scheduling_failed',
+                message: error instanceof Error ? error.message : 'Gold trigger scheduling failed with a non-Error value.',
+              };
+            }
+          }
+        }
+        results.push(result);
       }
-
-      const run = await this.runAdapterImport({
-        sourceConnectionId,
-        adapterName: 'sellerboard-api',
-        sourceIdentifier: 'sellerboard-scheduled',
-        sourceVersion,
-        idempotencyKey: `${sourceConnectionId}:sellerboard-scheduled:${sourceVersion}`,
-        preserveAuditRun: true,
-        startedAt: now,
-        skipIfNoNewerData: !schedule.refreshIntervalMinutes,
-        skipExistingNormalizedKinds: ['listing_daily_fact', 'traffic_snapshot'],
-      });
-      results.push({ sourceConnectionId, status: getString(run, 'status') ?? 'unknown', run });
     }
 
     return { now: now.toISOString(), results };
@@ -2209,7 +2421,7 @@ export class EcobaseImportService {
 
   private readSellerboardSchedule(config: Record<string, unknown>) {
     const schedule = isRecord(config.schedule) ? config.schedule : {};
-    const enabled = schedule.enabled !== false && config.scheduleEnabled !== false;
+    const enabled = schedule.enabled === true || config.scheduleEnabled === true;
     const dailyRefreshTime =
       (typeof schedule.dailyRefreshTime === 'string' && schedule.dailyRefreshTime) ||
       (typeof config.dailyRefreshTime === 'string' && config.dailyRefreshTime) ||

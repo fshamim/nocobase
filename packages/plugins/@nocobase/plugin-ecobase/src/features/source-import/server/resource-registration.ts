@@ -20,7 +20,7 @@ export function createSourceImportResourceRegistration(
     acl: [
       {
         resource: 'ecobaseImport',
-        actions: ['status', 'adapters', 'listSellerboardSources', 'protectedCatalogDrift'],
+        actions: ['status', 'adapters', 'listSellerboardSources', 'sellerboardReportUnits', 'protectedCatalogDrift'],
         role: LOGGED_IN,
       },
       {
@@ -29,6 +29,7 @@ export function createSourceImportResourceRegistration(
           'run',
           'runDailySnapshot',
           'forceRefresh',
+          'runSellerboardReportUnit',
           'runScheduledSellerboard',
           'runNoop',
           'normalizeBronzeToSilver',

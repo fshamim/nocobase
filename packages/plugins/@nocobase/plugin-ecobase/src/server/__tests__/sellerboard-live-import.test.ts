@@ -13,6 +13,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSourceAdapterRegistry, sellerboardApiAdapter } from '../../features/source-import/server/adapters';
 import { parseSellerboardCsv } from '../../features/source-import/server/adapters/live-source-blocker-adapters';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
+import { SELLERBOARD_GOLD_PROMOTION_DEBOUNCE_MS, SellerboardGoldPromotionDebouncer } from '../plugin';
 import {
   EcobaseDatabase,
   EcobaseImportService,
@@ -94,6 +95,16 @@ class MemoryRepository implements EcobaseRepository {
 
 class MemoryDatabase implements EcobaseDatabase {
   readonly repositories = new Map<string, MemoryRepository>();
+  readonly sequelize = {
+    query: async () => [],
+    transaction: async (...args: unknown[]) => {
+      const callback = args.find((value) => typeof value === 'function') as
+        | ((transaction: Record<string, never>) => Promise<unknown>)
+        | undefined;
+      if (!callback) throw new Error('MemoryDatabase transaction requires a callback.');
+      return callback({});
+    },
+  };
 
   constructor() {
     Object.values(ECOBASE_COLLECTIONS).forEach((name) => this.repositories.set(name, new MemoryRepository()));
@@ -129,7 +140,7 @@ function createService(csv = sellerboardGoodsCsv('2026-06-05', 15.2)) {
             url: 'https://sellerboard.test/report.csv?t=redacted',
           },
         ],
-        schedule: { dailyRefreshTime: '09:00', retryIntervalMinutes: 60 },
+        schedule: { enabled: true, dailyRefreshTime: '09:00', retryIntervalMinutes: 60 },
         requireFreshData: true,
         defaultCompany: 'Ecofission LLC',
       },
@@ -144,10 +155,66 @@ function createService(csv = sellerboardGoodsCsv('2026-06-05', 15.2)) {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
 describe('Sellerboard live URL import', () => {
+  it('debounces successful report-unit commits into the smallest delayed Gold trigger', async () => {
+    vi.useFakeTimers();
+    const promote = vi.fn(async () => undefined);
+    const onError = vi.fn();
+    const debouncer = new SellerboardGoldPromotionDebouncer(promote, onError);
+
+    debouncer.schedule();
+    await vi.advanceTimersByTimeAsync(500);
+    debouncer.schedule();
+    await vi.advanceTimersByTimeAsync(SELLERBOARD_GOLD_PROMOTION_DEBOUNCE_MS - 1);
+    expect(promote).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(promote).toHaveBeenCalledOnce();
+    expect(onError).not.toHaveBeenCalled();
+    debouncer.stop();
+  });
+
+  it('keeps Gold promotion single-flight and coalesces running-period commits into one trailing run', async () => {
+    vi.useFakeTimers();
+    let releaseFirst!: () => void;
+    const firstPromotion = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let active = 0;
+    let maxActive = 0;
+    let invocation = 0;
+    const promote = vi.fn(async () => {
+      invocation += 1;
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      if (invocation === 1) await firstPromotion;
+      active -= 1;
+    });
+    const debouncer = new SellerboardGoldPromotionDebouncer(promote, vi.fn());
+
+    debouncer.schedule();
+    await vi.advanceTimersByTimeAsync(SELLERBOARD_GOLD_PROMOTION_DEBOUNCE_MS);
+    expect(promote).toHaveBeenCalledOnce();
+
+    debouncer.schedule();
+    debouncer.schedule();
+    debouncer.schedule();
+    await vi.advanceTimersByTimeAsync(SELLERBOARD_GOLD_PROMOTION_DEBOUNCE_MS);
+    expect(maxActive).toBe(1);
+    expect(promote).toHaveBeenCalledOnce();
+
+    releaseFirst();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(SELLERBOARD_GOLD_PROMOTION_DEBOUNCE_MS);
+    expect(promote).toHaveBeenCalledTimes(2);
+    expect(maxActive).toBe(1);
+    debouncer.stop();
+  });
+
   it('parses comma- and semicolon-delimited reports', () => {
     expect(parseSellerboardCsv('Date,ASIN\n2026-07-13,B000000001').rows[0]).toEqual({
       Date: '2026-07-13',
@@ -157,6 +224,23 @@ describe('Sellerboard live URL import', () => {
       Date: '13/07/2026',
       ASIN: 'B000000002',
     });
+  });
+
+  it('derives execution metadata behind the two-field report-unit interface and reuses identical input', async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const { service } = createService(sellerboardGoodsCsv(today, 15.2));
+
+    const first = await service.runSellerboardReportUnit({
+      sourceConnectionId: 'sellerboard-source-1',
+      reportKind: 'profit_by_product_daily',
+    });
+    const replay = await service.runSellerboardReportUnit({
+      sourceConnectionId: 'sellerboard-source-1',
+      reportKind: 'profit_by_product_daily',
+    });
+
+    expect(first).toMatchObject({ status: 'success' });
+    expect(replay).toMatchObject({ id: first.id, status: 'success', reused: true });
   });
 
   it('fetches live Sellerboard CSV URLs and normalizes through the existing CSV path', async () => {
@@ -404,15 +488,15 @@ describe('Sellerboard live URL import', () => {
     const { db, service } = createService(sellerboardGoodsCsv('2026-06-03', 15.2));
 
     const first = await service.runScheduledSellerboardImports({ now: '2026-06-05T09:01:00.000Z' });
-    expect(first.results[0]).toMatchObject({ status: 'stale' });
-    expect(db.getRepository(ECOBASE_COLLECTIONS.importRuns).all()[0]).toMatchObject({ status: 'stale' });
+    expect(first.results[0]).toMatchObject({ reportKind: 'profit_by_product_daily', status: 'failed' });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.importRuns).all()[0]).toMatchObject({ status: 'failed' });
 
     const waiting = await service.runScheduledSellerboardImports({ now: '2026-06-05T09:30:00.000Z' });
-    expect(waiting.results[0]).toMatchObject({ status: 'waiting_retry', latestRunStatus: 'stale' });
+    expect(waiting.results[0]).toMatchObject({ status: 'waiting_retry', latestRunStatus: 'failed' });
 
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => ({ ok: true, status: 200, text: async () => sellerboardGoodsCsv('2026-06-04', 22.1) })),
+      vi.fn(async () => ({ ok: true, status: 200, text: async () => sellerboardGoodsCsv('2026-06-05', 22.1) })),
     );
     const fresh = await service.runScheduledSellerboardImports({ now: '2026-06-05T23:02:00.000Z' });
     expect(fresh.results[0]).toMatchObject({ status: 'success' });
@@ -433,22 +517,185 @@ describe('Sellerboard live URL import', () => {
     expect(run).toMatchObject({ status: 'success', rowCount: 1, errorCount: 0 });
   });
 
-  it('records a durable skipped run when scheduled same-day Sellerboard data was already imported', async () => {
+  it('does not refetch a same-day report unit that already committed', async () => {
     const { db, service } = createService(sellerboardGoodsCsv('2026-06-05', 15.2));
 
     const first = await service.runScheduledSellerboardImports({ now: '2026-06-05T09:01:00.000Z' });
     expect(first.results[0]).toMatchObject({ status: 'success' });
 
     const second = await service.runScheduledSellerboardImports({ now: '2026-06-05T09:02:00.000Z' });
-    expect(second.results[0]).toMatchObject({ status: 'skipped' });
+    expect(second.results[0]).toMatchObject({
+      reportKind: 'profit_by_product_daily',
+      status: 'not_due',
+      reason: 'report_unit_already_committed',
+    });
     expect(db.getRepository(ECOBASE_COLLECTIONS.importRuns).all()).toEqual([
       expect.objectContaining({
         status: 'success',
-        idempotencyKey: 'sellerboard-source-1:sellerboard-scheduled:2026-06-05',
+        sourceIdentifier: 'sellerboard-scheduled:profit_by_product_daily',
       }),
-      expect.objectContaining({ status: 'skipped' }),
     ]);
+    expect(fetch).toHaveBeenCalledTimes(1);
     expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toHaveLength(1);
+  });
+
+  it('keeps Sellerboard scheduling disabled unless configuration explicitly enables it', async () => {
+    const { db, service } = createService();
+    await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
+      filterByTk: 'sellerboard-source-1',
+      values: {
+        config: {
+          catalogMutationMode: 'rebuild',
+          reportUrls: [
+            {
+              name: 'Profit by Product Dashboard Daily Data',
+              category: 'profit_by_product_daily',
+              url: 'https://sellerboard.test/report.csv',
+            },
+          ],
+          schedule: { dailyRefreshTime: '09:00', retryIntervalMinutes: 60 },
+        },
+      },
+    });
+
+    await expect(service.runScheduledSellerboardImports({ now: '2026-06-05T09:01:00.000Z' })).resolves.toMatchObject({
+      results: [{ status: 'ignored', reason: 'schedule_disabled' }],
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('fails explicitly when a configured Sellerboard report kind is unsupported', async () => {
+    const { db, service } = createService();
+    await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
+      filterByTk: 'sellerboard-source-1',
+      values: {
+        config: {
+          reportUrls: [
+            { name: 'Unknown report', category: 'unknown_report', url: 'https://sellerboard.test/unknown.csv' },
+          ],
+          schedule: { enabled: true, dailyRefreshTime: '09:00' },
+        },
+      },
+    });
+
+    await expect(service.sellerboardReportUnits('sellerboard-source-1')).rejects.toThrow(
+      'Unknown report" has unsupported report kind "unknown_report"',
+    );
+  });
+
+  it('isolates an invalid source/report unit so a later source still commits', async () => {
+    const { db, service } = createService(sellerboardGoodsCsv('2026-06-05', 15.2));
+    await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
+      filterByTk: 'sellerboard-source-1',
+      values: {
+        name: 'A invalid Sellerboard source',
+        config: {
+          reportUrls: [
+            { name: 'Unsupported report', category: 'unsupported_report', url: 'https://sellerboard.test/bad.csv' },
+          ],
+          schedule: { enabled: true, dailyRefreshTime: '09:00' },
+        },
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).create({
+      values: {
+        id: 'sellerboard-source-2',
+        name: 'Z valid Sellerboard source',
+        sourceType: 'sellerboard',
+        domain: 'amazon_operations',
+        active: true,
+        config: {
+          catalogMutationMode: 'rebuild',
+          reportUrls: [
+            {
+              name: 'Profit by Product Dashboard Daily Data',
+              category: 'profit_by_product_daily',
+              url: 'https://sellerboard.test/good.csv',
+            },
+          ],
+          schedule: { enabled: true, dailyRefreshTime: '09:00' },
+          defaultCompany: 'Ecofission LLC',
+        },
+      },
+    });
+
+    const result = await service.runScheduledSellerboardImports({ now: '2026-06-05T09:01:00.000Z' });
+
+    expect(result.results).toEqual([
+      expect.objectContaining({
+        sourceConnectionId: 'sellerboard-source-1',
+        status: 'failed',
+        reasonCode: 'invalid_report_configuration',
+      }),
+      expect.objectContaining({
+        sourceConnectionId: 'sellerboard-source-2',
+        reportKind: 'profit_by_product_daily',
+        status: 'success',
+      }),
+    ]);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('continues later report units when one unit throws unexpectedly', async () => {
+    const { db, service } = createService(sellerboardGoodsCsv('2026-06-05', 15.2));
+    const sourceRepository = db.getRepository(ECOBASE_COLLECTIONS.sourceConnections);
+    await sourceRepository.update({
+      filterByTk: 'sellerboard-source-1',
+      values: {
+        config: {
+          catalogMutationMode: 'rebuild',
+          reportUrls: [
+            { name: 'First report', category: 'stock_daily', url: 'https://sellerboard.test/first.csv' },
+            {
+              name: 'Later report',
+              category: 'profit_by_product_daily',
+              url: 'https://sellerboard.test/later.csv',
+            },
+          ],
+          schedule: { enabled: true, dailyRefreshTime: '09:00' },
+          defaultCompany: 'Ecofission LLC',
+        },
+      },
+    });
+    const find = sourceRepository.find.bind(sourceRepository);
+    let sourceFindCount = 0;
+    vi.spyOn(sourceRepository, 'find').mockImplementation(async (params) => {
+      sourceFindCount += 1;
+      if (sourceFindCount === 2) throw new Error('fixture unexpected per-unit lookup failure');
+      return find(params);
+    });
+
+    const result = await service.runScheduledSellerboardImports({ now: '2026-06-05T09:01:00.000Z' });
+
+    expect(result.results).toEqual([
+      expect.objectContaining({
+        reportKind: 'stock_daily',
+        status: 'failed',
+        reasonCode: 'report_unit_execution_exception',
+        message: 'fixture unexpected per-unit lookup failure',
+      }),
+      expect.objectContaining({ reportKind: 'profit_by_product_daily', status: 'success' }),
+    ]);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails fast when report-unit transaction support is unavailable', async () => {
+    const { db, service } = createService();
+    const sourceRepository = db.getRepository(ECOBASE_COLLECTIONS.sourceConnections);
+    const find = sourceRepository.find.bind(sourceRepository);
+    let sourceFindCount = 0;
+    vi.spyOn(sourceRepository, 'find').mockImplementation(async (params) => {
+      sourceFindCount += 1;
+      if (sourceFindCount === 2) {
+        throw new Error('Ecobase atomic Sellerboard report-unit import requires database transaction support.');
+      }
+      return find(params);
+    });
+
+    await expect(service.runScheduledSellerboardImports({ now: '2026-06-05T09:01:00.000Z' })).rejects.toThrow(
+      'requires database transaction support',
+    );
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it('keeps mixed fresh and stale report runs retryable instead of marking the whole source fresh', async () => {
@@ -462,30 +709,59 @@ describe('Sellerboard live URL import', () => {
             { name: 'Fresh report', category: 'profit_by_product_daily', url: 'https://sellerboard.test/fresh.csv' },
             { name: 'Stale report', category: 'profit_dashboard', url: 'https://sellerboard.test/stale.csv' },
           ],
-          schedule: { dailyRefreshTime: '09:00', retryIntervalMinutes: 60 },
+          schedule: { enabled: true, dailyRefreshTime: '09:00', retryIntervalMinutes: 60 },
           requireFreshData: true,
+          defaultCompany: 'Ecofission LLC',
         },
       },
     });
+    let staleDate = '2026-06-03';
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) => ({
         ok: true,
         status: 200,
-        text: async () => sellerboardGoodsCsv(url.includes('stale') ? '2026-06-03' : '2026-06-04', 18.4),
+        text: async () => sellerboardGoodsCsv(url.includes('stale') ? staleDate : '2026-06-05', 18.4),
       })),
     );
+    const committed: string[] = [];
 
-    const run = await service.runScheduledSellerboardImports({ now: '2026-06-05T09:01:00.000Z' });
+    const run = await service.runScheduledSellerboardImports({
+      now: '2026-06-05T09:01:00.000Z',
+      onCommittedUnit: ({ reportKind }) => committed.push(reportKind),
+    });
 
-    expect(run.results[0]).toMatchObject({ status: 'stale' });
+    expect(run.results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ reportKind: 'profit_by_product_daily', status: 'success' }),
+        expect.objectContaining({ reportKind: 'profit_dashboard', status: 'failed' }),
+      ]),
+    );
     expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all().length).toBeGreaterThan(0);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.sourceAccessAudits).all()).toEqual([
-      expect.objectContaining({ status: 'stale', blockerCode: 'sellerboard_data_not_fresh' }),
-    ]);
 
+    expect(committed).toEqual(['profit_by_product_daily']);
     const waiting = await service.runScheduledSellerboardImports({ now: '2026-06-05T09:30:00.000Z' });
-    expect(waiting.results[0]).toMatchObject({ status: 'waiting_retry', latestRunStatus: 'stale' });
+    expect(waiting.results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ reportKind: 'profit_by_product_daily', status: 'not_due' }),
+        expect.objectContaining({ reportKind: 'profit_dashboard', status: 'waiting_retry' }),
+      ]),
+    );
+    expect(fetch).toHaveBeenCalledTimes(2);
+
+    staleDate = '2026-06-05';
+    const retry = await service.runScheduledSellerboardImports({
+      now: '2026-06-05T10:02:00.000Z',
+      onCommittedUnit: ({ reportKind }) => committed.push(reportKind),
+    });
+    expect(retry.results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ reportKind: 'profit_by_product_daily', status: 'not_due' }),
+        expect.objectContaining({ reportKind: 'profit_dashboard', status: 'success' }),
+      ]),
+    );
+    expect(committed).toEqual(['profit_by_product_daily', 'profit_dashboard']);
+    expect(fetch).toHaveBeenCalledTimes(3);
   });
 
   it('records missing Sellerboard URL configuration as a credential blocker audit record', async () => {

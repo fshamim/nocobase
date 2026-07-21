@@ -28,6 +28,7 @@ import {
   registerGoldInventoryPlanningWriteGuard,
 } from '../features/inventory-planning/server/gold-write-guard';
 import { createInventoryPlanningResourceRegistration } from '../features/inventory-planning/server/resource-registration';
+import { EcobaseInventoryPlanningService } from '../features/inventory-planning/server/inventory-planning-service';
 import { createOrderPlanningResourceRegistration } from '../features/order-planning/server/resource-registration';
 import { createSemanticModelResourceRegistration } from '../features/semantic-model/server/resource-registration';
 import { createSourceImportResourceRegistration } from '../features/source-import/server/resource-registration';
@@ -57,6 +58,57 @@ export {
   createEcobaseSupplierOrderActions,
 } from './resource-actions';
 
+export const SELLERBOARD_GOLD_PROMOTION_DEBOUNCE_MS = 1000;
+
+export class SellerboardGoldPromotionDebouncer {
+  private timer?: ReturnType<typeof setTimeout>;
+  private running = false;
+  private pending = false;
+  private stopped = false;
+
+  constructor(private readonly promote: () => Promise<void>, private readonly onError: (error: unknown) => void) {}
+
+  schedule() {
+    if (this.stopped) return;
+    if (this.running) {
+      this.pending = true;
+      return;
+    }
+    this.armTimer();
+  }
+
+  stop() {
+    this.stopped = true;
+    this.pending = false;
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = undefined;
+  }
+
+  private armTimer() {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = setTimeout(() => {
+      this.timer = undefined;
+      void this.runPromotion();
+    }, SELLERBOARD_GOLD_PROMOTION_DEBOUNCE_MS);
+    this.timer.unref?.();
+  }
+
+  private async runPromotion() {
+    this.running = true;
+    try {
+      await this.promote();
+    } catch (error) {
+      this.onError(error);
+    } finally {
+      this.running = false;
+      if (this.pending && !this.stopped) {
+        this.pending = false;
+        this.armTimer();
+      }
+    }
+  }
+}
+
 export class PluginEcobaseServer extends Plugin {
   declare app: any;
   private registry = createSourceAdapterRegistry([
@@ -73,11 +125,21 @@ export class PluginEcobaseServer extends Plugin {
 
   private sellerboardScheduler?: ReturnType<typeof setInterval>;
   private sellerboardSchedulerRunning = false;
+  private sellerboardGoldPromotion?: SellerboardGoldPromotionDebouncer;
 
   private startSellerboardScheduler() {
     if (this.sellerboardScheduler) {
       return;
     }
+    this.sellerboardGoldPromotion = new SellerboardGoldPromotionDebouncer(
+      async () => {
+        const result = await new EcobaseInventoryPlanningService(this.app.db).refreshAndPublish();
+        if (result.status === 'failed') {
+          throw new Error(`Ecobase scheduled Gold promotion failed with code ${result.code}.`);
+        }
+      },
+      (error) => this.app.logger?.error?.(error),
+    );
     const runScheduledImports = async () => {
       if (this.sellerboardSchedulerRunning) {
         return;
@@ -85,7 +147,9 @@ export class PluginEcobaseServer extends Plugin {
       this.sellerboardSchedulerRunning = true;
       try {
         const service = new EcobaseImportService(this.app.db, this.registry);
-        await service.runScheduledSellerboardImports();
+        await service.runScheduledSellerboardImports({
+          onCommittedUnit: () => this.sellerboardGoldPromotion?.schedule(),
+        });
       } catch (error) {
         this.app.logger?.error?.(error);
       } finally {
@@ -97,11 +161,10 @@ export class PluginEcobaseServer extends Plugin {
   }
 
   private stopSellerboardScheduler() {
-    if (!this.sellerboardScheduler) {
-      return;
-    }
-    clearInterval(this.sellerboardScheduler);
+    if (this.sellerboardScheduler) clearInterval(this.sellerboardScheduler);
     this.sellerboardScheduler = undefined;
+    this.sellerboardGoldPromotion?.stop();
+    this.sellerboardGoldPromotion = undefined;
   }
 
   private registerAiEmployeeTools() {

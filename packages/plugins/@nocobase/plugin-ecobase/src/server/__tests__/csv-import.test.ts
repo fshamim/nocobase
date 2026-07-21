@@ -32,6 +32,7 @@ interface FindParams {
   filterByTk?: string | number;
   sort?: string[];
   limit?: number;
+  offset?: number;
 }
 
 class MemoryRepository implements EcobaseRepository {
@@ -41,7 +42,8 @@ class MemoryRepository implements EcobaseRepository {
 
   async find(params: FindParams = {}) {
     const filtered = this.filterRecords(params);
-    return this.sortRecords(filtered, params.sort).slice(0, params.limit ?? filtered.length);
+    const offset = params.offset ?? 0;
+    return this.sortRecords(filtered, params.sort).slice(offset, offset + (params.limit ?? filtered.length));
   }
 
   async findOne(params: FindParams = {}) {
@@ -124,6 +126,16 @@ class MemoryRepository implements EcobaseRepository {
 
 class MemoryDatabase implements EcobaseDatabase {
   readonly repositories = new Map<string, MemoryRepository>();
+  readonly sequelize = {
+    query: async () => [],
+    transaction: async (...args: unknown[]) => {
+      const callback = args.find((value) => typeof value === 'function') as
+        | ((transaction: Record<string, never>) => Promise<unknown>)
+        | undefined;
+      if (!callback) throw new Error('MemoryDatabase transaction requires a callback.');
+      return callback({});
+    },
+  };
 
   constructor() {
     Object.values(ECOBASE_COLLECTIONS).forEach((name) => this.repositories.set(name, new MemoryRepository()));
@@ -548,9 +560,9 @@ describe('Ecobase current Amazon operations CSV import', () => {
     });
 
     let transactionCount = 0;
-    (
-      db as MemoryDatabase & { sequelize: { transaction: (run: (transaction: object) => Promise<unknown>) => unknown } }
-    ).sequelize = {
+    (db as MemoryDatabase & {
+      sequelize: { transaction: (run: (transaction: object) => Promise<unknown>) => unknown };
+    }).sequelize = {
       transaction: async (run) => {
         transactionCount += 1;
         return run({ id: `transaction-${transactionCount}` });
@@ -1275,7 +1287,7 @@ describe('Ecobase current Amazon operations CSV import', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.importRuns).all()).toHaveLength(2);
   });
 
-  it('reports partial Sellerboard status when some report URLs fail but available reports normalize', async () => {
+  it('isolates a failed Sellerboard report URL while a sibling report unit commits', async () => {
     const { db, service } = createService('sellerboard');
     await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
       filterByTk: 'source-1',
@@ -1312,14 +1324,14 @@ describe('Ecobase current Amazon operations CSV import', () => {
 
     const results = await service.runScheduledSellerboardImports({ now: '2026-06-08T00:05:00.000Z' });
 
-    expect(results.results).toEqual([expect.objectContaining({ status: 'partial' })]);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.importRuns).all()[0]).toMatchObject({
-      status: 'partial',
-      rowCount: 1,
-      normalizedCount: 3,
-      warningCount: 0,
-      errorCount: 1,
-    });
+    expect(results.results).toEqual([
+      expect.objectContaining({ reportKind: 'profit_dashboard', status: 'failed' }),
+      expect.objectContaining({ reportKind: 'stock_daily', status: 'success' }),
+    ]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.importRuns).all()).toEqual([
+      expect.objectContaining({ status: 'failed', rowCount: 0, normalizedCount: 0, errorCount: 1 }),
+      expect.objectContaining({ status: 'success', rowCount: 1, normalizedCount: 3, errorCount: 0 }),
+    ]);
   });
 
   it('records Sellerboard and Amazon SP-API live-source credential blockers', async () => {

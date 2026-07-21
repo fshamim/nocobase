@@ -14,6 +14,7 @@ import { createOrderPlanningResourceRegistration } from '../../features/order-pl
 import { createSemanticModelResourceRegistration } from '../../features/semantic-model/server/resource-registration';
 import { createSourceAdapterRegistry, noopTestAdapter } from '../../features/source-import/server/adapters';
 import { createSourceImportResourceRegistration } from '../../features/source-import/server/resource-registration';
+import { EcobaseImportService } from '../../features/source-import/server/import-service';
 import { EcobaseSupplierOrderImportApplyService } from '../../features/source-import/server/supplier-order-import-apply-service';
 import { EcobaseSupplierOrderImportService } from '../../features/source-import/server/supplier-order-import-service';
 import { EcobaseCompanyProductFamilyService } from '../../features/inventory-planning/server/company-product-family-service';
@@ -89,6 +90,42 @@ describe('Ecobase resource registration', () => {
       const grantedActions = acl.filter((entry) => entry.resource === resource.name).flatMap((entry) => entry.actions);
       expect(grantedActions.sort()).toEqual(Object.keys(resource.actions).sort());
     }
+  });
+
+  it('exposes the deep Sellerboard report-unit action without caller-owned execution controls', async () => {
+    const result = { id: 'report-unit-1', status: 'success' };
+    const runUnit = vi
+      .spyOn(EcobaseImportService.prototype, 'runSellerboardReportUnit')
+      .mockResolvedValue(result as never);
+    const actions = createEcobaseImportActions(createSourceAdapterRegistry([noopTestAdapter]));
+    const ctx = {
+      state: { currentUser: { id: 1 }, currentRoles: ['root'] },
+      action: {
+        params: {
+          values: {
+            sourceConnectionId: 'sellerboard-source-1',
+            reportKind: 'stock_daily',
+            sourceVersion: 'caller-must-not-control-this',
+            skipExistingNormalizedKinds: ['listing_daily_fact'],
+          },
+        },
+      },
+      db: {},
+      throw: (status: number, message: string): never => {
+        throw new Error(`${status}: ${message}`);
+      },
+      body: undefined as unknown,
+    };
+    const next = vi.fn();
+
+    await actions.runSellerboardReportUnit(ctx as never, next);
+
+    expect(runUnit).toHaveBeenCalledWith({
+      sourceConnectionId: 'sellerboard-source-1',
+      reportKind: 'stock_daily',
+    });
+    expect(ctx.body).toEqual({ data: result });
+    expect(next).toHaveBeenCalledOnce();
   });
 
   it('runs the family reconciliation action with protected catalog identity', async () => {

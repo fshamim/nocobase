@@ -39,7 +39,10 @@ import {
   EcobaseDailyOperationsBriefNarrativeService,
   NocoBaseEcoNarrativeProvider,
 } from '../features/daily-operations-brief/server/daily-operations-brief-narrative-service';
-import { EcobaseImportService } from '../features/source-import/server/import-service';
+import {
+  EcobaseImportService,
+  type SellerboardReportKind,
+} from '../features/source-import/server/import-service';
 import { EcobaseClickupOrderStatusService } from '../features/source-import/server/clickup-order-status-service';
 import { EcobaseOrderDetailsRelationshipVerifier } from '../features/source-import/server/order-details-relationship-verifier';
 import { EcobaseSellerboardCogsService } from '../features/source-import/server/sellerboard-cogs-service';
@@ -2606,6 +2609,41 @@ export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
         }
         await next();
       },
+      sellerboardReportUnits: async (ctx, next) => {
+        const values = getValues(ctx.action.params);
+        const service = new EcobaseImportService(ctx.db, registry);
+        try {
+          ctx.body = {
+            data: await service.sellerboardReportUnits(getOptionalString(values, 'sourceConnectionId')),
+          };
+        } catch (error) {
+          ctx.throw(400, error instanceof Error ? error.message : 'Ecobase Sellerboard report-unit discovery failed.');
+          return;
+        }
+        await next();
+      },
+      runSellerboardReportUnit: async (ctx, next) => {
+        const values = getValues(ctx.action.params);
+        const sourceConnectionId = getOptionalString(values, 'sourceConnectionId');
+        const reportKind = getOptionalString(values, 'reportKind');
+        if (!sourceConnectionId || !reportKind) {
+          ctx.throw(400, 'Ecobase Sellerboard report-unit import requires sourceConnectionId and reportKind.');
+          return;
+        }
+        const service = new EcobaseImportService(ctx.db, registry);
+        try {
+          ctx.body = {
+            data: await service.runSellerboardReportUnit({
+              sourceConnectionId,
+              reportKind: reportKind as SellerboardReportKind,
+            }),
+          };
+        } catch (error) {
+          ctx.throw(400, error instanceof Error ? error.message : 'Ecobase Sellerboard report-unit import failed.');
+          return;
+        }
+        await next();
+      },
       runScheduledSellerboard: async (ctx, next) => {
         const values = getValues(ctx.action.params);
         const service = new EcobaseImportService(ctx.db, registry);
@@ -3152,6 +3190,7 @@ export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
       run: 'admin',
       runDailySnapshot: 'admin',
       forceRefresh: 'admin',
+      runSellerboardReportUnit: 'admin',
       runScheduledSellerboard: 'admin',
       runNoop: 'admin',
       normalizeBronzeToSilver: 'admin',
