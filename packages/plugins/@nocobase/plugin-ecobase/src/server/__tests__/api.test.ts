@@ -2444,6 +2444,9 @@ describe('Ecobase import public API seam', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).all()[0]).toMatchObject({
       canonicalStatus: 'shipped_inbound',
       lifecycleStatus: 'INBOUND MONITORING',
+      // T-3.0: entering amazon_inbound stamps the stage-entry timestamp.
+      workflowStage: 'amazon_inbound',
+      workflowStageEnteredAt: '2026-07-06T00:00:00.000Z',
       statusSource: 'clickup_csv',
       authorityStatus: 'clickup_authoritative',
       authoritySource: 'clickup_csv',
@@ -2481,6 +2484,8 @@ describe('Ecobase import public API seam', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).all()[0]).toMatchObject({
       canonicalStatus: 'shipped_inbound',
       statusSource: 'clickup_csv',
+      // T-3.0: re-importing the same stage must NOT restamp the entry time.
+      workflowStageEnteredAt: '2026-07-06T00:00:00.000Z',
     });
 
     const reconciledContext = createActionContext(db, {

@@ -27,6 +27,7 @@ import {
   clickupOrderOperationalStatus,
   lifecycleStatusForOperationalStatus,
   normalizeOrderOperationalStatus,
+  workflowStageForOperationalStatus,
 } from '../order-operational-status';
 
 type PlainRecord = Record<string, unknown>;
@@ -869,6 +870,12 @@ export class EcobaseOrderPlanningService {
         : [];
       values.lifecycleStatus = clickupStatus ?? null;
       values.canonicalStatus = clickupMappedStatus(order) ?? null;
+      // T-3.0 (inventory dashboard): restoring the ClickUp status may re-enter a stage.
+      const restoredStage = workflowStageForOperationalStatus(clickupStatus) ?? null;
+      if (restoredStage && restoredStage !== (text(order.workflowStage) ?? null)) {
+        values.workflowStage = restoredStage;
+        values.workflowStageEnteredAt = now;
+      }
       values.statusSource = clickupStatus ? 'clickup_csv' : null;
       values.statusCheckRequired = !clickupStatus;
       values.operatorStatusOverrideAt = null;
@@ -897,6 +904,12 @@ export class EcobaseOrderPlanningService {
       values.statusSource = 'operator';
       values.statusCheckRequired = statusDiscrepancy;
       values.operatorStatusOverrideAt = now;
+      // T-3.0 (inventory dashboard): keep workflowStage current and stamp stage entry on transition.
+      const nextStage = workflowStageForOperationalStatus(nextStatus) ?? null;
+      if (nextStage && nextStage !== (text(order.workflowStage) ?? null)) {
+        values.workflowStage = nextStage;
+        values.workflowStageEnteredAt = now;
+      }
       values.statusEvidenceJson = {
         ...statusEvidence(order),
         operatorOperationalStatus: { status: nextStatus, selectedAt: now, actorUserId: params.actorUserId },

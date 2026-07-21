@@ -614,6 +614,10 @@ export class EcobaseSupplierOrderImportApplyService {
                 canonicalStatus: order.canonicalStatus,
                 operationalStatus: order.operationalStatus,
                 workflowStage: order.workflowStage,
+                // T-3.0 (inventory dashboard): stamp stage entry on transition.
+                ...((text(existing.workflowStage) ?? null) === (order.workflowStage ?? null)
+                  ? {}
+                  : { workflowStageEnteredAt: new Date().toISOString() }),
                 statusSource: 'supplier_order_import',
                 statusEvidenceJson: { preflightDigest, sourceOrderStatus: order.sourceOrderStatus },
               }),

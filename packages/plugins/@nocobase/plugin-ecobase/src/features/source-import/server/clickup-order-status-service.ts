@@ -918,6 +918,8 @@ export class EcobaseClickupOrderStatusService {
             lifecycleStatus: selected.task.lifecycleStatus,
             operationalStatus: selected.task.clickupStatus,
             workflowStage: selected.task.workflowStage,
+            // T-3.0 (inventory dashboard): a created order enters its stage now.
+            workflowStageEnteredAt: params.observedAt,
             statusSource: 'clickup_csv',
             statusCheckRequired: !selected.task.mappedStatus,
             statusEvidenceJson: { clickupStatusImport: evidence, importedAt: params.observedAt, statusHistory: [] },
@@ -1335,6 +1337,10 @@ export class EcobaseClickupOrderStatusService {
                 lifecycleStatus: task.lifecycleStatus,
                 operationalStatus: task.clickupStatus,
                 workflowStage: task.workflowStage,
+                // T-3.0 (inventory dashboard): stamp stage entry on transition.
+                ...((asString(order.workflowStage) ?? null) === (task.workflowStage ?? null)
+                  ? {}
+                  : { workflowStageEnteredAt: importedAt }),
                 statusSource: 'clickup_csv',
                 statusCheckRequired: false,
                 statusEvidenceJson,
