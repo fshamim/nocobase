@@ -20,6 +20,10 @@ export default defineCollection({
     { name: 'normalizedName', type: 'string', allowNull: false },
     { name: 'displayName', type: 'string', allowNull: false },
     { name: 'approvalStatus', type: 'string', allowNull: false, defaultValue: 'new' },
+    // Inventory Dashboard (T-3.0b / AD-7 v3.1): where this supplier ships —
+    // 'direct_fba' (supplier preps + ships to FBA) or 'prep_center' (ships to
+    // our prep center). Null = unknown; set by operators from the P3/P4 drawer.
+    { name: 'shipDestination', type: 'string' },
     { name: 'analysisStatus', type: 'string' },
     { name: 'accountStatus', type: 'string' },
     { name: 'contactName', type: 'string' },

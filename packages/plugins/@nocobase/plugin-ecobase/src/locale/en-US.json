@@ -264,5 +264,6 @@
   "Within band": "Within band",
   "Below band": "Below band",
   "Insufficient evidence": "Insufficient evidence",
-  "Unexpected server response shape": "Unexpected server response shape"
+  "Unexpected server response shape": "Unexpected server response shape",
+  "Still loading — the first request after a restart can take up to a minute": "Still loading — the first request after a restart can take up to a minute"
 }

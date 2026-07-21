@@ -45,6 +45,7 @@
       "estimatedOosDate": null,
       "latestSafeReorderDate": null,
       "estimatedProfitRisk": null,
+      "recommendedOrderQty": null,
       "reasonCodes": [],
       "velocityTrend": "unknown",
       "performanceBand": "insufficient_evidence",
@@ -56,7 +57,10 @@
         "workflowStageEnteredAt": "2026-07-18T12:00:00.000Z",
         "daysInStage": 3,
         "needsFollowUp": true,
-        "prepPath": "unknown"
+        "supplierId": "supplier-prep-center",
+        "supplierName": "Prep Center Supplier",
+        "supplierShipDestination": "prep_center",
+        "prepPath": "own_prep_center"
       },
       "lastActivity": null
     },
@@ -85,6 +89,7 @@
       "estimatedOosDate": null,
       "latestSafeReorderDate": null,
       "estimatedProfitRisk": null,
+      "recommendedOrderQty": null,
       "reasonCodes": [],
       "velocityTrend": "unknown",
       "performanceBand": "insufficient_evidence",
@@ -96,6 +101,9 @@
         "workflowStageEnteredAt": "2026-07-18T12:00:00.000Z",
         "daysInStage": 3,
         "needsFollowUp": false,
+        "supplierId": null,
+        "supplierName": null,
+        "supplierShipDestination": null,
         "prepPath": "unknown"
       },
       "lastActivity": {
@@ -129,6 +137,7 @@
       "estimatedOosDate": null,
       "latestSafeReorderDate": null,
       "estimatedProfitRisk": null,
+      "recommendedOrderQty": null,
       "reasonCodes": [],
       "velocityTrend": "unknown",
       "performanceBand": "insufficient_evidence",
@@ -141,6 +150,9 @@
         "workflowStageEnteredAt": "2026-07-20T16:00:00.000Z",
         "daysInStage": 0,
         "needsFollowUp": false,
+        "supplierId": null,
+        "supplierName": null,
+        "supplierShipDestination": null,
         "prepPath": "unknown"
       },
       "lastActivity": {
@@ -174,6 +186,7 @@
       "estimatedOosDate": null,
       "latestSafeReorderDate": null,
       "estimatedProfitRisk": null,
+      "recommendedOrderQty": null,
       "reasonCodes": [],
       "velocityTrend": "unknown",
       "performanceBand": "insufficient_evidence",
@@ -186,6 +199,9 @@
         "workflowStageEnteredAt": "2026-07-21T00:00:00.000Z",
         "daysInStage": 0,
         "needsFollowUp": false,
+        "supplierId": null,
+        "supplierName": null,
+        "supplierShipDestination": null,
         "prepPath": "unknown"
       },
       "lastActivity": {
@@ -219,6 +235,7 @@
       "estimatedOosDate": null,
       "latestSafeReorderDate": null,
       "estimatedProfitRisk": null,
+      "recommendedOrderQty": null,
       "reasonCodes": [],
       "velocityTrend": "unknown",
       "performanceBand": "insufficient_evidence",
@@ -230,6 +247,9 @@
         "workflowStageEnteredAt": null,
         "daysInStage": null,
         "needsFollowUp": false,
+        "supplierId": "supplier-unknown-route",
+        "supplierName": "Unknown Route Supplier",
+        "supplierShipDestination": null,
         "prepPath": "unknown"
       },
       "lastActivity": {

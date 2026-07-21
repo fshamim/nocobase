@@ -215,11 +215,20 @@ export function truncatePreview(text: string, max: number = ACTIVITY_PREVIEW_MAX
 
 export type PrepPathInput = {
   isDirectShipFba: boolean;
+  supplierShipDestination?: string | null;
 };
 
-/** AD-7. direct-ship -> direct_fba; otherwise unknown (own-prep-center detection deferred, FLAG-2). */
+/**
+ * AD-7 v3.1 precedence: (1) order status direct-ship-fba -> direct_fba;
+ * (2) supplier shipDestination ('prep_center' -> own_prep_center,
+ * 'direct_fba' -> direct_fba); (3) unknown — never guessed.
+ */
 export function prepPath(input: PrepPathInput): PrepPath {
-  return input.isDirectShipFba ? 'direct_fba' : 'unknown';
+  if (input.isDirectShipFba) return 'direct_fba';
+  const destination = (input.supplierShipDestination ?? '').trim().toLowerCase();
+  if (destination === 'prep_center') return 'own_prep_center';
+  if (destination === 'direct_fba') return 'direct_fba';
+  return 'unknown';
 }
 
 export interface PaneProjectionInput {
@@ -268,7 +277,11 @@ export function projectRowPane(input: PaneProjectionInput): PaneProjectionResult
   const staleClassification =
     goldStage !== null && silverStage !== null && goldStage !== silverStage && isOrderPane(persisted);
 
-  if (input.isDirectShipFba) {
+  // T-3.0c(c): the P4 direct-ship union includes only ACTIVE orders. A closed
+  // (complete/cancelled) or stage-less direct-ship order stays in its
+  // persisted gold pane instead of leaking into Inbound Monitoring.
+  const activeStage = goldStage !== null && goldStage !== 'complete' && goldStage !== 'cancelled';
+  if (input.isDirectShipFba && activeStage) {
     return { pane: 'inboundMonitoring', staleClassification, untieredProjected: false };
   }
   return { pane: persisted, staleClassification, untieredProjected: false };

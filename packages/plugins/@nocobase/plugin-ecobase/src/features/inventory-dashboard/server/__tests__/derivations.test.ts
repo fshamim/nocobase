@@ -200,9 +200,17 @@ describe('isTiered + prepPath', () => {
     expect(isTiered(null, null, null)).toBe(false);
     expect(isTiered('D', 'X', '')).toBe(false);
   });
-  it('maps prep path (direct only, else unknown)', () => {
+  it('maps prep path with AD-7 v3.1 precedence', () => {
+    // (1) order status wins even over a contradicting supplier attribute.
     expect(prepPath({ isDirectShipFba: true })).toBe('direct_fba');
+    expect(prepPath({ isDirectShipFba: true, supplierShipDestination: 'prep_center' })).toBe('direct_fba');
+    // (2) supplier shipDestination.
+    expect(prepPath({ isDirectShipFba: false, supplierShipDestination: 'prep_center' })).toBe('own_prep_center');
+    expect(prepPath({ isDirectShipFba: false, supplierShipDestination: 'direct_fba' })).toBe('direct_fba');
+    // (3) unknown — never guessed.
     expect(prepPath({ isDirectShipFba: false })).toBe('unknown');
+    expect(prepPath({ isDirectShipFba: false, supplierShipDestination: 'warehouse' })).toBe('unknown');
+    expect(prepPath({ isDirectShipFba: false, supplierShipDestination: null })).toBe('unknown');
   });
 });
 
@@ -224,10 +232,29 @@ describe('projectRowPane (AD-2)', () => {
       untieredProjected: true,
     });
   });
-  it('routes direct-ship-fba to inbound (P4), overriding sub-status', () => {
-    expect(projectRowPane({ ...base, primaryActionPane: 'inPrepMonitoring', isDirectShipFba: true }).pane).toBe(
-      'inboundMonitoring',
-    );
+  it('routes ACTIVE direct-ship-fba to inbound (P4), overriding sub-status', () => {
+    expect(
+      projectRowPane({
+        ...base,
+        primaryActionPane: 'inPrepMonitoring',
+        isDirectShipFba: true,
+        goldWorkflowStage: 'amazon_inbound',
+      }).pane,
+    ).toBe('inboundMonitoring');
+  });
+  it('keeps closed or stage-less direct-ship orders in their persisted pane (T-3.0c c)', () => {
+    expect(
+      projectRowPane({
+        ...base,
+        primaryActionPane: 'healthyInventory',
+        isDirectShipFba: true,
+        goldWorkflowStage: 'complete',
+      }).pane,
+    ).toBe('healthyInventory');
+    expect(
+      projectRowPane({ ...base, primaryActionPane: 'healthyInventory', isDirectShipFba: true, goldWorkflowStage: null })
+        .pane,
+    ).toBe('healthyInventory');
   });
   it('flags staleClassification on gold/silver order-stage disagreement but keeps the gold pane', () => {
     const result = projectRowPane({

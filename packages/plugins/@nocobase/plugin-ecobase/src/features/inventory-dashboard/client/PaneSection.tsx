@@ -37,7 +37,7 @@ export const defaultObserveVisibility: ObserveVisibility = (element, onVisible) 
         observer.disconnect();
       }
     },
-    { rootMargin: '200px' },
+    { rootMargin: '100px' },
   );
   observer.observe(element);
   return () => observer.disconnect();
@@ -143,7 +143,12 @@ function PaneSectionInner(props: PaneSectionProps, ref: React.Ref<PaneSectionHan
     <section
       ref={containerRef}
       aria-labelledby={headingId}
-      style={{ marginBottom: DASHBOARD_TOKENS.sectionGap }}
+      style={{
+        marginBottom: DASHBOARD_TOKENS.sectionGap,
+        // T-3.0c(b): unloaded sections keep a real height so they do not all
+        // sit inside the initial viewport and defeat visibility-lazy fetching.
+        minHeight: state.status === 'loaded' ? undefined : DASHBOARD_TOKENS.paneMinHeight,
+      }}
       data-pane={config.pane}
     >
       <Space align="baseline" size="middle" style={{ marginBottom: DASHBOARD_TOKENS.paneHeaderGap }}>

@@ -258,6 +258,69 @@ describe('InventoryDashboardPage (Gate G2)', () => {
     }
   });
 
+  it('T-3.0c(a): shows a progress hint when the header is still loading after 10s', async () => {
+    request.mockReset();
+    request.mockImplementation((args: { url: string }) => {
+      if (args.url === 'ecobaseInventoryDashboard:header') return new Promise(() => undefined); // never resolves
+      return Promise.reject(new Error('unexpected'));
+    });
+    vi.useFakeTimers();
+    renderPage(observeNever);
+    expect(screen.queryByText(/Still loading/)).toBeNull();
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+    expect(screen.getByText(/Still loading/)).toBeTruthy();
+    vi.useRealTimers();
+  });
+
+  it('T-3.0c(b): with a real IntersectionObserver present, panes stay un-fetched until their section intersects', async () => {
+    // Browser-realistic wiring test: define IntersectionObserver in jsdom and
+    // use the DEFAULT observer (no injection). The old fetch-immediately
+    // fallback (all 11 panes eager) fails this test.
+    type IoCallback = (entries: Array<{ isIntersecting: boolean }>) => void;
+    const instances: Array<{ callback: IoCallback; elements: Element[] }> = [];
+    class FakeIntersectionObserver {
+      callback: IoCallback;
+      elements: Element[] = [];
+      constructor(callback: IoCallback) {
+        this.callback = callback;
+        instances.push({ callback, elements: this.elements });
+      }
+      observe(element: Element) {
+        this.elements.push(element);
+      }
+      disconnect() {
+        this.elements.length = 0;
+      }
+      unobserve() {}
+    }
+    vi.stubGlobal('IntersectionObserver', FakeIntersectionObserver);
+    try {
+      render(
+        <App>
+          <InventoryDashboardPage />
+        </App>,
+      );
+      await screen.findByRole('group', { name: 'Inventory Dashboard' });
+      await waitFor(() => expect(instances.length).toBeGreaterThan(0));
+      // No section has intersected -> zero pane fetches.
+      expect(paneRequests()).toHaveLength(0);
+      // Simulate the first pane's section entering the viewport.
+      const supplyEntry = instances.find((instance) =>
+        instance.elements.some((element) => element instanceof HTMLElement && element.dataset.pane === 'supplyAction'),
+      );
+      expect(supplyEntry).toBeDefined();
+      act(() => {
+        supplyEntry?.callback([{ isIntersecting: true }]);
+      });
+      await waitFor(() => expect(paneRequests('supplyAction')).toHaveLength(1));
+      expect(paneRequests()).toHaveLength(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('regression: renders against the exact staging-captured response envelope and proceeds to pane fetches', async () => {
     // Verbatim structure of the staging HTTP body: {"data":{"data":<payload>}},
     // surfaced through the axios client as response.data.

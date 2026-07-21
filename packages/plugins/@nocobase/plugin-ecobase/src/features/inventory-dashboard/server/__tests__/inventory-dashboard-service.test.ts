@@ -23,6 +23,7 @@ import {
   LEAD_TIME_FRESHNESS_DAYS,
   PUBLISHED_RUN_ID,
   SILVER_ORDERS,
+  SILVER_SUPPLIERS,
   SUPERSEDING_RUN_ID,
 } from './fixtures/dashboard-fixtures';
 
@@ -106,6 +107,9 @@ function seed(db: RecordingDatabase, options: { runId?: string } = {}): void {
   for (const order of SILVER_ORDERS) {
     db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows.push({ ...order });
   }
+  for (const supplier of SILVER_SUPPLIERS) {
+    db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).rows.push({ ...supplier });
+  }
 }
 
 function service(db: RecordingDatabase) {
@@ -155,10 +159,16 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
       if (!response || isRunSuperseded(response)) throw new Error('missing order pane');
       for (const row of response.rows) if (row.order) orderIds.add(row.order.orderId);
     }
+    const orderPaneSet = new Set(['activeOrders', 'inPrepMonitoring', 'inboundMonitoring']);
     const expectedOrderIds = new Set(
-      GOLD_ROWS.filter((row) => row.primaryActionPane !== 'adminExcluded' && row.supplierOrderId).map(
-        (row) => row.supplierOrderId as string,
-      ),
+      GOLD_ROWS.filter(
+        (row) =>
+          row.primaryActionPane !== 'adminExcluded' &&
+          row.supplierOrderId &&
+          (orderPaneSet.has(row.primaryActionPane) ||
+            (row.supplierOrderOperationalStatus === 'direct-ship-fba' &&
+              !['complete', 'cancelled'].includes(row.supplierOrderWorkflowStage ?? ''))),
+      ).map((row) => row.supplierOrderId as string),
     );
     expect(orderIds).toEqual(expectedOrderIds);
     expect(orderIds.size).toBe(12);
@@ -293,6 +303,13 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
     const inClause = (silverFinds[0].params?.filter?.id as { $in?: unknown[] } | undefined)?.$in;
     expect(Array.isArray(inClause)).toBe(true);
     expect((inClause ?? []).length).toBeLessThanOrEqual(3);
+    const supplierFinds = db.findCalls.filter((call) => call.collection === ECOBASE_COLLECTIONS.silverSuppliers);
+    expect(supplierFinds.length).toBeLessThanOrEqual(1);
+    if (supplierFinds.length === 1) {
+      const supplierIn = (supplierFinds[0].params?.filter?.id as { $in?: unknown[] } | undefined)?.$in;
+      expect(Array.isArray(supplierIn)).toBe(true);
+      expect((supplierIn ?? []).length).toBeLessThanOrEqual(3);
+    }
     // No find call may omit BOTH filter and limit (unscoped full scan).
     for (const call of db.findCalls) {
       const scoped =
@@ -368,6 +385,32 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
     expect(nullStage?.order?.daysInStage).toBeNull();
     const orphan = active.rows.find((row) => row.order?.orderId === 'order-10-orphan');
     expect(orphan?.lastActivity).toBeNull();
+  });
+
+  it('derives prepPath via the AD-7 v3.1 precedence (status > supplier shipDestination > unknown)', async () => {
+    const svc = service(db);
+    const inPrep = await svc.pane({ pane: 'inPrepMonitoring', runId: PUBLISHED_RUN_ID, page: 1, pageSize: 200 });
+    const inbound = await svc.pane({ pane: 'inboundMonitoring', runId: PUBLISHED_RUN_ID, page: 1, pageSize: 200 });
+    if (isRunSuperseded(inPrep) || isRunSuperseded(inbound)) throw new Error('bad');
+    const byOrder = (rows: typeof inPrep.rows, orderId: string) => rows.find((row) => row.order?.orderId === orderId);
+    // Branch 2: supplier ships to our prep center.
+    expect(byOrder(inPrep.rows, 'order-1a')?.order?.prepPath).toBe('own_prep_center');
+    expect(byOrder(inPrep.rows, 'order-1a')?.order?.supplierShipDestination).toBe('prep_center');
+    // Branch 3: no signal -> unknown, never guessed.
+    expect(byOrder(inPrep.rows, 'order-12')?.order?.prepPath).toBe('unknown');
+    // Branch 1: order status direct-ship-fba wins.
+    expect(byOrder(inbound.rows, 'order-3')?.order?.prepPath).toBe('direct_fba');
+    // Branch 2 on an inbound order: supplier-level direct_fba.
+    expect(byOrder(inbound.rows, 'order-2a')?.order?.prepPath).toBe('direct_fba');
+  });
+
+  it('excludes completed direct-ship orders from the P4 union (T-3.0c c)', async () => {
+    const svc = service(db);
+    const inbound = await svc.pane({ pane: 'inboundMonitoring', runId: PUBLISHED_RUN_ID, page: 1, pageSize: 200 });
+    const healthy = await svc.pane({ pane: 'healthyInventory', runId: PUBLISHED_RUN_ID, page: 1, pageSize: 200 });
+    if (isRunSuperseded(inbound) || isRunSuperseded(healthy)) throw new Error('bad');
+    expect(inbound.rows.some((row) => row.order?.orderId === 'order-direct-complete')).toBe(false);
+    expect(healthy.rows.some((row) => row.identity.asin === 'B0020')).toBe(true);
   });
 
   it('(h) emits typed response snapshots for G2 to consume', async () => {

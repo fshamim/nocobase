@@ -64,6 +64,8 @@ export interface GoldPlanningRowFixture {
   leadTimeConfirmedAt: string | null;
   leadTimeFreshness: string | null;
   supplierOrderId: string | null;
+  supplierId: string | null;
+  supplierName: string | null;
   supplierOrderRef: string | null;
   supplierOrderStatus: string | null;
   supplierOrderOperationalStatus: string | null;
@@ -125,6 +127,8 @@ const GOLD_ROW_DEFAULTS: Omit<GoldPlanningRowFixture, 'id' | 'naturalKey' | 'pri
   leadTimeConfirmedAt: '2026-07-01T00:00:00.000Z',
   leadTimeFreshness: 'fresh',
   supplierOrderId: null,
+  supplierId: null,
+  supplierName: null,
   supplierOrderRef: null,
   supplierOrderStatus: null,
   supplierOrderOperationalStatus: null,
@@ -192,6 +196,8 @@ export const GOLD_ROWS: GoldPlanningRowFixture[] = [
     asin: 'B0001A',
     sku: 'SKU-1A',
     supplierOrderId: 'order-1a',
+    supplierId: 'supplier-prep-center',
+    supplierName: 'Prep Center Supplier',
     supplierOrderRef: 'PO-1A',
     supplierOrderOperationalStatus: 'prep-in-progress',
     supplierOrderWorkflowStage: 'in_prep',
@@ -214,6 +220,8 @@ export const GOLD_ROWS: GoldPlanningRowFixture[] = [
   goldRow('f2a-inbound-null-null', 'inboundMonitoring', {
     asin: 'B0002A',
     supplierOrderId: 'order-2a',
+    supplierId: 'supplier-direct',
+    supplierName: 'Direct FBA Supplier',
     supplierOrderOperationalStatus: 'inbound-monitoring',
     supplierOrderWorkflowStage: 'amazon_inbound',
     expectedArrivalDate: null,
@@ -392,6 +400,8 @@ export const GOLD_ROWS: GoldPlanningRowFixture[] = [
   goldRow('f12-null-stage-entered', 'inPrepMonitoring', {
     asin: 'B0012',
     supplierOrderId: 'order-12',
+    supplierId: 'supplier-unknown-route',
+    supplierName: 'Unknown Route Supplier',
     supplierOrderOperationalStatus: 'ordered',
     supplierOrderWorkflowStage: 'in_prep',
     latestSupplierOrderActivityAt: hoursAgo(2),
@@ -424,6 +434,15 @@ export const GOLD_ROWS: GoldPlanningRowFixture[] = [
     estimatedProfitRisk: 500,
     expectedArrivalDate: dateOffset(20),
     estimatedOosDate: dateOffset(10),
+  }),
+
+  // T-3.0c(c): COMPLETED direct-ship order — must NOT leak into P4; stays in
+  // its persisted gold pane (healthy).
+  goldRow('f-direct-complete', 'healthyInventory', {
+    asin: 'B0020',
+    supplierOrderId: 'order-direct-complete',
+    supplierOrderOperationalStatus: 'direct-ship-fba',
+    supplierOrderWorkflowStage: 'complete',
   }),
 
   // Zero stock (P8) and excess (P6) so every pane is represented.
@@ -498,6 +517,30 @@ function silverOrder(
     ...overrides,
   };
 }
+
+export interface SilverSupplierFixture {
+  id: string;
+  displayName: string;
+  shipDestination: 'direct_fba' | 'prep_center' | null;
+  provenance: FixtureProvenance;
+}
+
+/** AD-7 v3.1 fixtures: one supplier per derivation branch. */
+export const SILVER_SUPPLIERS: SilverSupplierFixture[] = [
+  {
+    id: 'supplier-prep-center',
+    displayName: 'Prep Center Supplier',
+    shipDestination: 'prep_center',
+    provenance: 'synthetic',
+  },
+  { id: 'supplier-direct', displayName: 'Direct FBA Supplier', shipDestination: 'direct_fba', provenance: 'synthetic' },
+  {
+    id: 'supplier-unknown-route',
+    displayName: 'Unknown Route Supplier',
+    shipDestination: null,
+    provenance: 'synthetic',
+  },
+];
 
 /**
  * The 14-item T-0.1 coverage matrix — every item pinned to the fixture ids that

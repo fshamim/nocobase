@@ -105,6 +105,26 @@ describe('savePrepDetails (T-1.4)', () => {
     );
   });
 
+  it('persists and validates supplier ship destination (T-3.0b)', async () => {
+    const { db, service } = serviceWithOrder();
+    db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).rows.push({ id: 'supplier-1', displayName: 'Acme Supply' });
+    const result = await service.saveSupplierShipDestination({
+      supplierId: 'supplier-1',
+      shipDestination: 'prep_center',
+      actorUserId: '4',
+    });
+    expect(result).toEqual({ supplierId: 'supplier-1', shipDestination: 'prep_center', updated: true });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).rows[0]).toMatchObject({
+      shipDestination: 'prep_center',
+    });
+    await expect(service.saveSupplierShipDestination({ shipDestination: 'prep_center' })).rejects.toThrow(
+      'requires a supplierId',
+    );
+    await expect(
+      service.saveSupplierShipDestination({ supplierId: 'supplier-1', shipDestination: 'warehouse' }),
+    ).rejects.toThrow('direct_fba or prep_center');
+  });
+
   it('rejects an oversized payload', async () => {
     const { service } = serviceWithOrder();
     await expect(

@@ -74,6 +74,12 @@ describe('EcoBase role boundary', () => {
     await expect(
       createEcobaseInventoryDashboardActions().savePrepDetails(context(USERS.operator), vi.fn()),
     ).rejects.toMatchObject({ status: 400, message: expect.stringContaining('requires orderId') });
+    await expect(
+      createEcobaseInventoryDashboardActions().saveSupplierShipDestination(context(USERS.member), vi.fn()),
+    ).rejects.toMatchObject({ status: 403 });
+    await expect(
+      createEcobaseInventoryDashboardActions().saveSupplierShipDestination(context(USERS.operator), vi.fn()),
+    ).rejects.toMatchObject({ status: 400, message: expect.stringContaining('requires supplierId') });
 
     const grants = createInventoryDashboardResourceRegistration().acl;
     const isGranted = (action: string, user: (typeof USERS)[keyof typeof USERS]) => {
@@ -89,6 +95,8 @@ describe('EcoBase role boundary', () => {
     expect(isGranted('drawerContext', USERS.member)).toBe(true);
     expect(isGranted('savePrepDetails', USERS.member)).toBe(false);
     expect(isGranted('savePrepDetails', USERS.operator)).toBe(true);
+    expect(isGranted('saveSupplierShipDestination', USERS.member)).toBe(false);
+    expect(isGranted('saveSupplierShipDestination', USERS.operator)).toBe(true);
   });
 
   it('allows the named pilot operator to reach approved operational validation only', async () => {

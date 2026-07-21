@@ -26,6 +26,7 @@ export type DashboardTagColor = (typeof DASHBOARD_TAG_COLORS)[keyof typeof DASHB
 
 export const DASHBOARD_TOKENS = {
   sectionGap: 24,
+  paneMinHeight: 320,
   paneHeaderGap: 8,
   tileMinWidth: 180,
   moneyColor: '#00000073', // antd secondary text

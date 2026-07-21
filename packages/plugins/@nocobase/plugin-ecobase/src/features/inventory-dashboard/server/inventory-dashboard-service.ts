@@ -66,6 +66,12 @@ export class InventoryDashboardValidationError extends Error {
   }
 }
 
+export interface SaveSupplierShipDestinationParams {
+  supplierId?: string;
+  shipDestination?: unknown;
+  actorUserId?: string;
+}
+
 export interface SavePrepDetailsParams {
   orderId?: string;
   prepBoxes?: unknown;
@@ -150,6 +156,15 @@ interface SilverOrderView {
   prepDimensions: Record<string, unknown> | null;
 }
 
+interface SupplierView {
+  displayName: string | null;
+  shipDestination: 'direct_fba' | 'prep_center' | null;
+}
+
+function asShipDestination(value: unknown): 'direct_fba' | 'prep_center' | null {
+  return value === 'direct_fba' || value === 'prep_center' ? value : null;
+}
+
 export class EcobaseInventoryDashboardService {
   private readonly reader: PublishedGoldReader;
   private readonly now: Date;
@@ -213,8 +228,11 @@ export class EcobaseInventoryDashboardService {
     const silverById = ORDER_PANES.has(pane)
       ? await this.loadSilverOrders(pageSlice.map((row) => row.supplierOrderId))
       : new Map<string, SilverOrderView>();
+    const suppliersById = ORDER_PANES.has(pane)
+      ? await this.loadSuppliers(pageSlice.map((row) => asString(row.raw.supplierId)))
+      : new Map<string, SupplierView>();
 
-    const rows = pageSlice.map((row) => this.buildRow(row, familyPaneSets, silverById));
+    const rows = pageSlice.map((row) => this.buildRow(row, familyPaneSets, silverById, suppliersById));
     return {
       pane,
       publishedRunId: run.id,
@@ -242,6 +260,7 @@ export class EcobaseInventoryDashboardService {
     }
     const orderRowsRaw = members.filter((row) => row.supplierOrderId !== null);
     const silverById = await this.loadSilverOrders(orderRowsRaw.map((row) => row.supplierOrderId));
+    const suppliersById = await this.loadSuppliers(members.map((row) => asString(row.raw.supplierId)));
     const primarySource =
       members.find((row) => (request.orderId ? row.supplierOrderId === request.orderId : row.isFamilyTarget)) ??
       members[0];
@@ -249,14 +268,15 @@ export class EcobaseInventoryDashboardService {
       pane,
       publishedRunId: run.id,
       familyKey: request.familyId,
+      performanceEvidence: asMonthlyEvidence(primarySource.raw.monthlyPerformanceEvidence),
       familyMembers: members.map((row) => ({
         listingRowId: row.listingRowId,
         asin: asString(row.raw.asin),
         sku: asString(row.raw.sku),
         pane: row.pane,
       })),
-      primaryRow: this.buildRow(primarySource, familyPaneSets, silverById),
-      orderRows: orderRowsRaw.map((row) => this.buildRow(row, familyPaneSets, silverById)),
+      primaryRow: this.buildRow(primarySource, familyPaneSets, silverById, suppliersById),
+      orderRows: orderRowsRaw.map((row) => this.buildRow(row, familyPaneSets, silverById, suppliersById)),
     };
   }
 
@@ -277,6 +297,27 @@ export class EcobaseInventoryDashboardService {
     if (prepDimensions !== undefined) values.prepDimensions = prepDimensions;
     await this.db.getRepository(ECOBASE_COLLECTIONS.silverOrders).update({ filterByTk: orderId, values });
     return { orderId, updated: true };
+  }
+
+  async saveSupplierShipDestination(params: SaveSupplierShipDestinationParams): Promise<{
+    supplierId: string;
+    shipDestination: 'direct_fba' | 'prep_center';
+    updated: true;
+  }> {
+    const supplierId = asString(params.supplierId);
+    if (!supplierId) {
+      throw new InventoryDashboardValidationError('saveSupplierShipDestination requires a supplierId.');
+    }
+    const shipDestination = asShipDestination(params.shipDestination);
+    if (!shipDestination) {
+      throw new InventoryDashboardValidationError(
+        'saveSupplierShipDestination requires shipDestination to be direct_fba or prep_center.',
+      );
+    }
+    await this.db
+      .getRepository(ECOBASE_COLLECTIONS.silverSuppliers)
+      .update({ filterByTk: supplierId, values: { shipDestination } });
+    return { supplierId, shipDestination, updated: true };
   }
 
   /* ------------------------------- internals ------------------------------ */
@@ -438,10 +479,30 @@ export class EcobaseInventoryDashboardService {
     return map;
   }
 
+  private async loadSuppliers(supplierIds: Array<string | null>): Promise<Map<string, SupplierView>> {
+    const ids = [...new Set(supplierIds.filter((id): id is string => id !== null))];
+    if (ids.length === 0) return new Map();
+    const rows = await this.db
+      .getRepository(ECOBASE_COLLECTIONS.silverSuppliers)
+      .find({ filter: { id: { $in: ids } }, limit: ids.length });
+    const map = new Map<string, SupplierView>();
+    for (const value of rows) {
+      const record = (typeof value === 'object' && value !== null ? value : {}) as Record<string, unknown>;
+      const id = asString(record.id);
+      if (!id) continue;
+      map.set(id, {
+        displayName: asString(record.displayName) ?? asString(record.normalizedName),
+        shipDestination: asShipDestination(record.shipDestination),
+      });
+    }
+    return map;
+  }
+
   private buildRow(
     row: ProjectedRow,
     familyPaneSets: Map<string, Set<PaneKey>>,
     silverById: Map<string, SilverOrderView>,
+    suppliersById: Map<string, SupplierView> = new Map(),
   ): DashboardRow {
     const raw = row.raw;
     const silver = row.supplierOrderId ? silverById.get(row.supplierOrderId) ?? null : null;
@@ -471,6 +532,7 @@ export class EcobaseInventoryDashboardService {
       estimatedOosDate: asString(raw.estimatedOosDate),
       latestSafeReorderDate: asString(raw.latestSafeReorderDate),
       estimatedProfitRisk: asNumber(raw.estimatedProfitRisk),
+      recommendedOrderQty: asNumber(raw.recommendedOrderQty),
       reasonCodes: [
         ...asStringArray(raw.readinessReasonCodes),
         ...(row.untieredProjected ? ['untiered_projected'] : []),
@@ -506,8 +568,16 @@ export class EcobaseInventoryDashboardService {
         daysInStage: stageDays,
         needsFollowUp: followUp,
       };
+      const supplierId = asString(raw.supplierId);
+      const supplier = supplierId ? suppliersById.get(supplierId) ?? null : null;
+      dashboardRow.order.supplierId = supplierId;
+      dashboardRow.order.supplierName = supplier?.displayName ?? asString(raw.supplierName);
+      dashboardRow.order.supplierShipDestination = supplier?.shipDestination ?? null;
       if (row.pane === 'inPrepMonitoring' || row.pane === 'inboundMonitoring') {
-        dashboardRow.order.prepPath = prepPath({ isDirectShipFba: row.directShip });
+        dashboardRow.order.prepPath = prepPath({
+          isDirectShipFba: row.directShip,
+          supplierShipDestination: supplier?.shipDestination ?? null,
+        });
       }
       if (row.pane === 'inboundMonitoring') {
         dashboardRow.order.expectedArrivalDate = asString(raw.expectedArrivalDate);

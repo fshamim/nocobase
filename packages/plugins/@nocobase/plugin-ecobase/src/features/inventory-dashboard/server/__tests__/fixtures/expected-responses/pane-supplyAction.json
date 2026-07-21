@@ -45,6 +45,7 @@
       "estimatedOosDate": "2026-07-23",
       "latestSafeReorderDate": "2026-07-19",
       "estimatedProfitRisk": null,
+      "recommendedOrderQty": null,
       "reasonCodes": [],
       "velocityTrend": "unknown",
       "performanceBand": "insufficient_evidence"
@@ -74,6 +75,7 @@
       "estimatedOosDate": "2026-07-25",
       "latestSafeReorderDate": "2026-07-22",
       "estimatedProfitRisk": 300,
+      "recommendedOrderQty": null,
       "reasonCodes": [],
       "velocityTrend": "unknown",
       "performanceBand": "insufficient_evidence",
@@ -104,6 +106,7 @@
       "estimatedOosDate": "2026-07-26",
       "latestSafeReorderDate": "2026-07-24",
       "estimatedProfitRisk": 100,
+      "recommendedOrderQty": null,
       "reasonCodes": [],
       "velocityTrend": "unknown",
       "performanceBand": "insufficient_evidence"
@@ -133,6 +136,7 @@
       "estimatedOosDate": "2026-07-29",
       "latestSafeReorderDate": "2026-07-27",
       "estimatedProfitRisk": 250,
+      "recommendedOrderQty": null,
       "reasonCodes": [],
       "velocityTrend": "unknown",
       "performanceBand": "insufficient_evidence"
@@ -162,6 +166,7 @@
       "estimatedOosDate": "2026-08-01",
       "latestSafeReorderDate": "2026-07-30",
       "estimatedProfitRisk": 75,
+      "recommendedOrderQty": null,
       "reasonCodes": [],
       "velocityTrend": "unknown",
       "performanceBand": "insufficient_evidence"

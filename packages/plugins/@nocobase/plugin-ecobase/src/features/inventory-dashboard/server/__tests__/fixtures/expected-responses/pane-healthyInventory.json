@@ -5,7 +5,7 @@
     {
       "key": "count",
       "label": "Rows",
-      "value": 2
+      "value": 3
     },
     {
       "key": "moneyAtRisk",
@@ -16,7 +16,7 @@
     {
       "key": "unknownMoney",
       "label": "Unknown money inputs",
-      "value": 2
+      "value": 3
     }
   ],
   "rows": [
@@ -45,10 +45,54 @@
       "estimatedOosDate": null,
       "latestSafeReorderDate": null,
       "estimatedProfitRisk": null,
+      "recommendedOrderQty": null,
       "reasonCodes": [],
       "velocityTrend": "unknown",
       "performanceBand": "insufficient_evidence",
       "familySplit": true
+    },
+    {
+      "identity": {
+        "familyKey": "family-f-direct-complete",
+        "listingRowId": "f-direct-complete",
+        "company": "Acme",
+        "amazonAccountId": "account-acme-us",
+        "marketplace": "Amazon.com",
+        "asin": "B0020",
+        "sku": "SKU-f-direct-complete",
+        "title": "Fixture product f-direct-complete"
+      },
+      "pane": "healthyInventory",
+      "tier": {
+        "baseline": "A",
+        "current": "A"
+      },
+      "stock": {
+        "currentPlanningStock": 100,
+        "inventoryPositionStock": 100,
+        "unitCost": 5
+      },
+      "daysOfCover": 40,
+      "estimatedOosDate": null,
+      "latestSafeReorderDate": null,
+      "estimatedProfitRisk": null,
+      "recommendedOrderQty": null,
+      "reasonCodes": [],
+      "velocityTrend": "unknown",
+      "performanceBand": "insufficient_evidence",
+      "order": {
+        "orderId": "order-direct-complete",
+        "orderNumber": null,
+        "clickupStatus": "direct-ship-fba",
+        "workflowStage": "complete",
+        "workflowStageEnteredAt": null,
+        "daysInStage": null,
+        "needsFollowUp": false,
+        "supplierId": null,
+        "supplierName": null,
+        "supplierShipDestination": null
+      },
+      "lastActivity": null
     },
     {
       "identity": {
@@ -75,6 +119,7 @@
       "estimatedOosDate": null,
       "latestSafeReorderDate": null,
       "estimatedProfitRisk": null,
+      "recommendedOrderQty": null,
       "reasonCodes": [],
       "velocityTrend": "up",
       "performanceBand": "insufficient_evidence"
@@ -83,6 +128,6 @@
   "pagination": {
     "page": 1,
     "pageSize": 200,
-    "total": 2
+    "total": 3
   }
 }

@@ -82,7 +82,10 @@ export interface DashboardRowStock {
   unitCost: number | null;
 }
 
-export type PrepPath = 'supplier' | 'own_prep_center' | 'direct_fba' | 'unknown';
+/** AD-7 v3.1: collapsed enum — 'supplier' removed; own_prep_center comes from the supplier's shipDestination. */
+export type PrepPath = 'direct_fba' | 'own_prep_center' | 'unknown';
+
+export type SupplierShipDestination = 'direct_fba' | 'prep_center';
 
 export type BufferStatus = 'sufficient' | 'at_risk' | 'late' | 'unknown';
 
@@ -101,6 +104,9 @@ export interface DashboardOrderFields {
   workflowStageEnteredAt: string | null;
   daysInStage: number | null;
   prepPath?: PrepPath;
+  supplierId?: string | null;
+  supplierName?: string | null;
+  supplierShipDestination?: SupplierShipDestination | null;
   expectedArrivalDate?: string | null;
   arrivalProvenance?: string | null;
   bufferStatus?: BufferStatus;
@@ -116,6 +122,7 @@ export interface DashboardRow {
   estimatedOosDate: string | null;
   latestSafeReorderDate: string | null;
   estimatedProfitRisk: number | null;
+  recommendedOrderQty: number | null;
   reasonCodes: string[];
   velocityTrend?: VelocityTrend;
   performanceBand?: PerformanceBand;
@@ -188,10 +195,18 @@ export interface DrawerContextRequest {
   orderId?: string;
 }
 
+export interface MonthlyEvidencePoint {
+  month?: string;
+  units: number | null;
+  trusted: boolean;
+}
+
 export interface DrawerContextResponse {
   pane: PaneKey;
   publishedRunId: string;
   familyKey: string;
+  /** P10 band visual input: the primary row's monthly performance evidence. */
+  performanceEvidence: MonthlyEvidencePoint[];
   /** All member listings of the family and the pane each currently sits in (§4.8). */
   familyMembers: Array<{ listingRowId: string; asin: string | null; sku: string | null; pane: PaneKey }>;
   primaryRow: DashboardRow;

@@ -29,6 +29,7 @@ interface DashboardActionContext {
   action: { params: unknown };
   state?: Record<string, unknown>;
   body?: unknown;
+  logger?: { info?: (message: string) => void };
   throw: (status: number, message: string) => never;
 }
 
@@ -85,8 +86,11 @@ export function createEcobaseInventoryDashboardActions() {
     {
       header: async (ctx: DashboardActionContext, next: DashboardNext) => {
         const values = getValues(ctx.action.params);
+        // T-3.0c(a): timing evidence for the observed staging latency variance.
+        const startedAt = Date.now();
         const service = await buildService(ctx.db);
         ctx.body = { data: await service.header({ companyId: optionalString(values, 'companyId') }) };
+        ctx.logger?.info?.(`ecobaseInventoryDashboard:header served in ${Date.now() - startedAt}ms`);
         await next();
       },
       pane: async (ctx: DashboardActionContext, next: DashboardNext) => {
@@ -163,8 +167,29 @@ export function createEcobaseInventoryDashboardActions() {
         }
         await next();
       },
+      saveSupplierShipDestination: async (ctx: DashboardActionContext, next: DashboardNext) => {
+        const values = getValues(ctx.action.params);
+        const supplierId = optionalString(values, 'supplierId');
+        if (!supplierId) {
+          ctx.throw(400, 'Ecobase Inventory Dashboard saveSupplierShipDestination requires supplierId.');
+        }
+        const service = await buildService(ctx.db);
+        try {
+          ctx.body = {
+            data: await service.saveSupplierShipDestination({
+              supplierId,
+              shipDestination: values.shipDestination,
+              actorUserId: actorUserId(ctx),
+            }),
+          };
+        } catch (error) {
+          if (error instanceof InventoryDashboardValidationError) ctx.throw(400, error.message);
+          throw error;
+        }
+        await next();
+      },
     },
-    { savePrepDetails: 'operator' },
+    { savePrepDetails: 'operator', saveSupplierShipDestination: 'operator' },
   );
 }
 
@@ -173,7 +198,11 @@ export function createInventoryDashboardResourceRegistration(): EcobaseFeatureRe
     resources: [{ name: 'ecobaseInventoryDashboard', actions: createEcobaseInventoryDashboardActions() }],
     acl: [
       { resource: 'ecobaseInventoryDashboard', actions: ['header', 'pane', 'drawerContext'], role: LOGGED_IN },
-      { resource: 'ecobaseInventoryDashboard', actions: ['savePrepDetails'], role: OPERATOR },
+      {
+        resource: 'ecobaseInventoryDashboard',
+        actions: ['savePrepDetails', 'saveSupplierShipDestination'],
+        role: OPERATOR,
+      },
     ],
   };
 }

@@ -128,11 +128,9 @@ function signalsCell(row: DashboardRow, t: Translate, options: SignalOptions = {
     const prepText =
       row.order.prepPath === 'direct_fba'
         ? TEXT.badgeDirectFba
-        : row.order.prepPath === 'supplier'
-          ? TEXT.badgeSupplierPrep
-          : row.order.prepPath === 'own_prep_center'
-            ? TEXT.badgeOwnPrep
-            : TEXT.badgePrepUnknown;
+        : row.order.prepPath === 'own_prep_center'
+          ? TEXT.badgeOwnPrep
+          : TEXT.badgePrepUnknown;
     tags.push(
       <Tag key="prep" color={DASHBOARD_TAG_COLORS.accent}>
         {t(prepText)}

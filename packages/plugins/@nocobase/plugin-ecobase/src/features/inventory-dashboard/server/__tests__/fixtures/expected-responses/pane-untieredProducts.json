@@ -45,6 +45,7 @@
       "estimatedOosDate": null,
       "latestSafeReorderDate": null,
       "estimatedProfitRisk": null,
+      "recommendedOrderQty": null,
       "reasonCodes": ["untiered_projected"],
       "velocityTrend": "unknown",
       "performanceBand": "insufficient_evidence"
@@ -74,6 +75,7 @@
       "estimatedOosDate": null,
       "latestSafeReorderDate": null,
       "estimatedProfitRisk": null,
+      "recommendedOrderQty": null,
       "reasonCodes": [],
       "velocityTrend": "unknown",
       "performanceBand": "insufficient_evidence"

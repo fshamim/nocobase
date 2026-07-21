@@ -45,6 +45,7 @@
       "estimatedOosDate": null,
       "latestSafeReorderDate": null,
       "estimatedProfitRisk": null,
+      "recommendedOrderQty": null,
       "reasonCodes": ["family_review_required"],
       "velocityTrend": "unknown",
       "performanceBand": "insufficient_evidence"

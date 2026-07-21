@@ -45,6 +45,7 @@
       "estimatedOosDate": null,
       "latestSafeReorderDate": null,
       "estimatedProfitRisk": null,
+      "recommendedOrderQty": null,
       "reasonCodes": [],
       "velocityTrend": "down",
       "performanceBand": "below_band"
@@ -74,6 +75,7 @@
       "estimatedOosDate": null,
       "latestSafeReorderDate": null,
       "estimatedProfitRisk": null,
+      "recommendedOrderQty": null,
       "reasonCodes": [],
       "velocityTrend": "down",
       "performanceBand": "insufficient_evidence"
@@ -103,6 +105,7 @@
       "estimatedOosDate": null,
       "latestSafeReorderDate": null,
       "estimatedProfitRisk": null,
+      "recommendedOrderQty": null,
       "reasonCodes": [],
       "velocityTrend": "up",
       "performanceBand": "within_band"
@@ -132,6 +135,7 @@
       "estimatedOosDate": null,
       "latestSafeReorderDate": null,
       "estimatedProfitRisk": null,
+      "recommendedOrderQty": null,
       "reasonCodes": [],
       "velocityTrend": "down",
       "performanceBand": "within_band"
@@ -161,6 +165,7 @@
       "estimatedOosDate": null,
       "latestSafeReorderDate": null,
       "estimatedProfitRisk": null,
+      "recommendedOrderQty": null,
       "reasonCodes": [],
       "velocityTrend": "down",
       "performanceBand": "below_band"

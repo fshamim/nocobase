@@ -45,6 +45,7 @@
       "estimatedOosDate": null,
       "latestSafeReorderDate": null,
       "estimatedProfitRisk": null,
+      "recommendedOrderQty": null,
       "reasonCodes": [],
       "velocityTrend": "unknown",
       "performanceBand": "insufficient_evidence",
@@ -56,7 +57,10 @@
         "workflowStage": "pre_purchase",
         "workflowStageEnteredAt": "2026-07-20T06:00:00.000Z",
         "daysInStage": 1,
-        "needsFollowUp": false
+        "needsFollowUp": false,
+        "supplierId": null,
+        "supplierName": null,
+        "supplierShipDestination": null
       },
       "lastActivity": {
         "preview": "Approved to order",
@@ -89,6 +93,7 @@
       "estimatedOosDate": null,
       "latestSafeReorderDate": null,
       "estimatedProfitRisk": null,
+      "recommendedOrderQty": null,
       "reasonCodes": [],
       "velocityTrend": "unknown",
       "performanceBand": "insufficient_evidence",
@@ -99,7 +104,10 @@
         "workflowStage": "pre_purchase",
         "workflowStageEnteredAt": null,
         "daysInStage": null,
-        "needsFollowUp": false
+        "needsFollowUp": false,
+        "supplierId": null,
+        "supplierName": null,
+        "supplierShipDestination": null
       },
       "lastActivity": null
     }

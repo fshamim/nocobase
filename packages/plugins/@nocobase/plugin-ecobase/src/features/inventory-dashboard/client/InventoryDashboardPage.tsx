@@ -32,6 +32,7 @@ import { TEXT } from './dashboard-text';
 import { DASHBOARD_TOKENS } from './dashboard-tokens';
 
 const SEARCH_DEBOUNCE_MS = 300;
+const SLOW_HEADER_HINT_MS = 10_000;
 
 interface EcobaseRequestClient {
   request: (options: { url: string; method: 'post'; data: Record<string, unknown> }) => Promise<unknown>;
@@ -58,7 +59,18 @@ const InventoryDashboardPage: React.FC<InventoryDashboardPageProps> = ({
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [supersededBy, setSupersededBy] = useState<string | null>(null);
+  const [slowHeaderLoad, setSlowHeaderLoad] = useState(false);
   const paneRefs = useRef(new Map<PaneKey, PaneSectionHandle | null>());
+
+  // T-3.0c(a): surface a progress hint when the header takes unusually long.
+  useEffect(() => {
+    if (header || headerError) {
+      setSlowHeaderLoad(false);
+      return undefined;
+    }
+    const timer = setTimeout(() => setSlowHeaderLoad(true), SLOW_HEADER_HINT_MS);
+    return () => clearTimeout(timer);
+  }, [header, headerError]);
 
   const loadHeader = useCallback(async () => {
     setHeaderError(null);
@@ -187,7 +199,10 @@ const InventoryDashboardPage: React.FC<InventoryDashboardPageProps> = ({
       ) : header ? (
         <DashboardHeaderStrip header={header} onTileClick={onTileClick} t={t} />
       ) : (
-        <Spin aria-label={`${t(TEXT.pageTitle)} ${t(TEXT.loading)}`} />
+        <Space direction="vertical">
+          <Spin aria-label={`${t(TEXT.pageTitle)} ${t(TEXT.loading)}`} />
+          {slowHeaderLoad ? <Typography.Text type="secondary">{t(TEXT.slowLoadHint)}</Typography.Text> : null}
+        </Space>
       )}
 
       {runId
