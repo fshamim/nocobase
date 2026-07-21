@@ -65,6 +65,7 @@ import {
   CORRECTED_LISTING_ROW_DIGEST_VERSION,
   CORRECTED_TIER_RULE_VERSION,
   deriveListingReviewCategories,
+  derivePersistedCorrectedCandidateEvidence,
   filterListingPerformanceReview,
   listingMemberPerformanceEvidence,
   type CorrectedFamilyActionProjection,
@@ -2549,13 +2550,34 @@ export class EcobaseInventoryPlanningService {
           }
           await withGoldInventoryPlanningWriteAuthority(() => repository.create({ values, transaction }));
         }
+        const persistedRows = (
+          await readAllRowsById({
+            repository,
+            collectionName: ECOBASE_COLLECTIONS.goldInventoryPlanningRows,
+            filter: { refreshRunId: runId },
+            transaction,
+          })
+        ).map(toPlainRecord) as unknown as CorrectedListingPerformanceRow[];
+        const persistedEvidence = derivePersistedCorrectedCandidateEvidence(persistedRows, {
+          runId,
+          generatedAt: refreshedAt,
+        });
+        if (persistedEvidence.listingRowCount !== projection.listingRows.length) {
+          throw new Error(
+            `EcoBase persisted corrected candidate contains ${persistedEvidence.listingRowCount} rows; expected ${projection.listingRows.length}.`,
+          );
+        }
         return {
           calculationDate,
-          rowCount: projection.listingRows.length,
-          created: projection.listingRows.length,
+          rowCount: persistedEvidence.listingRowCount,
+          created: persistedEvidence.listingRowCount,
           updated: 0,
           lastRefreshedAt: refreshedAt,
           ...projection.runMetadata,
+          listingRowCount: persistedEvidence.listingRowCount,
+          listingRowDigest: persistedEvidence.listingRowDigest,
+          familyActionProjectionCount: persistedEvidence.familyActionProjectionCount,
+          familyActionProjectionDigest: persistedEvidence.familyActionProjectionDigest,
         };
       },
     });

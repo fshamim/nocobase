@@ -22,9 +22,7 @@ import {
   CORRECTED_LISTING_ROW_DIGEST_VERSION,
   CORRECTED_SOURCE_COVERAGE_DIGEST_VERSION,
   CORRECTED_TIER_RULE_VERSION,
-  correctedFamilyActionProjectionDigest,
-  correctedListingRowDigest,
-  deriveCorrectedFamilyActionsFromListingRows,
+  derivePersistedCorrectedCandidateEvidence,
   type CorrectedListingPerformanceRow,
 } from './listing-family-projection';
 
@@ -554,53 +552,63 @@ export class EcobaseGoldRefreshRunService {
   }
 
   async verify(runId: string) {
-    return this.withLockedTransaction(async (transaction) => {
-      const run = await this.getRun(runId, transaction);
-      if (run.status === 'verified' || run.status === 'published') return toPlainRecord(run.verificationJson);
-      if (run.status !== 'materialized') throw this.invalidTransition(runId, String(run.status), 'verified');
-      const expectedRowCount = integer(run.rowCount);
-      const calculationDate = text(run.calculationDate);
-      if (expectedRowCount === undefined || !calculationDate) {
-        throw new EcobaseGoldError(
-          'ECOBASE_GOLD_PUBLICATION_MISMATCH',
-          `EcoBase Gold publication payload does not match verified run "${runId}".`,
-          { runId, rowCount: run.rowCount, calculationDate: run.calculationDate },
+    try {
+      return await this.withLockedTransaction(async (transaction) => {
+        const run = await this.getRun(runId, transaction);
+        if (run.status === 'verified' || run.status === 'published') return toPlainRecord(run.verificationJson);
+        if (run.status !== 'materialized') throw this.invalidTransition(runId, String(run.status), 'verified');
+        const expectedRowCount = integer(run.rowCount);
+        const calculationDate = text(run.calculationDate);
+        if (expectedRowCount === undefined || !calculationDate) {
+          throw new EcobaseGoldError(
+            'ECOBASE_GOLD_PUBLICATION_MISMATCH',
+            `EcoBase Gold publication payload does not match verified run "${runId}".`,
+            { runId, rowCount: run.rowCount, calculationDate: run.calculationDate },
+          );
+        }
+        const verification = await this.verifyRows(runId, calculationDate, expectedRowCount, transaction);
+        const independentVerification = await new EcobaseIndependentGoldReferenceVerifier(this.db).verify(
+          runId,
+          transaction,
         );
-      }
-      const verification = await this.verifyRows(runId, calculationDate, expectedRowCount, transaction);
-      const independentVerification = await new EcobaseIndependentGoldReferenceVerifier(this.db).verify(
-        runId,
-        transaction,
-      );
-      await this.runRepository().update({
-        filterByTk: runId,
-        values: {
-          status: 'verified',
-          verifiedAt: new Date().toISOString(),
-          verificationJson: verification,
-          productionVerificationJson: verification,
-          productionVerificationDigest: requestDigest(verification),
-          independentVerificationJson: independentVerification,
-          independentVerificationDigest: requestDigest(independentVerification),
-        },
-        transaction,
+        await this.runRepository().update({
+          filterByTk: runId,
+          values: {
+            status: 'verified',
+            verifiedAt: new Date().toISOString(),
+            verificationJson: verification,
+            productionVerificationJson: verification,
+            productionVerificationDigest: requestDigest(verification),
+            independentVerificationJson: independentVerification,
+            independentVerificationDigest: requestDigest(independentVerification),
+          },
+          transaction,
+        });
+        return verification;
       });
-      return verification;
-    });
+    } catch (error) {
+      await this.terminalizeBoundaryFailure(error);
+      throw error;
+    }
   }
 
   async publish(payload: GoldPublicationPayload) {
-    return this.withLockedTransaction(async (transaction) => {
-      const runId = text(payload?.runId) ?? 'unknown';
-      const prepared = await this.preparePublication(runId, transaction);
-      if (canonicalJson(payload) !== canonicalJson(prepared.payload)) {
-        throw publicationMismatch(runId, {
-          expectedPayloadDigest: requestDigest(prepared.payload),
-          receivedPayloadDigest: requestDigest(payload),
-        });
-      }
-      return this.result(await this.commitPublication(prepared, transaction), false);
-    });
+    try {
+      return await this.withLockedTransaction(async (transaction) => {
+        const runId = text(payload?.runId) ?? 'unknown';
+        const prepared = await this.preparePublication(runId, transaction);
+        if (canonicalJson(payload) !== canonicalJson(prepared.payload)) {
+          throw publicationMismatch(runId, {
+            expectedPayloadDigest: requestDigest(prepared.payload),
+            receivedPayloadDigest: requestDigest(payload),
+          });
+        }
+        return this.result(await this.commitPublication(prepared, transaction), false);
+      });
+    } catch (error) {
+      await this.terminalizeBoundaryFailure(error);
+      throw error;
+    }
   }
 
   async verifyAndPublish(runId: string) {
@@ -646,6 +654,7 @@ export class EcobaseGoldRefreshRunService {
         );
       });
     } catch (error) {
+      await this.terminalizeBoundaryFailure(error);
       if (error instanceof EcobaseGoldError) throw error;
       throw new EcobaseGoldError(
         'ECOBASE_GOLD_AUTOMATIC_PUBLICATION_FAILED',
@@ -677,6 +686,25 @@ export class EcobaseGoldRefreshRunService {
         transaction,
       });
       return this.getRun(runId, transaction);
+    });
+  }
+
+  private async terminalizeBoundaryFailure(error: unknown) {
+    if (!(error instanceof EcobaseGoldError) || error.code !== 'ECOBASE_GOLD_BOUNDARY_VALIDATION_FAILED') {
+      return;
+    }
+    const runId = text(error.details.runId);
+    if (!runId) {
+      throw new EcobaseGoldError(
+        'ECOBASE_GOLD_FAILURE_TERMINALIZATION_FAILED',
+        'EcoBase Gold boundary failure cannot be terminalized without a run ID.',
+        { boundaryErrorCode: error.code },
+      );
+    }
+    const reason = String(error.details.reason ?? 'boundary validation failed').slice(0, 255);
+    await this.terminate(runId, 'rejected', 'gold_boundary_validation_failed', {
+      code: error.code,
+      reason,
     });
   }
 
@@ -835,14 +863,28 @@ export class EcobaseGoldRefreshRunService {
     };
     if (expectedRowCount === 0) reject('an empty candidate cannot be published');
     const run = await this.getRun(runId, transaction);
-    const rows = (
+    const storedRows = (
       await readAllRowsById({
         repository: this.goldRepository(),
         collectionName: ECOBASE_COLLECTIONS.goldInventoryPlanningRows,
         filter: { refreshRunId: runId },
         transaction,
       })
-    ).map(toPlainRecord);
+    ).map(toPlainRecord) as unknown as CorrectedListingPerformanceRow[];
+    let persistedEvidence: ReturnType<typeof derivePersistedCorrectedCandidateEvidence>;
+    try {
+      const materializedAt = run.materializedAt;
+      const generatedAt =
+        materializedAt instanceof Date && !Number.isNaN(materializedAt.getTime())
+          ? materializedAt.toISOString()
+          : text(materializedAt) ?? text(run.requestedAt);
+      if (!generatedAt) reject('materialization time is missing');
+      persistedEvidence = derivePersistedCorrectedCandidateEvidence(storedRows, { runId, generatedAt });
+    } catch (error) {
+      if (error instanceof EcobaseGoldError) throw error;
+      reject('persisted listing or family digest derivation failed', { cause: errorMessage(error) });
+    }
+    const rows = persistedEvidence.listingRows;
     const naturalKeys = rows.map((row) => text(row.naturalKey));
     const candidateInputDigest = text(run.candidateInputDigest);
     const invalid = rows.find(
@@ -877,23 +919,9 @@ export class EcobaseGoldRefreshRunService {
     if (stockContractViolation) {
       reject('a listing violates the stock conservation contract', { rowId: stockContractViolation.id ?? null });
     }
-    let listingRowDigest: string;
-    let familyActionProjectionDigest: string;
-    let familyActionProjectionCount: number;
-    try {
-      listingRowDigest = correctedListingRowDigest(rows as unknown as CorrectedListingPerformanceRow[]);
-      const generatedAt = text(run.materializedAt) ?? text(run.requestedAt);
-      if (!generatedAt) reject('materialization time is missing');
-      const familyActions = deriveCorrectedFamilyActionsFromListingRows(
-        rows as unknown as CorrectedListingPerformanceRow[],
-        { runId, generatedAt },
-      );
-      familyActionProjectionCount = familyActions.length;
-      familyActionProjectionDigest = correctedFamilyActionProjectionDigest(familyActions);
-    } catch (error) {
-      if (error instanceof EcobaseGoldError) throw error;
-      reject('listing or family digest derivation failed', { cause: errorMessage(error) });
-    }
+    const listingRowDigest = persistedEvidence.listingRowDigest;
+    const familyActionProjectionCount = persistedEvidence.familyActionProjectionCount;
+    const familyActionProjectionDigest = persistedEvidence.familyActionProjectionDigest;
     const expectedFamilyCount = integer(run.familyActionProjectionCount);
     if (
       listingRowDigest !== text(run.listingRowDigest) ||

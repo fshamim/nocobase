@@ -538,7 +538,18 @@ describe('Gold refresh publication control', () => {
     await expect(service.verifyAndPublish(runId)).rejects.toMatchObject({
       code: 'ECOBASE_GOLD_BOUNDARY_VALIDATION_FAILED',
     });
-    expect(db.runs.rows.find((run) => run.id === runId)).toMatchObject({ status: 'materialized' });
+    expect(db.runs.rows.find((run) => run.id === runId)).toMatchObject({
+      status: 'rejected',
+      rejectedAt: expect.any(String),
+      terminalReasonCode: 'gold_boundary_validation_failed',
+      terminalReasonJson: {
+        code: 'ECOBASE_GOLD_BOUNDARY_VALIDATION_FAILED',
+        reason: 'a listing violates the stock conservation contract',
+      },
+    });
+    await expect(service.verifyAndPublish(runId)).rejects.toMatchObject({
+      code: 'ECOBASE_GOLD_INVALID_TRANSITION',
+    });
   });
 
   it('binds every locked Step-20 field and rejects one-field tampering before publication mutation', async () => {
@@ -614,7 +625,10 @@ describe('Gold refresh publication control', () => {
       details: { runId },
     });
     expect(db.runs.rows.find((run) => run.id === 'prior-publication')).toMatchObject({ status: 'published' });
-    expect(db.runs.rows.find((run) => run.id === runId)).toMatchObject({ status: 'materialized' });
+    expect(db.runs.rows.find((run) => run.id === runId)).toMatchObject({
+      status: 'rejected',
+      terminalReasonCode: 'gold_boundary_validation_failed',
+    });
     expect(db.runs.rows.filter((run) => run.status === 'published')).toHaveLength(1);
   });
 

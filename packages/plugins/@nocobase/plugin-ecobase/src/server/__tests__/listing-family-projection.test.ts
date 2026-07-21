@@ -14,6 +14,7 @@ import {
   correctedFamilyActionProjectionDigest,
   correctedListingRowDigest,
   deriveCorrectedFamilyActionsFromListingRows,
+  derivePersistedCorrectedCandidateEvidence,
   type CorrectedListingPerformanceInput,
   type CorrectedListingPerformanceRow,
   type FrozenFamilyDecisionInput,
@@ -149,6 +150,45 @@ describe('corrected listing and frozen-target family projection', () => {
     expect(result.runMetadata.listingRowDigest).toMatch(/^[a-f0-9]{64}$/);
     expect(result.runMetadata.familyActionProjectionDigest).toMatch(/^[a-f0-9]{64}$/);
     expect(JSON.stringify(frozen.families)).toBe(protectedBefore);
+  });
+
+  it('derives identical listing and family evidence from PostgreSQL-hydrated date-only rows', () => {
+    const result = buildCorrectedGoldProjection({
+      ...provenance,
+      ...fixture(),
+      expectedListingCount: 2363,
+      expectedFamilyActionCount: 1919,
+    });
+    const persistedRows = result.listingRows.map((row) =>
+      Object.fromEntries(
+        Object.entries(row).map(([field, value]) => [
+          field,
+          typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
+            ? new Date(`${value}T00:00:00.000Z`)
+            : value,
+        ]),
+      ),
+    ) as unknown as CorrectedListingPerformanceRow[];
+
+    const persisted = derivePersistedCorrectedCandidateEvidence(persistedRows, {
+      runId: provenance.runId,
+      generatedAt: provenance.generatedAt,
+    });
+
+    expect(persisted).toMatchObject({
+      listingRowCount: 2363,
+      listingRowDigest: result.runMetadata.listingRowDigest,
+      familyActionProjectionCount: 1919,
+      familyActionProjectionDigest: result.runMetadata.familyActionProjectionDigest,
+    });
+
+    const observedAt = '2026-07-21T14:15:16.789Z';
+    persistedRows[0].supplierOrderAuthorityAsOf = new Date(observedAt) as unknown as string;
+    const timestampEvidence = derivePersistedCorrectedCandidateEvidence(persistedRows, {
+      runId: provenance.runId,
+      generatedAt: provenance.generatedAt,
+    });
+    expect(timestampEvidence.listingRows[0].supplierOrderAuthorityAsOf).toBe(observedAt);
   });
 
   it('preserves frozen automatic targets, blocks an ineligible target, and exposes alternates as evidence only', () => {
