@@ -41,6 +41,7 @@ import {
 } from '../features/daily-operations-brief/server/daily-operations-brief-narrative-service';
 import {
   EcobaseImportService,
+  type SellerboardCommittedUnitHandler,
   type SellerboardReportKind,
 } from '../features/source-import/server/import-service';
 import { EcobaseClickupOrderStatusService } from '../features/source-import/server/clickup-order-status-service';
@@ -2537,7 +2538,10 @@ export function createEcobaseAccountabilityActions() {
   };
 }
 
-export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
+export function createEcobaseImportActions(
+  registry: SourceAdapterRegistry,
+  onSellerboardCommitted?: SellerboardCommittedUnitHandler,
+) {
   return guardEcobaseActions(
     {
       run: async (ctx, next) => {
@@ -2633,10 +2637,13 @@ export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
         const service = new EcobaseImportService(ctx.db, registry);
         try {
           ctx.body = {
-            data: await service.runSellerboardReportUnit({
-              sourceConnectionId,
-              reportKind: reportKind as SellerboardReportKind,
-            }),
+            data: await service.runSellerboardReportUnit(
+              {
+                sourceConnectionId,
+                reportKind: reportKind as SellerboardReportKind,
+              },
+              { onCommittedUnit: onSellerboardCommitted },
+            ),
           };
         } catch (error) {
           ctx.throw(400, error instanceof Error ? error.message : 'Ecobase Sellerboard report-unit import failed.');
@@ -2652,6 +2659,7 @@ export function createEcobaseImportActions(registry: SourceAdapterRegistry) {
             data: await service.runScheduledSellerboardImports({
               now: getOptionalString(values, 'now'),
               sourceConnectionId: getOptionalString(values, 'sourceConnectionId'),
+              onCommittedUnit: onSellerboardCommitted,
             }),
           };
         } catch (error) {

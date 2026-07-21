@@ -97,7 +97,8 @@ describe('Ecobase resource registration', () => {
     const runUnit = vi
       .spyOn(EcobaseImportService.prototype, 'runSellerboardReportUnit')
       .mockResolvedValue(result as never);
-    const actions = createEcobaseImportActions(createSourceAdapterRegistry([noopTestAdapter]));
+    const onCommittedUnit = vi.fn();
+    const actions = createEcobaseImportActions(createSourceAdapterRegistry([noopTestAdapter]), onCommittedUnit);
     const ctx = {
       state: { currentUser: { id: 1 }, currentRoles: ['root'] },
       action: {
@@ -120,10 +121,13 @@ describe('Ecobase resource registration', () => {
 
     await actions.runSellerboardReportUnit(ctx as never, next);
 
-    expect(runUnit).toHaveBeenCalledWith({
-      sourceConnectionId: 'sellerboard-source-1',
-      reportKind: 'stock_daily',
-    });
+    expect(runUnit).toHaveBeenCalledWith(
+      {
+        sourceConnectionId: 'sellerboard-source-1',
+        reportKind: 'stock_daily',
+      },
+      { onCommittedUnit },
+    );
     expect(ctx.body).toEqual({ data: result });
     expect(next).toHaveBeenCalledOnce();
   });

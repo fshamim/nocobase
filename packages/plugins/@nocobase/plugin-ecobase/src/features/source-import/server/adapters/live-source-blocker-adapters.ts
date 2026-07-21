@@ -279,11 +279,13 @@ function staleStatusMessage(staleReports: Array<Record<string, unknown>>, filesL
   return `Sellerboard live import normalized available report data, but these report freshness checks need attention: ${staleSummary}.`;
 }
 
+const SELLERBOARD_FETCH_TIMEOUT_MS = 10 * 60 * 1000;
+
 async function fetchSellerboardCsv(url: string, headers: Record<string, string>) {
   if (typeof fetch !== 'function') {
     throw new Error('Sellerboard live import failed: global fetch is not available in this runtime.');
   }
-  const response = await fetch(url, { headers });
+  const response = await fetch(url, { headers, signal: AbortSignal.timeout(SELLERBOARD_FETCH_TIMEOUT_MS) });
   if (!response.ok) {
     throw new Error(`Sellerboard live import failed: URL returned HTTP ${response.status}.`);
   }

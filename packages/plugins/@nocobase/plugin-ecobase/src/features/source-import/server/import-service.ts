@@ -279,9 +279,7 @@ export function databaseInTransaction(db: EcobaseDatabase, transaction: unknown)
         findOne: (params = {}) => repository.findOne({ ...params, transaction }),
         create: (params) => repository.create({ ...params, transaction }),
         update: (params) => repository.update({ ...params, transaction }),
-        ...(repository.destroy
-          ? { destroy: (params) => repository.destroy!({ ...params, transaction }) }
-          : {}),
+        ...(repository.destroy ? { destroy: (params) => repository.destroy!({ ...params, transaction }) } : {}),
       };
       repositories.set(name, transactional);
       return transactional;
@@ -313,8 +311,21 @@ const SELLERBOARD_REPORT_KINDS = new Set<SellerboardReportKind>([
   'stock_daily',
   'profit_by_product_daily',
 ]);
-const SELLERBOARD_REPORT_UNIT_MAX_ATTEMPTS = 3;
-const SELLERBOARD_REPORT_UNIT_BACKOFF_MS = [25, 75] as const;
+const SELLERBOARD_UNIT_MAX_ATTEMPTS = 6;
+const SELLERBOARD_UNIT_FIRST_RETRY_DELAY_MS = 10 * 60 * 1000;
+const SELLERBOARD_UNIT_LATER_RETRY_DELAY_MS = 30 * 60 * 1000;
+const SELLERBOARD_UNIT_OVERLAP_DELAY_MS = 10 * 60 * 1000;
+const SELLERBOARD_UNIT_LEASE_MS = 30 * 60 * 1000;
+const SELLERBOARD_UNIT_LEASE_HEARTBEAT_MS = 5 * 60 * 1000;
+
+class SellerboardUnitReservationError extends Error {
+  readonly code = 'ECOBASE_SELLERBOARD_UNIT_RESERVATION_FAILED';
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'SellerboardUnitReservationError';
+  }
+}
 
 type SellerboardReportUnitFailureClassification = 'retryable_transient' | 'non_retryable';
 
@@ -327,9 +338,17 @@ function classifySellerboardReportUnitFailure(message: string): {
     return { classification: 'retryable_transient', reasonCode: 'transient_http_status' };
   }
   if (
-    ['econnreset', 'econnrefused', 'etimedout', 'fetch failed', 'network error', 'socket hang up', 'temporarily unavailable'].some(
-      (token) => normalized.includes(token),
-    )
+    [
+      'econnreset',
+      'econnrefused',
+      'etimedout',
+      'timed out',
+      'timeout',
+      'fetch failed',
+      'network error',
+      'socket hang up',
+      'temporarily unavailable',
+    ].some((token) => normalized.includes(token))
   ) {
     return { classification: 'retryable_transient', reasonCode: 'transient_transport_failure' };
   }
@@ -356,7 +375,9 @@ function configuredSellerboardReports(config: Record<string, unknown>) {
       const category = getString(value, 'category') ?? 'profit_dashboard';
       if (!SELLERBOARD_REPORT_KINDS.has(category as SellerboardReportKind)) {
         throw new Error(
-          `Ecobase Sellerboard report "${getString(value, 'name') ?? index + 1}" has unsupported report kind "${category}".`,
+          `Ecobase Sellerboard report "${
+            getString(value, 'name') ?? index + 1
+          }" has unsupported report kind "${category}".`,
         );
       }
       reports.push({
@@ -411,6 +432,7 @@ type RunAdapterImportParams = RunNoopImportParams & {
   unitTransaction?: unknown;
   preparedReportUnit?: PreparedAdapterReportUnit;
   retryPersistedFailure?: boolean;
+  assertReservation?: () => Promise<void>;
 };
 
 export interface RunCsvBundleImportParams {
@@ -463,12 +485,24 @@ interface SellerboardReportUnitExecutionParams {
   sourceVersion: string;
   startedAt: Date;
   skipExistingNormalizedKinds?: string[];
+  queuedImportRun?: QueuedImportRun;
+  summary?: Record<string, unknown>;
+  assertReservation?: () => Promise<void>;
 }
+
+interface SellerboardReportUnitHooks {
+  now?: Date;
+  onCommittedUnit?: (unit: SellerboardReportUnitDescriptor & { importRunId: string }) => void | Promise<void>;
+}
+
+export type SellerboardCommittedUnitHandler = (
+  unit: SellerboardReportUnitDescriptor & { importRunId: string },
+) => void | Promise<void>;
 
 export interface RunScheduledSellerboardImportsParams {
   now?: string;
   sourceConnectionId?: string;
-  onCommittedUnit?: (unit: SellerboardReportUnitDescriptor & { importRunId: string }) => void | Promise<void>;
+  onCommittedUnit?: SellerboardCommittedUnitHandler;
 }
 
 export interface RunMedallionPipelineParams {
@@ -610,25 +644,63 @@ function sellerboardReportInputDigest(items: AdapterStreamItem[]) {
   return sha256(JSON.stringify(canonicalReportInput(inputProjection)));
 }
 
-function sellerboardReportUnitBackoff(attempt: number) {
-  const delay = SELLERBOARD_REPORT_UNIT_BACKOFF_MS[attempt - 1];
-  return delay ?? SELLERBOARD_REPORT_UNIT_BACKOFF_MS[SELLERBOARD_REPORT_UNIT_BACKOFF_MS.length - 1];
+function sellerboardUnitRetryDelay(attempt: number) {
+  return attempt === 1 ? SELLERBOARD_UNIT_FIRST_RETRY_DELAY_MS : SELLERBOARD_UNIT_LATER_RETRY_DELAY_MS;
+}
+
+function sellerboardScheduleClock(now: Date, timezone: string) {
+  let parts: Intl.DateTimeFormatPart[];
+  try {
+    parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(now);
+  } catch (error) {
+    throw new Error(
+      `Ecobase scheduled Sellerboard import failed: timezone "${timezone}" is invalid: ${
+        error instanceof Error ? error.message : 'Intl rejected a non-Error value.'
+      }`,
+    );
+  }
+  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value;
+  const year = value('year');
+  const month = value('month');
+  const day = value('day');
+  const hours = Number(value('hour'));
+  const minutes = Number(value('minute'));
+  if (!year || !month || !day || !Number.isInteger(hours) || !Number.isInteger(minutes)) {
+    throw new Error(`Ecobase scheduled Sellerboard import failed: timezone "${timezone}" produced an invalid clock.`);
+  }
+  return { cycleDate: `${year}-${month}-${day}`, minuteOfDay: hours * 60 + minutes };
+}
+
+function isUniqueConstraintError(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  const record = error as Error & { original?: { code?: unknown }; parent?: { code?: unknown } };
+  return (
+    record.original?.code === '23505' ||
+    record.parent?.code === '23505' ||
+    error.name.includes('UniqueConstraint') ||
+    error.message.toLowerCase().includes('duplicate key')
+  );
 }
 
 function isSystemicSellerboardCoordinatorFailure(error: unknown) {
   if (!(error instanceof Error)) return false;
   const code = getString(error, 'code') ?? '';
   return (
+    error instanceof SellerboardUnitReservationError ||
     error.message.includes('requires database transaction support') ||
     error.name.startsWith('Sequelize') ||
     code === 'ECONNREFUSED' ||
     code === '57P01' ||
     code.startsWith('08')
   );
-}
-
-function wait(milliseconds: number) {
-  return new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function bundleHash(files: Array<{ checksum: string }>) {
@@ -1390,7 +1462,9 @@ export class EcobaseImportService {
     if (catalogMutationMode) adapterConfig.catalogMutationMode = catalogMutationMode;
     const companyId = getString(sourceConnection, 'companyId');
     if (companyId && !getString(adapterConfig, 'defaultCompany')) {
-      const company = await this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).findOne({ filterByTk: companyId });
+      const company = await this.db
+        .getRepository(ECOBASE_COLLECTIONS.silverCompanies)
+        .findOne({ filterByTk: companyId });
       const companyName = getString(company, 'name');
       if (!companyName) {
         throw new Error(
@@ -1435,7 +1509,9 @@ export class EcobaseImportService {
       this.validatePreparedSellerboardReportUnit(adapter, adapterConfig, prepared.items);
     } catch (error) {
       throw new SellerboardReportPreparationError(
-        error instanceof Error ? error.message : 'Ecobase Sellerboard report preparation failed with a non-Error value.',
+        error instanceof Error
+          ? error.message
+          : 'Ecobase Sellerboard report preparation failed with a non-Error value.',
         prepared,
       );
     }
@@ -1474,7 +1550,9 @@ export class EcobaseImportService {
         if (BRONZE_ONLY_RECORD_KINDS.has(record.kind)) continue;
         const target = normalizedRecordTarget(record, 'prepared-report-unit');
         if (!target.collectionName) {
-          throw new Error(`Ecobase import failed: normalized record kind "${record.kind}" is not mapped to a collection.`);
+          throw new Error(
+            `Ecobase import failed: normalized record kind "${record.kind}" is not mapped to a collection.`,
+          );
         }
         if (!getString(target.values, 'naturalKey')) {
           throw new Error(`Ecobase import failed: normalized record kind "${record.kind}" is missing naturalKey.`);
@@ -1492,6 +1570,7 @@ export class EcobaseImportService {
     idempotencyKey: string;
     inputDigest?: string;
     startedAt?: Date;
+    summary?: Record<string, unknown>;
     message: string;
     attemptCount: number;
     backoffMs: number;
@@ -1515,6 +1594,8 @@ export class EcobaseImportService {
       errorCount: Math.max(1, getNumber(attempted, 'errorCount')),
       errorMessage: params.message,
       summary: {
+        ...toPlainRecord(toPlainRecord(existing).summary),
+        ...(params.summary ?? {}),
         ...toPlainRecord(attempted.summary),
         ...(params.inputDigest ? { reportUnitInputDigest: params.inputDigest } : {}),
         reportUnitRetry: {
@@ -1554,101 +1635,90 @@ export class EcobaseImportService {
       if (!runTransaction) {
         throw new Error(`Ecobase Sellerboard ${reportKind} import requires database transaction support.`);
       }
+      const repository = this.db.getRepository(ECOBASE_COLLECTIONS.importRuns);
       const fallbackIdempotencyKey =
         params.idempotencyKey ?? `${params.sourceConnectionId}:${sourceIdentifier}:${sourceVersion}`;
+      const requestedRetry = toPlainRecord((params.summary ?? {}).reportUnitRetry);
+      const attemptCount = Math.max(1, getNumber(requestedRetry, 'attemptCount'));
       let idempotencyKey = fallbackIdempotencyKey;
       let preparedReportUnit: PreparedAdapterReportUnit | undefined;
-      let totalBackoffMs = 0;
-      for (let attempt = 1; attempt <= SELLERBOARD_REPORT_UNIT_MAX_ATTEMPTS; attempt += 1) {
-        let failedRun: Record<string, unknown> | undefined;
-        let phase: 'preparation' | 'transaction' = 'preparation';
-        try {
-          if (!preparedReportUnit) {
-            preparedReportUnit = await this.prepareSellerboardReportUnit(params, sourceIdentifier, sourceVersion);
-          }
-          idempotencyKey = `${params.sourceConnectionId}:${reportKind}:${preparedReportUnit.inputDigest}`;
-          const existing = await this.db
-            .getRepository(ECOBASE_COLLECTIONS.importRuns)
-            .findOne({ filter: { idempotencyKey } });
-          if (getString(existing, 'status') === 'success') {
-            return { ...toPlainRecord(existing), reused: true };
-          }
-          phase = 'transaction';
-          const run = await runTransaction(async (transaction: unknown) => {
-            const result = await new EcobaseImportService(
-              databaseInTransaction(this.db, transaction),
-              this.registry,
-            ).runAdapterImport({
-              ...params,
-              sourceIdentifier,
-              sourceVersion,
-              idempotencyKey,
-              preparedReportUnit,
-              retryPersistedFailure: getString(existing, 'status') === 'failed',
-              summary: {
-                ...(params.summary ?? {}),
-                reportUnitInputDigest: preparedReportUnit.inputDigest,
-                reportUnitRetry: {
-                  attemptCount: attempt,
-                  backoffMs: totalBackoffMs,
-                  classification: attempt === 1 ? 'not_applicable' : 'retryable_transient',
-                  outcome: attempt === 1 ? 'succeeded_without_retry' : 'recovered',
-                },
-              },
-              unitTransaction: transaction,
-            });
-            if (getString(result, 'status') !== 'success') {
-              failedRun = toPlainRecord(result);
-              throw new Error(
-                getString(result, 'errorMessage') ??
-                  `Ecobase Sellerboard ${reportKind} import failed before the report unit could commit.`,
-              );
-            }
-            return result;
-          });
-          return { ...toPlainRecord(run), reused: false };
-        } catch (error) {
-          if (error instanceof SellerboardReportPreparationError) {
-            preparedReportUnit = error.prepared;
-            idempotencyKey = `${params.sourceConnectionId}:${reportKind}:${preparedReportUnit.inputDigest}`;
-          }
-          const attempted = failedRun ?? {};
-          const message =
-            getString(attempted, 'errorMessage') ??
-            (error instanceof Error
-              ? error.message
-              : `Ecobase Sellerboard ${reportKind} import failed with a non-Error value.`);
-          const failure = classifySellerboardReportUnitFailure(message);
-          if (
-            failure.classification === 'retryable_transient' &&
-            attempt < SELLERBOARD_REPORT_UNIT_MAX_ATTEMPTS
-          ) {
-            const backoffMs = sellerboardReportUnitBackoff(attempt);
-            totalBackoffMs += backoffMs;
-            if (phase === 'preparation') {
-              preparedReportUnit = undefined;
-              idempotencyKey = fallbackIdempotencyKey;
-            }
-            await wait(backoffMs);
-            continue;
-          }
-          return this.persistSellerboardReportUnitFailure({
-            attempted,
-            sourceConnectionId: params.sourceConnectionId,
-            adapterName: params.adapterName,
+      let failedRun: Record<string, unknown> | undefined;
+      try {
+        preparedReportUnit = await this.prepareSellerboardReportUnit(params, sourceIdentifier, sourceVersion);
+        await params.assertReservation?.();
+        const digestIdempotencyKey = `${params.sourceConnectionId}:${reportKind}:${preparedReportUnit.inputDigest}`;
+        const existingDigestRun = await repository.findOne({ filter: { idempotencyKey: digestIdempotencyKey } });
+        if (getString(existingDigestRun, 'status') === 'success') {
+          return { ...toPlainRecord(existingDigestRun), reused: true };
+        }
+        idempotencyKey = digestIdempotencyKey;
+        await params.assertReservation?.();
+        const run = await runTransaction(async (transaction: unknown) => {
+          await params.assertReservation?.();
+          const result = await new EcobaseImportService(
+            databaseInTransaction(this.db, transaction),
+            this.registry,
+          ).runAdapterImport({
+            ...params,
             sourceIdentifier,
             sourceVersion,
             idempotencyKey,
-            inputDigest: preparedReportUnit?.inputDigest,
-            startedAt: params.startedAt,
-            message,
-            attemptCount: attempt,
-            backoffMs: totalBackoffMs,
-            failure,
+            preparedReportUnit,
+            queuedImportRun: undefined,
+            retryPersistedFailure: getString(existingDigestRun, 'status') === 'failed',
+            summary: {
+              ...(params.summary ?? {}),
+              reportUnitInputDigest: preparedReportUnit.inputDigest,
+              reportUnitRetry: {
+                attemptCount,
+                backoffMs: 0,
+                classification: 'not_applicable',
+                outcome: attemptCount === 1 ? 'succeeded_without_retry' : 'recovered',
+              },
+            },
+            unitTransaction: transaction,
           });
+          if (getString(result, 'status') !== 'success') {
+            failedRun = toPlainRecord(result);
+            throw new Error(
+              getString(result, 'errorMessage') ??
+                `Ecobase Sellerboard ${reportKind} import failed before the report unit could commit.`,
+            );
+          }
+          return result;
+        });
+        return { ...toPlainRecord(run), reused: false };
+      } catch (error) {
+        if (error instanceof SellerboardUnitReservationError || isSystemicSellerboardCoordinatorFailure(error)) {
+          throw error;
         }
+        if (error instanceof SellerboardReportPreparationError) {
+          preparedReportUnit = error.prepared;
+          idempotencyKey = `${params.sourceConnectionId}:${reportKind}:${preparedReportUnit.inputDigest}`;
+        }
+        const attempted = failedRun ?? {};
+        const message =
+          getString(attempted, 'errorMessage') ??
+          (error instanceof Error
+            ? error.message
+            : `Ecobase Sellerboard ${reportKind} import failed with a non-Error value.`);
+        const failure = classifySellerboardReportUnitFailure(message);
+        return this.persistSellerboardReportUnitFailure({
+          attempted,
+          sourceConnectionId: params.sourceConnectionId,
+          adapterName: params.adapterName,
+          sourceIdentifier,
+          sourceVersion,
+          idempotencyKey,
+          inputDigest: preparedReportUnit?.inputDigest,
+          startedAt: params.startedAt,
+          summary: params.summary,
+          message,
+          attemptCount,
+          backoffMs: 0,
+          failure,
+        });
       }
-      throw new Error(`Ecobase Sellerboard ${reportKind} import exhausted its bounded retry loop unexpectedly.`);
     }
 
     const sourceConnectionRepo = this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections);
@@ -1718,13 +1788,16 @@ export class EcobaseImportService {
 
     const idempotencyKey =
       params.queuedImportRun?.idempotencyKey ??
-      (existingRun && !retryingPersistedFailure
-        ? `${baseIdempotencyKey}:audit:${randomUUID()}`
-        : baseIdempotencyKey);
+      (existingRun && !retryingPersistedFailure ? `${baseIdempotencyKey}:audit:${randomUUID()}` : baseIdempotencyKey);
 
     let pendingRun: unknown;
     if (params.queuedImportRun) {
       pendingRun = await importRunRepo.findOne({ filterByTk: params.queuedImportRun.id });
+      if (!pendingRun) {
+        throw new SellerboardUnitReservationError(
+          `Ecobase queued import reservation "${params.queuedImportRun.id}" was not found.`,
+        );
+      }
     } else if (retryingPersistedFailure) {
       const existingRunId = toPlainRecord(existingRun).id;
       if (typeof existingRunId !== 'string' && typeof existingRunId !== 'number') {
@@ -2186,13 +2259,41 @@ export class EcobaseImportService {
     });
   }
 
-  async runSellerboardReportUnit(params: RunSellerboardReportUnitParams) {
-    const now = new Date();
-    return this.executeSellerboardReportUnit(params, {
-      sourceIdentifier: `sellerboard:${params.reportKind}`,
-      sourceVersion: now.toISOString(),
-      startedAt: now,
+  async runSellerboardReportUnit(params: RunSellerboardReportUnitParams, hooks: SellerboardReportUnitHooks = {}) {
+    const now = hooks.now ?? new Date();
+    if (Number.isNaN(now.getTime())) {
+      throw new Error('Ecobase Sellerboard report-unit import requires a valid execution time.');
+    }
+    const sourceConnection = await this.db
+      .getRepository(ECOBASE_COLLECTIONS.sourceConnections)
+      .findOne({ filterByTk: params.sourceConnectionId });
+    if (!sourceConnection || getString(sourceConnection, 'sourceType') !== 'sellerboard') {
+      throw new Error(`Ecobase Sellerboard source "${params.sourceConnectionId}" was not found.`);
+    }
+    const config = getConfig(sourceConnection);
+    const schedule = this.readSellerboardSchedule(config);
+    const report = configuredSellerboardReports(config).find((candidate) => candidate.reportKind === params.reportKind);
+    if (!report) {
+      throw new Error(
+        `Ecobase Sellerboard source "${params.sourceConnectionId}" does not configure report kind "${params.reportKind}".`,
+      );
+    }
+    const clock = sellerboardScheduleClock(now, schedule.timezone);
+    const result = await this.runSellerboardUnitCycle({
+      now,
+      cycleDate: clock.cycleDate,
+      timezone: schedule.timezone,
+      sourceConnection,
+      report,
+      onCommittedUnit: hooks.onCommittedUnit,
     });
+    if (result.status === 'not_due' && isRecord(result.run)) {
+      return { ...result.run, reused: true };
+    }
+    if (result.status === 'success' && isRecord(result.run)) {
+      return { ...result.run, ...(result.goldTrigger ? { goldTrigger: result.goldTrigger } : {}) };
+    }
+    return result;
   }
 
   private async executeSellerboardReportUnit(
@@ -2203,7 +2304,9 @@ export class EcobaseImportService {
       throw new Error('Ecobase Sellerboard report-unit import requires sourceConnectionId.');
     }
     if (!SELLERBOARD_REPORT_KINDS.has(params.reportKind)) {
-      throw new Error(`Ecobase Sellerboard report-unit import received unsupported report kind "${params.reportKind}".`);
+      throw new Error(
+        `Ecobase Sellerboard report-unit import received unsupported report kind "${params.reportKind}".`,
+      );
     }
     const unit = (await this.sellerboardReportUnits(params.sourceConnectionId)).find(
       (candidate) => candidate.reportKind === params.reportKind,
@@ -2220,6 +2323,9 @@ export class EcobaseImportService {
       sourceVersion: execution.sourceVersion,
       startedAt: execution.startedAt,
       skipExistingNormalizedKinds: execution.skipExistingNormalizedKinds,
+      queuedImportRun: execution.queuedImportRun,
+      summary: execution.summary,
+      assertReservation: execution.assertReservation,
       runtimeConfig: { reportKind: params.reportKind },
     });
   }
@@ -2229,15 +2335,12 @@ export class EcobaseImportService {
     if (Number.isNaN(now.getTime())) {
       throw new Error(`Ecobase scheduled Sellerboard import failed: now "${params.now}" is not a valid date.`);
     }
-    const today = now.toISOString().slice(0, 10);
-    const minuteOfDay = now.getUTCHours() * 60 + now.getUTCMinutes();
-    const sourceConnectionRepo = this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections);
-    const importRunRepo = this.db.getRepository(ECOBASE_COLLECTIONS.importRuns);
-    const sourceConnections = await sourceConnectionRepo.find({
+    const sourceConnections = await this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).find({
       filter: params.sourceConnectionId ? { id: params.sourceConnectionId } : { sourceType: 'sellerboard' },
       sort: ['name'],
     });
-    const results = [] as Array<Record<string, unknown>>;
+    const results: Array<Record<string, unknown>> = [];
+    const unitExecutions: Array<Promise<Record<string, unknown>>> = [];
 
     for (const sourceConnection of sourceConnections) {
       const sourceConnectionId = getString(sourceConnection, 'id');
@@ -2277,146 +2380,600 @@ export class EcobaseImportService {
         results.push({ sourceConnectionId, status: 'ignored', reason: 'no_configured_report_units' });
         continue;
       }
-      if (!schedule.refreshIntervalMinutes && minuteOfDay < schedule.dailyMinuteOfDay) {
+      const clock = sellerboardScheduleClock(now, schedule.timezone);
+      if (clock.minuteOfDay < schedule.dailyMinuteOfDay) {
         results.push({
           sourceConnectionId,
           status: 'not_due',
           dailyRefreshTime: schedule.dailyRefreshTime,
+          timezone: schedule.timezone,
           now: now.toISOString(),
         });
         continue;
       }
 
       for (const report of reports) {
-        const sourceIdentifier = `sellerboard-scheduled:${report.reportKind}`;
-        const latestScheduledRun = schedule.refreshIntervalMinutes
-          ? await importRunRepo.findOne({
-              filter: { sourceConnectionId, sourceIdentifier },
-              sort: ['-startedAt'],
-            })
-          : null;
-        const latestScheduledStatus = getString(latestScheduledRun, 'status');
-        const latestScheduledStartedAt = getDateString(latestScheduledRun, 'startedAt');
-        if (latestScheduledStartedAt && schedule.refreshIntervalMinutes) {
-          if (
-            latestScheduledStatus === 'success' &&
-            !this.retryDue(now, latestScheduledStartedAt, schedule.refreshIntervalMinutes)
-          ) {
-            results.push({
+        unitExecutions.push(
+          this.runSellerboardUnitCycle({
+            now,
+            cycleDate: clock.cycleDate,
+            timezone: schedule.timezone,
+            sourceConnection,
+            report,
+            onCommittedUnit: params.onCommittedUnit,
+          }).catch((error) => {
+            if (isSystemicSellerboardCoordinatorFailure(error)) throw error;
+            return {
               sourceConnectionId,
               ...report,
-              status: 'not_due',
-              refreshIntervalMinutes: schedule.refreshIntervalMinutes,
-              latestRunStatus: latestScheduledStatus,
-              latestRunStartedAt: latestScheduledStartedAt,
-              now: now.toISOString(),
-            });
-            continue;
-          }
-          if (
-            latestScheduledStatus !== 'success' &&
-            !this.retryDue(now, latestScheduledStartedAt, schedule.retryIntervalMinutes)
-          ) {
-            results.push({
-              sourceConnectionId,
-              ...report,
-              status: 'waiting_retry',
-              retryIntervalMinutes: schedule.retryIntervalMinutes,
-              latestRunStatus: latestScheduledStatus,
-              latestRunStartedAt: latestScheduledStartedAt,
-            });
-            continue;
-          }
-        }
-
-        const sourceVersion = schedule.refreshIntervalMinutes ? now.toISOString() : today;
-        const latestForVersion = schedule.refreshIntervalMinutes
-          ? null
-          : await importRunRepo.findOne({
-              filter: { sourceConnectionId, sourceIdentifier, sourceVersion },
-              sort: ['-startedAt'],
-            });
-        const latestStatus = getString(latestForVersion, 'status');
-        const latestStartedAt = getDateString(latestForVersion, 'startedAt');
-        if (latestStatus === 'success') {
-          results.push({
-            sourceConnectionId,
-            ...report,
-            status: 'not_due',
-            reason: 'report_unit_already_committed',
-            sourceVersion,
-          });
-          continue;
-        }
-        if (latestStartedAt && !this.retryDue(now, latestStartedAt, schedule.retryIntervalMinutes)) {
-          results.push({
-            sourceConnectionId,
-            ...report,
-            status: 'waiting_retry',
-            sourceVersion,
-            retryIntervalMinutes: schedule.retryIntervalMinutes,
-            latestRunStatus: latestStatus,
-            latestRunStartedAt: latestStartedAt,
-          });
-          continue;
-        }
-
-        let run: Record<string, unknown>;
-        try {
-          run = await this.executeSellerboardReportUnit(
-            { sourceConnectionId, reportKind: report.reportKind },
-            {
-              sourceIdentifier,
-              sourceVersion,
-              startedAt: now,
-              skipExistingNormalizedKinds: ['listing_daily_fact', 'traffic_snapshot'],
-            },
-          );
-        } catch (error) {
-          if (isSystemicSellerboardCoordinatorFailure(error)) throw error;
-          results.push({
-            sourceConnectionId,
-            ...report,
-            status: 'failed',
-            reasonCode: 'report_unit_execution_exception',
-            message:
-              error instanceof Error
-                ? error.message
-                : 'Ecobase Sellerboard report-unit execution failed with a non-Error value.',
-          });
-          continue;
-        }
-        const status = getString(run, 'status') ?? 'unknown';
-        const result: Record<string, unknown> = { sourceConnectionId, ...report, status, run };
-        if (status === 'success' && run.reused !== true && params.onCommittedUnit) {
-          const importRunId = getString(run, 'id');
-          if (!importRunId) {
-            result.goldTrigger = { status: 'failed', reasonCode: 'committed_import_run_id_missing' };
-          } else {
-            try {
-              await params.onCommittedUnit({
-                sourceConnectionId,
-                sourceName: getString(sourceConnection, 'name') ?? sourceConnectionId,
-                sourceActive: true,
-                scheduleEnabled: true,
-                ...report,
-                importRunId,
-              });
-              result.goldTrigger = { status: 'scheduled' };
-            } catch (error) {
-              result.goldTrigger = {
-                status: 'failed',
-                reasonCode: 'gold_trigger_scheduling_failed',
-                message: error instanceof Error ? error.message : 'Gold trigger scheduling failed with a non-Error value.',
-              };
-            }
-          }
-        }
-        results.push(result);
+              status: 'failed',
+              reasonCode: 'report_unit_execution_exception',
+              message:
+                error instanceof Error
+                  ? error.message
+                  : 'Ecobase Sellerboard report-unit execution failed with a non-Error value.',
+            };
+          }),
+        );
       }
     }
 
+    results.push(...(await Promise.all(unitExecutions)));
     return { now: now.toISOString(), results };
+  }
+
+  private async runSellerboardUnitCycle(
+    params: {
+      now: Date;
+      cycleDate: string;
+      timezone: string;
+      sourceConnection: unknown;
+      report: { reportKind: SellerboardReportKind; reportName: string };
+      onCommittedUnit?: RunScheduledSellerboardImportsParams['onCommittedUnit'];
+    },
+    reservationCollisionRetried = false,
+  ): Promise<Record<string, unknown>> {
+    const sourceConnectionId = getString(params.sourceConnection, 'id');
+    if (!sourceConnectionId) {
+      throw new SellerboardUnitReservationError('Ecobase Sellerboard unit reservation requires sourceConnectionId.');
+    }
+    const repository = this.db.getRepository(ECOBASE_COLLECTIONS.importRuns);
+    const identity = { sourceConnectionId, ...params.report, sourceVersion: params.cycleDate };
+    const outcome = (values: Record<string, unknown>, run?: unknown) => ({
+      ...identity,
+      ...values,
+      ...(run ? { run: toPlainRecord(run) } : {}),
+    });
+    const cycleRuns = await this.sellerboardCycleRuns(
+      sourceConnectionId,
+      params.report.reportKind,
+      params.cycleDate,
+      params.timezone,
+    );
+    const attempts = cycleRuns.attempts;
+    const successful = [...attempts].reverse().find((run) => getString(run, 'status') === 'success');
+    if (successful) {
+      const committedImportRunId = getString(toPlainRecord(toPlainRecord(successful).summary), 'committedImportRunId');
+      const committedRun = committedImportRunId
+        ? await repository.findOne({ filterByTk: committedImportRunId })
+        : successful;
+      return outcome(
+        {
+          status: 'not_due',
+          reason: 'report_unit_already_committed',
+          attemptCount: this.sellerboardAttemptCount(attempts),
+        },
+        committedRun ?? successful,
+      );
+    }
+
+    const active = attempts.filter((run) => ['pending', 'running'].includes(getString(run, 'status') ?? ''));
+    if (active.length > 1) {
+      throw new SellerboardUnitReservationError(
+        `Ecobase Sellerboard unit has ambiguous ownership: ${active.length} active reservations for ${sourceConnectionId}/${params.report.reportKind}/${params.cycleDate}.`,
+      );
+    }
+    if (active.length === 1) {
+      return this.handleActiveSellerboardReservation({
+        repository,
+        reservation: active[0],
+        latestDeferral: cycleRuns.deferrals.at(-1),
+        now: params.now,
+        sourceConnectionId,
+        report: params.report,
+        cycleDate: params.cycleDate,
+      });
+    }
+
+    const latest = attempts.at(-1);
+    const attemptCount = this.sellerboardAttemptCount(attempts);
+    if (latest && getString(latest, 'status') !== 'success') {
+      const summary = toPlainRecord(toPlainRecord(latest).summary);
+      const cycle = toPlainRecord(summary.sellerboardUnitCycle);
+      const retry = toPlainRecord(summary.reportUnitRetry);
+      const classification = getString(cycle, 'classification') ?? getString(retry, 'classification');
+      if (classification !== 'retryable_transient') {
+        return outcome(
+          {
+            status: 'terminal',
+            reason: 'non_retryable_daily_cycle',
+            reasonCode:
+              getString(cycle, 'reasonCode') ??
+              getString(retry, 'reasonCode') ??
+              'deterministic_or_unclassified_failure',
+            attemptCount,
+          },
+          latest,
+        );
+      }
+      if (attemptCount >= SELLERBOARD_UNIT_MAX_ATTEMPTS) {
+        return outcome({ status: 'terminal', reason: 'retry_attempts_exhausted', attemptCount }, latest);
+      }
+      const latestFinishedAt = getDateString(latest, 'finishedAt') ?? getDateString(latest, 'startedAt');
+      const derivedNextAttemptAt = latestFinishedAt
+        ? new Date(new Date(latestFinishedAt).getTime() + sellerboardUnitRetryDelay(attemptCount)).toISOString()
+        : undefined;
+      const nextAttemptAt =
+        getString(cycle, 'nextAttemptAt') ?? getString(retry, 'nextAttemptAt') ?? derivedNextAttemptAt;
+      if (!nextAttemptAt || Number.isNaN(new Date(nextAttemptAt).getTime())) {
+        throw new SellerboardUnitReservationError(
+          `Ecobase Sellerboard transient failure is missing a valid next-attempt time for ${sourceConnectionId}/${params.report.reportKind}/${params.cycleDate}.`,
+        );
+      }
+      if (params.now.getTime() < new Date(nextAttemptAt).getTime()) {
+        return outcome(
+          { status: 'waiting_retry', reason: 'transient_retry_not_due', attemptCount, nextAttemptAt },
+          latest,
+        );
+      }
+    }
+
+    const attempt = attemptCount + 1;
+    if (attempt > SELLERBOARD_UNIT_MAX_ATTEMPTS) {
+      return outcome({ status: 'terminal', reason: 'retry_attempts_exhausted', attemptCount });
+    }
+    const leaseOwner = randomUUID();
+    const leaseExpiresAt = new Date(params.now.getTime() + SELLERBOARD_UNIT_LEASE_MS).toISOString();
+    const idempotencyKey = `sellerboard-unit-cycle:${sourceConnectionId}:${params.report.reportKind}:${params.cycleDate}:attempt:${attempt}`;
+    let reservation: unknown;
+    try {
+      reservation = await repository.create({
+        values: {
+          id: randomUUID(),
+          sourceConnectionId,
+          adapterName: 'sellerboard-api',
+          sourceIdentifier: `sellerboard-unit-reservation:${params.report.reportKind}`,
+          sourceVersion: params.cycleDate,
+          idempotencyKey,
+          startedAt: params.now,
+          status: 'pending',
+          rowCount: 0,
+          normalizedCount: 0,
+          warningCount: 0,
+          errorCount: 0,
+          summary: {
+            sellerboardUnitCycle: {
+              version: 'sellerboard_unit_cycle_v1',
+              reportKind: params.report.reportKind,
+              cycleDate: params.cycleDate,
+              attempt,
+              leaseOwner,
+              leaseAcquiredAt: params.now.toISOString(),
+              leaseExpiresAt,
+              recoveryCount: 0,
+              classification: 'reserved',
+            },
+            reportUnitRetry: { attemptCount: attempt, backoffMs: 0, classification: 'reserved' },
+          },
+        },
+      });
+    } catch (error) {
+      if (!isUniqueConstraintError(error)) throw error;
+      if (reservationCollisionRetried) {
+        throw new SellerboardUnitReservationError(
+          `Ecobase Sellerboard unit reservation remained ambiguous after a unique-key collision for ${sourceConnectionId}/${params.report.reportKind}/${params.cycleDate}.`,
+        );
+      }
+      return this.runSellerboardUnitCycle(params, true);
+    }
+    const reservationId = getString(reservation, 'id');
+    if (!reservationId) {
+      throw new SellerboardUnitReservationError('Ecobase Sellerboard unit reservation was created without an id.');
+    }
+    const assertReservation = () => this.assertSellerboardReservation(reservationId, leaseOwner);
+    const stopHeartbeat = this.startSellerboardReservationHeartbeat(reservationId, leaseOwner);
+    let run: Record<string, unknown>;
+    try {
+      run = await this.executeSellerboardReportUnit(
+        { sourceConnectionId, reportKind: params.report.reportKind },
+        {
+          sourceIdentifier: `sellerboard-unit:${params.report.reportKind}`,
+          sourceVersion: params.cycleDate,
+          startedAt: params.now,
+          skipExistingNormalizedKinds: ['listing_daily_fact', 'traffic_snapshot'],
+          summary: toPlainRecord(toPlainRecord(reservation).summary),
+          assertReservation,
+        },
+      );
+    } finally {
+      stopHeartbeat();
+    }
+
+    const status = getString(run, 'status') ?? 'unknown';
+    const result: Record<string, unknown> = outcome({ status, attemptCount: attempt }, run);
+    if (status === 'success') {
+      const currentReservation = await repository.findOne({ filterByTk: reservationId });
+      if (!currentReservation) {
+        throw new SellerboardUnitReservationError(
+          `Ecobase Sellerboard unit reservation "${reservationId}" disappeared after commit.`,
+        );
+      }
+      const reservationSummary = toPlainRecord(toPlainRecord(currentReservation).summary);
+      const committedImportRunId = getString(run, 'id');
+      await this.updateSellerboardReservation(repository, reservationId, {
+        finishedAt: new Date(),
+        status: 'success',
+        rowCount: getNumber(run, 'rowCount'),
+        normalizedCount: getNumber(run, 'normalizedCount'),
+        warningCount: getNumber(run, 'warningCount'),
+        errorCount: 0,
+        errorMessage: null,
+        summary: {
+          ...reservationSummary,
+          committedImportRunId,
+          reportUnitInputDigest: getString(toPlainRecord(run.summary), 'reportUnitInputDigest'),
+          sellerboardUnitCycle: {
+            ...toPlainRecord(reservationSummary.sellerboardUnitCycle),
+            classification: 'succeeded',
+            leaseReleasedAt: new Date().toISOString(),
+          },
+        },
+      });
+      if (run.reused !== true && params.onCommittedUnit) {
+        const importRunId = getString(run, 'id');
+        if (!importRunId) {
+          result.goldTrigger = { status: 'failed', reasonCode: 'committed_import_run_id_missing' };
+        } else {
+          try {
+            await params.onCommittedUnit({
+              sourceConnectionId,
+              sourceName: getString(params.sourceConnection, 'name') ?? sourceConnectionId,
+              sourceActive: getBoolean(params.sourceConnection, 'active', true),
+              scheduleEnabled: this.readSellerboardSchedule(getConfig(params.sourceConnection)).enabled,
+              ...params.report,
+              importRunId,
+            });
+            result.goldTrigger = { status: 'scheduled' };
+          } catch (error) {
+            result.goldTrigger = {
+              status: 'failed',
+              reasonCode: 'gold_trigger_scheduling_failed',
+              message:
+                error instanceof Error ? error.message : 'Gold trigger scheduling failed with a non-Error value.',
+            };
+          }
+        }
+      }
+      return result;
+    }
+
+    const runSummary = toPlainRecord(run.summary);
+    const retry = toPlainRecord(runSummary.reportUnitRetry);
+    const classification = getString(retry, 'classification') ?? 'non_retryable';
+    const reasonCode = getString(retry, 'reasonCode') ?? 'deterministic_or_unclassified_failure';
+    const retryDelay = sellerboardUnitRetryDelay(attempt);
+    const nextAttemptAt =
+      classification === 'retryable_transient' && attempt < SELLERBOARD_UNIT_MAX_ATTEMPTS
+        ? new Date(params.now.getTime() + retryDelay).toISOString()
+        : null;
+    const cycle = {
+      ...toPlainRecord(runSummary.sellerboardUnitCycle),
+      classification,
+      reasonCode,
+      nextAttemptAt,
+      leaseReleasedAt: new Date().toISOString(),
+    };
+    await this.updateSellerboardReservation(repository, reservationId, {
+      finishedAt: new Date(),
+      status: 'failed',
+      rowCount: getNumber(run, 'rowCount'),
+      normalizedCount: getNumber(run, 'normalizedCount'),
+      warningCount: getNumber(run, 'warningCount'),
+      errorCount: Math.max(1, getNumber(run, 'errorCount')),
+      errorMessage: getString(run, 'errorMessage'),
+      summary: {
+        ...runSummary,
+        committedImportRunId: getString(run, 'id'),
+        sellerboardUnitCycle: cycle,
+        reportUnitRetry: { ...retry, nextAttemptAt },
+      },
+    });
+    const finalizedRun = toPlainRecord((await repository.findOne({ filterByTk: reservationId })) ?? run);
+    result.run = finalizedRun;
+    result.reasonCode = reasonCode;
+    if (classification !== 'retryable_transient') {
+      result.status = 'terminal';
+      result.reason = 'non_retryable_daily_cycle';
+      return result;
+    }
+    if (attempt >= SELLERBOARD_UNIT_MAX_ATTEMPTS) {
+      result.status = 'terminal';
+      result.reason = 'retry_attempts_exhausted';
+      return result;
+    }
+    result.status = 'failed';
+    result.retryDelayMinutes = retryDelay / 60_000;
+    result.nextAttemptAt = nextAttemptAt;
+    return result;
+  }
+
+  private async sellerboardCycleRuns(
+    sourceConnectionId: string,
+    reportKind: SellerboardReportKind,
+    cycleDate: string,
+    timezone: string,
+  ) {
+    const repository = this.db.getRepository(ECOBASE_COLLECTIONS.importRuns);
+    const identifiers = [
+      `sellerboard-unit-reservation:${reportKind}`,
+      `sellerboard:${reportKind}`,
+      `sellerboard-scheduled:${reportKind}`,
+      `sellerboard-unit-deferral:${reportKind}`,
+    ];
+    const batches = await Promise.all(
+      identifiers.map((sourceIdentifier) =>
+        repository.find({
+          filter: { sourceConnectionId, sourceIdentifier },
+          sort: ['-startedAt'],
+          limit: SELLERBOARD_UNIT_MAX_ATTEMPTS + 4,
+        }),
+      ),
+    );
+    const unique = new Map<string, Record<string, unknown>>();
+    for (const run of batches.flat()) {
+      const record = toPlainRecord(run);
+      const key = getString(record, 'id') ?? getString(record, 'idempotencyKey');
+      if (!key) continue;
+      const cycle = toPlainRecord(toPlainRecord(record.summary).sellerboardUnitCycle);
+      const deferral = toPlainRecord(toPlainRecord(record.summary).sellerboardUnitDeferral);
+      let runCycleDate = getString(cycle, 'cycleDate') ?? getString(deferral, 'cycleDate');
+      if (!runCycleDate) {
+        const startedAt = getDateString(record, 'startedAt');
+        if (!startedAt || Number.isNaN(new Date(startedAt).getTime())) continue;
+        runCycleDate = sellerboardScheduleClock(new Date(startedAt), timezone).cycleDate;
+      }
+      if (runCycleDate === cycleDate) unique.set(key, record);
+    }
+    const records = [...unique.values()].sort((left, right) =>
+      String(getDateString(left, 'startedAt') ?? '').localeCompare(String(getDateString(right, 'startedAt') ?? '')),
+    );
+    return {
+      attempts: records.filter(
+        (run) => getString(run, 'sourceIdentifier') !== `sellerboard-unit-deferral:${reportKind}`,
+      ),
+      deferrals: records.filter(
+        (run) => getString(run, 'sourceIdentifier') === `sellerboard-unit-deferral:${reportKind}`,
+      ),
+    };
+  }
+
+  private sellerboardAttemptCount(attempts: Record<string, unknown>[]) {
+    return attempts.reduce((maximum, run, index) => {
+      const cycle = toPlainRecord(toPlainRecord(run.summary).sellerboardUnitCycle);
+      const persistedAttempt = getNumber(cycle, 'attempt');
+      return Math.max(maximum, persistedAttempt || index + 1);
+    }, 0);
+  }
+
+  private async handleActiveSellerboardReservation(params: {
+    repository: EcobaseRepository;
+    reservation: Record<string, unknown>;
+    latestDeferral?: Record<string, unknown>;
+    now: Date;
+    sourceConnectionId: string;
+    report: { reportKind: SellerboardReportKind; reportName: string };
+    cycleDate: string;
+  }): Promise<Record<string, unknown>> {
+    const summary = toPlainRecord(params.reservation.summary);
+    const cycle = toPlainRecord(summary.sellerboardUnitCycle);
+    const attempt = getNumber(cycle, 'attempt');
+    const leaseOwner = getString(cycle, 'leaseOwner');
+    const leaseExpiresAt = getString(cycle, 'leaseExpiresAt');
+    const recoveryCount = getNumber(cycle, 'recoveryCount');
+    if (!attempt || !leaseOwner || !leaseExpiresAt || Number.isNaN(new Date(leaseExpiresAt).getTime())) {
+      throw new SellerboardUnitReservationError(
+        `Ecobase Sellerboard unit has ambiguous reservation ownership for ${params.sourceConnectionId}/${params.report.reportKind}/${params.cycleDate}.`,
+      );
+    }
+    const recoveryEligibleAt = new Date(leaseExpiresAt).getTime() + SELLERBOARD_UNIT_LEASE_HEARTBEAT_MS;
+    if (params.now.getTime() <= recoveryEligibleAt) {
+      const existingDeferral = toPlainRecord(toPlainRecord(params.latestDeferral).summary).sellerboardUnitDeferral;
+      const existingNextAttemptAt = getString(existingDeferral, 'nextAttemptAt');
+      if (existingNextAttemptAt && params.now.getTime() < new Date(existingNextAttemptAt).getTime()) {
+        return {
+          sourceConnectionId: params.sourceConnectionId,
+          ...params.report,
+          status: 'deferred',
+          reason: 'unit_already_running',
+          sourceVersion: params.cycleDate,
+          attemptCount: attempt,
+          nextAttemptAt: existingNextAttemptAt,
+        };
+      }
+      return this.persistSellerboardOverlapDeferral({ ...params, attempt });
+    }
+    if (recoveryCount >= 1) {
+      throw new SellerboardUnitReservationError(
+        `Ecobase Sellerboard unit has ambiguous expired reservation ownership for ${params.sourceConnectionId}/${params.report.reportKind}/${params.cycleDate}.`,
+      );
+    }
+    const retryDelay = sellerboardUnitRetryDelay(attempt);
+    const nextAttemptAt = new Date(params.now.getTime() + retryDelay).toISOString();
+    const reservationId = getString(params.reservation, 'id');
+    if (!reservationId) {
+      throw new SellerboardUnitReservationError('Ecobase expired Sellerboard reservation is missing its id.');
+    }
+    await this.updateSellerboardReservation(params.repository, reservationId, {
+      finishedAt: params.now,
+      status: 'failed',
+      errorCount: Math.max(1, getNumber(params.reservation, 'errorCount')),
+      errorMessage: 'Ecobase Sellerboard unit reservation lease expired before completion.',
+      summary: {
+        ...summary,
+        sellerboardUnitCycle: {
+          ...cycle,
+          recoveryCount: 1,
+          classification: 'retryable_transient',
+          reasonCode: 'reservation_lease_expired',
+          nextAttemptAt,
+          recoveredAt: params.now.toISOString(),
+        },
+        reportUnitRetry: {
+          ...toPlainRecord(summary.reportUnitRetry),
+          attemptCount: attempt,
+          classification: 'retryable_transient',
+          reasonCode: 'reservation_lease_expired',
+          nextAttemptAt,
+        },
+      },
+    });
+    return {
+      sourceConnectionId: params.sourceConnectionId,
+      ...params.report,
+      status: 'waiting_retry',
+      reason: 'expired_lease_recovered',
+      sourceVersion: params.cycleDate,
+      attemptCount: attempt,
+      retryDelayMinutes: retryDelay / 60_000,
+      nextAttemptAt,
+    };
+  }
+
+  private async persistSellerboardOverlapDeferral(params: {
+    repository: EcobaseRepository;
+    reservation: Record<string, unknown>;
+    now: Date;
+    sourceConnectionId: string;
+    report: { reportKind: SellerboardReportKind; reportName: string };
+    cycleDate: string;
+    attempt: number;
+  }) {
+    const reservationId = getString(params.reservation, 'id');
+    if (!reservationId) {
+      throw new SellerboardUnitReservationError('Ecobase Sellerboard overlap deferral is missing reservation id.');
+    }
+    const nextAttemptAt = new Date(params.now.getTime() + SELLERBOARD_UNIT_OVERLAP_DELAY_MS).toISOString();
+    const bucket = Math.floor(params.now.getTime() / SELLERBOARD_UNIT_OVERLAP_DELAY_MS);
+    const idempotencyKey = `sellerboard-unit-cycle:${params.sourceConnectionId}:${params.report.reportKind}:${params.cycleDate}:deferral:${reservationId}:${bucket}`;
+    try {
+      await params.repository.create({
+        values: {
+          id: randomUUID(),
+          sourceConnectionId: params.sourceConnectionId,
+          adapterName: 'sellerboard-api',
+          sourceIdentifier: `sellerboard-unit-deferral:${params.report.reportKind}`,
+          sourceVersion: params.cycleDate,
+          idempotencyKey,
+          startedAt: params.now,
+          finishedAt: params.now,
+          status: 'skipped',
+          rowCount: 0,
+          normalizedCount: 0,
+          warningCount: 0,
+          errorCount: 0,
+          errorMessage: 'Sellerboard unit execution deferred because the same unit is already running.',
+          summary: {
+            sellerboardUnitDeferral: {
+              reportKind: params.report.reportKind,
+              cycleDate: params.cycleDate,
+              blockingReservationId: reservationId,
+              attempt: params.attempt,
+              nextAttemptAt,
+              reasonCode: 'unit_already_running',
+            },
+          },
+        },
+      });
+    } catch (error) {
+      if (!isUniqueConstraintError(error)) throw error;
+    }
+    return {
+      sourceConnectionId: params.sourceConnectionId,
+      ...params.report,
+      status: 'deferred',
+      reason: 'unit_already_running',
+      sourceVersion: params.cycleDate,
+      attemptCount: params.attempt,
+      nextAttemptAt,
+    };
+  }
+
+  private async updateSellerboardReservation(
+    repository: EcobaseRepository,
+    reservationId: string,
+    values: Record<string, unknown>,
+  ) {
+    try {
+      await repository.update({ filterByTk: reservationId, values });
+    } catch (error) {
+      throw new SellerboardUnitReservationError(
+        `Ecobase Sellerboard unit reservation "${reservationId}" could not be persisted: ${
+          error instanceof Error ? error.message : 'repository returned a non-Error failure'
+        }.`,
+      );
+    }
+  }
+
+  private async assertSellerboardReservation(reservationId: string, leaseOwner: string) {
+    const reservation = await this.db
+      .getRepository(ECOBASE_COLLECTIONS.importRuns)
+      .findOne({ filterByTk: reservationId });
+    const cycle = toPlainRecord(toPlainRecord(toPlainRecord(reservation).summary).sellerboardUnitCycle);
+    if (getString(reservation, 'status') !== 'pending' || getString(cycle, 'leaseOwner') !== leaseOwner) {
+      throw new SellerboardUnitReservationError(
+        `Ecobase Sellerboard unit reservation "${reservationId}" lost ownership before commit.`,
+      );
+    }
+  }
+
+  private startSellerboardReservationHeartbeat(reservationId: string, leaseOwner: string) {
+    let stopped = false;
+    let renewing = false;
+    const timer = setInterval(() => {
+      if (stopped || renewing) return;
+      renewing = true;
+      void (async () => {
+        const repository = this.db.getRepository(ECOBASE_COLLECTIONS.importRuns);
+        const reservation = await repository.findOne({ filterByTk: reservationId });
+        const summary = toPlainRecord(toPlainRecord(reservation).summary);
+        const cycle = toPlainRecord(summary.sellerboardUnitCycle);
+        if (getString(reservation, 'status') !== 'pending' || getString(cycle, 'leaseOwner') !== leaseOwner) {
+          return;
+        }
+        await repository.update({
+          filterByTk: reservationId,
+          values: {
+            summary: {
+              ...summary,
+              sellerboardUnitCycle: {
+                ...cycle,
+                leaseExpiresAt: new Date(Date.now() + SELLERBOARD_UNIT_LEASE_MS).toISOString(),
+                leaseHeartbeatAt: new Date().toISOString(),
+              },
+            },
+          },
+        });
+      })()
+        .catch(() => undefined)
+        .finally(() => {
+          renewing = false;
+        });
+    }, SELLERBOARD_UNIT_LEASE_HEARTBEAT_MS);
+    timer.unref?.();
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
   }
 
   private readSellerboardSchedule(config: Record<string, unknown>) {
@@ -2451,6 +3008,10 @@ export class EcobaseImportService {
     ) {
       throw new Error('Ecobase scheduled Sellerboard import failed: refreshIntervalMinutes must be a positive number.');
     }
+    const timezone =
+      (typeof config.timezone === 'string' && config.timezone.trim()) ||
+      (typeof schedule.timezone === 'string' && schedule.timezone.trim()) ||
+      'Asia/Karachi';
     const retryIntervalMinutes =
       typeof schedule.retryIntervalMinutes === 'number'
         ? schedule.retryIntervalMinutes
@@ -2462,19 +3023,12 @@ export class EcobaseImportService {
     }
     return {
       enabled,
+      timezone,
       dailyRefreshTime,
       dailyMinuteOfDay: hours * 60 + minutes,
       refreshIntervalMinutes,
       retryIntervalMinutes,
     };
-  }
-
-  private retryDue(now: Date, latestStartedAt: string, retryIntervalMinutes: number) {
-    const previous = new Date(latestStartedAt);
-    if (Number.isNaN(previous.getTime())) {
-      return true;
-    }
-    return now.getTime() - previous.getTime() >= retryIntervalMinutes * 60 * 1000;
   }
 
   private validateCsvBundleFiles(files: CsvSourceFile[]) {

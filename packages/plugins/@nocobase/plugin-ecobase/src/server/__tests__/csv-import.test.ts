@@ -560,9 +560,11 @@ describe('Ecobase current Amazon operations CSV import', () => {
     });
 
     let transactionCount = 0;
-    (db as MemoryDatabase & {
-      sequelize: { transaction: (run: (transaction: object) => Promise<unknown>) => unknown };
-    }).sequelize = {
+    (
+      db as MemoryDatabase & {
+        sequelize: { transaction: (run: (transaction: object) => Promise<unknown>) => unknown };
+      }
+    ).sequelize = {
       transaction: async (run) => {
         transactionCount += 1;
         return run({ id: `transaction-${transactionCount}` });
@@ -1325,13 +1327,21 @@ describe('Ecobase current Amazon operations CSV import', () => {
     const results = await service.runScheduledSellerboardImports({ now: '2026-06-08T00:05:00.000Z' });
 
     expect(results.results).toEqual([
-      expect.objectContaining({ reportKind: 'profit_dashboard', status: 'failed' }),
+      expect.objectContaining({
+        reportKind: 'profit_dashboard',
+        status: 'terminal',
+        reason: 'non_retryable_daily_cycle',
+      }),
       expect.objectContaining({ reportKind: 'stock_daily', status: 'success' }),
     ]);
-    expect(db.getRepository(ECOBASE_COLLECTIONS.importRuns).all()).toEqual([
-      expect.objectContaining({ status: 'failed', rowCount: 0, normalizedCount: 0, errorCount: 1 }),
-      expect.objectContaining({ status: 'success', rowCount: 1, normalizedCount: 3, errorCount: 0 }),
-    ]);
+    const importRuns = db.getRepository(ECOBASE_COLLECTIONS.importRuns).all();
+    expect(importRuns).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ status: 'failed', rowCount: 0, normalizedCount: 0, errorCount: 1 }),
+        expect.objectContaining({ status: 'success', rowCount: 1, normalizedCount: 3, errorCount: 0 }),
+      ]),
+    );
+    expect(importRuns).toHaveLength(4);
   });
 
   it('records Sellerboard and Amazon SP-API live-source credential blockers', async () => {

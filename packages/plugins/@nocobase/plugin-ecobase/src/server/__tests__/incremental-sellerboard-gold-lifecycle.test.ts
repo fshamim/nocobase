@@ -77,12 +77,20 @@ class MemoryRepository implements EcobaseRepository {
     return row;
   }
 
-  async update({ filter, filterByTk, values, transaction }: { filter?: Row; filterByTk?: string | number; values: Row; transaction?: unknown }) {
+  async update({
+    filter,
+    filterByTk,
+    values,
+    transaction,
+  }: {
+    filter?: Row;
+    filterByTk?: string | number;
+    values: Row;
+    transaction?: unknown;
+  }) {
     this.recordWrite(transaction);
     const findTarget = (rows: Row[]) =>
-      rows.find(
-        (candidate) => (filterByTk === undefined || candidate.id === filterByTk) && matches(candidate, filter),
-      );
+      rows.find((candidate) => (filterByTk === undefined || candidate.id === filterByTk) && matches(candidate, filter));
     const row = findTarget(this.rows);
     if (!row) throw new Error('Memory repository update target was not found.');
     Object.assign(row, values);
@@ -205,15 +213,7 @@ function seedGoldFixture(db: MemoryDatabase) {
     prepStock: 0,
     awdStock: 0,
   });
-  const dates = [
-    '2026-01-01',
-    '2026-02-01',
-    '2026-03-01',
-    '2026-04-01',
-    '2026-05-01',
-    '2026-06-01',
-    '2026-07-16',
-  ];
+  const dates = ['2026-01-01', '2026-02-01', '2026-03-01', '2026-04-01', '2026-05-01', '2026-06-01', '2026-07-16'];
   db.rows(ECOBASE_COLLECTIONS.silverListingDailyFacts).push(
     ...dates.map((snapshotDate, index) => ({
       id: `fact-${index + 1}`,
@@ -480,7 +480,9 @@ describe('incremental Sellerboard-to-Gold lifecycle', () => {
         code: 'ECOBASE_GOLD_BOUNDARY_VALIDATION_FAILED',
       });
       expect(
-        db.rows(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).filter((candidate) => candidate.status === 'published'),
+        db
+          .rows(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns)
+          .filter((candidate) => candidate.status === 'published'),
         name,
       ).toEqual([]);
     }
@@ -514,7 +516,7 @@ describe('incremental Sellerboard-to-Gold lifecycle', () => {
     expect(published).toEqual([expect.objectContaining({ id: first.goldRunId })]);
   });
 
-  it('retries only a transiently failed report unit and does not retry a non-retryable failure', async () => {
+  it('executes one persisted report-unit attempt per invocation without sleeping in process', async () => {
     const db = new MemoryDatabase();
     await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).create({
       values: {
@@ -537,7 +539,7 @@ describe('incremental Sellerboard-to-Gold lifecycle', () => {
       idempotencyKey: 'sellerboard-1:profit_dashboard:input-a',
       runtimeConfig: { reportKind: 'profit_dashboard' },
     });
-    const retried = await service.runAdapterImport({
+    const transientFailure = await service.runAdapterImport({
       sourceConnectionId: 'sellerboard-1',
       adapterName: 'sellerboard-report-test',
       sourceIdentifier: 'sellerboard:stock_daily',
@@ -565,14 +567,13 @@ describe('incremental Sellerboard-to-Gold lifecycle', () => {
     });
 
     expect(successful).toMatchObject({ status: 'success' });
-    expect(retried).toMatchObject({
-      status: 'success',
+    expect(transientFailure).toMatchObject({
+      status: 'failed',
       summary: {
         reportUnitRetry: {
-          attemptCount: 2,
-          backoffMs: 25,
+          attemptCount: 1,
+          backoffMs: 0,
           classification: 'retryable_transient',
-          outcome: 'recovered',
         },
       },
     });
@@ -585,7 +586,7 @@ describe('incremental Sellerboard-to-Gold lifecycle', () => {
     });
     expect(Object.fromEntries(attempts)).toEqual({
       profit_dashboard: 1,
-      stock_daily: 2,
+      stock_daily: 1,
       profit_by_product_daily: 1,
     });
 
@@ -601,10 +602,10 @@ describe('incremental Sellerboard-to-Gold lifecycle', () => {
     expect(replayedFailure).toMatchObject({ id: failed.id, status: 'success', reused: false });
     expect(Object.fromEntries(attempts)).toEqual({
       profit_dashboard: 1,
-      stock_daily: 2,
+      stock_daily: 1,
       profit_by_product_daily: 2,
     });
     expect(db.rows(ECOBASE_COLLECTIONS.importRuns)).toHaveLength(3);
-    expect(db.rows(ECOBASE_COLLECTIONS.sourceAccessAudits)).toHaveLength(3);
+    expect(db.rows(ECOBASE_COLLECTIONS.sourceAccessAudits)).toHaveLength(2);
   });
 });

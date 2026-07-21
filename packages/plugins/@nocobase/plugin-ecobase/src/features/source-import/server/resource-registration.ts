@@ -8,15 +8,17 @@
  */
 
 import type { SourceAdapterRegistry } from './adapters';
+import type { SellerboardCommittedUnitHandler } from './import-service';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import { createEcobaseImportActions } from '../../../server/resource-actions';
 import { ADMIN, LOGGED_IN, type EcobaseFeatureResourceRegistration } from '../../../server/resource-registration';
 
 export function createSourceImportResourceRegistration(
   registry: SourceAdapterRegistry,
+  onSellerboardCommitted?: SellerboardCommittedUnitHandler,
 ): EcobaseFeatureResourceRegistration {
   return {
-    resources: [{ name: 'ecobaseImport', actions: createEcobaseImportActions(registry) }],
+    resources: [{ name: 'ecobaseImport', actions: createEcobaseImportActions(registry, onSellerboardCommitted) }],
     acl: [
       {
         resource: 'ecobaseImport',

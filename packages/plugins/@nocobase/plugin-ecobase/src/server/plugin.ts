@@ -66,7 +66,10 @@ export class SellerboardGoldPromotionDebouncer {
   private pending = false;
   private stopped = false;
 
-  constructor(private readonly promote: () => Promise<void>, private readonly onError: (error: unknown) => void) {}
+  constructor(
+    private readonly promote: () => Promise<void>,
+    private readonly onError: (error: unknown) => void,
+  ) {}
 
   schedule() {
     if (this.stopped) return;
@@ -202,7 +205,7 @@ export class PluginEcobaseServer extends Plugin {
     });
 
     registerEcobaseResources(this.app, [
-      createSourceImportResourceRegistration(this.registry),
+      createSourceImportResourceRegistration(this.registry, () => this.sellerboardGoldPromotion?.schedule()),
       createInventoryPlanningResourceRegistration(),
       createOrderPlanningResourceRegistration(),
       createSupplierManagementResourceRegistration(),
