@@ -1245,17 +1245,27 @@ export function createEcobaseInventoryPlanningActions() {
       },
       candidatePreview: async (ctx, next) => {
         const values = getValues(ctx.action.params);
+        const requestedRunId = getOptionalString(values, 'runId');
         try {
           const result = await new EcobaseInventoryPlanningGoldAccess(ctx.db).readCandidatePreview({
-            runId: getOptionalString(values, 'runId'),
+            runId: requestedRunId,
             actorUserId: getActorId(ctx),
             roles: getActorRoles(ctx),
             requestId:
               getOptionalString(ctx.state ?? {}, 'requestId') ?? getOptionalString(ctx.request ?? {}, 'requestId'),
           });
+          const returnedRunId = getOptionalString(result.run ?? {}, 'id');
+          if (!requestedRunId || returnedRunId !== requestedRunId) {
+            throw new EcobaseGoldError(
+              'ECOBASE_GOLD_PUBLICATION_MISMATCH',
+              'EcoBase candidate preview run identity does not match the requested run.',
+              { requestedRunId: requestedRunId ?? null, returnedRunId: returnedRunId ?? null },
+            );
+          }
           ctx.body = {
             data: {
               ...result,
+              runId: returnedRunId,
               rows: projectCorrectedInventoryPlanningListingRows(result.rows),
               familyActionProjectionCount: result.familyActions.length,
               familyActions: projectCorrectedInventoryPlanningFamilyActions(result.familyActions, result.rows),

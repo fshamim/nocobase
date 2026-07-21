@@ -770,6 +770,7 @@ describe('Gold refresh publication control', () => {
     await action(allowedContext, async () => undefined);
     expect(allowedContext.body).toMatchObject({
       data: {
+        runId: 'candidate-preview',
         published: false,
         banner: 'UNPUBLISHED CANDIDATE — NOT OPERATIONAL',
         rows: [
