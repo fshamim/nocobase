@@ -172,7 +172,7 @@ const EcobaseWorkspacePage = () => {
 
 export const ecobaseWorkspaceRoutes = [
   {
-    name: 'admin.ecobase.inventory-planning.candidate-preview',
+    name: 'admin.ecobase.candidate-preview',
     path: `${ECOBASE_WORKSPACE_ROOT}/inventory-planning/candidate-preview`,
     Component: CandidatePreviewPage,
   },

@@ -21,8 +21,12 @@ describe('EcoBase client route precedence', () => {
 
     expect(previewIndex).toBeGreaterThanOrEqual(0);
     expect(previewIndex).toBeLessThan(wildcardIndex);
-    expect(ecobaseWorkspaceRoutes[previewIndex].name).toBe('admin.ecobase.inventory-planning.candidate-preview');
+    expect(ecobaseWorkspaceRoutes[previewIndex]).toMatchObject({
+      name: 'admin.ecobase.candidate-preview',
+      path: previewPath,
+    });
     expect(ordinaryRoute?.name).toBe('admin.ecobase.inventory-planning');
+    expect(ecobaseWorkspaceRoutes[previewIndex].name).not.toMatch(/^admin\.ecobase\.inventory-planning\./);
     expect(ordinaryRoute?.Component).not.toBe(ecobaseWorkspaceRoutes[previewIndex].Component);
   });
 });
