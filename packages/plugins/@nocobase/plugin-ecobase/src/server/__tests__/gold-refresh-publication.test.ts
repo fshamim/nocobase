@@ -13,6 +13,7 @@ import { join, resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { EcobaseGoldRefreshRunService } from '../../features/inventory-planning/server/gold-refresh-run-service';
 import { EcobaseInventoryPlanningService } from '../../features/inventory-planning/server/inventory-planning-service';
+import { EcobaseInventoryPlanningGoldAccess } from '../../features/inventory-planning/server/inventory-planning-gold-access';
 import {
   blockRawGoldInventoryPlanningAccess,
   registerGoldInventoryPlanningWriteGuard,
@@ -662,9 +663,47 @@ describe('Gold refresh publication control', () => {
     expect(detail.listingEvidence).toEqual([]);
   });
 
+  it('derives published and explicit family actions from Date-valued persisted run timestamps', async () => {
+    const db = new MemoryDatabase();
+    await seedLifecycleRun(db, 'date-family-actions', 'published', '2026-07-15');
+    Object.assign(db.runs.rows[0], {
+      materializedAt: new Date('2026-07-15T00:00:00.000Z'),
+      publishedAt: '2026-07-16T00:00:00.000Z',
+    });
+    const access = new EcobaseInventoryPlanningGoldAccess(db);
+
+    const published = await access.readPublishedFamilyActions();
+    const explicit = await access.readExplicitFamilyActions({
+      runId: 'date-family-actions',
+      purpose: 'maintenance',
+      actor: { type: 'system' },
+    });
+
+    expect(published.rows).toEqual([
+      expect.objectContaining({ runId: 'date-family-actions', generatedAt: '2026-07-15T00:00:00.000Z' }),
+    ]);
+    expect(explicit.rows).toEqual(published.rows);
+  });
+
+  it('fails closed when all persisted family-action timestamps are invalid or missing', async () => {
+    const db = new MemoryDatabase();
+    await seedLifecycleRun(db, 'invalid-family-action-time', 'published', '2026-07-15');
+    Object.assign(db.runs.rows[0], {
+      materializedAt: new Date(Number.NaN),
+      verifiedAt: null,
+      publishedAt: '',
+      requestedAt: null,
+    });
+
+    await expect(new EcobaseInventoryPlanningGoldAccess(db).readPublishedFamilyActions()).rejects.toMatchObject({
+      code: 'ECOBASE_GOLD_PUBLICATION_MISMATCH',
+    });
+  });
+
   it('requires an authorized explicit verified run for audited candidate preview', async () => {
     const db = new MemoryDatabase();
     await seedLifecycleRun(db, 'candidate-preview', 'verified', '2026-07-15');
+    db.runs.rows[0].materializedAt = new Date('2026-07-15T00:00:00.000Z');
     const candidateRow = db.gold.rows[0];
     const familyActionSnapshot = ((candidateRow.calculationEvidence as Row).familyActionSnapshot ?? {}) as Row;
     candidateRow.calculationEvidence = {

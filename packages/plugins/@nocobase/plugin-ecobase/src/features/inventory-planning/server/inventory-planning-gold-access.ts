@@ -79,6 +79,11 @@ function text(value: unknown) {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
+function persistedTimestamp(value: unknown) {
+  if (value instanceof Date) return Number.isFinite(value.getTime()) ? value.toISOString() : undefined;
+  return text(value);
+}
+
 export function familyActionDecisionRecord(action: Record<string, unknown>): Record<string, unknown> {
   const listing = toPlainRecord(action.listing);
   return {
@@ -288,7 +293,10 @@ export class EcobaseInventoryPlanningGoldAccess {
   ) {
     const runId = text(run.id);
     const generatedAt =
-      text(run.materializedAt) ?? text(run.verifiedAt) ?? text(run.publishedAt) ?? text(run.requestedAt);
+      persistedTimestamp(run.materializedAt) ??
+      persistedTimestamp(run.verifiedAt) ??
+      persistedTimestamp(run.publishedAt) ??
+      persistedTimestamp(run.requestedAt);
     if (!runId || !generatedAt) {
       throw new EcobaseGoldError(
         'ECOBASE_GOLD_PUBLICATION_MISMATCH',
