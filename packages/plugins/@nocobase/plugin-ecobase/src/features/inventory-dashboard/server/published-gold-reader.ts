@@ -23,6 +23,7 @@ import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 export interface DashboardRepositoryFindParams {
   filter?: Record<string, unknown>;
   filterByTk?: string | number;
+  fields?: string[];
   sort?: string[];
   limit?: number;
   offset?: number;
@@ -53,8 +54,63 @@ export interface PublishedRun {
 const GOLD_ROW_QUERY_LIMIT = 100_000;
 
 function asString(value: unknown): string | undefined {
+  if (value instanceof Date) return value.toISOString();
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 }
+
+/**
+ * The gold table has ~150 columns including heavy jsonb evidence blobs; the
+ * dashboard reads a fixed subset. Restricting the fetched fields keeps the
+ * single-query read under the G4 latency budget (T-4.2 finding: full-row
+ * fetches pushed the header median to ~1s on staging).
+ */
+const GOLD_ROW_FIELDS = [
+  'id',
+  'naturalKey',
+  'refreshRunId',
+  'primaryActionPane',
+  'primaryActionReasonCode',
+  'companyProductFamilyId',
+  'familyTargetCompanyProductId',
+  'isFrozenFamilyTarget',
+  'companyId',
+  'amazonAccountId',
+  'marketplace',
+  'company',
+  'asin',
+  'sku',
+  'title',
+  'baselineTier',
+  'currentProjectedTier',
+  'lastClosedMonthTier',
+  'supplierOrderId',
+  'supplierId',
+  'supplierName',
+  'supplierOrderRef',
+  'supplierOrderOperationalStatus',
+  'supplierOrderWorkflowStage',
+  'pipelineHealthStatus',
+  'estimatedProfitRisk',
+  'latestSafeReorderDate',
+  'leadTimeConfirmedAt',
+  'currentPlanningStock',
+  'inventoryPositionStock',
+  'unitCost',
+  'daysOfCover',
+  'estimatedOosDate',
+  'expectedArrivalDate',
+  'expectedArrivalSource',
+  'safetyBufferDays',
+  'latestSupplierOrderActivityAt',
+  'latestSupplierOrderActivityNote',
+  'latestSupplierOrderActivityActor',
+  'latestSupplierOrderActivityActorDisplayName',
+  'readinessReasonCodes',
+  'monthlyPerformanceEvidence',
+  'projectedMonthlyUnits',
+  'lastClosedMonthUnits',
+  'recommendedOrderQty',
+];
 
 function toRecord(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
@@ -89,7 +145,7 @@ export class PublishedGoldReader {
     if (company) filter.companyId = company;
     const rows = await this.db
       .getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows)
-      .find({ filter, limit: GOLD_ROW_QUERY_LIMIT });
+      .find({ filter, fields: [...GOLD_ROW_FIELDS], limit: GOLD_ROW_QUERY_LIMIT });
     return rows.map(toRecord);
   }
 }

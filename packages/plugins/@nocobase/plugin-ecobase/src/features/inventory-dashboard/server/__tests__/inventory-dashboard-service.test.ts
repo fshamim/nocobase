@@ -167,6 +167,7 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
           row.supplierOrderId &&
           (orderPaneSet.has(row.primaryActionPane) ||
             (row.supplierOrderOperationalStatus === 'direct-ship-fba' &&
+              (row.baselineTier !== null || row.currentProjectedTier !== null || row.lastClosedMonthTier !== null) &&
               !['complete', 'cancelled'].includes(row.supplierOrderWorkflowStage ?? ''))),
       ).map((row) => row.supplierOrderId as string),
     );
@@ -411,6 +412,58 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
     if (isRunSuperseded(inbound) || isRunSuperseded(healthy)) throw new Error('bad');
     expect(inbound.rows.some((row) => row.order?.orderId === 'order-direct-complete')).toBe(false);
     expect(healthy.rows.some((row) => row.identity.asin === 'B0020')).toBe(true);
+  });
+
+  it('projects untiered active direct-ship rows to P11 with untiered_projected, never P4 (G4 audit fix)', async () => {
+    const svc = service(db);
+    const inbound = await svc.pane({ pane: 'inboundMonitoring', runId: PUBLISHED_RUN_ID, page: 1, pageSize: 200 });
+    const untiered = await svc.pane({ pane: 'untieredProducts', runId: PUBLISHED_RUN_ID, page: 1, pageSize: 200 });
+    if (isRunSuperseded(inbound) || isRunSuperseded(untiered)) throw new Error('bad');
+    expect(inbound.rows.some((row) => row.identity.asin === 'B0021')).toBe(false);
+    const projected = untiered.rows.find((row) => row.identity.asin === 'B0021');
+    expect(projected).toBeDefined();
+    expect(projected?.reasonCodes).toContain('untiered_projected');
+  });
+
+  it('handles Postgres Date instances in datetime columns (G4 audit regression)', async () => {
+    // Real repositories return Date objects for datetimeTz columns; string-only
+    // coercion silently nulled stage-entry/activity/lead-time timestamps.
+    const local = new RecordingDatabase();
+    local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).rows.push({
+      id: PUBLISHED_RUN_ID,
+      status: 'published',
+      calculationDate: FIXED_TODAY,
+      publishedAt: `${FIXED_TODAY}T00:00:00.000Z`,
+    });
+    local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).rows.push({
+      id: 'date-row',
+      naturalKey: 'date-row',
+      refreshRunId: PUBLISHED_RUN_ID,
+      primaryActionPane: 'inPrepMonitoring',
+      companyProductFamilyId: 'family-date-row',
+      baselineTier: 'A',
+      supplierOrderId: 'order-date',
+      supplierOrderOperationalStatus: 'ordered',
+      supplierOrderWorkflowStage: 'in_prep',
+      latestSupplierOrderActivityAt: new Date(Date.parse(FIXED_NOW) - 96 * 3_600_000),
+      latestSupplierOrderActivityNote: 'harvested-shape note',
+      leadTimeConfirmedAt: new Date(Date.parse(FIXED_NOW) - 10 * 86_400_000),
+    });
+    local.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows.push({
+      id: 'order-date',
+      workflowStage: 'in_prep',
+      workflowStageEnteredAt: new Date(Date.parse(FIXED_NOW) - 120 * 3_600_000),
+    });
+    const svc = service(local);
+    const inPrep = await svc.pane({ pane: 'inPrepMonitoring', runId: PUBLISHED_RUN_ID, page: 1, pageSize: 25 });
+    if (isRunSuperseded(inPrep)) throw new Error('bad');
+    const row = inPrep.rows[0];
+    expect(row.order?.daysInStage).toBe(5);
+    expect(row.order?.needsFollowUp).toBe(true); // 96h since activity > 48h
+    expect(row.lastActivity?.preview).toBe('harvested-shape note');
+    const header = await svc.header();
+    const followUp = header.tiles.find((tile) => tile.key === 'needsFollowUp');
+    expect(followUp?.count).toBe(1);
   });
 
   it('(h) emits typed response snapshots for G2 to consume', async () => {

@@ -5,7 +5,7 @@
     {
       "key": "count",
       "label": "Rows",
-      "value": 2
+      "value": 3
     },
     {
       "key": "moneyAtRisk",
@@ -16,7 +16,7 @@
     {
       "key": "unknownMoney",
       "label": "Unknown money inputs",
-      "value": 2
+      "value": 3
     }
   ],
   "rows": [
@@ -52,6 +52,49 @@
     },
     {
       "identity": {
+        "familyKey": "family-f-direct-untiered",
+        "listingRowId": "f-direct-untiered",
+        "company": "Acme",
+        "amazonAccountId": "account-acme-us",
+        "marketplace": "Amazon.com",
+        "asin": "B0021",
+        "sku": "SKU-f-direct-untiered",
+        "title": "Fixture product f-direct-untiered"
+      },
+      "pane": "untieredProducts",
+      "tier": {
+        "baseline": null,
+        "current": null
+      },
+      "stock": {
+        "currentPlanningStock": 100,
+        "inventoryPositionStock": 100,
+        "unitCost": 5
+      },
+      "daysOfCover": 40,
+      "estimatedOosDate": null,
+      "latestSafeReorderDate": null,
+      "estimatedProfitRisk": null,
+      "recommendedOrderQty": null,
+      "reasonCodes": ["untiered_projected"],
+      "velocityTrend": "unknown",
+      "performanceBand": "insufficient_evidence",
+      "order": {
+        "orderId": "order-direct-untiered",
+        "orderNumber": null,
+        "clickupStatus": "direct-ship-fba",
+        "workflowStage": "amazon_inbound",
+        "workflowStageEnteredAt": null,
+        "daysInStage": null,
+        "needsFollowUp": false,
+        "supplierId": null,
+        "supplierName": null,
+        "supplierShipDestination": null
+      },
+      "lastActivity": null
+    },
+    {
+      "identity": {
         "familyKey": "family-f-untiered-native",
         "listingRowId": "f-untiered-native",
         "company": "Acme",
@@ -84,6 +127,6 @@
   "pagination": {
     "page": 1,
     "pageSize": 200,
-    "total": 2
+    "total": 3
   }
 }

@@ -103,6 +103,10 @@ function validateDimensions(value: unknown): Record<string, unknown> | undefined
 }
 
 function asString(value: unknown): string | null {
+  // Real Postgres datetimeTz columns arrive as Date instances (G4 audit
+  // finding: string-only coercion silently nulled every stage-entry/activity/
+  // lead-time timestamp on live data).
+  if (value instanceof Date) return value.toISOString();
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
 

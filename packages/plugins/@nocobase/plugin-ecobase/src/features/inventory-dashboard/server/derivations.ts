@@ -268,10 +268,6 @@ export function projectRowPane(input: PaneProjectionInput): PaneProjectionResult
   }
   const persisted = input.primaryActionPane;
 
-  if (!input.tiered && OPERATIONAL_PANES.has(persisted)) {
-    return { pane: 'untieredProducts', staleClassification: false, untieredProjected: true };
-  }
-
   const goldStage = (input.goldWorkflowStage ?? '').trim().toLowerCase() || null;
   const silverStage = (input.silverWorkflowStage ?? '').trim().toLowerCase() || null;
   const staleClassification =
@@ -281,7 +277,16 @@ export function projectRowPane(input: PaneProjectionInput): PaneProjectionResult
   // (complete/cancelled) or stage-less direct-ship order stays in its
   // persisted gold pane instead of leaking into Inbound Monitoring.
   const activeStage = goldStage !== null && goldStage !== 'complete' && goldStage !== 'cancelled';
-  if (input.isDirectShipFba && activeStage) {
+  const activeDirectShip = input.isDirectShipFba && activeStage;
+
+  // REQ-X5 dominates every operational projection (G4 truth-audit finding):
+  // an untiered row must never reach P1-P8 — not even via the direct-ship
+  // union — so it projects to P11 with reason untiered_projected.
+  if (!input.tiered && (OPERATIONAL_PANES.has(persisted) || activeDirectShip)) {
+    return { pane: 'untieredProducts', staleClassification: false, untieredProjected: true };
+  }
+
+  if (activeDirectShip) {
     return { pane: 'inboundMonitoring', staleClassification, untieredProjected: false };
   }
   return { pane: persisted, staleClassification, untieredProjected: false };

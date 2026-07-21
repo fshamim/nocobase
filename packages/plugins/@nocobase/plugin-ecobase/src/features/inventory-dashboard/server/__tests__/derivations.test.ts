@@ -242,6 +242,28 @@ describe('projectRowPane (AD-2)', () => {
       }).pane,
     ).toBe('inboundMonitoring');
   });
+  it('projects an UNTIERED active direct-ship row to P11 instead of P4 (REQ-X5 dominates)', () => {
+    expect(
+      projectRowPane({
+        ...base,
+        tiered: false,
+        primaryActionPane: 'dataReadiness',
+        isDirectShipFba: true,
+        goldWorkflowStage: 'amazon_inbound',
+      }),
+    ).toEqual({ pane: 'untieredProducts', staleClassification: false, untieredProjected: true });
+    // A tiered row from a non-operational pane still joins the P4 union.
+    expect(
+      projectRowPane({
+        ...base,
+        tiered: true,
+        primaryActionPane: 'dataReadiness',
+        isDirectShipFba: true,
+        goldWorkflowStage: 'amazon_inbound',
+      }).pane,
+    ).toBe('inboundMonitoring');
+  });
+
   it('keeps closed or stage-less direct-ship orders in their persisted pane (T-3.0c c)', () => {
     expect(
       projectRowPane({

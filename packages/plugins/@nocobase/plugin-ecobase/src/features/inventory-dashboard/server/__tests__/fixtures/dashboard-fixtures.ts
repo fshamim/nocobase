@@ -445,6 +445,18 @@ export const GOLD_ROWS: GoldPlanningRowFixture[] = [
     supplierOrderWorkflowStage: 'complete',
   }),
 
+  // G4 truth-audit case: UNTIERED family with an ACTIVE direct-ship order
+  // parked in a non-operational pane — X5 wins: P11, never P4.
+  goldRow('f-direct-untiered', 'dataReadiness', {
+    asin: 'B0021',
+    baselineTier: null,
+    currentProjectedTier: null,
+    lastClosedMonthTier: null,
+    supplierOrderId: 'order-direct-untiered',
+    supplierOrderOperationalStatus: 'direct-ship-fba',
+    supplierOrderWorkflowStage: 'amazon_inbound',
+  }),
+
   // Zero stock (P8) and excess (P6) so every pane is represented.
   goldRow('f-zero-stock', 'zeroStock', { asin: 'B0015', currentPlanningStock: 0, inventoryPositionStock: 0 }),
   goldRow('f-excess', 'excessInventory', { asin: 'B0016', daysOfCover: 120 }),
