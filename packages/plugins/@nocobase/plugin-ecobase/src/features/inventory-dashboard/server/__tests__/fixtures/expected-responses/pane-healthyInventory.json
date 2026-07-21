@@ -1,0 +1,88 @@
+{
+  "pane": "healthyInventory",
+  "publishedRunId": "run-published-0001",
+  "metrics": [
+    {
+      "key": "count",
+      "label": "Rows",
+      "value": 2
+    },
+    {
+      "key": "moneyAtRisk",
+      "label": "Money at risk",
+      "value": null,
+      "format": "currency"
+    },
+    {
+      "key": "unknownMoney",
+      "label": "Unknown money inputs",
+      "value": 2
+    }
+  ],
+  "rows": [
+    {
+      "identity": {
+        "familyKey": "family-13",
+        "listingRowId": "f13b-split-healthy",
+        "company": "Acme",
+        "amazonAccountId": "account-acme-us",
+        "marketplace": "Amazon.com",
+        "asin": "B0013",
+        "sku": "SKU-13B",
+        "title": "Fixture product"
+      },
+      "pane": "healthyInventory",
+      "tier": {
+        "baseline": "A",
+        "current": "A"
+      },
+      "stock": {
+        "currentPlanningStock": 100,
+        "inventoryPositionStock": 100,
+        "unitCost": 5
+      },
+      "daysOfCover": 40,
+      "estimatedOosDate": null,
+      "latestSafeReorderDate": null,
+      "estimatedProfitRisk": null,
+      "reasonCodes": [],
+      "velocityTrend": "unknown",
+      "performanceBand": "insufficient_evidence",
+      "familySplit": true
+    },
+    {
+      "identity": {
+        "familyKey": "family-f-healthy",
+        "listingRowId": "f-healthy",
+        "company": "Acme",
+        "amazonAccountId": "account-acme-us",
+        "marketplace": "Amazon.com",
+        "asin": "B0018",
+        "sku": "SKU-000",
+        "title": "Fixture product"
+      },
+      "pane": "healthyInventory",
+      "tier": {
+        "baseline": "A",
+        "current": "A"
+      },
+      "stock": {
+        "currentPlanningStock": 100,
+        "inventoryPositionStock": 100,
+        "unitCost": 5
+      },
+      "daysOfCover": 40,
+      "estimatedOosDate": null,
+      "latestSafeReorderDate": null,
+      "estimatedProfitRisk": null,
+      "reasonCodes": [],
+      "velocityTrend": "up",
+      "performanceBand": "insufficient_evidence"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "pageSize": 200,
+    "total": 2
+  }
+}

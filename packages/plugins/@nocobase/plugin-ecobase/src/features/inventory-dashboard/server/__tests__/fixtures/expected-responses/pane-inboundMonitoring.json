@@ -1,0 +1,244 @@
+{
+  "pane": "inboundMonitoring",
+  "publishedRunId": "run-published-0001",
+  "metrics": [
+    {
+      "key": "count",
+      "label": "Rows",
+      "value": 5
+    },
+    {
+      "key": "moneyAtRisk",
+      "label": "Money at risk",
+      "value": 500,
+      "format": "currency"
+    },
+    {
+      "key": "unknownMoney",
+      "label": "Unknown money inputs",
+      "value": 4
+    }
+  ],
+  "rows": [
+    {
+      "identity": {
+        "familyKey": "family-f2a-inbound-null-null",
+        "listingRowId": "f2a-inbound-null-null",
+        "company": "Acme",
+        "amazonAccountId": "account-acme-us",
+        "marketplace": "Amazon.com",
+        "asin": "B0002A",
+        "sku": "SKU-000",
+        "title": "Fixture product"
+      },
+      "pane": "inboundMonitoring",
+      "tier": {
+        "baseline": "A",
+        "current": "A"
+      },
+      "stock": {
+        "currentPlanningStock": 100,
+        "inventoryPositionStock": 100,
+        "unitCost": 5
+      },
+      "daysOfCover": 40,
+      "estimatedOosDate": null,
+      "latestSafeReorderDate": null,
+      "estimatedProfitRisk": null,
+      "reasonCodes": [],
+      "velocityTrend": "unknown",
+      "performanceBand": "insufficient_evidence",
+      "order": {
+        "orderId": "order-2a",
+        "orderNumber": null,
+        "clickupStatus": "inbound-monitoring",
+        "workflowStage": "amazon_inbound",
+        "workflowStageEnteredAt": "2026-07-17T12:00:00.000Z",
+        "daysInStage": 4,
+        "needsFollowUp": true,
+        "prepPath": "unknown",
+        "expectedArrivalDate": null,
+        "arrivalProvenance": null,
+        "bufferStatus": "unknown"
+      },
+      "lastActivity": null
+    },
+    {
+      "identity": {
+        "familyKey": "family-f2b-inbound-eta-null",
+        "listingRowId": "f2b-inbound-eta-null",
+        "company": "Acme",
+        "amazonAccountId": "account-acme-us",
+        "marketplace": "Amazon.com",
+        "asin": "B0002B",
+        "sku": "SKU-000",
+        "title": "Fixture product"
+      },
+      "pane": "inboundMonitoring",
+      "tier": {
+        "baseline": "A",
+        "current": "A"
+      },
+      "stock": {
+        "currentPlanningStock": 100,
+        "inventoryPositionStock": 100,
+        "unitCost": 5
+      },
+      "daysOfCover": 40,
+      "estimatedOosDate": "2026-08-10",
+      "latestSafeReorderDate": null,
+      "estimatedProfitRisk": null,
+      "reasonCodes": [],
+      "velocityTrend": "unknown",
+      "performanceBand": "insufficient_evidence",
+      "order": {
+        "orderId": "order-2b",
+        "orderNumber": null,
+        "clickupStatus": "inbound-monitoring",
+        "workflowStage": "amazon_inbound",
+        "workflowStageEnteredAt": "2026-07-17T12:00:00.000Z",
+        "daysInStage": 4,
+        "needsFollowUp": true,
+        "prepPath": "unknown",
+        "expectedArrivalDate": null,
+        "arrivalProvenance": null,
+        "bufferStatus": "unknown"
+      },
+      "lastActivity": null
+    },
+    {
+      "identity": {
+        "familyKey": "family-f2c-inbound-sufficient-boundary",
+        "listingRowId": "f2c-inbound-sufficient-boundary",
+        "company": "Acme",
+        "amazonAccountId": "account-acme-us",
+        "marketplace": "Amazon.com",
+        "asin": "B0002C",
+        "sku": "SKU-000",
+        "title": "Fixture product"
+      },
+      "pane": "inboundMonitoring",
+      "tier": {
+        "baseline": "A",
+        "current": "A"
+      },
+      "stock": {
+        "currentPlanningStock": 100,
+        "inventoryPositionStock": 100,
+        "unitCost": 5
+      },
+      "daysOfCover": 40,
+      "estimatedOosDate": "2026-08-07",
+      "latestSafeReorderDate": null,
+      "estimatedProfitRisk": null,
+      "reasonCodes": [],
+      "velocityTrend": "unknown",
+      "performanceBand": "insufficient_evidence",
+      "order": {
+        "orderId": "order-2c",
+        "orderNumber": null,
+        "clickupStatus": "inbound-monitoring",
+        "workflowStage": "amazon_inbound",
+        "workflowStageEnteredAt": "2026-07-17T12:00:00.000Z",
+        "daysInStage": 4,
+        "needsFollowUp": true,
+        "prepPath": "unknown",
+        "expectedArrivalDate": "2026-07-31",
+        "arrivalProvenance": null,
+        "bufferStatus": "sufficient"
+      },
+      "lastActivity": null
+    },
+    {
+      "identity": {
+        "familyKey": "family-f3-direct-ship-fba",
+        "listingRowId": "f3-direct-ship-fba",
+        "company": "Acme",
+        "amazonAccountId": "account-acme-us",
+        "marketplace": "Amazon.com",
+        "asin": "B0003",
+        "sku": "SKU-000",
+        "title": "Fixture product"
+      },
+      "pane": "inboundMonitoring",
+      "tier": {
+        "baseline": "A",
+        "current": "A"
+      },
+      "stock": {
+        "currentPlanningStock": 100,
+        "inventoryPositionStock": 100,
+        "unitCost": 5
+      },
+      "daysOfCover": 40,
+      "estimatedOosDate": "2026-08-20",
+      "latestSafeReorderDate": null,
+      "estimatedProfitRisk": null,
+      "reasonCodes": [],
+      "velocityTrend": "unknown",
+      "performanceBand": "insufficient_evidence",
+      "order": {
+        "orderId": "order-3",
+        "orderNumber": null,
+        "clickupStatus": "direct-ship-fba",
+        "workflowStage": "amazon_inbound",
+        "workflowStageEnteredAt": "2026-07-19T10:00:00.000Z",
+        "daysInStage": 2,
+        "needsFollowUp": true,
+        "prepPath": "direct_fba",
+        "expectedArrivalDate": "2026-07-26",
+        "arrivalProvenance": null,
+        "bufferStatus": "sufficient"
+      },
+      "lastActivity": null
+    },
+    {
+      "identity": {
+        "familyKey": "family-f-ordered-late",
+        "listingRowId": "f-ordered-late",
+        "company": "Acme",
+        "amazonAccountId": "account-acme-us",
+        "marketplace": "Amazon.com",
+        "asin": "B0014",
+        "sku": "SKU-000",
+        "title": "Fixture product"
+      },
+      "pane": "inboundMonitoring",
+      "tier": {
+        "baseline": "A",
+        "current": "A"
+      },
+      "stock": {
+        "currentPlanningStock": 100,
+        "inventoryPositionStock": 100,
+        "unitCost": 5
+      },
+      "daysOfCover": 40,
+      "estimatedOosDate": "2026-07-31",
+      "latestSafeReorderDate": null,
+      "estimatedProfitRisk": 500,
+      "reasonCodes": [],
+      "velocityTrend": "unknown",
+      "performanceBand": "insufficient_evidence",
+      "order": {
+        "orderId": "order-late",
+        "orderNumber": null,
+        "clickupStatus": "inbound-monitoring",
+        "workflowStage": "amazon_inbound",
+        "workflowStageEnteredAt": "2026-07-11T12:00:00.000Z",
+        "daysInStage": 10,
+        "needsFollowUp": true,
+        "prepPath": "unknown",
+        "expectedArrivalDate": "2026-08-10",
+        "arrivalProvenance": null,
+        "bufferStatus": "late"
+      },
+      "lastActivity": null
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "pageSize": 200,
+    "total": 5
+  }
+}

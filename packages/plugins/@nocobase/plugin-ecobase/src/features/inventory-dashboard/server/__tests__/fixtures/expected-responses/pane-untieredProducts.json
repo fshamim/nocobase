@@ -1,0 +1,87 @@
+{
+  "pane": "untieredProducts",
+  "publishedRunId": "run-published-0001",
+  "metrics": [
+    {
+      "key": "count",
+      "label": "Rows",
+      "value": 2
+    },
+    {
+      "key": "moneyAtRisk",
+      "label": "Money at risk",
+      "value": null,
+      "format": "currency"
+    },
+    {
+      "key": "unknownMoney",
+      "label": "Unknown money inputs",
+      "value": 2
+    }
+  ],
+  "rows": [
+    {
+      "identity": {
+        "familyKey": "family-f7-untiered-in-healthy",
+        "listingRowId": "f7-untiered-in-healthy",
+        "company": "Acme",
+        "amazonAccountId": "account-acme-us",
+        "marketplace": "Amazon.com",
+        "asin": "B0007",
+        "sku": "SKU-000",
+        "title": "Fixture product"
+      },
+      "pane": "untieredProducts",
+      "tier": {
+        "baseline": null,
+        "current": null
+      },
+      "stock": {
+        "currentPlanningStock": 100,
+        "inventoryPositionStock": 100,
+        "unitCost": 5
+      },
+      "daysOfCover": 40,
+      "estimatedOosDate": null,
+      "latestSafeReorderDate": null,
+      "estimatedProfitRisk": null,
+      "reasonCodes": ["untiered_projected"],
+      "velocityTrend": "unknown",
+      "performanceBand": "insufficient_evidence"
+    },
+    {
+      "identity": {
+        "familyKey": "family-f-untiered-native",
+        "listingRowId": "f-untiered-native",
+        "company": "Acme",
+        "amazonAccountId": "account-acme-us",
+        "marketplace": "Amazon.com",
+        "asin": "B0019",
+        "sku": "SKU-000",
+        "title": "Fixture product"
+      },
+      "pane": "untieredProducts",
+      "tier": {
+        "baseline": null,
+        "current": null
+      },
+      "stock": {
+        "currentPlanningStock": 100,
+        "inventoryPositionStock": 100,
+        "unitCost": 5
+      },
+      "daysOfCover": 40,
+      "estimatedOosDate": null,
+      "latestSafeReorderDate": null,
+      "estimatedProfitRisk": null,
+      "reasonCodes": [],
+      "velocityTrend": "unknown",
+      "performanceBand": "insufficient_evidence"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "pageSize": 200,
+    "total": 2
+  }
+}

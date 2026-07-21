@@ -1,0 +1,175 @@
+{
+  "pane": "supplyAction",
+  "publishedRunId": "run-published-0001",
+  "metrics": [
+    {
+      "key": "count",
+      "label": "Rows",
+      "value": 5
+    },
+    {
+      "key": "moneyAtRisk",
+      "label": "Money at risk",
+      "value": 725,
+      "format": "currency"
+    },
+    {
+      "key": "unknownMoney",
+      "label": "Unknown money inputs",
+      "value": 1
+    }
+  ],
+  "rows": [
+    {
+      "identity": {
+        "familyKey": "family-f9b-supply-null-risk",
+        "listingRowId": "f9b-supply-null-risk",
+        "company": "Acme",
+        "amazonAccountId": "account-acme-us",
+        "marketplace": "Amazon.com",
+        "asin": "B0009B",
+        "sku": "SKU-000",
+        "title": "Fixture product"
+      },
+      "pane": "supplyAction",
+      "tier": {
+        "baseline": "A",
+        "current": "A"
+      },
+      "stock": {
+        "currentPlanningStock": 5,
+        "inventoryPositionStock": 100,
+        "unitCost": 5
+      },
+      "daysOfCover": 40,
+      "estimatedOosDate": null,
+      "latestSafeReorderDate": "2026-07-19",
+      "estimatedProfitRisk": null,
+      "reasonCodes": [],
+      "velocityTrend": "unknown",
+      "performanceBand": "insufficient_evidence"
+    },
+    {
+      "identity": {
+        "familyKey": "family-13",
+        "listingRowId": "f13a-split-supply",
+        "company": "Acme",
+        "amazonAccountId": "account-acme-us",
+        "marketplace": "Amazon.com",
+        "asin": "B0013",
+        "sku": "SKU-13A",
+        "title": "Fixture product"
+      },
+      "pane": "supplyAction",
+      "tier": {
+        "baseline": "A",
+        "current": "A"
+      },
+      "stock": {
+        "currentPlanningStock": 8,
+        "inventoryPositionStock": 100,
+        "unitCost": 5
+      },
+      "daysOfCover": 40,
+      "estimatedOosDate": null,
+      "latestSafeReorderDate": "2026-07-22",
+      "estimatedProfitRisk": 300,
+      "reasonCodes": [],
+      "velocityTrend": "unknown",
+      "performanceBand": "insufficient_evidence",
+      "familySplit": true
+    },
+    {
+      "identity": {
+        "familyKey": "family-f11a-lead-boundary",
+        "listingRowId": "f11a-lead-boundary",
+        "company": "Acme",
+        "amazonAccountId": "account-acme-us",
+        "marketplace": "Amazon.com",
+        "asin": "B0011A",
+        "sku": "SKU-000",
+        "title": "Fixture product"
+      },
+      "pane": "supplyAction",
+      "tier": {
+        "baseline": "A",
+        "current": "A"
+      },
+      "stock": {
+        "currentPlanningStock": 100,
+        "inventoryPositionStock": 100,
+        "unitCost": 5
+      },
+      "daysOfCover": 40,
+      "estimatedOosDate": null,
+      "latestSafeReorderDate": "2026-07-24",
+      "estimatedProfitRisk": 100,
+      "reasonCodes": [],
+      "velocityTrend": "unknown",
+      "performanceBand": "insufficient_evidence"
+    },
+    {
+      "identity": {
+        "familyKey": "family-f11b-lead-stale",
+        "listingRowId": "f11b-lead-stale",
+        "company": "Acme",
+        "amazonAccountId": "account-acme-us",
+        "marketplace": "Amazon.com",
+        "asin": "B0011B",
+        "sku": "SKU-000",
+        "title": "Fixture product"
+      },
+      "pane": "supplyAction",
+      "tier": {
+        "baseline": "A",
+        "current": "A"
+      },
+      "stock": {
+        "currentPlanningStock": 100,
+        "inventoryPositionStock": 100,
+        "unitCost": 5
+      },
+      "daysOfCover": 40,
+      "estimatedOosDate": null,
+      "latestSafeReorderDate": "2026-07-27",
+      "estimatedProfitRisk": 250,
+      "reasonCodes": [],
+      "velocityTrend": "unknown",
+      "performanceBand": "insufficient_evidence"
+    },
+    {
+      "identity": {
+        "familyKey": "family-f11c-lead-null",
+        "listingRowId": "f11c-lead-null",
+        "company": "Acme",
+        "amazonAccountId": "account-acme-us",
+        "marketplace": "Amazon.com",
+        "asin": "B0011C",
+        "sku": "SKU-000",
+        "title": "Fixture product"
+      },
+      "pane": "supplyAction",
+      "tier": {
+        "baseline": "A",
+        "current": "A"
+      },
+      "stock": {
+        "currentPlanningStock": 100,
+        "inventoryPositionStock": 100,
+        "unitCost": 5
+      },
+      "daysOfCover": 40,
+      "estimatedOosDate": null,
+      "latestSafeReorderDate": "2026-07-30",
+      "estimatedProfitRisk": 75,
+      "reasonCodes": [],
+      "velocityTrend": "unknown",
+      "performanceBand": "insufficient_evidence"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "pageSize": 200,
+    "total": 5
+  }
+}

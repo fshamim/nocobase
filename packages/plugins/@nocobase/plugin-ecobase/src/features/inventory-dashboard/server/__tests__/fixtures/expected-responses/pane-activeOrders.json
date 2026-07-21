@@ -1,0 +1,112 @@
+{
+  "pane": "activeOrders",
+  "publishedRunId": "run-published-0001",
+  "metrics": [
+    {
+      "key": "count",
+      "label": "Rows",
+      "value": 2
+    },
+    {
+      "key": "moneyAtRisk",
+      "label": "Money at risk",
+      "value": null,
+      "format": "currency"
+    },
+    {
+      "key": "unknownMoney",
+      "label": "Unknown money inputs",
+      "value": 2
+    }
+  ],
+  "rows": [
+    {
+      "identity": {
+        "familyKey": "family-4",
+        "listingRowId": "f4a-order-prepurchase",
+        "company": "Acme",
+        "amazonAccountId": "account-acme-us",
+        "marketplace": "Amazon.com",
+        "asin": "B0004",
+        "sku": "SKU-4A",
+        "title": "Fixture product"
+      },
+      "pane": "activeOrders",
+      "tier": {
+        "baseline": "A",
+        "current": "A"
+      },
+      "stock": {
+        "currentPlanningStock": 100,
+        "inventoryPositionStock": 100,
+        "unitCost": 5
+      },
+      "daysOfCover": 40,
+      "estimatedOosDate": null,
+      "latestSafeReorderDate": null,
+      "estimatedProfitRisk": null,
+      "reasonCodes": [],
+      "velocityTrend": "unknown",
+      "performanceBand": "insufficient_evidence",
+      "familySplit": true,
+      "order": {
+        "orderId": "order-4a",
+        "orderNumber": null,
+        "clickupStatus": "approved-to-order",
+        "workflowStage": "pre_purchase",
+        "workflowStageEnteredAt": "2026-07-20T06:00:00.000Z",
+        "daysInStage": 1,
+        "needsFollowUp": false
+      },
+      "lastActivity": {
+        "preview": "Approved to order",
+        "author": null,
+        "at": "2026-07-21T02:00:00.000Z"
+      }
+    },
+    {
+      "identity": {
+        "familyKey": "family-f10-orphan-order",
+        "listingRowId": "f10-orphan-order",
+        "company": "Acme",
+        "amazonAccountId": "account-acme-us",
+        "marketplace": "Amazon.com",
+        "asin": "B0010",
+        "sku": "SKU-000",
+        "title": "Fixture product"
+      },
+      "pane": "activeOrders",
+      "tier": {
+        "baseline": "A",
+        "current": "A"
+      },
+      "stock": {
+        "currentPlanningStock": 100,
+        "inventoryPositionStock": 100,
+        "unitCost": 5
+      },
+      "daysOfCover": 40,
+      "estimatedOosDate": null,
+      "latestSafeReorderDate": null,
+      "estimatedProfitRisk": null,
+      "reasonCodes": [],
+      "velocityTrend": "unknown",
+      "performanceBand": "insufficient_evidence",
+      "order": {
+        "orderId": "order-10-orphan",
+        "orderNumber": null,
+        "clickupStatus": "order analysing",
+        "workflowStage": "pre_purchase",
+        "workflowStageEnteredAt": null,
+        "daysInStage": null,
+        "needsFollowUp": false
+      },
+      "lastActivity": null
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "pageSize": 200,
+    "total": 2
+  }
+}

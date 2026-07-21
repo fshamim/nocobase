@@ -1,0 +1,174 @@
+{
+  "pane": "performanceReview",
+  "publishedRunId": "run-published-0001",
+  "metrics": [
+    {
+      "key": "count",
+      "label": "Rows",
+      "value": 5
+    },
+    {
+      "key": "moneyAtRisk",
+      "label": "Money at risk",
+      "value": null,
+      "format": "currency"
+    },
+    {
+      "key": "unknownMoney",
+      "label": "Unknown money inputs",
+      "value": 5
+    }
+  ],
+  "rows": [
+    {
+      "identity": {
+        "familyKey": "family-f8a-band-3-trusted",
+        "listingRowId": "f8a-band-3-trusted",
+        "company": "Acme",
+        "amazonAccountId": "account-acme-us",
+        "marketplace": "Amazon.com",
+        "asin": "B0008A",
+        "sku": "SKU-000",
+        "title": "Fixture product"
+      },
+      "pane": "performanceReview",
+      "tier": {
+        "baseline": "A",
+        "current": "B"
+      },
+      "stock": {
+        "currentPlanningStock": 100,
+        "inventoryPositionStock": 100,
+        "unitCost": 5
+      },
+      "daysOfCover": 40,
+      "estimatedOosDate": null,
+      "latestSafeReorderDate": null,
+      "estimatedProfitRisk": null,
+      "reasonCodes": [],
+      "velocityTrend": "down",
+      "performanceBand": "below_band"
+    },
+    {
+      "identity": {
+        "familyKey": "family-f8b-band-2-insufficient",
+        "listingRowId": "f8b-band-2-insufficient",
+        "company": "Acme",
+        "amazonAccountId": "account-acme-us",
+        "marketplace": "Amazon.com",
+        "asin": "B0008B",
+        "sku": "SKU-000",
+        "title": "Fixture product"
+      },
+      "pane": "performanceReview",
+      "tier": {
+        "baseline": "A",
+        "current": "A"
+      },
+      "stock": {
+        "currentPlanningStock": 100,
+        "inventoryPositionStock": 100,
+        "unitCost": 5
+      },
+      "daysOfCover": 40,
+      "estimatedOosDate": null,
+      "latestSafeReorderDate": null,
+      "estimatedProfitRisk": null,
+      "reasonCodes": [],
+      "velocityTrend": "down",
+      "performanceBand": "insufficient_evidence"
+    },
+    {
+      "identity": {
+        "familyKey": "family-f8c-band-v-eq-best",
+        "listingRowId": "f8c-band-v-eq-best",
+        "company": "Acme",
+        "amazonAccountId": "account-acme-us",
+        "marketplace": "Amazon.com",
+        "asin": "B0008C",
+        "sku": "SKU-000",
+        "title": "Fixture product"
+      },
+      "pane": "performanceReview",
+      "tier": {
+        "baseline": "A",
+        "current": "A"
+      },
+      "stock": {
+        "currentPlanningStock": 100,
+        "inventoryPositionStock": 100,
+        "unitCost": 5
+      },
+      "daysOfCover": 40,
+      "estimatedOosDate": null,
+      "latestSafeReorderDate": null,
+      "estimatedProfitRisk": null,
+      "reasonCodes": [],
+      "velocityTrend": "up",
+      "performanceBand": "within_band"
+    },
+    {
+      "identity": {
+        "familyKey": "family-f8d-band-v-eq-worst",
+        "listingRowId": "f8d-band-v-eq-worst",
+        "company": "Acme",
+        "amazonAccountId": "account-acme-us",
+        "marketplace": "Amazon.com",
+        "asin": "B0008D",
+        "sku": "SKU-000",
+        "title": "Fixture product"
+      },
+      "pane": "performanceReview",
+      "tier": {
+        "baseline": "A",
+        "current": "A"
+      },
+      "stock": {
+        "currentPlanningStock": 100,
+        "inventoryPositionStock": 100,
+        "unitCost": 5
+      },
+      "daysOfCover": 40,
+      "estimatedOosDate": null,
+      "latestSafeReorderDate": null,
+      "estimatedProfitRisk": null,
+      "reasonCodes": [],
+      "velocityTrend": "down",
+      "performanceBand": "within_band"
+    },
+    {
+      "identity": {
+        "familyKey": "family-f8e-band-below-declining",
+        "listingRowId": "f8e-band-below-declining",
+        "company": "Acme",
+        "amazonAccountId": "account-acme-us",
+        "marketplace": "Amazon.com",
+        "asin": "B0008E",
+        "sku": "SKU-000",
+        "title": "Fixture product"
+      },
+      "pane": "performanceReview",
+      "tier": {
+        "baseline": "A",
+        "current": "C"
+      },
+      "stock": {
+        "currentPlanningStock": 100,
+        "inventoryPositionStock": 100,
+        "unitCost": 5
+      },
+      "daysOfCover": 40,
+      "estimatedOosDate": null,
+      "latestSafeReorderDate": null,
+      "estimatedProfitRisk": null,
+      "reasonCodes": [],
+      "velocityTrend": "down",
+      "performanceBand": "below_band"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "pageSize": 200,
+    "total": 5
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "publishedRunId": "run-published-0001",
+  "calculationDate": "2026-07-21",
+  "dataFreshness": "fresh",
+  "tiles": [
+    {
+      "key": "urgentStockout",
+      "count": 2,
+      "moneyAtRisk": null,
+      "unknownCount": 2,
+      "currency": "EUR",
+      "targetPane": "supplyAction"
+    },
+    {
+      "key": "orderedButLate",
+      "count": 1,
+      "moneyAtRisk": 500,
+      "unknownCount": 0,
+      "currency": "EUR",
+      "targetPane": "inboundMonitoring"
+    },
+    {
+      "key": "staleLeadTimes",
+      "count": 1,
+      "moneyAtRisk": 250,
+      "unknownCount": 1,
+      "currency": "EUR",
+      "targetPane": "supplyAction"
+    },
+    {
+      "key": "needsFollowUp",
+      "count": 6,
+      "moneyAtRisk": 500,
+      "unknownCount": 5,
+      "currency": "EUR",
+      "targetPane": "inPrepMonitoring"
+    },
+    {
+      "key": "stuckCapital",
+      "count": 1,
+      "moneyAtRisk": null,
+      "unknownCount": 1,
+      "currency": "EUR",
+      "targetPane": "stuckInventory"
+    }
+  ]
+}
