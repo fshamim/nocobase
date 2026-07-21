@@ -28,8 +28,8 @@
         "amazonAccountId": "account-acme-us",
         "marketplace": "Amazon.com",
         "asin": "B0008A",
-        "sku": "SKU-000",
-        "title": "Fixture product"
+        "sku": "SKU-f8a-band-3-trusted",
+        "title": "Fixture product f8a-band-3-trusted"
       },
       "pane": "performanceReview",
       "tier": {
@@ -57,8 +57,8 @@
         "amazonAccountId": "account-acme-us",
         "marketplace": "Amazon.com",
         "asin": "B0008B",
-        "sku": "SKU-000",
-        "title": "Fixture product"
+        "sku": "SKU-f8b-band-2-insufficient",
+        "title": "Fixture product f8b-band-2-insufficient"
       },
       "pane": "performanceReview",
       "tier": {
@@ -86,8 +86,8 @@
         "amazonAccountId": "account-acme-us",
         "marketplace": "Amazon.com",
         "asin": "B0008C",
-        "sku": "SKU-000",
-        "title": "Fixture product"
+        "sku": "SKU-f8c-band-v-eq-best",
+        "title": "Fixture product f8c-band-v-eq-best"
       },
       "pane": "performanceReview",
       "tier": {
@@ -115,8 +115,8 @@
         "amazonAccountId": "account-acme-us",
         "marketplace": "Amazon.com",
         "asin": "B0008D",
-        "sku": "SKU-000",
-        "title": "Fixture product"
+        "sku": "SKU-f8d-band-v-eq-worst",
+        "title": "Fixture product f8d-band-v-eq-worst"
       },
       "pane": "performanceReview",
       "tier": {
@@ -144,8 +144,8 @@
         "amazonAccountId": "account-acme-us",
         "marketplace": "Amazon.com",
         "asin": "B0008E",
-        "sku": "SKU-000",
-        "title": "Fixture product"
+        "sku": "SKU-f8e-band-below-declining",
+        "title": "Fixture product f8e-band-below-declining"
       },
       "pane": "performanceReview",
       "tier": {

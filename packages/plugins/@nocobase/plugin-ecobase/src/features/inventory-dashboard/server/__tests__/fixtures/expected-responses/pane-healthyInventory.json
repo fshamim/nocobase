@@ -29,7 +29,7 @@
         "marketplace": "Amazon.com",
         "asin": "B0013",
         "sku": "SKU-13B",
-        "title": "Fixture product"
+        "title": "Fixture product f13b-split-healthy"
       },
       "pane": "healthyInventory",
       "tier": {
@@ -58,8 +58,8 @@
         "amazonAccountId": "account-acme-us",
         "marketplace": "Amazon.com",
         "asin": "B0018",
-        "sku": "SKU-000",
-        "title": "Fixture product"
+        "sku": "SKU-f-healthy",
+        "title": "Fixture product f-healthy"
       },
       "pane": "healthyInventory",
       "tier": {

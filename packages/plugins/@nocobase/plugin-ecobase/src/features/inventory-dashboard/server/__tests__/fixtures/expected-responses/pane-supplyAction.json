@@ -28,8 +28,8 @@
         "amazonAccountId": "account-acme-us",
         "marketplace": "Amazon.com",
         "asin": "B0009B",
-        "sku": "SKU-000",
-        "title": "Fixture product"
+        "sku": "SKU-f9b-supply-null-risk",
+        "title": "Fixture product f9b-supply-null-risk"
       },
       "pane": "supplyAction",
       "tier": {
@@ -41,8 +41,8 @@
         "inventoryPositionStock": 100,
         "unitCost": 5
       },
-      "daysOfCover": 40,
-      "estimatedOosDate": null,
+      "daysOfCover": 2,
+      "estimatedOosDate": "2026-07-23",
       "latestSafeReorderDate": "2026-07-19",
       "estimatedProfitRisk": null,
       "reasonCodes": [],
@@ -58,7 +58,7 @@
         "marketplace": "Amazon.com",
         "asin": "B0013",
         "sku": "SKU-13A",
-        "title": "Fixture product"
+        "title": "Fixture product f13a-split-supply"
       },
       "pane": "supplyAction",
       "tier": {
@@ -70,8 +70,8 @@
         "inventoryPositionStock": 100,
         "unitCost": 5
       },
-      "daysOfCover": 40,
-      "estimatedOosDate": null,
+      "daysOfCover": 4,
+      "estimatedOosDate": "2026-07-25",
       "latestSafeReorderDate": "2026-07-22",
       "estimatedProfitRisk": 300,
       "reasonCodes": [],
@@ -87,8 +87,8 @@
         "amazonAccountId": "account-acme-us",
         "marketplace": "Amazon.com",
         "asin": "B0011A",
-        "sku": "SKU-000",
-        "title": "Fixture product"
+        "sku": "SKU-f11a-lead-boundary",
+        "title": "Fixture product f11a-lead-boundary"
       },
       "pane": "supplyAction",
       "tier": {
@@ -100,8 +100,8 @@
         "inventoryPositionStock": 100,
         "unitCost": 5
       },
-      "daysOfCover": 40,
-      "estimatedOosDate": null,
+      "daysOfCover": 5,
+      "estimatedOosDate": "2026-07-26",
       "latestSafeReorderDate": "2026-07-24",
       "estimatedProfitRisk": 100,
       "reasonCodes": [],
@@ -116,8 +116,8 @@
         "amazonAccountId": "account-acme-us",
         "marketplace": "Amazon.com",
         "asin": "B0011B",
-        "sku": "SKU-000",
-        "title": "Fixture product"
+        "sku": "SKU-f11b-lead-stale",
+        "title": "Fixture product f11b-lead-stale"
       },
       "pane": "supplyAction",
       "tier": {
@@ -129,8 +129,8 @@
         "inventoryPositionStock": 100,
         "unitCost": 5
       },
-      "daysOfCover": 40,
-      "estimatedOosDate": null,
+      "daysOfCover": 8,
+      "estimatedOosDate": "2026-07-29",
       "latestSafeReorderDate": "2026-07-27",
       "estimatedProfitRisk": 250,
       "reasonCodes": [],
@@ -145,8 +145,8 @@
         "amazonAccountId": "account-acme-us",
         "marketplace": "Amazon.com",
         "asin": "B0011C",
-        "sku": "SKU-000",
-        "title": "Fixture product"
+        "sku": "SKU-f11c-lead-null",
+        "title": "Fixture product f11c-lead-null"
       },
       "pane": "supplyAction",
       "tier": {
@@ -158,8 +158,8 @@
         "inventoryPositionStock": 100,
         "unitCost": 5
       },
-      "daysOfCover": 40,
-      "estimatedOosDate": null,
+      "daysOfCover": 11,
+      "estimatedOosDate": "2026-08-01",
       "latestSafeReorderDate": "2026-07-30",
       "estimatedProfitRisk": 75,
       "reasonCodes": [],

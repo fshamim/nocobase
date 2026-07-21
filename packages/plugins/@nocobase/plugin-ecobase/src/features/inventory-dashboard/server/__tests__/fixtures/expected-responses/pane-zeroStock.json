@@ -28,8 +28,8 @@
         "amazonAccountId": "account-acme-us",
         "marketplace": "Amazon.com",
         "asin": "B0015",
-        "sku": "SKU-000",
-        "title": "Fixture product"
+        "sku": "SKU-f-zero-stock",
+        "title": "Fixture product f-zero-stock"
       },
       "pane": "zeroStock",
       "tier": {

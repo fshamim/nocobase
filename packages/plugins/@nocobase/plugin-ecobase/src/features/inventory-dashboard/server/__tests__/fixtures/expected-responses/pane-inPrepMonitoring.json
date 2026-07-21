@@ -29,7 +29,7 @@
         "marketplace": "Amazon.com",
         "asin": "B0001A",
         "sku": "SKU-1A",
-        "title": "Fixture product"
+        "title": "Fixture product f1a-inprep-followup"
       },
       "pane": "inPrepMonitoring",
       "tier": {
@@ -69,7 +69,7 @@
         "marketplace": "Amazon.com",
         "asin": "B0001B",
         "sku": "SKU-1B",
-        "title": "Fixture product"
+        "title": "Fixture product f1b-inprep-boundary"
       },
       "pane": "inPrepMonitoring",
       "tier": {
@@ -113,7 +113,7 @@
         "marketplace": "Amazon.com",
         "asin": "B0004",
         "sku": "SKU-4B",
-        "title": "Fixture product"
+        "title": "Fixture product f4b-order-inprep"
       },
       "pane": "inPrepMonitoring",
       "tier": {
@@ -157,8 +157,8 @@
         "amazonAccountId": "account-acme-us",
         "marketplace": "Amazon.com",
         "asin": "B0005",
-        "sku": "SKU-000",
-        "title": "Fixture product"
+        "sku": "SKU-f5-stale-classification",
+        "title": "Fixture product f5-stale-classification"
       },
       "pane": "inPrepMonitoring",
       "tier": {
@@ -202,8 +202,8 @@
         "amazonAccountId": "account-acme-us",
         "marketplace": "Amazon.com",
         "asin": "B0012",
-        "sku": "SKU-000",
-        "title": "Fixture product"
+        "sku": "SKU-f12-null-stage-entered",
+        "title": "Fixture product f12-null-stage-entered"
       },
       "pane": "inPrepMonitoring",
       "tier": {

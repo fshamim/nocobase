@@ -28,8 +28,8 @@
         "amazonAccountId": "account-acme-us",
         "marketplace": "Amazon.com",
         "asin": "B0009A",
-        "sku": "SKU-000",
-        "title": "Fixture product"
+        "sku": "SKU-f9a-stuck-null-cost",
+        "title": "Fixture product f9a-stuck-null-cost"
       },
       "pane": "stuckInventory",
       "tier": {

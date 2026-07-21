@@ -28,8 +28,8 @@
         "amazonAccountId": "account-acme-us",
         "marketplace": "Amazon.com",
         "asin": "B0002A",
-        "sku": "SKU-000",
-        "title": "Fixture product"
+        "sku": "SKU-f2a-inbound-null-null",
+        "title": "Fixture product f2a-inbound-null-null"
       },
       "pane": "inboundMonitoring",
       "tier": {
@@ -71,8 +71,8 @@
         "amazonAccountId": "account-acme-us",
         "marketplace": "Amazon.com",
         "asin": "B0002B",
-        "sku": "SKU-000",
-        "title": "Fixture product"
+        "sku": "SKU-f2b-inbound-eta-null",
+        "title": "Fixture product f2b-inbound-eta-null"
       },
       "pane": "inboundMonitoring",
       "tier": {
@@ -114,8 +114,8 @@
         "amazonAccountId": "account-acme-us",
         "marketplace": "Amazon.com",
         "asin": "B0002C",
-        "sku": "SKU-000",
-        "title": "Fixture product"
+        "sku": "SKU-f2c-inbound-sufficient-boundary",
+        "title": "Fixture product f2c-inbound-sufficient-boundary"
       },
       "pane": "inboundMonitoring",
       "tier": {
@@ -157,8 +157,8 @@
         "amazonAccountId": "account-acme-us",
         "marketplace": "Amazon.com",
         "asin": "B0003",
-        "sku": "SKU-000",
-        "title": "Fixture product"
+        "sku": "SKU-f3-direct-ship-fba",
+        "title": "Fixture product f3-direct-ship-fba"
       },
       "pane": "inboundMonitoring",
       "tier": {
@@ -200,8 +200,8 @@
         "amazonAccountId": "account-acme-us",
         "marketplace": "Amazon.com",
         "asin": "B0014",
-        "sku": "SKU-000",
-        "title": "Fixture product"
+        "sku": "SKU-f-ordered-late",
+        "title": "Fixture product f-ordered-late"
       },
       "pane": "inboundMonitoring",
       "tier": {

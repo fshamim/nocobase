@@ -28,8 +28,8 @@
         "amazonAccountId": "account-acme-us",
         "marketplace": "Amazon.com",
         "asin": "B0017",
-        "sku": "SKU-000",
-        "title": "Fixture product"
+        "sku": "SKU-f-readiness",
+        "title": "Fixture product f-readiness"
       },
       "pane": "dataReadiness",
       "tier": {

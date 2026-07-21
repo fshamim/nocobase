@@ -155,6 +155,8 @@ function goldRow(
     naturalKey: `gold:${id}`,
     primaryActionPane,
     companyProductFamilyId: overrides.companyProductFamilyId ?? `family-${id}`,
+    sku: overrides.sku ?? `SKU-${id}`,
+    title: overrides.title ?? `Fixture product ${id}`,
     ...overrides,
   };
 }
@@ -341,6 +343,8 @@ export const GOLD_ROWS: GoldPlanningRowFixture[] = [
   }),
   goldRow('f9b-supply-null-risk', 'supplyAction', {
     asin: 'B0009B',
+    daysOfCover: 2,
+    estimatedOosDate: dateOffset(2),
     estimatedProfitRisk: null,
     latestSafeReorderDate: dateOffset(-2), // overdue -> urgentStockout
     currentPlanningStock: 5,
@@ -358,6 +362,8 @@ export const GOLD_ROWS: GoldPlanningRowFixture[] = [
   // Item 11: lead-time evidence at boundary, over boundary, and null.
   goldRow('f11a-lead-boundary', 'supplyAction', {
     asin: 'B0011A',
+    daysOfCover: 5,
+    estimatedOosDate: dateOffset(5),
     leadTimeConfirmedAt: daysAgo(LEAD_TIME_FRESHNESS_DAYS), // exactly threshold -> not stale (strict >)
     leadTimeFreshness: 'default',
     latestSafeReorderDate: dateOffset(3),
@@ -365,6 +371,8 @@ export const GOLD_ROWS: GoldPlanningRowFixture[] = [
   }),
   goldRow('f11b-lead-stale', 'supplyAction', {
     asin: 'B0011B',
+    daysOfCover: 8,
+    estimatedOosDate: dateOffset(8),
     leadTimeConfirmedAt: daysAgo(LEAD_TIME_FRESHNESS_DAYS + 5), // over threshold -> stale
     leadTimeFreshness: 'stale',
     latestSafeReorderDate: dateOffset(6),
@@ -372,6 +380,8 @@ export const GOLD_ROWS: GoldPlanningRowFixture[] = [
   }),
   goldRow('f11c-lead-null', 'supplyAction', {
     asin: 'B0011C',
+    daysOfCover: 11,
+    estimatedOosDate: dateOffset(11),
     leadTimeConfirmedAt: null, // null -> unknownCount, never stale
     leadTimeFreshness: 'missing',
     latestSafeReorderDate: dateOffset(9),
@@ -392,6 +402,8 @@ export const GOLD_ROWS: GoldPlanningRowFixture[] = [
     companyProductFamilyId: 'family-13',
     asin: 'B0013',
     sku: 'SKU-13A',
+    daysOfCover: 4,
+    estimatedOosDate: dateOffset(4),
     latestSafeReorderDate: dateOffset(1),
     estimatedProfitRisk: 300,
     currentPlanningStock: 8,

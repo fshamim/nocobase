@@ -28,8 +28,8 @@
         "amazonAccountId": "account-acme-us",
         "marketplace": "Amazon.com",
         "asin": "B0007",
-        "sku": "SKU-000",
-        "title": "Fixture product"
+        "sku": "SKU-f7-untiered-in-healthy",
+        "title": "Fixture product f7-untiered-in-healthy"
       },
       "pane": "untieredProducts",
       "tier": {
@@ -57,8 +57,8 @@
         "amazonAccountId": "account-acme-us",
         "marketplace": "Amazon.com",
         "asin": "B0019",
-        "sku": "SKU-000",
-        "title": "Fixture product"
+        "sku": "SKU-f-untiered-native",
+        "title": "Fixture product f-untiered-native"
       },
       "pane": "untieredProducts",
       "tier": {

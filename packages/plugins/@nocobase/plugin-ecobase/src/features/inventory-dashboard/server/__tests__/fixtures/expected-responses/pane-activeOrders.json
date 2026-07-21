@@ -29,7 +29,7 @@
         "marketplace": "Amazon.com",
         "asin": "B0004",
         "sku": "SKU-4A",
-        "title": "Fixture product"
+        "title": "Fixture product f4a-order-prepurchase"
       },
       "pane": "activeOrders",
       "tier": {
@@ -72,8 +72,8 @@
         "amazonAccountId": "account-acme-us",
         "marketplace": "Amazon.com",
         "asin": "B0010",
-        "sku": "SKU-000",
-        "title": "Fixture product"
+        "sku": "SKU-f10-orphan-order",
+        "title": "Fixture product f10-orphan-order"
       },
       "pane": "activeOrders",
       "tier": {
