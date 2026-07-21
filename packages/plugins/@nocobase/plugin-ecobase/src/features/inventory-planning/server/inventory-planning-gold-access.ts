@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import type { EcobaseDatabase } from '../../source-import/server/import-service';
 import { toPlainRecord } from '../../source-import/server/import-service';
+import { readAllRowsById } from './deterministic-repository-pagination';
 import { EcobaseGoldError } from './gold-errors';
 import {
   deriveCorrectedFamilyActionsFromListingRows,
@@ -276,14 +277,18 @@ export class EcobaseInventoryPlanningGoldAccess {
   }
 
   private async rowsForRun(runId: string, query: GoldListingReadQuery) {
-    return (
-      await this.rowRepository().find({
+    const rows = (
+      await readAllRowsById({
+        repository: this.rowRepository(),
+        collectionName: ECOBASE_COLLECTIONS.goldInventoryPlanningRows,
         filter: { ...(query.filter ?? {}), refreshRunId: runId },
-        sort: query.sort,
-        limit: query.limit ?? 100000,
         transaction: query.transaction,
       })
     ).map(toPlainRecord);
+    const sorted = query.sort?.length
+      ? [...rows].sort((left, right) => this.compareRows(left, right, query.sort ?? []))
+      : rows;
+    return sorted.slice(0, query.limit ?? sorted.length);
   }
 
   private derivedFamilyActions(

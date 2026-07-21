@@ -56,6 +56,7 @@ type RepositoryFindParams = {
   filterByTk?: string | number;
   sort?: string[];
   limit?: number;
+  offset?: number;
   appends?: string[];
   transaction?: unknown;
 };
@@ -67,7 +68,12 @@ type RepositoryUpdateParams = {
   values: Record<string, unknown>;
   transaction?: unknown;
 };
-type RepositoryDestroyParams = { filter?: Filter; filterByTk?: string | number; where?: Filter };
+type RepositoryDestroyParams = {
+  filter?: Filter;
+  filterByTk?: string | number;
+  where?: Filter;
+  transaction?: unknown;
+};
 
 type ImportFileSummary = {
   rowCount: number;
@@ -99,6 +105,22 @@ type AdapterImportStreamResult = {
   protectedCatalog?: ProtectedCatalogReport;
 };
 
+type PreparedAdapterReportUnit = {
+  items: AdapterStreamItem[];
+  inputDigest: string;
+  protectedCatalog?: ProtectedCatalogReport;
+};
+
+class SellerboardReportPreparationError extends Error {
+  constructor(
+    message: string,
+    readonly prepared: PreparedAdapterReportUnit,
+  ) {
+    super(message);
+    this.name = 'SellerboardReportPreparationError';
+  }
+}
+
 type AdapterImportStreamParams = {
   importRunId: string;
   bronzeService: EcobaseBronzeImportService;
@@ -113,6 +135,8 @@ type AdapterImportStreamParams = {
   adapterInput: SourceAdapterImportInput;
   adapterConfig: Record<string, unknown>;
   skipExistingNormalizedKinds: Set<string>;
+  preparedItems?: AdapterStreamItem[];
+  preparedProtectedCatalog?: ProtectedCatalogReport;
 };
 
 const NORMALIZED_RECORD_COLLECTIONS: Record<string, string> = {
@@ -243,6 +267,74 @@ export interface EcobaseDatabase {
   sequelize?: any;
 }
 
+export function databaseInTransaction(db: EcobaseDatabase, transaction: unknown): EcobaseDatabase {
+  const repositories = new Map<string, EcobaseRepository>();
+  return {
+    getRepository(name) {
+      const cached = repositories.get(name);
+      if (cached) return cached;
+      const repository = db.getRepository(name);
+      const transactional: EcobaseRepository = {
+        find: (params = {}) => repository.find({ ...params, transaction }),
+        findOne: (params = {}) => repository.findOne({ ...params, transaction }),
+        create: (params) => repository.create({ ...params, transaction }),
+        update: (params) => repository.update({ ...params, transaction }),
+        ...(repository.destroy
+          ? { destroy: (params) => repository.destroy!({ ...params, transaction }) }
+          : {}),
+      };
+      repositories.set(name, transactional);
+      return transactional;
+    },
+    sequelize: db.sequelize
+      ? new Proxy(db.sequelize, {
+          get(target, property) {
+            if (property === 'transaction') {
+              return (...args: unknown[]) => {
+                const callback = args[args.length - 1] as
+                  | ((nestedTransaction: unknown) => Promise<unknown>)
+                  | undefined;
+                if (typeof callback !== 'function') throw new Error('Ecobase transaction requires a callback.');
+                return callback(transaction);
+              };
+            }
+            const value = Reflect.get(target, property);
+            return typeof value === 'function' ? value.bind(target) : value;
+          },
+        })
+      : undefined,
+  };
+}
+
+const SELLERBOARD_REPORT_KINDS = new Set(['profit_dashboard', 'stock_daily', 'profit_by_product_daily']);
+const SELLERBOARD_REPORT_UNIT_MAX_ATTEMPTS = 3;
+const SELLERBOARD_REPORT_UNIT_BACKOFF_MS = [25, 75] as const;
+
+type SellerboardReportUnitFailureClassification = 'retryable_transient' | 'non_retryable';
+
+function classifySellerboardReportUnitFailure(message: string): {
+  classification: SellerboardReportUnitFailureClassification;
+  reasonCode: string;
+} {
+  const normalized = message.toLowerCase();
+  if (/\b(?:408|425|429|5\d\d)\b/.test(normalized)) {
+    return { classification: 'retryable_transient', reasonCode: 'transient_http_status' };
+  }
+  if (
+    ['econnreset', 'econnrefused', 'etimedout', 'fetch failed', 'network error', 'socket hang up', 'temporarily unavailable'].some(
+      (token) => normalized.includes(token),
+    )
+  ) {
+    return { classification: 'retryable_transient', reasonCode: 'transient_transport_failure' };
+  }
+  return { classification: 'non_retryable', reasonCode: 'deterministic_or_unclassified_failure' };
+}
+
+function sellerboardReportKind(params: RunAdapterImportParams) {
+  const reportKind = getString(params.runtimeConfig ?? {}, 'reportKind');
+  return reportKind && SELLERBOARD_REPORT_KINDS.has(reportKind) ? reportKind : undefined;
+}
+
 export interface RunNoopImportParams {
   sourceConnectionId: string;
   sourceIdentifier?: string;
@@ -265,6 +357,9 @@ type RunAdapterImportParams = RunNoopImportParams & {
   adapterName: string;
   queuedImportRun?: QueuedImportRun;
   startedAt?: Date;
+  unitTransaction?: unknown;
+  preparedReportUnit?: PreparedAdapterReportUnit;
+  retryPersistedFailure?: boolean;
 };
 
 export interface RunCsvBundleImportParams {
@@ -412,6 +507,43 @@ function inlineCsvFiles(config: Record<string, unknown>): CsvSourceFile[] {
 
 function sha256(value: string) {
   return createHash('sha256').update(value).digest('hex');
+}
+
+function canonicalReportInput(value: unknown): unknown {
+  if (value === undefined) return null;
+  if (value instanceof Date) return value.toISOString();
+  if (Array.isArray(value)) return value.map(canonicalReportInput);
+  if (!isRecord(value)) return value;
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort()
+      .map((key) => [key, canonicalReportInput(value[key])]),
+  );
+}
+
+function sellerboardReportInputDigest(items: AdapterStreamItem[]) {
+  const inputProjection = items.map((item) => {
+    if (item.type === 'record') {
+      return {
+        type: item.type,
+        rowNumber: item.rowNumber,
+        sourceKey: item.sourceKey,
+        payload: item.payload,
+      };
+    }
+    if (item.type === 'rowIssue') return { type: item.type, issue: item.issue };
+    return { type: item.type, status: item.status, message: item.message, payload: item.payload };
+  });
+  return sha256(JSON.stringify(canonicalReportInput(inputProjection)));
+}
+
+function sellerboardReportUnitBackoff(attempt: number) {
+  const delay = SELLERBOARD_REPORT_UNIT_BACKOFF_MS[attempt - 1];
+  return delay ?? SELLERBOARD_REPORT_UNIT_BACKOFF_MS[SELLERBOARD_REPORT_UNIT_BACKOFF_MS.length - 1];
+}
+
+function wait(milliseconds: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function bundleHash(files: Array<{ checksum: string }>) {
@@ -1147,9 +1279,291 @@ export class EcobaseImportService {
     return { imports, normalization, failures, goldRefreshRequired };
   }
 
+  private async prepareSellerboardReportUnit(
+    params: RunAdapterImportParams,
+    sourceIdentifier: string,
+    sourceVersion: string,
+  ): Promise<PreparedAdapterReportUnit> {
+    const sourceConnection = await this.db
+      .getRepository(ECOBASE_COLLECTIONS.sourceConnections)
+      .findOne({ filterByTk: params.sourceConnectionId });
+    if (!sourceConnection) {
+      throw new Error(`Ecobase import failed: source connection "${params.sourceConnectionId}" was not found.`);
+    }
+    const adapter = this.registry.get(params.adapterName);
+    validateSourceConnectionForAdapter(sourceConnection, adapter);
+    const adapterConfig = mergeConfig(sourceConnection, params.runtimeConfig);
+    const catalogMutationMode =
+      adapter.metadata.name === 'sellerboard-api'
+        ? getString(adapterConfig, 'catalogMutationMode') ?? 'refresh'
+        : undefined;
+    if (catalogMutationMode && !['rebuild', 'refresh'].includes(catalogMutationMode)) {
+      throw new Error(
+        `Ecobase import failed: catalogMutationMode must be rebuild or refresh, received "${catalogMutationMode}".`,
+      );
+    }
+    if (catalogMutationMode) adapterConfig.catalogMutationMode = catalogMutationMode;
+    const companyId = getString(sourceConnection, 'companyId');
+    if (companyId && !getString(adapterConfig, 'defaultCompany')) {
+      const company = await this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).findOne({ filterByTk: companyId });
+      const companyName = getString(company, 'name');
+      if (!companyName) {
+        throw new Error(
+          `Ecobase import failed: source connection "${params.sourceConnectionId}" references missing company "${companyId}".`,
+        );
+      }
+      adapterConfig.defaultCompany = companyName;
+    }
+    const adapterInput: SourceAdapterImportInput = {
+      sourceConnectionId: params.sourceConnectionId,
+      sourceIdentifier,
+      sourceVersion,
+      idempotencyKey:
+        params.idempotencyKey ?? `${params.sourceConnectionId}:${sourceIdentifier}:${sourceVersion}:preparation`,
+      config: adapterConfig,
+      secretRef: getString(sourceConnection, 'secretRef'),
+    };
+    let protectedCatalog: ProtectedCatalogReport | undefined;
+    const items: AdapterStreamItem[] = [];
+    const requiresCatalogPreflight =
+      adapter.metadata.name === 'sellerboard-api' && getString(adapterConfig, 'catalogMutationMode') !== 'rebuild';
+    const boundaryService = requiresCatalogPreflight ? new EcobaseProtectedCatalogBoundary(this.db) : undefined;
+    if (boundaryService) protectedCatalog = await boundaryService.inspect();
+    for await (const sourceItem of adapter.import(adapterInput)) {
+      if (boundaryService && sourceItem.type !== 'status') {
+        const boundary = applySafeImportBoundary(
+          { adapter, defaultCompany: getString(adapterConfig, 'defaultCompany') },
+          sourceItem,
+        );
+        if (boundary.disposition !== 'discard' && boundary.item.type === 'record') {
+          await boundaryService.assertExistingSellerboardIdentity(boundary.item.payload);
+        }
+      }
+      items.push(sourceItem);
+    }
+    const prepared: PreparedAdapterReportUnit = {
+      items,
+      inputDigest: sellerboardReportInputDigest(items),
+      ...(protectedCatalog ? { protectedCatalog } : {}),
+    };
+    try {
+      this.validatePreparedSellerboardReportUnit(adapter, adapterConfig, prepared.items);
+    } catch (error) {
+      throw new SellerboardReportPreparationError(
+        error instanceof Error ? error.message : 'Ecobase Sellerboard report preparation failed with a non-Error value.',
+        prepared,
+      );
+    }
+    return prepared;
+  }
+
+  private validatePreparedSellerboardReportUnit(
+    adapter: SourceAdapter,
+    adapterConfig: Record<string, unknown>,
+    items: AdapterStreamItem[],
+  ) {
+    for (const sourceItem of items) {
+      if (sourceItem.type === 'status') {
+        if (sourceItem.status !== 'success') throw new Error(sourceItem.message);
+        continue;
+      }
+      if (sourceItem.type === 'rowIssue' && sourceItem.issue.severity === 'error') {
+        throw new Error(sourceItem.issue.message);
+      }
+      const boundary = applySafeImportBoundary(
+        { adapter, defaultCompany: getString(adapterConfig, 'defaultCompany') },
+        sourceItem,
+      );
+      if (boundary.disposition === 'discard') {
+        if (boundary.reasonCode === 'unsupported_projection_dataset') {
+          throw new Error(
+            `Ecobase import failed: adapter "${adapter.metadata.name}" emitted a source row without an approved safe projection.`,
+          );
+        }
+        continue;
+      }
+      if (boundary.item.type !== 'record') continue;
+      const records = Array.isArray(boundary.item.record) ? boundary.item.record : [boundary.item.record];
+      for (const record of records) {
+        validateNormalizedRecord(record);
+        if (BRONZE_ONLY_RECORD_KINDS.has(record.kind)) continue;
+        const target = normalizedRecordTarget(record, 'prepared-report-unit');
+        if (!target.collectionName) {
+          throw new Error(`Ecobase import failed: normalized record kind "${record.kind}" is not mapped to a collection.`);
+        }
+        if (!getString(target.values, 'naturalKey')) {
+          throw new Error(`Ecobase import failed: normalized record kind "${record.kind}" is missing naturalKey.`);
+        }
+      }
+    }
+  }
+
+  private async persistSellerboardReportUnitFailure(params: {
+    attempted?: Record<string, unknown>;
+    sourceConnectionId: string;
+    adapterName: string;
+    sourceIdentifier: string;
+    sourceVersion: string;
+    idempotencyKey: string;
+    inputDigest?: string;
+    startedAt?: Date;
+    message: string;
+    attemptCount: number;
+    backoffMs: number;
+    failure: ReturnType<typeof classifySellerboardReportUnitFailure>;
+  }) {
+    const repository = this.db.getRepository(ECOBASE_COLLECTIONS.importRuns);
+    const existing = await repository.findOne({ filter: { idempotencyKey: params.idempotencyKey } });
+    const attempted = params.attempted ?? {};
+    const values = {
+      sourceConnectionId: params.sourceConnectionId,
+      adapterName: params.adapterName,
+      sourceIdentifier: params.sourceIdentifier,
+      sourceVersion: params.sourceVersion,
+      idempotencyKey: params.idempotencyKey,
+      startedAt: attempted.startedAt ?? params.startedAt ?? new Date(),
+      finishedAt: new Date(),
+      status: 'failed',
+      rowCount: getNumber(attempted, 'rowCount'),
+      normalizedCount: 0,
+      warningCount: getNumber(attempted, 'warningCount'),
+      errorCount: Math.max(1, getNumber(attempted, 'errorCount')),
+      errorMessage: params.message,
+      summary: {
+        ...toPlainRecord(attempted.summary),
+        ...(params.inputDigest ? { reportUnitInputDigest: params.inputDigest } : {}),
+        reportUnitRetry: {
+          attemptCount: params.attemptCount,
+          backoffMs: params.backoffMs,
+          classification: params.failure.classification,
+          reasonCode: params.failure.reasonCode,
+        },
+      },
+    };
+    if (existing) {
+      const id = toPlainRecord(existing).id;
+      if (typeof id !== 'string' && typeof id !== 'number') {
+        throw new Error(`Ecobase failed report unit "${params.idempotencyKey}" is missing its run id.`);
+      }
+      await repository.update({ filterByTk: id, values });
+      return toPlainRecord((await repository.findOne({ filterByTk: id })) ?? existing);
+    }
+    return toPlainRecord(
+      await repository.create({ values: { id: getString(attempted, 'id') ?? randomUUID(), ...values } }),
+    );
+  }
+
   async runAdapterImport(params: RunAdapterImportParams) {
     if (!params.sourceConnectionId) {
       throw new Error('Ecobase import failed: sourceConnectionId is required.');
+    }
+
+    const reportKind = sellerboardReportKind(params);
+    if (reportKind && !params.unitTransaction) {
+      const sourceIdentifier = params.sourceIdentifier ?? `sellerboard:${reportKind}`;
+      const sourceVersion = params.sourceVersion;
+      if (!sourceVersion) {
+        throw new Error(`Ecobase Sellerboard ${reportKind} import requires sourceVersion.`);
+      }
+      const runTransaction = this.db.sequelize?.transaction?.bind(this.db.sequelize);
+      if (!runTransaction) {
+        throw new Error(`Ecobase Sellerboard ${reportKind} import requires database transaction support.`);
+      }
+      const fallbackIdempotencyKey =
+        params.idempotencyKey ?? `${params.sourceConnectionId}:${sourceIdentifier}:${sourceVersion}`;
+      let idempotencyKey = fallbackIdempotencyKey;
+      let preparedReportUnit: PreparedAdapterReportUnit | undefined;
+      let totalBackoffMs = 0;
+      for (let attempt = 1; attempt <= SELLERBOARD_REPORT_UNIT_MAX_ATTEMPTS; attempt += 1) {
+        let failedRun: Record<string, unknown> | undefined;
+        let phase: 'preparation' | 'transaction' = 'preparation';
+        try {
+          if (!preparedReportUnit) {
+            preparedReportUnit = await this.prepareSellerboardReportUnit(params, sourceIdentifier, sourceVersion);
+          }
+          idempotencyKey = `${params.sourceConnectionId}:${reportKind}:${preparedReportUnit.inputDigest}`;
+          const existing = await this.db
+            .getRepository(ECOBASE_COLLECTIONS.importRuns)
+            .findOne({ filter: { idempotencyKey } });
+          if (getString(existing, 'status') === 'success') {
+            return { ...toPlainRecord(existing), reused: true };
+          }
+          phase = 'transaction';
+          const run = await runTransaction(async (transaction: unknown) => {
+            const result = await new EcobaseImportService(
+              databaseInTransaction(this.db, transaction),
+              this.registry,
+            ).runAdapterImport({
+              ...params,
+              sourceIdentifier,
+              sourceVersion,
+              idempotencyKey,
+              preparedReportUnit,
+              retryPersistedFailure: getString(existing, 'status') === 'failed',
+              summary: {
+                ...(params.summary ?? {}),
+                reportUnitInputDigest: preparedReportUnit.inputDigest,
+                reportUnitRetry: {
+                  attemptCount: attempt,
+                  backoffMs: totalBackoffMs,
+                  classification: attempt === 1 ? 'not_applicable' : 'retryable_transient',
+                  outcome: attempt === 1 ? 'succeeded_without_retry' : 'recovered',
+                },
+              },
+              unitTransaction: transaction,
+            });
+            if (getString(result, 'status') !== 'success') {
+              failedRun = toPlainRecord(result);
+              throw new Error(
+                getString(result, 'errorMessage') ??
+                  `Ecobase Sellerboard ${reportKind} import failed before the report unit could commit.`,
+              );
+            }
+            return result;
+          });
+          return { ...toPlainRecord(run), reused: false };
+        } catch (error) {
+          if (error instanceof SellerboardReportPreparationError) {
+            preparedReportUnit = error.prepared;
+            idempotencyKey = `${params.sourceConnectionId}:${reportKind}:${preparedReportUnit.inputDigest}`;
+          }
+          const attempted = failedRun ?? {};
+          const message =
+            getString(attempted, 'errorMessage') ??
+            (error instanceof Error
+              ? error.message
+              : `Ecobase Sellerboard ${reportKind} import failed with a non-Error value.`);
+          const failure = classifySellerboardReportUnitFailure(message);
+          if (
+            failure.classification === 'retryable_transient' &&
+            attempt < SELLERBOARD_REPORT_UNIT_MAX_ATTEMPTS
+          ) {
+            const backoffMs = sellerboardReportUnitBackoff(attempt);
+            totalBackoffMs += backoffMs;
+            if (phase === 'preparation') {
+              preparedReportUnit = undefined;
+              idempotencyKey = fallbackIdempotencyKey;
+            }
+            await wait(backoffMs);
+            continue;
+          }
+          return this.persistSellerboardReportUnitFailure({
+            attempted,
+            sourceConnectionId: params.sourceConnectionId,
+            adapterName: params.adapterName,
+            sourceIdentifier,
+            sourceVersion,
+            idempotencyKey,
+            inputDigest: preparedReportUnit?.inputDigest,
+            startedAt: params.startedAt,
+            message,
+            attemptCount: attempt,
+            backoffMs: totalBackoffMs,
+            failure,
+          });
+        }
+      }
+      throw new Error(`Ecobase Sellerboard ${reportKind} import exhausted its bounded retry loop unexpectedly.`);
     }
 
     const sourceConnectionRepo = this.db.getRepository(ECOBASE_COLLECTIONS.sourceConnections);
@@ -1188,7 +1602,9 @@ export class EcobaseImportService {
       adapterConfig.defaultCompany = companyName;
     }
 
-    await this.cleanupExpiredBronzeRecords(params.startedAt ?? new Date());
+    if (!params.unitTransaction) {
+      await this.cleanupExpiredBronzeRecords(params.startedAt ?? new Date());
+    }
     const startedAt = params.queuedImportRun?.startedAt ?? params.startedAt ?? new Date();
     const sourceIdentifier = params.sourceIdentifier ?? adapter.metadata.name;
     const sourceVersion = params.sourceVersion ?? startedAt.toISOString();
@@ -1209,31 +1625,60 @@ export class EcobaseImportService {
       });
     }
 
-    if (existingRun && !params.preserveAuditRun) {
+    const retryingPersistedFailure =
+      params.retryPersistedFailure === true && getString(existingRun, 'status') === 'failed';
+    if (existingRun && !params.preserveAuditRun && !retryingPersistedFailure) {
       return toPlainRecord(existingRun);
     }
 
     const idempotencyKey =
       params.queuedImportRun?.idempotencyKey ??
-      (existingRun ? `${baseIdempotencyKey}:audit:${randomUUID()}` : baseIdempotencyKey);
+      (existingRun && !retryingPersistedFailure
+        ? `${baseIdempotencyKey}:audit:${randomUUID()}`
+        : baseIdempotencyKey);
 
-    const pendingRun = params.queuedImportRun
-      ? await importRunRepo.findOne({ filterByTk: params.queuedImportRun.id })
-      : await importRunRepo.create({
-          values: {
-            sourceConnectionId: params.sourceConnectionId,
-            adapterName: adapter.metadata.name,
-            sourceIdentifier,
-            sourceVersion,
-            idempotencyKey,
-            startedAt,
-            status: 'pending',
-            rowCount: 0,
-            normalizedCount: 0,
-            warningCount: 0,
-            errorCount: 0,
-          },
-        });
+    let pendingRun: unknown;
+    if (params.queuedImportRun) {
+      pendingRun = await importRunRepo.findOne({ filterByTk: params.queuedImportRun.id });
+    } else if (retryingPersistedFailure) {
+      const existingRunId = toPlainRecord(existingRun).id;
+      if (typeof existingRunId !== 'string' && typeof existingRunId !== 'number') {
+        throw new Error(`Ecobase failed report unit "${baseIdempotencyKey}" is missing its run id.`);
+      }
+      await importRunRepo.update({
+        filterByTk: existingRunId,
+        values: {
+          sourceIdentifier,
+          sourceVersion,
+          startedAt,
+          finishedAt: null,
+          status: 'pending',
+          rowCount: 0,
+          normalizedCount: 0,
+          warningCount: 0,
+          errorCount: 0,
+          errorMessage: null,
+          summary: params.summary ?? {},
+        },
+      });
+      pendingRun = await importRunRepo.findOne({ filterByTk: existingRunId });
+    } else {
+      pendingRun = await importRunRepo.create({
+        values: {
+          sourceConnectionId: params.sourceConnectionId,
+          adapterName: adapter.metadata.name,
+          sourceIdentifier,
+          sourceVersion,
+          idempotencyKey,
+          startedAt,
+          status: 'pending',
+          rowCount: 0,
+          normalizedCount: 0,
+          warningCount: 0,
+          errorCount: 0,
+        },
+      });
+    }
     const importRunId = params.queuedImportRun?.id ?? getString(pendingRun, 'id');
 
     if (!importRunId) {
@@ -1275,6 +1720,8 @@ export class EcobaseImportService {
         secretRef: getString(sourceConnection, 'secretRef'),
       },
       skipExistingNormalizedKinds: new Set(params.skipExistingNormalizedKinds ?? []),
+      preparedItems: params.preparedReportUnit?.items,
+      preparedProtectedCatalog: params.preparedReportUnit?.protectedCatalog,
     });
     const {
       rowCount,
@@ -1294,6 +1741,7 @@ export class EcobaseImportService {
       try {
         medallionNormalization = await new EcobaseMedallionNormalizationService(this.db).normalizePending({
           sourceConnectionId: params.sourceConnectionId,
+          importRunId,
         });
         errorCount += medallionNormalization.failed;
       } catch (error) {
@@ -1308,6 +1756,7 @@ export class EcobaseImportService {
     if (
       !errorMessage &&
       normalizedCount > 0 &&
+      !reportKind &&
       !['google-sheets-migration-csv', 'sellerboard-history-csv'].includes(adapter.metadata.name)
     ) {
       try {
@@ -1454,10 +1903,11 @@ export class EcobaseImportService {
     };
 
     try {
-      let sourceItems: AsyncIterable<AdapterStreamItem> | AdapterStreamItem[] = params.adapter.import(
-        params.adapterInput,
-      );
+      let sourceItems: AsyncIterable<AdapterStreamItem> | AdapterStreamItem[] =
+        params.preparedItems ?? params.adapter.import(params.adapterInput);
+      result.protectedCatalog = params.preparedProtectedCatalog;
       if (
+        !params.preparedItems &&
         params.adapter.metadata.name === 'sellerboard-api' &&
         getString(params.adapterConfig, 'catalogMutationMode') !== 'rebuild'
       ) {

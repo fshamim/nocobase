@@ -19,7 +19,7 @@ import {
   silverOrderStatus,
   silverSupplierOrderReadModel,
 } from '../../supplier-management/server/silver-supplier-order-read-model';
-import { toPlainRecord } from '../../source-import/server/import-service';
+import { databaseInTransaction, toPlainRecord } from '../../source-import/server/import-service';
 import { EcobaseSellerboardCogsService } from '../../source-import/server/sellerboard-cogs-service';
 import { EcobaseSilverDataService } from '../../semantic-model/server/silver-data-service';
 import { addDays, diffDays, isoDate, optionalIsoDate } from './planning-date';
@@ -42,12 +42,11 @@ import { latestPreferredInventorySnapshot } from './order-receipt-evidence';
 import { selectCurrentFamilyOrderCycle, type FamilyOrderCycleSelection } from './order-cycle-selection';
 import { evaluatePlanningReadiness } from './planning-readiness';
 import { workflowStageForOperationalStatus } from '../../order-planning/order-operational-status';
+import { readAllRowsById } from './deterministic-repository-pagination';
 import { canonicalJson, EcobaseGoldRefreshRunService, type GoldPublicationPayload } from './gold-refresh-run-service';
 import { EcobaseGoldError } from './gold-errors';
 import {
   buildCorrectedInventoryPlanningCandidate,
-  CORRECTED_CANDIDATE_FAMILY_COUNT,
-  CORRECTED_CANDIDATE_LISTING_COUNT,
   CorrectedCandidateBuilderError,
   type CorrectedCandidateCoverageInterval,
   type CorrectedCandidateCoverageMembership,
@@ -78,7 +77,6 @@ import {
   type InventoryPlanningPane,
 } from './inventory-planning-pane-classifier';
 
-const GOLD_SOURCE_RECORD_LIMIT = 100000;
 const CORRECTED_CANDIDATE_PROTECTED_COLLECTIONS = [
   ECOBASE_COLLECTIONS.silverCompanies,
   ECOBASE_COLLECTIONS.silverAmazonAccounts,
@@ -1839,8 +1837,13 @@ export class EcobaseInventoryPlanningService {
       },
     };
   }
-  private async repoRows(collectionName: string, limit = GOLD_SOURCE_RECORD_LIMIT) {
-    return (await this.db.getRepository(collectionName).find({ limit })).map(toPlainRecord);
+  private async repoRows(collectionName: string) {
+    return (
+      await readAllRowsById({
+        repository: this.db.getRepository(collectionName),
+        collectionName,
+      })
+    ).map(toPlainRecord);
   }
 
   private groupBy(rows: PlainRecord[], field: string) {
@@ -2364,9 +2367,6 @@ export class EcobaseInventoryPlanningService {
       this.repoRows(ECOBASE_COLLECTIONS.sourceCoverageMemberships),
       this.correctedCandidateProtectedSilverFingerprint(),
     ]);
-    if (companyProducts.length !== CORRECTED_CANDIDATE_LISTING_COUNT) {
-      throw this.correctedCandidateCardinalityError(companyProducts.length, undefined);
-    }
     const settings = this.correctedCandidateSettings(resolvedSettings);
     const candidateFamilies = this.correctedCandidateFamilies({
       companyProducts,
@@ -2374,9 +2374,6 @@ export class EcobaseInventoryPlanningService {
       products,
       accounts,
     });
-    if (candidateFamilies.length !== CORRECTED_CANDIDATE_FAMILY_COUNT) {
-      throw this.correctedCandidateCardinalityError(companyProducts.length, candidateFamilies.length);
-    }
 
     const operationalRowsByCompanyProductId = this.correctedOperationalRowsFromSilver({
       calculationDate,
@@ -2497,8 +2494,8 @@ export class EcobaseInventoryPlanningService {
       sourceCoverageDigest,
       sourceInputDigest,
       protectedSilverFingerprint,
-      expectedListingCount: CORRECTED_CANDIDATE_LISTING_COUNT,
-      expectedFamilyActionCount: CORRECTED_CANDIDATE_FAMILY_COUNT,
+      expectedListingCount: operationalListings.length,
+      expectedFamilyActionCount: candidateFamilies.length,
     };
 
     return new EcobaseGoldRefreshRunService(this.db).execute({
@@ -2564,9 +2561,27 @@ export class EcobaseInventoryPlanningService {
     });
   }
 
-  async refreshAndPublish(query: InventoryPlanningQuery & { requestedByUserId?: string } = {}) {
+  async refreshAndPublish(query: Pick<InventoryPlanningRefreshQuery, 'requestedByUserId'> = {}) {
     try {
-      const refresh = toPlainRecord(await this.refreshReadModel({ ...query, publish: false }));
+      const refreshQuery: InventoryPlanningRefreshQuery = {
+        requestedByUserId: query.requestedByUserId,
+        publish: false,
+      };
+      const runTransaction = this.db.sequelize?.transaction?.bind(this.db.sequelize);
+      if (!runTransaction) {
+        throw new EcobaseGoldError(
+          'ECOBASE_GOLD_SNAPSHOT_TRANSACTION_REQUIRED',
+          'EcoBase Gold refresh and publication requires repeatable-read transaction support.',
+        );
+      }
+      const refreshed = await runTransaction(
+        { isolationLevel: 'REPEATABLE READ' },
+        (transaction: unknown) =>
+          new EcobaseInventoryPlanningService(databaseInTransaction(this.db, transaction)).refreshReadModel(
+            refreshQuery,
+          ),
+      );
+      const refresh = toPlainRecord(refreshed);
       const runId = asString(toPlainRecord(refresh.run).id);
       if (!runId) {
         throw new EcobaseGoldError(
@@ -2575,15 +2590,22 @@ export class EcobaseInventoryPlanningService {
           { stage: 'materialization' },
         );
       }
-      return await new EcobaseGoldRefreshRunService(this.db).verifyAndPublish(runId);
-    } catch (error) {
-      if (typeof (error as { code?: unknown })?.code === 'string') throw error;
-      const cause = error instanceof Error ? error.message : String(error);
-      throw new EcobaseGoldError(
-        'ECOBASE_GOLD_AUTOMATIC_PUBLICATION_FAILED',
-        `EcoBase automatic Gold publication failed during materialization: ${cause}`,
-        { stage: 'materialization', cause },
+      const publication = toPlainRecord(
+        await new EcobaseGoldRefreshRunService(this.db).verifyAndPublish(runId),
       );
+      const publishedRun = toPlainRecord(publication.run);
+      return {
+        ...publication,
+        status: publication.reused === true ? ('reused' as const) : ('published' as const),
+        goldRunId: runId,
+        inputDigest: asString(publishedRun.candidateInputDigest),
+      };
+    } catch (error) {
+      const code =
+        typeof (error as { code?: unknown })?.code === 'string'
+          ? String((error as { code: string }).code)
+          : 'ECOBASE_GOLD_AUTOMATIC_PUBLICATION_FAILED';
+      return { status: 'failed' as const, code, previousPublicationRetained: true as const };
     }
   }
 
@@ -2593,21 +2615,6 @@ export class EcobaseInventoryPlanningService {
 
   async publishRefreshRun(payload: GoldPublicationPayload) {
     return new EcobaseGoldRefreshRunService(this.db).publish(payload);
-  }
-
-  private correctedCandidateCardinalityError(actualListingCount: number, actualFamilyCount?: number) {
-    return new CorrectedCandidateBuilderError(
-      'ECOBASE_CORRECTED_CANDIDATE_CARDINALITY_MISMATCH',
-      `EcoBase corrected candidate requires exactly ${CORRECTED_CANDIDATE_LISTING_COUNT} catalog listings and ${CORRECTED_CANDIDATE_FAMILY_COUNT} catalog families; received ${actualListingCount} and ${
-        actualFamilyCount ?? 'unresolved'
-      }.`,
-      {
-        expectedListingCount: CORRECTED_CANDIDATE_LISTING_COUNT,
-        actualListingCount,
-        expectedFamilyCount: CORRECTED_CANDIDATE_FAMILY_COUNT,
-        actualFamilyCount: actualFamilyCount ?? null,
-      },
-    );
   }
 
   private correctedCandidateRequiredText(value: unknown, field: string) {

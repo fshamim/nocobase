@@ -1198,11 +1198,9 @@ export function createEcobaseInventoryPlanningActions() {
         await next();
       },
       refreshAndPublish: async (ctx, next) => {
-        const values = getValues(ctx.action.params);
         try {
           ctx.body = {
             data: await new EcobaseInventoryPlanningService(ctx.db).refreshAndPublish({
-              ...inventoryPlanningQuery(values),
               requestedByUserId: getActorId(ctx),
             }),
           };

@@ -98,10 +98,7 @@ describe('EcoBase role boundary', () => {
 
     await createEcobaseInventoryPlanningActions().refreshAndPublish(operatorContext, next);
 
-    expect(refreshAndPublish).toHaveBeenCalledWith({
-      calculationDate: '2026-07-16',
-      requestedByUserId: '4',
-    });
+    expect(refreshAndPublish).toHaveBeenCalledWith({ requestedByUserId: '4' });
     expect(operatorContext.body).toEqual({ data: published });
     expect(next).toHaveBeenCalledOnce();
     await expect(

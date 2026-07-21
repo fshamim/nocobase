@@ -11,6 +11,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import type { EcobaseDatabase, EcobaseRepository } from '../../source-import/server/import-service';
 import { toPlainRecord } from '../../source-import/server/import-service';
+import { readAllRowsById } from './deterministic-repository-pagination';
 import { EcobaseGoldError } from './gold-errors';
 import { EcobaseIndependentGoldReferenceVerifier } from './independent-gold-reference-verifier';
 import {
@@ -21,6 +22,10 @@ import {
   CORRECTED_LISTING_ROW_DIGEST_VERSION,
   CORRECTED_SOURCE_COVERAGE_DIGEST_VERSION,
   CORRECTED_TIER_RULE_VERSION,
+  correctedFamilyActionProjectionDigest,
+  correctedListingRowDigest,
+  deriveCorrectedFamilyActionsFromListingRows,
+  type CorrectedListingPerformanceRow,
 } from './listing-family-projection';
 
 export type GoldRefreshRunStatus =
@@ -44,6 +49,7 @@ type TransactionalRepository = EcobaseRepository & {
     filterByTk?: string | number;
     sort?: string[];
     limit?: number;
+    offset?: number;
     transaction?: Transaction;
   }): Promise<unknown[]>;
   findOne(params?: {
@@ -167,6 +173,9 @@ export interface GoldRefreshVerification {
   expectedRowCount: number;
   storedRowCount: number;
   uniqueNaturalKeyCount: number;
+  familyActionProjectionCount: number;
+  listingRowDigest: string;
+  familyActionProjectionDigest: string;
   calculationDate: string;
 }
 
@@ -511,12 +520,6 @@ export class EcobaseGoldRefreshRunService {
           ...inputDigests,
           candidateInputDigest,
         });
-        const verification = await this.verifyRows(
-          runId,
-          params.calculationDate,
-          materialization.rowCount,
-          transaction,
-        );
         await this.runRepository().update({
           filterByTk: runId,
           values: {
@@ -525,9 +528,8 @@ export class EcobaseGoldRefreshRunService {
             rowCount: materialization.rowCount,
             listingRowCount: materialization.rowCount,
             ...(projectionMetadata ?? {}),
-            verificationJson: verification,
-            productionVerificationJson: verification,
-            productionVerificationDigest: requestDigest(verification),
+            verificationJson: {},
+            productionVerificationJson: {},
             resultJson: materialization,
             errorJson: {},
           },
@@ -602,23 +604,53 @@ export class EcobaseGoldRefreshRunService {
   }
 
   async verifyAndPublish(runId: string) {
-    let stage = 'verification';
     try {
-      const run = await this.getRun(runId);
-      if (run.status === 'published') {
-        stage = 'publication';
-        return await this.publishGenerated(runId);
-      }
-      if (run.status === 'materialized') await this.verify(runId);
-      else if (run.status !== 'verified') throw this.invalidTransition(runId, String(run.status), 'published');
-      stage = 'publication';
-      return await this.publishGenerated(runId);
+      return await this.withLockedTransaction(async (transaction) => {
+        const run = await this.getRun(runId, transaction);
+        if (run.status === 'published') {
+          const published = await this.getPublishedRun(transaction);
+          if (String(published?.id) !== runId || !text(run.publicationPayloadDigest)) {
+            throw publicationMismatch(runId, { publishedRunId: published?.id ?? null });
+          }
+          return this.result(run, true);
+        }
+        if (run.status !== 'materialized' && run.status !== 'verified') {
+          throw this.invalidTransition(runId, String(run.status), 'published');
+        }
+        const expectedRowCount = integer(run.rowCount);
+        const calculationDate = text(run.calculationDate);
+        if (expectedRowCount === undefined || !calculationDate) {
+          throw publicationMismatch(runId, { rowCount: run.rowCount, calculationDate: run.calculationDate });
+        }
+        const verification = await this.verifyRows(runId, calculationDate, expectedRowCount, transaction);
+        const verificationDigest = requestDigest(verification);
+        await this.runRepository().update({
+          filterByTk: runId,
+          values: {
+            status: 'verified',
+            verifiedAt: new Date().toISOString(),
+            verificationJson: verification,
+            productionVerificationJson: verification,
+            productionVerificationDigest: verificationDigest,
+          },
+          transaction,
+        });
+        return this.result(
+          await this.commitValidatedPublication(
+            runId,
+            verification,
+            requestDigest({ runId, verificationDigest, confirmation: 'PUBLISH GOLD' }),
+            transaction,
+          ),
+          false,
+        );
+      });
     } catch (error) {
       if (error instanceof EcobaseGoldError) throw error;
       throw new EcobaseGoldError(
         'ECOBASE_GOLD_AUTOMATIC_PUBLICATION_FAILED',
-        `EcoBase automatic Gold publication failed during ${stage}: ${errorMessage(error)}`,
-        { runId, stage, cause: errorMessage(error) },
+        `EcoBase automatic Gold publication failed: ${errorMessage(error)}`,
+        { runId, stage: 'validation_and_publication', cause: errorMessage(error) },
       );
     }
   }
@@ -731,6 +763,48 @@ export class EcobaseGoldRefreshRunService {
     return this.getRun(runId, transaction);
   }
 
+  private async commitValidatedPublication(
+    runId: string,
+    verification: GoldRefreshVerification,
+    publicationPayloadDigest: string,
+    transaction?: Transaction,
+  ) {
+    const published = await this.runRepository().find({ filter: { status: 'published' }, transaction });
+    const retiredAt = new Date().toISOString();
+    for (const current of published.map(toPlainRecord)) {
+      if (String(current.id) === runId) continue;
+      await this.runRepository().update({
+        filterByTk: current.id as string | number,
+        values: {
+          status: 'retired',
+          retiredAt,
+          terminalReasonCode: 'replaced_by_publication',
+          terminalReasonJson: { replacementRunId: runId },
+        },
+        transaction,
+      });
+    }
+    await this.runRepository().update({
+      filterByTk: runId,
+      values: {
+        status: 'published',
+        publishedAt: new Date().toISOString(),
+        publicationPayloadDigest,
+        verificationJson: verification,
+        productionVerificationJson: verification,
+        productionVerificationDigest: requestDigest(verification),
+      },
+      transaction,
+    });
+    const publishedAfter = await this.runRepository().find({ filter: { status: 'published' }, transaction });
+    if (publishedAfter.length !== 1 || String(toPlainRecord(publishedAfter[0]).id) !== runId) {
+      throw publicationMismatch(runId, {
+        publishedRunIds: publishedAfter.map((value) => toPlainRecord(value).id),
+      });
+    }
+    return this.getRun(runId, transaction);
+  }
+
   private invalidTransition(runId: string, from: string, to: string) {
     if (to === 'reuse' && ['failed', 'succeeded', 'superseded', 'rejected', 'retired'].includes(from)) {
       return new EcobaseGoldError(
@@ -752,13 +826,25 @@ export class EcobaseGoldRefreshRunService {
     expectedRowCount: number,
     transaction?: Transaction,
   ): Promise<GoldRefreshVerification> {
-    if (expectedRowCount === 0) {
-      throw new Error(`Ecobase Gold refresh run "${runId}" verification failed: an empty run cannot be published.`);
-    }
+    const reject = (reason: string, details: PlainRecord = {}): never => {
+      throw new EcobaseGoldError(
+        'ECOBASE_GOLD_BOUNDARY_VALIDATION_FAILED',
+        `EcoBase Gold candidate "${runId}" failed boundary validation: ${reason}`,
+        { runId, reason, ...details },
+      );
+    };
+    if (expectedRowCount === 0) reject('an empty candidate cannot be published');
+    const run = await this.getRun(runId, transaction);
     const rows = (
-      await this.goldRepository().find({ filter: { refreshRunId: runId }, limit: 100000, transaction })
+      await readAllRowsById({
+        repository: this.goldRepository(),
+        collectionName: ECOBASE_COLLECTIONS.goldInventoryPlanningRows,
+        filter: { refreshRunId: runId },
+        transaction,
+      })
     ).map(toPlainRecord);
     const naturalKeys = rows.map((row) => text(row.naturalKey));
+    const candidateInputDigest = text(run.candidateInputDigest);
     const invalid = rows.find(
       (row) =>
         text(row.refreshRunId) !== runId ||
@@ -767,32 +853,70 @@ export class EcobaseGoldRefreshRunService {
         !text(row.naturalKey) ||
         !text(row.companyProductId) ||
         !text(row.company) ||
+        text(row.candidateInputDigest) !== candidateInputDigest ||
         Object.values(row).some((value) => typeof value === 'number' && !Number.isFinite(value)),
     );
     const uniqueNaturalKeyCount = new Set(naturalKeys).size;
+    const storedListingCount = integer(run.listingRowCount);
     if (
       rows.length !== expectedRowCount ||
+      storedListingCount !== expectedRowCount ||
       invalid ||
       naturalKeys.some((key) => !key) ||
       uniqueNaturalKeyCount !== rows.length
     ) {
-      throw new Error(
-        `Ecobase Gold refresh run "${runId}" verification failed: expected ${expectedRowCount} rows, stored ${rows.length}, unique natural keys ${uniqueNaturalKeyCount}.`,
-      );
+      reject('listing rows are incomplete, invalid, or non-unique', {
+        expectedRowCount,
+        storedListingCount: storedListingCount ?? null,
+        actualRowCount: rows.length,
+        uniqueNaturalKeyCount,
+        invalidRowId: invalid?.id ?? null,
+      });
     }
     const stockContractViolation = rows.find((row) => !obeysStockConservationContract(row));
     if (stockContractViolation) {
-      throw new Error(
-        `Ecobase Gold refresh run "${runId}" verification failed: row "${String(
-          stockContractViolation.id,
-        )}" violates the stock conservation contract.`,
+      reject('a listing violates the stock conservation contract', { rowId: stockContractViolation.id ?? null });
+    }
+    let listingRowDigest: string;
+    let familyActionProjectionDigest: string;
+    let familyActionProjectionCount: number;
+    try {
+      listingRowDigest = correctedListingRowDigest(rows as unknown as CorrectedListingPerformanceRow[]);
+      const generatedAt = text(run.materializedAt) ?? text(run.requestedAt);
+      if (!generatedAt) reject('materialization time is missing');
+      const familyActions = deriveCorrectedFamilyActionsFromListingRows(
+        rows as unknown as CorrectedListingPerformanceRow[],
+        { runId, generatedAt },
       );
+      familyActionProjectionCount = familyActions.length;
+      familyActionProjectionDigest = correctedFamilyActionProjectionDigest(familyActions);
+    } catch (error) {
+      if (error instanceof EcobaseGoldError) throw error;
+      reject('listing or family digest derivation failed', { cause: errorMessage(error) });
+    }
+    const expectedFamilyCount = integer(run.familyActionProjectionCount);
+    if (
+      listingRowDigest !== text(run.listingRowDigest) ||
+      familyActionProjectionCount !== expectedFamilyCount ||
+      familyActionProjectionDigest !== text(run.familyActionProjectionDigest)
+    ) {
+      reject('stored candidate counts or digests do not match the exact row cohort', {
+        expectedListingRowDigest: run.listingRowDigest ?? null,
+        actualListingRowDigest: listingRowDigest,
+        expectedFamilyActionProjectionCount: expectedFamilyCount ?? null,
+        actualFamilyActionProjectionCount: familyActionProjectionCount,
+        expectedFamilyActionProjectionDigest: run.familyActionProjectionDigest ?? null,
+        actualFamilyActionProjectionDigest: familyActionProjectionDigest,
+      });
     }
     return {
       valid: true,
       expectedRowCount,
       storedRowCount: rows.length,
       uniqueNaturalKeyCount,
+      familyActionProjectionCount,
+      listingRowDigest,
+      familyActionProjectionDigest,
       calculationDate,
     };
   }

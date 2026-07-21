@@ -29,6 +29,7 @@ interface FindParams {
   filterByTk?: string | number;
   sort?: string[];
   limit?: number;
+  offset?: number;
 }
 
 class MemoryRepository implements EcobaseRepository {
@@ -40,7 +41,8 @@ class MemoryRepository implements EcobaseRepository {
   async find(params: FindParams = {}) {
     this.findCalls.push(params);
     const filtered = this.filterRecords(params);
-    return this.sortRecords(filtered, params.sort).slice(0, params.limit ?? filtered.length);
+    const offset = params.offset ?? 0;
+    return this.sortRecords(filtered, params.sort).slice(offset, offset + (params.limit ?? filtered.length));
   }
 
   async findOne(params: FindParams = {}) {
@@ -410,14 +412,16 @@ async function upsertRecord(db: MemoryDatabase, collection: string, values: Reco
 }
 
 describe('EcobaseInventoryPlanningService', () => {
-  it('returns a typed automatic-publication error when full-catalog materialization fails', async () => {
+  it('fails explicitly when repeatable-read transaction support is unavailable', async () => {
     const service = new EcobaseInventoryPlanningService(new MemoryDatabase());
-    vi.spyOn(service, 'refreshReadModel').mockRejectedValueOnce(new Error('fixture materialization failed'));
+    const refreshReadModel = vi.spyOn(service, 'refreshReadModel');
 
-    await expect(service.refreshAndPublish({ calculationDate: '2026-07-16' })).rejects.toMatchObject({
-      code: 'ECOBASE_GOLD_AUTOMATIC_PUBLICATION_FAILED',
-      details: { stage: 'materialization', cause: 'fixture materialization failed' },
+    await expect(service.refreshAndPublish()).resolves.toEqual({
+      status: 'failed',
+      code: 'ECOBASE_GOLD_SNAPSHOT_TRANSACTION_REQUIRED',
+      previousPublicationRetained: true,
     });
+    expect(refreshReadModel).not.toHaveBeenCalled();
   });
 
   it('classifies tiered families into the report panes and checks tier before workflow', () => {

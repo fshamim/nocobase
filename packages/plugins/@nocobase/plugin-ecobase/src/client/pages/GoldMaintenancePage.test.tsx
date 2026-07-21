@@ -22,64 +22,34 @@ vi.mock('../locale', () => ({
   useT: () => (value: string) => value,
 }));
 
-describe('Gold maintenance candidate preview', () => {
+describe('Gold maintenance operator lifecycle', () => {
   beforeEach(() => {
     request.mockReset();
   });
 
-  it('requires an explicit verified run and keeps the returned unpublished banner visible', async () => {
+  it('submits one automatic refresh-and-publish request without a manual workflow', async () => {
     request.mockResolvedValue({
       data: {
         data: {
-          runId: 'verified-run-1',
-          banner: 'UNPUBLISHED CANDIDATE — NOT OPERATIONAL',
-          rows: [
-            {
-              companyProductId: 'cp-1',
-              companyProductFamilyId: 'family-1',
-              asin: 'B000000001',
-              sku: 'SKU-1',
-              baselineTier: 'B',
-              inventoryDisposition: 'none',
-              replenishmentEligibility: 'eligible',
-              listingReviewCategories: [],
-            },
-            {
-              companyProductId: 'cp-2',
-              companyProductFamilyId: 'family-1',
-              asin: 'B000000001',
-              sku: 'SKU-2',
-              baselineTier: 'D',
-              inventoryDisposition: 'none',
-              replenishmentEligibility: 'blocked_baseline_tier_d',
-              listingReviewCategories: ['tier_d'],
-            },
-          ],
-          familyActions: [],
+          status: 'published',
+          goldRunId: 'gold-run-1',
+          inputDigest: 'a'.repeat(64),
         },
       },
     });
     render(<GoldMaintenancePage />);
 
-    const runId = screen.getByRole('textbox', { name: 'Explicit verified run ID' });
-    const load = screen.getByRole('button', { name: 'Load read-only candidate preview' });
-    expect(load).toBeDisabled();
-    fireEvent.change(runId, { target: { value: 'verified-run-1' } });
-    expect(load).not.toBeDisabled();
-    fireEvent.click(load);
+    expect(screen.queryByRole('textbox', { name: /run id|payload|confirmation/i })).toBeNull();
+    expect(screen.getAllByRole('button')).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh and publish' }));
 
     await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
     expect(request).toHaveBeenCalledWith({
-      url: 'ecobaseInventoryPlanning:candidatePreview',
+      url: 'ecobaseInventoryPlanning:refreshAndPublish',
       method: 'post',
-      data: { runId: 'verified-run-1' },
+      data: {},
     });
-    const banner = await screen.findByText('UNPUBLISHED CANDIDATE — NOT OPERATIONAL');
-    expect(banner.closest('[role="alert"]')).toHaveTextContent('UNPUBLISHED CANDIDATE — NOT OPERATIONAL');
-    expect(screen.getByText(/SKU-1/)).toBeTruthy();
-    expect(screen.getByRole('region', { name: 'Corrected individual listing performance' })).toHaveTextContent(
-      'Linked member cp-2',
-    );
-    expect(screen.queryByRole('button', { name: /publish/i })).toBeNull();
+    expect(await screen.findByText('Gold publication completed')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /verify candidate|publish candidate|load preview/i })).toBeNull();
   });
 });

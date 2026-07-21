@@ -160,7 +160,9 @@ function readReportConfigs(config: Record<string, unknown>): SellerboardReportCo
 
 function reportConfigs(input: SourceAdapterImportInput) {
   const secretReports = readSecretReports(input.secretRef);
-  return [...secretReports, ...readReportConfigs(input.config)];
+  const reports = [...secretReports, ...readReportConfigs(input.config)];
+  const reportKind = input.config.reportKind;
+  return typeof reportKind === 'string' ? reports.filter((report) => report.category === reportKind) : reports;
 }
 
 function redactedSourceKey(report: SellerboardReportConfig) {

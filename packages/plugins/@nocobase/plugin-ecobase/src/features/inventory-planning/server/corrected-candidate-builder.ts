@@ -37,9 +37,6 @@ import { decideReplenishment, type ExistingOrderStage } from './replenishment-de
 const CandidateDecimal = Decimal.clone({ precision: 40, rounding: Decimal.ROUND_HALF_EVEN });
 const DAY_MS = 86_400_000;
 
-export const CORRECTED_CANDIDATE_LISTING_COUNT = 2363;
-export const CORRECTED_CANDIDATE_FAMILY_COUNT = 1919;
-
 export interface CorrectedCandidateSettings {
   readonly profitTierAThreshold: number;
   readonly profitTierBThreshold: number;
@@ -667,21 +664,6 @@ function listingInput(
 }
 
 function validateCatalog(input: CorrectedCandidateBuilderInput) {
-  if (
-    input.listings.length !== CORRECTED_CANDIDATE_LISTING_COUNT ||
-    input.families.length !== CORRECTED_CANDIDATE_FAMILY_COUNT
-  ) {
-    throw new CorrectedCandidateBuilderError(
-      'ECOBASE_CORRECTED_CANDIDATE_CARDINALITY_MISMATCH',
-      `EcoBase corrected candidate requires exactly ${CORRECTED_CANDIDATE_LISTING_COUNT} listings and ${CORRECTED_CANDIDATE_FAMILY_COUNT} families; received ${input.listings.length} and ${input.families.length}.`,
-      {
-        expectedListingCount: CORRECTED_CANDIDATE_LISTING_COUNT,
-        actualListingCount: input.listings.length,
-        expectedFamilyCount: CORRECTED_CANDIDATE_FAMILY_COUNT,
-        actualFamilyCount: input.families.length,
-      },
-    );
-  }
   const listingsById = new Map(input.listings.map((listing) => [listing.identity.companyProductId, listing]));
   if (listingsById.size !== input.listings.length) {
     throw new CorrectedCandidateBuilderError(
@@ -779,7 +761,7 @@ export function buildCorrectedInventoryPlanningCandidate(
     generatedAt: input.generatedAt,
     listings: listingInputs,
     families: familyInputs,
-    expectedListingCount: CORRECTED_CANDIDATE_LISTING_COUNT,
-    expectedFamilyActionCount: CORRECTED_CANDIDATE_FAMILY_COUNT,
+    expectedListingCount: input.listings.length,
+    expectedFamilyActionCount: input.families.length,
   });
 }

@@ -19,7 +19,7 @@ import { EcobaseSupplierOrderImportService } from '../../features/source-import/
 import { EcobaseCompanyProductFamilyService } from '../../features/inventory-planning/server/company-product-family-service';
 import { createSupplierManagementResourceRegistration } from '../../features/supplier-management/server/resource-registration';
 import { createEcobaseImportActions, createEcobaseInventoryPlanningActions } from '../resource-actions';
-import { registerEcobaseResources } from '../resource-registration';
+import { LOGGED_IN, OPERATOR, registerEcobaseResources } from '../resource-registration';
 
 function registerAll() {
   const resources: { name: string; actions: Record<string, unknown> }[] = [];
@@ -76,6 +76,15 @@ describe('Ecobase resource registration', () => {
         'optimizeBudget',
       ]),
     );
+    const inventoryGrants = createInventoryPlanningResourceRegistration().acl;
+    const operatorActions = inventoryGrants
+      .filter((grant) => grant.resource === 'ecobaseInventoryPlanning' && grant.role === OPERATOR)
+      .flatMap((grant) => grant.actions);
+    const loggedInActions = inventoryGrants
+      .filter((grant) => grant.resource === 'ecobaseInventoryPlanning' && grant.role === LOGGED_IN)
+      .flatMap((grant) => grant.actions);
+    expect(operatorActions).toContain('refreshAndPublish');
+    expect(loggedInActions).not.toContain('refreshAndPublish');
     for (const resource of resources) {
       const grantedActions = acl.filter((entry) => entry.resource === resource.name).flatMap((entry) => entry.actions);
       expect(grantedActions.sort()).toEqual(Object.keys(resource.actions).sort());

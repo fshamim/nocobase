@@ -8,7 +8,7 @@
  */
 
 import { useAPIClient } from '@nocobase/client';
-import { Alert, Button, Card, Descriptions, Input, Space, Typography } from 'antd';
+import { Alert, Button, Card, Descriptions, Space, Typography } from 'antd';
 import React, { useState } from 'react';
 import { useT } from '../locale';
 
@@ -30,7 +30,6 @@ function text(value: unknown) {
 export default function GoldMaintenancePage() {
   const t = useT();
   const api = useAPIClient();
-  const [calculationDate, setCalculationDate] = useState(new Date().toISOString().slice(0, 10));
   const [result, setResult] = useState<PlainRecord>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
@@ -44,7 +43,7 @@ export default function GoldMaintenancePage() {
       const response = await api.request({
         url: 'ecobaseInventoryPlanning:refreshAndPublish',
         method: 'post',
-        data: { calculationDate },
+        data: {},
       });
       setResult(unwrapData(response));
     } catch (cause) {
@@ -63,27 +62,33 @@ export default function GoldMaintenancePage() {
           showIcon
           message={t('Operator publication control')}
           description={t(
-            'This action rebuilds the complete Gold candidate from current Silver data, verifies it independently, and publishes it atomically. Existing published data remains active if any stage fails.',
+            'This action rebuilds the complete Gold candidate from one Silver snapshot, validates it at the Gold boundary, and publishes it atomically. Existing published data remains active if any stage fails.',
           )}
         />
         {error ? <Alert type="error" showIcon message={error.message} /> : null}
 
-        <Card title={t('Refresh, verify, and publish Gold')}>
+        <Card title={t('Refresh and publish Gold')}>
           <Space direction="vertical" style={{ width: '100%' }}>
-            <Typography.Text strong>{t('Calculation date')}</Typography.Text>
-            <Input type="date" value={calculationDate} onChange={(event) => setCalculationDate(event.target.value)} />
             <Button type="primary" loading={loading} onClick={refreshAndPublish}>
-              {t('Refresh, verify, and publish')}
+              {t('Refresh and publish')}
             </Button>
           </Space>
         </Card>
 
-        {result.published === true ? (
+        {result.status === 'published' || result.status === 'reused' ? (
           <Alert
             type="success"
             showIcon
-            message={result.reused === true ? t('Published Gold run reused') : t('Gold publication completed')}
+            message={result.status === 'reused' ? t('Published Gold run reused') : t('Gold publication completed')}
             description={t('Inventory Planning now reads this published run.')}
+          />
+        ) : null}
+        {result.status === 'failed' ? (
+          <Alert
+            type="error"
+            showIcon
+            message={t('Gold refresh and publication failed.')}
+            description={text(result.code)}
           />
         ) : null}
 

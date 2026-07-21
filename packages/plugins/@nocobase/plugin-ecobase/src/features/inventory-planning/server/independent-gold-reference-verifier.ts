@@ -15,6 +15,7 @@ import {
   normalizeCorrectedInventoryPlanningDigestValue,
 } from './gold-schema-contract';
 import type { EcobaseDatabase } from '../../source-import/server/import-service';
+import { readAllRowsById } from './deterministic-repository-pagination';
 import { EcobaseGoldError } from './gold-errors';
 import { EcobaseInventoryPlanningGoldAccess } from './inventory-planning-gold-access';
 
@@ -50,6 +51,7 @@ type ReferenceRepository = {
     filterByTk?: string | number;
     sort?: string[];
     limit?: number;
+    offset?: number;
     transaction?: unknown;
   }): Promise<unknown[]>;
 };
@@ -410,7 +412,9 @@ export async function referenceProtectedSilverFingerprint(db: EcobaseDatabase, t
   const fingerprints: Record<string, string> = {};
   for (const collection of PROTECTED_SILVER_COLLECTIONS) {
     const repository = db.getRepository(collection) as unknown as ReferenceRepository;
-    const rows = (await repository.find({ limit: 1000000, transaction }))
+    const rows = (
+      await readAllRowsById({ repository, collectionName: collection, transaction })
+    )
       .map((row) => protectedRow(record(row)))
       .sort((left, right) => compareText(canonical(left), canonical(right)));
     fingerprints[collection] = digest(rows);
@@ -427,7 +431,6 @@ export class EcobaseIndependentGoldReferenceVerifier {
       purpose: 'independent_verification',
       actor: { type: 'system' },
       transaction,
-      limit: 100000,
     });
     const run = record(result.run);
     const rows = result.rows.map(record);
@@ -818,6 +821,8 @@ export class EcobaseIndependentGoldReferenceVerifier {
 
   private async rows(collection: string, transaction?: unknown) {
     const repository = this.db.getRepository(collection) as unknown as ReferenceRepository;
-    return (await repository.find({ limit: 1000000, transaction })).map(record);
+    return (
+      await readAllRowsById({ repository, collectionName: collection, transaction })
+    ).map(record);
   }
 }

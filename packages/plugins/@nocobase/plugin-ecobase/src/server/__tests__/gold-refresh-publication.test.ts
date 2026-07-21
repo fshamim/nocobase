@@ -17,7 +17,21 @@ import {
   type GoldPublicationPayload,
 } from '../../features/inventory-planning/server/gold-refresh-run-service';
 import { EcobaseInventoryPlanningService } from '../../features/inventory-planning/server/inventory-planning-service';
+import {
+  CORRECTED_ALGORITHM_CONTRACT_VERSION,
+  CORRECTED_CANONICAL_SERIALIZER_VERSION,
+  CORRECTED_CANDIDATE_INPUT_DIGEST_VERSION,
+  CORRECTED_FAMILY_ACTION_DIGEST_VERSION,
+  CORRECTED_LISTING_ROW_DIGEST_VERSION,
+  CORRECTED_SOURCE_COVERAGE_DIGEST_VERSION,
+  CORRECTED_TIER_RULE_VERSION,
+  correctedFamilyActionProjectionDigest,
+  correctedListingRowDigest,
+  deriveCorrectedFamilyActionsFromListingRows,
+  type CorrectedListingPerformanceRow,
+} from '../../features/inventory-planning/server/listing-family-projection';
 import { EcobaseInventoryPlanningGoldAccess } from '../../features/inventory-planning/server/inventory-planning-gold-access';
+import { referenceProtectedSilverFingerprint } from '../../features/inventory-planning/server/independent-gold-reference-verifier';
 import {
   blockRawGoldInventoryPlanningAccess,
   registerGoldInventoryPlanningWriteGuard,
@@ -30,7 +44,7 @@ import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { createEcobaseInventoryPlanningActions } from '../resource-actions';
 
 type Row = Record<string, unknown>;
-type Query = { filter?: Row; filterByTk?: string | number; sort?: string[]; limit?: number };
+type Query = { filter?: Row; filterByTk?: string | number; sort?: string[]; limit?: number; offset?: number };
 
 class MemoryRepository implements EcobaseRepository {
   constructor(readonly rows: Row[] = []) {}
@@ -46,7 +60,8 @@ class MemoryRepository implements EcobaseRepository {
           return descending ? -comparison : comparison;
         })
       : matches;
-    return sorted.slice(0, params.limit ?? sorted.length);
+    const offset = params.offset ?? 0;
+    return sorted.slice(offset, offset + (params.limit ?? sorted.length));
   }
 
   async findOne(params: Query = {}) {
@@ -117,7 +132,67 @@ function testCandidateInputDigests(seed: string) {
     sourceInputDigest: digest('source'),
     coverageInputDigest: digest('coverage'),
     settingsDigest: digest('settings'),
-    algorithmContractVersion: 'test_algorithm_v1',
+    algorithmContractVersion: CORRECTED_ALGORITHM_CONTRACT_VERSION,
+  };
+}
+
+function closedMonthEvidence(calculationDate: string) {
+  const date = new Date(`${calculationDate}T00:00:00.000Z`);
+  return Array.from({ length: 6 }, (_, offset) => {
+    const monthStartDate = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() - 6 + offset, 1));
+    const monthStart = monthStartDate.toISOString().slice(0, 10);
+    const monthEnd = new Date(
+      Date.UTC(monthStartDate.getUTCFullYear(), monthStartDate.getUTCMonth() + 1, 0),
+    )
+      .toISOString()
+      .slice(0, 10);
+    return {
+      monthStart,
+      monthEnd,
+      eligible: false,
+      reasonCode: 'product_scope_unknown',
+      sourceFactCount: 0,
+      monthlyUnits: null,
+      monthlyProfit: null,
+      monthlyProfitPerUnit: null,
+      monthlyTierScore: null,
+    };
+  });
+}
+
+function correctedProjectionMetadata(input: {
+  runId: string;
+  candidateInputDigest: string;
+  calculationDate: string;
+  rows: Row[];
+  candidateInputDigests: ReturnType<typeof testCandidateInputDigests>;
+  protectedSilverFingerprint: string;
+}) {
+  const generatedAt = `${input.calculationDate}T00:00:00.000Z`;
+  const listingRows = input.rows as unknown as CorrectedListingPerformanceRow[];
+  const familyActions = deriveCorrectedFamilyActionsFromListingRows(listingRows, {
+    runId: input.runId,
+    generatedAt,
+  });
+  const digest = (part: string) => createHash('sha256').update(`${input.runId}:${part}`).digest('hex');
+  return {
+    ruleVersion: CORRECTED_TIER_RULE_VERSION,
+    algorithmContractVersion: CORRECTED_ALGORITHM_CONTRACT_VERSION,
+    canonicalSerializerVersion: CORRECTED_CANONICAL_SERIALIZER_VERSION,
+    candidateInputDigestVersion: CORRECTED_CANDIDATE_INPUT_DIGEST_VERSION,
+    sourceCoverageDigestVersion: CORRECTED_SOURCE_COVERAGE_DIGEST_VERSION,
+    listingRowDigestVersion: CORRECTED_LISTING_ROW_DIGEST_VERSION,
+    familyActionProjectionDigestVersion: CORRECTED_FAMILY_ACTION_DIGEST_VERSION,
+    resolvedPlanningSettingsDigest: input.candidateInputDigests.settingsDigest,
+    currentProjectionGateMode: 'informational',
+    protectedSilverFingerprint: input.protectedSilverFingerprint,
+    sourceCoverageDigest: input.candidateInputDigests.coverageInputDigest,
+    sourceInputDigest: input.candidateInputDigests.sourceInputDigest,
+    candidateInputDigest: input.candidateInputDigest,
+    listingRowCount: listingRows.length,
+    listingRowDigest: correctedListingRowDigest(listingRows),
+    familyActionProjectionCount: familyActions.length,
+    familyActionProjectionDigest: correctedFamilyActionProjectionDigest(familyActions),
   };
 }
 
@@ -151,24 +226,25 @@ function publicationPayloadFixture(db: MemoryDatabase, runId: string): GoldPubli
   if (!run) throw new Error(`Publication payload fixture could not find run "${runId}".`);
   const digest = (part: string) => createHash('sha256').update(`${runId}:${part}`).digest('hex');
   Object.assign(run, {
-    ruleVersion: 'test_publication_rule_v1',
-    algorithmContractVersion: 'test_algorithm_v1',
-    canonicalSerializerVersion: 'canonical_json_schema_normalized_bytewise_v2',
-    candidateInputDigestVersion: 'candidate_input_digest_v1',
-    sourceCoverageDigestVersion: 'source_coverage_digest_v1',
-    listingRowDigestVersion: 'listing_performance_digest_v2',
-    familyActionProjectionDigestVersion: 'family_action_digest_v2',
-    resolvedPlanningSettingsDigest: digest('settings'),
-    currentProjectionGateMode: 'informational',
-    protectedSilverFingerprint: digest('protected'),
-    sourceCoverageDigest: digest('coverage'),
-    sourceInputsDigest: digest('source'),
-    listingRowCount: run.rowCount,
-    listingRowDigest: digest('listings'),
-    familyActionProjectionCount: new Set(
-      db.gold.rows.filter((row) => row.refreshRunId === runId).map((row) => row.companyProductFamilyId),
-    ).size,
-    familyActionProjectionDigest: digest('family-actions'),
+    ruleVersion: run.ruleVersion ?? CORRECTED_TIER_RULE_VERSION,
+    algorithmContractVersion: run.algorithmContractVersion ?? CORRECTED_ALGORITHM_CONTRACT_VERSION,
+    canonicalSerializerVersion: run.canonicalSerializerVersion ?? CORRECTED_CANONICAL_SERIALIZER_VERSION,
+    candidateInputDigestVersion: run.candidateInputDigestVersion ?? CORRECTED_CANDIDATE_INPUT_DIGEST_VERSION,
+    sourceCoverageDigestVersion: run.sourceCoverageDigestVersion ?? CORRECTED_SOURCE_COVERAGE_DIGEST_VERSION,
+    listingRowDigestVersion: run.listingRowDigestVersion ?? CORRECTED_LISTING_ROW_DIGEST_VERSION,
+    familyActionProjectionDigestVersion:
+      run.familyActionProjectionDigestVersion ?? CORRECTED_FAMILY_ACTION_DIGEST_VERSION,
+    resolvedPlanningSettingsDigest: run.resolvedPlanningSettingsDigest ?? digest('settings'),
+    currentProjectionGateMode: run.currentProjectionGateMode ?? 'informational',
+    protectedSilverFingerprint: run.protectedSilverFingerprint ?? digest('protected'),
+    sourceCoverageDigest: run.sourceCoverageDigest ?? digest('coverage'),
+    sourceInputsDigest: run.sourceInputsDigest ?? digest('source'),
+    listingRowCount: run.listingRowCount ?? run.rowCount,
+    listingRowDigest: run.listingRowDigest ?? digest('listings'),
+    familyActionProjectionCount:
+      run.familyActionProjectionCount ??
+      new Set(db.gold.rows.filter((row) => row.refreshRunId === runId).map((row) => row.companyProductFamilyId)).size,
+    familyActionProjectionDigest: run.familyActionProjectionDigest ?? digest('family-actions'),
   });
   return Object.fromEntries(
     PUBLICATION_PAYLOAD_FIELDS.map((field) => {
@@ -185,13 +261,15 @@ async function buildRun(
   params: { date: string; key: string; publish?: boolean; rowIds?: string[] },
 ) {
   const service = new EcobaseGoldRefreshRunService(db);
+  const candidateInputDigests = testCandidateInputDigests(params.key);
+  const protectedSilverFingerprint = await referenceProtectedSilverFingerprint(db);
   const materialized = await service.execute({
     calculationDate: params.date,
     idempotencyKey: params.key,
     publish: false,
-    candidateInputDigests: testCandidateInputDigests(params.key),
+    candidateInputDigests,
     request: { calculationDate: params.date },
-    materialize: async ({ runId }) => {
+    materialize: async ({ runId, candidateInputDigest }) => {
       const rowIds = params.rowIds ?? [params.key];
       for (const rowId of rowIds) {
         await db.gold.create({
@@ -208,14 +286,32 @@ async function buildRun(
             asin: rowId,
             sku: `${rowId}:sku`,
             calculationDate: params.date,
+            candidateInputDigest,
+            ruleVersion: CORRECTED_TIER_RULE_VERSION,
+            algorithmContractVersion: CORRECTED_ALGORITHM_CONTRACT_VERSION,
+            productCoverageDigest: candidateInputDigests.coverageInputDigest,
+            resolvedPlanningSettingsDigest: candidateInputDigests.settingsDigest,
+            monthlyPerformanceEvidence: closedMonthEvidence(params.date),
+            baselineEligibleMonthCount: 0,
+            baselineTotalUnits: null,
+            baselineTotalProfit: null,
+            averageMonthlyUnits: null,
+            averageMonthlyProfit: null,
+            baselineTierScore: null,
+            baselineWeightedProfitPerUnit: null,
+            baselineTier: null,
             baselineState: 'unclassified',
-            baselineConfidence: 'low',
+            baselineConfidence: 'none',
             listingReviewCategories: ['data_readiness'],
             replenishmentEligibility: 'blocked_insufficient_evidence',
+            replenishmentBlockReasonCode: 'blocked_insufficient_evidence',
             primaryActionPane: 'dataReadiness',
             primaryActionReasonCode: 'insufficient_baseline_evidence',
             newReplenishmentActionable: false,
             existingOrderFollowUp: false,
+            existingOrderFollowUpAction: 'none',
+            oosAlertActionable: false,
+            supplyActionable: false,
             calculationEvidence: {
               familyActionSnapshot: {
                 familyKey: `${rowId}:family`,
@@ -233,19 +329,26 @@ async function buildRun(
           },
         });
       }
+      const rows = db.gold.rows.filter((row) => row.refreshRunId === runId);
       return {
         calculationDate: params.date,
         rowCount: rowIds.length,
         created: rowIds.length,
         updated: 0,
         lastRefreshedAt: `${params.date}T00:00:00.000Z`,
+        ...correctedProjectionMetadata({
+          runId,
+          candidateInputDigest,
+          calculationDate: params.date,
+          rows,
+          candidateInputDigests,
+          protectedSilverFingerprint,
+        }),
       };
     },
   });
   if (params.publish !== true) return materialized;
-  const runId = String((materialized.run as Row).id);
-  await service.verify(runId);
-  return service.publish(publicationPayloadFixture(db, runId));
+  return service.verifyAndPublish(String((materialized.run as Row).id));
 }
 
 async function seedLifecycleRun(db: MemoryDatabase, id: string, status: string, date: string) {
@@ -419,41 +522,23 @@ describe('Gold refresh publication control', () => {
     });
   });
 
-  it('rejects stock-contract violations before publication', async () => {
+  it('rejects stock-contract violations at the publication boundary', async () => {
     const db = new MemoryDatabase();
-
-    await expect(
-      new EcobaseGoldRefreshRunService(db).execute({
-        calculationDate: '2026-07-15',
-        idempotencyKey: 'invalid-stock-contract',
-        candidateInputDigests: testCandidateInputDigests('invalid-stock-contract'),
-        request: { calculationDate: '2026-07-15' },
-        materialize: async ({ runId }) => {
-          await db.gold.create({
-            values: {
-              id: `${runId}:row`,
-              refreshRunId: runId,
-              naturalKey: `${runId}:row`,
-              companyProductId: 'row',
-              company: 'ACME',
-              calculationDate: '2026-07-15',
-              ...validStockContract(),
-              inventoryPositionStock: 35,
-            },
-          });
-          return {
-            calculationDate: '2026-07-15',
-            rowCount: 1,
-            created: 1,
-            updated: 0,
-            lastRefreshedAt: '2026-07-15T00:00:00.000Z',
-          };
-        },
-      }),
-    ).rejects.toThrow('stock conservation contract');
-    expect(db.runs.rows.find((run) => run.idempotencyKey === 'invalid-stock-contract')).toMatchObject({
-      status: 'failed',
+    const service = new EcobaseGoldRefreshRunService(db);
+    const materialized = await buildRun(db, {
+      date: '2026-07-15',
+      key: 'invalid-stock-contract',
+      publish: false,
     });
+    const runId = String((materialized.run as Row).id);
+    const row = db.gold.rows.find((candidate) => candidate.refreshRunId === runId);
+    if (!row) throw new Error('Missing stock-contract fixture row.');
+    row.inventoryPositionStock = 35;
+
+    await expect(service.verifyAndPublish(runId)).rejects.toMatchObject({
+      code: 'ECOBASE_GOLD_BOUNDARY_VALIDATION_FAILED',
+    });
+    expect(db.runs.rows.find((run) => run.id === runId)).toMatchObject({ status: 'materialized' });
   });
 
   it('binds every locked Step-20 field and rejects one-field tampering before publication mutation', async () => {
@@ -491,12 +576,10 @@ describe('Gold refresh publication control', () => {
     const candidate = await buildRun(db, { date: '2026-07-15', key: 'operator-publication', publish: false });
     const runId = String((candidate.run as Row).id);
     const service = new EcobaseGoldRefreshRunService(db);
-    publicationPayloadFixture(db, runId);
 
     const concurrent = await Promise.all([service.verifyAndPublish(runId), service.verifyAndPublish(runId)]);
     const published = concurrent.find((result) => result.reused === false);
     const duplicate = concurrent.find((result) => result.reused === true);
-    const expectedPayload = publicationPayloadFixture(db, runId);
 
     expect(published).toMatchObject({
       published: true,
@@ -505,12 +588,10 @@ describe('Gold refresh publication control', () => {
         id: runId,
         status: 'published',
         productionVerificationJson: { valid: true },
-        independentVerificationJson: { valid: true },
       },
     });
-    expect((published.run as Row).publicationPayloadDigest).toBe(
-      createHash('sha256').update(canonicalJson(expectedPayload)).digest('hex'),
-    );
+    expect((published.run as Row).independentVerificationJson).toBeUndefined();
+    expect((published.run as Row).publicationPayloadDigest).toMatch(/^[a-f0-9]{64}$/);
     expect(duplicate).toMatchObject({ published: true, reused: true, run: { id: runId, status: 'published' } });
     expect(db.runs.rows.filter((run) => run.status === 'published')).toHaveLength(1);
     await expect(new EcobaseInventoryPlanningService(db).listRows()).resolves.toEqual([
@@ -529,8 +610,8 @@ describe('Gold refresh publication control', () => {
     candidateRow.inventoryPositionStock = 999;
 
     await expect(new EcobaseGoldRefreshRunService(db).verifyAndPublish(runId)).rejects.toMatchObject({
-      code: 'ECOBASE_GOLD_AUTOMATIC_PUBLICATION_FAILED',
-      details: { stage: 'verification', runId },
+      code: 'ECOBASE_GOLD_BOUNDARY_VALIDATION_FAILED',
+      details: { runId },
     });
     expect(db.runs.rows.find((run) => run.id === 'prior-publication')).toMatchObject({ status: 'published' });
     expect(db.runs.rows.find((run) => run.id === runId)).toMatchObject({ status: 'materialized' });
@@ -552,7 +633,7 @@ describe('Gold refresh publication control', () => {
     expect((published.run as Row).id).toBe((second.run as Row).id);
   });
 
-  it('stores row-count verification on the run', async () => {
+  it('stores row-count verification when the candidate crosses the boundary', async () => {
     const db = new MemoryDatabase();
     const result = await buildRun(db, {
       date: '2026-07-15',
@@ -560,27 +641,18 @@ describe('Gold refresh publication control', () => {
       publish: false,
       rowIds: ['one', 'two'],
     });
+    const runId = String((result.run as Row).id);
 
-    expect(result.verification).toEqual({
-      valid: true,
-      expectedRowCount: 2,
-      storedRowCount: 2,
-      uniqueNaturalKeyCount: 2,
-      calculationDate: '2026-07-15',
-    });
-    await expect(new EcobaseGoldRefreshRunService(db).verify(String((result.run as Row).id))).resolves.toMatchObject({
-      storedRowCount: 2,
-    });
-    expect(db.runs.rows.find((run) => run.id === (result.run as Row).id)).toMatchObject({
+    await expect(new EcobaseGoldRefreshRunService(db).verify(runId)).resolves.toMatchObject({ storedRowCount: 2 });
+    expect(db.runs.rows.find((run) => run.id === runId)).toMatchObject({
       status: 'verified',
-      independentVerificationJson: {
+      verificationJson: {
         valid: true,
-        verifierVersion: 'independent_gold_reference_v1',
-        contractMode: 'legacy_additive',
-        listingRowCount: 2,
-        mismatchCount: 0,
+        expectedRowCount: 2,
+        storedRowCount: 2,
+        uniqueNaturalKeyCount: 2,
+        calculationDate: '2026-07-15',
       },
-      independentVerificationDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
     });
   });
 

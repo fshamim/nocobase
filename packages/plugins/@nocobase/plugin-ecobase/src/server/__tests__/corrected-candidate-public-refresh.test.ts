@@ -37,7 +37,7 @@ import { createEcobaseInventoryPlanningActions } from '../resource-actions';
 import { EcobasePlanningSettingsService } from '../services/planning-settings-service';
 
 type Row = Record<string, unknown>;
-type Query = { filter?: Row; filterByTk?: string | number; sort?: string[]; limit?: number };
+type Query = { filter?: Row; filterByTk?: string | number; sort?: string[]; limit?: number; offset?: number };
 
 function matchesFilter(row: Row, filter: Row = {}) {
   return Object.entries(filter).every(([key, expected]) => {
@@ -66,7 +66,8 @@ class MemoryRepository implements EcobaseRepository {
         return descending ? -comparison : comparison;
       });
     }
-    return result.slice(0, params.limit ?? result.length).map((row) => ({ ...row }));
+    const offset = params.offset ?? 0;
+    return result.slice(offset, offset + (params.limit ?? result.length)).map((row) => ({ ...row }));
   }
 
   async findOne(params: Query = {}) {
@@ -348,26 +349,21 @@ describe('corrected candidate public refresh seam', () => {
     }
   });
 
-  it('fails closed with zero writes when the independent listing or family catalog cardinality drifts', async () => {
-    const missingListing = fixture();
-    missingListing.rows(ECOBASE_COLLECTIONS.silverCompanyProducts).pop();
-    const missingListingInvocation = publicRefreshInvocation(missingListing, 'missing-listing');
-    await expect(
-      missingListingInvocation.action(missingListingInvocation.ctx as never, missingListingInvocation.next),
-    ).rejects.toMatchObject({ code: 'ECOBASE_CORRECTED_CANDIDATE_CARDINALITY_MISMATCH' });
-    expect(missingListing.goldRows.rows).toHaveLength(0);
-    expect(missingListing.rows(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns)).toHaveLength(0);
+  it('derives listing and family counts from the current eligible catalog scope', async () => {
+    const db = fixture();
+    db.rows(ECOBASE_COLLECTIONS.silverCompanyProducts).pop();
 
-    const missingFamily = fixture();
-    const lastListing = missingFamily.rows(ECOBASE_COLLECTIONS.silverCompanyProducts).at(-1);
-    if (!lastListing) throw new Error('Family-cardinality fixture listing is missing.');
-    lastListing.companyProductFamilyId = 'family-0000';
-    const missingFamilyInvocation = publicRefreshInvocation(missingFamily, 'missing-family');
-    await expect(
-      missingFamilyInvocation.action(missingFamilyInvocation.ctx as never, missingFamilyInvocation.next),
-    ).rejects.toMatchObject({ code: 'ECOBASE_CORRECTED_CANDIDATE_CARDINALITY_MISMATCH' });
-    expect(missingFamily.goldRows.rows).toHaveLength(0);
-    expect(missingFamily.rows(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns)).toHaveLength(0);
+    const result = await refreshThroughPublicAction(db, 'dynamic-catalog-scope');
+
+    expect(result).toMatchObject({
+      rowCount: 2362,
+      run: {
+        status: 'materialized',
+        listingRowCount: 2362,
+        familyActionProjectionCount: 1918,
+      },
+    });
+    expect(db.goldRows.rows).toHaveLength(2362);
   });
 
   it('derives and reuses the mandated idempotency key when the admin action omits it', async () => {

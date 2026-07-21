@@ -22,6 +22,7 @@ import { FOUR_COMPANY_MIGRATION_PROFILE } from '../../source-import/server/four-
 
 export interface NormalizePendingParams {
   sourceConnectionId?: string;
+  importRunId?: string;
   limit?: number;
 }
 
@@ -51,6 +52,7 @@ export class EcobaseMedallionNormalizationService {
       filter: {
         normalizationStatus: 'pending',
         ...(params.sourceConnectionId ? { sourceConnectionId: params.sourceConnectionId } : {}),
+        ...(params.importRunId ? { importRunId: params.importRunId } : {}),
       },
       appends: ['sourceConnection.company'],
       limit: params.limit,
