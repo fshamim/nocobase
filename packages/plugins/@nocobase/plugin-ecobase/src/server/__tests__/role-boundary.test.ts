@@ -19,6 +19,10 @@ import {
 import { ecobaseAclCondition, requireEcobaseRole } from '../role-boundary';
 import { ECOBASE_PILOT_ROLE_ASSIGNMENT_MANIFEST } from '../role-assignment-manifest';
 import { ECOBASE_OPERATOR_ROLE } from '../migrations/20260715144000-create-operator-role';
+import {
+  createEcobaseInventoryDashboardActions,
+  createInventoryDashboardResourceRegistration,
+} from '../../features/inventory-dashboard/server/resource-registration';
 import { createInventoryPlanningResourceRegistration } from '../../features/inventory-planning/server/resource-registration';
 import { EcobaseInventoryPlanningService } from '../../features/inventory-planning/server/inventory-planning-service';
 import { createOrderPlanningResourceRegistration } from '../../features/order-planning/server/resource-registration';
@@ -59,6 +63,32 @@ describe('EcoBase role boundary', () => {
     await expect(
       createEcobaseInventoryPlanningActions().setFamilyTarget(context(USERS.member), vi.fn()),
     ).rejects.toMatchObject({ status: 403 });
+  });
+
+  it('guards inventory dashboard savePrepDetails at the operator boundary before validation', async () => {
+    // Member is rejected with 403 BEFORE any request validation runs.
+    await expect(
+      createEcobaseInventoryDashboardActions().savePrepDetails(context(USERS.member), vi.fn()),
+    ).rejects.toMatchObject({ status: 403, message: expect.stringContaining('operator, admin, or root') });
+    // Operator passes the guard and reaches request validation (400, not 403).
+    await expect(
+      createEcobaseInventoryDashboardActions().savePrepDetails(context(USERS.operator), vi.fn()),
+    ).rejects.toMatchObject({ status: 400, message: expect.stringContaining('requires orderId') });
+
+    const grants = createInventoryDashboardResourceRegistration().acl;
+    const isGranted = (action: string, user: (typeof USERS)[keyof typeof USERS]) => {
+      const grant = grants.find(
+        (candidate) => candidate.resource === 'ecobaseInventoryDashboard' && candidate.actions.includes(action),
+      );
+      if (!grant) return false;
+      const condition = ecobaseAclCondition(grant.role);
+      return typeof condition === 'function' ? condition(context(user)) : condition === 'loggedIn';
+    };
+    expect(isGranted('header', USERS.member)).toBe(true);
+    expect(isGranted('pane', USERS.member)).toBe(true);
+    expect(isGranted('drawerContext', USERS.member)).toBe(true);
+    expect(isGranted('savePrepDetails', USERS.member)).toBe(false);
+    expect(isGranted('savePrepDetails', USERS.operator)).toBe(true);
   });
 
   it('allows the named pilot operator to reach approved operational validation only', async () => {

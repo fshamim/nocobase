@@ -75,10 +75,22 @@ export default defineCollection({
     { name: 'sourceOrderStatus', type: 'string' },
     { name: 'operationalStatus', type: 'string' },
     { name: 'workflowStage', type: 'string' },
+    // Inventory Dashboard (AD-6): stage-entry timestamp for days-in-stage.
+    // Nullable by design — null renders "unknown", never 0 days. Maintained at
+    // import/status-change (backfill provenance 'derived'); see the dashboard
+    // implementation plan §8 (FLAG-1).
+    { name: 'workflowStageEnteredAt', type: 'datetimeTz' },
     { name: 'orderApproval', type: 'string' },
     { name: 'paymentStatus', type: 'string' },
     { name: 'invoiceStatus', type: 'string' },
     { name: 'prepStatus', type: 'string' },
+    // Inventory Dashboard (T-1.4): structured prep details captured from the
+    // In-Prep drawer (`ecobaseInventoryDashboard:savePrepDetails`).
+    { name: 'prepBoxes', type: 'integer' },
+    { name: 'prepCartons', type: 'integer' },
+    { name: 'prepDimensions', type: 'jsonb' },
+    { name: 'prepDetailsUpdatedAt', type: 'datetimeTz' },
+    { name: 'prepDetailsUpdatedByUserId', type: 'string' },
     { name: 'statusSource', type: 'string' },
     { name: 'statusCheckRequired', type: 'boolean', defaultValue: false },
     { name: 'statusEvidenceJson', type: 'jsonb', defaultValue: {} },

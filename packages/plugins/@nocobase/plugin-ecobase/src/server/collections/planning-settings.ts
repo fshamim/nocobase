@@ -87,6 +87,16 @@ export default defineCollection({
       defaultValue: 7,
     },
     {
+      // Inventory Dashboard (T-1.5 / REQ-H4): hours without activity before an
+      // in-prep/inbound order is flagged "needs follow-up".
+      name: 'followUpThresholdHours',
+      type: 'integer',
+      interface: 'integer',
+      uiSchema: { title: 'Follow-up threshold hours' },
+      allowNull: false,
+      defaultValue: 48,
+    },
+    {
       name: 'enableCurrentOrderCycleSelection',
       type: 'boolean',
       interface: 'checkbox',

@@ -9,6 +9,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createDailyOperationsBriefResourceRegistration } from '../../features/daily-operations-brief/server/resource-registration';
+import { createInventoryDashboardResourceRegistration } from '../../features/inventory-dashboard/server/resource-registration';
 import { createInventoryPlanningResourceRegistration } from '../../features/inventory-planning/server/resource-registration';
 import { createOrderPlanningResourceRegistration } from '../../features/order-planning/server/resource-registration';
 import { createSemanticModelResourceRegistration } from '../../features/semantic-model/server/resource-registration';
@@ -33,6 +34,7 @@ function registerAll() {
     [
       createSourceImportResourceRegistration(createSourceAdapterRegistry([noopTestAdapter])),
       createInventoryPlanningResourceRegistration(),
+      createInventoryDashboardResourceRegistration(),
       createOrderPlanningResourceRegistration(),
       createSupplierManagementResourceRegistration(),
       createSemanticModelResourceRegistration(),
@@ -52,6 +54,7 @@ describe('Ecobase resource registration', () => {
       'ecobaseImport',
       'ecobaseInventoryPlanning',
       'ecobasePlanningConfiguration',
+      'ecobaseInventoryDashboard',
       'ecobaseOrderPlanning',
       'ecobaseSupplierOrders',
       'ecobaseSupplierManagement',
@@ -90,6 +93,19 @@ describe('Ecobase resource registration', () => {
       const grantedActions = acl.filter((entry) => entry.resource === resource.name).flatMap((entry) => entry.actions);
       expect(grantedActions.sort()).toEqual(Object.keys(resource.actions).sort());
     }
+  });
+
+  it('grants inventory dashboard reads to logged-in members and savePrepDetails to operators only', () => {
+    const grants = createInventoryDashboardResourceRegistration().acl;
+    const loggedInActions = grants
+      .filter((grant) => grant.resource === 'ecobaseInventoryDashboard' && grant.role === LOGGED_IN)
+      .flatMap((grant) => grant.actions);
+    const operatorActions = grants
+      .filter((grant) => grant.resource === 'ecobaseInventoryDashboard' && grant.role === OPERATOR)
+      .flatMap((grant) => grant.actions);
+    expect(loggedInActions.sort()).toEqual(['drawerContext', 'header', 'pane']);
+    expect(operatorActions).toEqual(['savePrepDetails']);
+    expect(loggedInActions).not.toContain('savePrepDetails');
   });
 
   it('exposes the deep Sellerboard report-unit action without caller-owned execution controls', async () => {

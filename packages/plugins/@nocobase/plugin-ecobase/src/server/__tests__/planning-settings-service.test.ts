@@ -94,6 +94,7 @@ describe('EcobasePlanningSettingsService', () => {
       ...DEFAULT_PLANNING_SETTINGS,
       defaultSupplierLeadTimeDays: 30,
       fbaReceivingBufferDays: 7,
+      followUpThresholdHours: 48,
       enableCurrentOrderCycleSelection: false,
       minimumProjectionCoveredDays: 14,
       paceTolerancePercent: 0,
@@ -114,6 +115,7 @@ describe('EcobasePlanningSettingsService', () => {
       supplierOrderPurchasedPipelineStatuses: ['paid', 'custom-paid'],
       defaultSupplierLeadTimeDays: 35,
       fbaReceivingBufferDays: 4,
+      followUpThresholdHours: 24,
       enableCurrentOrderCycleSelection: true,
       minimumProjectionCoveredDays: 20,
       paceTolerancePercent: 12.5,
@@ -131,12 +133,16 @@ describe('EcobasePlanningSettingsService', () => {
       supplierOrderPurchasedPipelineStatuses: ['paid', 'custom_paid'],
       defaultSupplierLeadTimeDays: 35,
       fbaReceivingBufferDays: 4,
+      followUpThresholdHours: 24,
       enableCurrentOrderCycleSelection: true,
       minimumProjectionCoveredDays: 20,
       paceTolerancePercent: 12.5,
       projectionPolicyVersion: 'evidence_driven_v1',
       currentProjectionGateMode: 'evidence_driven',
     });
+    await expect(service.saveSettings({ followUpThresholdHours: -1 })).rejects.toThrow(
+      'EcoBase planning settings require Follow-up threshold hours to be a zero-or-positive whole number.',
+    );
     await expect(service.saveSettings({ safetyBufferDays: -1 })).rejects.toThrow(
       'EcoBase planning settings require Safety buffer days to be a zero-or-positive whole number.',
     );

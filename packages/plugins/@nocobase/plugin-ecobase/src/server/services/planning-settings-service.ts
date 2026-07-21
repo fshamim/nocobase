@@ -24,7 +24,8 @@ export type PlanningSettingKey =
   | 'leadTimeFreshnessDays'
   | 'purchasedPipelineGraceDays'
   | 'defaultSupplierLeadTimeDays'
-  | 'fbaReceivingBufferDays';
+  | 'fbaReceivingBufferDays'
+  | 'followUpThresholdHours';
 
 type ProfitTierSettingKey = keyof ProfitTierThresholds;
 type NumberSettingKey = PlanningSettingKey | ProfitTierSettingKey;
@@ -78,6 +79,7 @@ const SETTING_KEYS: PlanningSettingKey[] = [
   'purchasedPipelineGraceDays',
   'defaultSupplierLeadTimeDays',
   'fbaReceivingBufferDays',
+  'followUpThresholdHours',
 ];
 
 const PROFIT_TIER_SETTING_KEYS: ProfitTierSettingKey[] = [
@@ -105,6 +107,7 @@ export const DEFAULT_PLANNING_SETTINGS: Record<PlanningSettingKey, number> = {
   purchasedPipelineGraceDays: 3,
   defaultSupplierLeadTimeDays: 30,
   fbaReceivingBufferDays: 7,
+  followUpThresholdHours: 48,
 };
 
 export const DEFAULT_PLANNING_FEATURE_FLAGS: Record<PlanningFeatureFlagKey, boolean> = {
@@ -145,6 +148,7 @@ const SETTING_LABELS: Record<NumberSettingKey, string> = {
   purchasedPipelineGraceDays: 'Purchased pipeline grace days',
   defaultSupplierLeadTimeDays: 'Default supplier lead time days',
   fbaReceivingBufferDays: 'FBA receiving buffer days',
+  followUpThresholdHours: 'Follow-up threshold hours',
   profitTierAThreshold: 'Profit tier A threshold',
   profitTierBThreshold: 'Profit tier B threshold',
   profitTierCThreshold: 'Profit tier C threshold',
@@ -293,6 +297,8 @@ function normalize(row: PlainRecord): EcobasePlanningSettings {
       defaults.defaultSupplierLeadTimeDays,
     fbaReceivingBufferDays:
       positiveInteger(row.fbaReceivingBufferDays, 'fbaReceivingBufferDays') ?? defaults.fbaReceivingBufferDays,
+    followUpThresholdHours:
+      positiveInteger(row.followUpThresholdHours, 'followUpThresholdHours') ?? defaults.followUpThresholdHours,
     enableCurrentOrderCycleSelection: asBoolean(
       row.enableCurrentOrderCycleSelection,
       defaults.enableCurrentOrderCycleSelection,
