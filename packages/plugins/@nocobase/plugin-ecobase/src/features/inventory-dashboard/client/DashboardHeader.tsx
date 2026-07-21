@@ -42,7 +42,7 @@ const DashboardHeaderStrip: React.FC<DashboardHeaderProps> = ({ header, onTileCl
     role="group"
     aria-label={t(TEXT.pageTitle)}
   >
-    {header.tiles.map((tile) => (
+    {(Array.isArray(header.tiles) ? header.tiles : []).map((tile) => (
       <Card key={tile.key} size="small" style={{ minWidth: DASHBOARD_TOKENS.tileMinWidth }}>
         <Button
           type="text"

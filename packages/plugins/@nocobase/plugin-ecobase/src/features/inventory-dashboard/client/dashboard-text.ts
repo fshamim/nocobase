@@ -24,6 +24,7 @@ export const TEXT = {
   refresh: 'Refresh',
   retry: 'Retry',
   loadFailed: 'Failed to load',
+  unexpectedResponse: 'Unexpected server response shape',
   empty: 'No rows',
   loading: 'Loading',
   unknown: 'unknown',

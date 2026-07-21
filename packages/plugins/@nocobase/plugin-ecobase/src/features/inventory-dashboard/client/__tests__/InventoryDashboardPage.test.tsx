@@ -58,18 +58,30 @@ const PANE_FIXTURES: Record<string, unknown> = {
   untieredProducts: paneUntiered,
 };
 
+/**
+ * REAL transport envelope, captured from staging 2026-07-22 (image
+ * staging-83737af): the HTTP body is `{"data":{"data":<payload>}}` — the
+ * action middleware wraps the action's own `{ data: payload }` — and the axios
+ * client exposes the body as `response.data`, so the resolved value carries
+ * THREE `data` levels. The staging G2 crash (header.tiles undefined -> .map
+ * TypeError) came from mocking only two levels; this mock must stay at the
+ * real depth so that bug class cannot be reintroduced.
+ */
 function respond(data: unknown) {
-  return Promise.resolve({ data: { data } });
+  return Promise.resolve({ status: 200, data: { data: { data } } });
 }
 
 interface MockApiOptions {
   failPanes?: Set<string>;
   supersedePanes?: Set<string>;
+  headerPayload?: unknown;
 }
 
 function mockApi(options: MockApiOptions = {}) {
   request.mockImplementation((args: { url: string; data: Record<string, unknown> }) => {
-    if (args.url === 'ecobaseInventoryDashboard:header') return respond(headerFixture);
+    if (args.url === 'ecobaseInventoryDashboard:header') {
+      return respond('headerPayload' in options ? options.headerPayload : headerFixture);
+    }
     if (args.url === 'ecobaseInventoryDashboard:pane') {
       const pane = String(args.data.pane);
       if (options.failPanes?.has(pane)) return Promise.reject(new Error('boom'));
@@ -244,5 +256,34 @@ describe('InventoryDashboardPage (Gate G2)', () => {
         }
       }
     }
+  });
+
+  it('regression: renders against the exact staging-captured response envelope and proceeds to pane fetches', async () => {
+    // Verbatim structure of the staging HTTP body: {"data":{"data":<payload>}},
+    // surfaced through the axios client as response.data.
+    request.mockReset();
+    request.mockImplementation((args: { url: string; data: Record<string, unknown> }) => {
+      const payload =
+        args.url === 'ecobaseInventoryDashboard:header' ? headerFixture : PANE_FIXTURES[String(args.data.pane)];
+      return Promise.resolve({ status: 200, data: { data: { data: payload } } });
+    });
+    renderPage(observeOnly('supplyAction'));
+    const group = await screen.findByRole('group', { name: 'Inventory Dashboard' });
+    expect(within(group).getByRole('button', { name: 'Urgent stockout risk' })).toHaveTextContent('2');
+    // The G2 staging defect died between header resolution and the first pane
+    // render: assert the flow now continues into a pinned pane fetch.
+    await waitFor(() => expect(paneRequests('supplyAction')).toHaveLength(1));
+    expect(paneRequests('supplyAction')[0][0].data.runId).toBe(headerFixture.publishedRunId);
+    expect(await screen.findByText('SKU-f9b-supply-null-risk')).toBeTruthy();
+  });
+
+  it('regression: malformed header payload becomes a retryable error state, never a crash', async () => {
+    request.mockReset();
+    mockApi({ headerPayload: { nothing: 'useful' } });
+    renderPage(observeAll);
+    expect(await screen.findByText('Failed to load: Unexpected server response shape')).toBeTruthy();
+    mockApi();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByRole('group', { name: 'Inventory Dashboard' })).toBeTruthy();
   });
 });

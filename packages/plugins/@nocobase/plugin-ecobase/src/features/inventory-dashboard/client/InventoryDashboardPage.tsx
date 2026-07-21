@@ -20,6 +20,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DashboardHeader as DashboardHeaderData, DashboardRow, PaneKey, PaneResult } from '../server/contract';
 import { useT } from '../../../client/locale';
 import DashboardHeaderStrip from './DashboardHeader';
+import { isDashboardHeaderPayload, isPaneResultPayload, unwrapEnvelope } from './envelope';
 import PaneSection, {
   defaultObserveVisibility,
   type ObserveVisibility,
@@ -36,12 +37,6 @@ interface EcobaseRequestClient {
   request: (options: { url: string; method: 'post'; data: Record<string, unknown> }) => Promise<unknown>;
 }
 
-function unwrap(response: unknown): unknown {
-  const outer =
-    typeof response === 'object' && response !== null ? (response as Record<string, unknown>).data : undefined;
-  return typeof outer === 'object' && outer !== null ? (outer as Record<string, unknown>).data : undefined;
-}
-
 export interface InventoryDashboardPageProps {
   observeVisibility?: ObserveVisibility;
 }
@@ -50,6 +45,11 @@ const InventoryDashboardPage: React.FC<InventoryDashboardPageProps> = ({
   observeVisibility = defaultObserveVisibility,
 }) => {
   const t = useT();
+  // Stable reference for async callbacks: `t` may change identity per render
+  // (i18n re-binds); depending on it from the fetch callbacks would refire the
+  // header effect on every render and, in the error path, loop forever.
+  const tRef = useRef(t);
+  tRef.current = t;
   const api = useAPIClient() as unknown as EcobaseRequestClient;
   const [header, setHeader] = useState<DashboardHeaderData | null>(null);
   const [headerError, setHeaderError] = useState<string | null>(null);
@@ -63,10 +63,13 @@ const InventoryDashboardPage: React.FC<InventoryDashboardPageProps> = ({
   const loadHeader = useCallback(async () => {
     setHeaderError(null);
     try {
-      const data = unwrap(
+      const data = unwrapEnvelope(
         await api.request({ url: 'ecobaseInventoryDashboard:header', method: 'post', data: { companyId } }),
       );
-      setHeader(data as DashboardHeaderData);
+      if (!isDashboardHeaderPayload(data)) {
+        throw new Error(tRef.current(TEXT.unexpectedResponse));
+      }
+      setHeader(data);
       setSupersededBy(null);
     } catch (error) {
       setHeaderError(error instanceof Error ? error.message : String(error));
@@ -84,10 +87,13 @@ const InventoryDashboardPage: React.FC<InventoryDashboardPageProps> = ({
 
   const fetchPane = useCallback(
     async (request: PaneFetchRequest): Promise<PaneResult> => {
-      const data = unwrap(
+      const data = unwrapEnvelope(
         await api.request({ url: 'ecobaseInventoryDashboard:pane', method: 'post', data: { ...request } }),
       );
-      return data as PaneResult;
+      if (!isPaneResultPayload(data)) {
+        throw new Error(tRef.current(TEXT.unexpectedResponse));
+      }
+      return data;
     },
     [api],
   );
@@ -99,7 +105,7 @@ const InventoryDashboardPage: React.FC<InventoryDashboardPageProps> = ({
   const onRowsLoaded = useCallback((rows: DashboardRow[]) => {
     setCompanyOptions((existing) => {
       const merged = new Set(existing);
-      for (const row of rows) if (row.identity.company) merged.add(row.identity.company);
+      for (const row of rows ?? []) if (row?.identity?.company) merged.add(row.identity.company);
       return merged.size === existing.length ? existing : [...merged].sort();
     });
   }, []);

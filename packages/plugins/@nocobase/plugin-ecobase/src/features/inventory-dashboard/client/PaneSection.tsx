@@ -105,7 +105,7 @@ function PaneSectionInner(props: PaneSectionProps, ref: React.Ref<PaneSectionHan
           return;
         }
         setState({ status: 'loaded', response: result });
-        onRowsLoaded?.(result.rows);
+        onRowsLoaded?.(Array.isArray(result.rows) ? result.rows : []);
       } catch (error) {
         setState({ status: 'error', message: error instanceof Error ? error.message : String(error) });
       }
@@ -151,7 +151,9 @@ function PaneSectionInner(props: PaneSectionProps, ref: React.Ref<PaneSectionHan
           {t(config.titleKey)}
         </Typography.Title>
         {response ? (
-          <Typography.Text type="secondary">{`${t(TEXT.metricRows)}: ${response.pagination.total}`}</Typography.Text>
+          <Typography.Text type="secondary">{`${t(TEXT.metricRows)}: ${
+            response.pagination?.total ?? 0
+          }`}</Typography.Text>
         ) : null}
       </Space>
       {state.status === 'error' ? (
@@ -172,12 +174,12 @@ function PaneSectionInner(props: PaneSectionProps, ref: React.Ref<PaneSectionHan
           size="small"
           rowKey={(row) => `${row.identity.listingRowId}:${row.order?.orderId ?? ''}`}
           columns={columns}
-          dataSource={response?.rows ?? []}
+          dataSource={Array.isArray(response?.rows) ? response.rows : []}
           locale={{ emptyText: t(TEXT.empty) }}
           pagination={{
-            current: response?.pagination.page ?? page,
-            pageSize: response?.pagination.pageSize ?? pageSize,
-            total: response?.pagination.total ?? 0,
+            current: response?.pagination?.page ?? page,
+            pageSize: response?.pagination?.pageSize ?? pageSize,
+            total: response?.pagination?.total ?? 0,
             hideOnSinglePage: true,
             onChange: (nextPage) => setPage(nextPage),
           }}

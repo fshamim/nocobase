@@ -263,5 +263,6 @@
   "Above band": "高于区间",
   "Within band": "区间以内",
   "Below band": "低于区间",
-  "Insufficient evidence": "证据不足"
+  "Insufficient evidence": "证据不足",
+  "Unexpected server response shape": "服务器响应格式异常"
 }

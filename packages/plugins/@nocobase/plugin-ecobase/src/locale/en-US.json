@@ -263,5 +263,6 @@
   "Above band": "Above band",
   "Within band": "Within band",
   "Below band": "Below band",
-  "Insufficient evidence": "Insufficient evidence"
+  "Insufficient evidence": "Insufficient evidence",
+  "Unexpected server response shape": "Unexpected server response shape"
 }

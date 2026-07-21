@@ -42,13 +42,13 @@ export interface PaneConfig {
 }
 
 function productCell(row: DashboardRow): React.ReactNode {
-  const label = row.identity.sku ?? row.identity.asin ?? row.identity.familyKey;
+  const label = row.identity?.sku ?? row.identity?.asin ?? row.identity?.familyKey ?? '';
   return (
     <span>
       <Typography.Text strong>{label}</Typography.Text>
-      {row.identity.title ? (
+      {row.identity?.title ? (
         <Typography.Text type="secondary" ellipsis style={{ display: 'block', maxWidth: 260 }}>
-          {row.identity.title}
+          {row.identity?.title}
         </Typography.Text>
       ) : null}
     </span>
@@ -109,7 +109,7 @@ interface SignalOptions {
  */
 function signalsCell(row: DashboardRow, t: Translate, options: SignalOptions = {}): React.ReactNode {
   const tags: React.ReactNode[] = [];
-  const tier = row.tier.current ?? row.tier.baseline;
+  const tier = row.tier?.current ?? row.tier?.baseline;
   if (tier) {
     tags.push(
       <Tag key="tier" color={TIER_TAG_COLOR[tier.toLowerCase()] ?? DASHBOARD_TAG_COLORS.neutral}>
@@ -181,7 +181,8 @@ function signalsCell(row: DashboardRow, t: Translate, options: SignalOptions = {
       </Tag>,
     );
   }
-  if (row.reasonCodes.includes('untiered_projected')) {
+  const reasonCodes = Array.isArray(row.reasonCodes) ? row.reasonCodes : [];
+  if (reasonCodes.includes('untiered_projected')) {
     tags.push(
       <Tag key="untiered" color={DASHBOARD_TAG_COLORS.neutral}>
         {t(TEXT.badgeUntieredProjected)}
@@ -189,7 +190,7 @@ function signalsCell(row: DashboardRow, t: Translate, options: SignalOptions = {
     );
   }
   if (options.reasons) {
-    for (const reason of row.reasonCodes.filter((code) => code !== 'untiered_projected').slice(0, 2)) {
+    for (const reason of reasonCodes.filter((code) => code !== 'untiered_projected').slice(0, 2)) {
       tags.push(
         <Tag key={`reason-${reason}`} color={DASHBOARD_TAG_COLORS.warning}>
           {reason}
@@ -234,7 +235,7 @@ const profitRisk: PaneColumnConfig = {
 const stock: PaneColumnConfig = {
   key: 'stock',
   titleKey: TEXT.colStock,
-  render: (row, t) => formatNumber(row.stock.currentPlanningStock, t),
+  render: (row, t) => formatNumber(row.stock?.currentPlanningStock, t),
 };
 function signals(options: SignalOptions = {}): PaneColumnConfig {
   return { key: 'signals', titleKey: TEXT.colSignals, render: (row, t) => signalsCell(row, t, options) };
@@ -296,7 +297,7 @@ export const PANE_CONFIGS: PaneConfig[] = [
     columns: [
       product,
       stock,
-      { key: 'unitCost', titleKey: TEXT.colUnitCost, render: (row, t) => formatMoney(row.stock.unitCost, t) },
+      { key: 'unitCost', titleKey: TEXT.colUnitCost, render: (row, t) => formatMoney(row.stock?.unitCost, t) },
       signals(),
     ],
   },
