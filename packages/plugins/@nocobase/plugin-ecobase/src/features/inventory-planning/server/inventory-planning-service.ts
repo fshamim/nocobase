@@ -43,6 +43,7 @@ import { selectCurrentFamilyOrderCycle, type FamilyOrderCycleSelection } from '.
 import { evaluatePlanningReadiness } from './planning-readiness';
 import { workflowStageForOperationalStatus } from '../../order-planning/order-operational-status';
 import { canonicalJson, EcobaseGoldRefreshRunService, type GoldPublicationPayload } from './gold-refresh-run-service';
+import { EcobaseGoldError } from './gold-errors';
 import {
   buildCorrectedInventoryPlanningCandidate,
   CORRECTED_CANDIDATE_FAMILY_COUNT,
@@ -2561,6 +2562,29 @@ export class EcobaseInventoryPlanningService {
         };
       },
     });
+  }
+
+  async refreshAndPublish(query: InventoryPlanningQuery & { requestedByUserId?: string } = {}) {
+    try {
+      const refresh = toPlainRecord(await this.refreshReadModel({ ...query, publish: false }));
+      const runId = asString(toPlainRecord(refresh.run).id);
+      if (!runId) {
+        throw new EcobaseGoldError(
+          'ECOBASE_GOLD_AUTOMATIC_PUBLICATION_FAILED',
+          'EcoBase automatic Gold publication did not receive a refresh run identity.',
+          { stage: 'materialization' },
+        );
+      }
+      return await new EcobaseGoldRefreshRunService(this.db).verifyAndPublish(runId);
+    } catch (error) {
+      if (typeof (error as { code?: unknown })?.code === 'string') throw error;
+      const cause = error instanceof Error ? error.message : String(error);
+      throw new EcobaseGoldError(
+        'ECOBASE_GOLD_AUTOMATIC_PUBLICATION_FAILED',
+        `EcoBase automatic Gold publication failed during materialization: ${cause}`,
+        { stage: 'materialization', cause },
+      );
+    }
   }
 
   async verifyRefreshRun(runId: string) {

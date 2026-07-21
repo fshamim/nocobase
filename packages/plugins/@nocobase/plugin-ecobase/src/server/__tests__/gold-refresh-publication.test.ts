@@ -486,6 +486,57 @@ describe('Gold refresh publication control', () => {
     expect(db.runs.rows.find((run) => run.id === 'existing-publication')).toMatchObject({ status: 'retired' });
   });
 
+  it('server-generates the approved payload and makes duplicate verified promotion idempotent', async () => {
+    const db = new MemoryDatabase();
+    const candidate = await buildRun(db, { date: '2026-07-15', key: 'operator-publication', publish: false });
+    const runId = String((candidate.run as Row).id);
+    const service = new EcobaseGoldRefreshRunService(db);
+    publicationPayloadFixture(db, runId);
+
+    const concurrent = await Promise.all([service.verifyAndPublish(runId), service.verifyAndPublish(runId)]);
+    const published = concurrent.find((result) => result.reused === false);
+    const duplicate = concurrent.find((result) => result.reused === true);
+    const expectedPayload = publicationPayloadFixture(db, runId);
+
+    expect(published).toMatchObject({
+      published: true,
+      reused: false,
+      run: {
+        id: runId,
+        status: 'published',
+        productionVerificationJson: { valid: true },
+        independentVerificationJson: { valid: true },
+      },
+    });
+    expect((published.run as Row).publicationPayloadDigest).toBe(
+      createHash('sha256').update(canonicalJson(expectedPayload)).digest('hex'),
+    );
+    expect(duplicate).toMatchObject({ published: true, reused: true, run: { id: runId, status: 'published' } });
+    expect(db.runs.rows.filter((run) => run.status === 'published')).toHaveLength(1);
+    await expect(new EcobaseInventoryPlanningService(db).listRows()).resolves.toEqual([
+      expect.objectContaining({ refreshRunId: runId }),
+    ]);
+  });
+
+  it('keeps the prior publication unchanged when automatic verification fails', async () => {
+    const db = new MemoryDatabase();
+    await seedLifecycleRun(db, 'prior-publication', 'published', '2026-07-14');
+    const candidate = await buildRun(db, { date: '2026-07-15', key: 'failed-operator-publication', publish: false });
+    const runId = String((candidate.run as Row).id);
+    publicationPayloadFixture(db, runId);
+    const candidateRow = db.gold.rows.find((row) => row.refreshRunId === runId);
+    if (!candidateRow) throw new Error('Missing failed operator publication fixture row.');
+    candidateRow.inventoryPositionStock = 999;
+
+    await expect(new EcobaseGoldRefreshRunService(db).verifyAndPublish(runId)).rejects.toMatchObject({
+      code: 'ECOBASE_GOLD_AUTOMATIC_PUBLICATION_FAILED',
+      details: { stage: 'verification', runId },
+    });
+    expect(db.runs.rows.find((run) => run.id === 'prior-publication')).toMatchObject({ status: 'published' });
+    expect(db.runs.rows.find((run) => run.id === runId)).toMatchObject({ status: 'materialized' });
+    expect(db.runs.rows.filter((run) => run.status === 'published')).toHaveLength(1);
+  });
+
   it('switches the published pointer to one verified successful run', async () => {
     const db = new MemoryDatabase();
     const first = await buildRun(db, { date: '2026-07-14', key: 'first', publish: true });
@@ -998,7 +1049,7 @@ describe('Gold refresh publication control', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('blocks operator rebuild requests and keeps operator Refresh free of rebuild calls', async () => {
+  it('keeps manual rebuild admin-only and exposes only the supported one-button publication action', async () => {
     const action = createEcobaseInventoryPlanningActions().refreshReadModel;
     const next = vi.fn();
     const ctx = {
@@ -1037,11 +1088,31 @@ describe('Gold refresh publication control', () => {
     expect(pageSource).not.toContain('ecobaseInventoryPlanning:refreshReadModel');
     expect(pageSource).not.toContain('Rebuild gold inventory');
 
-    const publicPublicationSources = [
-      'packages/plugins/@nocobase/plugin-ecobase/src/client/pages/GoldMaintenancePage.tsx',
-      'packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/resource-registration.ts',
-      'packages/plugins/@nocobase/plugin-ecobase/src/server/resource-actions.ts',
-    ].map((path) => readFileSync(resolve(process.cwd(), path), 'utf8'));
-    expect(publicPublicationSources.every((source) => !source.includes('publishRefreshRun'))).toBe(true);
+    const maintenancePageSource = readFileSync(
+      resolve(process.cwd(), 'packages/plugins/@nocobase/plugin-ecobase/src/client/pages/GoldMaintenancePage.tsx'),
+      'utf8',
+    );
+    expect(maintenancePageSource.match(/ecobaseInventoryPlanning:refreshAndPublish/g)).toHaveLength(1);
+    expect(maintenancePageSource).not.toContain('ecobaseInventoryPlanning:refreshReadModel');
+    expect(maintenancePageSource).not.toContain('ecobaseInventoryPlanning:verifyRefreshRun');
+    expect(maintenancePageSource).not.toContain('REBUILD GOLD');
+    expect(maintenancePageSource).not.toContain('PUBLISH GOLD');
+    expect(maintenancePageSource).not.toContain('idempotencyKey');
+
+    const registrationSource = readFileSync(
+      resolve(
+        process.cwd(),
+        'packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/resource-registration.ts',
+      ),
+      'utf8',
+    );
+    expect(registrationSource).toContain("'refreshAndPublish'");
+    expect(registrationSource).toContain('role: OPERATOR');
+
+    const routesSource = readFileSync(
+      resolve(process.cwd(), 'packages/plugins/@nocobase/plugin-ecobase/src/client/client-routes.tsx'),
+      'utf8',
+    );
+    expect(routesSource).toMatch(/key: 'gold-maintenance'[\s\S]*access: 'operator' as const/);
   });
 });

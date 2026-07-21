@@ -56,6 +56,14 @@ const ecobaseWorkspacePages = [
     Component: InventoryPlanningPage,
   },
   {
+    key: 'gold-maintenance',
+    label: 'Gold Maintenance',
+    icon: 'DatabaseOutlined',
+    path: `${ECOBASE_WORKSPACE_ROOT}/gold-maintenance`,
+    Component: GoldMaintenancePage,
+    access: 'operator' as const,
+  },
+  {
     key: 'order-planning',
     label: 'Order Planning',
     icon: 'ShoppingCartOutlined',

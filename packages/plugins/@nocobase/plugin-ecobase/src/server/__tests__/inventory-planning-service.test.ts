@@ -7,7 +7,7 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import {
   calculateInventoryMoneyRisk,
@@ -410,6 +410,16 @@ async function upsertRecord(db: MemoryDatabase, collection: string, values: Reco
 }
 
 describe('EcobaseInventoryPlanningService', () => {
+  it('returns a typed automatic-publication error when full-catalog materialization fails', async () => {
+    const service = new EcobaseInventoryPlanningService(new MemoryDatabase());
+    vi.spyOn(service, 'refreshReadModel').mockRejectedValueOnce(new Error('fixture materialization failed'));
+
+    await expect(service.refreshAndPublish({ calculationDate: '2026-07-16' })).rejects.toMatchObject({
+      code: 'ECOBASE_GOLD_AUTOMATIC_PUBLICATION_FAILED',
+      details: { stage: 'materialization', cause: 'fixture materialization failed' },
+    });
+  });
+
   it('classifies tiered families into the report panes and checks tier before workflow', () => {
     const row = (values: Record<string, unknown>) =>
       commandCenterPaneForRow(

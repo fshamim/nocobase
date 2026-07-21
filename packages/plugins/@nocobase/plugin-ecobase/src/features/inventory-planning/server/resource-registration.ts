@@ -43,7 +43,13 @@ export function createInventoryPlanningResourceRegistration(): EcobaseFeatureRes
       },
       {
         resource: 'ecobaseInventoryPlanning',
-        actions: ['setReceiptOverride', 'updateProductPlanningFields', 'setFamilyTarget', 'setFamilyPreferredSupplier'],
+        actions: [
+          'refreshAndPublish',
+          'setReceiptOverride',
+          'updateProductPlanningFields',
+          'setFamilyTarget',
+          'setFamilyPreferredSupplier',
+        ],
         role: OPERATOR,
       },
       {

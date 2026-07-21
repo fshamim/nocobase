@@ -1197,6 +1197,23 @@ export function createEcobaseInventoryPlanningActions() {
         ctx.body = { data: await service.filterOptions() };
         await next();
       },
+      refreshAndPublish: async (ctx, next) => {
+        const values = getValues(ctx.action.params);
+        try {
+          ctx.body = {
+            data: await new EcobaseInventoryPlanningService(ctx.db).refreshAndPublish({
+              ...inventoryPlanningQuery(values),
+              requestedByUserId: getActorId(ctx),
+            }),
+          };
+        } catch (error) {
+          if (typeof (error as { code?: unknown })?.code === 'string') {
+            throw Object.assign(error as object, { status: 400 });
+          }
+          throw error;
+        }
+        await next();
+      },
       refreshReadModel: async (ctx, next) => {
         requireMaintenanceAdministrator(ctx, 'Gold maintenance');
         const values = getValues(ctx.action.params);
@@ -1537,6 +1554,7 @@ export function createEcobaseInventoryPlanningActions() {
       },
     },
     {
+      refreshAndPublish: 'operator',
       refreshReadModel: 'admin',
       verifyRefreshRun: 'admin',
       reconcileFamilies: 'admin',

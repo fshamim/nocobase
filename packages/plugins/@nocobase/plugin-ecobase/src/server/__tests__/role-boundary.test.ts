@@ -20,6 +20,7 @@ import { ecobaseAclCondition, requireEcobaseRole } from '../role-boundary';
 import { ECOBASE_PILOT_ROLE_ASSIGNMENT_MANIFEST } from '../role-assignment-manifest';
 import { ECOBASE_OPERATOR_ROLE } from '../migrations/20260715144000-create-operator-role';
 import { createInventoryPlanningResourceRegistration } from '../../features/inventory-planning/server/resource-registration';
+import { EcobaseInventoryPlanningService } from '../../features/inventory-planning/server/inventory-planning-service';
 import { createOrderPlanningResourceRegistration } from '../../features/order-planning/server/resource-registration';
 
 const USERS = {
@@ -87,6 +88,27 @@ describe('EcoBase role boundary', () => {
     );
   });
 
+  it('allows operators and admins to run the supported one-button Gold publication action', async () => {
+    const published = { published: true, reused: false, run: { id: 'published-run', status: 'published' } };
+    const refreshAndPublish = vi
+      .spyOn(EcobaseInventoryPlanningService.prototype, 'refreshAndPublish')
+      .mockResolvedValue(published as never);
+    const next = vi.fn();
+    const operatorContext = context(USERS.operator, { calculationDate: '2026-07-16' });
+
+    await createEcobaseInventoryPlanningActions().refreshAndPublish(operatorContext, next);
+
+    expect(refreshAndPublish).toHaveBeenCalledWith({
+      calculationDate: '2026-07-16',
+      requestedByUserId: '4',
+    });
+    expect(operatorContext.body).toEqual({ data: published });
+    expect(next).toHaveBeenCalledOnce();
+    await expect(
+      createEcobaseInventoryPlanningActions().refreshAndPublish(context(USERS.member), vi.fn()),
+    ).rejects.toMatchObject({ status: 403 });
+  });
+
   it('keeps generated reports and linked comments at the operator boundary', async () => {
     await expect(createEcobaseReportActions().generatePreview(context(USERS.member), vi.fn())).rejects.toMatchObject({
       status: 403,
@@ -131,6 +153,9 @@ describe('EcoBase role boundary', () => {
     expect(isGranted('ecobaseInventoryPlanning', 'setFamilyTarget', USERS.operator)).toBe(true);
     expect(isGranted('ecobaseInventoryPlanning', 'refreshReadModel', USERS.operator)).toBe(false);
     expect(isGranted('ecobaseInventoryPlanning', 'refreshReadModel', USERS.admin)).toBe(true);
+    expect(isGranted('ecobaseInventoryPlanning', 'refreshAndPublish', USERS.member)).toBe(false);
+    expect(isGranted('ecobaseInventoryPlanning', 'refreshAndPublish', USERS.operator)).toBe(true);
+    expect(isGranted('ecobaseInventoryPlanning', 'refreshAndPublish', USERS.admin)).toBe(true);
     expect(isGranted('ecobaseOrderPlanning', 'updateOrder', USERS.member)).toBe(false);
     expect(isGranted('ecobaseOrderPlanning', 'updateOrder', USERS.operator)).toBe(true);
   });

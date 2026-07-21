@@ -589,9 +589,38 @@ export class EcobaseGoldRefreshRunService {
 
   async publish(payload: GoldPublicationPayload) {
     return this.withLockedTransaction(async (transaction) => {
-      const run = await this.publishWithinTransaction(payload, transaction);
-      return this.result(run, false);
+      const runId = text(payload?.runId) ?? 'unknown';
+      const prepared = await this.preparePublication(runId, transaction);
+      if (canonicalJson(payload) !== canonicalJson(prepared.payload)) {
+        throw publicationMismatch(runId, {
+          expectedPayloadDigest: requestDigest(prepared.payload),
+          receivedPayloadDigest: requestDigest(payload),
+        });
+      }
+      return this.result(await this.commitPublication(prepared, transaction), false);
     });
+  }
+
+  async verifyAndPublish(runId: string) {
+    let stage = 'verification';
+    try {
+      const run = await this.getRun(runId);
+      if (run.status === 'published') {
+        stage = 'publication';
+        return await this.publishGenerated(runId);
+      }
+      if (run.status === 'materialized') await this.verify(runId);
+      else if (run.status !== 'verified') throw this.invalidTransition(runId, String(run.status), 'published');
+      stage = 'publication';
+      return await this.publishGenerated(runId);
+    } catch (error) {
+      if (error instanceof EcobaseGoldError) throw error;
+      throw new EcobaseGoldError(
+        'ECOBASE_GOLD_AUTOMATIC_PUBLICATION_FAILED',
+        `EcoBase automatic Gold publication failed during ${stage}: ${errorMessage(error)}`,
+        { runId, stage, cause: errorMessage(error) },
+      );
+    }
   }
 
   async terminate(runId: string, status: 'superseded' | 'rejected', reasonCode: string, reasonJson: PlainRecord = {}) {
@@ -619,8 +648,22 @@ export class EcobaseGoldRefreshRunService {
     });
   }
 
-  private async publishWithinTransaction(payload: GoldPublicationPayload, transaction?: Transaction) {
-    const runId = text(payload?.runId) ?? 'unknown';
+  private async publishGenerated(runId: string) {
+    return this.withLockedTransaction(async (transaction) => {
+      const run = await this.getRun(runId, transaction);
+      if (run.status === 'published') {
+        const published = await this.getPublishedRun(transaction);
+        if (String(published?.id) !== runId || !text(run.publicationPayloadDigest)) {
+          throw publicationMismatch(runId, { publishedRunId: published?.id ?? null });
+        }
+        return this.result(run, true);
+      }
+      const prepared = await this.preparePublication(runId, transaction);
+      return this.result(await this.commitPublication(prepared, transaction), false);
+    });
+  }
+
+  private async preparePublication(runId: string, transaction?: Transaction) {
     const run = await this.getRun(runId, transaction);
     if (run.status !== 'verified') throw this.invalidTransition(runId, String(run.status), 'published');
     const expectedRowCount = integer(run.rowCount);
@@ -635,15 +678,21 @@ export class EcobaseGoldRefreshRunService {
       transaction,
     );
     const independentVerificationDigest = requestDigest(independentVerification);
-    const expectedPayload = publicationPayloadFromRun(run, productionVerificationDigest, independentVerificationDigest);
-    const expectedCanonicalPayload = canonicalJson(expectedPayload);
-    const receivedCanonicalPayload = canonicalJson(payload);
-    if (receivedCanonicalPayload !== expectedCanonicalPayload) {
-      throw publicationMismatch(runId, {
-        expectedPayloadDigest: requestDigest(expectedPayload),
-        receivedPayloadDigest: requestDigest(payload),
-      });
-    }
+    return {
+      runId,
+      run,
+      verification,
+      independentVerification,
+      independentVerificationDigest,
+      payload: publicationPayloadFromRun(run, productionVerificationDigest, independentVerificationDigest),
+    };
+  }
+
+  private async commitPublication(
+    prepared: Awaited<ReturnType<EcobaseGoldRefreshRunService['preparePublication']>>,
+    transaction?: Transaction,
+  ) {
+    const { runId, verification, independentVerification, independentVerificationDigest, payload } = prepared;
     const published = await this.runRepository().find({ filter: { status: 'published' }, transaction });
     const retiredAt = new Date().toISOString();
     for (const current of published.map(toPlainRecord)) {
@@ -659,14 +708,12 @@ export class EcobaseGoldRefreshRunService {
         transaction,
       });
     }
-    const publishedAt = new Date().toISOString();
-    const publicationPayloadDigest = requestDigest(expectedPayload);
     await this.runRepository().update({
       filterByTk: runId,
       values: {
         status: 'published',
-        publishedAt,
-        publicationPayloadDigest,
+        publishedAt: new Date().toISOString(),
+        publicationPayloadDigest: requestDigest(payload),
         verificationJson: verification,
         productionVerificationJson: verification,
         productionVerificationDigest: requestDigest(verification),
@@ -677,11 +724,9 @@ export class EcobaseGoldRefreshRunService {
     });
     const publishedAfter = await this.runRepository().find({ filter: { status: 'published' }, transaction });
     if (publishedAfter.length !== 1 || String(toPlainRecord(publishedAfter[0]).id) !== runId) {
-      throw new EcobaseGoldError(
-        'ECOBASE_GOLD_PUBLICATION_MISMATCH',
-        `EcoBase Gold publication payload does not match verified run "${runId}".`,
-        { runId, publishedRunIds: publishedAfter.map((value) => toPlainRecord(value).id) },
-      );
+      throw publicationMismatch(runId, {
+        publishedRunIds: publishedAfter.map((value) => toPlainRecord(value).id),
+      });
     }
     return this.getRun(runId, transaction);
   }

@@ -10,7 +10,6 @@
 import { useAPIClient } from '@nocobase/client';
 import { Alert, Button, Card, Descriptions, Input, Space, Typography } from 'antd';
 import React, { useState } from 'react';
-import { CandidatePreviewLoader } from '../../features/inventory-planning/client/CandidatePreviewLoader';
 import { useT } from '../locale';
 
 type PlainRecord = Record<string, unknown>;
@@ -32,49 +31,24 @@ export default function GoldMaintenancePage() {
   const t = useT();
   const api = useAPIClient();
   const [calculationDate, setCalculationDate] = useState(new Date().toISOString().slice(0, 10));
-  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
-  const [buildConfirmation, setBuildConfirmation] = useState('');
   const [result, setResult] = useState<PlainRecord>({});
-  const [verification, setVerification] = useState<PlainRecord>({});
-  const [previewRunId, setPreviewRunId] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
   const run = unwrapData(result.run);
-  const runId = text(run.id) === '—' ? undefined : text(run.id);
 
-  const build = async () => {
+  const refreshAndPublish = async () => {
     setLoading(true);
     setError(null);
     try {
       const response = await api.request({
-        url: 'ecobaseInventoryPlanning:refreshReadModel',
+        url: 'ecobaseInventoryPlanning:refreshAndPublish',
         method: 'post',
-        data: { calculationDate, idempotencyKey, confirmation: buildConfirmation },
+        data: { calculationDate },
       });
       setResult(unwrapData(response));
-      setVerification({});
     } catch (cause) {
-      setError(cause instanceof Error ? cause : new Error(t('Gold rebuild failed.')));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const verify = async () => {
-    if (!runId) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await api.request({
-        url: 'ecobaseInventoryPlanning:verifyRefreshRun',
-        method: 'post',
-        data: { runId },
-      });
-      setVerification(unwrapData(response));
-      setPreviewRunId(runId);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause : new Error(t('Gold refresh verification failed.')));
+      setError(cause instanceof Error ? cause : new Error(t('Gold refresh and publication failed.')));
     } finally {
       setLoading(false);
     }
@@ -87,63 +61,48 @@ export default function GoldMaintenancePage() {
         <Alert
           type="warning"
           showIcon
-          message={t('Administrative maintenance only')}
+          message={t('Operator publication control')}
           description={t(
-            'A rebuild writes an unpublished run. Inventory Planning keeps reading the current published run. Publication remains disabled until the controlled cutover.',
+            'This action rebuilds the complete Gold candidate from current Silver data, verifies it independently, and publishes it atomically. Existing published data remains active if any stage fails.',
           )}
         />
         {error ? <Alert type="error" showIcon message={error.message} /> : null}
 
-        <Card title={t('1. Build an unpublished Gold run')}>
+        <Card title={t('Refresh, verify, and publish Gold')}>
           <Space direction="vertical" style={{ width: '100%' }}>
             <Typography.Text strong>{t('Calculation date')}</Typography.Text>
             <Input type="date" value={calculationDate} onChange={(event) => setCalculationDate(event.target.value)} />
-            <Typography.Text strong>{t('Idempotency key')}</Typography.Text>
-            <Space.Compact style={{ width: '100%' }}>
-              <Input value={idempotencyKey} readOnly />
-              <Button onClick={() => setIdempotencyKey(crypto.randomUUID())}>{t('New key')}</Button>
-            </Space.Compact>
-            <Typography.Text strong>{t('Type REBUILD GOLD to confirm')}</Typography.Text>
-            <Input value={buildConfirmation} onChange={(event) => setBuildConfirmation(event.target.value)} />
-            <Button type="primary" loading={loading} onClick={build}>
-              {t('Build Gold run')}
+            <Button type="primary" loading={loading} onClick={refreshAndPublish}>
+              {t('Refresh, verify, and publish')}
             </Button>
           </Space>
         </Card>
 
-        {runId ? (
-          <Card title={t('2. Verify candidate')}>
-            <Space direction="vertical" style={{ width: '100%' }}>
-              <Descriptions bordered size="small" column={1}>
-                <Descriptions.Item label={t('Run ID')}>{runId}</Descriptions.Item>
-                <Descriptions.Item label={t('Status')}>{text(run.status)}</Descriptions.Item>
-                <Descriptions.Item label={t('Rows')}>{String(run.rowCount ?? '—')}</Descriptions.Item>
-                <Descriptions.Item label={t('Calculation date')}>{text(run.calculationDate)}</Descriptions.Item>
-              </Descriptions>
-              <Button loading={loading} onClick={verify}>
-                {t('Verify run')}
-              </Button>
-              {verification.valid === true ? (
-                <Alert
-                  type="success"
-                  showIcon
-                  message={t('Run verification passed')}
-                  description={`${String(verification.storedRowCount)} ${t('rows verified')}`}
-                />
-              ) : null}
-              <Alert
-                type="info"
-                showIcon
-                message={t('Publication is disabled')}
-                description={t('Verified candidates remain unpublished until the controlled publication cutover.')}
-              />
-            </Space>
-          </Card>
+        {result.published === true ? (
+          <Alert
+            type="success"
+            showIcon
+            message={result.reused === true ? t('Published Gold run reused') : t('Gold publication completed')}
+            description={t('Inventory Planning now reads this published run.')}
+          />
         ) : null}
 
-        <Card title={t('3. Preview a verified unpublished candidate')}>
-          <CandidatePreviewLoader initialRunId={previewRunId} />
-        </Card>
+        {run.id ? (
+          <Card title={t('Published run')}>
+            <Descriptions bordered size="small" column={1}>
+              <Descriptions.Item label={t('Run ID')}>{text(run.id)}</Descriptions.Item>
+              <Descriptions.Item label={t('Status')}>{text(run.status)}</Descriptions.Item>
+              <Descriptions.Item label={t('Listings')}>{String(run.listingRowCount ?? '—')}</Descriptions.Item>
+              <Descriptions.Item label={t('Family actions')}>
+                {String(run.familyActionProjectionCount ?? '—')}
+              </Descriptions.Item>
+              <Descriptions.Item label={t('Calculation date')}>{text(run.calculationDate)}</Descriptions.Item>
+              <Descriptions.Item label={t('Publication digest')}>
+                {text(run.publicationPayloadDigest)}
+              </Descriptions.Item>
+            </Descriptions>
+          </Card>
+        ) : null}
       </Space>
     </div>
   );
