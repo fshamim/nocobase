@@ -136,9 +136,12 @@ function asMonthlyEvidence(value: unknown): MonthlyEvidenceEntry[] {
     const record = entry as Record<string, unknown>;
     return [
       {
-        month: asString(record.month) ?? undefined,
-        units: asNumber(record.units),
-        trusted: record.trusted === true,
+        // Real gold evidence uses {monthStart, monthlyUnits, eligible}; the
+        // simplified {month, units, trusted} shape is kept for fixtures
+        // (G4 follow-up: the mismatch silently emptied bands on live data).
+        month: asString(record.month) ?? asString(record.monthStart) ?? undefined,
+        units: asNumber(record.units) ?? asNumber(record.monthlyUnits),
+        trusted: record.trusted === true || record.eligible === true,
       },
     ];
   });
@@ -548,7 +551,14 @@ export class EcobaseInventoryDashboardService {
     direction: 'asc' | 'desc' | undefined,
   ): ProjectedRow[] {
     const sortKey = sort ?? (pane === 'supplyAction' ? 'latestSafeReorderDate' : undefined);
-    if (!sortKey) return rows;
+    if (!sortKey) {
+      // Task 006: tiered families sort to the TOP of Data Readiness so they
+      // are never buried among migration leftovers.
+      if (pane === 'dataReadiness') {
+        return [...rows].sort((left, right) => Number(right.tiered) - Number(left.tiered));
+      }
+      return rows;
+    }
     const dir = direction === 'desc' ? -1 : 1;
     return [...rows].sort((left, right) => {
       const leftValue = sortValue(left.raw[sortKey]);
@@ -838,11 +848,20 @@ export class EcobaseInventoryDashboardService {
 
   private paneMetrics(pane: PaneKey, rows: ProjectedRow[]): PaneMetric[] {
     const money = moneySum(rows.map((row) => asNumber(row.raw.estimatedProfitRisk)));
-    return [
+    const metrics: PaneMetric[] = [
       { key: 'count', label: 'Rows', value: rows.length },
       { key: 'moneyAtRisk', label: 'Money at risk', value: money.value, format: 'currency' },
       { key: 'unknownMoney', label: 'Unknown money inputs', value: money.unknownCount },
     ];
+    if (pane === 'dataReadiness') {
+      // Task 006: the dashboard's job is to drive this number to 0.
+      metrics.push({
+        key: 'tieredNeedingAttention',
+        label: 'Tiered families needing attention',
+        value: new Set(rows.filter((row) => row.tiered).map((row) => row.familyKey)).size,
+      });
+    }
+    return metrics;
   }
 }
 

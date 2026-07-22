@@ -17,6 +17,11 @@
       "key": "unknownMoney",
       "label": "Unknown money inputs",
       "value": 1
+    },
+    {
+      "key": "tieredNeedingAttention",
+      "label": "Tiered families needing attention",
+      "value": 1
     }
   ],
   "rows": [

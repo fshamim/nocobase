@@ -523,6 +523,43 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
     expect(response.rows[0]?.reasonCodes).toEqual(['missing_or_invalid_baseline_evidence']);
   });
 
+  it('reads REAL gold evidence keys (monthStart/monthlyUnits/eligible) for bands and trends', async () => {
+    const local = new RecordingDatabase();
+    local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).rows.push({
+      id: PUBLISHED_RUN_ID,
+      status: 'published',
+      calculationDate: FIXED_TODAY,
+      publishedAt: `${FIXED_TODAY}T00:00:00.000Z`,
+    });
+    local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).rows.push({
+      id: 'real-evidence-row',
+      naturalKey: 'real-evidence-row',
+      refreshRunId: PUBLISHED_RUN_ID,
+      primaryActionPane: 'performanceReview',
+      companyProductFamilyId: 'family-real-evidence',
+      baselineTier: 'A',
+      // Verbatim key shape from gold-row-samples (tier-A.json).
+      monthlyPerformanceEvidence: [
+        { monthStart: '2026-01-01', monthEnd: '2026-01-31', eligible: true, monthlyUnits: 100 },
+        { monthStart: '2026-02-01', monthEnd: '2026-02-28', eligible: true, monthlyUnits: 200 },
+        { monthStart: '2026-03-01', monthEnd: '2026-03-31', eligible: true, monthlyUnits: 150 },
+        { monthStart: '2026-04-01', monthEnd: '2026-04-30', eligible: false, monthlyUnits: null },
+      ],
+      projectedMonthlyUnits: 80,
+      lastClosedMonthUnits: 150,
+    });
+    const response = await service(local).pane({
+      pane: 'performanceReview',
+      runId: PUBLISHED_RUN_ID,
+      page: 1,
+      pageSize: 25,
+    });
+    if (isRunSuperseded(response)) throw new Error('bad');
+    const row = response.rows[0];
+    expect(row?.performanceBand).toBe('below_band'); // 80 < worst(100), 3 eligible months
+    expect(row?.velocityTrend).toBe('down'); // 80 vs 150
+  });
+
   it('handles Postgres Date instances in datetime columns (G4 audit regression)', async () => {
     // Real repositories return Date objects for datetimeTz columns; string-only
     // coercion silently nulled stage-entry/activity/lead-time timestamps.
@@ -619,6 +656,45 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
           comment.body === 'Supplier back in business',
       ),
     ).toBe(true);
+  });
+
+  it('sorts tiered families to the top of Data Readiness and reports the attention counter (task 006)', async () => {
+    const local = new RecordingDatabase();
+    local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).rows.push({
+      id: PUBLISHED_RUN_ID,
+      status: 'published',
+      calculationDate: FIXED_TODAY,
+      publishedAt: `${FIXED_TODAY}T00:00:00.000Z`,
+    });
+    const goldRepo = local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows);
+    for (const [id, tier] of [
+      ['dr-untiered-1', null],
+      ['dr-tiered-1', 'B'],
+      ['dr-untiered-2', null],
+      ['dr-tiered-2', 'A'],
+    ] as const) {
+      goldRepo.rows.push({
+        id,
+        naturalKey: id,
+        refreshRunId: PUBLISHED_RUN_ID,
+        primaryActionPane: 'dataReadiness',
+        companyProductFamilyId: `family-${id}`,
+        baselineTier: tier,
+      });
+    }
+    const response = await service(local).pane({
+      pane: 'dataReadiness',
+      runId: PUBLISHED_RUN_ID,
+      page: 1,
+      pageSize: 25,
+    });
+    if (isRunSuperseded(response)) throw new Error('bad');
+    // Tiered families first.
+    expect(response.rows.slice(0, 2).every((row) => row.tier.baseline !== null)).toBe(true);
+    expect(response.rows.slice(2).every((row) => row.tier.baseline === null)).toBe(true);
+    const counter = response.metrics.find((metric) => metric.key === 'tieredNeedingAttention');
+    expect(counter?.value).toBe(2);
+    expect(counter?.label).toBe('Tiered families needing attention');
   });
 
   it('(h) emits typed response snapshots for G2 to consume', async () => {
