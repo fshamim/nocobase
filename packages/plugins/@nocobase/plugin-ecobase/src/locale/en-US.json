@@ -301,5 +301,11 @@
   "Search this pane": "Search this pane",
   "Reactivate": "Reactivate",
   "Reactivation reason (required)": "Reactivation reason (required)",
-  "Previous status": "Previous status"
+  "Previous status": "Previous status",
+  "Family target": "Family target",
+  "none (target in review)": "none (target in review)",
+  "Family reactivated — it returns to normal classification on the next publish": "Family reactivated — it returns to normal classification on the next publish",
+  "Supplier assigned": "Supplier assigned",
+  "Assign supplier": "Assign supplier",
+  "Tiered families needing attention": "Tiered families needing attention"
 }

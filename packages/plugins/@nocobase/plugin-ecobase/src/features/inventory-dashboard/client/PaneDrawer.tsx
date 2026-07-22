@@ -15,7 +15,7 @@
  * refetch. Successful mutations refresh only the affected pane + header.
  */
 
-import { Alert, Button, Divider, Drawer, Space, Spin, Typography } from 'antd';
+import { Alert, App, Button, Divider, Drawer, Space, Spin, Typography } from 'antd';
 import React, { useCallback, useEffect, useState } from 'react';
 import type { DashboardRow, DrawerContextResponse, PaneKey } from '../server/contract';
 import { isRunSuperseded } from '../server/contract';
@@ -40,6 +40,12 @@ import { formatNumber, type Translate } from './format';
 
 /** Sibling workspace page (kept literal to avoid importing client-routes into the feature). */
 const ORDER_PLANNING_PATH = '/admin/ecobase/order-planning';
+
+/** QA item 4: mutations that confirm success with a toast. */
+const MUTATION_SUCCESS_TEXT: Record<string, string> = {
+  'ecobaseInventoryDashboard:reactivateFamily': TEXT.toastFamilyReactivated,
+  'ecobaseInventoryPlanning:setFamilyPreferredSupplier': TEXT.toastSupplierAssigned,
+};
 
 export interface DashboardRequestClient {
   request: (options: { url: string; method: 'post'; data: Record<string, unknown> }) => Promise<unknown>;
@@ -70,7 +76,10 @@ type DrawerState =
   | { status: 'error'; message: string };
 
 function primaryOrderRow(context: DrawerContextResponse, orderId?: string): DashboardRow | undefined {
-  return orderId ? context.orderRows.find((row) => row.order?.orderId === orderId) : context.orderRows[0];
+  // QA blocker (item 1): only an explicit order click selects an order row —
+  // family-grain clicks must always render the API's primaryRow identity,
+  // never a sibling's order row.
+  return orderId ? context.orderRows.find((row) => row.order?.orderId === orderId) : undefined;
 }
 
 const PaneDrawer: React.FC<PaneDrawerProps> = ({
@@ -87,6 +96,7 @@ const PaneDrawer: React.FC<PaneDrawerProps> = ({
   const [submitting, setSubmitting] = useState(false);
   const [mutationError, setMutationError] = useState<string | null>(null);
   const [slowLoad, setSlowLoad] = useState(false);
+  const { message } = App.useApp();
   const bodyRef = React.useRef<HTMLDivElement | null>(null);
 
   // QA item 4: move focus INTO the drawer on open (jsdom + browser reliable,
@@ -171,6 +181,8 @@ const PaneDrawer: React.FC<PaneDrawerProps> = ({
       try {
         await api.request({ url, method: 'post', data });
         onMutated(target.pane); // scoped refresh: affected pane + header only
+        const successText = MUTATION_SUCCESS_TEXT[url];
+        if (successText) message.success(t(successText));
         return true;
       } catch (error) {
         // Error path: message shown, drawer stays open, buffers preserved, no refetch.
@@ -187,7 +199,7 @@ const PaneDrawer: React.FC<PaneDrawerProps> = ({
         }, 0);
       }
     },
-    [api, submitting, target, onMutated],
+    [api, submitting, target, onMutated, message, t],
   );
 
   const context = state.status === 'loaded' ? state.context : null;
@@ -360,6 +372,7 @@ function DrawerBody({ pane, row, context, run, submitting, t, navigate, loadSupp
       return (
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
           <ReasonList title={t(TEXT.drawerReadinessReasons)} reasons={row.reasonCodes} t={t} />
+          <TargetProvenance context={context} t={t} />
           {row.tier?.current || row.tier?.baseline ? (
             <AssignSupplierForm
               familyId={row.identity.familyKey}
@@ -398,7 +411,12 @@ function DrawerBody({ pane, row, context, run, submitting, t, navigate, loadSupp
         </Space>
       );
     case 'performanceReview':
-      return <BandVisual points={context.performanceEvidence} t={t} />;
+      return (
+        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          <TargetProvenance context={context} t={t} />
+          <BandVisual points={context.performanceEvidence} t={t} />
+        </Space>
+      );
     case 'discontinuedPaused':
       return (
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
@@ -423,6 +441,24 @@ function DrawerBody({ pane, row, context, run, submitting, t, navigate, loadSupp
         </Space>
       );
   }
+}
+
+/** QA item 2: which member is the family target, and how it was selected. */
+function TargetProvenance({ context, t }: { context: DrawerContextResponse; t: Translate }) {
+  const target = context.familyTarget;
+  const targetMember = context.familyMembers.find((member) => member.isTarget);
+  return (
+    <Typography.Text>
+      {`${t(TEXT.drawerFamilyTarget)}: ${
+        targetMember
+          ? targetMember.sku ?? targetMember.asin ?? targetMember.listingRowId
+          : t(TEXT.drawerNoTargetInReview)
+      }`}
+      {target?.selectionRule || target?.selectionSource ? (
+        <Typography.Text type="secondary">{` — ${target?.selectionRule ?? target?.selectionSource}`}</Typography.Text>
+      ) : null}
+    </Typography.Text>
+  );
 }
 
 export default PaneDrawer;

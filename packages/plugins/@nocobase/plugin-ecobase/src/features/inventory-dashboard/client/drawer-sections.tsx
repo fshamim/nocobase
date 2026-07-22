@@ -82,6 +82,11 @@ export function FamilyContext({ context, t }: { context: DrawerContextResponse; 
         {context.familyMembers.map((member) => (
           <Typography.Text key={member.listingRowId}>
             {member.sku ?? member.asin ?? member.listingRowId} — {member.pane}
+            {member.isTarget ? (
+              <Tag color={DASHBOARD_TAG_COLORS.ok} style={{ marginLeft: 8 }}>
+                {t(TEXT.drawerFamilyTarget)}
+              </Tag>
+            ) : null}
           </Typography.Text>
         ))}
       </Space>
@@ -393,10 +398,13 @@ export function AssignSupplierForm({
   };
   return (
     <Space direction="vertical" style={{ width: '100%' }}>
-      <Typography.Title level={5}>{t(TEXT.drawerAssignSupplier)}</Typography.Title>
+      <Typography.Title level={5} id={`assign-supplier-label-${familyId}`}>
+        {t(TEXT.drawerAssignSupplier)}
+      </Typography.Title>
       <Select
         showSearch
         aria-label={t(TEXT.drawerAssignSupplier)}
+        aria-labelledby={`assign-supplier-label-${familyId}`}
         placeholder={t(TEXT.drawerAssignSupplier)}
         style={{ minWidth: 260 }}
         options={options ?? []}

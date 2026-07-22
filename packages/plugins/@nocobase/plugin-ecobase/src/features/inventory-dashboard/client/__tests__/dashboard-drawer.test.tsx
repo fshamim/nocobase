@@ -44,6 +44,7 @@ import drawerPerformance from '../../server/__tests__/fixtures/expected-response
 import drawerUntiered from '../../server/__tests__/fixtures/expected-responses/drawer-untieredProducts.json';
 import paneDiscontinued from '../../server/__tests__/fixtures/expected-responses/pane-discontinuedPaused.json';
 import drawerDiscontinued from '../../server/__tests__/fixtures/expected-responses/drawer-discontinuedPaused.json';
+// (drawerHealthy + drawerActiveOrders reused directly by the final-round tests.)
 
 const request = vi.fn();
 const api = { request };
@@ -145,9 +146,11 @@ async function openDrawer(pane: string, onPaneRender?: (pane: string) => void) {
   fireEvent.click(firstRow);
   await waitFor(() => expect(requests('ecobaseInventoryDashboard:drawerContext')).toHaveLength(1));
   const dialog = await waitFor(() => {
-    const found = document.querySelector('.ant-drawer-content');
-    expect(found).not.toBeNull();
-    return found as HTMLElement;
+    // Newest drawer wins: without auto-cleanup, earlier tests may leave stale
+    // drawer DOM behind.
+    const drawers = document.querySelectorAll('.ant-drawer-content');
+    expect(drawers.length).toBeGreaterThan(0);
+    return drawers[drawers.length - 1] as HTMLElement;
   });
   return dialog;
 }
@@ -380,6 +383,66 @@ describe('PaneDrawer (Gate G3)', () => {
       familyId: 'family-disc',
       comment: 'Back in stock soon',
     });
+  });
+
+  it('final item 1: the drawer header renders the primaryRow identity even when orderRows are present', async () => {
+    // QA blocker reproduction: family-grain click (NO orderId) on a family
+    // that HAS order data — the header must show the clicked/primary listing,
+    // never a sibling order row.
+    const primary = (drawerHealthy as { primaryRow: { identity: { sku: string } } }).primaryRow;
+    const foreignOrderRows = (drawerActiveOrders as { orderRows: unknown[] }).orderRows;
+    request.mockReset();
+    request.mockImplementation((args: { url: string; data: Record<string, unknown> }) => {
+      if (args.url === 'ecobaseInventoryDashboard:header') return respond(headerFixture);
+      if (args.url === 'ecobaseInventoryDashboard:pane') return respond(PANE_FIXTURES[String(args.data.pane)]);
+      if (args.url === 'ecobaseInventoryDashboard:drawerContext') {
+        return respond({ ...(drawerHealthy as Record<string, unknown>), orderRows: foreignOrderRows });
+      }
+      return respond({ ok: true });
+    });
+    const dialog = await openDrawer('healthyInventory');
+    expect(within(dialog).getAllByText(primary.identity.sku).length).toBeGreaterThan(0);
+    const foreignSku = (foreignOrderRows[0] as { identity: { sku: string } }).identity.sku;
+    // The foreign order row's SKU may appear in the family list, but the
+    // Product summary (first Descriptions block) must carry the primary SKU.
+    const summary = dialog.querySelector('.ant-descriptions') as HTMLElement;
+    expect(summary.textContent).toContain(primary.identity.sku);
+    expect(summary.textContent).not.toContain(foreignSku);
+  });
+
+  it('final item 2: family target member and selection provenance are visible', async () => {
+    // drawer-healthyInventory.json (family-13): cp-13a persisted as target
+    // with tiered_first_migration_rule provenance.
+    const dialog = await openDrawer('healthyInventory');
+    expect(within(dialog).getAllByText('Family target').length).toBeGreaterThan(0);
+    // Data Readiness drawer without a persisted target says so explicitly.
+    cleanup();
+    request.mockReset();
+    mockApi();
+    const readiness = await openDrawer('dataReadiness');
+    expect(within(readiness).getAllByText(/none \(target in review\)/).length).toBeGreaterThan(0);
+  });
+
+  it('final item 4: reactivation and supplier assignment confirm success with a toast', async () => {
+    const dialog = await openDrawer('discontinuedPaused');
+    fireEvent.change(within(dialog).getByLabelText('Reactivation reason (required)'), {
+      target: { value: 'Back in business' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Reactivate' }));
+    await waitFor(() => expect(requests('ecobaseInventoryDashboard:reactivateFamily')).toHaveLength(1));
+    expect(
+      await within(document.body).findByText(
+        'Family reactivated — it returns to normal classification on the next publish',
+      ),
+    ).toBeTruthy();
+  });
+
+  it('final item 5: the Assign-supplier select is properly labelled', async () => {
+    const dialog = await openDrawer('dataReadiness');
+    // Visible heading + programmatic association both resolve.
+    expect(within(dialog).getAllByText('Assign supplier').length).toBeGreaterThan(0);
+    const combo = within(dialog).getAllByRole('combobox', { name: 'Assign supplier' });
+    expect(combo.length).toBeGreaterThan(0);
   });
 
   it('QA item 7: the drawerContext request carries the clicked listing id', async () => {
