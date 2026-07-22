@@ -83,6 +83,9 @@ export interface GoldPlanningRowFixture {
   moneyRiskStatus: string | null;
   moneyRiskUncoveredDays: number | null;
   daysOfCover: number | null;
+  /** T-D5 rider: coverage horizon behind recommendedOrderQty (optional in fixtures). */
+  targetCoverDays?: number | null;
+  recommendedOrderQty?: number | null;
   estimatedOosDate: string | null;
   latestSafeReorderDate: string | null;
   estimatedProfitRisk: number | null;
@@ -475,6 +478,9 @@ export const GOLD_ROWS: GoldPlanningRowFixture[] = [
     daysUntilSafeReorder: -35.25,
     moneyRiskStatus: 'at_risk',
     moneyRiskUncoveredDays: 28,
+    // T-D5 rider: qty + resolved cover horizon for the "covers N d" sub-line.
+    recommendedOrderQty: 520,
+    targetCoverDays: 45,
     // T4 (D3 chart): six trusted months WITH per-month profit.
     monthlyPerformanceEvidence: monthlyEvidence(
       [100, 200, 150, 180, 120, 160],
@@ -567,6 +573,18 @@ export const GOLD_ROWS: GoldPlanningRowFixture[] = [
   }),
 
   // Zero stock (P8) and excess (P6) so every pane is represented.
+  // T-D5 (approved OPEN-D5): tiered family parked in a NON-action pane whose
+  // position-based stockout estimate is inside the 30-day horizon -> badge +
+  // third urgentStockout tile branch (money unknown by design).
+  goldRow('f-urgent-badge', 'healthyInventory', {
+    asin: 'B0D5URGNT',
+    baselineTier: 'B',
+    currentProjectedTier: 'B',
+    lastClosedMonthTier: 'B',
+    positionEstimatedOosDate: dateOffset(12),
+    positionDaysOfCover: 12,
+    daysOfCover: 12,
+  }),
   goldRow('f-zero-stock', 'zeroStock', { asin: 'B0015', currentPlanningStock: 0, inventoryPositionStock: 0 }),
   goldRow('f-excess', 'excessInventory', { asin: 'B0016', daysOfCover: 120 }),
   goldRow('f-readiness', 'dataReadiness', {

@@ -135,6 +135,8 @@ const GOLD_ROW_FIELDS = [
   // T4: R4 supplier lead time (supplierId/supplierName/leadTimeConfirmedAt already fetched).
   'leadTimeDays',
   'leadTimeFreshness',
+  // T-D5 rider: the resolved coverage horizon behind recommendedOrderQty.
+  'targetCoverDays',
   // T4: T1/T3 position timing + money-risk detail.
   'positionDaysOfCover',
   'positionEstimatedOosDate',

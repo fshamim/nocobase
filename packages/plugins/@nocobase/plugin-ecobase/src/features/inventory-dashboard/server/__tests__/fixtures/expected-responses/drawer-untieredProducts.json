@@ -73,6 +73,7 @@
     "moneyRiskStatus": null,
     "moneyRiskUncoveredDays": null,
     "recommendedOrderQty": null,
+    "targetCoverDays": null,
     "reasonCodes": [
       "untiered_projected"
     ],

@@ -173,6 +173,15 @@ export interface DashboardRow {
   moneyRiskStatus: string | null;
   moneyRiskUncoveredDays: number | null;
   recommendedOrderQty: number | null;
+  /** T-D5 rider: the resolved coverage horizon behind recommendedOrderQty (override ?? setting). */
+  targetCoverDays: number | null;
+  /**
+   * T-D5 (approved OPEN-D5): present when a TIERED family outside the action/
+   * order panes has a position-based stockout estimate within
+   * URGENT_STOCKOUT_HORIZON_DAYS of today (daysUntil may be <= 0 when the
+   * estimated date has passed). Derived server-side at read time.
+   */
+  stockoutUrgency?: { daysUntil: number };
   reasonCodes: string[];
   velocityTrend?: VelocityTrend;
   performanceBand?: PerformanceBand;

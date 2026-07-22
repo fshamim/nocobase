@@ -5,7 +5,7 @@
     {
       "key": "count",
       "label": "Rows",
-      "value": 3
+      "value": 4
     },
     {
       "key": "moneyAtRisk",
@@ -16,7 +16,7 @@
     {
       "key": "unknownMoney",
       "label": "Unknown money inputs",
-      "value": 3
+      "value": 4
     }
   ],
   "rows": [
@@ -79,6 +79,7 @@
       "moneyRiskStatus": null,
       "moneyRiskUncoveredDays": null,
       "recommendedOrderQty": null,
+      "targetCoverDays": null,
       "reasonCodes": [],
       "velocityTrend": "unknown",
       "performanceBand": "insufficient_evidence",
@@ -144,6 +145,7 @@
       "moneyRiskStatus": null,
       "moneyRiskUncoveredDays": null,
       "recommendedOrderQty": null,
+      "targetCoverDays": null,
       "reasonCodes": [],
       "velocityTrend": "unknown",
       "performanceBand": "insufficient_evidence",
@@ -158,6 +160,74 @@
         "supplierId": null,
         "supplierName": null,
         "supplierShipDestination": null
+      },
+      "lastActivity": null
+    },
+    {
+      "identity": {
+        "familyKey": "family-f-urgent-badge",
+        "listingRowId": "f-urgent-badge",
+        "company": "Acme",
+        "amazonAccountId": "account-acme-us",
+        "marketplace": "Amazon.com",
+        "asin": "B0D5URGNT",
+        "sku": "SKU-f-urgent-badge",
+        "title": "Fixture product f-urgent-badge"
+      },
+      "pane": "healthyInventory",
+      "tier": {
+        "baseline": "B",
+        "current": "B"
+      },
+      "stock": {
+        "currentPlanningStock": 100,
+        "inventoryPositionStock": 100,
+        "unitCost": 5,
+        "sellableStock": null,
+        "reservedStock": null,
+        "inboundStock": null,
+        "prepStock": null,
+        "orderedStock": null,
+        "awdStock": null,
+        "futurePositionStock": null
+      },
+      "velocity": {
+        "value": null,
+        "basis": null,
+        "asOfDate": null,
+        "evidenceStatus": null
+      },
+      "supplier": {
+        "id": null,
+        "name": null,
+        "leadTimeDays": null,
+        "leadTimeConfirmedAt": "2026-07-01T00:00:00.000Z",
+        "leadTimeFreshness": "fresh"
+      },
+      "profit": {
+        "averageMonthly": null,
+        "bestMonthly": null,
+        "worstMonthly": null,
+        "lastClosedMonth": null,
+        "projectedMonthly": null,
+        "perUnit": null
+      },
+      "daysOfCover": 12,
+      "positionDaysOfCover": 12,
+      "estimatedOosDate": null,
+      "positionEstimatedOosDate": "2026-08-02",
+      "latestSafeReorderDate": null,
+      "daysUntilSafeReorder": null,
+      "estimatedProfitRisk": null,
+      "moneyRiskStatus": null,
+      "moneyRiskUncoveredDays": null,
+      "recommendedOrderQty": null,
+      "targetCoverDays": null,
+      "reasonCodes": [],
+      "velocityTrend": "unknown",
+      "performanceBand": "insufficient_evidence",
+      "stockoutUrgency": {
+        "daysUntil": 12
       },
       "lastActivity": null
     },
@@ -220,6 +290,7 @@
       "moneyRiskStatus": null,
       "moneyRiskUncoveredDays": null,
       "recommendedOrderQty": null,
+      "targetCoverDays": null,
       "reasonCodes": [],
       "velocityTrend": "up",
       "performanceBand": "insufficient_evidence",
@@ -229,6 +300,6 @@
   "pagination": {
     "page": 1,
     "pageSize": 200,
-    "total": 3
+    "total": 4
   }
 }

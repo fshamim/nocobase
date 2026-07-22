@@ -324,4 +324,31 @@ describe('T7 widgets', () => {
     expect(view.getAllByText('—').length).toBeGreaterThan(0);
     expect(BARE.estimatedProfitRisk).not.toBeNull(); // fixture sanity: f11b has risk 250
   });
+
+  it('T-D5: the urgency badge renders both variants in the shared signals cluster', () => {
+    const healthy = PANE_CONFIGS.find((config) => config.pane === 'healthyInventory');
+    const signalsColumn = healthy?.columns.find((column) => column.key === 'signals');
+    if (!signalsColumn) throw new Error('missing signals column');
+    const near = render(<App>{signalsColumn.render(rowWith({ stockoutUrgency: { daysUntil: 12 } }), t)}</App>);
+    expect(within(near.container).getByText(`${TEXT.urgentStockoutWithin} 12 ${TEXT.dSuffix}`)).toBeTruthy();
+    const passed = render(<App>{signalsColumn.render(rowWith({ stockoutUrgency: { daysUntil: 0 } }), t)}</App>);
+    expect(within(passed.container).getByText(TEXT.urgentStockoutNow)).toBeTruthy();
+    // Rows without the served field never invent the badge.
+    const absent = render(<App>{signalsColumn.render(rowWith({}), t)}</App>);
+    expect(within(absent.container).queryByText(TEXT.urgentStockoutNow)).toBeNull();
+    expect(within(absent.container).queryByText(new RegExp('stockout'))).toBeNull();
+  });
+
+  it('T-D5 rider: the qty cell renders "covers N d after arrival" from the served targetCoverDays', () => {
+    const supply = PANE_CONFIGS.find((config) => config.pane === 'supplyAction');
+    const qtyColumn = supply?.columns.find((column) => column.key === 'orderQty');
+    if (!qtyColumn) throw new Error('missing orderQty column');
+    // The regenerated fixture row now serves qty 520 + targetCoverDays 45.
+    const view = render(<App>{qtyColumn.render(ENRICHED, t)}</App>);
+    expect(within(view.container).getByText('520')).toBeTruthy();
+    expect(within(view.container).getByText(`${TEXT.coversPrefix} 45 ${TEXT.afterArrivalSuffix}`)).toBeTruthy();
+    // Without the served horizon the sub-line stays absent.
+    const bare = render(<App>{qtyColumn.render({ ...ENRICHED, targetCoverDays: null }, t)}</App>);
+    expect(within(bare.container).queryByText(new RegExp(TEXT.coversPrefix))).toBeNull();
+  });
 });

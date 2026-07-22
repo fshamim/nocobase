@@ -126,6 +126,16 @@ interface SignalOptions {
  */
 function signalsCell(row: DashboardRow, t: Translate, options: SignalOptions = {}): React.ReactNode {
   const tags: React.ReactNode[] = [];
+  // T-D5 (approved OPEN-D5): tiered near-stockout families parked outside the
+  // action panes wear the urgency badge wherever the signals cluster renders.
+  if (row.stockoutUrgency) {
+    const { daysUntil } = row.stockoutUrgency;
+    tags.push(
+      <Tag key="stockout-urgency" color={DASHBOARD_TAG_COLORS.danger}>
+        {daysUntil <= 0 ? t(TEXT.urgentStockoutNow) : `${t(TEXT.urgentStockoutWithin)} ${daysUntil} ${t(TEXT.dSuffix)}`}
+      </Tag>,
+    );
+  }
   const tier = row.tier?.current ?? row.tier?.baseline;
   if (tier) {
     tags.push(
@@ -294,6 +304,11 @@ function OrderQtyCell({ row, t }: { row: DashboardRow; t: Translate }) {
       <Typography.Text strong style={{ fontSize: 15 }}>
         {qty}
       </Typography.Text>
+      {row.targetCoverDays !== null ? (
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          {`${t(TEXT.coversPrefix)} ${row.targetCoverDays} ${t(TEXT.afterArrivalSuffix)}`}
+        </Typography.Text>
+      ) : null}
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
           {t(TEXT.growthTargetPrefix)}

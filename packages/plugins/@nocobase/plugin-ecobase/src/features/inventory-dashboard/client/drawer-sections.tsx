@@ -36,6 +36,14 @@ export function ProductSummary({ row, t }: { row: DashboardRow; t: Translate }) 
         ) : (
           t(TEXT.unknown)
         )}
+        {/* T-D5: the urgency badge also travels into the v1 drawer summary. */}
+        {row.stockoutUrgency ? (
+          <Tag color={DASHBOARD_TAG_COLORS.danger}>
+            {row.stockoutUrgency.daysUntil <= 0
+              ? t(TEXT.urgentStockoutNow)
+              : `${t(TEXT.urgentStockoutWithin)} ${row.stockoutUrgency.daysUntil} ${t(TEXT.dSuffix)}`}
+          </Tag>
+        ) : null}
       </Descriptions.Item>
       <Descriptions.Item label={t(TEXT.colStock)}>{formatNumber(row.stock?.currentPlanningStock, t)}</Descriptions.Item>
       <Descriptions.Item label={t(TEXT.colDaysOfCover)}>{formatDays(row.daysOfCover, t)}</Descriptions.Item>

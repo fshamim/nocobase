@@ -224,7 +224,8 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
     const header = await service(db).header();
     expect(header.publishedRunId).toBe(PUBLISHED_RUN_ID);
     const byKey = new Map(header.tiles.map((tile) => [tile.key, tile]));
-    expect(byKey.get('urgentStockout')).toMatchObject({ count: 2, moneyAtRisk: null, unknownCount: 2 });
+    // T-D5: the third (badge) branch adds f-urgent-badge — money unknown by design.
+    expect(byKey.get('urgentStockout')).toMatchObject({ count: 3, moneyAtRisk: null, unknownCount: 3 });
     expect(byKey.get('orderedButLate')).toMatchObject({ count: 1, moneyAtRisk: 500, unknownCount: 0 });
     expect(byKey.get('staleLeadTimes')).toMatchObject({ count: 1, moneyAtRisk: 250, unknownCount: 1 });
     expect(byKey.get('needsFollowUp')).toMatchObject({ count: 6, moneyAtRisk: 500, unknownCount: 5 });
@@ -825,6 +826,78 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
     expect(raw.refreshRunId).toBeUndefined();
     expect('supplierOrderStatus' in raw).toBe(true);
     expect(raw.asin).toBe('B0011A');
+  });
+
+  it('T-D5: stockout urgency signal — tiered near-OOS rows OUTSIDE action panes only (pinned clock)', async () => {
+    const local = new RecordingDatabase();
+    local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).rows.push({
+      id: PUBLISHED_RUN_ID,
+      status: 'published',
+      calculationDate: FIXED_TODAY,
+      publishedAt: `${FIXED_TODAY}T00:00:00.000Z`,
+    });
+    const goldRepo = local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows);
+    const push = (id: string, pane: string, overrides: Record<string, unknown>) =>
+      goldRepo.rows.push({
+        id,
+        naturalKey: id,
+        refreshRunId: PUBLISHED_RUN_ID,
+        primaryActionPane: pane,
+        companyProductFamilyId: `family-${id}`,
+        baselineTier: 'A',
+        currentProjectedTier: 'A',
+        ...overrides,
+      });
+    push('sig-near', 'healthyInventory', { positionEstimatedOosDate: '2026-08-01' }); // +11 d
+    push('sig-passed', 'excessInventory', { positionEstimatedOosDate: '2026-07-18' }); // -3 d
+    push('sig-far', 'healthyInventory', { positionEstimatedOosDate: '2026-09-30' }); // +71 d -> absent
+    push('sig-untiered', 'dataReadiness', {
+      baselineTier: null,
+      currentProjectedTier: null,
+      positionEstimatedOosDate: '2026-07-26',
+    }); // tier rule -> absent
+    push('sig-action-pane', 'supplyAction', {
+      positionEstimatedOosDate: '2026-07-26',
+      latestSafeReorderDate: '2026-07-20', // passed -> existing branch A
+      estimatedProfitRisk: 100,
+    }); // exempt pane -> no badge field
+    push('sig-zero', 'zeroStock', { positionEstimatedOosDate: null }); // existing branch B
+
+    const svc = service(local);
+    const healthy = await svc.pane({ pane: 'healthyInventory', runId: PUBLISHED_RUN_ID, page: 1, pageSize: 200 });
+    if (isRunSuperseded(healthy)) throw new Error('bad');
+    expect(healthy.rows.find((row) => row.identity.listingRowId === 'sig-near')?.stockoutUrgency).toEqual({
+      daysUntil: 11,
+    });
+    expect(healthy.rows.find((row) => row.identity.listingRowId === 'sig-far')?.stockoutUrgency).toBeUndefined();
+    const excess = await svc.pane({ pane: 'excessInventory', runId: PUBLISHED_RUN_ID, page: 1, pageSize: 200 });
+    if (isRunSuperseded(excess)) throw new Error('bad');
+    expect(excess.rows.find((row) => row.identity.listingRowId === 'sig-passed')?.stockoutUrgency).toEqual({
+      daysUntil: -3,
+    });
+    const readiness = await svc.pane({ pane: 'dataReadiness', runId: PUBLISHED_RUN_ID, page: 1, pageSize: 200 });
+    if (isRunSuperseded(readiness)) throw new Error('bad');
+    expect(readiness.rows.find((row) => row.identity.listingRowId === 'sig-untiered')?.stockoutUrgency).toBeUndefined();
+    const supply = await svc.pane({ pane: 'supplyAction', runId: PUBLISHED_RUN_ID, page: 1, pageSize: 200 });
+    if (isRunSuperseded(supply)) throw new Error('bad');
+    expect(supply.rows.find((row) => row.identity.listingRowId === 'sig-action-pane')?.stockoutUrgency).toBeUndefined();
+
+    // Tile third branch: union of the three branches, DISTINCT families, and
+    // the badge families flow into unknownCount (their money is null by design).
+    const header = await svc.header();
+    const tile = header.tiles.find((candidate) => candidate.key === 'urgentStockout');
+    expect(tile?.count).toBe(4); // supply-passed + zero + near + passed (far/untiered excluded)
+    expect(tile?.moneyAtRisk).toBe(100); // only the supplyAction row carries money
+    expect(tile?.unknownCount).toBe(3); // zero + the two badge families
+    expect(tile?.targetPane).toBe('supplyAction');
+  });
+
+  it('T-D5 rider: targetCoverDays is served on the row (reader widened)', async () => {
+    const response = await service(db).pane({ pane: 'supplyAction', runId: PUBLISHED_RUN_ID, page: 1, pageSize: 200 });
+    if (isRunSuperseded(response)) throw new Error('bad');
+    const enriched = response.rows.find((row) => row.identity.asin === 'B0011A');
+    expect(enriched?.targetCoverDays).toBe(45);
+    expect(enriched?.recommendedOrderQty).toBe(520);
   });
 
   it('exposes the family target identity + selection provenance in drawerContext (QA item 2)', async () => {

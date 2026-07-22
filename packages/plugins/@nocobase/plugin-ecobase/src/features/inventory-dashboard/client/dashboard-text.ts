@@ -225,6 +225,9 @@ export const TEXT = {
   relDaysAgo: 'd ago',
   relJustNow: 'just now',
   relYesterday: 'yesterday',
+  // T-D5 (approved OPEN-D5): urgent-stockout badge for non-action panes.
+  urgentStockoutWithin: 'Urgent — stockout ≤',
+  urgentStockoutNow: 'Urgent — stockout imminent',
 } as const;
 
 export type DashboardTextKey = keyof typeof TEXT;

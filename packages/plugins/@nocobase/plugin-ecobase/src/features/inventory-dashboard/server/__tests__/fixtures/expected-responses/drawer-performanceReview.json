@@ -110,6 +110,7 @@
     "moneyRiskStatus": null,
     "moneyRiskUncoveredDays": null,
     "recommendedOrderQty": null,
+    "targetCoverDays": null,
     "reasonCodes": [],
     "velocityTrend": "down",
     "performanceBand": "below_band",

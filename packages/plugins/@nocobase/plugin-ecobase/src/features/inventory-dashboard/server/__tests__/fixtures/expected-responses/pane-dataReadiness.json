@@ -84,6 +84,7 @@
       "moneyRiskStatus": null,
       "moneyRiskUncoveredDays": null,
       "recommendedOrderQty": null,
+      "targetCoverDays": null,
       "reasonCodes": [
         "family_review_required"
       ],

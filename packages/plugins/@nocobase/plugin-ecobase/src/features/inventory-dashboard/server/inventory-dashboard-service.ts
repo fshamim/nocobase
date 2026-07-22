@@ -53,6 +53,24 @@ import { PublishedGoldReader, type DashboardDatabase } from './published-gold-re
 import { dashboardWorkflowStageForStatus, isDirectShipFba } from './workflow-stage';
 
 const ORDER_PANES: ReadonlySet<PaneKey> = new Set<PaneKey>(['activeOrders', 'inPrepMonitoring', 'inboundMonitoring']);
+
+/**
+ * T-D5 (approved OPEN-D5): the urgent-stockout visibility horizon. 30 days is
+ * pinned to the task-006 standing invariant ("nothing tiered within 30 days of
+ * stockout ever hides outside Supply Action / order panes") — a named constant
+ * by design, NOT a new planning setting.
+ */
+const URGENT_STOCKOUT_HORIZON_DAYS = 30;
+
+/** Panes whose membership already makes the stockout actionable — no badge there. */
+const STOCKOUT_SIGNAL_EXEMPT_PANES: ReadonlySet<PaneKey> = new Set<PaneKey>([
+  'supplyAction',
+  'zeroStock',
+  'activeOrders',
+  'inPrepMonitoring',
+  'inboundMonitoring',
+]);
+
 const SORTABLE_KEYS = new Set([
   'latestSafeReorderDate',
   'estimatedOosDate',
@@ -1085,6 +1103,7 @@ export class EcobaseInventoryDashboardService {
       moneyRiskStatus: asString(raw.moneyRiskStatus),
       moneyRiskUncoveredDays: asNumber(raw.moneyRiskUncoveredDays),
       recommendedOrderQty: asNumber(raw.recommendedOrderQty),
+      targetCoverDays: asNumber(raw.targetCoverDays),
       // QA item 7b: readinessReasonCodes is empty on live gold rows; the actual
       // reason lives in primaryActionReasonCode — fall back so P9/P7 drawers
       // and badges never show an empty reason list.
@@ -1107,6 +1126,10 @@ export class EcobaseInventoryDashboardService {
     }
     if (stale) dashboardRow.staleClassification = true;
     if (familySplit) dashboardRow.familySplit = true;
+    // T-D5: read-time urgency signal for tiered near-stockout families parked
+    // outside the action panes (position-based; daysUntil may be negative).
+    const stockoutUrgency = stockoutUrgencyFor(row, todayDateOnly(this.now));
+    if (stockoutUrgency) dashboardRow.stockoutUrgency = stockoutUrgency;
 
     // T5 (F5): candidate comments across the row's linked entities. The newest
     // one drives the DISPLAYED lastActivity for every pane; needsFollowUp stays
@@ -1211,7 +1234,13 @@ export class EcobaseInventoryDashboardService {
     const urgent = signalRows.filter(
       (row) =>
         (row.pane === 'supplyAction' && onOrBeforeToday(asString(row.raw.latestSafeReorderDate), today)) ||
-        row.pane === 'zeroStock',
+        row.pane === 'zeroStock' ||
+        // T-D5 third branch: tiered near-stockout families parked outside the
+        // action panes (badge rule). Pane-disjoint from the two branches above
+        // by construction, and the tile counts DISTINCT families anyway; their
+        // estimatedProfitRisk is null by design, so they surface through the
+        // tile's existing unknownCount convention.
+        stockoutUrgencyFor(row, today) !== undefined,
     );
     const orderedLate = signalRows.filter((row) => asString(row.raw.pipelineHealthStatus) === 'late');
     const stale = signalRows.filter(
@@ -1333,6 +1362,30 @@ function moneySum(values: Array<number | null>): { value: number | null; unknown
 
 function todayDateOnly(now: Date): string {
   return now.toISOString().slice(0, 10);
+}
+
+/** Whole days from `today` to a date-only value; null when unparseable (Date-aware via asString). */
+function daysUntilDate(dateOnly: string | null, today: string): number | null {
+  if (!dateOnly) return null;
+  const target = Date.parse(`${dateOnly.slice(0, 10)}T00:00:00.000Z`);
+  const base = Date.parse(`${today}T00:00:00.000Z`);
+  if (Number.isNaN(target) || Number.isNaN(base)) return null;
+  return Math.round((target - base) / 86_400_000);
+}
+
+/**
+ * T-D5 signal predicate (position-based, evaluated on the SERVED pane): the
+ * family is tiered (currentProjectedTier ?? baselineTier non-null), sits in a
+ * non-action pane, and its position-based stockout estimate falls within
+ * URGENT_STOCKOUT_HORIZON_DAYS of today (or has already passed).
+ */
+function stockoutUrgencyFor(row: ProjectedRow, today: string): { daysUntil: number } | undefined {
+  if (STOCKOUT_SIGNAL_EXEMPT_PANES.has(row.pane)) return undefined;
+  const tier = asString(row.raw.currentProjectedTier) ?? asString(row.raw.baselineTier);
+  if (!tier) return undefined;
+  const daysUntil = daysUntilDate(asString(row.raw.positionEstimatedOosDate), today);
+  if (daysUntil === null || daysUntil > URGENT_STOCKOUT_HORIZON_DAYS) return undefined;
+  return { daysUntil };
 }
 
 function onOrBeforeToday(dateOnly: string | null, today: string): boolean {

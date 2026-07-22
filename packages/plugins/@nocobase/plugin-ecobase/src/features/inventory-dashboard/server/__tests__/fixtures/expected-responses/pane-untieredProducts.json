@@ -79,6 +79,7 @@
       "moneyRiskStatus": null,
       "moneyRiskUncoveredDays": null,
       "recommendedOrderQty": null,
+      "targetCoverDays": null,
       "reasonCodes": [
         "untiered_projected"
       ],
@@ -145,6 +146,7 @@
       "moneyRiskStatus": null,
       "moneyRiskUncoveredDays": null,
       "recommendedOrderQty": null,
+      "targetCoverDays": null,
       "reasonCodes": [
         "untiered_projected"
       ],
@@ -223,6 +225,7 @@
       "moneyRiskStatus": null,
       "moneyRiskUncoveredDays": null,
       "recommendedOrderQty": null,
+      "targetCoverDays": null,
       "reasonCodes": [],
       "velocityTrend": "unknown",
       "performanceBand": "insufficient_evidence",

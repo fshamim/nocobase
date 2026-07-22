@@ -403,5 +403,7 @@
   "h ago": "h ago",
   "d ago": "d ago",
   "just now": "just now",
-  "yesterday": "yesterday"
+  "yesterday": "yesterday",
+  "Urgent — stockout ≤": "Urgent — stockout ≤",
+  "Urgent — stockout imminent": "Urgent — stockout imminent"
 }
