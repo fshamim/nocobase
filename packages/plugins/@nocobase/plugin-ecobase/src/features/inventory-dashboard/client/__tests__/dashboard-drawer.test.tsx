@@ -18,6 +18,7 @@ import React from 'react';
 import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import InventoryDashboardPage from '../InventoryDashboardPage';
+import { AssignSupplierForm } from '../drawer-sections';
 import type { ObserveVisibility } from '../PaneSection';
 import headerFixture from '../../server/__tests__/fixtures/expected-responses/header.json';
 import paneSupplyAction from '../../server/__tests__/fixtures/expected-responses/pane-supplyAction.json';
@@ -450,5 +451,31 @@ describe('PaneDrawer (Gate G3)', () => {
     const [args] = requests('ecobaseInventoryDashboard:drawerContext')[0];
     expect(typeof args.data.listingRowId).toBe('string');
     expect((args.data.listingRowId as string).length).toBeGreaterThan(0);
+  });
+
+  it('T8a (X4 closed): AssignSupplierForm submits through the dashboard resource, never the frozen one', async () => {
+    const run = vi.fn().mockResolvedValue(true);
+    const view = render(
+      <AssignSupplierForm
+        familyId="fam-1"
+        loadSupplierOptions={async () => [{ label: 'Lead Boundary Supplies', value: 'sup-1' }]}
+        run={run}
+        submitting={false}
+        t={(value: string) => value}
+      />,
+    );
+    // Open the select and pick the async-loaded option (antd renders it in a portal).
+    fireEvent.mouseDown(view.getByRole('combobox'));
+    fireEvent.click(await within(document.body).findByText('Lead Boundary Supplies'));
+    // The reason field is the only textbox (the select search input has role combobox).
+    fireEvent.change(view.getByRole('textbox'), { target: { value: 'switching supplier' } });
+    fireEvent.click(view.getByRole('button'));
+    await waitFor(() =>
+      expect(run).toHaveBeenCalledWith('ecobaseInventoryDashboard:setFamilyPreferredSupplier', {
+        familyId: 'fam-1',
+        supplierId: 'sup-1',
+        reason: 'switching supplier',
+      }),
+    );
   });
 });

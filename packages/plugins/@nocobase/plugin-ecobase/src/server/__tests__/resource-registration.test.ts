@@ -104,7 +104,19 @@ describe('Ecobase resource registration', () => {
       .filter((grant) => grant.resource === 'ecobaseInventoryDashboard' && grant.role === OPERATOR)
       .flatMap((grant) => grant.actions);
     expect(loggedInActions.sort()).toEqual(['drawerContext', 'header', 'pane']);
-    expect(operatorActions.sort()).toEqual(['reactivateFamily', 'savePrepDetails', 'saveSupplierShipDestination']);
+    // T8a (X4 closure): the full ported operator surface lives on the dashboard resource.
+    expect(operatorActions.sort()).toEqual([
+      'addComment',
+      'addProductComment',
+      'createPlannedOrder',
+      'reactivateFamily',
+      'savePrepDetails',
+      'saveSupplierShipDestination',
+      'setFamilyPreferredSupplier',
+      'setFamilyTarget',
+      'updateProductPlanningFields',
+      'updateSupplierLeadTime',
+    ]);
     expect(loggedInActions).not.toContain('savePrepDetails');
   });
 

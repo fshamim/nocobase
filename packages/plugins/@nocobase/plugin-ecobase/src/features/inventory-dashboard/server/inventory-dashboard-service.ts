@@ -90,6 +90,14 @@ export interface SavePrepDetailsParams {
   actorUserId?: string;
 }
 
+/** T8a: operator comment on a family or product thread (family wins when both ids arrive). */
+export interface AddProductCommentParams {
+  familyId?: string;
+  companyProductId?: string;
+  body?: string;
+  actorUserId?: string;
+}
+
 const MAX_PREP_DIMENSIONS_BYTES = 4_096;
 
 function validateCount(value: unknown, field: string): number | undefined {
@@ -568,6 +576,46 @@ export class EcobaseInventoryDashboardService {
       });
     }
     return { familyId, reactivatedCount: members.length };
+  }
+
+  /**
+   * T8a (D6): operator comment on the family or product thread. Mirrors the
+   * reactivateFamily audit-comment shape (actorType operator, commentType
+   * note, workflowDetectionStatus none) plus an explicit occurredAt; the T5/T6
+   * live joins surface it immediately (lastActivity + drawer thread) without
+   * waiting for a publish. When both ids arrive, the family thread wins.
+   */
+  async addProductComment(params: AddProductCommentParams): Promise<{
+    commentId: string;
+    entityType: 'company_product_family' | 'company_product';
+    entityId: string;
+  }> {
+    const body = asString(params.body);
+    if (!body) {
+      throw new InventoryDashboardValidationError('addProductComment requires a non-empty body.');
+    }
+    const familyId = asString(params.familyId);
+    const companyProductId = asString(params.companyProductId);
+    const entityId = familyId ?? companyProductId;
+    if (!entityId) {
+      throw new InventoryDashboardValidationError('addProductComment requires familyId or companyProductId.');
+    }
+    const entityType = familyId ? 'company_product_family' : 'company_product';
+    const commentId = randomUUID();
+    await this.db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).create({
+      values: {
+        id: commentId,
+        entityType,
+        entityId,
+        actorType: 'operator',
+        actorUserId: asString(params.actorUserId),
+        commentType: 'note',
+        body,
+        occurredAt: this.now.toISOString(),
+        workflowDetectionStatus: 'none',
+      },
+    });
+    return { commentId, entityType, entityId };
   }
 
   /** QA item 3: attach lifecycle provenance fields to a built row. */

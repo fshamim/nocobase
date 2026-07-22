@@ -390,7 +390,8 @@ export function AssignSupplierForm({
   };
   const submit = async () => {
     if (!supplierId || !reason.trim()) return;
-    await run('ecobaseInventoryPlanning:setFamilyPreferredSupplier', {
+    // T8a (X4 closure): the dashboard talks ONLY to its own resource.
+    await run('ecobaseInventoryDashboard:setFamilyPreferredSupplier', {
       familyId,
       supplierId,
       reason: reason.trim(),

@@ -142,6 +142,73 @@ describe('operator-write publish debounce (task 001)', () => {
     const planning = registrations[0].resources.find((resource) => resource.name === 'ecobaseInventoryPlanning');
     expect(planning).toBeDefined();
     expect(Object.keys(planning?.actions ?? {})).toContain('refreshAndPublish');
+    // T8a: the dashboard's ported operator surface exists AND is debounce-wired
+    // (construction with the spy validated every name in its trigger list).
+    const dashboard = registrations[1].resources.find((resource) => resource.name === 'ecobaseInventoryDashboard');
+    const dashboardActionNames = Object.keys(dashboard?.actions ?? {});
+    for (const name of [
+      'setFamilyTarget',
+      'setFamilyPreferredSupplier',
+      'updateProductPlanningFields',
+      'createPlannedOrder',
+      'updateSupplierLeadTime',
+      'addComment',
+      'addProductComment',
+    ]) {
+      expect(dashboardActionNames, `dashboard action ${name}`).toContain(name);
+      const operatorGrant = registrations[1].acl.find((grant) => grant.role === 'operator');
+      expect(operatorGrant?.actions, `operator acl covers ${name}`).toContain(name);
+    }
+  });
+
+  it('T8a: a successful dashboard operator write schedules the debounced publish', async () => {
+    const spy = vi.fn();
+    const registration = createInventoryDashboardResourceRegistration(spy);
+    const dashboard = registration.resources.find((resource) => resource.name === 'ecobaseInventoryDashboard');
+    const addProductComment = (dashboard?.actions as Record<string, (ctx: unknown, next: unknown) => Promise<void>>)
+      .addProductComment;
+    const repositories = new Map<string, { rows: Record<string, unknown>[] }>();
+    const db = {
+      getRepository(name: string) {
+        const existing = repositories.get(name);
+        if (existing) return existing;
+        const rows: Record<string, unknown>[] = [];
+        const repo = {
+          rows,
+          async find() {
+            return [];
+          },
+          async findOne() {
+            return null;
+          },
+          async create(params: { values: Record<string, unknown> }) {
+            rows.push(params.values);
+            return params.values;
+          },
+          async update() {
+            return null;
+          },
+        };
+        repositories.set(name, repo);
+        return repo;
+      },
+    };
+    const ctx = {
+      db,
+      action: { params: { values: { familyId: 'fam-1', body: 'debounce me' } } },
+      state: { currentUser: { id: 4 }, currentRoles: ['operator'] },
+      body: undefined as unknown,
+      throw(status: number, message: string): never {
+        throw Object.assign(new Error(message), { status });
+      },
+    };
+    await addProductComment(ctx, vi.fn());
+    expect(spy).toHaveBeenCalledTimes(1);
+
+    // A failed write (missing body) never schedules.
+    const failingCtx = { ...ctx, action: { params: { values: { familyId: 'fam-1' } } }, body: undefined as unknown };
+    await expect(addProductComment(failingCtx, vi.fn())).rejects.toMatchObject({ status: 400 });
+    expect(spy).toHaveBeenCalledTimes(1);
   });
 
   it('exposes operatorWritePublishDebounceSeconds with default 45', () => {

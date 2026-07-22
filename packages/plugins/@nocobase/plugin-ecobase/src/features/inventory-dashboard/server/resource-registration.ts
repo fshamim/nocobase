@@ -18,6 +18,11 @@
  */
 
 import {
+  createEcobaseInventoryPlanningActions,
+  createEcobaseOrderPlanningActions,
+  createEcobaseSupplierOrderActions,
+} from '../../../server/resource-actions';
+import {
   LOGGED_IN,
   OPERATOR,
   triggerOnOperatorWrite,
@@ -87,8 +92,23 @@ function sortDirection(values: Record<string, unknown>): SortDirection | undefin
 }
 
 export function createEcobaseInventoryDashboardActions() {
+  // T8a (X4 closure): every operator mutation the dashboard UI needs is served
+  // under THIS resource. The six ported actions delegate VERBATIM to the shared
+  // legacy handlers (same payloads, same validation, same goldRefreshRequired
+  // envelopes) — and arrive PRE-guarded by their source factories'
+  // guardEcobaseActions role maps, so they are not re-listed in the dashboard
+  // map below. Imports come exclusively from shared src/server/ modules (AD-1).
+  const planningActions = createEcobaseInventoryPlanningActions();
+  const orderPlanningActions = createEcobaseOrderPlanningActions();
+  const supplierOrderActions = createEcobaseSupplierOrderActions();
   return guardEcobaseActions(
     {
+      setFamilyTarget: planningActions.setFamilyTarget,
+      setFamilyPreferredSupplier: planningActions.setFamilyPreferredSupplier,
+      updateProductPlanningFields: planningActions.updateProductPlanningFields,
+      createPlannedOrder: supplierOrderActions.createPlannedOrder,
+      updateSupplierLeadTime: supplierOrderActions.updateSupplierLeadTime,
+      addComment: orderPlanningActions.addComment,
       header: async (ctx: DashboardActionContext, next: DashboardNext) => {
         const values = getValues(ctx.action.params);
         // T-3.0c(a): timing evidence for the observed staging latency variance.
@@ -212,8 +232,31 @@ export function createEcobaseInventoryDashboardActions() {
         }
         await next();
       },
+      addProductComment: async (ctx: DashboardActionContext, next: DashboardNext) => {
+        const values = getValues(ctx.action.params);
+        const service = await buildService(ctx.db);
+        try {
+          ctx.body = {
+            data: await service.addProductComment({
+              familyId: optionalString(values, 'familyId'),
+              companyProductId: optionalString(values, 'companyProductId'),
+              body: optionalString(values, 'body'),
+              actorUserId: actorUserId(ctx),
+            }),
+          };
+        } catch (error) {
+          if (error instanceof InventoryDashboardValidationError) ctx.throw(400, error.message);
+          throw error;
+        }
+        await next();
+      },
     },
-    { savePrepDetails: 'operator', saveSupplierShipDestination: 'operator', reactivateFamily: 'operator' },
+    {
+      savePrepDetails: 'operator',
+      saveSupplierShipDestination: 'operator',
+      reactivateFamily: 'operator',
+      addProductComment: 'operator',
+    },
   );
 }
 
@@ -224,9 +267,21 @@ export function createInventoryDashboardResourceRegistration(
     resources: [
       {
         name: 'ecobaseInventoryDashboard',
+        // T8a: every operator write rides the 45 s auto-publish debounce.
         actions: triggerOnOperatorWrite(
           createEcobaseInventoryDashboardActions(),
-          ['savePrepDetails', 'saveSupplierShipDestination', 'reactivateFamily'],
+          [
+            'savePrepDetails',
+            'saveSupplierShipDestination',
+            'reactivateFamily',
+            'setFamilyTarget',
+            'setFamilyPreferredSupplier',
+            'updateProductPlanningFields',
+            'createPlannedOrder',
+            'updateSupplierLeadTime',
+            'addComment',
+            'addProductComment',
+          ],
           onOperatorWrite,
         ),
       },
@@ -235,7 +290,18 @@ export function createInventoryDashboardResourceRegistration(
       { resource: 'ecobaseInventoryDashboard', actions: ['header', 'pane', 'drawerContext'], role: LOGGED_IN },
       {
         resource: 'ecobaseInventoryDashboard',
-        actions: ['savePrepDetails', 'saveSupplierShipDestination', 'reactivateFamily'],
+        actions: [
+          'savePrepDetails',
+          'saveSupplierShipDestination',
+          'reactivateFamily',
+          'setFamilyTarget',
+          'setFamilyPreferredSupplier',
+          'updateProductPlanningFields',
+          'createPlannedOrder',
+          'updateSupplierLeadTime',
+          'addComment',
+          'addProductComment',
+        ],
         role: OPERATOR,
       },
     ],
