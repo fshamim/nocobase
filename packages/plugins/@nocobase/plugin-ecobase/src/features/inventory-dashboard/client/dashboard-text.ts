@@ -68,6 +68,7 @@ export const TEXT = {
   colLastMovement: 'Last movement',
   paneSearchPlaceholder: 'Search this pane',
   drawerReactivate: 'Reactivate',
+  drawerPreviousStatus: 'Previous status',
   drawerReactivateReason: 'Reactivation reason (required)',
   tier: 'Tier',
   badgeStale: 'Stale data',

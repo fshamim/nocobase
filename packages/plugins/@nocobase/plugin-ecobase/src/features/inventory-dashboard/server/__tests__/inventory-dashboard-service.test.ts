@@ -616,6 +616,7 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
     expect(row?.supplierName).toBe('Old Supplier Co');
     expect(row?.lastMovementMonth).toBe('2026-03-01');
     expect(row?.lifecycleProvenance).toBe('migration_sweep_2026_07');
+    expect(row?.lifecyclePreviousStatus).toBe('candidate_new_product');
   });
 
   it('excludes discontinued families from every KPI tile (task 002 no-signal guarantee)', async () => {
@@ -624,6 +625,47 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
     const header = await service(db).header();
     const stale = header.tiles.find((tile) => tile.key === 'staleLeadTimes');
     expect(stale?.unknownCount).toBe(1);
+  });
+
+  it('writes a uuid comment id and never strands lifecycle changes when the comment write fails (QA blocker regression)', async () => {
+    const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    // Postgres-faithful repository: silverActivityComments.id is uuid-typed —
+    // reject anything else, exactly like staging did (HTTP 500 on the old
+    // reactivate-<familyId>-<epochMs> key).
+    const comments = db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments);
+    const originalCreate = comments.create.bind(comments);
+
+    // Ordering guarantee FIRST: if the comment write fails, NOTHING changes
+    // (the comment is written before any lifecycle update).
+    const statusesBefore = db
+      .getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts)
+      .rows.map((row) => row.lifecycleStatus);
+    comments.create = async () => {
+      throw new Error('comment insert failed');
+    };
+    await expect(
+      service(db).reactivateFamily({ familyId: 'family-disc', comment: 'will fail', actorUserId: '4' }),
+    ).rejects.toThrow('comment insert failed');
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).rows.map((row) => row.lifecycleStatus)).toEqual(
+      statusesBefore,
+    );
+
+    // Now the uuid-enforcing repository accepts the fixed implementation.
+    comments.create = async (params: { values: Record<string, unknown> }) => {
+      if (!UUID_PATTERN.test(String(params.values.id ?? ''))) {
+        throw new Error(`invalid input syntax for type uuid: "${String(params.values.id)}"`);
+      }
+      return originalCreate(params);
+    };
+    const result = await service(db).reactivateFamily({
+      familyId: 'family-disc',
+      comment: 'uuid-safe reactivation',
+      actorUserId: '4',
+    });
+    expect(result.reactivatedCount).toBe(2);
+    const written = comments.rows.find((row) => row.body === 'uuid-safe reactivation');
+    expect(UUID_PATTERN.test(String(written?.id))).toBe(true);
+    comments.create = originalCreate;
   });
 
   it('reactivates a swept family: restores pre-sweep status, stamps provenance, requires a comment', async () => {

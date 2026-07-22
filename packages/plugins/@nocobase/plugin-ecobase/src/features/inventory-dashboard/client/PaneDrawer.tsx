@@ -403,6 +403,9 @@ function DrawerBody({ pane, row, context, run, submitting, t, navigate, loadSupp
       return (
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
           <ReasonList title={t(TEXT.drawerTierEvidence)} reasons={row.reasonCodes} t={t} />
+          <Typography.Text>
+            {`${t(TEXT.drawerPreviousStatus)}: ${row.lifecyclePreviousStatus ?? t(TEXT.unknown)}`}
+          </Typography.Text>
           <ReactivateForm familyId={row.identity.familyKey} run={run} submitting={submitting} t={t} />
         </Space>
       );

@@ -136,6 +136,7 @@ export interface DashboardRow {
   familyMemberCount?: number;
   lastMovementMonth?: string | null;
   lifecycleProvenance?: string | null;
+  lifecyclePreviousStatus?: string | null;
   order?: DashboardOrderFields;
   lastActivity?: DashboardLastActivity | null;
 }

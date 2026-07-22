@@ -14,6 +14,7 @@
  * exactly once per request; silver order joins scoped by `$in`.
  */
 
+import { randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import {
   DASHBOARD_PANE_KEYS,
@@ -260,7 +261,7 @@ export class EcobaseInventoryDashboardService {
     const provenanceById =
       pane === 'discontinuedPaused'
         ? await this.loadLifecycleProvenance(pageSlice.map((row) => asString(row.raw.companyProductId)))
-        : new Map<string, string>();
+        : new Map<string, { kind: string; previousStatus: string | null }>();
     const familyMemberCounts =
       pane === 'discontinuedPaused' ? countFamilyMembers(projected) : new Map<string, number>();
 
@@ -270,7 +271,9 @@ export class EcobaseInventoryDashboardService {
         built.supplierName = asString(row.raw.supplierName);
         built.familyMemberCount = familyMemberCounts.get(row.familyKey) ?? 1;
         built.lastMovementMonth = asString(row.raw.lastClosedMonth);
-        built.lifecycleProvenance = provenanceById.get(asString(row.raw.companyProductId) ?? '') ?? null;
+        const provenance = provenanceById.get(asString(row.raw.companyProductId) ?? '') ?? null;
+        built.lifecycleProvenance = provenance?.kind ?? null;
+        built.lifecyclePreviousStatus = provenance?.previousStatus ?? null;
       }
       return built;
     });
@@ -387,6 +390,23 @@ export class EcobaseInventoryDashboardService {
       );
     }
     const at = this.now.toISOString();
+    // Deliberate ordering in lieu of a transaction (this abstraction has no
+    // transaction API): the audit comment is written FIRST — if it fails,
+    // nothing has changed; the per-member lifecycle updates that follow are
+    // idempotent and safely re-runnable. (QA finding: a failing later step
+    // must never strand committed lifecycle changes without an audit trail.)
+    await this.db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).create({
+      values: {
+        id: randomUUID(),
+        entityType: 'company_product_family',
+        entityId: familyId,
+        actorType: 'operator',
+        actorUserId: params.actorUserId,
+        commentType: 'note',
+        body: comment,
+        workflowDetectionStatus: 'none',
+      },
+    });
     for (const value of members) {
       const record = (typeof value === 'object' && value !== null ? value : {}) as Record<string, unknown>;
       const provenance =
@@ -407,36 +427,27 @@ export class EcobaseInventoryDashboardService {
         },
       });
     }
-    await this.db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).create({
-      values: {
-        id: `reactivate-${familyId}-${this.now.getTime()}`,
-        entityType: 'company_product_family',
-        entityId: familyId,
-        actorType: 'operator',
-        actorUserId: params.actorUserId,
-        commentType: 'note',
-        body: comment,
-        workflowDetectionStatus: 'none',
-      },
-    });
     return { familyId, reactivatedCount: members.length };
   }
 
-  private async loadLifecycleProvenance(companyProductIds: Array<string | null>): Promise<Map<string, string>> {
+  private async loadLifecycleProvenance(
+    companyProductIds: Array<string | null>,
+  ): Promise<Map<string, { kind: string; previousStatus: string | null }>> {
     const ids = [...new Set(companyProductIds.filter((id): id is string => id !== null))];
     if (ids.length === 0) return new Map();
     const rows = await this.db
       .getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts)
       .find({ filter: { id: { $in: ids } }, limit: ids.length });
-    const map = new Map<string, string>();
+    const map = new Map<string, { kind: string; previousStatus: string | null }>();
     for (const value of rows) {
       const record = (typeof value === 'object' && value !== null ? value : {}) as Record<string, unknown>;
       const id = asString(record.id);
       const provenance =
         typeof record.lifecycleStatusProvenance === 'object' && record.lifecycleStatusProvenance !== null
-          ? asString((record.lifecycleStatusProvenance as Record<string, unknown>).kind)
+          ? (record.lifecycleStatusProvenance as Record<string, unknown>)
           : null;
-      if (id && provenance) map.set(id, provenance);
+      const kind = provenance ? asString(provenance.kind) : null;
+      if (id && kind) map.set(id, { kind, previousStatus: provenance ? asString(provenance.previousStatus) : null });
     }
     return map;
   }
