@@ -86,5 +86,8 @@
     "lifecycleProvenance": "migration_sweep_2026_07",
     "lifecyclePreviousStatus": "candidate_new_product"
   },
-  "orderRows": []
+  "orderRows": [],
+  "orderHistory": [],
+  "maxEverOrderedQty": null,
+  "commentThread": []
 }

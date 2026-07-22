@@ -265,5 +265,8 @@
         "at": "2026-07-21T07:00:00.000Z"
       }
     }
-  ]
+  ],
+  "orderHistory": [],
+  "maxEverOrderedQty": null,
+  "commentThread": []
 }

@@ -142,6 +142,7 @@ export function createEcobaseInventoryDashboardActions() {
               familyId,
               orderId: optionalString(values, 'orderId'),
               listingRowId: optionalString(values, 'listingRowId'),
+              includeRaw: values.includeRaw === true,
             }),
           };
         } catch (error) {

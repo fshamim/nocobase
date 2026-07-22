@@ -20,10 +20,12 @@ import {
   FIXED_TODAY,
   FOLLOW_UP_THRESHOLD_HOURS,
   GOLD_ROWS,
+  HISTORY_SILVER_ORDERS,
   LEAD_TIME_FRESHNESS_DAYS,
   PUBLISHED_RUN_ID,
   SILVER_COMPANY_PRODUCTS,
   SILVER_FAMILIES,
+  SILVER_ORDER_LINES,
   SILVER_ORDERS,
   SILVER_SUPPLIERS,
   SUPERSEDING_RUN_ID,
@@ -118,6 +120,12 @@ function seed(db: RecordingDatabase, options: { runId?: string } = {}): void {
   }
   for (const order of SILVER_ORDERS) {
     db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows.push({ ...order });
+  }
+  for (const order of HISTORY_SILVER_ORDERS) {
+    db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows.push({ ...order });
+  }
+  for (const line of SILVER_ORDER_LINES) {
+    db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows.push({ ...line });
   }
   for (const supplier of SILVER_SUPPLIERS) {
     db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).rows.push({ ...supplier });
@@ -652,6 +660,171 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
     // Follow-up ignores family/product/supplier chatter: the 72h-old ORDER
     // comment is the effective activity, so the flag stays raised.
     expect(row?.order?.needsFollowUp).toBe(true);
+  });
+
+  it('T6 (D5): drawer carries the family order history, per-order aggregated, newest first, with maxEverOrderedQty', async () => {
+    const drawer = await service(db).drawerContext({
+      pane: 'supplyAction',
+      runId: PUBLISHED_RUN_ID,
+      familyId: 'family-f11a-lead-boundary',
+    });
+    if (isRunSuperseded(drawer)) throw new Error('bad');
+    expect(drawer.orderHistory).toEqual([
+      { orderDate: '2026-07-01', orderedQty: 120, supplierName: 'Lead Boundary Supplies', status: 'complete' },
+      // 200 + 50 member lines of order-h2 aggregate into one entry.
+      { orderDate: '2026-05-15', orderedQty: 250, supplierName: 'Lead Boundary Supplies', status: 'complete' },
+      { orderDate: '2026-03-10', orderedQty: 80, supplierName: 'Unknown Route Supplier', status: 'hold/cancelled' },
+    ]);
+    // The unresolved-mapping line (qty 999) never contributes (pipeline parity).
+    expect(drawer.maxEverOrderedQty).toBe(250);
+  });
+
+  it('T6 (D5): history caps at 12 entries while maxEverOrderedQty spans the FULL history', async () => {
+    const local = new RecordingDatabase();
+    seed(local);
+    const goldRepo = local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows);
+    goldRepo.rows.push({
+      id: 'syn-hist-row',
+      naturalKey: 'syn-hist-row',
+      refreshRunId: PUBLISHED_RUN_ID,
+      primaryActionPane: 'supplyAction',
+      companyProductFamilyId: 'family-syn-hist',
+      companyProductId: 'cp-syn-hist',
+      baselineTier: 'A',
+    });
+    const orders = local.getRepository(ECOBASE_COLLECTIONS.silverOrders);
+    const lines = local.getRepository(ECOBASE_COLLECTIONS.silverOrderLines);
+    for (let index = 1; index <= 14; index += 1) {
+      orders.rows.push({
+        id: `hist-${index}`,
+        orderDate: `2026-05-${String(index).padStart(2, '0')}`,
+        operationalStatus: 'complete',
+      });
+      lines.rows.push({
+        id: `hist-line-${index}`,
+        orderId: `hist-${index}`,
+        companyProductId: 'cp-syn-hist',
+        // The OLDEST order (dropped by the cap) carries the all-time max qty.
+        orderedQty: index === 1 ? 999 : index,
+        productMappingStatus: 'resolved',
+      });
+    }
+    const drawer = await service(local).drawerContext({
+      pane: 'supplyAction',
+      runId: PUBLISHED_RUN_ID,
+      familyId: 'family-syn-hist',
+    });
+    if (isRunSuperseded(drawer)) throw new Error('bad');
+    expect(drawer.orderHistory).toHaveLength(12);
+    expect(drawer.orderHistory[0]).toMatchObject({ orderDate: '2026-05-14', orderedQty: 14 });
+    expect(drawer.orderHistory.some((entry) => entry.orderedQty === 999)).toBe(false);
+    expect(drawer.maxEverOrderedQty).toBe(999);
+  });
+
+  it('T6 (D6): drawer carries the full comment thread, newest first, entity names mapped, authors resolved', async () => {
+    db.getRepository('users').rows.push({ id: 7, nickname: 'Planner Pia' });
+    const comments = db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments);
+    const at = (hoursBack: number) => new Date(Date.parse(FIXED_NOW) - hoursBack * 3_600_000).toISOString();
+    comments.rows.push(
+      {
+        id: 'thread-family',
+        entityType: 'company_product_family',
+        entityId: 'family-f11a-lead-boundary',
+        actorUserId: 7,
+        body: 'Family note',
+        occurredAt: at(2),
+      },
+      {
+        id: 'thread-product',
+        entityType: 'company_product',
+        entityId: 'cp-f11a',
+        actorUserId: 7,
+        body: 'Product note',
+        occurredAt: at(5),
+      },
+      {
+        id: 'thread-supplier',
+        entityType: 'supplier',
+        entityId: 'supplier-lead-1',
+        actorUserId: null,
+        body: 'Supplier note',
+        occurredAt: at(1),
+      },
+    );
+    const drawer = await service(db).drawerContext({
+      pane: 'supplyAction',
+      runId: PUBLISHED_RUN_ID,
+      familyId: 'family-f11a-lead-boundary',
+    });
+    if (isRunSuperseded(drawer)) throw new Error('bad');
+    expect(drawer.commentThread).toEqual([
+      { entityType: 'supplier', body: 'Supplier note', author: null, at: at(1) },
+      { entityType: 'family', body: 'Family note', author: 'Planner Pia', at: at(2) },
+      { entityType: 'product', body: 'Product note', author: 'Planner Pia', at: at(5) },
+    ]);
+    // The newest thread entry doubles as the row-level lastActivity.
+    expect(drawer.primaryRow.lastActivity?.preview).toBe('Supplier note');
+  });
+
+  it('T6 (D3): a supplyAction drawer carries every chart input — 6 months of profit, best/worst, projected', async () => {
+    const drawer = await service(db).drawerContext({
+      pane: 'supplyAction',
+      runId: PUBLISHED_RUN_ID,
+      familyId: 'family-f11a-lead-boundary',
+    });
+    if (isRunSuperseded(drawer)) throw new Error('bad');
+    expect(drawer.performanceEvidence).toHaveLength(6);
+    expect(drawer.performanceEvidence.every((point) => point.profit !== null && point.trusted)).toBe(true);
+    expect(drawer.performanceEvidence.map((point) => point.profit)).toEqual([400, 800, 600, 720, 480, 640]);
+    expect(drawer.primaryRow.profit).toMatchObject({
+      bestMonthly: 1400,
+      worstMonthly: 500,
+      projectedMonthly: 1200,
+      averageMonthly: 900,
+      lastClosedMonth: 1100,
+    });
+  });
+
+  it('(g) T6 drawer budget: history/thread joins $in-scoped; rawGoldRow costs one extra fetch ONLY when requested', async () => {
+    const svc = service(db);
+    db.findCalls.length = 0;
+    const plain = await svc.drawerContext({
+      pane: 'supplyAction',
+      runId: PUBLISHED_RUN_ID,
+      familyId: 'family-f11a-lead-boundary',
+    });
+    if (isRunSuperseded(plain)) throw new Error('bad');
+    expect(plain.rawGoldRow).toBeUndefined();
+    const goldFinds = db.findCalls.filter((call) => call.collection === ECOBASE_COLLECTIONS.goldInventoryPlanningRows);
+    expect(goldFinds).toHaveLength(1);
+    const lineFinds = db.findCalls.filter((call) => call.collection === ECOBASE_COLLECTIONS.silverOrderLines);
+    expect(lineFinds).toHaveLength(1);
+    const lineIn = (lineFinds[0].params?.filter?.companyProductId as { $in?: unknown[] } | undefined)?.$in;
+    expect(lineIn).toEqual(['cp-f11a']);
+    expect(db.findCalls.filter((call) => call.collection === ECOBASE_COLLECTIONS.silverActivityComments)).toHaveLength(
+      1,
+    );
+    expect(db.findCalls.filter((call) => call.collection === 'users').length).toBeLessThanOrEqual(1);
+
+    db.findCalls.length = 0;
+    const withRaw = await svc.drawerContext({
+      pane: 'supplyAction',
+      runId: PUBLISHED_RUN_ID,
+      familyId: 'family-f11a-lead-boundary',
+      includeRaw: true,
+    });
+    if (isRunSuperseded(withRaw)) throw new Error('bad');
+    expect(
+      db.findCalls.filter((call) => call.collection === ECOBASE_COLLECTIONS.goldInventoryPlanningRows),
+    ).toHaveLength(2);
+    const raw = withRaw.rawGoldRow ?? {};
+    // Internal bookkeeping stripped (D1), full column set otherwise — including
+    // columns the projection reader never fetches.
+    expect(raw.id).toBeUndefined();
+    expect(raw.naturalKey).toBeUndefined();
+    expect(raw.refreshRunId).toBeUndefined();
+    expect('supplierOrderStatus' in raw).toBe(true);
+    expect(raw.asin).toBe('B0011A');
   });
 
   it('exposes the family target identity + selection provenance in drawerContext (QA item 2)', async () => {

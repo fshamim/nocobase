@@ -168,5 +168,8 @@
       },
       "lastActivity": null
     }
-  ]
+  ],
+  "orderHistory": [],
+  "maxEverOrderedQty": null,
+  "commentThread": []
 }

@@ -22,7 +22,10 @@ import {
   type DashboardHeader,
   type DashboardHeaderTile,
   type DashboardRow,
+  type DrawerCommentEntityType,
+  type DrawerCommentEntry,
   type DrawerContextRequest,
+  type DrawerContextResponse,
   type DrawerContextResult,
   type HeaderRequest,
   type HeaderTileKey,
@@ -132,7 +135,7 @@ function asStringArray(value: unknown): string[] {
 
 function asMonthlyEvidence(value: unknown): MonthlyEvidencePoint[] {
   if (!Array.isArray(value)) return [];
-  return value.flatMap((entry): MonthlyEvidenceEntry[] => {
+  return value.flatMap((entry): MonthlyEvidencePoint[] => {
     if (typeof entry !== 'object' || entry === null) return [];
     const record = entry as Record<string, unknown>;
     return [
@@ -190,6 +193,60 @@ interface CommentScope {
   familyIds?: Array<string | null>;
   companyProductIds?: Array<string | null>;
   supplierIds?: Array<string | null>;
+}
+
+/** One normalized activity comment fetched for the page's linked entities. */
+interface EntityCommentRecord {
+  entityType: string;
+  entityId: string;
+  body: string;
+  at: string;
+  actorUserId: unknown;
+}
+
+const DRAWER_COMMENT_THREAD_CAP = 50;
+const DRAWER_ORDER_HISTORY_CAP = 12;
+
+/** T6 (D6): internal entity names → the drawer's public thread vocabulary. */
+const DRAWER_COMMENT_ENTITY_TYPES: Record<string, DrawerCommentEntityType> = {
+  company_product: 'product',
+  company_product_family: 'family',
+  order: 'order',
+  supplier: 'supplier',
+};
+
+function commentAuthor(record: EntityCommentRecord, authors: Map<string, string | null>): string | null {
+  if (record.actorUserId === null || record.actorUserId === undefined) return null;
+  return authors.get(String(record.actorUserId)) ?? null;
+}
+
+/** Newest comment per `${entityType}:${entityId}` — the T5 lastActivity source. */
+function newestCommentsByEntity(
+  records: EntityCommentRecord[],
+  authors: Map<string, string | null>,
+): Map<string, LatestCommentView> {
+  const map = new Map<string, LatestCommentView>();
+  for (const record of records) {
+    const key = `${record.entityType}:${record.entityId}`;
+    const existing = map.get(key);
+    if (!existing || record.at > existing.at) {
+      map.set(key, { body: record.body, at: record.at, author: commentAuthor(record, authors) });
+    }
+  }
+  return map;
+}
+
+/** T6 (D6): full thread, newest first, capped at 50; unknown entity kinds dropped. */
+function buildCommentThread(records: EntityCommentRecord[], authors: Map<string, string | null>): DrawerCommentEntry[] {
+  return [...records]
+    .sort((left, right) => right.at.localeCompare(left.at))
+    .slice(0, DRAWER_COMMENT_THREAD_CAP)
+    .flatMap((record) => {
+      const entityType = DRAWER_COMMENT_ENTITY_TYPES[record.entityType];
+      return entityType
+        ? [{ entityType, body: record.body, author: commentAuthor(record, authors), at: record.at }]
+        : [];
+    });
 }
 
 function asShipDestination(value: unknown): 'direct_fba' | 'prep_center' | null {
@@ -322,13 +379,22 @@ export class EcobaseInventoryDashboardService {
     }
     const orderRowsRaw = members.filter((row) => row.supplierOrderId !== null);
     const silverById = await this.loadSilverOrders(orderRowsRaw.map((row) => row.supplierOrderId));
-    const suppliersById = await this.loadSuppliers(members.map((row) => asString(row.raw.supplierId)));
-    const commentsById = await this.loadLatestEntityComments({
+    // T6 (D5): the family's supplier-order history via the pipeline's line mapping.
+    const history = await this.loadOrderHistory(members.map((row) => asString(row.raw.companyProductId)));
+    // One supplier lookup covers the members' assigned suppliers AND the history orders'.
+    const suppliersById = await this.loadSuppliers([
+      ...members.map((row) => asString(row.raw.supplierId)),
+      ...history.entries.map((entry) => entry.supplierId),
+    ]);
+    // T6 (D6): ONE comment fetch powers both per-row lastActivity and the full thread.
+    const commentRecords = await this.fetchEntityComments({
       orderIds: orderRowsRaw.map((row) => row.supplierOrderId),
       familyIds: members.map((row) => asString(row.raw.companyProductFamilyId)),
       companyProductIds: members.map((row) => asString(row.raw.companyProductId)),
       supplierIds: members.map((row) => asString(row.raw.supplierId)),
     });
+    const commentAuthors = await this.resolveCommentAuthors(commentRecords);
+    const commentsById = newestCommentsByEntity(commentRecords, commentAuthors);
     // QA item 2: persisted family target + selection provenance.
     const familyRecord = (await this.db
       .getRepository(ECOBASE_COLLECTIONS.silverCompanyProductFamilies)
@@ -360,7 +426,7 @@ export class EcobaseInventoryDashboardService {
       (request.orderId ? members.find((row) => row.supplierOrderId === request.orderId) : undefined) ??
       members.find((row) => row.isFamilyTarget) ??
       members[0];
-    return {
+    const response: DrawerContextResponse = {
       pane,
       publishedRunId: run.id,
       familyKey: request.familyId,
@@ -379,7 +445,28 @@ export class EcobaseInventoryDashboardService {
         provenanceById,
       ),
       orderRows: orderRowsRaw.map((row) => this.buildRow(row, familyPaneSets, silverById, suppliersById, commentsById)),
+      orderHistory: history.entries.map((entry) => ({
+        orderDate: entry.orderDate,
+        orderedQty: entry.orderedQty,
+        supplierName: entry.supplierId ? suppliersById.get(entry.supplierId)?.displayName ?? null : null,
+        status: entry.status,
+      })),
+      maxEverOrderedQty: history.maxEverOrderedQty,
+      commentThread: buildCommentThread(commentRecords, commentAuthors),
     };
+    if (request.includeRaw === true) {
+      // D7 Data tab: one extra single-row fetch, only on demand; internal
+      // bookkeeping keys are stripped (D1: no database ids in the drawer).
+      const fullRow = await this.reader.findFullRowById(run.id, primarySource.listingRowId);
+      if (fullRow) {
+        const rawGoldRow = { ...fullRow };
+        delete rawGoldRow.id;
+        delete rawGoldRow.naturalKey;
+        delete rawGoldRow.refreshRunId;
+        response.rawGoldRow = rawGoldRow;
+      }
+    }
+    return response;
   }
 
   async savePrepDetails(params: SavePrepDetailsParams): Promise<{ orderId: string; updated: true }> {
@@ -689,13 +776,10 @@ export class EcobaseInventoryDashboardService {
    * Fresh comments (QA item 1 + T5/F5): the gold latestSupplierOrderActivity*
    * columns only refresh with a gold run (and are 0-non-null on live data), so
    * this single page-scoped $or/$in join is the live source of lastActivity —
-   * now across ALL linked entities (order, family, product, supplier), which
-   * gives order-less rows (Supply Action, Zero Stock, …) an activity feed too.
-   * Keyed `${entityType}:${entityId}`, newest comment per entity wins; authors
-   * resolve through one page-scoped users lookup (mirrors the publish path's
-   * displayNameForUser precedence: nickname → name → email → username).
+   * across ALL linked entities (order, family, product, supplier), which gives
+   * order-less rows (Supply Action, Zero Stock, …) an activity feed too.
    */
-  private async loadLatestEntityComments(scope: CommentScope): Promise<Map<string, LatestCommentView>> {
+  private async fetchEntityComments(scope: CommentScope): Promise<EntityCommentRecord[]> {
     const branches: Array<[string, Array<string | null> | undefined]> = [
       ['order', scope.orderIds],
       ['company_product_family', scope.familyIds],
@@ -710,12 +794,11 @@ export class EcobaseInventoryDashboardService {
       idCount += ids.length;
       or.push({ entityType, entityId: { $in: ids } });
     }
-    if (or.length === 0) return new Map();
+    if (or.length === 0) return [];
     const rows = await this.db
       .getRepository(ECOBASE_COLLECTIONS.silverActivityComments)
       .find({ filter: { $or: or }, limit: Math.min(idCount * 100, 10_000) });
-    const map = new Map<string, LatestCommentView>();
-    const actorByKey = new Map<string, unknown>();
+    const records: EntityCommentRecord[] = [];
     for (const value of rows) {
       const record = (typeof value === 'object' && value !== null ? value : {}) as Record<string, unknown>;
       if (record.deletedAt) continue;
@@ -724,37 +807,43 @@ export class EcobaseInventoryDashboardService {
       const body = asString(record.body);
       const at = asString(record.occurredAt) ?? asString(record.createdAt);
       if (!entityType || !entityId || !body || !at) continue;
-      const key = `${entityType}:${entityId}`;
-      const existing = map.get(key);
-      if (!existing || at > existing.at) {
-        map.set(key, { body, at, author: null });
-        actorByKey.set(key, record.actorUserId);
-      }
+      records.push({ entityType, entityId, body, at, actorUserId: record.actorUserId });
     }
+    return records;
+  }
+
+  /**
+   * ONE page-scoped users lookup for the fetched comments' actors (mirrors the
+   * publish path's displayNameForUser precedence: nickname → name → email →
+   * username). Keyed by String(actorUserId).
+   */
+  private async resolveCommentAuthors(records: EntityCommentRecord[]): Promise<Map<string, string | null>> {
     const actorIds = new Map<string, unknown>();
-    for (const actorUserId of actorByKey.values()) {
-      if (actorUserId !== null && actorUserId !== undefined) actorIds.set(String(actorUserId), actorUserId);
-    }
-    if (actorIds.size > 0) {
-      const users = await this.db
-        .getRepository('users')
-        .find({ filter: { id: { $in: [...actorIds.values()] } }, limit: actorIds.size });
-      const namesById = new Map<string, string | null>();
-      for (const value of users) {
-        const record = (typeof value === 'object' && value !== null ? value : {}) as Record<string, unknown>;
-        if (record.id === null || record.id === undefined) continue;
-        namesById.set(
-          String(record.id),
-          asString(record.nickname) ?? asString(record.name) ?? asString(record.email) ?? asString(record.username),
-        );
-      }
-      for (const [key, actorUserId] of actorByKey) {
-        const view = map.get(key);
-        if (!view || actorUserId === null || actorUserId === undefined) continue;
-        view.author = namesById.get(String(actorUserId)) ?? null;
+    for (const record of records) {
+      if (record.actorUserId !== null && record.actorUserId !== undefined) {
+        actorIds.set(String(record.actorUserId), record.actorUserId);
       }
     }
-    return map;
+    const namesById = new Map<string, string | null>();
+    if (actorIds.size === 0) return namesById;
+    const users = await this.db
+      .getRepository('users')
+      .find({ filter: { id: { $in: [...actorIds.values()] } }, limit: actorIds.size });
+    for (const value of users) {
+      const record = (typeof value === 'object' && value !== null ? value : {}) as Record<string, unknown>;
+      if (record.id === null || record.id === undefined) continue;
+      namesById.set(
+        String(record.id),
+        asString(record.nickname) ?? asString(record.name) ?? asString(record.email) ?? asString(record.username),
+      );
+    }
+    return namesById;
+  }
+
+  private async loadLatestEntityComments(scope: CommentScope): Promise<Map<string, LatestCommentView>> {
+    const records = await this.fetchEntityComments(scope);
+    const authors = await this.resolveCommentAuthors(records);
+    return newestCommentsByEntity(records, authors);
   }
 
   private async loadSuppliers(supplierIds: Array<string | null>): Promise<Map<string, SupplierView>> {
@@ -774,6 +863,70 @@ export class EcobaseInventoryDashboardService {
       });
     }
     return map;
+  }
+
+  /**
+   * T6 (D5): the family's recent supplier-order history. Mirrors the corrected
+   * pipeline's line→product mapping (silverOrderLines.companyProductId with
+   * productMappingStatus !== 'unresolved'); quantities aggregate per ORDER
+   * across the family's member lines. maxEverOrderedQty spans the FULL
+   * history; the returned entry list is capped at {@link DRAWER_ORDER_HISTORY_CAP}.
+   */
+  private async loadOrderHistory(memberCompanyProductIds: Array<string | null>): Promise<{
+    entries: Array<{
+      orderId: string;
+      orderDate: string | null;
+      orderedQty: number | null;
+      supplierId: string | null;
+      status: string | null;
+    }>;
+    maxEverOrderedQty: number | null;
+  }> {
+    const ids = [...new Set(memberCompanyProductIds.filter((id): id is string => id !== null))];
+    if (ids.length === 0) return { entries: [], maxEverOrderedQty: null };
+    const lines = await this.db
+      .getRepository(ECOBASE_COLLECTIONS.silverOrderLines)
+      .find({ filter: { companyProductId: { $in: ids } }, limit: 10_000 });
+    const qtyByOrderId = new Map<string, number | null>();
+    for (const value of lines) {
+      const record = (typeof value === 'object' && value !== null ? value : {}) as Record<string, unknown>;
+      if (asString(record.productMappingStatus) === 'unresolved') continue;
+      const orderId = asString(record.orderId);
+      if (!orderId) continue;
+      const qty = asNumber(record.orderedQty) ?? asNumber(record.orderQty);
+      const existing = qtyByOrderId.get(orderId) ?? null;
+      qtyByOrderId.set(orderId, qty === null ? existing : (existing ?? 0) + qty);
+    }
+    if (qtyByOrderId.size === 0) return { entries: [], maxEverOrderedQty: null };
+    const orderIds = [...qtyByOrderId.keys()];
+    const orders = await this.db
+      .getRepository(ECOBASE_COLLECTIONS.silverOrders)
+      .find({ filter: { id: { $in: orderIds } }, limit: orderIds.length });
+    const ordersById = new Map<string, Record<string, unknown>>();
+    for (const value of orders) {
+      const record = (typeof value === 'object' && value !== null ? value : {}) as Record<string, unknown>;
+      const id = asString(record.id);
+      if (id) ordersById.set(id, record);
+    }
+    const entries = orderIds.map((orderId) => {
+      const order = ordersById.get(orderId) ?? {};
+      return {
+        orderId,
+        orderDate: asString(order.orderDate),
+        orderedQty: qtyByOrderId.get(orderId) ?? null,
+        supplierId: asString(order.supplierId),
+        status: asString(order.operationalStatus) ?? asString(order.workflowStage),
+      };
+    });
+    entries.sort(
+      (left, right) =>
+        (right.orderDate ?? '').localeCompare(left.orderDate ?? '') || left.orderId.localeCompare(right.orderId),
+    );
+    const quantities = entries.map((entry) => entry.orderedQty).filter((qty): qty is number => qty !== null);
+    return {
+      entries: entries.slice(0, DRAWER_ORDER_HISTORY_CAP),
+      maxEverOrderedQty: quantities.length > 0 ? Math.max(...quantities) : null,
+    };
   }
 
   private buildRow(

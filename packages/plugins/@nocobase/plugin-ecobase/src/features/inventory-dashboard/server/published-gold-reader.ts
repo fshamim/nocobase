@@ -179,4 +179,16 @@ export class PublishedGoldReader {
       .find({ filter, fields: [...GOLD_ROW_FIELDS], limit: GOLD_ROW_QUERY_LIMIT });
     return rows.map(toRecord);
   }
+
+  /**
+   * T6 (D7 Data tab): ONE full-column fetch of a single row at the pinned run —
+   * only issued when a drawer explicitly asks for the raw record (includeRaw),
+   * so the normal read path keeps its fixed query budget (AD-4).
+   */
+  async findFullRowById(runId: string, rowId: string): Promise<Record<string, unknown> | null> {
+    const rows = await this.db
+      .getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows)
+      .find({ filter: { refreshRunId: runId, id: rowId }, limit: 1 });
+    return rows.length > 0 ? toRecord(rows[0]) : null;
+  }
 }

@@ -79,5 +79,8 @@
     "performanceBand": "insufficient_evidence",
     "lastActivity": null
   },
-  "orderRows": []
+  "orderRows": [],
+  "orderHistory": [],
+  "maxEverOrderedQty": null,
+  "commentThread": []
 }

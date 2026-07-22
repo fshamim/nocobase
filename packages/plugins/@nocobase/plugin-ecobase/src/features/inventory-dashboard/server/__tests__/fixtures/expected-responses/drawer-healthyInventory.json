@@ -89,5 +89,8 @@
     "familySplit": true,
     "lastActivity": null
   },
-  "orderRows": []
+  "orderRows": [],
+  "orderHistory": [],
+  "maxEverOrderedQty": null,
+  "commentThread": []
 }

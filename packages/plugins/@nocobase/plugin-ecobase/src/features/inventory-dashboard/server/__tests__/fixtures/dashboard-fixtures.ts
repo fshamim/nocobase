@@ -125,6 +125,19 @@ export interface SilverOrderFixture {
   prepDimensions: Record<string, unknown> | null;
   prepDetailsUpdatedAt: string | null;
   prepDetailsUpdatedByUserId: string | null;
+  /** T6 (D5) order-history fields (optional — only history fixtures set them). */
+  orderDate?: string | null;
+  supplierId?: string | null;
+  provenance: FixtureProvenance;
+}
+
+/** T6 (D5): silver order line in the persisted shape the history join reads. */
+export interface SilverOrderLineFixture {
+  id: string;
+  orderId: string;
+  companyProductId: string;
+  orderedQty: number | null;
+  productMappingStatus: 'resolved' | 'unresolved';
   provenance: FixtureProvenance;
 }
 
@@ -428,6 +441,7 @@ export const GOLD_ROWS: GoldPlanningRowFixture[] = [
   // Item 11: lead-time evidence at boundary, over boundary, and null.
   goldRow('f11a-lead-boundary', 'supplyAction', {
     asin: 'B0011A',
+    companyProductId: 'cp-f11a', // T6: anchors the order-history line mapping
     daysOfCover: 5,
     estimatedOosDate: dateOffset(5),
     leadTimeConfirmedAt: daysAgo(LEAD_TIME_FRESHNESS_DAYS), // exactly threshold -> not stale (strict >)
@@ -723,6 +737,103 @@ export const SILVER_SUPPLIERS: SilverSupplierFixture[] = [
     id: 'supplier-unknown-route',
     displayName: 'Unknown Route Supplier',
     shipDestination: null,
+    provenance: 'synthetic',
+  },
+  // T6: assigned supplier of the enriched supplyAction row + its order history.
+  {
+    id: 'supplier-lead-1',
+    displayName: 'Lead Boundary Supplies',
+    shipDestination: 'prep_center',
+    provenance: 'synthetic',
+  },
+];
+
+const HISTORY_ORDER_DEFAULTS = {
+  company: 'Acme',
+  workflowStageEnteredAt: null,
+  prepBoxes: null,
+  prepCartons: null,
+  prepDimensions: null,
+  prepDetailsUpdatedAt: null,
+  prepDetailsUpdatedByUserId: null,
+  provenance: 'synthetic' as const,
+};
+
+/**
+ * T6 (D5): supplier-order history of the enriched supplyAction family
+ * (family-f11a-lead-boundary / cp-f11a). order-h2 carries TWO member lines to
+ * prove per-order aggregation (200 + 50 = 250, the max-ever reference).
+ */
+export const HISTORY_SILVER_ORDERS: SilverOrderFixture[] = [
+  {
+    ...HISTORY_ORDER_DEFAULTS,
+    id: 'order-h1',
+    orderRef: 'PO-H1',
+    operationalStatus: 'complete',
+    workflowStage: 'complete',
+    orderDate: '2026-07-01',
+    supplierId: 'supplier-lead-1',
+  },
+  {
+    ...HISTORY_ORDER_DEFAULTS,
+    id: 'order-h2',
+    orderRef: 'PO-H2',
+    operationalStatus: 'complete',
+    workflowStage: 'complete',
+    orderDate: '2026-05-15',
+    supplierId: 'supplier-lead-1',
+  },
+  {
+    ...HISTORY_ORDER_DEFAULTS,
+    id: 'order-h3',
+    orderRef: 'PO-H3',
+    operationalStatus: 'hold/cancelled',
+    workflowStage: 'cancelled',
+    orderDate: '2026-03-10',
+    supplierId: 'supplier-unknown-route',
+  },
+];
+
+export const SILVER_ORDER_LINES: SilverOrderLineFixture[] = [
+  {
+    id: 'line-h1',
+    orderId: 'order-h1',
+    companyProductId: 'cp-f11a',
+    orderedQty: 120,
+    productMappingStatus: 'resolved',
+    provenance: 'synthetic',
+  },
+  {
+    id: 'line-h2a',
+    orderId: 'order-h2',
+    companyProductId: 'cp-f11a',
+    orderedQty: 200,
+    productMappingStatus: 'resolved',
+    provenance: 'synthetic',
+  },
+  {
+    id: 'line-h2b',
+    orderId: 'order-h2',
+    companyProductId: 'cp-f11a',
+    orderedQty: 50,
+    productMappingStatus: 'resolved',
+    provenance: 'synthetic',
+  },
+  {
+    id: 'line-h3',
+    orderId: 'order-h3',
+    companyProductId: 'cp-f11a',
+    orderedQty: 80,
+    productMappingStatus: 'resolved',
+    provenance: 'synthetic',
+  },
+  // Unresolved mapping never reaches the history (pipeline parity).
+  {
+    id: 'line-x',
+    orderId: 'order-h1',
+    companyProductId: 'cp-f11a',
+    orderedQty: 999,
+    productMappingStatus: 'unresolved',
     provenance: 'synthetic',
   },
 ];

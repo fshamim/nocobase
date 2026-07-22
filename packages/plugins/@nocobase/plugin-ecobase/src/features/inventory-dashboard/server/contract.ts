@@ -249,6 +249,8 @@ export interface DrawerContextRequest {
   orderId?: string;
   /** The exact listing the user clicked — becomes the drawer's primary row (QA item 7). */
   listingRowId?: string;
+  /** T6 (D7 Data tab): when true, the response carries the primary row's full gold record. */
+  includeRaw?: boolean;
 }
 
 export interface MonthlyEvidencePoint {
@@ -257,6 +259,24 @@ export interface MonthlyEvidencePoint {
   /** T4 (D3 chart): per-month profit from the evidence blob; null when not persisted. */
   profit: number | null;
   trusted: boolean;
+}
+
+/** T6 (D5): one recent supplier order of the family, quantities aggregated per order. */
+export interface DrawerOrderHistoryEntry {
+  orderDate: string | null;
+  orderedQty: number | null;
+  supplierName: string | null;
+  status: string | null;
+}
+
+/** T6 (D6): public entity names for the drawer thread (internal names mapped). */
+export type DrawerCommentEntityType = 'product' | 'family' | 'order' | 'supplier';
+
+export interface DrawerCommentEntry {
+  entityType: DrawerCommentEntityType;
+  body: string;
+  author: string | null;
+  at: string;
 }
 
 export interface DrawerContextResponse {
@@ -282,6 +302,14 @@ export interface DrawerContextResponse {
   } | null;
   primaryRow: DashboardRow;
   orderRows: DashboardRow[];
+  /** T6 (D5): recent supplier-order history, newest first, capped at 12 entries. */
+  orderHistory: DrawerOrderHistoryEntry[];
+  /** T6 (R5 reference): max per-order quantity over the FULL history (not just the capped 12). */
+  maxEverOrderedQty: number | null;
+  /** T6 (D6): full comment thread across family/product/order/supplier, newest first, capped at 50. */
+  commentThread: DrawerCommentEntry[];
+  /** T6 (D7 Data tab): full gold record of the primary row; present only when requested via includeRaw. */
+  rawGoldRow?: Record<string, unknown>;
 }
 
 export type DrawerContextResult = DrawerContextResponse | RunSupersededSignal;

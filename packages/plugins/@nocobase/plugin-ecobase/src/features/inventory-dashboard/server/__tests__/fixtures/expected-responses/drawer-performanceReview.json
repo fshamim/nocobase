@@ -114,5 +114,8 @@
     "performanceBand": "below_band",
     "lastActivity": null
   },
-  "orderRows": []
+  "orderRows": [],
+  "orderHistory": [],
+  "maxEverOrderedQty": null,
+  "commentThread": []
 }
