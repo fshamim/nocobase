@@ -12,6 +12,7 @@ import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { createEcobasePlanningActions } from '../plugin';
 import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
 import { EcobasePlanningCalculationService } from '../../features/inventory-planning/server/planning-calculation-service';
+import { expectedArrivalEvidence } from '../../features/inventory-planning/server/inventory-planning-service';
 
 interface FindParams {
   filter?: Record<string, unknown>;
@@ -284,5 +285,58 @@ describe('Ecobase Silver-backed planning calculations', () => {
       },
     });
     expect(next).toHaveBeenCalledOnce();
+  });
+
+  it('shifts the safe-reorder deadline when safetyBufferDays changes (task 005: settings-driven, no literals)', async () => {
+    const db = new MemoryDatabase();
+    const planningProductId = await seedCurrentPlanningData(db);
+    const service = new EcobasePlanningCalculationService(db);
+
+    const atDefault = await service.calculatePlanningProduct({ planningProductId, calculationDate: '2026-07-13' });
+    // Default settings: safetyBufferDays 7, lead time from parameter rows (10).
+    // restockDeadlineImproved = oosDate - (leadTimeDays + safetyBufferDays).
+    expect(atDefault.safetyBufferDays).toBe(7);
+    expect(atDefault.restockDeadlineImproved).toBeDefined();
+
+    await db.getRepository(ECOBASE_COLLECTIONS.planningSettings).create({
+      values: {
+        id: 'settings-buffer-14',
+        name: 'Wider buffer',
+        isActive: true,
+        safetyBufferDays: 14,
+        reorderCycleDays: 30,
+        targetCoverDays: 45,
+        orderSoonWindowDays: 14,
+        leadTimeFreshnessDays: 60,
+        purchasedPipelineGraceDays: 3,
+        profitTierAThreshold: 300,
+        profitTierBThreshold: 150,
+        profitTierCThreshold: 50,
+        updatedAt: '2026-07-13T00:00:00.000Z',
+      },
+    });
+    const atWider = await service.calculatePlanningProduct({ planningProductId, calculationDate: '2026-07-13' });
+    expect(atWider.safetyBufferDays).toBe(14);
+    const dayMs = 86_400_000;
+    const shiftDays =
+      (Date.parse(String(atDefault.restockDeadlineImproved)) - Date.parse(String(atWider.restockDeadlineImproved))) /
+      dayMs;
+    expect(Math.round(shiftDays)).toBe(7); // 14 - 7 buffer days earlier deadline
+    // Parity deadline (no safety buffer) is unaffected by the setting.
+    expect(atWider.restockDeadlineParity).toEqual(atDefault.restockDeadlineParity);
+  });
+
+  it('shifts the derived expected arrival when fbaReceivingBufferDays changes (task 005)', () => {
+    // Derived mode reads the LINE's lead time: orderDate + leadTime + receiving buffer.
+    const line = { expectedDeliveryDate: null, expectedSellableDate: null, leadTimeDays: 30 };
+    const order = { orderDate: '2026-07-01', expectedDeliveryDate: null };
+    const atSeven = expectedArrivalEvidence(line, order, '2026-07-13', 7);
+    const atTen = expectedArrivalEvidence(line, order, '2026-07-13', 10);
+    expect(atSeven.expectedArrivalDate).toBeDefined();
+    expect(atTen.expectedArrivalDate).toBeDefined();
+    const dayMs = 86_400_000;
+    expect(
+      (Date.parse(String(atTen.expectedArrivalDate)) - Date.parse(String(atSeven.expectedArrivalDate))) / dayMs,
+    ).toBe(3);
   });
 });
