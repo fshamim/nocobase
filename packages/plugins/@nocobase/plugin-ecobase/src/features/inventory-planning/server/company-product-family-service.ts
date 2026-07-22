@@ -357,6 +357,11 @@ export class EcobaseCompanyProductFamilyService {
           : {}),
       },
     });
+    // Task 004 (surgical v1.1): the preferred supplier follows the target —
+    // re-reconcile against the NEW target so the offer re-points to the new
+    // target's product (operator supplier choices are preserved inside, and a
+    // conflicting operator supplier flags review instead of being replaced).
+    await this.reconcilePreferredSupplier(await this.getFamily(params.familyId), members);
     return this.getFamily(params.familyId);
   }
 
@@ -647,6 +652,15 @@ export class EcobaseCompanyProductFamilyService {
     const families = (
       await this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductFamilies).find({ limit: 100000 })
     ).map(toPlainRecord);
+    // Task 003: tier evidence comes from the latest PUBLISHED gold run.
+    const publishedRun = toPlainRecord(
+      (
+        await this.db
+          .getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns)
+          .find({ filter: { status: 'published' }, sort: ['-publishedAt'], limit: 1 })
+      )[0] ?? {},
+    );
+    const publishedRunId = idOf(publishedRun, 'id');
     const corrections: Array<{
       familyId: string;
       currentCompanyProductId?: string;
@@ -663,9 +677,15 @@ export class EcobaseCompanyProductFamilyService {
         operatorPreservedCount += 1;
         continue;
       }
-      const recommendation = await this.targetRecommendation(await this.listMembers(familyId));
-      const recommendedCompanyProductId = idOf(recommendation.recommended ?? {}, 'companyProductId');
+      const members = await this.listMembers(familyId);
       const currentCompanyProductId = idOf(family, 'replenishmentTargetCompanyProductId');
+      // Task 003 (surgical v1.1): families WITHOUT a persisted target use the
+      // tiered-first migration rule; families with an existing target keep the
+      // original stock recommendation (selection never switches automatically).
+      const recommendation = currentCompanyProductId
+        ? await this.targetRecommendation(members)
+        : await this.tieredFirstRecommendation(members, publishedRunId);
+      const recommendedCompanyProductId = idOf(recommendation.recommended ?? {}, 'companyProductId');
       if (!recommendedCompanyProductId) {
         reviewRequiredCount += 1;
         continue;
@@ -679,9 +699,9 @@ export class EcobaseCompanyProductFamilyService {
         currentCompanyProductId,
         recommendedCompanyProductId,
         evidence: {
-          ...recommendation.evidence,
           selectionRule: 'highest_current_planning_stock',
           ruleVersion: 'highest-current-planning-stock-v1',
+          ...recommendation.evidence,
           previousCompanyProductId: currentCompanyProductId,
         },
       });
@@ -693,6 +713,114 @@ export class EcobaseCompanyProductFamilyService {
       alreadyCorrectCount,
       reviewRequiredCount,
       corrections,
+    };
+  }
+
+  /**
+   * Task 003 (user-approved 2026-07-22): tiered-first target selection for
+   * families with no persisted target. Candidates = A/B/C members
+   * (currentProjectedTier else baselineTier); if none, tier-D members qualify
+   * (rule 4). Tiebreaks: planning stock, sellable stock, tier score, most
+   * recent trusted sale month; still tied -> review. Operator targets are
+   * handled (and preserved) by the caller.
+   */
+  private async tieredFirstRecommendation(members: PlainRecord[], publishedRunId: string | undefined) {
+    const memberIds = members.map((member) => idOf(member, 'id')).filter((id): id is string => Boolean(id));
+    const goldRows = publishedRunId
+      ? (
+          await this.db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).find({
+            filter: { refreshRunId: publishedRunId, companyProductId: { $in: memberIds } },
+            limit: memberIds.length * 2,
+          })
+        ).map(toPlainRecord)
+      : [];
+    const goldByProductId = new Map(goldRows.map((row) => [idOf(row, 'companyProductId'), row]));
+    const tierOf = (row: PlainRecord | undefined) => {
+      const tier = String(row?.currentProjectedTier ?? row?.baselineTier ?? '')
+        .trim()
+        .toUpperCase();
+      return ['A', 'B', 'C', 'D'].includes(tier) ? tier : null;
+    };
+    const lastTrustedSale = (row: PlainRecord | undefined) => {
+      const evidence = Array.isArray(row?.monthlyPerformanceEvidence) ? row.monthlyPerformanceEvidence : [];
+      let latest = '';
+      for (const entry of evidence) {
+        const record = toPlainRecord(entry);
+        const units = numberValue(record.monthlyUnits ?? record.units);
+        const eligible = record.eligible === true || record.trusted === true;
+        const month = String(record.monthStart ?? record.month ?? '');
+        if (eligible && units > 0 && month > latest) latest = month;
+      }
+      return latest;
+    };
+    const eligibleMembers = members.filter((member) => {
+      const lifecycleStatus = String(member.lifecycleStatus ?? '')
+        .trim()
+        .toLowerCase();
+      return idOf(member, 'id') && ['active', 'live'].includes(lifecycleStatus);
+    });
+    const withTier = eligibleMembers
+      .map((member) => {
+        const gold = goldByProductId.get(idOf(member, 'id'));
+        return { member, gold, tier: tierOf(gold) };
+      })
+      .filter((candidate) => candidate.tier !== null);
+    const abc = withTier.filter((candidate) => candidate.tier !== 'D');
+    const pool = abc.length > 0 ? abc : withTier;
+    const tierDRule = abc.length === 0 && pool.length > 0;
+    if (pool.length === 0) {
+      return {
+        recommended: undefined,
+        candidateIds: [] as string[],
+        reviewReason: 'no_tiered_candidate',
+        evidence: {
+          selectionRule: 'tiered_first_migration_rule',
+          ruleVersion: 'tiered-first-migration-v1',
+          candidates: [],
+        },
+      };
+    }
+    const scored = pool
+      .map(({ member, gold, tier }) => ({
+        companyProductId: idOf(member, 'id') as string,
+        sku: member.sku,
+        tier,
+        planningStock: numberValue(gold?.currentPlanningStock),
+        sellableStock: numberValue(gold?.onHandSellableStock),
+        tierScore: numberValue(gold?.currentProjectedTierScore ?? gold?.baselineTierScore),
+        lastTrustedSaleMonth: lastTrustedSale(gold),
+      }))
+      .sort(
+        (left, right) =>
+          right.planningStock - left.planningStock ||
+          right.sellableStock - left.sellableStock ||
+          right.tierScore - left.tierScore ||
+          right.lastTrustedSaleMonth.localeCompare(left.lastTrustedSaleMonth) ||
+          String(left.sku ?? '').localeCompare(String(right.sku ?? '')),
+      );
+    const first = scored[0];
+    const second = scored[1];
+    const tied = Boolean(
+      first &&
+        second &&
+        first.planningStock === second.planningStock &&
+        first.sellableStock === second.sellableStock &&
+        first.tierScore === second.tierScore &&
+        first.lastTrustedSaleMonth === second.lastTrustedSaleMonth,
+    );
+    const recommended = first && !tied ? first : undefined;
+    return {
+      recommended,
+      candidateIds: scored.map((candidate) => candidate.companyProductId),
+      reviewReason: tied ? 'ambiguous_tiered_candidates' : undefined,
+      evidence: {
+        selectionRule: tierDRule ? 'tiered_first_migration_rule_tier_d' : 'tiered_first_migration_rule',
+        ruleVersion: 'tiered-first-migration-v1',
+        candidates: scored,
+        selectedTier: recommended?.tier,
+        selectedPlanningStock: recommended?.planningStock,
+        selectedTierScore: recommended?.tierScore,
+      },
     };
   }
 

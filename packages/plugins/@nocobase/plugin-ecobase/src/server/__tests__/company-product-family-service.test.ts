@@ -16,7 +16,12 @@ import { ECOBASE_COLLECTIONS } from '../collections/names';
 type Row = Record<string, any>;
 
 function matches(row: Row, filter: Row = {}) {
-  return Object.entries(filter).every(([key, value]) => row[key] === value);
+  return Object.entries(filter).every(([key, value]) => {
+    if (value && typeof value === 'object' && Array.isArray((value as { $in?: unknown[] }).$in)) {
+      return (value as { $in: unknown[] }).$in.includes(row[key]);
+    }
+    return row[key] === value;
+  });
 }
 
 class MemoryRepository implements EcobaseRepository {
@@ -1118,6 +1123,162 @@ describe('EcobaseCompanyProductFamilyService', () => {
     await expect(service.verifyAutomaticTargetCorrections()).resolves.toMatchObject({
       idempotent: true,
       correctionCount: 0,
+    });
+  });
+
+  it('selects the tiered member over a higher-stock untiered member for target-less families (task 003)', async () => {
+    const db = new MemoryDatabase();
+    await seed(db);
+    const service = new EcobaseCompanyProductFamilyService(db);
+    const family = await service.ensureFamily(identity);
+    // No persisted target. Gold published run: member A untiered with stock,
+    // member B tier B with ZERO stock — tiered-first must pick B.
+    await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).create({
+      values: { id: 'run-1', status: 'published', publishedAt: '2026-07-22T00:00:00.000Z' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).create({
+      values: {
+        id: 'gold-a',
+        refreshRunId: 'run-1',
+        companyProductId: 'company-product-a',
+        currentProjectedTier: null,
+        baselineTier: null,
+        currentPlanningStock: 50,
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).create({
+      values: {
+        id: 'gold-b',
+        refreshRunId: 'run-1',
+        companyProductId: 'company-product-b',
+        currentProjectedTier: 'B',
+        baselineTier: 'C',
+        currentPlanningStock: 0,
+        currentProjectedTierScore: 120,
+      },
+    });
+
+    const preview = await service.previewAutomaticTargetCorrections();
+    expect(preview.correctionCount).toBeGreaterThanOrEqual(1);
+    await service.applyAutomaticTargetCorrections({
+      decisionDigest: preview.decisionDigest,
+      confirmation: `APPLY_FAMILY_TARGETS_${preview.decisionDigest.slice(0, 12).toUpperCase()}`,
+    });
+    await expect(service.getFamily(String(family.id))).resolves.toMatchObject({
+      replenishmentTargetCompanyProductId: 'company-product-b',
+      targetSelectionSource: 'automatic',
+      targetSelectionEvidenceJson: {
+        selectionRule: 'tiered_first_migration_rule',
+        ruleVersion: 'tiered-first-migration-v1',
+        selectedTier: 'B',
+      },
+    });
+  });
+
+  it('qualifies tier-D members when no A/B/C exists and breaks ties by tier score (task 003 rule 4)', async () => {
+    const db = new MemoryDatabase();
+    await seed(db);
+    const service = new EcobaseCompanyProductFamilyService(db);
+    const family = await service.ensureFamily(identity);
+    await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).create({
+      values: { id: 'run-1', status: 'published', publishedAt: '2026-07-22T00:00:00.000Z' },
+    });
+    // Both members tier D, zero stock everywhere; higher tier score wins.
+    for (const [id, companyProductId, score] of [
+      ['gold-a', 'company-product-a', 0.4],
+      ['gold-b', 'company-product-b', 0.9],
+    ] as const) {
+      await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).create({
+        values: {
+          id,
+          refreshRunId: 'run-1',
+          companyProductId,
+          currentProjectedTier: 'D',
+          currentPlanningStock: 0,
+          currentProjectedTierScore: score,
+        },
+      });
+    }
+    const preview = await service.previewAutomaticTargetCorrections();
+    await service.applyAutomaticTargetCorrections({
+      decisionDigest: preview.decisionDigest,
+      confirmation: `APPLY_FAMILY_TARGETS_${preview.decisionDigest.slice(0, 12).toUpperCase()}`,
+    });
+    await expect(service.getFamily(String(family.id))).resolves.toMatchObject({
+      replenishmentTargetCompanyProductId: 'company-product-b',
+      targetSelectionEvidenceJson: { selectionRule: 'tiered_first_migration_rule_tier_d' },
+    });
+  });
+
+  it('leaves families with no tiered member in review and never touches operator targets (task 003 rule 5)', async () => {
+    const db = new MemoryDatabase();
+    await seed(db);
+    const service = new EcobaseCompanyProductFamilyService(db);
+    const family = await service.ensureFamily(identity);
+    await service.setReplenishmentTarget({
+      familyId: String(family.id),
+      companyProductId: 'company-product-a',
+      source: 'operator',
+      actorUserId: 'user-1',
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).create({
+      values: { id: 'run-1', status: 'published', publishedAt: '2026-07-22T00:00:00.000Z' },
+    });
+    const preview = await service.previewAutomaticTargetCorrections();
+    expect(preview.operatorPreservedCount).toBeGreaterThanOrEqual(1);
+    // The other family (other-asin) has no tiered member -> review, no correction targeting it.
+    const otherFamilyCorrections = preview.corrections.filter(
+      (correction) => correction.familyId !== String(family.id),
+    );
+    expect(otherFamilyCorrections).toHaveLength(0);
+    await expect(service.getFamily(String(family.id))).resolves.toMatchObject({
+      replenishmentTargetCompanyProductId: 'company-product-a',
+      targetSelectionSource: 'operator',
+    });
+  });
+
+  it('re-points the preferred supplier when the target changes, without a reconcile pass (task 004 follows-target)', async () => {
+    const db = new MemoryDatabase();
+    await seed(db);
+    const service = new EcobaseCompanyProductFamilyService(db);
+    const family = await service.ensureFamily(identity);
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+      values: {
+        id: 'order-1',
+        supplierId: 'supplier-2',
+        orderRef: 'EF1002A',
+        orderDate: '2026-07-01',
+        companyId: 'company-1',
+        canonicalStatus: 'paid',
+        authorityStatus: 'clickup_authoritative',
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+      values: {
+        id: 'line-1',
+        orderId: 'order-1',
+        companyProductId: 'company-product-b',
+        supplierProductId: 'supplier-product-b',
+        productMappingStatus: 'resolved',
+        orderedQty: 1,
+      },
+    });
+
+    // Setting the target ALONE (the operator flow) must re-point the supplier
+    // offer with target-aware evidence — no separate reconcile call.
+    const updated = await service.setReplenishmentTarget({
+      familyId: family.id as string,
+      companyProductId: 'company-product-b',
+      source: 'operator',
+      actorUserId: 'user-1',
+      reason: 'switching target',
+    });
+    expect(updated).toMatchObject({
+      replenishmentTargetCompanyProductId: 'company-product-b',
+      preferredSupplierId: 'supplier-2',
+      preferredSupplierProductId: 'supplier-product-b',
+      supplierSelectionSource: 'latest_valid_order',
+      supplierSelectionEvidenceJson: { matchType: 'exact_target_sku' },
     });
   });
 });
