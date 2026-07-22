@@ -298,6 +298,8 @@ const InventoryDashboardPageInner: React.FC<InventoryDashboardPageProps> = ({
         onMutated={onDrawerMutated}
         onSuperseded={onSuperseded}
         navigate={(path) => navigate(path)}
+        markPending={syncState.markPending}
+        pendingFamilies={syncState.pendingFamilies}
       />
     </div>
   );

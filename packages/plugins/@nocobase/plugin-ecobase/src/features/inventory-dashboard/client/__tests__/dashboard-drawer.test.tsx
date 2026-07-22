@@ -165,7 +165,7 @@ describe('PaneDrawer (Gate G3)', () => {
 
   it('resolves a drawer body for all 11 panes with pane-specific content', async () => {
     const markers: Record<string, string | null> = {
-      supplyAction: 'Open in Order Planning',
+      supplyAction: 'Create order', // T8b: the v2 drawer's primary action
       activeOrders: 'Change status',
       inPrepMonitoring: 'Prep details',
       inboundMonitoring: 'Adjust expected delivery',
@@ -183,7 +183,10 @@ describe('PaneDrawer (Gate G3)', () => {
       mockApi();
       const dialog = await openDrawer(pane);
       // Common sections always render (a11y: drawer is a dialog with content).
-      expect(within(dialog).getAllByText('SKU').length).toBeGreaterThan(0);
+      // T8b: supplyAction runs the v2 body (identity header, no v1 "SKU" label row).
+      if (pane !== 'supplyAction') {
+        expect(within(dialog).getAllByText('SKU').length).toBeGreaterThan(0);
+      }
       if (marker) {
         expect(within(dialog).getAllByText(marker).length).toBeGreaterThan(0);
       }
@@ -274,14 +277,13 @@ describe('PaneDrawer (Gate G3)', () => {
     expect(renderSpy).not.toHaveBeenCalled();
   });
 
-  it('deep-links Supply Action to Order Planning instead of in-drawer creation (T-3.3)', async () => {
+  it('T8b supersedes T-3.3: Supply Action creates orders IN the drawer (no Order-Planning deep link)', async () => {
     const dialog = await openDrawer('supplyAction');
-    expect(within(dialog).getAllByText(/Suggested order quantity/).length).toBeGreaterThan(0);
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Open in Order Planning' }));
-    const call = navigateSpy.mock.calls.at(-1)?.[0] as string;
-    expect(call).toContain('/admin/ecobase/order-planning?search=');
-    // QA item 6: the param must actually carry a value.
-    expect(call.split('?search=')[1]?.length).toBeGreaterThan(0);
+    // The v2 action bar leads with in-drawer creation...
+    expect(within(dialog).getByRole('button', { name: 'Create order' })).toBeTruthy();
+    // ...and the old deep-link button is gone.
+    expect(within(dialog).queryByRole('button', { name: 'Open in Order Planning' })).toBeNull();
+    expect(navigateSpy).not.toHaveBeenCalled();
   });
 
   it('QA item 6: data-readiness deep links carry non-empty search params', async () => {

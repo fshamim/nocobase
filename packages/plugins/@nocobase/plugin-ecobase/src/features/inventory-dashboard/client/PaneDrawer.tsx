@@ -37,6 +37,7 @@ import {
 } from './drawer-sections';
 import { isDrawerContextPayload, unwrapEnvelope } from './envelope';
 import { formatNumber, type Translate } from './format';
+import { SupplyActionDrawerBody } from './SupplyActionDrawerBody';
 
 /** Sibling workspace page (kept literal to avoid importing client-routes into the feature). */
 const ORDER_PLANNING_PATH = '/admin/ecobase/order-planning';
@@ -44,7 +45,14 @@ const ORDER_PLANNING_PATH = '/admin/ecobase/order-planning';
 /** QA item 4: mutations that confirm success with a toast. */
 const MUTATION_SUCCESS_TEXT: Record<string, string> = {
   'ecobaseInventoryDashboard:reactivateFamily': TEXT.toastFamilyReactivated,
-  'ecobaseInventoryPlanning:setFamilyPreferredSupplier': TEXT.toastSupplierAssigned,
+  'ecobaseInventoryDashboard:setFamilyPreferredSupplier': TEXT.toastSupplierAssigned,
+  // T8b: the supplyAction drawer's action bar.
+  'ecobaseInventoryDashboard:createPlannedOrder': TEXT.toastOrderCreated,
+  'ecobaseInventoryDashboard:setFamilyTarget': TEXT.toastTargetChanged,
+  'ecobaseInventoryDashboard:updateSupplierLeadTime': TEXT.toastLeadTimeUpdated,
+  'ecobaseInventoryDashboard:updateProductPlanningFields': TEXT.toastStatusSaved,
+  'ecobaseInventoryDashboard:addComment': TEXT.toastCommentPosted,
+  'ecobaseInventoryDashboard:addProductComment': TEXT.toastCommentPosted,
 };
 
 export interface DashboardRequestClient {
@@ -67,6 +75,9 @@ export interface PaneDrawerProps {
   onMutated: (pane: PaneKey) => void;
   onSuperseded: (publishedRunId: string) => void;
   navigate?: (path: string) => void;
+  /** T8b (W5): successful mutations mark the family in the sync registry. */
+  markPending?: (familyKey: string) => void;
+  pendingFamilies?: ReadonlySet<string>;
 }
 
 type DrawerState =
@@ -91,6 +102,8 @@ const PaneDrawer: React.FC<PaneDrawerProps> = ({
   onMutated,
   onSuperseded,
   navigate,
+  markPending,
+  pendingFamilies,
 }) => {
   const [state, setState] = useState<DrawerState>({ status: 'idle' });
   const [submitting, setSubmitting] = useState(false);
@@ -180,6 +193,7 @@ const PaneDrawer: React.FC<PaneDrawerProps> = ({
       setMutationError(null);
       try {
         await api.request({ url, method: 'post', data });
+        markPending?.(target.familyId); // W5: pending until the next publish lands
         onMutated(target.pane); // scoped refresh: affected pane + header only
         const successText = MUTATION_SUCCESS_TEXT[url];
         if (successText) message.success(t(successText));
@@ -205,6 +219,27 @@ const PaneDrawer: React.FC<PaneDrawerProps> = ({
   const context = state.status === 'loaded' ? state.context : null;
   const orderRow = context && target ? primaryOrderRow(context, target.orderId) : undefined;
   const row = orderRow ?? context?.primaryRow;
+
+  // T8b (D7): the Data tab's on-demand full record — one extra fetch, first open only.
+  const fetchRaw = useCallback(async (): Promise<Record<string, unknown> | null> => {
+    if (!target) return null;
+    const data = unwrapEnvelope(
+      await api.request({
+        url: 'ecobaseInventoryDashboard:drawerContext',
+        method: 'post',
+        data: {
+          pane: target.pane,
+          runId,
+          familyId: target.familyId,
+          orderId: target.orderId,
+          listingRowId: target.listingRowId,
+          includeRaw: true,
+        },
+      }),
+    );
+    if (!isDrawerContextPayload(data) || isRunSuperseded(data)) return null;
+    return data.rawGoldRow ?? null;
+  }, [api, target, runId]);
 
   return (
     <Drawer
@@ -233,22 +268,38 @@ const PaneDrawer: React.FC<PaneDrawerProps> = ({
             }
           />
         ) : context && row && target ? (
-          <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-            <ProductSummary row={row} t={t} />
-            {row.order ? <OrderSummary row={row} t={t} /> : null}
-            <Divider style={{ margin: '4px 0' }} />
-            <DrawerBody
-              pane={target.pane}
+          target.pane === 'supplyAction' ? (
+            // T8b: the redesigned drawer — supplyAction ONLY; every other pane keeps v1.
+            <SupplyActionDrawerBody
               row={row}
               context={context}
+              familyId={target.familyId}
+              orderId={target.orderId}
+              pendingSync={Boolean(pendingFamilies?.has(target.familyId))}
               run={runMutation}
               submitting={submitting}
               t={t}
-              navigate={navigate}
               loadSupplierOptions={loadSupplierOptions}
+              fetchRaw={fetchRaw}
             />
-            <FamilyContext context={context} t={t} />
-          </Space>
+          ) : (
+            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              <ProductSummary row={row} t={t} />
+              {row.order ? <OrderSummary row={row} t={t} /> : null}
+              <Divider style={{ margin: '4px 0' }} />
+              <DrawerBody
+                pane={target.pane}
+                row={row}
+                context={context}
+                run={runMutation}
+                submitting={submitting}
+                t={t}
+                navigate={navigate}
+                loadSupplierOptions={loadSupplierOptions}
+              />
+              <FamilyContext context={context} t={t} />
+            </Space>
+          )
         ) : null}
       </div>
     </Drawer>
