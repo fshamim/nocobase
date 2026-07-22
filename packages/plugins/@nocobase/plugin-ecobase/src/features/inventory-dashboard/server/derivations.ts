@@ -135,6 +135,8 @@ export function staleLeadTime(
 export interface MonthlyEvidenceEntry {
   month?: string;
   units: number | null;
+  /** T4 (D3 chart): per-month profit; optional here — band math never reads it. */
+  profit?: number | null;
   trusted: boolean;
 }
 

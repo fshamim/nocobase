@@ -31,6 +31,8 @@ export const SAFETY_BUFFER_DAYS = 7;
 export interface MonthlyPerformanceEvidenceEntry {
   month: string;
   units: number | null;
+  /** T4: optional per-month profit (mirrors gold monthlyProfit). */
+  profit?: number | null;
   trusted: boolean;
 }
 
@@ -56,6 +58,30 @@ export interface GoldPlanningRowFixture {
   currentPlanningStock: number | null;
   inventoryPositionStock: number | null;
   unitCost: number | null;
+  /** T4 widened columns (all default null — enriched per matrix item). */
+  sellableStock: number | null;
+  reservedStock: number | null;
+  inboundStock: number | null;
+  prepStock: number | null;
+  orderedStock: number | null;
+  awdStock: number | null;
+  futurePositionStock: number | null;
+  salesVelocity: number | null;
+  salesVelocityBasis: string | null;
+  salesVelocityAsOfDate: string | null;
+  rollingVelocityEvidenceStatus: string | null;
+  averageMonthlyProfit: number | null;
+  bestMonthlyProfit: number | null;
+  worstMonthlyProfit: number | null;
+  lastClosedMonthProfit: number | null;
+  projectedMonthlyProfit: number | null;
+  baselineWeightedProfitPerUnit: number | null;
+  leadTimeDays: number | null;
+  positionDaysOfCover: number | null;
+  positionEstimatedOosDate: string | null;
+  daysUntilSafeReorder: number | null;
+  moneyRiskStatus: string | null;
+  moneyRiskUncoveredDays: number | null;
   daysOfCover: number | null;
   estimatedOosDate: string | null;
   latestSafeReorderDate: string | null;
@@ -121,6 +147,29 @@ const GOLD_ROW_DEFAULTS: Omit<GoldPlanningRowFixture, 'id' | 'naturalKey' | 'pri
   currentPlanningStock: 100,
   inventoryPositionStock: 100,
   unitCost: 5,
+  sellableStock: null,
+  reservedStock: null,
+  inboundStock: null,
+  prepStock: null,
+  orderedStock: null,
+  awdStock: null,
+  futurePositionStock: null,
+  salesVelocity: null,
+  salesVelocityBasis: null,
+  salesVelocityAsOfDate: null,
+  rollingVelocityEvidenceStatus: null,
+  averageMonthlyProfit: null,
+  bestMonthlyProfit: null,
+  worstMonthlyProfit: null,
+  lastClosedMonthProfit: null,
+  projectedMonthlyProfit: null,
+  baselineWeightedProfitPerUnit: null,
+  leadTimeDays: null,
+  positionDaysOfCover: null,
+  positionEstimatedOosDate: null,
+  daysUntilSafeReorder: null,
+  moneyRiskStatus: null,
+  moneyRiskUncoveredDays: null,
   daysOfCover: 40,
   estimatedOosDate: null,
   latestSafeReorderDate: null,
@@ -181,11 +230,16 @@ function dateOffset(days: number): string {
   return new Date(Date.parse(`${FIXED_TODAY}T00:00:00.000Z`) + days * 86_400_000).toISOString().slice(0, 10);
 }
 
-/** 6 closed months of trusted evidence for band derivations. */
-function monthlyEvidence(units: Array<number | null>, trusted: boolean[]): MonthlyPerformanceEvidenceEntry[] {
+/** 6 closed months of trusted evidence for band derivations (T4: optional per-month profits). */
+function monthlyEvidence(
+  units: Array<number | null>,
+  trusted: boolean[],
+  profits?: Array<number | null>,
+): MonthlyPerformanceEvidenceEntry[] {
   return units.map((value, index) => ({
     month: `2026-0${index + 1}`,
     units: value,
+    profit: profits?.[index] ?? null,
     trusted: trusted[index] ?? true,
   }));
 }
@@ -380,6 +434,41 @@ export const GOLD_ROWS: GoldPlanningRowFixture[] = [
     leadTimeFreshness: 'default',
     latestSafeReorderDate: dateOffset(3),
     estimatedProfitRisk: 100,
+    // T4 widened-projection exercise row: buckets + velocity provenance +
+    // profit stats + supplier lead time + position timing, all non-null.
+    sellableStock: 40,
+    reservedStock: 5,
+    inboundStock: 10,
+    prepStock: 0,
+    orderedStock: 20,
+    awdStock: 0,
+    futurePositionStock: 70,
+    salesVelocity: 8,
+    salesVelocityBasis: 'rolling_30',
+    salesVelocityAsOfDate: FIXED_TODAY,
+    rollingVelocityEvidenceStatus: 'trusted_positive',
+    averageMonthlyProfit: 900,
+    bestMonthlyProfit: 1400,
+    worstMonthlyProfit: 500,
+    lastClosedMonthProfit: 1100,
+    projectedMonthlyProfit: 1200,
+    baselineWeightedProfitPerUnit: 3.75,
+    supplierId: 'supplier-lead-1',
+    supplierName: 'Lead Boundary Supplies',
+    leadTimeDays: 30,
+    positionDaysOfCover: 8.75,
+    positionEstimatedOosDate: dateOffset(8),
+    daysUntilSafeReorder: -35.25,
+    moneyRiskStatus: 'at_risk',
+    moneyRiskUncoveredDays: 28,
+    // T4 (D3 chart): six trusted months WITH per-month profit.
+    monthlyPerformanceEvidence: monthlyEvidence(
+      [100, 200, 150, 180, 120, 160],
+      [true, true, true, true, true, true],
+      [400, 800, 600, 720, 480, 640],
+    ),
+    projectedMonthlyUnits: 170,
+    lastClosedMonthUnits: 160,
   }),
   goldRow('f11b-lead-stale', 'supplyAction', {
     asin: 'B0011B',

@@ -355,6 +355,66 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
     ).toHaveLength(1);
   });
 
+  it('(g) T4 widened projection: buckets, velocity provenance, profit stats and supplier lead time served verbatim', async () => {
+    const svc = service(db);
+    const response = await svc.pane({ pane: 'supplyAction', runId: PUBLISHED_RUN_ID, page: 1, pageSize: 200 });
+    if (isRunSuperseded(response)) throw new Error('bad');
+    const enriched = response.rows.find((row) => row.identity.asin === 'B0011A');
+    expect(enriched).toMatchObject({
+      stock: {
+        currentPlanningStock: 100,
+        inventoryPositionStock: 100,
+        unitCost: 5,
+        sellableStock: 40,
+        reservedStock: 5,
+        inboundStock: 10,
+        prepStock: 0,
+        orderedStock: 20,
+        awdStock: 0,
+        futurePositionStock: 70,
+      },
+      velocity: { value: 8, basis: 'rolling_30', asOfDate: FIXED_TODAY, evidenceStatus: 'trusted_positive' },
+      supplier: {
+        id: 'supplier-lead-1',
+        name: 'Lead Boundary Supplies',
+        leadTimeDays: 30,
+        leadTimeFreshness: 'default',
+      },
+      profit: {
+        averageMonthly: 900,
+        bestMonthly: 1400,
+        worstMonthly: 500,
+        lastClosedMonth: 1100,
+        projectedMonthly: 1200,
+        perUnit: 3.75,
+      },
+      daysOfCover: 5,
+      positionDaysOfCover: 8.75,
+      daysUntilSafeReorder: -35.25,
+      moneyRiskStatus: 'at_risk',
+      moneyRiskUncoveredDays: 28,
+    });
+    expect(enriched?.positionEstimatedOosDate).toEqual(expect.any(String));
+    // Nulls stay null on a row without the widened columns (never coerced to 0).
+    const bare = response.rows.find((row) => row.identity.asin === 'B0011B');
+    expect(bare?.velocity).toEqual({ value: null, basis: null, asOfDate: null, evidenceStatus: null });
+    expect(bare?.stock.sellableStock).toBeNull();
+    expect(bare?.stock.futurePositionStock).toBeNull();
+    expect(bare?.profit.perUnit).toBeNull();
+    expect(bare?.supplier.id).toBeNull();
+    expect(bare?.supplier.leadTimeDays).toBeNull();
+    expect(bare?.moneyRiskStatus).toBeNull();
+    // D3 chart input: drawer evidence now carries per-month profit.
+    const drawer = await svc.drawerContext({
+      pane: 'supplyAction',
+      runId: PUBLISHED_RUN_ID,
+      familyId: enriched?.identity.familyKey ?? '',
+    });
+    if (isRunSuperseded(drawer)) throw new Error('bad');
+    expect(drawer.performanceEvidence[1]).toMatchObject({ units: 200, profit: 800, trusted: true });
+    expect(drawer.performanceEvidence).toHaveLength(6);
+  });
+
   it('(h) rejects unknown panes and sorts, including prototype-pollution probes', async () => {
     const svc = service(db);
     await expect(

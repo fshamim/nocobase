@@ -112,6 +112,35 @@ const GOLD_ROW_FIELDS = [
   'projectedMonthlyUnits',
   'lastClosedMonthUnits',
   'recommendedOrderQty',
+  // T4 widening (dashboard v2): R2 stock buckets.
+  'sellableStock',
+  'reservedStock',
+  'inboundStock',
+  'prepStock',
+  'orderedStock',
+  'awdStock',
+  'futurePositionStock',
+  // T4: R3 velocity with F4 ladder provenance.
+  'salesVelocity',
+  'salesVelocityBasis',
+  'salesVelocityAsOfDate',
+  'rollingVelocityEvidenceStatus',
+  // T4: D3/D4 profit stats for the drawer.
+  'averageMonthlyProfit',
+  'bestMonthlyProfit',
+  'worstMonthlyProfit',
+  'lastClosedMonthProfit',
+  'projectedMonthlyProfit',
+  'baselineWeightedProfitPerUnit',
+  // T4: R4 supplier lead time (supplierId/supplierName/leadTimeConfirmedAt already fetched).
+  'leadTimeDays',
+  'leadTimeFreshness',
+  // T4: T1/T3 position timing + money-risk detail.
+  'positionDaysOfCover',
+  'positionEstimatedOosDate',
+  'daysUntilSafeReorder',
+  'moneyRiskStatus',
+  'moneyRiskUncoveredDays',
 ];
 
 function toRecord(value: unknown): Record<string, unknown> {

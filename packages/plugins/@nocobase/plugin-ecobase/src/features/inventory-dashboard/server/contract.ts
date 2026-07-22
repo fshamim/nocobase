@@ -81,6 +81,43 @@ export interface DashboardRowStock {
   currentPlanningStock: number | null;
   inventoryPositionStock: number | null;
   unitCost: number | null;
+  /** T4 (R2): per-bucket breakdown, served verbatim from gold; nulls stay null. */
+  sellableStock: number | null;
+  reservedStock: number | null;
+  inboundStock: number | null;
+  prepStock: number | null;
+  orderedStock: number | null;
+  awdStock: number | null;
+  futurePositionStock: number | null;
+}
+
+/** T4 (R3): effective velocity with F4 ladder provenance, served verbatim. */
+export interface DashboardRowVelocity {
+  value: number | null;
+  /** 'rolling_30' | 'last_closed_month' | 'baseline_average' | 'none' | null (pre-ladder runs). */
+  basis: string | null;
+  asOfDate: string | null;
+  /** Trusted-path authority: 'trusted_positive' | 'trusted_zero' | 'insufficient_evidence'. */
+  evidenceStatus: string | null;
+}
+
+/** T4 (R4): row-level assigned supplier + lead time (order-specific supplier stays on `order`). */
+export interface DashboardRowSupplier {
+  id: string | null;
+  name: string | null;
+  leadTimeDays: number | null;
+  leadTimeConfirmedAt: string | null;
+  leadTimeFreshness: string | null;
+}
+
+/** T4 (D3/D4): monthly profit statistics for the drawer. */
+export interface DashboardRowProfit {
+  averageMonthly: number | null;
+  bestMonthly: number | null;
+  worstMonthly: number | null;
+  lastClosedMonth: number | null;
+  projectedMonthly: number | null;
+  perUnit: number | null;
 }
 
 /** AD-7 v3.1: collapsed enum — 'supplier' removed; own_prep_center comes from the supplier's shipDestination. */
@@ -119,10 +156,20 @@ export interface DashboardRow {
   pane: PaneKey;
   tier: DashboardRowTier;
   stock: DashboardRowStock;
+  velocity: DashboardRowVelocity;
+  supplier: DashboardRowSupplier;
+  profit: DashboardRowProfit;
+  /** Trusted-only sellable cover (disposition authority) — null under fallback velocity. */
   daysOfCover: number | null;
+  /** T4: position cover from the effective velocity; display precedence is the client's call (T7). */
+  positionDaysOfCover: number | null;
   estimatedOosDate: string | null;
+  positionEstimatedOosDate: string | null;
   latestSafeReorderDate: string | null;
+  daysUntilSafeReorder: number | null;
   estimatedProfitRisk: number | null;
+  moneyRiskStatus: string | null;
+  moneyRiskUncoveredDays: number | null;
   recommendedOrderQty: number | null;
   reasonCodes: string[];
   velocityTrend?: VelocityTrend;
@@ -207,6 +254,8 @@ export interface DrawerContextRequest {
 export interface MonthlyEvidencePoint {
   month?: string;
   units: number | null;
+  /** T4 (D3 chart): per-month profit from the evidence blob; null when not persisted. */
+  profit: number | null;
   trusted: boolean;
 }
 

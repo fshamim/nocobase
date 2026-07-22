@@ -141,9 +141,7 @@ function closedMonthEvidence(calculationDate: string) {
   return Array.from({ length: 6 }, (_, offset) => {
     const monthStartDate = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() - 6 + offset, 1));
     const monthStart = monthStartDate.toISOString().slice(0, 10);
-    const monthEnd = new Date(
-      Date.UTC(monthStartDate.getUTCFullYear(), monthStartDate.getUTCMonth() + 1, 0),
-    )
+    const monthEnd = new Date(Date.UTC(monthStartDate.getUTCFullYear(), monthStartDate.getUTCMonth() + 1, 0))
       .toISOString()
       .slice(0, 10);
     return {
@@ -1120,6 +1118,10 @@ describe('Gold refresh publication control', () => {
       'features/inventory-planning/server/gold-refresh-run-service.ts',
       'features/inventory-planning/server/inventory-planning-gold-access.ts',
       'features/inventory-planning/server/inventory-planning-service.ts',
+      // Dashboard v1 AD-1 adjudication: deliberately vendored published-run reader (encapsulation over reuse).
+      'features/inventory-dashboard/server/published-gold-reader.ts',
+      // v1 plan task 003 (user-approved 2026-07-22): published-run-scoped tiered-first target selection.
+      'features/inventory-planning/server/company-product-family-service.ts',
     ]);
     const directRead =
       /(?:getRepository|repoRows|repoRowsFiltered|this\.repo|this\.all)\s*\([\s\S]{0,160}ECOBASE_COLLECTIONS\.goldInventoryPlanningRows/;

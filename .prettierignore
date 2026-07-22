@@ -19,3 +19,5 @@ packages/**/locale/**
 storage
 ./lerna.json
 locales/**
+# Machine-generated dashboard response snapshots (written verbatim by the service test; prettier must not reformat them)
+packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-dashboard/server/__tests__/fixtures/expected-responses/

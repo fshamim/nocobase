@@ -6,31 +6,37 @@
     {
       "month": "2026-01",
       "units": 100,
+      "profit": null,
       "trusted": true
     },
     {
       "month": "2026-02",
       "units": 200,
+      "profit": null,
       "trusted": true
     },
     {
       "month": "2026-03",
       "units": 150,
+      "profit": null,
       "trusted": true
     },
     {
       "month": "2026-04",
       "units": null,
+      "profit": null,
       "trusted": false
     },
     {
       "month": "2026-05",
       "units": null,
+      "profit": null,
       "trusted": false
     },
     {
       "month": "2026-06",
       "units": null,
+      "profit": null,
       "trusted": false
     }
   ],
@@ -63,12 +69,45 @@
     "stock": {
       "currentPlanningStock": 100,
       "inventoryPositionStock": 100,
-      "unitCost": 5
+      "unitCost": 5,
+      "sellableStock": null,
+      "reservedStock": null,
+      "inboundStock": null,
+      "prepStock": null,
+      "orderedStock": null,
+      "awdStock": null,
+      "futurePositionStock": null
+    },
+    "velocity": {
+      "value": null,
+      "basis": null,
+      "asOfDate": null,
+      "evidenceStatus": null
+    },
+    "supplier": {
+      "id": null,
+      "name": null,
+      "leadTimeDays": null,
+      "leadTimeConfirmedAt": "2026-07-01T00:00:00.000Z",
+      "leadTimeFreshness": "fresh"
+    },
+    "profit": {
+      "averageMonthly": null,
+      "bestMonthly": null,
+      "worstMonthly": null,
+      "lastClosedMonth": null,
+      "projectedMonthly": null,
+      "perUnit": null
     },
     "daysOfCover": 40,
+    "positionDaysOfCover": null,
     "estimatedOosDate": null,
+    "positionEstimatedOosDate": null,
     "latestSafeReorderDate": null,
+    "daysUntilSafeReorder": null,
     "estimatedProfitRisk": null,
+    "moneyRiskStatus": null,
+    "moneyRiskUncoveredDays": null,
     "recommendedOrderQty": null,
     "reasonCodes": [],
     "velocityTrend": "down",

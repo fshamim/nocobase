@@ -26,6 +26,7 @@ import {
   type DrawerContextResult,
   type HeaderRequest,
   type HeaderTileKey,
+  type MonthlyEvidencePoint,
   type PaneKey,
   type PaneMetric,
   type PaneRequest,
@@ -44,7 +45,6 @@ import {
   projectRowPane,
   staleLeadTime,
   velocityTrend,
-  type MonthlyEvidenceEntry,
 } from './derivations';
 import { PublishedGoldReader, type DashboardDatabase } from './published-gold-reader';
 import { dashboardWorkflowStageForStatus, isDirectShipFba } from './workflow-stage';
@@ -130,18 +130,20 @@ function asStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 }
 
-function asMonthlyEvidence(value: unknown): MonthlyEvidenceEntry[] {
+function asMonthlyEvidence(value: unknown): MonthlyEvidencePoint[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((entry): MonthlyEvidenceEntry[] => {
     if (typeof entry !== 'object' || entry === null) return [];
     const record = entry as Record<string, unknown>;
     return [
       {
-        // Real gold evidence uses {monthStart, monthlyUnits, eligible}; the
-        // simplified {month, units, trusted} shape is kept for fixtures
-        // (G4 follow-up: the mismatch silently emptied bands on live data).
+        // Real gold evidence uses {monthStart, monthlyUnits, monthlyProfit,
+        // eligible}; the simplified {month, units, profit, trusted} shape is
+        // kept for fixtures (G4 follow-up: the mismatch silently emptied bands
+        // on live data).
         month: asString(record.month) ?? asString(record.monthStart) ?? undefined,
         units: asNumber(record.units) ?? asNumber(record.monthlyUnits),
+        profit: asNumber(record.profit) ?? asNumber(record.monthlyProfit),
         trusted: record.trusted === true || record.eligible === true,
       },
     ];
@@ -733,15 +735,50 @@ export class EcobaseInventoryDashboardService {
       },
       pane: row.pane,
       tier: { baseline: asString(raw.baselineTier), current: asString(raw.currentProjectedTier) },
+      // T4 widened projection (REQ-X5): every group below is served VERBATIM
+      // from published gold — no reclassification, nulls stay null.
       stock: {
         currentPlanningStock: asNumber(raw.currentPlanningStock),
         inventoryPositionStock: asNumber(raw.inventoryPositionStock),
         unitCost: asNumber(raw.unitCost),
+        sellableStock: asNumber(raw.sellableStock),
+        reservedStock: asNumber(raw.reservedStock),
+        inboundStock: asNumber(raw.inboundStock),
+        prepStock: asNumber(raw.prepStock),
+        orderedStock: asNumber(raw.orderedStock),
+        awdStock: asNumber(raw.awdStock),
+        futurePositionStock: asNumber(raw.futurePositionStock),
+      },
+      velocity: {
+        value: asNumber(raw.salesVelocity),
+        basis: asString(raw.salesVelocityBasis),
+        asOfDate: asString(raw.salesVelocityAsOfDate),
+        evidenceStatus: asString(raw.rollingVelocityEvidenceStatus),
+      },
+      supplier: {
+        id: asString(raw.supplierId),
+        name: asString(raw.supplierName),
+        leadTimeDays: asNumber(raw.leadTimeDays),
+        leadTimeConfirmedAt: asString(raw.leadTimeConfirmedAt),
+        leadTimeFreshness: asString(raw.leadTimeFreshness),
+      },
+      profit: {
+        averageMonthly: asNumber(raw.averageMonthlyProfit),
+        bestMonthly: asNumber(raw.bestMonthlyProfit),
+        worstMonthly: asNumber(raw.worstMonthlyProfit),
+        lastClosedMonth: asNumber(raw.lastClosedMonthProfit),
+        projectedMonthly: asNumber(raw.projectedMonthlyProfit),
+        perUnit: asNumber(raw.baselineWeightedProfitPerUnit),
       },
       daysOfCover: asNumber(raw.daysOfCover),
+      positionDaysOfCover: asNumber(raw.positionDaysOfCover),
       estimatedOosDate: asString(raw.estimatedOosDate),
+      positionEstimatedOosDate: asString(raw.positionEstimatedOosDate),
       latestSafeReorderDate: asString(raw.latestSafeReorderDate),
+      daysUntilSafeReorder: asNumber(raw.daysUntilSafeReorder),
       estimatedProfitRisk: asNumber(raw.estimatedProfitRisk),
+      moneyRiskStatus: asString(raw.moneyRiskStatus),
+      moneyRiskUncoveredDays: asNumber(raw.moneyRiskUncoveredDays),
       recommendedOrderQty: asNumber(raw.recommendedOrderQty),
       // QA item 7b: readinessReasonCodes is empty on live gold rows; the actual
       // reason lives in primaryActionReasonCode — fall back so P9/P7 drawers
