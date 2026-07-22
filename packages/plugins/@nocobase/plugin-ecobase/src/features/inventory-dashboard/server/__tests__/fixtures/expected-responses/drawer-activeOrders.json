@@ -3,18 +3,21 @@
   "publishedRunId": "run-published-0001",
   "familyKey": "family-4",
   "performanceEvidence": [],
+  "familyTarget": null,
   "familyMembers": [
     {
       "listingRowId": "f4a-order-prepurchase",
       "asin": "B0004",
       "sku": "SKU-4A",
-      "pane": "activeOrders"
+      "pane": "activeOrders",
+      "isTarget": false
     },
     {
       "listingRowId": "f4b-order-inprep",
       "asin": "B0004",
       "sku": "SKU-4B",
-      "pane": "inPrepMonitoring"
+      "pane": "inPrepMonitoring",
+      "isTarget": false
     }
   ],
   "primaryRow": {

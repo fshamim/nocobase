@@ -3,12 +3,14 @@
   "publishedRunId": "run-published-0001",
   "familyKey": "family-f1a-inprep-followup",
   "performanceEvidence": [],
+  "familyTarget": null,
   "familyMembers": [
     {
       "listingRowId": "f1a-inprep-followup",
       "asin": "B0001A",
       "sku": "SKU-1A",
-      "pane": "inPrepMonitoring"
+      "pane": "inPrepMonitoring",
+      "isTarget": false
     }
   ],
   "primaryRow": {

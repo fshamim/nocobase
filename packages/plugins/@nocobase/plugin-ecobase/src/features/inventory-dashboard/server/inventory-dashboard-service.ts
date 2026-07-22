@@ -306,6 +306,30 @@ export class EcobaseInventoryDashboardService {
     const silverById = await this.loadSilverOrders(orderRowsRaw.map((row) => row.supplierOrderId));
     const suppliersById = await this.loadSuppliers(members.map((row) => asString(row.raw.supplierId)));
     const commentsById = await this.loadLatestComments(orderRowsRaw.map((row) => row.supplierOrderId));
+    // QA item 2: persisted family target + selection provenance.
+    const familyRecord = (await this.db
+      .getRepository(ECOBASE_COLLECTIONS.silverCompanyProductFamilies)
+      .findOne({ filterByTk: request.familyId })) as Record<string, unknown> | null;
+    const targetCompanyProductId = familyRecord ? asString(familyRecord.replenishmentTargetCompanyProductId) : null;
+    const selectionEvidence =
+      familyRecord &&
+      typeof familyRecord.targetSelectionEvidenceJson === 'object' &&
+      familyRecord.targetSelectionEvidenceJson !== null
+        ? (familyRecord.targetSelectionEvidenceJson as Record<string, unknown>)
+        : {};
+    const familyTarget = familyRecord
+      ? {
+          companyProductId: targetCompanyProductId,
+          selectionSource: asString(familyRecord.targetSelectionSource),
+          selectionRule: asString(selectionEvidence.selectionRule),
+        }
+      : null;
+    // QA item 3: the drawer primary carries lifecycle provenance too (was
+    // pane-rows-path only).
+    const provenanceById =
+      pane === 'discontinuedPaused'
+        ? await this.loadLifecycleProvenance(members.map((row) => asString(row.raw.companyProductId)))
+        : new Map<string, { kind: string; previousStatus: string | null }>();
     // QA item 7: the drawer represents the listing the user clicked, not the
     // family-primary listing; order and family-target are fallbacks.
     const primarySource =
@@ -318,13 +342,19 @@ export class EcobaseInventoryDashboardService {
       publishedRunId: run.id,
       familyKey: request.familyId,
       performanceEvidence: asMonthlyEvidence(primarySource.raw.monthlyPerformanceEvidence),
+      familyTarget,
       familyMembers: members.map((row) => ({
         listingRowId: row.listingRowId,
         asin: asString(row.raw.asin),
         sku: asString(row.raw.sku),
         pane: row.pane,
+        isTarget: Boolean(targetCompanyProductId && asString(row.raw.companyProductId) === targetCompanyProductId),
       })),
-      primaryRow: this.buildRow(primarySource, familyPaneSets, silverById, suppliersById, commentsById),
+      primaryRow: this.enrichLifecycle(
+        this.buildRow(primarySource, familyPaneSets, silverById, suppliersById, commentsById),
+        primarySource,
+        provenanceById,
+      ),
       orderRows: orderRowsRaw.map((row) => this.buildRow(row, familyPaneSets, silverById, suppliersById, commentsById)),
     };
   }
@@ -428,6 +458,20 @@ export class EcobaseInventoryDashboardService {
       });
     }
     return { familyId, reactivatedCount: members.length };
+  }
+
+  /** QA item 3: attach lifecycle provenance fields to a built row. */
+  private enrichLifecycle(
+    row: DashboardRow,
+    source: ProjectedRow,
+    provenanceById: Map<string, { kind: string; previousStatus: string | null }>,
+  ): DashboardRow {
+    const provenance = provenanceById.get(asString(source.raw.companyProductId) ?? '') ?? null;
+    if (provenance) {
+      row.lifecycleProvenance = provenance.kind;
+      row.lifecyclePreviousStatus = provenance.previousStatus;
+    }
+    return row;
   }
 
   private async loadLifecycleProvenance(

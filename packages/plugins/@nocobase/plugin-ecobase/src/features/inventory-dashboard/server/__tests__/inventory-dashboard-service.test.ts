@@ -23,6 +23,7 @@ import {
   LEAD_TIME_FRESHNESS_DAYS,
   PUBLISHED_RUN_ID,
   SILVER_COMPANY_PRODUCTS,
+  SILVER_FAMILIES,
   SILVER_ORDERS,
   SILVER_SUPPLIERS,
   SUPERSEDING_RUN_ID,
@@ -114,6 +115,9 @@ function seed(db: RecordingDatabase, options: { runId?: string } = {}): void {
   }
   for (const companyProduct of SILVER_COMPANY_PRODUCTS) {
     db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).rows.push({ ...companyProduct });
+  }
+  for (const family of SILVER_FAMILIES) {
+    db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductFamilies).rows.push({ ...family });
   }
 }
 
@@ -480,6 +484,45 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
     const header = await service(db).header();
     const tile = header.tiles.find((candidate) => candidate.key === 'needsFollowUp');
     expect(tile?.count).toBe(5); // was 6 before the comment
+  });
+
+  it('exposes the family target identity + selection provenance in drawerContext (QA item 2)', async () => {
+    const drawer = await service(db).drawerContext({
+      pane: 'healthyInventory',
+      runId: PUBLISHED_RUN_ID,
+      familyId: 'family-13',
+      listingRowId: 'f13b-split-healthy',
+    });
+    if (isRunSuperseded(drawer)) throw new Error('bad');
+    expect(drawer.familyTarget).toEqual({
+      companyProductId: 'cp-13a',
+      selectionSource: 'automatic',
+      selectionRule: 'tiered_first_migration_rule',
+    });
+    const target = drawer.familyMembers.find((member) => member.isTarget);
+    expect(target?.listingRowId).toBe('f13a-split-supply');
+    expect(drawer.familyMembers.filter((member) => member.isTarget)).toHaveLength(1);
+    // No persisted family record -> familyTarget null, nobody marked.
+    const reviewDrawer = await service(db).drawerContext({
+      pane: 'dataReadiness',
+      runId: PUBLISHED_RUN_ID,
+      familyId: 'family-f-readiness',
+    });
+    if (isRunSuperseded(reviewDrawer)) throw new Error('bad');
+    expect(reviewDrawer.familyTarget).toBeNull();
+    expect(reviewDrawer.familyMembers.some((member) => member.isTarget)).toBe(false);
+  });
+
+  it('serves lifecyclePreviousStatus on the drawer primary row (QA item 3)', async () => {
+    const drawer = await service(db).drawerContext({
+      pane: 'discontinuedPaused',
+      runId: PUBLISHED_RUN_ID,
+      familyId: 'family-disc',
+      listingRowId: 'f-disc-a',
+    });
+    if (isRunSuperseded(drawer)) throw new Error('bad');
+    expect(drawer.primaryRow.lifecycleProvenance).toBe('migration_sweep_2026_07');
+    expect(drawer.primaryRow.lifecyclePreviousStatus).toBe('candidate_new_product');
   });
 
   it('uses the clicked listing as the drawer primary row (QA item 7)', async () => {

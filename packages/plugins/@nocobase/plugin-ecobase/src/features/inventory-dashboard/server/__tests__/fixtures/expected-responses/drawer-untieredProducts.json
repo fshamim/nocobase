@@ -3,12 +3,14 @@
   "publishedRunId": "run-published-0001",
   "familyKey": "family-f7-untiered-in-healthy",
   "performanceEvidence": [],
+  "familyTarget": null,
   "familyMembers": [
     {
       "listingRowId": "f7-untiered-in-healthy",
       "asin": "B0007",
       "sku": "SKU-f7-untiered-in-healthy",
-      "pane": "untieredProducts"
+      "pane": "untieredProducts",
+      "isTarget": false
     }
   ],
   "primaryRow": {

@@ -3,12 +3,14 @@
   "publishedRunId": "run-published-0001",
   "familyKey": "family-f9a-stuck-null-cost",
   "performanceEvidence": [],
+  "familyTarget": null,
   "familyMembers": [
     {
       "listingRowId": "f9a-stuck-null-cost",
       "asin": "B0009A",
       "sku": "SKU-f9a-stuck-null-cost",
-      "pane": "stuckInventory"
+      "pane": "stuckInventory",
+      "isTarget": false
     }
   ],
   "primaryRow": {

@@ -34,12 +34,14 @@
       "trusted": false
     }
   ],
+  "familyTarget": null,
   "familyMembers": [
     {
       "listingRowId": "f8a-band-3-trusted",
       "asin": "B0008A",
       "sku": "SKU-f8a-band-3-trusted",
-      "pane": "performanceReview"
+      "pane": "performanceReview",
+      "isTarget": false
     }
   ],
   "primaryRow": {

@@ -3,12 +3,14 @@
   "publishedRunId": "run-published-0001",
   "familyKey": "family-f-zero-stock",
   "performanceEvidence": [],
+  "familyTarget": null,
   "familyMembers": [
     {
       "listingRowId": "f-zero-stock",
       "asin": "B0015",
       "sku": "SKU-f-zero-stock",
-      "pane": "zeroStock"
+      "pane": "zeroStock",
+      "isTarget": false
     }
   ],
   "primaryRow": {

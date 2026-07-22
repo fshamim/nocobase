@@ -414,6 +414,7 @@ export const GOLD_ROWS: GoldPlanningRowFixture[] = [
   // Item 13: family with members in >= 2 inventory panes -> familySplit true.
   goldRow('f13a-split-supply', 'supplyAction', {
     companyProductFamilyId: 'family-13',
+    companyProductId: 'cp-13a',
     asin: 'B0013',
     sku: 'SKU-13A',
     daysOfCover: 4,
@@ -424,6 +425,7 @@ export const GOLD_ROWS: GoldPlanningRowFixture[] = [
   }),
   goldRow('f13b-split-healthy', 'healthyInventory', {
     companyProductFamilyId: 'family-13',
+    companyProductId: 'cp-13b',
     asin: 'B0013',
     sku: 'SKU-13B',
   }),
@@ -570,6 +572,28 @@ export interface SilverSupplierFixture {
   shipDestination: 'direct_fba' | 'prep_center' | null;
   provenance: FixtureProvenance;
 }
+
+export interface SilverFamilyFixture {
+  id: string;
+  replenishmentTargetCompanyProductId: string | null;
+  targetSelectionSource: string | null;
+  targetSelectionEvidenceJson: Record<string, unknown> | null;
+  provenance: FixtureProvenance;
+}
+
+/** QA item 2 fixture: persisted family target with tiered-first provenance. */
+export const SILVER_FAMILIES: SilverFamilyFixture[] = [
+  {
+    id: 'family-13',
+    replenishmentTargetCompanyProductId: 'cp-13a',
+    targetSelectionSource: 'automatic',
+    targetSelectionEvidenceJson: {
+      selectionRule: 'tiered_first_migration_rule',
+      ruleVersion: 'tiered-first-migration-v1',
+    },
+    provenance: 'synthetic',
+  },
+];
 
 export interface SilverCompanyProductFixture {
   id: string;

@@ -3,12 +3,14 @@
   "publishedRunId": "run-published-0001",
   "familyKey": "family-f-readiness",
   "performanceEvidence": [],
+  "familyTarget": null,
   "familyMembers": [
     {
       "listingRowId": "f-readiness",
       "asin": "B0017",
       "sku": "SKU-f-readiness",
-      "pane": "dataReadiness"
+      "pane": "dataReadiness",
+      "isTarget": false
     }
   ],
   "primaryRow": {

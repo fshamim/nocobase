@@ -3,18 +3,25 @@
   "publishedRunId": "run-published-0001",
   "familyKey": "family-13",
   "performanceEvidence": [],
+  "familyTarget": {
+    "companyProductId": "cp-13a",
+    "selectionSource": "automatic",
+    "selectionRule": "tiered_first_migration_rule"
+  },
   "familyMembers": [
     {
       "listingRowId": "f13a-split-supply",
       "asin": "B0013",
       "sku": "SKU-13A",
-      "pane": "supplyAction"
+      "pane": "supplyAction",
+      "isTarget": true
     },
     {
       "listingRowId": "f13b-split-healthy",
       "asin": "B0013",
       "sku": "SKU-13B",
-      "pane": "healthyInventory"
+      "pane": "healthyInventory",
+      "isTarget": false
     }
   ],
   "primaryRow": {

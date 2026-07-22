@@ -3,18 +3,21 @@
   "publishedRunId": "run-published-0001",
   "familyKey": "family-disc",
   "performanceEvidence": [],
+  "familyTarget": null,
   "familyMembers": [
     {
       "listingRowId": "f-disc-a",
       "asin": "B0030A",
       "sku": "SKU-f-disc-a",
-      "pane": "discontinuedPaused"
+      "pane": "discontinuedPaused",
+      "isTarget": false
     },
     {
       "listingRowId": "f-disc-b",
       "asin": "B0030B",
       "sku": "SKU-f-disc-b",
-      "pane": "discontinuedPaused"
+      "pane": "discontinuedPaused",
+      "isTarget": false
     }
   ],
   "primaryRow": {
@@ -45,7 +48,9 @@
     "recommendedOrderQty": null,
     "reasonCodes": [],
     "velocityTrend": "unknown",
-    "performanceBand": "insufficient_evidence"
+    "performanceBand": "insufficient_evidence",
+    "lifecycleProvenance": "migration_sweep_2026_07",
+    "lifecyclePreviousStatus": "candidate_new_product"
   },
   "orderRows": []
 }

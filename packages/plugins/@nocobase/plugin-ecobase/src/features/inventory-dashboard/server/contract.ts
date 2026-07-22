@@ -217,7 +217,20 @@ export interface DrawerContextResponse {
   /** P10 band visual input: the primary row's monthly performance evidence. */
   performanceEvidence: MonthlyEvidencePoint[];
   /** All member listings of the family and the pane each currently sits in (§4.8). */
-  familyMembers: Array<{ listingRowId: string; asin: string | null; sku: string | null; pane: PaneKey }>;
+  familyMembers: Array<{
+    listingRowId: string;
+    asin: string | null;
+    sku: string | null;
+    pane: PaneKey;
+    /** QA item 2: marks the family's persisted replenishment target. */
+    isTarget: boolean;
+  }>;
+  /** QA item 2: persisted target identity + selection provenance (null when in review). */
+  familyTarget: {
+    companyProductId: string | null;
+    selectionSource: string | null;
+    selectionRule: string | null;
+  } | null;
   primaryRow: DashboardRow;
   orderRows: DashboardRow[];
 }

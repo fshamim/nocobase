@@ -3,12 +3,14 @@
   "publishedRunId": "run-published-0001",
   "familyKey": "family-f-excess",
   "performanceEvidence": [],
+  "familyTarget": null,
   "familyMembers": [
     {
       "listingRowId": "f-excess",
       "asin": "B0016",
       "sku": "SKU-f-excess",
-      "pane": "excessInventory"
+      "pane": "excessInventory",
+      "isTarget": false
     }
   ],
   "primaryRow": {

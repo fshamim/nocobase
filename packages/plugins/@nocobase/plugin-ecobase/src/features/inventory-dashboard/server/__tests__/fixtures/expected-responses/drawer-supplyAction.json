@@ -3,12 +3,14 @@
   "publishedRunId": "run-published-0001",
   "familyKey": "family-f9b-supply-null-risk",
   "performanceEvidence": [],
+  "familyTarget": null,
   "familyMembers": [
     {
       "listingRowId": "f9b-supply-null-risk",
       "asin": "B0009B",
       "sku": "SKU-f9b-supply-null-risk",
-      "pane": "supplyAction"
+      "pane": "supplyAction",
+      "isTarget": false
     }
   ],
   "primaryRow": {

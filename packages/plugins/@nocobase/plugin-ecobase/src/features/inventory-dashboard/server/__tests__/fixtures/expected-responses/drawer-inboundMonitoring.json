@@ -3,12 +3,14 @@
   "publishedRunId": "run-published-0001",
   "familyKey": "family-f2a-inbound-null-null",
   "performanceEvidence": [],
+  "familyTarget": null,
   "familyMembers": [
     {
       "listingRowId": "f2a-inbound-null-null",
       "asin": "B0002A",
       "sku": "SKU-f2a-inbound-null-null",
-      "pane": "inboundMonitoring"
+      "pane": "inboundMonitoring",
+      "isTarget": false
     }
   ],
   "primaryRow": {
