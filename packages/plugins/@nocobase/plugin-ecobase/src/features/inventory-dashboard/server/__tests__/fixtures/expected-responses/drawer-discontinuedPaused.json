@@ -82,6 +82,7 @@
     "reasonCodes": [],
     "velocityTrend": "unknown",
     "performanceBand": "insufficient_evidence",
+    "lastActivity": null,
     "lifecycleProvenance": "migration_sweep_2026_07",
     "lifecyclePreviousStatus": "candidate_new_product"
   },

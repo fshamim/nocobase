@@ -83,7 +83,8 @@
         "untiered_projected"
       ],
       "velocityTrend": "unknown",
-      "performanceBand": "insufficient_evidence"
+      "performanceBand": "insufficient_evidence",
+      "lastActivity": null
     },
     {
       "identity": {
@@ -224,7 +225,8 @@
       "recommendedOrderQty": null,
       "reasonCodes": [],
       "velocityTrend": "unknown",
-      "performanceBand": "insufficient_evidence"
+      "performanceBand": "insufficient_evidence",
+      "lastActivity": null
     }
   ],
   "pagination": {

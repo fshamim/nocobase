@@ -76,7 +76,8 @@
       "untiered_projected"
     ],
     "velocityTrend": "unknown",
-    "performanceBand": "insufficient_evidence"
+    "performanceBand": "insufficient_evidence",
+    "lastActivity": null
   },
   "orderRows": []
 }

@@ -88,7 +88,8 @@
         "family_review_required"
       ],
       "velocityTrend": "unknown",
-      "performanceBand": "insufficient_evidence"
+      "performanceBand": "insufficient_evidence",
+      "lastActivity": null
     }
   ],
   "pagination": {

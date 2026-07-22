@@ -82,7 +82,8 @@
       "reasonCodes": [],
       "velocityTrend": "unknown",
       "performanceBand": "insufficient_evidence",
-      "familySplit": true
+      "familySplit": true,
+      "lastActivity": null
     },
     {
       "identity": {
@@ -221,7 +222,8 @@
       "recommendedOrderQty": null,
       "reasonCodes": [],
       "velocityTrend": "up",
-      "performanceBand": "insufficient_evidence"
+      "performanceBand": "insufficient_evidence",
+      "lastActivity": null
     }
   ],
   "pagination": {

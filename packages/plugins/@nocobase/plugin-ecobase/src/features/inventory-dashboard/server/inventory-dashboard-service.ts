@@ -180,6 +180,16 @@ interface SupplierView {
 interface LatestCommentView {
   body: string;
   at: string;
+  /** Resolved from actorUserId via one page-scoped users lookup (T5); null when unknown. */
+  author: string | null;
+}
+
+/** Page-scoped entity id sets for the T5 last-activity comment join. */
+interface CommentScope {
+  orderIds?: Array<string | null>;
+  familyIds?: Array<string | null>;
+  companyProductIds?: Array<string | null>;
+  supplierIds?: Array<string | null>;
 }
 
 function asShipDestination(value: unknown): 'direct_fba' | 'prep_center' | null {
@@ -210,11 +220,12 @@ export class EcobaseInventoryDashboardService {
     const goldRows = await this.reader.findRowsForRun(run.id, request.companyId);
     const projected = this.projectRows(goldRows);
     const silverById = await this.loadSilverOrders(projected.map((row) => row.supplierOrderId));
-    const commentsById = await this.loadLatestComments(
-      projected
+    // Header tiles only need ORDER comments (needsFollowUp is order-scoped by design).
+    const commentsById = await this.loadLatestEntityComments({
+      orderIds: projected
         .filter((row) => row.pane === 'inPrepMonitoring' || row.pane === 'inboundMonitoring')
         .map((row) => row.supplierOrderId),
-    );
+    });
     const tiles = this.buildTiles(projected, silverById, commentsById);
     return {
       publishedRunId: run.id,
@@ -257,9 +268,14 @@ export class EcobaseInventoryDashboardService {
     const suppliersById = ORDER_PANES.has(pane)
       ? await this.loadSuppliers(pageSlice.map((row) => asString(row.raw.supplierId)))
       : new Map<string, SupplierView>();
-    const commentsById = ORDER_PANES.has(pane)
-      ? await this.loadLatestComments(pageSlice.map((row) => row.supplierOrderId))
-      : new Map<string, LatestCommentView>();
+    // T5 (F5): EVERY pane joins the page's linked-entity comments so order-less
+    // rows (Supply Action, Zero Stock, …) carry lastActivity too.
+    const commentsById = await this.loadLatestEntityComments({
+      orderIds: pageSlice.map((row) => row.supplierOrderId),
+      familyIds: pageSlice.map((row) => asString(row.raw.companyProductFamilyId)),
+      companyProductIds: pageSlice.map((row) => asString(row.raw.companyProductId)),
+      supplierIds: pageSlice.map((row) => asString(row.raw.supplierId)),
+    });
     const provenanceById =
       pane === 'discontinuedPaused'
         ? await this.loadLifecycleProvenance(pageSlice.map((row) => asString(row.raw.companyProductId)))
@@ -307,7 +323,12 @@ export class EcobaseInventoryDashboardService {
     const orderRowsRaw = members.filter((row) => row.supplierOrderId !== null);
     const silverById = await this.loadSilverOrders(orderRowsRaw.map((row) => row.supplierOrderId));
     const suppliersById = await this.loadSuppliers(members.map((row) => asString(row.raw.supplierId)));
-    const commentsById = await this.loadLatestComments(orderRowsRaw.map((row) => row.supplierOrderId));
+    const commentsById = await this.loadLatestEntityComments({
+      orderIds: orderRowsRaw.map((row) => row.supplierOrderId),
+      familyIds: members.map((row) => asString(row.raw.companyProductFamilyId)),
+      companyProductIds: members.map((row) => asString(row.raw.companyProductId)),
+      supplierIds: members.map((row) => asString(row.raw.supplierId)),
+    });
     // QA item 2: persisted family target + selection provenance.
     const familyRecord = (await this.db
       .getRepository(ECOBASE_COLLECTIONS.silverCompanyProductFamilies)
@@ -665,27 +686,73 @@ export class EcobaseInventoryDashboardService {
   }
 
   /**
-   * Fresh order comments (QA item 1): the gold latestSupplierOrderActivity*
-   * columns only refresh with a gold run, so a comment posted from the drawer
-   * would stay invisible until the next refresh. This scoped $in join surfaces
-   * the newest silver comment per order immediately.
+   * Fresh comments (QA item 1 + T5/F5): the gold latestSupplierOrderActivity*
+   * columns only refresh with a gold run (and are 0-non-null on live data), so
+   * this single page-scoped $or/$in join is the live source of lastActivity —
+   * now across ALL linked entities (order, family, product, supplier), which
+   * gives order-less rows (Supply Action, Zero Stock, …) an activity feed too.
+   * Keyed `${entityType}:${entityId}`, newest comment per entity wins; authors
+   * resolve through one page-scoped users lookup (mirrors the publish path's
+   * displayNameForUser precedence: nickname → name → email → username).
    */
-  private async loadLatestComments(orderIds: Array<string | null>): Promise<Map<string, LatestCommentView>> {
-    const ids = [...new Set(orderIds.filter((id): id is string => id !== null))];
-    if (ids.length === 0) return new Map();
+  private async loadLatestEntityComments(scope: CommentScope): Promise<Map<string, LatestCommentView>> {
+    const branches: Array<[string, Array<string | null> | undefined]> = [
+      ['order', scope.orderIds],
+      ['company_product_family', scope.familyIds],
+      ['company_product', scope.companyProductIds],
+      ['supplier', scope.supplierIds],
+    ];
+    const or: Array<Record<string, unknown>> = [];
+    let idCount = 0;
+    for (const [entityType, values] of branches) {
+      const ids = [...new Set((values ?? []).filter((id): id is string => id !== null))];
+      if (ids.length === 0) continue;
+      idCount += ids.length;
+      or.push({ entityType, entityId: { $in: ids } });
+    }
+    if (or.length === 0) return new Map();
     const rows = await this.db
       .getRepository(ECOBASE_COLLECTIONS.silverActivityComments)
-      .find({ filter: { entityType: 'order', entityId: { $in: ids } }, limit: Math.min(ids.length * 100, 10_000) });
+      .find({ filter: { $or: or }, limit: Math.min(idCount * 100, 10_000) });
     const map = new Map<string, LatestCommentView>();
+    const actorByKey = new Map<string, unknown>();
     for (const value of rows) {
       const record = (typeof value === 'object' && value !== null ? value : {}) as Record<string, unknown>;
       if (record.deletedAt) continue;
-      const orderId = asString(record.entityId);
+      const entityType = asString(record.entityType);
+      const entityId = asString(record.entityId);
       const body = asString(record.body);
       const at = asString(record.occurredAt) ?? asString(record.createdAt);
-      if (!orderId || !body || !at) continue;
-      const existing = map.get(orderId);
-      if (!existing || at > existing.at) map.set(orderId, { body, at });
+      if (!entityType || !entityId || !body || !at) continue;
+      const key = `${entityType}:${entityId}`;
+      const existing = map.get(key);
+      if (!existing || at > existing.at) {
+        map.set(key, { body, at, author: null });
+        actorByKey.set(key, record.actorUserId);
+      }
+    }
+    const actorIds = new Map<string, unknown>();
+    for (const actorUserId of actorByKey.values()) {
+      if (actorUserId !== null && actorUserId !== undefined) actorIds.set(String(actorUserId), actorUserId);
+    }
+    if (actorIds.size > 0) {
+      const users = await this.db
+        .getRepository('users')
+        .find({ filter: { id: { $in: [...actorIds.values()] } }, limit: actorIds.size });
+      const namesById = new Map<string, string | null>();
+      for (const value of users) {
+        const record = (typeof value === 'object' && value !== null ? value : {}) as Record<string, unknown>;
+        if (record.id === null || record.id === undefined) continue;
+        namesById.set(
+          String(record.id),
+          asString(record.nickname) ?? asString(record.name) ?? asString(record.email) ?? asString(record.username),
+        );
+      }
+      for (const [key, actorUserId] of actorByKey) {
+        const view = map.get(key);
+        if (!view || actorUserId === null || actorUserId === undefined) continue;
+        view.author = namesById.get(String(actorUserId)) ?? null;
+      }
     }
     return map;
   }
@@ -803,13 +870,27 @@ export class EcobaseInventoryDashboardService {
     if (stale) dashboardRow.staleClassification = true;
     if (familySplit) dashboardRow.familySplit = true;
 
+    // T5 (F5): candidate comments across the row's linked entities. The newest
+    // one drives the DISPLAYED lastActivity for every pane; needsFollowUp stays
+    // strictly order-scoped (family/product/supplier chatter never resets it).
+    const commentFor = (entityType: string, id: string | null): LatestCommentView | null =>
+      id ? commentsById.get(`${entityType}:${id}`) ?? null : null;
+    const orderComment = commentFor('order', row.supplierOrderId);
+    const newestComment = [
+      orderComment,
+      commentFor('company_product_family', asString(raw.companyProductFamilyId)),
+      commentFor('company_product', asString(raw.companyProductId)),
+      commentFor('supplier', asString(raw.supplierId)),
+    ]
+      .filter((comment): comment is LatestCommentView => comment !== null)
+      .reduce<LatestCommentView | null>((best, comment) => (!best || comment.at > best.at ? comment : best), null);
+
     if (row.supplierOrderId) {
       const enteredAt = silver?.workflowStageEnteredAt ?? null;
       const stageDays = daysInStage(enteredAt, this.now);
-      const freshComment = commentsById.get(row.supplierOrderId) ?? null;
       const goldActivityAt = asString(raw.latestSupplierOrderActivityAt);
       const effectiveActivityAt =
-        freshComment && (!goldActivityAt || freshComment.at > goldActivityAt) ? freshComment.at : goldActivityAt;
+        orderComment && (!goldActivityAt || orderComment.at > goldActivityAt) ? orderComment.at : goldActivityAt;
       const followUp = needsFollowUp({
         daysInStage: stageDays,
         latestActivityAt: effectiveActivityAt,
@@ -846,15 +927,32 @@ export class EcobaseInventoryDashboardService {
           safetyBufferDays: asNumber(raw.safetyBufferDays),
         });
       }
-      const useFreshComment = freshComment && (!goldActivityAt || freshComment.at > goldActivityAt);
+      // Gold-vs-silver newest-wins merge, now against the broadest silver candidate.
+      const useFreshComment = newestComment && (!goldActivityAt || newestComment.at > goldActivityAt);
       dashboardRow.lastActivity = useFreshComment
-        ? pickLastActivity({ note: freshComment.body, actorDisplayName: null, actor: null, at: freshComment.at })
+        ? pickLastActivity({
+            note: newestComment.body,
+            actorDisplayName: newestComment.author,
+            actor: null,
+            at: newestComment.at,
+          })
         : pickLastActivity({
             note: asString(raw.latestSupplierOrderActivityNote),
             actorDisplayName: asString(raw.latestSupplierOrderActivityActorDisplayName),
             actor: asString(raw.latestSupplierOrderActivityActor),
             at: goldActivityAt,
           });
+    } else {
+      // Order-less rows (Supply Action, Healthy, Zero Stock, …): the linked-entity
+      // comment IS the only activity source (gold activity columns are order-scoped).
+      dashboardRow.lastActivity = newestComment
+        ? pickLastActivity({
+            note: newestComment.body,
+            actorDisplayName: newestComment.author,
+            actor: null,
+            at: newestComment.at,
+          })
+        : null;
     }
 
     if (row.pane === 'performanceReview') {
@@ -889,7 +987,7 @@ export class EcobaseInventoryDashboardService {
       if (row.pane !== 'inPrepMonitoring' && row.pane !== 'inboundMonitoring') return false;
       const enteredAt = silverById.get(row.supplierOrderId)?.workflowStageEnteredAt ?? null;
       const goldAt = asString(row.raw.latestSupplierOrderActivityAt);
-      const comment = commentsById.get(row.supplierOrderId) ?? null;
+      const comment = commentsById.get(`order:${row.supplierOrderId}`) ?? null;
       const effectiveAt = comment && (!goldAt || comment.at > goldAt) ? comment.at : goldAt;
       return needsFollowUp({
         daysInStage: daysInStage(enteredAt, this.now),

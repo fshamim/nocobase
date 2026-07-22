@@ -82,6 +82,7 @@
       "reasonCodes": [],
       "velocityTrend": "unknown",
       "performanceBand": "insufficient_evidence",
+      "lastActivity": null,
       "supplierName": "Old Supplier Co",
       "familyMemberCount": 2,
       "lastMovementMonth": "2026-03-01",

@@ -111,7 +111,8 @@
     "recommendedOrderQty": null,
     "reasonCodes": [],
     "velocityTrend": "down",
-    "performanceBand": "below_band"
+    "performanceBand": "below_band",
+    "lastActivity": null
   },
   "orderRows": []
 }

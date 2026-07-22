@@ -81,7 +81,8 @@
       "recommendedOrderQty": null,
       "reasonCodes": [],
       "velocityTrend": "unknown",
-      "performanceBand": "insufficient_evidence"
+      "performanceBand": "insufficient_evidence",
+      "lastActivity": null
     },
     {
       "identity": {
@@ -145,7 +146,8 @@
       "reasonCodes": [],
       "velocityTrend": "unknown",
       "performanceBand": "insufficient_evidence",
-      "familySplit": true
+      "familySplit": true,
+      "lastActivity": null
     },
     {
       "identity": {
@@ -208,7 +210,8 @@
       "recommendedOrderQty": null,
       "reasonCodes": [],
       "velocityTrend": "flat",
-      "performanceBand": "within_band"
+      "performanceBand": "within_band",
+      "lastActivity": null
     },
     {
       "identity": {
@@ -271,7 +274,8 @@
       "recommendedOrderQty": null,
       "reasonCodes": [],
       "velocityTrend": "unknown",
-      "performanceBand": "insufficient_evidence"
+      "performanceBand": "insufficient_evidence",
+      "lastActivity": null
     },
     {
       "identity": {
@@ -334,7 +338,8 @@
       "recommendedOrderQty": null,
       "reasonCodes": [],
       "velocityTrend": "unknown",
-      "performanceBand": "insufficient_evidence"
+      "performanceBand": "insufficient_evidence",
+      "lastActivity": null
     }
   ],
   "pagination": {

@@ -88,7 +88,16 @@ class RecordingDatabase implements DashboardDatabase {
 
 function matches(row: Record<string, unknown>, params?: DashboardRepositoryFindParams): boolean {
   if (params?.filterByTk !== undefined && row.id !== params.filterByTk) return false;
-  return Object.entries(params?.filter ?? {}).every(([key, value]) => {
+  return matchesFilter(row, params?.filter ?? {});
+}
+
+function matchesFilter(row: Record<string, unknown>, filter: Record<string, unknown>): boolean {
+  return Object.entries(filter).every(([key, value]) => {
+    if (key === '$or' && Array.isArray(value)) {
+      return value.some((branch) =>
+        matchesFilter(row, typeof branch === 'object' && branch !== null ? (branch as Record<string, unknown>) : {}),
+      );
+    }
     if (value && typeof value === 'object' && Array.isArray((value as { $in?: unknown[] }).$in)) {
       return (value as { $in: unknown[] }).$in.includes(row[key]);
     }
@@ -320,6 +329,18 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
       expect(Array.isArray(supplierIn)).toBe(true);
       expect((supplierIn ?? []).length).toBeLessThanOrEqual(3);
     }
+    // T5: exactly ONE comment query per page; every $or branch page-scoped by $in.
+    const commentFinds = db.findCalls.filter((call) => call.collection === ECOBASE_COLLECTIONS.silverActivityComments);
+    expect(commentFinds).toHaveLength(1);
+    const orBranches = (commentFinds[0].params?.filter?.$or as Array<Record<string, unknown>> | undefined) ?? [];
+    expect(orBranches.length).toBeGreaterThan(0);
+    for (const branch of orBranches) {
+      const branchIn = (branch.entityId as { $in?: unknown[] } | undefined)?.$in;
+      expect(Array.isArray(branchIn)).toBe(true);
+      expect((branchIn ?? []).length).toBeLessThanOrEqual(3);
+    }
+    // T5: at most one page-scoped users lookup (only when comments matched).
+    expect(db.findCalls.filter((call) => call.collection === 'users').length).toBeLessThanOrEqual(1);
     // No find call may omit BOTH filter and limit (unscoped full scan).
     for (const call of db.findCalls) {
       const scoped =
@@ -507,6 +528,8 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
     expect(beforeRow?.lastActivity).toBeNull();
     expect(beforeRow?.order?.needsFollowUp).toBe(true);
 
+    // T5: the author resolves through the page-scoped users lookup.
+    db.getRepository('users').rows.push({ id: 4, nickname: 'Ops Anna', email: 'anna@acme.test' });
     // Persist a comment in the exact shape order-planning addComment writes
     // (the action->row persistence itself is proven in drawer-actions.test.ts).
     await db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).create({
@@ -527,6 +550,8 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
     if (isRunSuperseded(after)) throw new Error('bad');
     const afterRow = after.rows.find((row) => row.order?.orderId === 'order-1a');
     expect(afterRow?.lastActivity?.preview).toBe('Fresh drawer comment');
+    // T5: the v1 author-null behavior for fresh comments is gone.
+    expect(afterRow?.lastActivity?.author).toBe('Ops Anna');
     // A fresh comment resets the follow-up flag (activity is now recent).
     expect(afterRow?.order?.needsFollowUp).toBe(false);
 
@@ -544,6 +569,89 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
     const header = await service(db).header();
     const tile = header.tiles.find((candidate) => candidate.key === 'needsFollowUp');
     expect(tile?.count).toBe(5); // was 6 before the comment
+  });
+
+  it('T5 (F5): an order-less Supply Action row surfaces the newest family comment with a resolved author', async () => {
+    db.getRepository('users').rows.push({ id: 7, nickname: 'Planner Pia' });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).create({
+      values: {
+        id: 'comment-family-1',
+        entityType: 'company_product_family',
+        entityId: 'family-f11a-lead-boundary',
+        actorType: 'operator',
+        actorUserId: 7,
+        commentType: 'note',
+        body: 'Family-level note for the supply pane',
+        occurredAt: new Date(Date.parse(FIXED_NOW) - 2 * 3_600_000).toISOString(),
+        workflowDetectionStatus: 'none',
+      },
+    });
+
+    const response = await service(db).pane({ pane: 'supplyAction', runId: PUBLISHED_RUN_ID, page: 1, pageSize: 200 });
+    if (isRunSuperseded(response)) throw new Error('bad');
+    const row = response.rows.find((candidate) => candidate.identity.asin === 'B0011A');
+    expect(row?.order).toBeUndefined();
+    expect(row?.lastActivity).toMatchObject({
+      preview: 'Family-level note for the supply pane',
+      author: 'Planner Pia',
+    });
+    // Rows without any linked comment stay explicitly null (no invented activity).
+    const bare = response.rows.find((candidate) => candidate.identity.asin === 'B0011B');
+    expect(bare?.lastActivity).toBeNull();
+
+    // The drawer primary row carries it too.
+    const drawer = await service(db).drawerContext({
+      pane: 'supplyAction',
+      runId: PUBLISHED_RUN_ID,
+      familyId: row?.identity.familyKey ?? '',
+    });
+    if (isRunSuperseded(drawer)) throw new Error('bad');
+    expect(drawer.primaryRow.lastActivity?.preview).toBe('Family-level note for the supply pane');
+  });
+
+  it('T5: a newer supplier comment wins the DISPLAYED activity while needsFollowUp stays order-scoped', async () => {
+    db.getRepository('users').rows.push({ id: 9, nickname: 'Buyer Bo' });
+    // Stale ORDER comment (72h > 48h threshold) — governs follow-up.
+    await db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).create({
+      values: {
+        id: 'comment-order-old',
+        entityType: 'order',
+        entityId: 'order-1a',
+        actorType: 'operator',
+        actorUserId: 9,
+        commentType: 'note',
+        body: 'Old order note',
+        occurredAt: new Date(Date.parse(FIXED_NOW) - 72 * 3_600_000).toISOString(),
+        workflowDetectionStatus: 'none',
+      },
+    });
+    // Fresh SUPPLIER comment (1h) — newest across the row's linked entities.
+    await db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).create({
+      values: {
+        id: 'comment-supplier-new',
+        entityType: 'supplier',
+        entityId: 'supplier-prep-center',
+        actorType: 'operator',
+        actorUserId: 9,
+        commentType: 'note',
+        body: 'Supplier called back with a new ETA',
+        occurredAt: new Date(Date.parse(FIXED_NOW) - 1 * 3_600_000).toISOString(),
+        workflowDetectionStatus: 'none',
+      },
+    });
+
+    const response = await service(db).pane({
+      pane: 'inPrepMonitoring',
+      runId: PUBLISHED_RUN_ID,
+      page: 1,
+      pageSize: 200,
+    });
+    if (isRunSuperseded(response)) throw new Error('bad');
+    const row = response.rows.find((candidate) => candidate.order?.orderId === 'order-1a');
+    expect(row?.lastActivity).toMatchObject({ preview: 'Supplier called back with a new ETA', author: 'Buyer Bo' });
+    // Follow-up ignores family/product/supplier chatter: the 72h-old ORDER
+    // comment is the effective activity, so the flag stays raised.
+    expect(row?.order?.needsFollowUp).toBe(true);
   });
 
   it('exposes the family target identity + selection provenance in drawerContext (QA item 2)', async () => {

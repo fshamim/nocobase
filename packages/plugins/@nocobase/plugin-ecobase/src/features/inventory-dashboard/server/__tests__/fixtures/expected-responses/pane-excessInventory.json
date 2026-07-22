@@ -81,7 +81,8 @@
       "recommendedOrderQty": null,
       "reasonCodes": [],
       "velocityTrend": "unknown",
-      "performanceBand": "insufficient_evidence"
+      "performanceBand": "insufficient_evidence",
+      "lastActivity": null
     }
   ],
   "pagination": {

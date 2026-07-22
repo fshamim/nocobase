@@ -86,7 +86,8 @@
     "reasonCodes": [],
     "velocityTrend": "unknown",
     "performanceBand": "insufficient_evidence",
-    "familySplit": true
+    "familySplit": true,
+    "lastActivity": null
   },
   "orderRows": []
 }
