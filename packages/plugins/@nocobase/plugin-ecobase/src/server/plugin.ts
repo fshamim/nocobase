@@ -38,6 +38,7 @@ import { EcobaseSourceConnectionService } from '../features/source-import/server
 import { createSupplierManagementResourceRegistration } from '../features/supplier-management/server/resource-registration';
 import { registerEcobaseResources } from './resource-registration';
 import { ensureEcobaseCollectionManagerMetadata } from './services/collection-manager-metadata-service';
+import { EcobasePlanningSettingsService } from './services/planning-settings-service';
 
 export {
   createEcobaseAccountabilityActions,
@@ -70,6 +71,7 @@ export class SellerboardGoldPromotionDebouncer {
   constructor(
     private readonly promote: () => Promise<void>,
     private readonly onError: (error: unknown) => void,
+    private readonly delayMs: () => number | Promise<number> = () => SELLERBOARD_GOLD_PROMOTION_DEBOUNCE_MS,
   ) {}
 
   schedule() {
@@ -89,11 +91,22 @@ export class SellerboardGoldPromotionDebouncer {
   }
 
   private armTimer() {
+    Promise.resolve()
+      .then(() => this.delayMs())
+      .then((delay) => this.armWithDelay(delay))
+      .catch((error) => {
+        this.onError(error);
+        this.armWithDelay(SELLERBOARD_GOLD_PROMOTION_DEBOUNCE_MS);
+      });
+  }
+
+  private armWithDelay(delay: number) {
+    if (this.stopped) return;
     if (this.timer) clearTimeout(this.timer);
     this.timer = setTimeout(() => {
       this.timer = undefined;
-      void this.runPromotion();
-    }, SELLERBOARD_GOLD_PROMOTION_DEBOUNCE_MS);
+      this.runPromotion();
+    }, delay);
     this.timer.unref?.();
   }
 
@@ -130,19 +143,32 @@ export class PluginEcobaseServer extends Plugin {
   private sellerboardScheduler?: ReturnType<typeof setInterval>;
   private sellerboardSchedulerRunning = false;
   private sellerboardGoldPromotion?: SellerboardGoldPromotionDebouncer;
+  private operatorWriteGoldPromotion?: SellerboardGoldPromotionDebouncer;
 
   private startSellerboardScheduler() {
     if (this.sellerboardScheduler) {
       return;
     }
+    const promoteGold = async () => {
+      const result = await new EcobaseInventoryPlanningService(this.app.db).refreshAndPublish();
+      if (result.status === 'failed') {
+        throw new Error(`Ecobase scheduled Gold promotion failed with code ${result.code}.`);
+      }
+    };
     this.sellerboardGoldPromotion = new SellerboardGoldPromotionDebouncer(
-      async () => {
-        const result = await new EcobaseInventoryPlanningService(this.app.db).refreshAndPublish();
-        if (result.status === 'failed') {
-          throw new Error(`Ecobase scheduled Gold promotion failed with code ${result.code}.`);
-        }
-      },
+      promoteGold,
       (error) => this.app.logger?.error?.(error),
+    );
+    // Task 001 (surgical v1.1): operator writes share the same promote but get
+    // their own, longer, settings-driven debounce window so a burst of edits
+    // produces one publish and imports cannot starve operator triggers.
+    this.operatorWriteGoldPromotion = new SellerboardGoldPromotionDebouncer(
+      promoteGold,
+      (error) => this.app.logger?.error?.(error),
+      async () => {
+        const settings = await new EcobasePlanningSettingsService(this.app.db).getResolvedSettings();
+        return settings.operatorWritePublishDebounceSeconds * 1000;
+      },
     );
     const runScheduledImports = async () => {
       if (this.sellerboardSchedulerRunning) {
@@ -169,6 +195,8 @@ export class PluginEcobaseServer extends Plugin {
     this.sellerboardScheduler = undefined;
     this.sellerboardGoldPromotion?.stop();
     this.sellerboardGoldPromotion = undefined;
+    this.operatorWriteGoldPromotion?.stop();
+    this.operatorWriteGoldPromotion = undefined;
   }
 
   private registerAiEmployeeTools() {
@@ -205,12 +233,14 @@ export class PluginEcobaseServer extends Plugin {
       this.stopSellerboardScheduler();
     });
 
+    // Task 001: operator writes schedule a debounced Gold publish.
+    const onOperatorWrite = () => this.operatorWriteGoldPromotion?.schedule();
     registerEcobaseResources(this.app, [
       createSourceImportResourceRegistration(this.registry, () => this.sellerboardGoldPromotion?.schedule()),
-      createInventoryPlanningResourceRegistration(),
-      createInventoryDashboardResourceRegistration(),
-      createOrderPlanningResourceRegistration(),
-      createSupplierManagementResourceRegistration(),
+      createInventoryPlanningResourceRegistration(onOperatorWrite),
+      createInventoryDashboardResourceRegistration(onOperatorWrite),
+      createOrderPlanningResourceRegistration(onOperatorWrite),
+      createSupplierManagementResourceRegistration(onOperatorWrite),
       createSemanticModelResourceRegistration(),
       createDailyOperationsBriefResourceRegistration(this.app),
     ]);

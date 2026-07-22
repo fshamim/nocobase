@@ -15,14 +15,54 @@ import {
   ADMIN,
   LOGGED_IN,
   OPERATOR,
+  triggerOnOperatorWrite,
   type EcobaseFeatureResourceRegistration,
 } from '../../../server/resource-registration';
 
-export function createSupplierManagementResourceRegistration(): EcobaseFeatureResourceRegistration {
+export function createSupplierManagementResourceRegistration(
+  onOperatorWrite?: () => void,
+): EcobaseFeatureResourceRegistration {
   return {
     resources: [
-      { name: 'ecobaseSupplierOrders', actions: createEcobaseSupplierOrderActions() },
-      { name: 'ecobaseSupplierManagement', actions: createEcobaseSupplierManagementActions() },
+      {
+        name: 'ecobaseSupplierOrders',
+        actions: triggerOnOperatorWrite(
+          createEcobaseSupplierOrderActions(),
+          [
+            'createPlannedOrder',
+            'createOrderLine',
+            'createMedallionDraftOrder',
+            'addMedallionOrderLine',
+            'updateOrderOperatorFields',
+            'updateLineOperatorFields',
+            'deleteLineOperatorFields',
+            'updateSupplierLeadTime',
+            'recordActivity',
+            'updateActivityComment',
+            'deleteActivityComment',
+          ],
+          onOperatorWrite,
+        ),
+      },
+      {
+        name: 'ecobaseSupplierManagement',
+        actions: triggerOnOperatorWrite(
+          createEcobaseSupplierManagementActions(),
+          [
+            'createSupplier',
+            'updateSupplierProfile',
+            'createSupplierOrder',
+            'recordActivity',
+            'updateProductLeadTime',
+            'updateSupplierLifecycle',
+            'recordComment',
+            'deleteComment',
+            'updateSupplierAccount',
+            'upsertSupplierProduct',
+          ],
+          onOperatorWrite,
+        ),
+      },
     ],
     acl: [
       { resource: 'ecobaseSupplierOrders', actions: ['workspace', 'getCoverage'], role: LOGGED_IN },

@@ -17,12 +17,24 @@ import {
   LOGGED_IN,
   OPERATOR,
   type EcobaseFeatureResourceRegistration,
+  triggerOnOperatorWrite,
 } from '../../../server/resource-registration';
 
-export function createInventoryPlanningResourceRegistration(): EcobaseFeatureResourceRegistration {
+export function createInventoryPlanningResourceRegistration(
+  onOperatorWrite?: () => void,
+): EcobaseFeatureResourceRegistration {
   return {
     resources: [
-      { name: 'ecobaseInventoryPlanning', actions: createEcobaseInventoryPlanningActions() },
+      {
+        name: 'ecobaseInventoryPlanning',
+        // Task 001: operator silver-fact writers only — refreshAndPublish IS the
+        // publish and must never re-trigger the debouncer (no loops).
+        actions: triggerOnOperatorWrite(
+          createEcobaseInventoryPlanningActions(),
+          ['setReceiptOverride', 'updateProductPlanningFields', 'setFamilyTarget', 'setFamilyPreferredSupplier'],
+          onOperatorWrite,
+        ),
+      },
       { name: 'ecobasePlanningConfiguration', actions: createEcobasePlanningSettingsActions() },
     ],
     acl: [

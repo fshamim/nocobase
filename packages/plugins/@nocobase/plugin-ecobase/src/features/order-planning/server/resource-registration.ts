@@ -12,12 +12,24 @@ import {
   ADMIN,
   LOGGED_IN,
   OPERATOR,
+  triggerOnOperatorWrite,
   type EcobaseFeatureResourceRegistration,
 } from '../../../server/resource-registration';
 
-export function createOrderPlanningResourceRegistration(): EcobaseFeatureResourceRegistration {
+export function createOrderPlanningResourceRegistration(
+  onOperatorWrite?: () => void,
+): EcobaseFeatureResourceRegistration {
   return {
-    resources: [{ name: 'ecobaseOrderPlanning', actions: createEcobaseOrderPlanningActions() }],
+    resources: [
+      {
+        name: 'ecobaseOrderPlanning',
+        actions: triggerOnOperatorWrite(
+          createEcobaseOrderPlanningActions(),
+          ['updateOrder', 'updateLine', 'addComment', 'deleteComment', 'updateInvoice'],
+          onOperatorWrite,
+        ),
+      },
+    ],
     acl: [
       { resource: 'ecobaseOrderPlanning', actions: ['filters', 'list', 'detail'], role: LOGGED_IN },
       {

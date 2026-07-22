@@ -87,6 +87,16 @@ export default defineCollection({
       defaultValue: 7,
     },
     {
+      // Task 001 (surgical v1.1): debounce window for operator-write-triggered
+      // Gold publishes.
+      name: 'operatorWritePublishDebounceSeconds',
+      type: 'integer',
+      interface: 'integer',
+      uiSchema: { title: 'Operator-write publish debounce seconds' },
+      allowNull: false,
+      defaultValue: 45,
+    },
+    {
       // Inventory Dashboard (T-1.5 / REQ-H4): hours without activity before an
       // in-prep/inbound order is flagged "needs follow-up".
       name: 'followUpThresholdHours',

@@ -17,7 +17,12 @@
  * the operator role and is guarded before request validation.
  */
 
-import { LOGGED_IN, OPERATOR, type EcobaseFeatureResourceRegistration } from '../../../server/resource-registration';
+import {
+  LOGGED_IN,
+  OPERATOR,
+  triggerOnOperatorWrite,
+  type EcobaseFeatureResourceRegistration,
+} from '../../../server/resource-registration';
 import { guardEcobaseActions } from '../../../server/role-boundary';
 import { EcobasePlanningSettingsService } from '../../../server/services/planning-settings-service';
 import { isPaneKey, type PaneKey, type SortDirection } from './contract';
@@ -194,9 +199,20 @@ export function createEcobaseInventoryDashboardActions() {
   );
 }
 
-export function createInventoryDashboardResourceRegistration(): EcobaseFeatureResourceRegistration {
+export function createInventoryDashboardResourceRegistration(
+  onOperatorWrite?: () => void,
+): EcobaseFeatureResourceRegistration {
   return {
-    resources: [{ name: 'ecobaseInventoryDashboard', actions: createEcobaseInventoryDashboardActions() }],
+    resources: [
+      {
+        name: 'ecobaseInventoryDashboard',
+        actions: triggerOnOperatorWrite(
+          createEcobaseInventoryDashboardActions(),
+          ['savePrepDetails', 'saveSupplierShipDestination'],
+          onOperatorWrite,
+        ),
+      },
+    ],
     acl: [
       { resource: 'ecobaseInventoryDashboard', actions: ['header', 'pane', 'drawerContext'], role: LOGGED_IN },
       {

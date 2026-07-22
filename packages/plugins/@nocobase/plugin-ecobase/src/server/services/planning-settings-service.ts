@@ -25,7 +25,8 @@ export type PlanningSettingKey =
   | 'purchasedPipelineGraceDays'
   | 'defaultSupplierLeadTimeDays'
   | 'fbaReceivingBufferDays'
-  | 'followUpThresholdHours';
+  | 'followUpThresholdHours'
+  | 'operatorWritePublishDebounceSeconds';
 
 type ProfitTierSettingKey = keyof ProfitTierThresholds;
 type NumberSettingKey = PlanningSettingKey | ProfitTierSettingKey;
@@ -80,6 +81,7 @@ const SETTING_KEYS: PlanningSettingKey[] = [
   'defaultSupplierLeadTimeDays',
   'fbaReceivingBufferDays',
   'followUpThresholdHours',
+  'operatorWritePublishDebounceSeconds',
 ];
 
 const PROFIT_TIER_SETTING_KEYS: ProfitTierSettingKey[] = [
@@ -108,6 +110,7 @@ export const DEFAULT_PLANNING_SETTINGS: Record<PlanningSettingKey, number> = {
   defaultSupplierLeadTimeDays: 30,
   fbaReceivingBufferDays: 7,
   followUpThresholdHours: 48,
+  operatorWritePublishDebounceSeconds: 45,
 };
 
 export const DEFAULT_PLANNING_FEATURE_FLAGS: Record<PlanningFeatureFlagKey, boolean> = {
@@ -149,6 +152,7 @@ const SETTING_LABELS: Record<NumberSettingKey, string> = {
   defaultSupplierLeadTimeDays: 'Default supplier lead time days',
   fbaReceivingBufferDays: 'FBA receiving buffer days',
   followUpThresholdHours: 'Follow-up threshold hours',
+  operatorWritePublishDebounceSeconds: 'Operator-write publish debounce seconds',
   profitTierAThreshold: 'Profit tier A threshold',
   profitTierBThreshold: 'Profit tier B threshold',
   profitTierCThreshold: 'Profit tier C threshold',
@@ -299,6 +303,9 @@ function normalize(row: PlainRecord): EcobasePlanningSettings {
       positiveInteger(row.fbaReceivingBufferDays, 'fbaReceivingBufferDays') ?? defaults.fbaReceivingBufferDays,
     followUpThresholdHours:
       positiveInteger(row.followUpThresholdHours, 'followUpThresholdHours') ?? defaults.followUpThresholdHours,
+    operatorWritePublishDebounceSeconds:
+      positiveInteger(row.operatorWritePublishDebounceSeconds, 'operatorWritePublishDebounceSeconds') ??
+      defaults.operatorWritePublishDebounceSeconds,
     enableCurrentOrderCycleSelection: asBoolean(
       row.enableCurrentOrderCycleSelection,
       defaults.enableCurrentOrderCycleSelection,
