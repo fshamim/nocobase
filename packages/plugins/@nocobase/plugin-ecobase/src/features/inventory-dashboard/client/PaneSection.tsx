@@ -207,9 +207,18 @@ function PaneSectionInner(props: PaneSectionProps, ref: React.Ref<PaneSectionHan
           {t(config.titleKey)}
         </Typography.Title>
         {response ? (
-          <Typography.Text type="secondary">{`${t(TEXT.metricRows)}: ${
-            response.pagination?.total ?? 0
-          }`}</Typography.Text>
+          <Space size="middle">
+            <Typography.Text type="secondary">{`${t(TEXT.metricRows)}: ${
+              response.pagination?.total ?? 0
+            }`}</Typography.Text>
+            {(response.metrics ?? [])
+              .filter((metric) => metric.key === 'tieredNeedingAttention' && metric.value !== null)
+              .map((metric) => (
+                <Typography.Text key={metric.key} type="warning">
+                  {`${t(metric.label)}: ${metric.value}`}
+                </Typography.Text>
+              ))}
+          </Space>
         ) : null}
       </Space>
       {config.showPaneSearch ? (

@@ -21,6 +21,7 @@ import type { DashboardRow, DrawerContextResponse, PaneKey } from '../server/con
 import { isRunSuperseded } from '../server/contract';
 import { TEXT } from './dashboard-text';
 import {
+  AssignSupplierForm,
   BandVisual,
   CommentForm,
   EtaForm,
@@ -148,6 +149,20 @@ const PaneDrawer: React.FC<PaneDrawerProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target?.pane, target?.familyId, target?.orderId, target?.listingRowId, runId]);
 
+  // Task 006: searchable supplier options for the Assign-supplier action.
+  const loadSupplierOptions = useCallback(async (): Promise<Array<{ label: string; value: string }>> => {
+    const data = unwrapEnvelope(
+      await api.request({ url: 'ecobaseSupplierManagement:supplierOptions', method: 'post', data: { limit: 200 } }),
+    );
+    if (!Array.isArray(data)) return [];
+    return data.flatMap((entry) => {
+      const record = typeof entry === 'object' && entry !== null ? (entry as Record<string, unknown>) : {};
+      const value = typeof record.value === 'string' ? record.value : null;
+      const label = typeof record.label === 'string' ? record.label : value;
+      return value ? [{ value, label: label ?? value }] : [];
+    });
+  }, [api]);
+
   const runMutation: RunDrawerMutation = useCallback(
     async (url, data) => {
       if (submitting || !target) return false;
@@ -218,6 +233,7 @@ const PaneDrawer: React.FC<PaneDrawerProps> = ({
               submitting={submitting}
               t={t}
               navigate={navigate}
+              loadSupplierOptions={loadSupplierOptions}
             />
             <FamilyContext context={context} t={t} />
           </Space>
@@ -253,9 +269,10 @@ interface DrawerBodyProps {
   submitting: boolean;
   t: Translate;
   navigate?: (path: string) => void;
+  loadSupplierOptions: () => Promise<Array<{ label: string; value: string }>>;
 }
 
-function DrawerBody({ pane, row, context, run, submitting, t, navigate }: DrawerBodyProps) {
+function DrawerBody({ pane, row, context, run, submitting, t, navigate, loadSupplierOptions }: DrawerBodyProps) {
   const orderId = row.order?.orderId;
   const supplierId = row.order?.supplierId ?? null;
   switch (pane) {
@@ -343,6 +360,15 @@ function DrawerBody({ pane, row, context, run, submitting, t, navigate }: Drawer
       return (
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
           <ReasonList title={t(TEXT.drawerReadinessReasons)} reasons={row.reasonCodes} t={t} />
+          {row.tier?.current || row.tier?.baseline ? (
+            <AssignSupplierForm
+              familyId={row.identity.familyKey}
+              loadSupplierOptions={loadSupplierOptions}
+              run={run}
+              submitting={submitting}
+              t={t}
+            />
+          ) : null}
           <Space wrap>
             <Button
               size="small"

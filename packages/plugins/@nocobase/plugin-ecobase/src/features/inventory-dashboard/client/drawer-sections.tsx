@@ -364,6 +364,62 @@ export function ReactivateForm({
   );
 }
 
+export function AssignSupplierForm({
+  familyId,
+  loadSupplierOptions,
+  run,
+  submitting,
+  t,
+}: {
+  familyId: string;
+  loadSupplierOptions: () => Promise<Array<{ label: string; value: string }>>;
+  run: RunDrawerMutation;
+  submitting: boolean;
+  t: Translate;
+}) {
+  const [options, setOptions] = useState<Array<{ label: string; value: string }> | null>(null);
+  const [supplierId, setSupplierId] = useState<string | undefined>(undefined);
+  const [reason, setReason] = useState('');
+  const open = async () => {
+    if (options === null) setOptions(await loadSupplierOptions());
+  };
+  const submit = async () => {
+    if (!supplierId || !reason.trim()) return;
+    await run('ecobaseInventoryPlanning:setFamilyPreferredSupplier', {
+      familyId,
+      supplierId,
+      reason: reason.trim(),
+    });
+  };
+  return (
+    <Space direction="vertical" style={{ width: '100%' }}>
+      <Typography.Title level={5}>{t(TEXT.drawerAssignSupplier)}</Typography.Title>
+      <Select
+        showSearch
+        aria-label={t(TEXT.drawerAssignSupplier)}
+        placeholder={t(TEXT.drawerAssignSupplier)}
+        style={{ minWidth: 260 }}
+        options={options ?? []}
+        onDropdownVisibleChange={(visible) => {
+          if (visible) open();
+        }}
+        optionFilterProp="label"
+        value={supplierId}
+        onChange={(value: string) => setSupplierId(value)}
+      />
+      <Input
+        aria-label={t(TEXT.drawerReason)}
+        placeholder={t(TEXT.drawerReason)}
+        value={reason}
+        onChange={(event) => setReason(event.target.value)}
+      />
+      <Button size="small" type="primary" disabled={submitting} onClick={submit}>
+        {t(TEXT.drawerSave)}
+      </Button>
+    </Space>
+  );
+}
+
 export function ReasonList({ title, reasons, t }: { title: string; reasons: string[]; t: Translate }) {
   return (
     <div>
