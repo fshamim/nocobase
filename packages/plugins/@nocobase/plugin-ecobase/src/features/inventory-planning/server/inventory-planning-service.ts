@@ -2596,12 +2596,8 @@ export class EcobaseInventoryPlanningService {
           'EcoBase Gold refresh and publication requires repeatable-read transaction support.',
         );
       }
-      const refreshed = await runTransaction(
-        { isolationLevel: 'REPEATABLE READ' },
-        (transaction: unknown) =>
-          new EcobaseInventoryPlanningService(databaseInTransaction(this.db, transaction)).refreshReadModel(
-            refreshQuery,
-          ),
+      const refreshed = await runTransaction({ isolationLevel: 'REPEATABLE READ' }, (transaction: unknown) =>
+        new EcobaseInventoryPlanningService(databaseInTransaction(this.db, transaction)).refreshReadModel(refreshQuery),
       );
       const refresh = toPlainRecord(refreshed);
       const runId = asString(toPlainRecord(refresh.run).id);
@@ -2612,9 +2608,7 @@ export class EcobaseInventoryPlanningService {
           { stage: 'materialization' },
         );
       }
-      const publication = toPlainRecord(
-        await new EcobaseGoldRefreshRunService(this.db).verifyAndPublish(runId),
-      );
+      const publication = toPlainRecord(await new EcobaseGoldRefreshRunService(this.db).verifyAndPublish(runId));
       const publishedRun = toPlainRecord(publication.run);
       return {
         ...publication,
@@ -2680,6 +2674,8 @@ export class EcobaseInventoryPlanningService {
         asNumber(settings.purchasedPipelineGraceDays) ?? DEFAULT_PLANNING_SETTINGS.purchasedPipelineGraceDays,
       defaultSupplierLeadTimeDays:
         asNumber(settings.defaultSupplierLeadTimeDays) ?? DEFAULT_PLANNING_SETTINGS.defaultSupplierLeadTimeDays,
+      fbaReceivingBufferDays:
+        asNumber(settings.fbaReceivingBufferDays) ?? DEFAULT_PLANNING_SETTINGS.fbaReceivingBufferDays,
     };
   }
 

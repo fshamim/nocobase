@@ -50,6 +50,7 @@ export interface CorrectedCandidateSettings {
   readonly leadTimeFreshnessDays: number;
   readonly purchasedPipelineGraceDays: number;
   readonly defaultSupplierLeadTimeDays: number;
+  readonly fbaReceivingBufferDays: number;
 }
 
 export interface CorrectedOperationalListingIdentity {
@@ -465,7 +466,7 @@ function existingOrderStage(order: CorrectedOperationalOrderSnapshot): ExistingO
   return 'pre_purchase';
 }
 
-function independentRecommendedOrderQty(
+export function independentRecommendedOrderQty(
   listing: CorrectedOperationalListingSnapshot,
   salesVelocity: string | null,
   actionable: boolean,
@@ -473,7 +474,178 @@ function independentRecommendedOrderQty(
   const velocity = finite(salesVelocity);
   const futurePosition = listing.inventory.futurePositionStock;
   if (!actionable || velocity === undefined || velocity <= 0 || futurePosition === null) return null;
+  // T2: coverage horizon is the per-product operator override when present, else the
+  // settings default (45). `listing.planning.targetCoverDays` is resolved upstream as
+  // `companyProduct.targetCoverDays ?? settings.targetCoverDays` — never hardcoded here.
   return Math.max(Math.ceil(velocity * listing.planning.targetCoverDays - futurePosition), 0);
+}
+
+// ---------------------------------------------------------------------------
+// Supply Action derivations (dashboard v2 T1): stockout dates (F1), the latest
+// safe order-by date (F2, with the V1 receiving-buffer horizon amendment) and
+// money at risk (F3). All null-safe and settings-driven; the run's
+// `calculationDate` (never `new Date()`) is the clock.
+// ---------------------------------------------------------------------------
+
+const MONEY_RISK_BASIS = 'uncovered_days_x_velocity_x_profit_per_unit';
+
+function roundTo8(value: number) {
+  return new CandidateDecimal(value).toDecimalPlaces(8, Decimal.ROUND_HALF_EVEN).toNumber();
+}
+
+function roundMoney(value: number) {
+  // Nudge off floating-point dust before rounding to cents (mirrors the codebase convention).
+  return Math.round((value + Math.sign(value) * 1e-9) * 100) / 100;
+}
+
+export interface ReorderTimingInput {
+  readonly calculationDate: string;
+  /** Trusted daily sell-through (units/day). Non-null ⇒ trusted evidence (may be 0). */
+  readonly salesVelocity: number | null;
+  /** Sellable-only runway from disposition (already fresh + trusted-positive + velocity>0 gated). */
+  readonly daysOfCover: number | null;
+  /** sellable + amazon pipeline + supplier pipeline. */
+  readonly futurePositionStock: number | null;
+  readonly leadTimeDays: number;
+  readonly fbaReceivingBufferDays: number;
+  readonly safetyBufferDays: number;
+}
+
+export interface ReorderTiming {
+  estimatedOosDate: string | null;
+  positionDaysOfCover: number | null;
+  positionEstimatedOosDate: string | null;
+  daysUntilOos: number | null;
+  latestSafeReorderDate: string | null;
+  daysUntilSafeReorder: number | null;
+  /**
+   * Membership boolean for the Supply Action pane. V1 amendment: the reorder horizon is
+   * `leadTimeDays + fbaReceivingBufferDays + safetyBufferDays` (goods must arrive AND be
+   * received before stockout). Position-based and trust-gated on trusted-positive velocity;
+   * derived from `daysUntilSafeReorder` so the two can never disagree (parity guarantee).
+   */
+  trustedReorderDue: boolean;
+}
+
+export function deriveReorderTiming(input: ReorderTimingInput): ReorderTiming {
+  const velocity = input.salesVelocity;
+  // salesVelocity > 0 ⇔ rolling velocity evidence is trusted_positive (disposition only emits a
+  // velocity for eligible complete-month coverage; trusted_zero yields 0, insufficient yields null).
+  const trustedPositiveVelocity = velocity !== null && Number.isFinite(velocity) && velocity > 0;
+  const reorderHorizonDays = input.leadTimeDays + input.fbaReceivingBufferDays + input.safetyBufferDays;
+
+  // F1a sellable runway: calcDate + floor(daysOfCover). daysOfCover already encodes fresh
+  // inventory + trusted-positive velocity; null ⇒ no sellable runway (e.g. zero stock, stale).
+  const estimatedOosDate =
+    input.daysOfCover !== null && Number.isFinite(input.daysOfCover)
+      ? addDays(input.calculationDate, Math.floor(input.daysOfCover))
+      : null;
+
+  // F1b position runway (includes inbound/ordered/supplier pipeline). Trust gate mirrors the
+  // membership boolean — trusted-positive velocity + a known future position — and is
+  // deliberately NOT freshness-gated so trustedReorderDue and daysUntilSafeReorder never diverge.
+  const positionCoverDays =
+    trustedPositiveVelocity && input.futurePositionStock !== null
+      ? input.futurePositionStock / (velocity as number)
+      : null;
+  const daysUntilOos = positionCoverDays !== null ? Math.floor(positionCoverDays) : null;
+  const positionEstimatedOosDate = daysUntilOos !== null ? addDays(input.calculationDate, daysUntilOos) : null;
+
+  // F2 order-by: positionOOS − horizon. latestSafeReorderDate is the whole-day calendar
+  // rendering; daysUntilSafeReorder is the exact fractional runway−horizon (a `double`
+  // column) whose sign is parity-identical to trustedReorderDue by construction.
+  const latestSafeReorderDate =
+    daysUntilOos !== null ? addDays(input.calculationDate, daysUntilOos - reorderHorizonDays) : null;
+  const daysUntilSafeReorder = positionCoverDays !== null ? roundTo8(positionCoverDays - reorderHorizonDays) : null;
+  const trustedReorderDue = daysUntilSafeReorder !== null && daysUntilSafeReorder <= 0;
+
+  return {
+    estimatedOosDate,
+    positionDaysOfCover: positionCoverDays !== null ? roundTo8(positionCoverDays) : null,
+    positionEstimatedOosDate,
+    daysUntilOos,
+    latestSafeReorderDate,
+    daysUntilSafeReorder,
+    trustedReorderDue,
+  };
+}
+
+export interface MoneyRiskInput {
+  readonly calculationDate: string;
+  /** decision.newReplenishmentActionable — money at risk is only meaningful when reorder-due/overdue. */
+  readonly applicable: boolean;
+  readonly salesVelocity: number | null;
+  readonly baselineWeightedProfitPerUnit: number | null;
+  /** floor(futurePositionStock / velocity) from {@link deriveReorderTiming}. */
+  readonly daysUntilOos: number | null;
+  readonly positionEstimatedOosDate: string | null;
+  readonly leadTimeDays: number;
+  readonly fbaReceivingBufferDays: number;
+}
+
+export interface MoneyRisk {
+  estimatedProfitRisk: number | null;
+  estimatedProfitRiskBasis: string | null;
+  moneyRiskStatus: string | null;
+  moneyRiskUncoveredDays: number | null;
+  moneyRiskInputs: Record<string, unknown> | null;
+}
+
+const MONEY_RISK_NOT_APPLICABLE: MoneyRisk = {
+  estimatedProfitRisk: null,
+  estimatedProfitRiskBasis: null,
+  moneyRiskStatus: null,
+  moneyRiskUncoveredDays: null,
+  moneyRiskInputs: null,
+};
+
+export function deriveMoneyRisk(input: MoneyRiskInput): MoneyRisk {
+  if (!input.applicable) return { ...MONEY_RISK_NOT_APPLICABLE };
+
+  const velocity = input.salesVelocity;
+  const profitPerUnit = input.baselineWeightedProfitPerUnit;
+  const arrivalOffsetDays = input.leadTimeDays + input.fbaReceivingBufferDays;
+  const inputs: Record<string, unknown> = {
+    salesVelocity: velocity,
+    baselineWeightedProfitPerUnit: profitPerUnit,
+    leadTimeDays: input.leadTimeDays,
+    fbaReceivingBufferDays: input.fbaReceivingBufferDays,
+    arrivalOffsetDays,
+    positionEstimatedOosDate: input.positionEstimatedOosDate,
+    daysUntilOos: input.daysUntilOos,
+    calculationDate: input.calculationDate,
+  };
+
+  const velocityUsable = velocity !== null && Number.isFinite(velocity) && velocity > 0;
+  const profitUsable = profitPerUnit !== null && Number.isFinite(profitPerUnit);
+  const positionKnown = input.daysUntilOos !== null && input.positionEstimatedOosDate !== null;
+  if (!positionKnown || !velocityUsable || !profitUsable) {
+    const missingInputs = [
+      positionKnown ? undefined : 'position_oos',
+      velocityUsable ? undefined : 'sales_velocity',
+      profitUsable ? undefined : 'profit_per_unit',
+    ].filter((value): value is string => value !== undefined);
+    return {
+      estimatedProfitRisk: null,
+      estimatedProfitRiskBasis: MONEY_RISK_BASIS,
+      moneyRiskStatus: 'unknown',
+      moneyRiskUncoveredDays: null,
+      moneyRiskInputs: { ...inputs, missingInputs },
+    };
+  }
+
+  // If ordered today, goods arrive after arrivalOffsetDays; the uncovered stockout gap is how
+  // many whole days the position OOS precedes that arrival. Equivalent to the plan's
+  // max(0, (calcDate + leadTime + fbaBuffer) − positionEstimatedOosDate).
+  const uncoveredDays = Math.max(0, arrivalOffsetDays - (input.daysUntilOos as number));
+  const estimatedProfitRisk = roundMoney(uncoveredDays * (velocity as number) * (profitPerUnit as number));
+  return {
+    estimatedProfitRisk,
+    estimatedProfitRiskBasis: MONEY_RISK_BASIS,
+    moneyRiskStatus: uncoveredDays > 0 ? 'at_risk' : 'covered',
+    moneyRiskUncoveredDays: uncoveredDays,
+    moneyRiskInputs: { ...inputs, uncoveredDays, missingInputs: [] },
+  };
 }
 
 function correctedActionStatus(decision: ReturnType<typeof decideReplenishment>) {
@@ -556,13 +728,18 @@ function listingInput(
   });
   const isFrozenTarget = family.targetCompanyProductId === companyProductId;
   const velocity = finite(disposition.salesVelocity);
-  const futurePosition = listing.inventory.futurePositionStock;
-  const trustedReorderDue =
-    disposition.rollingVelocityEvidenceStatus === 'trusted_positive' &&
-    velocity !== undefined &&
-    velocity > 0 &&
-    futurePosition !== null &&
-    futurePosition / velocity <= listing.planning.leadTimeDays + listing.planning.safetyBufferDays;
+  // T1 (F1/F2 + V1 horizon): stockout dates, the order-by date and the reorder-due membership
+  // boolean all share one reorder horizon so the boolean and daysUntilSafeReorder cannot disagree.
+  const reorderTiming = deriveReorderTiming({
+    calculationDate: input.calculationDate,
+    salesVelocity: velocity ?? null,
+    daysOfCover: finite(disposition.daysOfCover) ?? null,
+    futurePositionStock: listing.inventory.futurePositionStock,
+    leadTimeDays: listing.planning.leadTimeDays,
+    fbaReceivingBufferDays: input.settings.fbaReceivingBufferDays,
+    safetyBufferDays: listing.planning.safetyBufferDays,
+  });
+  const trustedReorderDue = reorderTiming.trustedReorderDue;
   // Task 002 plumbing: lifecycle comes from identity.productStatus (companyProduct
   // lifecycleStatus); discontinued/paused must NOT be swallowed by the legacy
   // planning-excluded mapping so the visible pane branch can fire.
@@ -615,12 +792,31 @@ function listingInput(
     recommendedOrderQty !== null && listing.supplier.unitCost !== null
       ? recommendedOrderQty * listing.supplier.unitCost
       : null;
+  // F3: money at risk — only when the family needs a new order (reorder-due Supply Action or
+  // overdue Zero Stock); null-safe on velocity + per-unit profit + a known position OOS.
+  const moneyRisk = deriveMoneyRisk({
+    calculationDate: input.calculationDate,
+    applicable: decision.newReplenishmentActionable,
+    salesVelocity: velocity ?? null,
+    baselineWeightedProfitPerUnit: finite(performance.baselineWeightedProfitPerUnit) ?? null,
+    daysUntilOos: reorderTiming.daysUntilOos,
+    positionEstimatedOosDate: reorderTiming.positionEstimatedOosDate,
+    leadTimeDays: listing.planning.leadTimeDays,
+    fbaReceivingBufferDays: input.settings.fbaReceivingBufferDays,
+  });
   return {
     ...listing.identity,
     ...listing.planning,
     ...listing.inventory,
     ...performance,
     ...disposition,
+    estimatedOosDate: reorderTiming.estimatedOosDate,
+    positionDaysOfCover: reorderTiming.positionDaysOfCover,
+    positionEstimatedOosDate: reorderTiming.positionEstimatedOosDate,
+    daysUntilOos: reorderTiming.daysUntilOos,
+    latestSafeReorderDate: reorderTiming.latestSafeReorderDate,
+    daysUntilSafeReorder: reorderTiming.daysUntilSafeReorder,
+    ...moneyRisk,
     monthlyPerformanceEvidence,
     sourceAsOfDate: current.coveredThroughDate,
     productCoverageDigest,
