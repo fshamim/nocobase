@@ -49,7 +49,7 @@ function decision(eligible: boolean) {
     projectedTierMovement: 'stable',
     existingOrderStage: 'none',
     trustedZeroStock: false,
-    trustedReorderDue: false,
+    reorderDueKind: 'none',
   });
 }
 

@@ -20,6 +20,12 @@ import type {
 export type TargetSelectionState = 'automatic' | 'review';
 export type ExistingOrderStage = 'none' | 'pre_purchase' | 'in_prep' | 'inbound';
 export type ExistingOrderFollowUpAction = 'follow_up_existing_order' | 'none';
+/**
+ * Dashboard v2 T3 (approved D2): 'trusted' = reorder-due under the trusted rolling
+ * velocity; 'estimated' = reorder-due under a fallback velocity basis (F4 ladder);
+ * 'none' = not due or no usable velocity.
+ */
+export type ReplenishmentReorderDueKind = 'none' | 'trusted' | 'estimated';
 
 export type ReplenishmentEligibility =
   | 'excluded'
@@ -84,6 +90,7 @@ export type PrimaryActionReasonCode =
   | 'existing_order_inbound'
   | 'trusted_zero_stock'
   | 'trusted_reorder_due'
+  | 'estimated_velocity_reorder_due'
   | 'sufficient_stock';
 
 export interface ReplenishmentDecisionInput {
@@ -108,7 +115,7 @@ export interface ReplenishmentDecisionInput {
   projectedTierMovement: TierMovement;
   existingOrderStage: ExistingOrderStage;
   trustedZeroStock: boolean;
-  trustedReorderDue: boolean;
+  reorderDueKind: ReplenishmentReorderDueKind;
 }
 
 export interface ReplenishmentDecisionResult {
@@ -164,7 +171,6 @@ function validateInput(input: ReplenishmentDecisionInput) {
     input.identityEvidenceValid,
     input.baselineEvidenceValid,
     input.trustedZeroStock,
-    input.trustedReorderDue,
   ];
   const valid =
     booleanValues.every((value) => typeof value === 'boolean') &&
@@ -181,6 +187,7 @@ function validateInput(input: ReplenishmentDecisionInput) {
     (input.currentProjectedTier === null || TIERS.has(input.currentProjectedTier)) &&
     MOVEMENTS.has(input.projectedTierMovement) &&
     ['none', 'pre_purchase', 'in_prep', 'inbound'].includes(input.existingOrderStage) &&
+    ['none', 'trusted', 'estimated'].includes(input.reorderDueKind) &&
     DISPOSITIONS.has(input.inventoryDisposition);
   if (!valid) {
     throw new ReplenishmentDecisionError(
@@ -229,8 +236,11 @@ function eligibilityDecision(input: ReplenishmentDecisionInput): Decision {
       reason: 'trusted_over_60_days_cover',
     };
   }
+  // T3 (approved D2): an estimated reorder-due row substitutes the F4 fallback velocity for
+  // the missing rolling evidence, so velocity insufficiency alone no longer blocks it. Every
+  // other readiness, baseline and tier gate below still applies unchanged.
   if (
-    input.inventoryDisposition === 'insufficient_velocity_evidence' ||
+    (input.inventoryDisposition === 'insufficient_velocity_evidence' && input.reorderDueKind !== 'estimated') ||
     !input.identityEvidenceValid ||
     !input.baselineEvidenceValid ||
     input.baselineState === 'unclassified' ||
@@ -356,7 +366,8 @@ function eligiblePane(input: ReplenishmentDecisionInput): Pick<Decision, 'pane' 
     return { pane: 'inboundMonitoring', reason: 'existing_order_inbound' };
   }
   if (input.trustedZeroStock) return { pane: 'zeroStock', reason: 'trusted_zero_stock' };
-  if (input.trustedReorderDue) return { pane: 'supplyAction', reason: 'trusted_reorder_due' };
+  if (input.reorderDueKind === 'trusted') return { pane: 'supplyAction', reason: 'trusted_reorder_due' };
+  if (input.reorderDueKind === 'estimated') return { pane: 'supplyAction', reason: 'estimated_velocity_reorder_due' };
   return { pane: 'healthyInventory', reason: 'sufficient_stock' };
 }
 
@@ -368,7 +379,7 @@ export function decideReplenishment(input: ReplenishmentDecisionInput): Replenis
   const existingOrderFollowUp = input.existingOrderStage !== 'none';
   const noOpenOrder = !existingOrderFollowUp;
   const oosAlertActionable = eligible && noOpenOrder && input.trustedZeroStock;
-  const supplyActionable = eligible && noOpenOrder && !input.trustedZeroStock && input.trustedReorderDue;
+  const supplyActionable = eligible && noOpenOrder && !input.trustedZeroStock && input.reorderDueKind !== 'none';
   const replenishmentBlockReasonCode: ReplenishmentBlockReasonCode =
     decision.eligibility === 'eligible'
       ? input.currentProjectionGateMode === 'informational'

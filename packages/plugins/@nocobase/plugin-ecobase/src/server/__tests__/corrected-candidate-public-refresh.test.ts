@@ -711,7 +711,47 @@ describe('corrected candidate public refresh seam', () => {
       projectedTierMovement: 'declined',
       replenishmentEligibility: 'eligible',
       primaryActionPane: 'supplyAction',
+      primaryActionReasonCode: 'trusted_reorder_due',
       newReplenishmentActionable: true,
+      // T3 regression: trusted rolling provenance persists and the stock total is no longer
+      // dropped at the corrected snapshot boundary (sellable 10 + reserved 0 + pipeline 0).
+      salesVelocityBasis: 'rolling_30',
+      salesVelocityAsOfDate: '2026-07-16',
+      currentPlanningStock: 10,
+    });
+  });
+
+  it('routes a fallback-velocity family into Supply Action with estimated provenance (T3, approved D2)', async () => {
+    const db = fixture();
+    // Truncate source coverage so the rolling 30-day window (2026-06-17..07-16) is
+    // discontinuous (insufficient rolling evidence) while every closed month stays eligible.
+    const interval = db.rows(ECOBASE_COLLECTIONS.sourceCoverageIntervals)[0];
+    interval.coveredEndDate = '2026-07-10';
+
+    await refreshThroughPublicAction(db, 'estimated-membership');
+
+    expect(db.goldRows.rows[0]).toMatchObject({
+      rollingVelocityEvidenceStatus: 'insufficient_evidence',
+      inventoryDisposition: 'insufficient_velocity_evidence',
+      // F4 ladder rung 2: June 2026 (last closed eligible month) 10 units / 30 days.
+      salesVelocity: '0.33333333',
+      salesVelocityBasis: 'last_closed_month',
+      salesVelocityAsOfDate: '2026-06-30',
+      // D2 membership: estimated velocity substitutes for the missing rolling evidence.
+      replenishmentEligibility: 'eligible',
+      primaryActionPane: 'supplyAction',
+      primaryActionReasonCode: 'estimated_velocity_reorder_due',
+      supplyActionable: true,
+      newReplenishmentActionable: true,
+      // Timing/money computed from the effective velocity (position 10 units / 0.33333333).
+      daysUntilOos: 30,
+      positionEstimatedOosDate: '2026-08-15',
+      latestSafeReorderDate: '2026-07-02',
+      moneyRiskStatus: 'at_risk',
+      moneyRiskUncoveredDays: 7,
+      estimatedProfitRisk: 70,
+      recommendedOrderQty: 5,
+      currentPlanningStock: 10,
     });
   });
 

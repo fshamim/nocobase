@@ -46,7 +46,7 @@ function decision(overrides: Partial<ReplenishmentDecisionInput> = {}) {
     projectedTierMovement: 'stable',
     existingOrderStage: 'none',
     trustedZeroStock: false,
-    trustedReorderDue: false,
+    reorderDueKind: 'none',
     ...overrides,
   });
 }

@@ -2871,6 +2871,7 @@ export class EcobaseInventoryPlanningService {
       const supplier = supplierOffer?.supplier;
       rows.set(companyProductId, {
         inventoryAsOfDate: asString(inventory?.snapshotDate),
+        currentPlanningStock: stock?.currentPlanningStock,
         onHandSellableStock: stock?.onHandSellableStock,
         amazonPipelineStock: stock?.amazonPipelineStock,
         supplierPipelineStock,
@@ -2976,6 +2977,9 @@ export class EcobaseInventoryPlanningService {
       },
       inventory: {
         inventoryAsOfDate: asString(operationalRow.inventoryAsOfDate) ?? null,
+        // T3 fix: previously dropped at this boundary, nulling the dashboard stock total
+        // and the stuckCapital KPI money (= stock x unit cost).
+        currentPlanningStock: numeric(operationalRow.currentPlanningStock),
         onHandSellableStock: numeric(operationalRow.onHandSellableStock),
         amazonPipelineStock: numeric(operationalRow.amazonPipelineStock),
         supplierPipelineStock: numeric(operationalRow.supplierPipelineStock),

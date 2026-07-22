@@ -12,10 +12,13 @@ import {
   deriveMoneyRisk,
   deriveReorderTiming,
   independentRecommendedOrderQty,
+  resolveEffectiveVelocity,
   type CorrectedOperationalListingSnapshot,
+  type EffectiveVelocityInput,
   type MoneyRiskInput,
   type ReorderTimingInput,
 } from '../../features/inventory-planning/server/corrected-candidate-builder';
+import type { MonthlyPerformanceEvidence } from '../../features/inventory-planning/server/monthly-performance';
 
 const CALC_DATE = '2026-07-23';
 // Settings snapshot defaults exercised throughout: lead time 30 (default supplier lead time when
@@ -28,6 +31,7 @@ function timing(overrides: Partial<ReorderTimingInput> = {}): ReorderTimingInput
   return {
     calculationDate: CALC_DATE,
     salesVelocity: 2,
+    salesVelocityBasis: 'rolling_30',
     daysOfCover: 10,
     futurePositionStock: 60,
     leadTimeDays: LEAD_TIME_DAYS,
@@ -42,6 +46,7 @@ function moneyRisk(overrides: Partial<MoneyRiskInput> = {}): MoneyRiskInput {
     calculationDate: CALC_DATE,
     applicable: true,
     salesVelocity: 2,
+    salesVelocityBasis: 'rolling_30',
     baselineWeightedProfitPerUnit: 5,
     daysUntilOos: 10,
     positionEstimatedOosDate: '2026-08-02',
@@ -50,6 +55,126 @@ function moneyRisk(overrides: Partial<MoneyRiskInput> = {}): MoneyRiskInput {
     ...overrides,
   };
 }
+
+function evidenceMonth(params: {
+  monthStart: string;
+  monthEnd: string;
+  monthlyUnits: string | null;
+  eligible: boolean;
+}): MonthlyPerformanceEvidence {
+  return {
+    monthStart: params.monthStart,
+    monthEnd: params.monthEnd,
+    eligible: params.eligible,
+    reasonCode: params.eligible ? 'eligible_complete_month' : 'coverage_interval_missing',
+    sourceFactCount: params.eligible ? 1 : 0,
+    monthlyUnits: params.monthlyUnits,
+    monthlyProfit: null,
+    monthlyProfitPerUnit: null,
+    monthlyTierScore: null,
+  };
+}
+
+function velocityInput(overrides: Partial<EffectiveVelocityInput> = {}): EffectiveVelocityInput {
+  return {
+    calculationDate: CALC_DATE,
+    rollingSalesVelocity: null,
+    rollingVelocityWindowEndDate: CALC_DATE,
+    monthlyPerformanceEvidence: [],
+    averageMonthlyUnits: null,
+    sourceAsOfDate: '2026-07-16',
+    ...overrides,
+  };
+}
+
+describe('resolveEffectiveVelocity (F4 fallback ladder)', () => {
+  it('rung 1: trusted rolling velocity always wins and keeps its exact value + window end', () => {
+    const result = resolveEffectiveVelocity(
+      velocityInput({
+        rollingSalesVelocity: '2.00000000',
+        rollingVelocityWindowEndDate: '2026-07-23',
+        monthlyPerformanceEvidence: [
+          evidenceMonth({ monthStart: '2026-06-01', monthEnd: '2026-06-30', monthlyUnits: '300', eligible: true }),
+        ],
+        averageMonthlyUnits: '900.00000000',
+      }),
+    );
+    expect(result).toEqual({
+      salesVelocity: '2.00000000',
+      salesVelocityBasis: 'rolling_30',
+      salesVelocityAsOfDate: '2026-07-23',
+      velocity: 2,
+    });
+  });
+
+  it('rung 1: trusted zero stays zero — real no-sales evidence is never replaced by an estimate', () => {
+    const result = resolveEffectiveVelocity(
+      velocityInput({
+        rollingSalesVelocity: '0.00000000',
+        monthlyPerformanceEvidence: [
+          evidenceMonth({ monthStart: '2026-06-01', monthEnd: '2026-06-30', monthlyUnits: '300', eligible: true }),
+        ],
+      }),
+    );
+    expect(result.salesVelocityBasis).toBe('rolling_30');
+    expect(result.velocity).toBe(0);
+  });
+
+  it('rung 2: picks the MOST RECENT closed eligible month and divides by that month’s real length', () => {
+    const result = resolveEffectiveVelocity(
+      velocityInput({
+        monthlyPerformanceEvidence: [
+          evidenceMonth({ monthStart: '2026-05-01', monthEnd: '2026-05-31', monthlyUnits: '310', eligible: true }),
+          evidenceMonth({ monthStart: '2026-06-01', monthEnd: '2026-06-30', monthlyUnits: '60', eligible: true }),
+          // Ineligible or unit-less months never win, even when newer.
+          evidenceMonth({ monthStart: '2026-07-01', monthEnd: '2026-07-31', monthlyUnits: null, eligible: false }),
+        ],
+        averageMonthlyUnits: '900.00000000',
+      }),
+    );
+    expect(result).toEqual({
+      salesVelocity: '2.00000000', // 60 units / 30 days in June
+      salesVelocityBasis: 'last_closed_month',
+      salesVelocityAsOfDate: '2026-06-30',
+      velocity: 2,
+    });
+  });
+
+  it('rung 2: uses real month lengths (28 units over February 2026 = 1/day)', () => {
+    const result = resolveEffectiveVelocity(
+      velocityInput({
+        monthlyPerformanceEvidence: [
+          evidenceMonth({ monthStart: '2026-02-01', monthEnd: '2026-02-28', monthlyUnits: '28', eligible: true }),
+        ],
+      }),
+    );
+    expect(result.salesVelocity).toBe('1.00000000');
+    expect(result.salesVelocityAsOfDate).toBe('2026-02-28');
+  });
+
+  it('rung 3: falls back to the baseline average over 30 days, as-of source date then calc date', () => {
+    const withSource = resolveEffectiveVelocity(velocityInput({ averageMonthlyUnits: '45.00000000' }));
+    expect(withSource).toEqual({
+      salesVelocity: '1.50000000',
+      salesVelocityBasis: 'baseline_average',
+      salesVelocityAsOfDate: '2026-07-16',
+      velocity: 1.5,
+    });
+    const withoutSource = resolveEffectiveVelocity(
+      velocityInput({ averageMonthlyUnits: '45.00000000', sourceAsOfDate: null }),
+    );
+    expect(withoutSource.salesVelocityAsOfDate).toBe(CALC_DATE);
+  });
+
+  it('rung 4: no rung applies → basis none, velocity null', () => {
+    expect(resolveEffectiveVelocity(velocityInput())).toEqual({
+      salesVelocity: null,
+      salesVelocityBasis: 'none',
+      salesVelocityAsOfDate: null,
+      velocity: null,
+    });
+  });
+});
 
 describe('deriveReorderTiming (F1 stockout dates, F2 order-by, V1 horizon)', () => {
   it('derives sellable and position stockout dates plus the order-by date under trusted velocity', () => {
@@ -62,6 +187,7 @@ describe('deriveReorderTiming (F1 stockout dates, F2 order-by, V1 horizon)', () 
       daysUntilOos: 30,
       latestSafeReorderDate: '2026-07-09',
       daysUntilSafeReorder: -14,
+      reorderDueKind: 'trusted',
       trustedReorderDue: true,
     });
   });
@@ -74,8 +200,27 @@ describe('deriveReorderTiming (F1 stockout dates, F2 order-by, V1 horizon)', () 
       daysUntilOos: null,
       latestSafeReorderDate: null,
       daysUntilSafeReorder: null,
+      reorderDueKind: null,
       trustedReorderDue: false,
     });
+  });
+
+  it('computes identical timing math under a fallback basis but marks due-ness as estimated, never trusted', () => {
+    const estimated = deriveReorderTiming(timing({ salesVelocityBasis: 'last_closed_month' }));
+    expect(estimated).toEqual({
+      estimatedOosDate: '2026-08-02',
+      positionDaysOfCover: 30,
+      positionEstimatedOosDate: '2026-08-22',
+      daysUntilOos: 30,
+      latestSafeReorderDate: '2026-07-09',
+      daysUntilSafeReorder: -14,
+      reorderDueKind: 'estimated',
+      trustedReorderDue: false,
+    });
+    const notDue = deriveReorderTiming(timing({ salesVelocityBasis: 'baseline_average', futurePositionStock: 200 }));
+    expect(notDue.reorderDueKind).toBeNull();
+    expect(notDue.trustedReorderDue).toBe(false);
+    expect(notDue.daysUntilSafeReorder).toBe(56);
   });
 
   it('emits no position runway for trusted-zero velocity (velocity must be > 0)', () => {
@@ -112,7 +257,7 @@ describe('deriveReorderTiming (F1 stockout dates, F2 order-by, V1 horizon)', () 
     expect(withoutBuffer.trustedReorderDue).toBe(false);
   });
 
-  it('parity: trustedReorderDue ⇔ daysUntilSafeReorder <= 0 under trusted velocity (integer and fractional cover)', () => {
+  it('parity: due-kind ⇔ daysUntilSafeReorder <= 0 for trusted AND estimated bases (integer and fractional cover)', () => {
     const cases: Array<{ salesVelocity: number; futurePositionStock: number }> = [
       { salesVelocity: 1, futurePositionStock: 43 },
       { salesVelocity: 1, futurePositionStock: 44 },
@@ -123,9 +268,16 @@ describe('deriveReorderTiming (F1 stockout dates, F2 order-by, V1 horizon)', () 
       { salesVelocity: 7, futurePositionStock: 1 }, // 0.14
     ];
     for (const testCase of cases) {
-      const result = deriveReorderTiming(timing(testCase));
-      expect(result.daysUntilSafeReorder).not.toBeNull();
-      expect(result.trustedReorderDue).toBe((result.daysUntilSafeReorder as number) <= 0);
+      const trusted = deriveReorderTiming(timing(testCase));
+      const due = (trusted.daysUntilSafeReorder as number) <= 0;
+      expect(trusted.daysUntilSafeReorder).not.toBeNull();
+      expect(trusted.trustedReorderDue).toBe(due);
+      expect(trusted.reorderDueKind).toBe(due ? 'trusted' : null);
+
+      const estimated = deriveReorderTiming(timing({ ...testCase, salesVelocityBasis: 'baseline_average' }));
+      expect(estimated.daysUntilSafeReorder).toBe(trusted.daysUntilSafeReorder);
+      expect(estimated.reorderDueKind).toBe(due ? 'estimated' : null);
+      expect(estimated.trustedReorderDue).toBe(false);
     }
   });
 });
@@ -148,7 +300,18 @@ describe('deriveMoneyRisk (F3 money at risk)', () => {
     expect(result.moneyRiskUncoveredDays).toBe(27);
     expect(result.estimatedProfitRisk).toBe(270);
     expect(result.estimatedProfitRiskBasis).toBe('uncovered_days_x_velocity_x_profit_per_unit');
-    expect(result.moneyRiskInputs).toMatchObject({ uncoveredDays: 27, missingInputs: [] });
+    expect(result.moneyRiskInputs).toMatchObject({
+      uncoveredDays: 27,
+      missingInputs: [],
+      salesVelocityBasis: 'rolling_30',
+    });
+  });
+
+  it('computes money for estimated-velocity rows and carries the basis in moneyRiskInputs', () => {
+    const result = deriveMoneyRisk(moneyRisk({ salesVelocityBasis: 'last_closed_month' }));
+    expect(result.moneyRiskStatus).toBe('at_risk');
+    expect(result.estimatedProfitRisk).toBe(270);
+    expect(result.moneyRiskInputs).toMatchObject({ salesVelocityBasis: 'last_closed_month' });
   });
 
   it('reports a covered family (arrival lands before stockout) as zero risk', () => {
@@ -210,6 +373,7 @@ function listingSnapshot(overrides: {
     },
     inventory: {
       inventoryAsOfDate: CALC_DATE,
+      currentPlanningStock: 20,
       onHandSellableStock: 20,
       amazonPipelineStock: 0,
       supplierPipelineStock: 0,

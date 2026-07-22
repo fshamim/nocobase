@@ -35,7 +35,7 @@ function input(overrides: Partial<ReplenishmentDecisionInput> = {}): Replenishme
     projectedTierMovement: 'stable',
     existingOrderStage: 'none',
     trustedZeroStock: false,
-    trustedReorderDue: false,
+    reorderDueKind: 'none',
     ...overrides,
   };
 }
@@ -236,7 +236,7 @@ describe('total replenishment and primary-pane decision', () => {
     ['inbound', 'inboundMonitoring', 'existing_order_inbound'],
   ] as const)('routes eligible %s orders once without creating a new recommendation', (stage, pane, reason) => {
     const result = decideReplenishment(
-      input({ existingOrderStage: stage, trustedZeroStock: true, trustedReorderDue: true }),
+      input({ existingOrderStage: stage, trustedZeroStock: true, reorderDueKind: 'trusted' }),
     );
 
     expect(result).toMatchObject({
@@ -275,9 +275,16 @@ describe('total replenishment and primary-pane decision', () => {
       oosAlertActionable: true,
       supplyActionable: false,
     });
-    expect(decideReplenishment(input({ trustedReorderDue: true }))).toMatchObject({
+    expect(decideReplenishment(input({ reorderDueKind: 'trusted' }))).toMatchObject({
       primaryActionPane: 'supplyAction',
       primaryActionReasonCode: 'trusted_reorder_due',
+      newReplenishmentActionable: true,
+      oosAlertActionable: false,
+      supplyActionable: true,
+    });
+    expect(decideReplenishment(input({ reorderDueKind: 'estimated' }))).toMatchObject({
+      primaryActionPane: 'supplyAction',
+      primaryActionReasonCode: 'estimated_velocity_reorder_due',
       newReplenishmentActionable: true,
       oosAlertActionable: false,
       supplyActionable: true,
@@ -296,11 +303,60 @@ describe('total replenishment and primary-pane decision', () => {
       { baselineConfidence: 'moderate' as const },
       { currentProjectionGateMode: 'evidence_driven' as const, currentProjectedTier: 'D' as const },
     ]) {
-      const result = decideReplenishment(input({ ...overrides, trustedZeroStock: true, trustedReorderDue: true }));
+      const result = decideReplenishment(input({ ...overrides, trustedZeroStock: true, reorderDueKind: 'trusted' }));
       expect(result.newReplenishmentActionable).toBe(false);
       expect(result.oosAlertActionable).toBe(false);
       expect(result.supplyActionable).toBe(false);
     }
+  });
+
+  it('lets an estimated reorder-due row substitute ladder velocity for missing rolling evidence (D2)', () => {
+    expect(
+      decideReplenishment(
+        input({ inventoryDisposition: 'insufficient_velocity_evidence', reorderDueKind: 'estimated' }),
+      ),
+    ).toMatchObject({
+      replenishmentEligibility: 'eligible',
+      primaryActionPane: 'supplyAction',
+      primaryActionReasonCode: 'estimated_velocity_reorder_due',
+      newReplenishmentActionable: true,
+      supplyActionable: true,
+    });
+    // Without the estimated due-kind the velocity-evidence gate still blocks.
+    expect(
+      decideReplenishment(input({ inventoryDisposition: 'insufficient_velocity_evidence', reorderDueKind: 'none' })),
+    ).toMatchObject({
+      replenishmentEligibility: 'blocked_insufficient_evidence',
+      primaryActionPane: 'dataReadiness',
+    });
+    // The gate never softens for a (contradictory) trusted kind either.
+    expect(
+      decideReplenishment(input({ inventoryDisposition: 'insufficient_velocity_evidence', reorderDueKind: 'trusted' })),
+    ).toMatchObject({ replenishmentEligibility: 'blocked_insufficient_evidence' });
+  });
+
+  it('keeps every outranking branch above estimated reorder-due membership', () => {
+    expect(
+      decideReplenishment(input({ inventoryDisposition: 'no_sell_through', reorderDueKind: 'estimated' })),
+    ).toMatchObject({ primaryActionPane: 'stuckInventory', supplyActionable: false });
+    expect(
+      decideReplenishment(input({ inventoryDisposition: 'over_60_days_cover', reorderDueKind: 'estimated' })),
+    ).toMatchObject({ primaryActionPane: 'excessInventory', supplyActionable: false });
+    expect(decideReplenishment(input({ existingOrderStage: 'inbound', reorderDueKind: 'estimated' }))).toMatchObject({
+      primaryActionPane: 'inboundMonitoring',
+      existingOrderFollowUp: true,
+      supplyActionable: false,
+    });
+    expect(decideReplenishment(input({ trustedZeroStock: true, reorderDueKind: 'estimated' }))).toMatchObject({
+      primaryActionPane: 'zeroStock',
+      primaryActionReasonCode: 'trusted_zero_stock',
+      oosAlertActionable: true,
+      supplyActionable: false,
+    });
+    expect(decideReplenishment(input({ baselineTier: 'D', reorderDueKind: 'estimated' }))).toMatchObject({
+      primaryActionPane: 'performanceReview',
+      supplyActionable: false,
+    });
   });
 
   it('is total across the coherent state cross-product with exactly one result and no action leakage', () => {
@@ -359,28 +415,30 @@ describe('total replenishment and primary-pane decision', () => {
             ] as const) {
               for (const currentProjectionGateMode of ['informational', 'evidence_driven'] as const) {
                 for (const existingOrderStage of ['none', 'pre_purchase', 'in_prep', 'inbound'] as const) {
-                  const result = decideReplenishment(
-                    input({
-                      ...baseline,
-                      ...closed,
-                      ...current,
-                      baselineConfidence,
-                      inventoryDisposition,
-                      currentProjectionGateMode,
-                      existingOrderStage,
-                      trustedZeroStock: true,
-                      trustedReorderDue: true,
-                    }),
-                  );
-                  expect(eligibilityValues.has(result.replenishmentEligibility)).toBe(true);
-                  expect(typeof result.primaryActionPane).toBe('string');
-                  expect(typeof result.primaryActionReasonCode).toBe('string');
-                  if (result.replenishmentEligibility !== 'eligible') {
-                    expect(result.newReplenishmentActionable).toBe(false);
-                    expect(result.oosAlertActionable).toBe(false);
-                    expect(result.supplyActionable).toBe(false);
+                  for (const reorderDueKind of ['none', 'trusted', 'estimated'] as const) {
+                    const result = decideReplenishment(
+                      input({
+                        ...baseline,
+                        ...closed,
+                        ...current,
+                        baselineConfidence,
+                        inventoryDisposition,
+                        currentProjectionGateMode,
+                        existingOrderStage,
+                        trustedZeroStock: true,
+                        reorderDueKind,
+                      }),
+                    );
+                    expect(eligibilityValues.has(result.replenishmentEligibility)).toBe(true);
+                    expect(typeof result.primaryActionPane).toBe('string');
+                    expect(typeof result.primaryActionReasonCode).toBe('string');
+                    if (result.replenishmentEligibility !== 'eligible') {
+                      expect(result.newReplenishmentActionable).toBe(false);
+                      expect(result.oosAlertActionable).toBe(false);
+                      expect(result.supplyActionable).toBe(false);
+                    }
+                    examined += 1;
                   }
-                  examined += 1;
                 }
               }
             }
@@ -388,6 +446,6 @@ describe('total replenishment and primary-pane decision', () => {
         }
       }
     }
-    expect(examined).toBe(32256);
+    expect(examined).toBe(96768);
   });
 });
