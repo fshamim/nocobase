@@ -27,6 +27,7 @@ function sha(value: string) {
 function decision(overrides: Partial<ReplenishmentDecisionInput> = {}) {
   return decideReplenishment({
     administrativelyExcluded: false,
+    lifecycleDiscontinuedOrPaused: false,
     hasFrozenTarget: true,
     targetSelectionState: 'automatic',
     identityEvidenceValid: true,

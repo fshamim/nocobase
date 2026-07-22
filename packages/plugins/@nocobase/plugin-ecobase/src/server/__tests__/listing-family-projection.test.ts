@@ -10,6 +10,7 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
+  deriveListingReviewCategories,
   buildCorrectedGoldProjection,
   correctedFamilyActionProjectionDigest,
   correctedListingRowDigest,
@@ -29,6 +30,7 @@ function sha256(value: string) {
 function decision(eligible: boolean) {
   return decideReplenishment({
     administrativelyExcluded: false,
+    lifecycleDiscontinuedOrPaused: false,
     hasFrozenTarget: true,
     targetSelectionState: 'automatic',
     identityEvidenceValid: true,
@@ -163,9 +165,7 @@ describe('corrected listing and frozen-target family projection', () => {
       Object.fromEntries(
         Object.entries(row).map(([field, value]) => [
           field,
-          typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
-            ? new Date(`${value}T00:00:00.000Z`)
-            : value,
+          typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T00:00:00.000Z`) : value,
         ]),
       ),
     ) as unknown as CorrectedListingPerformanceRow[];
@@ -458,5 +458,18 @@ describe('corrected listing and frozen-target family projection', () => {
         expectedFamilyActionCount: 1919,
       }),
     ).toThrow('review family must keep targetCompanyProductId null');
+  });
+
+  it('tolerates the discontinuedPaused pane value without crashing or misfiling (task 002 old-page tolerance)', () => {
+    // The legacy Inventory Planning page filters rows by strict pane-name
+    // equality across its 11 panes; a discontinuedPaused row simply matches
+    // none of them (invisible on the legacy page — acceptable; crash is not).
+    const categories = deriveListingReviewCategories({
+      primaryActionPane: 'discontinuedPaused',
+      baselineState: 'no_movement',
+      replenishmentEligibility: 'excluded_discontinued',
+    });
+    expect(categories).not.toContain('data_readiness');
+    expect(Array.isArray(categories)).toBe(true);
   });
 });

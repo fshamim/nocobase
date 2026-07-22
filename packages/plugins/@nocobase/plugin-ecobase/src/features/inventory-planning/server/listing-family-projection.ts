@@ -186,7 +186,10 @@ export interface CorrectedGoldProjectionResult {
 export class CorrectedGoldProjectionError extends Error {
   readonly code = 'ECOBASE_GOLD_PROJECTION_CONTRACT_VIOLATION';
 
-  constructor(message: string, readonly details: Record<string, unknown> = {}) {
+  constructor(
+    message: string,
+    readonly details: Record<string, unknown> = {},
+  ) {
     super(message);
     this.name = 'CorrectedGoldProjectionError';
   }
@@ -329,7 +332,7 @@ const PERSISTED_DATE_ONLY_FIELDS = new Set([
 ]);
 
 function canonicalPersistedListingRow(row: CorrectedListingPerformanceRow) {
-  return (Object.fromEntries(
+  return Object.fromEntries(
     Object.entries(row).map(([field, value]) => {
       if (!(value instanceof Date)) return [field, value];
       if (Number.isNaN(value.getTime())) {
@@ -341,7 +344,7 @@ function canonicalPersistedListingRow(row: CorrectedListingPerformanceRow) {
       const iso = value.toISOString();
       return [field, PERSISTED_DATE_ONLY_FIELDS.has(field) ? iso.slice(0, 10) : iso];
     }),
-  ) as unknown) as CorrectedListingPerformanceRow;
+  ) as unknown as CorrectedListingPerformanceRow;
 }
 
 export function derivePersistedCorrectedCandidateEvidence(
@@ -428,6 +431,9 @@ function correctedFamilyAction(
       `EcoBase corrected Gold projection review family must keep targetCompanyProductId null (${snapshot.familyKey}).`,
     );
   }
+  // Task 002: a fully discontinued/paused family must not fall back into Data
+  // Readiness review — it belongs to the visible discontinuedPaused pane.
+  const allMembersDiscontinued = sortedMembers.every((member) => member.primaryActionPane === 'discontinuedPaused');
   const decision = target
     ? {
         primaryActionPane: target.primaryActionPane,
@@ -440,17 +446,29 @@ function correctedFamilyAction(
         oosAlertActionable: target.oosAlertActionable,
         supplyActionable: target.supplyActionable,
       }
-    : {
-        primaryActionPane: 'dataReadiness',
-        primaryActionReasonCode: 'frozen_family_target_review',
-        replenishmentEligibility: 'review_missing_target',
-        replenishmentBlockReasonCode: 'review_missing_target',
-        existingOrderFollowUp: false,
-        existingOrderFollowUpAction: 'none',
-        newReplenishmentActionable: false,
-        oosAlertActionable: false,
-        supplyActionable: false,
-      };
+    : allMembersDiscontinued
+      ? {
+          primaryActionPane: 'discontinuedPaused',
+          primaryActionReasonCode: 'lifecycle_discontinued_or_paused',
+          replenishmentEligibility: 'excluded_discontinued',
+          replenishmentBlockReasonCode: 'excluded_discontinued',
+          existingOrderFollowUp: false,
+          existingOrderFollowUpAction: 'none',
+          newReplenishmentActionable: false,
+          oosAlertActionable: false,
+          supplyActionable: false,
+        }
+      : {
+          primaryActionPane: 'dataReadiness',
+          primaryActionReasonCode: 'frozen_family_target_review',
+          replenishmentEligibility: 'review_missing_target',
+          replenishmentBlockReasonCode: 'review_missing_target',
+          existingOrderFollowUp: false,
+          existingOrderFollowUpAction: 'none',
+          newReplenishmentActionable: false,
+          oosAlertActionable: false,
+          supplyActionable: false,
+        };
   const alternateRecommendationCompanyProductIds =
     target && target.replenishmentEligibility !== 'eligible'
       ? sortedMembers
@@ -608,44 +626,42 @@ export function buildCorrectedGoldProjection(input: CorrectedGoldProjectionInput
     listingById.set(companyProductId, listing);
   }
 
-  const listingRows = [...input.listings].sort(compareListings).map(
-    (listing): CorrectedListingPerformanceRow => {
-      const cloned = structuredClone(listing) as CorrectedListingPerformanceInput;
-      const { replenishmentDecision, ...performance } = cloned;
-      const cleanPerformance = omitObsoleteInventoryPlanningRowFields(performance);
-      const naturalKey = `${runId}:listing:${digest(normalizedIdentity(listing))}`;
-      const performanceRow = {
-        ...cleanPerformance,
-        productCoverageDigest: sha256Digest(
-          listing.productCoverageDigest,
-          `listing.${listing.companyProductId}.productCoverageDigest`,
-        ),
-        naturalKey,
-        refreshRunId: runId,
-        calculationDate,
-        ruleVersion: CORRECTED_TIER_RULE_VERSION,
-        algorithmContractVersion: CORRECTED_ALGORITHM_CONTRACT_VERSION,
-        currentProjectionGateMode: input.currentProjectionGateMode,
-        resolvedPlanningSettingsDigest,
-        sourceCoverageDigest,
-        sourceInputDigest,
-        protectedSilverFingerprint,
-        candidateInputDigest,
-        ...replenishmentDecision,
-      };
-      const correctedRow = {
-        ...performanceRow,
-        listingReviewCategories: deriveListingReviewCategories(performanceRow),
-      };
-      return {
-        ...Object.fromEntries(
-          CORRECTED_INVENTORY_PLANNING_ROW_FIELDS.map((field) => [field, correctedRow[field] ?? null]),
-        ),
-        naturalKey,
-        refreshRunId: runId,
-      } as CorrectedListingPerformanceRow;
-    },
-  );
+  const listingRows = [...input.listings].sort(compareListings).map((listing): CorrectedListingPerformanceRow => {
+    const cloned = structuredClone(listing) as CorrectedListingPerformanceInput;
+    const { replenishmentDecision, ...performance } = cloned;
+    const cleanPerformance = omitObsoleteInventoryPlanningRowFields(performance);
+    const naturalKey = `${runId}:listing:${digest(normalizedIdentity(listing))}`;
+    const performanceRow = {
+      ...cleanPerformance,
+      productCoverageDigest: sha256Digest(
+        listing.productCoverageDigest,
+        `listing.${listing.companyProductId}.productCoverageDigest`,
+      ),
+      naturalKey,
+      refreshRunId: runId,
+      calculationDate,
+      ruleVersion: CORRECTED_TIER_RULE_VERSION,
+      algorithmContractVersion: CORRECTED_ALGORITHM_CONTRACT_VERSION,
+      currentProjectionGateMode: input.currentProjectionGateMode,
+      resolvedPlanningSettingsDigest,
+      sourceCoverageDigest,
+      sourceInputDigest,
+      protectedSilverFingerprint,
+      candidateInputDigest,
+      ...replenishmentDecision,
+    };
+    const correctedRow = {
+      ...performanceRow,
+      listingReviewCategories: deriveListingReviewCategories(performanceRow),
+    };
+    return {
+      ...Object.fromEntries(
+        CORRECTED_INVENTORY_PLANNING_ROW_FIELDS.map((field) => [field, correctedRow[field] ?? null]),
+      ),
+      naturalKey,
+      refreshRunId: runId,
+    } as CorrectedListingPerformanceRow;
+  });
   const projectedListingById = new Map(listingRows.map((row) => [row.companyProductId, row]));
 
   const familyKeys = new Set<string>();

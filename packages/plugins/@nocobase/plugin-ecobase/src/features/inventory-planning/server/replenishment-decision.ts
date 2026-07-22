@@ -23,6 +23,7 @@ export type ExistingOrderFollowUpAction = 'follow_up_existing_order' | 'none';
 
 export type ReplenishmentEligibility =
   | 'excluded'
+  | 'excluded_discontinued'
   | 'review_missing_target'
   | 'blocked_stuck_inventory'
   | 'blocked_excess_inventory'
@@ -47,6 +48,7 @@ export type ReplenishmentBlockReasonCode =
 
 export type PrimaryActionPane =
   | 'adminExcluded'
+  | 'discontinuedPaused'
   | 'supplyAction'
   | 'activeOrders'
   | 'inPrepMonitoring'
@@ -61,6 +63,7 @@ export type PrimaryActionPane =
 
 export type PrimaryActionReasonCode =
   | 'administrative_exclusion'
+  | 'lifecycle_discontinued_or_paused'
   | 'frozen_family_target_review'
   | 'trusted_no_sell_through'
   | 'trusted_over_60_days_cover'
@@ -85,6 +88,8 @@ export type PrimaryActionReasonCode =
 
 export interface ReplenishmentDecisionInput {
   administrativelyExcluded: boolean;
+  /** Task 002: company-product lifecycle is discontinued or paused. */
+  lifecycleDiscontinuedOrPaused: boolean;
   hasFrozenTarget: boolean;
   targetSelectionState: TargetSelectionState;
   identityEvidenceValid: boolean;
@@ -154,6 +159,7 @@ const DISPOSITIONS = new Set<InventoryDisposition>([
 function validateInput(input: ReplenishmentDecisionInput) {
   const booleanValues = [
     input.administrativelyExcluded,
+    input.lifecycleDiscontinuedOrPaused,
     input.hasFrozenTarget,
     input.identityEvidenceValid,
     input.baselineEvidenceValid,
@@ -187,6 +193,17 @@ function validateInput(input: ReplenishmentDecisionInput) {
 function eligibilityDecision(input: ReplenishmentDecisionInput): Decision {
   if (input.administrativelyExcluded) {
     return { precedence: 1, eligibility: 'excluded', pane: 'adminExcluded', reason: 'administrative_exclusion' };
+  }
+  // Task 002 (surgical v1.1): discontinued/paused families generate NO signals
+  // — they route straight to the visible bottom pane before any other rule
+  // (readiness, targets, dispositions, orders) can fire.
+  if (input.lifecycleDiscontinuedOrPaused) {
+    return {
+      precedence: 2,
+      eligibility: 'excluded_discontinued',
+      pane: 'discontinuedPaused',
+      reason: 'lifecycle_discontinued_or_paused',
+    };
   }
   if (!input.hasFrozenTarget || input.targetSelectionState === 'review') {
     return {

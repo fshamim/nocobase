@@ -293,6 +293,9 @@ function independentFamilyActions(
         });
       }
       const representative = members[0] ?? {};
+      // Task 002 mirror of listing-family-projection's discontinued fallback —
+      // the independent verifier must agree or publishes fail verification.
+      const allMembersDiscontinued = members.every((member) => member.primaryActionPane === 'discontinuedPaused');
       const decision = target
         ? {
             primaryActionPane: target.primaryActionPane,
@@ -305,17 +308,29 @@ function independentFamilyActions(
             oosAlertActionable: target.oosAlertActionable,
             supplyActionable: target.supplyActionable,
           }
-        : {
-            primaryActionPane: 'dataReadiness',
-            primaryActionReasonCode: 'frozen_family_target_review',
-            replenishmentEligibility: 'review_missing_target',
-            replenishmentBlockReasonCode: 'review_missing_target',
-            existingOrderFollowUp: false,
-            existingOrderFollowUpAction: 'none',
-            newReplenishmentActionable: false,
-            oosAlertActionable: false,
-            supplyActionable: false,
-          };
+        : allMembersDiscontinued
+          ? {
+              primaryActionPane: 'discontinuedPaused',
+              primaryActionReasonCode: 'lifecycle_discontinued_or_paused',
+              replenishmentEligibility: 'excluded_discontinued',
+              replenishmentBlockReasonCode: 'excluded_discontinued',
+              existingOrderFollowUp: false,
+              existingOrderFollowUpAction: 'none',
+              newReplenishmentActionable: false,
+              oosAlertActionable: false,
+              supplyActionable: false,
+            }
+          : {
+              primaryActionPane: 'dataReadiness',
+              primaryActionReasonCode: 'frozen_family_target_review',
+              replenishmentEligibility: 'review_missing_target',
+              replenishmentBlockReasonCode: 'review_missing_target',
+              existingOrderFollowUp: false,
+              existingOrderFollowUpAction: 'none',
+              newReplenishmentActionable: false,
+              oosAlertActionable: false,
+              supplyActionable: false,
+            };
       const alternateRecommendationCompanyProductIds =
         target && target.replenishmentEligibility !== 'eligible'
           ? members
@@ -412,9 +427,7 @@ export async function referenceProtectedSilverFingerprint(db: EcobaseDatabase, t
   const fingerprints: Record<string, string> = {};
   for (const collection of PROTECTED_SILVER_COLLECTIONS) {
     const repository = db.getRepository(collection) as unknown as ReferenceRepository;
-    const rows = (
-      await readAllRowsById({ repository, collectionName: collection, transaction })
-    )
+    const rows = (await readAllRowsById({ repository, collectionName: collection, transaction }))
       .map((row) => protectedRow(record(row)))
       .sort((left, right) => compareText(canonical(left), canonical(right)));
     fingerprints[collection] = digest(rows);
@@ -821,8 +834,6 @@ export class EcobaseIndependentGoldReferenceVerifier {
 
   private async rows(collection: string, transaction?: unknown) {
     const repository = this.db.getRepository(collection) as unknown as ReferenceRepository;
-    return (
-      await readAllRowsById({ repository, collectionName: collection, transaction })
-    ).map(record);
+    return (await readAllRowsById({ repository, collectionName: collection, transaction })).map(record);
   }
 }

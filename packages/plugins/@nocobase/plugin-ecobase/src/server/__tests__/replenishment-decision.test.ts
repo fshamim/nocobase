@@ -16,6 +16,7 @@ import {
 function input(overrides: Partial<ReplenishmentDecisionInput> = {}): ReplenishmentDecisionInput {
   return {
     administrativelyExcluded: false,
+    lifecycleDiscontinuedOrPaused: false,
     hasFrozenTarget: true,
     targetSelectionState: 'automatic',
     identityEvidenceValid: true,
@@ -42,6 +43,13 @@ function input(overrides: Partial<ReplenishmentDecisionInput> = {}): Replenishme
 describe('total replenishment and primary-pane decision', () => {
   it.each([
     [1, { administrativelyExcluded: true }, 'excluded', 'adminExcluded', 'administrative_exclusion'],
+    [
+      2,
+      { lifecycleDiscontinuedOrPaused: true },
+      'excluded_discontinued',
+      'discontinuedPaused',
+      'lifecycle_discontinued_or_paused',
+    ],
     [2, { hasFrozenTarget: false }, 'review_missing_target', 'dataReadiness', 'frozen_family_target_review'],
     [2, { targetSelectionState: 'review' }, 'review_missing_target', 'dataReadiness', 'frozen_family_target_review'],
     [

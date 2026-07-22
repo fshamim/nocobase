@@ -50,6 +50,9 @@ export default defineCollection({
       onDelete: 'CASCADE',
     },
     { name: 'lifecycleStatus', type: 'string', allowNull: false, defaultValue: 'candidate_new_product' },
+    // Task 002 (surgical v1.1): who/what set the lifecycle status, with the
+    // previous value for full reversibility (e.g. migration_sweep_2026_07).
+    { name: 'lifecycleStatusProvenance', type: 'jsonb' },
     { name: 'listingStatus', type: 'string', allowNull: false, defaultValue: 'not_listed' },
     { name: 'planningExcluded', type: 'boolean', allowNull: false, defaultValue: false },
     { name: 'reorderCycleDays', type: 'integer' },

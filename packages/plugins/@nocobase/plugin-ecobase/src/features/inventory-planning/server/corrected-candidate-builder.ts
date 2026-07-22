@@ -563,8 +563,14 @@ function listingInput(
     velocity > 0 &&
     futurePosition !== null &&
     futurePosition / velocity <= listing.planning.leadTimeDays + listing.planning.safetyBufferDays;
+  // Task 002 plumbing: lifecycle comes from identity.productStatus (companyProduct
+  // lifecycleStatus); discontinued/paused must NOT be swallowed by the legacy
+  // planning-excluded mapping so the visible pane branch can fire.
+  const lifecycleStatus = (listing.identity.productStatus ?? '').trim().toLowerCase();
+  const lifecycleDiscontinuedOrPaused = lifecycleStatus === 'discontinued' || lifecycleStatus === 'paused';
   const decision = decideReplenishment({
-    administrativelyExcluded: listing.planning.planningExcluded,
+    administrativelyExcluded: listing.planning.planningExcluded && !lifecycleDiscontinuedOrPaused,
+    lifecycleDiscontinuedOrPaused,
     hasFrozenTarget: isFrozenTarget,
     targetSelectionState: isFrozenTarget ? 'automatic' : 'review',
     identityEvidenceValid: true,
