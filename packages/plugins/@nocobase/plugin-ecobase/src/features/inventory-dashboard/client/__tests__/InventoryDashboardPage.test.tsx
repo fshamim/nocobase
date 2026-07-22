@@ -162,7 +162,7 @@ describe('InventoryDashboardPage (Gate G2)', () => {
     expect(paneRequests()).toHaveLength(1);
     const [args] = paneRequests('supplyAction')[0];
     expect(args.data.runId).toBe(headerFixture.publishedRunId);
-    expect(await screen.findByText('SKU-f9b-supply-null-risk')).toBeTruthy();
+    expect(await screen.findByText('B0009B')).toBeTruthy();
   });
 
   it('deep-links a KPI tile to its un-fetched pane and focuses the pane heading (REQ-H6)', async () => {
@@ -211,7 +211,7 @@ describe('InventoryDashboardPage (Gate G2)', () => {
     expect(await screen.findByText('Failed to load: boom')).toBeTruthy();
     mockApi(); // subsequent calls succeed
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-    expect(await screen.findByText('SKU-f9b-supply-null-risk')).toBeTruthy();
+    expect(await screen.findByText('B0009B')).toBeTruthy();
   });
 
   it('renders the contradictory (gold in-prep vs silver inbound) row verbatim in its served pane with a stale badge', async () => {
@@ -226,7 +226,10 @@ describe('InventoryDashboardPage (Gate G2)', () => {
 
   it('REQ-X6: no non-badge literal repeats in >80% of rows; at most one badge cluster per row', async () => {
     renderPage(observeAll);
-    const targetPanes = ['supplyAction', 'inPrepMonitoring', 'inboundMonitoring', 'performanceReview'];
+    // T7: supplyAction now follows the approved v2 mockup (pill-rich widgets,
+    // static sub-labels per cell) — the v1 single-badge-cluster rule is
+    // superseded for THAT pane only; it still guards every other pane.
+    const targetPanes = ['inPrepMonitoring', 'inboundMonitoring', 'performanceReview'];
     for (const pane of targetPanes) {
       await waitFor(() =>
         expect(
@@ -364,7 +367,7 @@ describe('InventoryDashboardPage (Gate G2)', () => {
     // render: assert the flow now continues into a pinned pane fetch.
     await waitFor(() => expect(paneRequests('supplyAction')).toHaveLength(1));
     expect(paneRequests('supplyAction')[0][0].data.runId).toBe(headerFixture.publishedRunId);
-    expect(await screen.findByText('SKU-f9b-supply-null-risk')).toBeTruthy();
+    expect(await screen.findByText('B0009B')).toBeTruthy();
   });
 
   it('regression: malformed header payload becomes a retryable error state, never a crash', async () => {

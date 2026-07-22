@@ -7,6 +7,7 @@
   "familyMembers": [
     {
       "listingRowId": "f-disc-a",
+      "companyProductId": "cp-disc-a",
       "asin": "B0030A",
       "sku": "SKU-f-disc-a",
       "pane": "discontinuedPaused",
@@ -14,6 +15,7 @@
     },
     {
       "listingRowId": "f-disc-b",
+      "companyProductId": "cp-disc-b",
       "asin": "B0030B",
       "sku": "SKU-f-disc-b",
       "pane": "discontinuedPaused",

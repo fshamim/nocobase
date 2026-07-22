@@ -32,6 +32,8 @@ import PaneSection, {
 import { PANE_CONFIGS } from './pane-configs';
 import { TEXT } from './dashboard-text';
 import { DASHBOARD_TOKENS } from './dashboard-tokens';
+import type { PaneRenderContext } from './widgets/render-context';
+import { SyncStateProvider, useSyncState } from './widgets/SyncState';
 
 const SEARCH_DEBOUNCE_MS = 300;
 const SLOW_HEADER_HINT_MS = 10_000;
@@ -46,7 +48,7 @@ export interface InventoryDashboardPageProps {
   onPaneRender?: (pane: PaneKey) => void;
 }
 
-const InventoryDashboardPage: React.FC<InventoryDashboardPageProps> = ({
+const InventoryDashboardPageInner: React.FC<InventoryDashboardPageProps> = ({
   observeVisibility = defaultObserveVisibility,
   onPaneRender,
 }) => {
@@ -167,6 +169,32 @@ const InventoryDashboardPage: React.FC<InventoryDashboardPageProps> = ({
   const runId = header?.publishedRunId ?? '';
   const frozen = supersededBy !== null;
 
+  // T7 (W5): a NEW published run means every pending edit has landed in gold.
+  const syncState = useSyncState();
+  const { onRunChanged } = syncState;
+  useEffect(() => {
+    onRunChanged(runId);
+  }, [onRunChanged, runId]);
+
+  const renderContext = useMemo<PaneRenderContext>(
+    () => ({
+      api,
+      runId,
+      fbaReceivingBufferDays: header?.settings?.fbaReceivingBufferDays ?? null,
+      pendingFamilies: syncState.pendingFamilies,
+      markPending: syncState.markPending,
+      onMutated: onDrawerMutated,
+    }),
+    [
+      api,
+      runId,
+      header?.settings?.fbaReceivingBufferDays,
+      syncState.pendingFamilies,
+      syncState.markPending,
+      onDrawerMutated,
+    ],
+  );
+
   return (
     <div>
       <Space
@@ -257,6 +285,7 @@ const InventoryDashboardPage: React.FC<InventoryDashboardPageProps> = ({
               t={t}
               onRowClick={onRowClick}
               onRender={onPaneRender}
+              renderContext={renderContext}
             />
           ))
         : null}
@@ -273,5 +302,12 @@ const InventoryDashboardPage: React.FC<InventoryDashboardPageProps> = ({
     </div>
   );
 };
+
+/** T7: the W5 sync registry wraps the page (cleared whenever the published run changes). */
+const InventoryDashboardPage: React.FC<InventoryDashboardPageProps> = (props) => (
+  <SyncStateProvider>
+    <InventoryDashboardPageInner {...props} />
+  </SyncStateProvider>
+);
 
 export default InventoryDashboardPage;

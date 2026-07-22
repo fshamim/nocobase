@@ -57,6 +57,8 @@ export interface DashboardHeader {
   calculationDate: string | null;
   dataFreshness: DataFreshness;
   tiles: DashboardHeaderTile[];
+  /** T7: display-relevant planning settings — the client never hardcodes these. */
+  settings: { fbaReceivingBufferDays: number };
 }
 
 /** Family/product identity carried by every row (nulls stay null). */
@@ -288,6 +290,8 @@ export interface DrawerContextResponse {
   /** All member listings of the family and the pane each currently sits in (§4.8). */
   familyMembers: Array<{
     listingRowId: string;
+    /** T7/T8b: mutation payload identity (setFamilyTarget / createPlannedOrder) — never rendered. */
+    companyProductId: string | null;
     asin: string | null;
     sku: string | null;
     pane: PaneKey;

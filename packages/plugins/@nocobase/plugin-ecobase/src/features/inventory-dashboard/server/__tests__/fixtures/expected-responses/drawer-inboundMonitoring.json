@@ -7,6 +7,7 @@
   "familyMembers": [
     {
       "listingRowId": "f2a-inbound-null-null",
+      "companyProductId": null,
       "asin": "B0002A",
       "sku": "SKU-f2a-inbound-null-null",
       "pane": "inboundMonitoring",

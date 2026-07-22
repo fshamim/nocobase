@@ -14,14 +14,15 @@
  * verbatim — membership and statuses all come from the API.
  */
 
-import { Alert, Button, Input, Space, Spin, Table, Typography } from 'antd';
+import { Alert, Button, Input, Space, Spin, Table, Tag, Typography } from 'antd';
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import type { DashboardRow, PaneResponse, PaneResult } from '../server/contract';
 import { isRunSuperseded } from '../server/contract';
 import { TEXT } from './dashboard-text';
-import { DASHBOARD_TOKENS } from './dashboard-tokens';
+import { DASHBOARD_TAG_COLORS, DASHBOARD_TOKENS } from './dashboard-tokens';
 import type { PaneConfig } from './pane-configs';
-import type { Translate } from './format';
+import { formatMoney, type Translate } from './format';
+import type { PaneRenderContext } from './widgets/render-context';
 
 export type ObserveVisibility = (element: Element, onVisible: () => void) => () => void;
 
@@ -74,6 +75,8 @@ export interface PaneSectionProps {
   onRowClick?: (row: DashboardRow, trigger: HTMLElement | null) => void;
   /** Test probe (render-isolation assertion): called on every render of this section. */
   onRender?: (pane: PaneConfig['pane']) => void;
+  /** T7: extra context for the Supply Action v2 cell renderers (api, sync registry, settings). */
+  renderContext?: PaneRenderContext;
 }
 
 type PaneLoadState =
@@ -96,6 +99,7 @@ function PaneSectionInner(props: PaneSectionProps, ref: React.Ref<PaneSectionHan
     t,
     onRowClick,
     onRender,
+    renderContext,
   } = props;
   onRender?.(config.pane);
   const pageSize = props.pageSize ?? 25;
@@ -187,8 +191,15 @@ function PaneSectionInner(props: PaneSectionProps, ref: React.Ref<PaneSectionHan
   const columns = config.columns.map((column) => ({
     key: column.key,
     title: t(column.titleKey),
-    render: (_: unknown, row: DashboardRow) => column.render(row, t),
+    render: (_: unknown, row: DashboardRow) => column.render(row, t, renderContext),
   }));
+  // T7 (mockup header strip): "N need ordering" + "€X at risk" pills.
+  const needOrdering =
+    config.pane === 'supplyAction'
+      ? response?.metrics?.find((metric) => metric.key === 'familiesNeedingOrder')
+      : undefined;
+  const paneMoney =
+    config.pane === 'supplyAction' ? response?.metrics?.find((metric) => metric.key === 'moneyAtRisk') : undefined;
 
   return (
     <section
@@ -211,6 +222,16 @@ function PaneSectionInner(props: PaneSectionProps, ref: React.Ref<PaneSectionHan
             <Typography.Text type="secondary">{`${t(TEXT.metricRows)}: ${
               response.pagination?.total ?? 0
             }`}</Typography.Text>
+            {needOrdering && typeof needOrdering.value === 'number' && needOrdering.value > 0 ? (
+              <Tag color={DASHBOARD_TAG_COLORS.danger} style={{ borderRadius: 999, fontWeight: 600 }}>
+                {`${needOrdering.value} ${t(TEXT.metricNeedOrdering)}`}
+              </Tag>
+            ) : null}
+            {paneMoney && typeof paneMoney.value === 'number' && paneMoney.value > 0 ? (
+              <Tag color={DASHBOARD_TAG_COLORS.warning} style={{ borderRadius: 999, fontWeight: 600 }}>
+                {`${formatMoney(paneMoney.value, t)} ${t(TEXT.metricAtRiskSuffix)}`}
+              </Tag>
+            ) : null}
             {(response.metrics ?? [])
               .filter((metric) => metric.key === 'tieredNeedingAttention' && metric.value !== null)
               .map((metric) => (

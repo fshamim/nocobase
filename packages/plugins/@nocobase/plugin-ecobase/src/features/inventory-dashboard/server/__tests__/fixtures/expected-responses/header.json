@@ -43,5 +43,8 @@
       "currency": "EUR",
       "targetPane": "stuckInventory"
     }
-  ]
+  ],
+  "settings": {
+    "fbaReceivingBufferDays": 7
+  }
 }

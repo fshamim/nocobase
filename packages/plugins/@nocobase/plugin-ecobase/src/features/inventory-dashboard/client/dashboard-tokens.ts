@@ -37,6 +37,8 @@ export const TIER_TAG_COLOR: Record<string, DashboardTagColor> = {
   a: DASHBOARD_TAG_COLORS.ok,
   b: DASHBOARD_TAG_COLORS.info,
   c: DASHBOARD_TAG_COLORS.warning,
+  // T7 (X2): tier D added this phase — neutral gray.
+  d: DASHBOARD_TAG_COLORS.neutral,
 };
 
 export const BUFFER_TAG_COLOR = {

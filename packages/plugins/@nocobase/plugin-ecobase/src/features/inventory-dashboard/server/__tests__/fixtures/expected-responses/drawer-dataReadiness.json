@@ -7,6 +7,7 @@
   "familyMembers": [
     {
       "listingRowId": "f-readiness",
+      "companyProductId": null,
       "asin": "B0017",
       "sku": "SKU-f-readiness",
       "pane": "dataReadiness",

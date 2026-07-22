@@ -7,6 +7,7 @@
   "familyMembers": [
     {
       "listingRowId": "f1a-inprep-followup",
+      "companyProductId": null,
       "asin": "B0001A",
       "sku": "SKU-1A",
       "pane": "inPrepMonitoring",

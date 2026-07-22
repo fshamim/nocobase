@@ -53,7 +53,14 @@ import { PublishedGoldReader, type DashboardDatabase } from './published-gold-re
 import { dashboardWorkflowStageForStatus, isDirectShipFba } from './workflow-stage';
 
 const ORDER_PANES: ReadonlySet<PaneKey> = new Set<PaneKey>(['activeOrders', 'inPrepMonitoring', 'inboundMonitoring']);
-const SORTABLE_KEYS = new Set(['latestSafeReorderDate', 'estimatedOosDate', 'daysOfCover', 'estimatedProfitRisk']);
+const SORTABLE_KEYS = new Set([
+  'latestSafeReorderDate',
+  'estimatedOosDate',
+  'daysOfCover',
+  'estimatedProfitRisk',
+  // T7: the Supply Action v2 table sorts on the exact urgency scalar.
+  'daysUntilSafeReorder',
+]);
 const DEFAULT_PAGE_SIZE = 25;
 const MAX_PAGE_SIZE = 200;
 
@@ -61,6 +68,8 @@ export interface InventoryDashboardServiceOptions {
   now?: Date;
   leadTimeFreshnessDays?: number;
   followUpThresholdHours?: number;
+  /** T7: surfaced to the client via the header settings (never hardcoded there). */
+  fbaReceivingBufferDays?: number;
 }
 
 export class InventoryDashboardValidationError extends Error {
@@ -266,6 +275,7 @@ export class EcobaseInventoryDashboardService {
   private readonly now: Date;
   private readonly leadTimeFreshnessDays: number;
   private readonly followUpThresholdHours: number;
+  private readonly fbaReceivingBufferDays: number;
 
   constructor(
     private readonly db: DashboardDatabase,
@@ -275,12 +285,23 @@ export class EcobaseInventoryDashboardService {
     this.now = options.now ?? new Date();
     this.leadTimeFreshnessDays = options.leadTimeFreshnessDays ?? 60;
     this.followUpThresholdHours = options.followUpThresholdHours ?? 48;
+    this.fbaReceivingBufferDays = options.fbaReceivingBufferDays ?? 7;
+  }
+
+  private headerSettings(): DashboardHeader['settings'] {
+    return { fbaReceivingBufferDays: this.fbaReceivingBufferDays };
   }
 
   async header(request: HeaderRequest = {}): Promise<DashboardHeader> {
     const run = await this.reader.findPublishedRun();
     if (!run) {
-      return { publishedRunId: '', calculationDate: null, dataFreshness: 'unknown', tiles: emptyTiles() };
+      return {
+        publishedRunId: '',
+        calculationDate: null,
+        dataFreshness: 'unknown',
+        tiles: emptyTiles(),
+        settings: this.headerSettings(),
+      };
     }
     const goldRows = await this.reader.findRowsForRun(run.id, request.companyId);
     const projected = this.projectRows(goldRows);
@@ -297,6 +318,7 @@ export class EcobaseInventoryDashboardService {
       calculationDate: run.calculationDate,
       dataFreshness: run.calculationDate ? 'fresh' : 'unknown',
       tiles,
+      settings: this.headerSettings(),
     };
   }
 
@@ -442,6 +464,7 @@ export class EcobaseInventoryDashboardService {
       familyTarget,
       familyMembers: members.map((row) => ({
         listingRowId: row.listingRowId,
+        companyProductId: asString(row.raw.companyProductId),
         asin: asString(row.raw.asin),
         sku: asString(row.raw.sku),
         pane: row.pane,
@@ -763,7 +786,21 @@ export class EcobaseInventoryDashboardService {
     sort: string | undefined,
     direction: 'asc' | 'desc' | undefined,
   ): ProjectedRow[] {
-    const sortKey = sort ?? (pane === 'supplyAction' ? 'latestSafeReorderDate' : undefined);
+    if (!sort && pane === 'supplyAction') {
+      // T7 (REQ-X1): default order — tiered families first, then the exact
+      // urgency scalar ascending, nulls last.
+      return [...rows].sort((left, right) => {
+        const tierDelta = Number(right.tiered) - Number(left.tiered);
+        if (tierDelta !== 0) return tierDelta;
+        const leftValue = sortValue(left.raw.daysUntilSafeReorder);
+        const rightValue = sortValue(right.raw.daysUntilSafeReorder);
+        if (leftValue === null && rightValue === null) return 0;
+        if (leftValue === null) return 1;
+        if (rightValue === null) return -1;
+        return leftValue < rightValue ? -1 : leftValue > rightValue ? 1 : 0;
+      });
+    }
+    const sortKey = sort;
     if (!sortKey) {
       // Task 006: tiered families sort to the TOP of Data Readiness so they
       // are never buried among migration leftovers.
@@ -1250,6 +1287,14 @@ export class EcobaseInventoryDashboardService {
         key: 'tieredNeedingAttention',
         label: 'Tiered families needing attention',
         value: new Set(rows.filter((row) => row.tiered).map((row) => row.familyKey)).size,
+      });
+    }
+    if (pane === 'supplyAction') {
+      // T7 (mockup header strip): ALL pane rows (family grain), not just the page.
+      metrics.push({
+        key: 'familiesNeedingOrder',
+        label: 'need ordering',
+        value: new Set(rows.map((row) => row.familyKey)).size,
       });
     }
     return metrics;

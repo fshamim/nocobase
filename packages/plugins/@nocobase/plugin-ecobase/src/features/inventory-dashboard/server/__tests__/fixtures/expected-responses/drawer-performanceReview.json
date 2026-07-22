@@ -44,6 +44,7 @@
   "familyMembers": [
     {
       "listingRowId": "f8a-band-3-trusted",
+      "companyProductId": null,
       "asin": "B0008A",
       "sku": "SKU-f8a-band-3-trusted",
       "pane": "performanceReview",

@@ -17,138 +17,14 @@
       "key": "unknownMoney",
       "label": "Unknown money inputs",
       "value": 1
+    },
+    {
+      "key": "familiesNeedingOrder",
+      "label": "need ordering",
+      "value": 5
     }
   ],
   "rows": [
-    {
-      "identity": {
-        "familyKey": "family-f9b-supply-null-risk",
-        "listingRowId": "f9b-supply-null-risk",
-        "company": "Acme",
-        "amazonAccountId": "account-acme-us",
-        "marketplace": "Amazon.com",
-        "asin": "B0009B",
-        "sku": "SKU-f9b-supply-null-risk",
-        "title": "Fixture product f9b-supply-null-risk"
-      },
-      "pane": "supplyAction",
-      "tier": {
-        "baseline": "A",
-        "current": "A"
-      },
-      "stock": {
-        "currentPlanningStock": 5,
-        "inventoryPositionStock": 100,
-        "unitCost": 5,
-        "sellableStock": null,
-        "reservedStock": null,
-        "inboundStock": null,
-        "prepStock": null,
-        "orderedStock": null,
-        "awdStock": null,
-        "futurePositionStock": null
-      },
-      "velocity": {
-        "value": null,
-        "basis": null,
-        "asOfDate": null,
-        "evidenceStatus": null
-      },
-      "supplier": {
-        "id": null,
-        "name": null,
-        "leadTimeDays": null,
-        "leadTimeConfirmedAt": "2026-07-01T00:00:00.000Z",
-        "leadTimeFreshness": "fresh"
-      },
-      "profit": {
-        "averageMonthly": null,
-        "bestMonthly": null,
-        "worstMonthly": null,
-        "lastClosedMonth": null,
-        "projectedMonthly": null,
-        "perUnit": null
-      },
-      "daysOfCover": 2,
-      "positionDaysOfCover": null,
-      "estimatedOosDate": "2026-07-23",
-      "positionEstimatedOosDate": null,
-      "latestSafeReorderDate": "2026-07-19",
-      "daysUntilSafeReorder": null,
-      "estimatedProfitRisk": null,
-      "moneyRiskStatus": null,
-      "moneyRiskUncoveredDays": null,
-      "recommendedOrderQty": null,
-      "reasonCodes": [],
-      "velocityTrend": "unknown",
-      "performanceBand": "insufficient_evidence",
-      "lastActivity": null
-    },
-    {
-      "identity": {
-        "familyKey": "family-13",
-        "listingRowId": "f13a-split-supply",
-        "company": "Acme",
-        "amazonAccountId": "account-acme-us",
-        "marketplace": "Amazon.com",
-        "asin": "B0013",
-        "sku": "SKU-13A",
-        "title": "Fixture product f13a-split-supply"
-      },
-      "pane": "supplyAction",
-      "tier": {
-        "baseline": "A",
-        "current": "A"
-      },
-      "stock": {
-        "currentPlanningStock": 8,
-        "inventoryPositionStock": 100,
-        "unitCost": 5,
-        "sellableStock": null,
-        "reservedStock": null,
-        "inboundStock": null,
-        "prepStock": null,
-        "orderedStock": null,
-        "awdStock": null,
-        "futurePositionStock": null
-      },
-      "velocity": {
-        "value": null,
-        "basis": null,
-        "asOfDate": null,
-        "evidenceStatus": null
-      },
-      "supplier": {
-        "id": null,
-        "name": null,
-        "leadTimeDays": null,
-        "leadTimeConfirmedAt": "2026-07-01T00:00:00.000Z",
-        "leadTimeFreshness": "fresh"
-      },
-      "profit": {
-        "averageMonthly": null,
-        "bestMonthly": null,
-        "worstMonthly": null,
-        "lastClosedMonth": null,
-        "projectedMonthly": null,
-        "perUnit": null
-      },
-      "daysOfCover": 4,
-      "positionDaysOfCover": null,
-      "estimatedOosDate": "2026-07-25",
-      "positionEstimatedOosDate": null,
-      "latestSafeReorderDate": "2026-07-22",
-      "daysUntilSafeReorder": null,
-      "estimatedProfitRisk": 300,
-      "moneyRiskStatus": null,
-      "moneyRiskUncoveredDays": null,
-      "recommendedOrderQty": null,
-      "reasonCodes": [],
-      "velocityTrend": "unknown",
-      "performanceBand": "insufficient_evidence",
-      "familySplit": true,
-      "lastActivity": null
-    },
     {
       "identity": {
         "familyKey": "family-f11a-lead-boundary",
@@ -211,6 +87,70 @@
       "reasonCodes": [],
       "velocityTrend": "flat",
       "performanceBand": "within_band",
+      "lastActivity": null
+    },
+    {
+      "identity": {
+        "familyKey": "family-f9b-supply-null-risk",
+        "listingRowId": "f9b-supply-null-risk",
+        "company": "Acme",
+        "amazonAccountId": "account-acme-us",
+        "marketplace": "Amazon.com",
+        "asin": "B0009B",
+        "sku": "SKU-f9b-supply-null-risk",
+        "title": "Fixture product f9b-supply-null-risk"
+      },
+      "pane": "supplyAction",
+      "tier": {
+        "baseline": "A",
+        "current": "A"
+      },
+      "stock": {
+        "currentPlanningStock": 5,
+        "inventoryPositionStock": 100,
+        "unitCost": 5,
+        "sellableStock": null,
+        "reservedStock": null,
+        "inboundStock": null,
+        "prepStock": null,
+        "orderedStock": null,
+        "awdStock": null,
+        "futurePositionStock": null
+      },
+      "velocity": {
+        "value": null,
+        "basis": null,
+        "asOfDate": null,
+        "evidenceStatus": null
+      },
+      "supplier": {
+        "id": null,
+        "name": null,
+        "leadTimeDays": null,
+        "leadTimeConfirmedAt": "2026-07-01T00:00:00.000Z",
+        "leadTimeFreshness": "fresh"
+      },
+      "profit": {
+        "averageMonthly": null,
+        "bestMonthly": null,
+        "worstMonthly": null,
+        "lastClosedMonth": null,
+        "projectedMonthly": null,
+        "perUnit": null
+      },
+      "daysOfCover": 2,
+      "positionDaysOfCover": null,
+      "estimatedOosDate": "2026-07-23",
+      "positionEstimatedOosDate": null,
+      "latestSafeReorderDate": "2026-07-19",
+      "daysUntilSafeReorder": null,
+      "estimatedProfitRisk": null,
+      "moneyRiskStatus": null,
+      "moneyRiskUncoveredDays": null,
+      "recommendedOrderQty": null,
+      "reasonCodes": [],
+      "velocityTrend": "unknown",
+      "performanceBand": "insufficient_evidence",
       "lastActivity": null
     },
     {
@@ -339,6 +279,71 @@
       "reasonCodes": [],
       "velocityTrend": "unknown",
       "performanceBand": "insufficient_evidence",
+      "lastActivity": null
+    },
+    {
+      "identity": {
+        "familyKey": "family-13",
+        "listingRowId": "f13a-split-supply",
+        "company": "Acme",
+        "amazonAccountId": "account-acme-us",
+        "marketplace": "Amazon.com",
+        "asin": "B0013",
+        "sku": "SKU-13A",
+        "title": "Fixture product f13a-split-supply"
+      },
+      "pane": "supplyAction",
+      "tier": {
+        "baseline": "A",
+        "current": "A"
+      },
+      "stock": {
+        "currentPlanningStock": 8,
+        "inventoryPositionStock": 100,
+        "unitCost": 5,
+        "sellableStock": null,
+        "reservedStock": null,
+        "inboundStock": null,
+        "prepStock": null,
+        "orderedStock": null,
+        "awdStock": null,
+        "futurePositionStock": null
+      },
+      "velocity": {
+        "value": null,
+        "basis": null,
+        "asOfDate": null,
+        "evidenceStatus": null
+      },
+      "supplier": {
+        "id": null,
+        "name": null,
+        "leadTimeDays": null,
+        "leadTimeConfirmedAt": "2026-07-01T00:00:00.000Z",
+        "leadTimeFreshness": "fresh"
+      },
+      "profit": {
+        "averageMonthly": null,
+        "bestMonthly": null,
+        "worstMonthly": null,
+        "lastClosedMonth": null,
+        "projectedMonthly": null,
+        "perUnit": null
+      },
+      "daysOfCover": 4,
+      "positionDaysOfCover": null,
+      "estimatedOosDate": "2026-07-25",
+      "positionEstimatedOosDate": null,
+      "latestSafeReorderDate": "2026-07-22",
+      "daysUntilSafeReorder": null,
+      "estimatedProfitRisk": 300,
+      "moneyRiskStatus": null,
+      "moneyRiskUncoveredDays": null,
+      "recommendedOrderQty": null,
+      "reasonCodes": [],
+      "velocityTrend": "unknown",
+      "performanceBand": "insufficient_evidence",
+      "familySplit": true,
       "lastActivity": null
     }
   ],

@@ -11,6 +11,7 @@
   "familyMembers": [
     {
       "listingRowId": "f13a-split-supply",
+      "companyProductId": "cp-13a",
       "asin": "B0013",
       "sku": "SKU-13A",
       "pane": "supplyAction",
@@ -18,6 +19,7 @@
     },
     {
       "listingRowId": "f13b-split-healthy",
+      "companyProductId": "cp-13b",
       "asin": "B0013",
       "sku": "SKU-13B",
       "pane": "healthyInventory",

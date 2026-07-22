@@ -7,6 +7,7 @@
   "familyMembers": [
     {
       "listingRowId": "f9a-stuck-null-cost",
+      "companyProductId": null,
       "asin": "B0009A",
       "sku": "SKU-f9a-stuck-null-cost",
       "pane": "stuckInventory",

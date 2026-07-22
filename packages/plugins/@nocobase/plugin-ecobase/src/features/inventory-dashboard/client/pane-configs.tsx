@@ -16,8 +16,8 @@
  * everything else waits for the drawer. Badges come from served fields only.
  */
 
-import { Tag, Tooltip, Typography } from 'antd';
-import React from 'react';
+import { InputNumber, Tag, Tooltip, Typography } from 'antd';
+import React, { useState } from 'react';
 import type { BufferStatus, DashboardRow, PaneKey, PerformanceBand, VelocityTrend } from '../server/contract';
 import { reasonLabel, TEXT } from './dashboard-text';
 import {
@@ -27,12 +27,27 @@ import {
   TIER_TAG_COLOR,
   TREND_TAG_COLOR,
 } from './dashboard-tokens';
-import { formatDate, formatDays, formatMoney, formatNumber, type Translate } from './format';
+import {
+  daysFromNow,
+  EM_DASH,
+  formatDate,
+  formatDays,
+  formatMoney,
+  formatMonthDay,
+  formatNumber,
+  type Translate,
+} from './format';
+import { ActionPill } from './widgets/ActionPill';
+import { FamilyCell } from './widgets/FamilyCell';
+import type { PaneRenderContext } from './widgets/render-context';
+import { StockBuckets } from './widgets/StockBuckets';
+import { SupplierLeadTime } from './widgets/SupplierLeadTime';
+import { VelocityCover } from './widgets/VelocityCover';
 
 export interface PaneColumnConfig {
   key: string;
   titleKey: string;
-  render: (row: DashboardRow, t: Translate) => React.ReactNode;
+  render: (row: DashboardRow, t: Translate, ctx?: PaneRenderContext) => React.ReactNode;
 }
 
 export interface PaneConfig {
@@ -241,17 +256,101 @@ function signals(options: SignalOptions = {}): PaneColumnConfig {
   return { key: 'signals', titleKey: TEXT.colSignals, render: (row, t) => signalsCell(row, t, options) };
 }
 
+/** T7 (mockup Order-by column): date + relative urgency + supplier line. */
+function orderByCell(row: DashboardRow, t: Translate, ctx?: PaneRenderContext): React.ReactNode {
+  const days = row.daysUntilSafeReorder;
+  const passed = days !== null && days <= 0;
+  const soon = days !== null && days > 0 && days <= 7;
+  const relative =
+    days === null ? null : passed ? t(TEXT.relPassed) : `${t(TEXT.relInPrefix)} ${Math.ceil(days)} ${t(TEXT.dSuffix)}`;
+  return (
+    <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+      {row.latestSafeReorderDate ? (
+        <Typography.Text strong={passed || soon} type={passed ? 'danger' : soon ? 'warning' : undefined}>
+          {formatMonthDay(row.latestSafeReorderDate)}
+          {relative ? ` — ${relative}` : ''}
+        </Typography.Text>
+      ) : (
+        <Typography.Text type="secondary">{EM_DASH}</Typography.Text>
+      )}
+      <span style={{ display: 'block', marginTop: 4 }}>
+        <SupplierLeadTime supplier={row.supplier} fbaReceivingBufferDays={ctx?.fbaReceivingBufferDays ?? null} t={t} />
+      </span>
+    </span>
+  );
+}
+
+/**
+ * T7 (R5): recommended qty + the UI-ONLY growth-target percent. The percent is
+ * component state only — never persisted, never sent to the server.
+ */
+function OrderQtyCell({ row, t }: { row: DashboardRow; t: Translate }) {
+  const [growthPercent, setGrowthPercent] = useState<number>(0);
+  const qty = row.recommendedOrderQty;
+  if (qty === null) return <Typography.Text type="secondary">{EM_DASH}</Typography.Text>;
+  const grown = Math.ceil(qty * (1 + growthPercent / 100));
+  return (
+    <span style={{ fontVariantNumeric: 'tabular-nums', display: 'inline-flex', flexDirection: 'column', gap: 2 }}>
+      <Typography.Text strong style={{ fontSize: 15 }}>
+        {qty}
+      </Typography.Text>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          {t(TEXT.growthTargetPrefix)}
+        </Typography.Text>
+        <InputNumber
+          aria-label={t(TEXT.growthLabel)}
+          size="small"
+          min={0}
+          max={100}
+          value={growthPercent}
+          onChange={(value) => setGrowthPercent(typeof value === 'number' ? value : 0)}
+          formatter={(value) => `+${value ?? 0}%`}
+          style={{ width: 64 }}
+        />
+        {growthPercent > 0 ? (
+          <Typography.Text strong style={{ fontSize: 12 }}>
+            {`→ ${grown}`}
+          </Typography.Text>
+        ) : null}
+      </span>
+    </span>
+  );
+}
+
+/** T7 (R6): money at risk — danger money + stockout-gap note; em-dash when null/0. */
+function moneyAtRiskCell(row: DashboardRow, t: Translate): React.ReactNode {
+  const risk = row.estimatedProfitRisk;
+  if (risk === null || risk === 0) return <Typography.Text type="secondary">{EM_DASH}</Typography.Text>;
+  return (
+    <span style={{ fontVariantNumeric: 'tabular-nums' }}>
+      <Typography.Text strong type="danger">
+        {formatMoney(risk, t)}
+      </Typography.Text>
+      {row.moneyRiskUncoveredDays !== null ? (
+        <Typography.Text type="secondary" style={{ display: 'block', fontSize: 12 }}>
+          {`~${Math.round(row.moneyRiskUncoveredDays)} ${t(TEXT.stockoutGapSuffix)}`}
+        </Typography.Text>
+      ) : null}
+    </span>
+  );
+}
+
 export const PANE_CONFIGS: PaneConfig[] = [
   {
+    // T7: the eight mockup columns — which product → stock → velocity →
+    // when to order → how much → cost of waiting → what was said → what to do.
     pane: 'supplyAction',
     titleKey: TEXT.paneSupplyAction,
     columns: [
-      product,
-      { key: 'reorderBy', titleKey: TEXT.colReorderBy, render: (row, t) => formatDate(row.latestSafeReorderDate, t) },
-      estOos,
-      daysOfCover,
-      profitRisk,
-      signals(),
+      { key: 'family', titleKey: TEXT.colProduct, render: (row, t, ctx) => <FamilyCell row={row} t={t} ctx={ctx} /> },
+      { key: 'stock', titleKey: TEXT.colStock, render: (row, t) => <StockBuckets stock={row.stock} t={t} /> },
+      { key: 'velocity', titleKey: TEXT.colVelocityCover, render: (row, t) => <VelocityCover row={row} t={t} /> },
+      { key: 'orderBy', titleKey: TEXT.colOrderBy, render: orderByCell },
+      { key: 'orderQty', titleKey: TEXT.colOrderQty, render: (row, t) => <OrderQtyCell row={row} t={t} /> },
+      { key: 'moneyAtRisk', titleKey: TEXT.metricMoneyAtRisk, render: moneyAtRiskCell },
+      lastActivity,
+      { key: 'action', titleKey: TEXT.colAction, render: (row, t) => <ActionPill row={row} t={t} /> },
     ],
   },
   {
