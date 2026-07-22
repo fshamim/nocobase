@@ -28,6 +28,7 @@ import {
   OrderSummary,
   PrepDetailsForm,
   ProductSummary,
+  ReactivateForm,
   ReasonList,
   ShipRouteForm,
   StatusForm,
@@ -239,6 +240,7 @@ function paneTitle(pane: PaneKey): string {
     dataReadiness: TEXT.paneDataReadiness,
     performanceReview: TEXT.panePerformanceReview,
     untieredProducts: TEXT.paneUntieredProducts,
+    discontinuedPaused: TEXT.paneDiscontinuedPaused,
   };
   return byPane[pane];
 }
@@ -371,6 +373,13 @@ function DrawerBody({ pane, row, context, run, submitting, t, navigate }: Drawer
       );
     case 'performanceReview':
       return <BandVisual points={context.performanceEvidence} t={t} />;
+    case 'discontinuedPaused':
+      return (
+        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          <ReasonList title={t(TEXT.drawerTierEvidence)} reasons={row.reasonCodes} t={t} />
+          <ReactivateForm familyId={row.identity.familyKey} run={run} submitting={submitting} t={t} />
+        </Space>
+      );
     case 'untieredProducts':
       return (
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>

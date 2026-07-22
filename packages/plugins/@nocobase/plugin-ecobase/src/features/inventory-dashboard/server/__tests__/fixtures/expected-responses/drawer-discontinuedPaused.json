@@ -1,0 +1,51 @@
+{
+  "pane": "discontinuedPaused",
+  "publishedRunId": "run-published-0001",
+  "familyKey": "family-disc",
+  "performanceEvidence": [],
+  "familyMembers": [
+    {
+      "listingRowId": "f-disc-a",
+      "asin": "B0030A",
+      "sku": "SKU-f-disc-a",
+      "pane": "discontinuedPaused"
+    },
+    {
+      "listingRowId": "f-disc-b",
+      "asin": "B0030B",
+      "sku": "SKU-f-disc-b",
+      "pane": "discontinuedPaused"
+    }
+  ],
+  "primaryRow": {
+    "identity": {
+      "familyKey": "family-disc",
+      "listingRowId": "f-disc-a",
+      "company": "Acme",
+      "amazonAccountId": "account-acme-us",
+      "marketplace": "Amazon.com",
+      "asin": "B0030A",
+      "sku": "SKU-f-disc-a",
+      "title": "Fixture product f-disc-a"
+    },
+    "pane": "discontinuedPaused",
+    "tier": {
+      "baseline": null,
+      "current": null
+    },
+    "stock": {
+      "currentPlanningStock": 0,
+      "inventoryPositionStock": 0,
+      "unitCost": 5
+    },
+    "daysOfCover": 40,
+    "estimatedOosDate": null,
+    "latestSafeReorderDate": null,
+    "estimatedProfitRisk": null,
+    "recommendedOrderQty": null,
+    "reasonCodes": [],
+    "velocityTrend": "unknown",
+    "performanceBand": "insufficient_evidence"
+  },
+  "orderRows": []
+}

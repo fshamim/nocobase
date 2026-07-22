@@ -63,6 +63,8 @@ export interface GoldPlanningRowFixture {
   pipelineHealthStatus: string | null;
   leadTimeConfirmedAt: string | null;
   leadTimeFreshness: string | null;
+  companyProductId: string | null;
+  lastClosedMonth: string | null;
   supplierOrderId: string | null;
   supplierId: string | null;
   supplierName: string | null;
@@ -126,6 +128,8 @@ const GOLD_ROW_DEFAULTS: Omit<GoldPlanningRowFixture, 'id' | 'naturalKey' | 'pri
   pipelineHealthStatus: null,
   leadTimeConfirmedAt: '2026-07-01T00:00:00.000Z',
   leadTimeFreshness: 'fresh',
+  companyProductId: null,
+  lastClosedMonth: null,
   supplierOrderId: null,
   supplierId: null,
   supplierName: null,
@@ -470,6 +474,36 @@ export const GOLD_ROWS: GoldPlanningRowFixture[] = [
     projectedMonthlyUnits: 120,
     lastClosedMonthUnits: 100, // +20% -> velocityTrend up
   }),
+  // Task 002: Discontinued & Paused pane — one family, two dead listings.
+  goldRow('f-disc-a', 'discontinuedPaused', {
+    companyProductFamilyId: 'family-disc',
+    companyProductId: 'cp-disc-a',
+    asin: 'B0030A',
+    baselineTier: null,
+    currentProjectedTier: null,
+    lastClosedMonthTier: null,
+    currentPlanningStock: 0,
+    inventoryPositionStock: 0,
+    supplierName: 'Old Supplier Co',
+    lastClosedMonth: '2026-03-01',
+    // Null evidence that WOULD count into staleLeadTimes.unknown if the pane
+    // were not excluded from every KPI tile (asserted via tile equality).
+    leadTimeConfirmedAt: null,
+  }),
+  goldRow('f-disc-b', 'discontinuedPaused', {
+    companyProductFamilyId: 'family-disc',
+    companyProductId: 'cp-disc-b',
+    asin: 'B0030B',
+    baselineTier: null,
+    currentProjectedTier: null,
+    lastClosedMonthTier: null,
+    currentPlanningStock: 0,
+    inventoryPositionStock: 0,
+    supplierName: 'Old Supplier Co',
+    lastClosedMonth: null,
+    leadTimeConfirmedAt: null,
+  }),
+
   goldRow('f-untiered-native', 'untieredProducts', {
     asin: 'B0019',
     baselineTier: null,
@@ -536,6 +570,32 @@ export interface SilverSupplierFixture {
   shipDestination: 'direct_fba' | 'prep_center' | null;
   provenance: FixtureProvenance;
 }
+
+export interface SilverCompanyProductFixture {
+  id: string;
+  companyProductFamilyId: string;
+  lifecycleStatus: string;
+  lifecycleStatusProvenance: Record<string, unknown> | null;
+  provenance: FixtureProvenance;
+}
+
+/** Task 002 fixtures: swept company products with reversible provenance. */
+export const SILVER_COMPANY_PRODUCTS: SilverCompanyProductFixture[] = [
+  {
+    id: 'cp-disc-a',
+    companyProductFamilyId: 'family-disc',
+    lifecycleStatus: 'discontinued',
+    lifecycleStatusProvenance: { kind: 'migration_sweep_2026_07', previousStatus: 'candidate_new_product' },
+    provenance: 'synthetic',
+  },
+  {
+    id: 'cp-disc-b',
+    companyProductFamilyId: 'family-disc',
+    lifecycleStatus: 'discontinued',
+    lifecycleStatusProvenance: { kind: 'migration_sweep_2026_07', previousStatus: 'candidate_new_product' },
+    provenance: 'synthetic',
+  },
+];
 
 /** AD-7 v3.1 fixtures: one supplier per derivation branch. */
 export const SILVER_SUPPLIERS: SilverSupplierFixture[] = [

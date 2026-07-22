@@ -32,6 +32,7 @@ import paneZeroStock from '../../server/__tests__/fixtures/expected-responses/pa
 import paneDataReadiness from '../../server/__tests__/fixtures/expected-responses/pane-dataReadiness.json';
 import panePerformance from '../../server/__tests__/fixtures/expected-responses/pane-performanceReview.json';
 import paneUntiered from '../../server/__tests__/fixtures/expected-responses/pane-untieredProducts.json';
+import paneDiscontinued from '../../server/__tests__/fixtures/expected-responses/pane-discontinuedPaused.json';
 
 const request = vi.fn();
 const api = { request };
@@ -60,6 +61,7 @@ const PANE_FIXTURES: Record<string, unknown> = {
   dataReadiness: paneDataReadiness,
   performanceReview: panePerformance,
   untieredProducts: paneUntiered,
+  discontinuedPaused: paneDiscontinued,
 };
 
 /**
@@ -323,6 +325,27 @@ describe('InventoryDashboardPage (Gate G2)', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it('task 002: renders Discontinued & Paused as the LAST pane with its own debounced search box', async () => {
+    renderPage(observeOnly('discontinuedPaused'));
+    await waitFor(() => expect(paneRequests('discontinuedPaused')).toHaveLength(1));
+    const sections = Array.from(document.querySelectorAll('section[data-pane]'));
+    expect((sections.at(-1) as HTMLElement).dataset.pane).toBe('discontinuedPaused');
+    expect(await screen.findByText('Old Supplier Co')).toBeTruthy();
+
+    vi.useFakeTimers();
+    const paneSearch = screen.getByLabelText('Discontinued & Paused Search');
+    for (const value of ['o', 'ol', 'old']) {
+      fireEvent.change(paneSearch, { target: { value } });
+    }
+    expect(paneRequests('discontinuedPaused')).toHaveLength(1);
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+    vi.useRealTimers();
+    await waitFor(() => expect(paneRequests('discontinuedPaused')).toHaveLength(2));
+    expect(paneRequests('discontinuedPaused').at(-1)?.[0].data.search).toBe('old');
   });
 
   it('regression: renders against the exact staging-captured response envelope and proceeds to pane fetches', async () => {

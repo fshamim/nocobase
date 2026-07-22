@@ -22,6 +22,7 @@ import {
   GOLD_ROWS,
   LEAD_TIME_FRESHNESS_DAYS,
   PUBLISHED_RUN_ID,
+  SILVER_COMPANY_PRODUCTS,
   SILVER_ORDERS,
   SILVER_SUPPLIERS,
   SUPERSEDING_RUN_ID,
@@ -110,6 +111,9 @@ function seed(db: RecordingDatabase, options: { runId?: string } = {}): void {
   }
   for (const supplier of SILVER_SUPPLIERS) {
     db.getRepository(ECOBASE_COLLECTIONS.silverSuppliers).rows.push({ ...supplier });
+  }
+  for (const companyProduct of SILVER_COMPANY_PRODUCTS) {
+    db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).rows.push({ ...companyProduct });
   }
 }
 
@@ -558,6 +562,63 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
     const header = await svc.header();
     const followUp = header.tiles.find((tile) => tile.key === 'needsFollowUp');
     expect(followUp?.count).toBe(1);
+  });
+
+  it('serves the Discontinued & Paused pane at family grain with evidence columns (task 002)', async () => {
+    const response = await service(db).pane({
+      pane: 'discontinuedPaused',
+      runId: PUBLISHED_RUN_ID,
+      page: 1,
+      pageSize: 25,
+    });
+    if (isRunSuperseded(response)) throw new Error('bad');
+    expect(response.pagination.total).toBe(1); // family grain: one family, two listings
+    const row = response.rows[0];
+    expect(row?.identity.familyKey).toBe('family-disc');
+    expect(row?.familyMemberCount).toBe(2);
+    expect(row?.supplierName).toBe('Old Supplier Co');
+    expect(row?.lastMovementMonth).toBe('2026-03-01');
+    expect(row?.lifecycleProvenance).toBe('migration_sweep_2026_07');
+  });
+
+  it('excludes discontinued families from every KPI tile (task 002 no-signal guarantee)', async () => {
+    // Both disc fixtures carry null lead-time evidence; if the pane were not
+    // excluded, staleLeadTimes.unknown would be 3, not 1 (test (d) equality).
+    const header = await service(db).header();
+    const stale = header.tiles.find((tile) => tile.key === 'staleLeadTimes');
+    expect(stale?.unknownCount).toBe(1);
+  });
+
+  it('reactivates a swept family: restores pre-sweep status, stamps provenance, requires a comment', async () => {
+    const svc = service(db);
+    await expect(svc.reactivateFamily({ familyId: 'family-disc' })).rejects.toThrow('requires a reason comment');
+    await expect(svc.reactivateFamily({ familyId: 'nope', comment: 'x' })).rejects.toThrow(
+      'no discontinued or paused members',
+    );
+
+    const result = await svc.reactivateFamily({
+      familyId: 'family-disc',
+      comment: 'Supplier back in business',
+      actorUserId: '4',
+    });
+    expect(result).toEqual({ familyId: 'family-disc', reactivatedCount: 2 });
+    const products = db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).rows;
+    for (const product of products.filter((row) => row.companyProductFamilyId === 'family-disc')) {
+      expect(product.lifecycleStatus).toBe('candidate_new_product'); // restored from provenance
+      expect(product.lifecycleStatusProvenance).toMatchObject({
+        kind: 'operator_reactivation',
+        previousStatus: 'discontinued',
+      });
+    }
+    const comments = db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).rows;
+    expect(
+      comments.some(
+        (comment) =>
+          comment.entityType === 'company_product_family' &&
+          comment.entityId === 'family-disc' &&
+          comment.body === 'Supplier back in business',
+      ),
+    ).toBe(true);
   });
 
   it('(h) emits typed response snapshots for G2 to consume', async () => {

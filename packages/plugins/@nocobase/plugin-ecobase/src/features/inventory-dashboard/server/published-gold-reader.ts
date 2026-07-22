@@ -83,6 +83,8 @@ const GOLD_ROW_FIELDS = [
   'baselineTier',
   'currentProjectedTier',
   'lastClosedMonthTier',
+  'companyProductId',
+  'lastClosedMonth',
   'supplierOrderId',
   'supplierId',
   'supplierName',

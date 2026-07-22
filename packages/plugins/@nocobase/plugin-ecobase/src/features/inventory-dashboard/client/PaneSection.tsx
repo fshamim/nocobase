@@ -14,7 +14,7 @@
  * verbatim — membership and statuses all come from the API.
  */
 
-import { Alert, Button, Space, Spin, Table, Typography } from 'antd';
+import { Alert, Button, Input, Space, Spin, Table, Typography } from 'antd';
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import type { DashboardRow, PaneResponse, PaneResult } from '../server/contract';
 import { isRunSuperseded } from '../server/contract';
@@ -102,6 +102,16 @@ function PaneSectionInner(props: PaneSectionProps, ref: React.Ref<PaneSectionHan
   const [visible, setVisible] = useState(false);
   const [page, setPage] = useState(1);
   const [state, setState] = useState<PaneLoadState>({ status: 'idle' });
+  // Task 002: dedicated per-pane search (server-side, debounced) for panes that
+  // opt in via config.showPaneSearch.
+  const [paneSearchInput, setPaneSearchInput] = useState('');
+  const [paneSearch, setPaneSearch] = useState('');
+
+  useEffect(() => {
+    if (!config.showPaneSearch) return undefined;
+    const timer = setTimeout(() => setPaneSearch(paneSearchInput.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [config.showPaneSearch, paneSearchInput]);
   const containerRef = useRef<HTMLElement | null>(null);
   const headingRef = useRef<HTMLHeadingElement | null>(null);
   const headingId = `inventory-dashboard-pane-${config.pane}`;
@@ -116,7 +126,15 @@ function PaneSectionInner(props: PaneSectionProps, ref: React.Ref<PaneSectionHan
     async (targetPage: number) => {
       setState({ status: 'loading' });
       try {
-        const result = await fetchPane({ pane: config.pane, runId, companyId, search, page: targetPage, pageSize });
+        const effectiveSearch = config.showPaneSearch && paneSearch ? paneSearch : search;
+        const result = await fetchPane({
+          pane: config.pane,
+          runId,
+          companyId,
+          search: effectiveSearch,
+          page: targetPage,
+          pageSize,
+        });
         if (isRunSuperseded(result)) {
           onSuperseded(result.publishedRunId);
           setState({ status: 'idle' });
@@ -128,7 +146,18 @@ function PaneSectionInner(props: PaneSectionProps, ref: React.Ref<PaneSectionHan
         setState({ status: 'error', message: error instanceof Error ? error.message : String(error) });
       }
     },
-    [fetchPane, config.pane, runId, companyId, search, pageSize, onSuperseded, onRowsLoaded],
+    [
+      fetchPane,
+      config.pane,
+      config.showPaneSearch,
+      runId,
+      companyId,
+      search,
+      paneSearch,
+      pageSize,
+      onSuperseded,
+      onRowsLoaded,
+    ],
   );
 
   useEffect(() => {
@@ -183,6 +212,17 @@ function PaneSectionInner(props: PaneSectionProps, ref: React.Ref<PaneSectionHan
           }`}</Typography.Text>
         ) : null}
       </Space>
+      {config.showPaneSearch ? (
+        <Input.Search
+          allowClear
+          size="small"
+          placeholder={t(TEXT.paneSearchPlaceholder)}
+          aria-label={`${t(config.titleKey)} ${t(TEXT.searchLabel)}`}
+          style={{ maxWidth: 320, marginBottom: 8, display: 'block' }}
+          value={paneSearchInput}
+          onChange={(event) => setPaneSearchInput(event.target.value)}
+        />
+      ) : null}
       {state.status === 'error' ? (
         <Alert
           type="error"

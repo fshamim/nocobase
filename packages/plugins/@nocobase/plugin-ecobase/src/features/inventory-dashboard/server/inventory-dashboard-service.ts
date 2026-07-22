@@ -66,6 +66,12 @@ export class InventoryDashboardValidationError extends Error {
   }
 }
 
+export interface ReactivateFamilyParams {
+  familyId?: string;
+  comment?: string;
+  actorUserId?: string;
+}
+
 export interface SaveSupplierShipDestinationParams {
   supplierId?: string;
   shipDestination?: unknown;
@@ -248,8 +254,23 @@ export class EcobaseInventoryDashboardService {
     const commentsById = ORDER_PANES.has(pane)
       ? await this.loadLatestComments(pageSlice.map((row) => row.supplierOrderId))
       : new Map<string, LatestCommentView>();
+    const provenanceById =
+      pane === 'discontinuedPaused'
+        ? await this.loadLifecycleProvenance(pageSlice.map((row) => asString(row.raw.companyProductId)))
+        : new Map<string, string>();
+    const familyMemberCounts =
+      pane === 'discontinuedPaused' ? countFamilyMembers(projected) : new Map<string, number>();
 
-    const rows = pageSlice.map((row) => this.buildRow(row, familyPaneSets, silverById, suppliersById, commentsById));
+    const rows = pageSlice.map((row) => {
+      const built = this.buildRow(row, familyPaneSets, silverById, suppliersById, commentsById);
+      if (pane === 'discontinuedPaused') {
+        built.supplierName = asString(row.raw.supplierName);
+        built.familyMemberCount = familyMemberCounts.get(row.familyKey) ?? 1;
+        built.lastMovementMonth = asString(row.raw.lastClosedMonth);
+        built.lifecycleProvenance = provenanceById.get(asString(row.raw.companyProductId) ?? '') ?? null;
+      }
+      return built;
+    });
     return {
       pane,
       publishedRunId: run.id,
@@ -340,6 +361,81 @@ export class EcobaseInventoryDashboardService {
       .getRepository(ECOBASE_COLLECTIONS.silverSuppliers)
       .update({ filterByTk: supplierId, values: { shipDestination } });
     return { supplierId, shipDestination, updated: true };
+  }
+
+  /** Task 002: operator reactivation — restores the pre-sweep lifecycle status. */
+  async reactivateFamily(params: ReactivateFamilyParams): Promise<{ familyId: string; reactivatedCount: number }> {
+    const familyId = asString(params.familyId);
+    if (!familyId) {
+      throw new InventoryDashboardValidationError('reactivateFamily requires a familyId.');
+    }
+    const comment = asString(params.comment);
+    if (!comment) {
+      throw new InventoryDashboardValidationError('reactivateFamily requires a reason comment.');
+    }
+    const repository = this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts);
+    const members = await repository.find({
+      filter: { companyProductFamilyId: familyId, lifecycleStatus: { $in: ['discontinued', 'paused'] } },
+      limit: 500,
+    });
+    if (members.length === 0) {
+      throw new InventoryDashboardValidationError(
+        `reactivateFamily found no discontinued or paused members for family ${familyId}.`,
+      );
+    }
+    const at = this.now.toISOString();
+    for (const value of members) {
+      const record = (typeof value === 'object' && value !== null ? value : {}) as Record<string, unknown>;
+      const provenance =
+        typeof record.lifecycleStatusProvenance === 'object' && record.lifecycleStatusProvenance !== null
+          ? (record.lifecycleStatusProvenance as Record<string, unknown>)
+          : {};
+      const restored = asString(provenance.previousStatus) ?? 'candidate_new_product';
+      await repository.update({
+        filterByTk: record.id as string,
+        values: {
+          lifecycleStatus: restored,
+          lifecycleStatusProvenance: {
+            kind: 'operator_reactivation',
+            previousStatus: asString(record.lifecycleStatus),
+            at,
+            actorUserId: asString(params.actorUserId),
+          },
+        },
+      });
+    }
+    await this.db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).create({
+      values: {
+        id: `reactivate-${familyId}-${this.now.getTime()}`,
+        entityType: 'company_product_family',
+        entityId: familyId,
+        actorType: 'operator',
+        actorUserId: params.actorUserId,
+        commentType: 'note',
+        body: comment,
+        workflowDetectionStatus: 'none',
+      },
+    });
+    return { familyId, reactivatedCount: members.length };
+  }
+
+  private async loadLifecycleProvenance(companyProductIds: Array<string | null>): Promise<Map<string, string>> {
+    const ids = [...new Set(companyProductIds.filter((id): id is string => id !== null))];
+    if (ids.length === 0) return new Map();
+    const rows = await this.db
+      .getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts)
+      .find({ filter: { id: { $in: ids } }, limit: ids.length });
+    const map = new Map<string, string>();
+    for (const value of rows) {
+      const record = (typeof value === 'object' && value !== null ? value : {}) as Record<string, unknown>;
+      const id = asString(record.id);
+      const provenance =
+        typeof record.lifecycleStatusProvenance === 'object' && record.lifecycleStatusProvenance !== null
+          ? asString((record.lifecycleStatusProvenance as Record<string, unknown>).kind)
+          : null;
+      if (id && provenance) map.set(id, provenance);
+    }
+    return map;
   }
 
   /* ------------------------------- internals ------------------------------ */
@@ -671,20 +767,22 @@ export class EcobaseInventoryDashboardService {
     commentsById: Map<string, LatestCommentView> = new Map(),
   ): DashboardHeaderTile[] {
     const today = todayDateOnly(this.now);
+    // Task 002: discontinued/paused families contribute NO signals to any tile.
+    const signalRows = projected.filter((row) => row.pane !== 'discontinuedPaused');
 
-    const urgent = projected.filter(
+    const urgent = signalRows.filter(
       (row) =>
         (row.pane === 'supplyAction' && onOrBeforeToday(asString(row.raw.latestSafeReorderDate), today)) ||
         row.pane === 'zeroStock',
     );
-    const orderedLate = projected.filter((row) => asString(row.raw.pipelineHealthStatus) === 'late');
-    const stale = projected.filter(
+    const orderedLate = signalRows.filter((row) => asString(row.raw.pipelineHealthStatus) === 'late');
+    const stale = signalRows.filter(
       (row) => staleLeadTime(asString(row.raw.leadTimeConfirmedAt), this.leadTimeFreshnessDays, this.now).stale,
     );
-    const staleUnknown = projected.filter(
+    const staleUnknown = signalRows.filter(
       (row) => staleLeadTime(asString(row.raw.leadTimeConfirmedAt), this.leadTimeFreshnessDays, this.now).unknown,
     );
-    const followUps = projected.filter((row) => {
+    const followUps = signalRows.filter((row) => {
       if (!row.supplierOrderId) return false;
       if (row.pane !== 'inPrepMonitoring' && row.pane !== 'inboundMonitoring') return false;
       const enteredAt = silverById.get(row.supplierOrderId)?.workflowStageEnteredAt ?? null;
@@ -699,7 +797,7 @@ export class EcobaseInventoryDashboardService {
         now: this.now,
       });
     });
-    const stuck = projected.filter((row) => row.pane === 'stuckInventory');
+    const stuck = signalRows.filter((row) => row.pane === 'stuckInventory');
 
     const profitRiskMoney = (rows: ProjectedRow[]) =>
       moneySum(rows.map((row) => asNumber(row.raw.estimatedProfitRisk)));
@@ -746,6 +844,12 @@ export class EcobaseInventoryDashboardService {
       { key: 'unknownMoney', label: 'Unknown money inputs', value: money.unknownCount },
     ];
   }
+}
+
+function countFamilyMembers(projected: ProjectedRow[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const row of projected) counts.set(row.familyKey, (counts.get(row.familyKey) ?? 0) + 1);
+  return counts;
 }
 
 function normalizeStage(value: string): string {

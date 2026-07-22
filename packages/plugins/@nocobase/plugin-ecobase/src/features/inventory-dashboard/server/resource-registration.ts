@@ -173,6 +173,23 @@ export function createEcobaseInventoryDashboardActions() {
         }
         await next();
       },
+      reactivateFamily: async (ctx: DashboardActionContext, next: DashboardNext) => {
+        const values = getValues(ctx.action.params);
+        const service = await buildService(ctx.db);
+        try {
+          ctx.body = {
+            data: await service.reactivateFamily({
+              familyId: optionalString(values, 'familyId'),
+              comment: optionalString(values, 'comment'),
+              actorUserId: actorUserId(ctx),
+            }),
+          };
+        } catch (error) {
+          if (error instanceof InventoryDashboardValidationError) ctx.throw(400, error.message);
+          throw error;
+        }
+        await next();
+      },
       saveSupplierShipDestination: async (ctx: DashboardActionContext, next: DashboardNext) => {
         const values = getValues(ctx.action.params);
         const supplierId = optionalString(values, 'supplierId');
@@ -195,7 +212,7 @@ export function createEcobaseInventoryDashboardActions() {
         await next();
       },
     },
-    { savePrepDetails: 'operator', saveSupplierShipDestination: 'operator' },
+    { savePrepDetails: 'operator', saveSupplierShipDestination: 'operator', reactivateFamily: 'operator' },
   );
 }
 
@@ -208,7 +225,7 @@ export function createInventoryDashboardResourceRegistration(
         name: 'ecobaseInventoryDashboard',
         actions: triggerOnOperatorWrite(
           createEcobaseInventoryDashboardActions(),
-          ['savePrepDetails', 'saveSupplierShipDestination'],
+          ['savePrepDetails', 'saveSupplierShipDestination', 'reactivateFamily'],
           onOperatorWrite,
         ),
       },
@@ -217,7 +234,7 @@ export function createInventoryDashboardResourceRegistration(
       { resource: 'ecobaseInventoryDashboard', actions: ['header', 'pane', 'drawerContext'], role: LOGGED_IN },
       {
         resource: 'ecobaseInventoryDashboard',
-        actions: ['savePrepDetails', 'saveSupplierShipDestination'],
+        actions: ['savePrepDetails', 'saveSupplierShipDestination', 'reactivateFamily'],
         role: OPERATOR,
       },
     ],

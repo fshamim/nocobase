@@ -104,7 +104,7 @@ describe('Ecobase resource registration', () => {
       .filter((grant) => grant.resource === 'ecobaseInventoryDashboard' && grant.role === OPERATOR)
       .flatMap((grant) => grant.actions);
     expect(loggedInActions.sort()).toEqual(['drawerContext', 'header', 'pane']);
-    expect(operatorActions.sort()).toEqual(['savePrepDetails', 'saveSupplierShipDestination']);
+    expect(operatorActions.sort()).toEqual(['reactivateFamily', 'savePrepDetails', 'saveSupplierShipDestination']);
     expect(loggedInActions).not.toContain('savePrepDetails');
   });
 

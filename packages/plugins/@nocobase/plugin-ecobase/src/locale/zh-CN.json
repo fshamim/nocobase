@@ -294,5 +294,11 @@
   "Acknowledge follow-up": "确认跟进",
   "Family target review": "家族目标审查",
   "Missing baseline evidence": "缺少基线证据",
-  "Family review required": "需要家族审查"
+  "Family review required": "需要家族审查",
+  "Discontinued & Paused": "已停售与暂停",
+  "Members": "成员数",
+  "Last movement": "最近动销",
+  "Search this pane": "在本面板中搜索",
+  "Reactivate": "重新激活",
+  "Reactivation reason (required)": "重新激活原因（必填）"
 }

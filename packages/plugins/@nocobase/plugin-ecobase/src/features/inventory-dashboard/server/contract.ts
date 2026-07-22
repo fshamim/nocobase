@@ -29,6 +29,7 @@ export const DASHBOARD_PANE_KEYS = [
   'dataReadiness',
   'performanceReview',
   'untieredProducts',
+  'discontinuedPaused',
 ] as const;
 
 export type PaneKey = (typeof DASHBOARD_PANE_KEYS)[number];
@@ -130,6 +131,11 @@ export interface DashboardRow {
   staleClassification?: true;
   /** Family has member listings in >= 2 panes (§4.8). */
   familySplit?: true;
+  /** Discontinued & Paused pane only (task 002): evidence columns. */
+  supplierName?: string | null;
+  familyMemberCount?: number;
+  lastMovementMonth?: string | null;
+  lifecycleProvenance?: string | null;
   order?: DashboardOrderFields;
   lastActivity?: DashboardLastActivity | null;
 }

@@ -42,6 +42,8 @@ import drawerZeroStock from '../../server/__tests__/fixtures/expected-responses/
 import drawerDataReadiness from '../../server/__tests__/fixtures/expected-responses/drawer-dataReadiness.json';
 import drawerPerformance from '../../server/__tests__/fixtures/expected-responses/drawer-performanceReview.json';
 import drawerUntiered from '../../server/__tests__/fixtures/expected-responses/drawer-untieredProducts.json';
+import paneDiscontinued from '../../server/__tests__/fixtures/expected-responses/pane-discontinuedPaused.json';
+import drawerDiscontinued from '../../server/__tests__/fixtures/expected-responses/drawer-discontinuedPaused.json';
 
 const request = vi.fn();
 const api = { request };
@@ -71,6 +73,7 @@ const PANE_FIXTURES: Record<string, unknown> = {
   dataReadiness: paneDataReadiness,
   performanceReview: panePerformance,
   untieredProducts: paneUntiered,
+  discontinuedPaused: paneDiscontinued,
 };
 
 const DRAWER_FIXTURES: Record<string, unknown> = {
@@ -85,6 +88,7 @@ const DRAWER_FIXTURES: Record<string, unknown> = {
   dataReadiness: drawerDataReadiness,
   performanceReview: drawerPerformance,
   untieredProducts: drawerUntiered,
+  discontinuedPaused: drawerDiscontinued,
 };
 
 function respond(data: unknown) {
@@ -168,6 +172,7 @@ describe('PaneDrawer (Gate G3)', () => {
       dataReadiness: 'Readiness reasons',
       performanceReview: 'Monthly units (last closed months)',
       untieredProducts: 'Tier evidence',
+      discontinuedPaused: 'Reactivate',
     };
     for (const [pane, marker] of Object.entries(markers)) {
       request.mockReset();
@@ -358,6 +363,23 @@ describe('PaneDrawer (Gate G3)', () => {
     // drawer-dataReadiness.json primary row reasonCodes = ['family_review_required'].
     expect(within(dialog).getAllByText('Family review required').length).toBeGreaterThan(0);
     expect(within(dialog).queryByText('family_review_required')).toBeNull();
+  });
+
+  it('task 002: the Discontinued & Paused drawer reactivates with a required reason', async () => {
+    const dialog = await openDrawer('discontinuedPaused');
+    const button = within(dialog).getByRole('button', { name: 'Reactivate' });
+    // Without a reason nothing is sent.
+    fireEvent.click(button);
+    expect(requests('ecobaseInventoryDashboard:reactivateFamily')).toHaveLength(0);
+    fireEvent.change(within(dialog).getByLabelText('Reactivation reason (required)'), {
+      target: { value: 'Back in stock soon' },
+    });
+    fireEvent.click(button);
+    await waitFor(() => expect(requests('ecobaseInventoryDashboard:reactivateFamily')).toHaveLength(1));
+    expect(requests('ecobaseInventoryDashboard:reactivateFamily')[0][0].data).toMatchObject({
+      familyId: 'family-disc',
+      comment: 'Back in stock soon',
+    });
   });
 
   it('QA item 7: the drawerContext request carries the clicked listing id', async () => {

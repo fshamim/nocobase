@@ -39,6 +39,8 @@ export interface PaneConfig {
   pane: PaneKey;
   titleKey: string;
   columns: PaneColumnConfig[];
+  /** Task 002: dedicated search box at the top of this pane's table. */
+  showPaneSearch?: boolean;
 }
 
 function productCell(row: DashboardRow): React.ReactNode {
@@ -307,4 +309,22 @@ export const PANE_CONFIGS: PaneConfig[] = [
     columns: [product, signals({ band: true, trend: true })],
   },
   { pane: 'untieredProducts', titleKey: TEXT.paneUntieredProducts, columns: [product, stock, signals()] },
+  {
+    // Task 002: clearly separate, BOTTOM pane — these families feed no signals.
+    pane: 'discontinuedPaused',
+    titleKey: TEXT.paneDiscontinuedPaused,
+    showPaneSearch: true,
+    columns: [
+      product,
+      { key: 'members', titleKey: TEXT.colMembers, render: (row, t) => formatNumber(row.familyMemberCount ?? null, t) },
+      { key: 'supplier', titleKey: TEXT.drawerSupplier, render: (row, t) => row.supplierName ?? t(TEXT.unknown) },
+      { key: 'lastMovement', titleKey: TEXT.colLastMovement, render: (row, t) => formatDate(row.lastMovementMonth, t) },
+      {
+        key: 'signals',
+        titleKey: TEXT.colSignals,
+        render: (row) =>
+          row.lifecycleProvenance ? <Tag color={DASHBOARD_TAG_COLORS.neutral}>{row.lifecycleProvenance}</Tag> : null,
+      },
+    ],
+  },
 ];
