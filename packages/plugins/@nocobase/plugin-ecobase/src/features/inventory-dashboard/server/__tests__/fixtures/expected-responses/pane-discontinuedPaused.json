@@ -84,8 +84,8 @@
       "velocityTrend": "unknown",
       "performanceBand": "insufficient_evidence",
       "lastActivity": null,
-      "supplierName": "Old Supplier Co",
       "familyMemberCount": 2,
+      "supplierName": "Old Supplier Co",
       "lastMovementMonth": "2026-03-01",
       "lifecycleProvenance": "migration_sweep_2026_07",
       "lifecyclePreviousStatus": "candidate_new_product"

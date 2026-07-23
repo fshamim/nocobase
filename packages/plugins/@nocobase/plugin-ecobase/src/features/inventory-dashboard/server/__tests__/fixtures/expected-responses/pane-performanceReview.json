@@ -83,7 +83,8 @@
       "reasonCodes": [],
       "velocityTrend": "down",
       "performanceBand": "below_band",
-      "lastActivity": null
+      "lastActivity": null,
+      "familyMemberCount": 1
     },
     {
       "identity": {
@@ -148,7 +149,8 @@
       "reasonCodes": [],
       "velocityTrend": "down",
       "performanceBand": "insufficient_evidence",
-      "lastActivity": null
+      "lastActivity": null,
+      "familyMemberCount": 1
     },
     {
       "identity": {
@@ -213,7 +215,8 @@
       "reasonCodes": [],
       "velocityTrend": "up",
       "performanceBand": "within_band",
-      "lastActivity": null
+      "lastActivity": null,
+      "familyMemberCount": 1
     },
     {
       "identity": {
@@ -278,7 +281,8 @@
       "reasonCodes": [],
       "velocityTrend": "down",
       "performanceBand": "within_band",
-      "lastActivity": null
+      "lastActivity": null,
+      "familyMemberCount": 1
     },
     {
       "identity": {
@@ -343,7 +347,8 @@
       "reasonCodes": [],
       "velocityTrend": "down",
       "performanceBand": "below_band",
-      "lastActivity": null
+      "lastActivity": null,
+      "familyMemberCount": 1
     }
   ],
   "pagination": {

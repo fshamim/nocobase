@@ -57,8 +57,8 @@ export interface DashboardHeader {
   calculationDate: string | null;
   dataFreshness: DataFreshness;
   tiles: DashboardHeaderTile[];
-  /** T7: display-relevant planning settings — the client never hardcodes these. */
-  settings: { fbaReceivingBufferDays: number };
+  /** T7/R1-6: display-relevant planning settings — the client never hardcodes these. */
+  settings: { fbaReceivingBufferDays: number; targetCoverDays: number };
 }
 
 /** Family/product identity carried by every row (nulls stay null). */

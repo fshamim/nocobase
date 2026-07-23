@@ -90,7 +90,8 @@
       ],
       "velocityTrend": "unknown",
       "performanceBand": "insufficient_evidence",
-      "lastActivity": null
+      "lastActivity": null,
+      "familyMemberCount": 1
     }
   ],
   "pagination": {

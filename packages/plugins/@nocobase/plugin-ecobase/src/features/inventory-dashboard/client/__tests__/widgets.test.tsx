@@ -49,6 +49,7 @@ function makeContext(overrides: Partial<PaneRenderContext> = {}): PaneRenderCont
     api: { request: vi.fn().mockResolvedValue({ data: { data: {} } }) },
     runId: 'run-published-0001',
     fbaReceivingBufferDays: 7,
+    targetCoverDaysDefault: 45,
     pendingFamilies: new Set<string>(),
     markPending: vi.fn(),
     onMutated: vi.fn(),
@@ -251,12 +252,12 @@ describe('T7 widgets', () => {
     const ctx = makeContext({ api: { request }, markPending, onMutated });
     const view = render(
       <App>
-        <FamilyCell row={ENRICHED} t={t} ctx={ctx} />
+        <FamilyCell row={rowWith({ familyMemberCount: 2 })} t={t} ctx={ctx} />
       </App>,
     );
     // No fetch before the operator opens the control (lazy).
     expect(request).not.toHaveBeenCalled();
-    fireEvent.click(view.getByRole('button', { name: new RegExp(TEXT.drawerFamilyTarget) }));
+    fireEvent.click(view.getByRole('button', { name: new RegExp(TEXT.btnChangeTarget) }));
     await waitFor(() =>
       expect(request).toHaveBeenCalledWith(expect.objectContaining({ url: 'ecobaseInventoryDashboard:drawerContext' })),
     );
@@ -326,6 +327,69 @@ describe('T7 widgets', () => {
     // The bare row's empty money cell renders an em-dash, never zero.
     expect(view.getAllByText('—').length).toBeGreaterThan(0);
     expect(BARE.estimatedProfitRisk).not.toBeNull(); // fixture sanity: f11b has risk 250
+    // R1-6: static rules live in header hint tooltips.
+    expect(view.getAllByLabelText(TEXT.hintOrderQty).length).toBeGreaterThan(0);
+    expect(view.getAllByLabelText(TEXT.hintMoneyAtRisk).length).toBeGreaterThan(0);
+  });
+
+  it('R1-1: a collapsed pane never fetches; expanding it fires the fetch', async () => {
+    const config = PANE_CONFIGS.find((candidate) => candidate.pane === 'supplyAction');
+    if (!config) throw new Error('missing supplyAction config');
+    const fetchPane = vi.fn().mockResolvedValue(paneSupplyAction as unknown as PaneResult);
+    const view = render(
+      <App>
+        <PaneSection
+          config={config}
+          runId="run-published-0001"
+          search=""
+          frozen={false}
+          defaultExpanded={false}
+          fetchPane={fetchPane}
+          onSuperseded={() => undefined}
+          observeVisibility={(_, onVisible) => {
+            onVisible();
+            return () => undefined;
+          }}
+          t={t}
+          renderContext={makeContext()}
+        />
+      </App>,
+    );
+    // Visible but COLLAPSED -> no fetch (R1-1 lazy rule).
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(fetchPane).not.toHaveBeenCalled();
+    fireEvent.click(view.getByText(TEXT.paneSupplyAction));
+    await waitFor(() => expect(fetchPane).toHaveBeenCalledTimes(1));
+  });
+
+  it('R1-2: the sort selector refetches server-side with the chosen scenario at page 1', async () => {
+    const config = PANE_CONFIGS.find((candidate) => candidate.pane === 'supplyAction');
+    if (!config) throw new Error('missing supplyAction config');
+    const fetchPane = vi.fn().mockResolvedValue(paneSupplyAction as unknown as PaneResult);
+    const view = render(
+      <App>
+        <PaneSection
+          config={config}
+          runId="run-published-0001"
+          search=""
+          frozen={false}
+          fetchPane={fetchPane}
+          onSuperseded={() => undefined}
+          observeVisibility={(_, onVisible) => {
+            onVisible();
+            return () => undefined;
+          }}
+          t={t}
+          renderContext={makeContext()}
+        />
+      </App>,
+    );
+    await waitFor(() => expect(fetchPane).toHaveBeenCalledTimes(1));
+    expect(fetchPane.mock.calls[0][0]).toMatchObject({ sort: undefined });
+    fireEvent.mouseDown(view.getByRole('combobox', { name: new RegExp(TEXT.sortLabel) }));
+    fireEvent.click(await within(document.body).findByText(TEXT.sortMostUrgent));
+    await waitFor(() => expect(fetchPane).toHaveBeenCalledTimes(2));
+    expect(fetchPane.mock.calls[1][0]).toMatchObject({ sort: 'daysUntilSafeReorder', page: 1 });
   });
 
   it('T-D5: the urgency badge renders both variants in the shared signals cluster', () => {
@@ -346,16 +410,91 @@ describe('T7 widgets', () => {
     expect(within(absent.container).queryByText(new RegExp('stockout'))).toBeNull();
   });
 
-  it('T-D5 rider: the qty cell renders "covers N d after arrival" from the served targetCoverDays', () => {
+  it('R1-6: the qty cover note appears ONLY when the row deviates from the default horizon', () => {
     const supply = PANE_CONFIGS.find((config) => config.pane === 'supplyAction');
     const qtyColumn = supply?.columns.find((column) => column.key === 'orderQty');
     if (!qtyColumn) throw new Error('missing orderQty column');
-    // The regenerated fixture row now serves qty 520 + targetCoverDays 45.
-    const view = render(<App>{qtyColumn.render(ENRICHED, t)}</App>);
-    expect(within(view.container).getByText('520')).toBeTruthy();
-    expect(within(view.container).getByText(`${TEXT.coversPrefix} 45 ${TEXT.afterArrivalSuffix}`)).toBeTruthy();
-    // Without the served horizon the sub-line stays absent.
-    const bare = render(<App>{qtyColumn.render({ ...ENRICHED, targetCoverDays: null }, t)}</App>);
-    expect(within(bare.container).queryByText(new RegExp(TEXT.coversPrefix))).toBeNull();
+    const ctx = makeContext(); // targetCoverDaysDefault: 45
+    // DEFAULT horizon (fixture serves 45 == default): the rule lives in the header hint — no sub-line.
+    const standard = render(<App>{qtyColumn.render(ENRICHED, t, ctx)}</App>);
+    expect(within(standard.container).getByText('520')).toBeTruthy();
+    expect(within(standard.container).queryByText(new RegExp(TEXT.coversPrefix))).toBeNull();
+    // OPERATOR OVERRIDE (60 != 45): the deviation is worth a compact note.
+    const override = render(<App>{qtyColumn.render({ ...ENRICHED, targetCoverDays: 60 }, t, ctx)}</App>);
+    expect(within(override.container).getByText(`${TEXT.coversPrefix} 60 ${TEXT.dSuffix}`)).toBeTruthy();
+  });
+
+  it('R1-4: the qty column carries the supplier badge — named tag or the honest "No supplier"', () => {
+    const supply = PANE_CONFIGS.find((config) => config.pane === 'supplyAction');
+    const qtyColumn = supply?.columns.find((column) => column.key === 'orderQty');
+    if (!qtyColumn) throw new Error('missing orderQty column');
+    const withSupplier = render(<App>{qtyColumn.render(ENRICHED, t, makeContext())}</App>);
+    expect(within(withSupplier.container).getByText('Lead Boundary Supplies')).toBeTruthy();
+    expect(within(withSupplier.container).getByText(/30 \+ 7 d/)).toBeTruthy();
+    const without = render(
+      <App>
+        {qtyColumn.render(
+          {
+            ...ENRICHED,
+            supplier: { id: null, name: null, leadTimeDays: null, leadTimeConfirmedAt: null, leadTimeFreshness: null },
+          },
+          t,
+          makeContext(),
+        )}
+      </App>,
+    );
+    expect(within(without.container).getByText(TEXT.noSupplier)).toBeTruthy();
+  });
+
+  it('R1-6: the money cell is compact dynamic-only (money + days, no static words)', () => {
+    const supply = PANE_CONFIGS.find((config) => config.pane === 'supplyAction');
+    const moneyColumn = supply?.columns.find((column) => column.key === 'moneyAtRisk');
+    if (!moneyColumn) throw new Error('missing money column');
+    const view = render(<App>{moneyColumn.render(ENRICHED, t, makeContext())}</App>);
+    expect(within(view.container).getByText('€100.00')).toBeTruthy();
+    expect(within(view.container).getByText(`· 28 ${TEXT.dSuffix}`)).toBeTruthy();
+    expect(within(view.container).queryByText(/stockout gap/)).toBeNull();
+  });
+
+  it('R1-5: FamilyCell shows the prominent target SKU + member count; picker disabled for singles', () => {
+    const ctx = makeContext();
+    const single = render(
+      <App>
+        <FamilyCell row={rowWith({ familyMemberCount: 1 })} t={t} ctx={ctx} />
+      </App>,
+    );
+    expect(within(single.container).getByText('SKU-f11a-lead-boundary')).toBeTruthy();
+    expect(within(single.container).getByText(`· 1 ${TEXT.listingsSuffix}`)).toBeTruthy();
+    const singleButton = within(single.container).getByRole('button', { name: new RegExp(TEXT.btnChangeTarget) });
+    expect(singleButton).toHaveProperty('disabled', true);
+    fireEvent.click(singleButton);
+    expect(ctx.api.request).not.toHaveBeenCalled(); // no lazy fetch for singles
+    const multi = render(
+      <App>
+        <FamilyCell row={rowWith({ familyMemberCount: 3 })} t={t} ctx={ctx} />
+      </App>,
+    );
+    expect(within(multi.container).getByText(`· 3 ${TEXT.listingsSuffix}`)).toBeTruthy();
+    expect(within(multi.container).getByRole('button', { name: new RegExp(TEXT.btnChangeTarget) })).toHaveProperty(
+      'disabled',
+      false,
+    );
+  });
+
+  it('R1-3: clicking the target control never bubbles into the row click (CellInteractive)', async () => {
+    const onRowClick = vi.fn();
+    const ctx = makeContext();
+    const view = render(
+      <App>
+        <div role="button" tabIndex={0} aria-label="table row" onClick={onRowClick} onKeyDown={() => undefined}>
+          <FamilyCell row={rowWith({ familyMemberCount: 2 })} t={t} ctx={ctx} />
+        </div>
+      </App>,
+    );
+    fireEvent.click(within(view.container).getByRole('button', { name: new RegExp(TEXT.btnChangeTarget) }));
+    expect(onRowClick).not.toHaveBeenCalled();
+    // A click elsewhere in the row still opens the drawer path.
+    fireEvent.click(within(view.container).getByText('B0011A'));
+    expect(onRowClick).toHaveBeenCalledTimes(1);
   });
 });

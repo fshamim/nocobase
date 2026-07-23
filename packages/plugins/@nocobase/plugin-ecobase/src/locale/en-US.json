@@ -344,10 +344,6 @@
   "at risk": "at risk",
   "Only member of its family": "Only member of its family",
   "covers": "covers",
-  "d after arrival": "d after arrival",
-  "target": "target",
-  "Growth %": "Growth %",
-  "d stockout gap": "d stockout gap",
   "Reason (required)": "Reason (required)",
   "Create order": "Create order",
   "Change target…": "Change target…",
@@ -407,5 +403,11 @@
   "Urgent — stockout ≤": "Urgent — stockout ≤",
   "Urgent — stockout imminent": "Urgent — stockout imminent",
   "lead time fresh": "lead time fresh",
-  "lead time": "lead time"
+  "lead time": "lead time",
+  "Sort by": "Sort by",
+  "Most urgent": "Most urgent",
+  "No supplier": "No supplier",
+  "listings": "listings",
+  "Quantity to cover the target days of stock after arrival (default 45 d)": "Quantity to cover the target days of stock after arrival (default 45 d)",
+  "Profit lost to the stockout gap if you order today (gap days × daily profit)": "Profit lost to the stockout gap if you order today (gap days × daily profit)"
 }

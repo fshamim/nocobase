@@ -78,6 +78,8 @@ const SORTABLE_KEYS = new Set([
   'estimatedProfitRisk',
   // T7: the Supply Action v2 table sorts on the exact urgency scalar.
   'daysUntilSafeReorder',
+  // T-R1 (R1-2): the Stock sort scenario.
+  'currentPlanningStock',
 ]);
 const DEFAULT_PAGE_SIZE = 25;
 const MAX_PAGE_SIZE = 200;
@@ -88,6 +90,8 @@ export interface InventoryDashboardServiceOptions {
   followUpThresholdHours?: number;
   /** T7: surfaced to the client via the header settings (never hardcoded there). */
   fbaReceivingBufferDays?: number;
+  /** R1-6: the default coverage horizon — rows only annotate DEVIATIONS from it. */
+  targetCoverDays?: number;
 }
 
 export class InventoryDashboardValidationError extends Error {
@@ -294,6 +298,7 @@ export class EcobaseInventoryDashboardService {
   private readonly leadTimeFreshnessDays: number;
   private readonly followUpThresholdHours: number;
   private readonly fbaReceivingBufferDays: number;
+  private readonly targetCoverDaysDefault: number;
 
   constructor(
     private readonly db: DashboardDatabase,
@@ -304,10 +309,11 @@ export class EcobaseInventoryDashboardService {
     this.leadTimeFreshnessDays = options.leadTimeFreshnessDays ?? 60;
     this.followUpThresholdHours = options.followUpThresholdHours ?? 48;
     this.fbaReceivingBufferDays = options.fbaReceivingBufferDays ?? 7;
+    this.targetCoverDaysDefault = options.targetCoverDays ?? 45;
   }
 
   private headerSettings(): DashboardHeader['settings'] {
-    return { fbaReceivingBufferDays: this.fbaReceivingBufferDays };
+    return { fbaReceivingBufferDays: this.fbaReceivingBufferDays, targetCoverDays: this.targetCoverDaysDefault };
   }
 
   async header(request: HeaderRequest = {}): Promise<DashboardHeader> {
@@ -385,14 +391,16 @@ export class EcobaseInventoryDashboardService {
       pane === 'discontinuedPaused'
         ? await this.loadLifecycleProvenance(pageSlice.map((row) => asString(row.raw.companyProductId)))
         : new Map<string, { kind: string; previousStatus: string | null }>();
-    const familyMemberCounts =
-      pane === 'discontinuedPaused' ? countFamilyMembers(projected) : new Map<string, number>();
+    // T-R1 (R1-5): served on EVERY pane row now (drives the target-picker
+    // affordance without a lazy fetch). Same zero-query in-memory mechanism the
+    // Discontinued pane always used — counted over the already-fetched run rows.
+    const familyMemberCounts = countFamilyMembers(projected);
 
     const rows = pageSlice.map((row) => {
       const built = this.buildRow(row, familyPaneSets, silverById, suppliersById, commentsById);
+      built.familyMemberCount = familyMemberCounts.get(row.familyKey) ?? 1;
       if (pane === 'discontinuedPaused') {
         built.supplierName = asString(row.raw.supplierName);
-        built.familyMemberCount = familyMemberCounts.get(row.familyKey) ?? 1;
         built.lastMovementMonth = asString(row.raw.lastClosedMonth);
         const provenance = provenanceById.get(asString(row.raw.companyProductId) ?? '') ?? null;
         built.lifecycleProvenance = provenance?.kind ?? null;
@@ -805,11 +813,23 @@ export class EcobaseInventoryDashboardService {
     direction: 'asc' | 'desc' | undefined,
   ): ProjectedRow[] {
     if (!sort && pane === 'supplyAction') {
-      // T7 (REQ-X1): default order — tiered families first, then the exact
-      // urgency scalar ascending, nulls last.
+      // T-R1 (R1-2): composite DEFAULT — tier rank A -> B -> C -> D -> untiered
+      // via COALESCE(currentProjectedTier, baselineTier) (strict uppercase
+      // A|B|C|D enum in gold, so case-folded alphabetical IS the rank), nulls
+      // last; ties broken by the exact urgency scalar asc, nulls last.
+      // User-selected sorts stay single-key.
+      const tierRank = (row: ProjectedRow) => {
+        const tier = asString(row.raw.currentProjectedTier) ?? asString(row.raw.baselineTier);
+        return tier ? tier.toLowerCase() : null;
+      };
       return [...rows].sort((left, right) => {
-        const tierDelta = Number(right.tiered) - Number(left.tiered);
-        if (tierDelta !== 0) return tierDelta;
+        const leftTier = tierRank(left);
+        const rightTier = tierRank(right);
+        if (leftTier !== rightTier) {
+          if (leftTier === null) return 1;
+          if (rightTier === null) return -1;
+          return leftTier < rightTier ? -1 : 1;
+        }
         const leftValue = sortValue(left.raw.daysUntilSafeReorder);
         const rightValue = sortValue(right.raw.daysUntilSafeReorder);
         if (leftValue === null && rightValue === null) return 0;

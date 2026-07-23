@@ -892,6 +892,70 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
     expect(tile?.targetPane).toBe('supplyAction');
   });
 
+  it('T-R1 (R1-2): default supplyAction order is tier rank A->B->C->D->untiered, then urgency', async () => {
+    const local = new RecordingDatabase();
+    local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).rows.push({
+      id: PUBLISHED_RUN_ID,
+      status: 'published',
+      calculationDate: FIXED_TODAY,
+      publishedAt: `${FIXED_TODAY}T00:00:00.000Z`,
+    });
+    const goldRepo = local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows);
+    const push = (id: string, current: string | null, baseline: string | null, daysUntil: number | null) =>
+      goldRepo.rows.push({
+        id,
+        naturalKey: id,
+        refreshRunId: PUBLISHED_RUN_ID,
+        primaryActionPane: 'supplyAction',
+        companyProductFamilyId: `family-${id}`,
+        currentProjectedTier: current,
+        baselineTier: baseline,
+        // untiered rows would project to untieredProducts; give them a closed tier
+        // so they stay in the pane while the COALESCE rank still lands null-last.
+        lastClosedMonthTier: 'C',
+        daysUntilSafeReorder: daysUntil,
+      });
+    push('tier-c', 'C', 'A', 5); // COALESCE -> C (current wins over baseline)
+    push('tier-null', null, null, -20); // untiered by badge rule -> LAST despite urgency
+    push('tier-a-late', 'A', null, 9);
+    push('tier-a-urgent', 'A', null, -2); // same tier -> urgency breaks the tie
+    push('tier-d', 'D', null, -50);
+    push('tier-b', null, 'B', 0); // baseline fallback
+    const response = await service(local).pane({
+      pane: 'supplyAction',
+      runId: PUBLISHED_RUN_ID,
+      page: 1,
+      pageSize: 25,
+    });
+    if (isRunSuperseded(response)) throw new Error('bad');
+    expect(response.rows.map((row) => row.identity.listingRowId)).toEqual([
+      'tier-a-urgent',
+      'tier-a-late',
+      'tier-b',
+      'tier-c',
+      'tier-d',
+      'tier-null',
+    ]);
+  });
+
+  it('T-R1 (R1-5): familyMemberCount is served on EVERY pane row (zero extra queries)', async () => {
+    const svc = service(db);
+    db.findCalls.length = 0;
+    const response = await svc.pane({ pane: 'supplyAction', runId: PUBLISHED_RUN_ID, page: 1, pageSize: 200 });
+    if (isRunSuperseded(response)) throw new Error('bad');
+    for (const row of response.rows) {
+      expect(typeof row.familyMemberCount, `${row.identity.asin} count`).toBe('number');
+    }
+    // The split family counts its members across panes; singles report 1.
+    const split = response.rows.find((row) => row.identity.familyKey === 'family-13');
+    expect((split?.familyMemberCount ?? 0) >= 2).toBe(true);
+    expect(response.rows.find((row) => row.identity.asin === 'B0011A')?.familyMemberCount).toBe(1);
+    // Mechanism check: the count reuses already-fetched rows — gold is still fetched exactly once.
+    expect(
+      db.findCalls.filter((call) => call.collection === ECOBASE_COLLECTIONS.goldInventoryPlanningRows),
+    ).toHaveLength(1);
+  });
+
   it('T-QA1: rawGoldRow is a PLAIN flat record even when the repository returns a live model instance', async () => {
     const local = new RecordingDatabase();
     local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).rows.push({

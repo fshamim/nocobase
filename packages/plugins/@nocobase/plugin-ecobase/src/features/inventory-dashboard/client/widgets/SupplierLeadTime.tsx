@@ -79,3 +79,43 @@ export function SupplierLeadTime({
     </span>
   );
 }
+
+/**
+ * T-R1 (R1-4): compact badge variant for the Order-qty column — supplier name
+ * as a colored tag + lead+buffer + the (labelled) freshness dot; families
+ * without a supplier wear an honest warning badge pointing at the assign queue.
+ */
+export function SupplierBadge({
+  supplier,
+  fbaReceivingBufferDays,
+  t,
+  now,
+}: {
+  supplier: DashboardRowSupplier;
+  fbaReceivingBufferDays: number | null;
+  t: Translate;
+  now?: Date;
+}) {
+  if (!supplier.name) {
+    return (
+      <Tag color="orange" style={{ borderRadius: 999, fontSize: 10.5, width: 'fit-content' }}>
+        {t(TEXT.noSupplier)}
+      </Tag>
+    );
+  }
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+      <Tag color="blue" style={{ borderRadius: 999, fontSize: 10.5, marginInlineEnd: 0, maxWidth: 140 }}>
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
+          {supplier.name}
+        </span>
+      </Tag>
+      <SupplierLeadTime
+        supplier={{ ...supplier, name: null }}
+        fbaReceivingBufferDays={fbaReceivingBufferDays}
+        t={t}
+        now={now}
+      />
+    </span>
+  );
+}

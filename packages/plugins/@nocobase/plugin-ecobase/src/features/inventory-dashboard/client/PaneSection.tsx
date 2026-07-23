@@ -14,7 +14,8 @@
  * verbatim — membership and statuses all come from the API.
  */
 
-import { Alert, Button, Input, Space, Spin, Table, Tag, Typography } from 'antd';
+import { InfoCircleOutlined } from '@ant-design/icons';
+import { Alert, Button, Collapse, Input, Select, Space, Spin, Table, Tag, Tooltip, Typography } from 'antd';
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import type { DashboardRow, PaneResponse, PaneResult } from '../server/contract';
 import { isRunSuperseded } from '../server/contract';
@@ -49,6 +50,8 @@ export interface PaneFetchRequest {
   runId: string;
   companyId?: string;
   search?: string;
+  /** T-R1 (R1-2): user-selected sort scenario (server-side; default when absent). */
+  sort?: string;
   page: number;
   pageSize: number;
 }
@@ -77,6 +80,8 @@ export interface PaneSectionProps {
   onRender?: (pane: PaneConfig['pane']) => void;
   /** T7: extra context for the Supply Action v2 cell renderers (api, sync registry, settings). */
   renderContext?: PaneRenderContext;
+  /** T-R1 (R1-1): panes are independently collapsible, default EXPANDED. */
+  defaultExpanded?: boolean;
 }
 
 type PaneLoadState =
@@ -104,6 +109,10 @@ function PaneSectionInner(props: PaneSectionProps, ref: React.Ref<PaneSectionHan
   onRender?.(config.pane);
   const pageSize = props.pageSize ?? 25;
   const [visible, setVisible] = useState(false);
+  // T-R1 (R1-1): independent per-pane collapse; collapsed panes never fetch.
+  const [expanded, setExpanded] = useState(props.defaultExpanded ?? true);
+  // T-R1 (R1-2): the pane's selected sort scenario (undefined = server default).
+  const [paneSort, setPaneSort] = useState<string | undefined>(undefined);
   const [page, setPage] = useState(1);
   const [state, setState] = useState<PaneLoadState>({ status: 'idle' });
   // Task 002: dedicated per-pane search (server-side, debounced) for panes that
@@ -136,6 +145,7 @@ function PaneSectionInner(props: PaneSectionProps, ref: React.Ref<PaneSectionHan
           runId,
           companyId,
           search: effectiveSearch,
+          sort: paneSort,
           page: targetPage,
           pageSize,
         });
@@ -158,6 +168,7 @@ function PaneSectionInner(props: PaneSectionProps, ref: React.Ref<PaneSectionHan
       companyId,
       search,
       paneSearch,
+      paneSort,
       pageSize,
       onSuperseded,
       onRowsLoaded,
@@ -165,22 +176,25 @@ function PaneSectionInner(props: PaneSectionProps, ref: React.Ref<PaneSectionHan
   );
 
   useEffect(() => {
-    if (visible && runId && !frozen) {
+    // R1-1: a collapsed pane is treated as not-visible — no fetch until opened.
+    if (visible && expanded && runId && !frozen) {
       load(page);
     }
-  }, [visible, runId, frozen, page, load]);
+  }, [visible, expanded, runId, frozen, page, load]);
 
   useImperativeHandle(
     ref,
     () => ({
       focusAndLoad: () => {
         setVisible(true);
+        setExpanded(true);
         const heading = headingRef.current;
         heading?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
         heading?.focus();
       },
       refresh: () => {
         setVisible(true);
+        setExpanded(true);
         load(page);
       },
     }),
@@ -190,7 +204,17 @@ function PaneSectionInner(props: PaneSectionProps, ref: React.Ref<PaneSectionHan
   const response = state.status === 'loaded' ? state.response : undefined;
   const columns = config.columns.map((column) => ({
     key: column.key,
-    title: t(column.titleKey),
+    // R1-6: static rules live in a header tooltip, never repeated per row.
+    title: column.hintKey ? (
+      <span>
+        {t(column.titleKey)}{' '}
+        <Tooltip title={t(column.hintKey)}>
+          <InfoCircleOutlined aria-label={t(column.hintKey)} style={{ color: 'rgba(0,0,0,0.45)' }} />
+        </Tooltip>
+      </span>
+    ) : (
+      t(column.titleKey)
+    ),
     render: (_: unknown, row: DashboardRow) => column.render(row, t, renderContext),
   }));
   // T7 (mockup header strip): "N need ordering" + "€X at risk" pills.
@@ -207,96 +231,145 @@ function PaneSectionInner(props: PaneSectionProps, ref: React.Ref<PaneSectionHan
       aria-labelledby={headingId}
       style={{
         marginBottom: DASHBOARD_TOKENS.sectionGap,
-        // T-3.0c(b): unloaded sections keep a real height so they do not all
-        // sit inside the initial viewport and defeat visibility-lazy fetching.
-        minHeight: state.status === 'loaded' ? undefined : DASHBOARD_TOKENS.paneMinHeight,
+        // T-3.0c(b): unloaded EXPANDED sections keep a real height so they do
+        // not all sit inside the initial viewport and defeat lazy fetching;
+        // collapsed panes are allowed to shrink (that is the point).
+        minHeight: state.status === 'loaded' || !expanded ? undefined : DASHBOARD_TOKENS.paneMinHeight,
       }}
       data-pane={config.pane}
     >
-      <Space align="baseline" size="middle" style={{ marginBottom: DASHBOARD_TOKENS.paneHeaderGap }}>
-        <Typography.Title level={3} id={headingId} tabIndex={-1} ref={headingRef} style={{ margin: 0, fontSize: 18 }}>
-          {t(config.titleKey)}
-        </Typography.Title>
-        {response ? (
-          <Space size="middle">
-            <Typography.Text type="secondary">{`${t(TEXT.metricRows)}: ${
-              response.pagination?.total ?? 0
-            }`}</Typography.Text>
-            {needOrdering && typeof needOrdering.value === 'number' && needOrdering.value > 0 ? (
-              <Tag color={DASHBOARD_TAG_COLORS.danger} style={{ borderRadius: 999, fontWeight: 600 }}>
-                {`${needOrdering.value} ${t(TEXT.metricNeedOrdering)}`}
-              </Tag>
-            ) : null}
-            {paneMoney && typeof paneMoney.value === 'number' && paneMoney.value > 0 ? (
-              <Tag color={DASHBOARD_TAG_COLORS.warning} style={{ borderRadius: 999, fontWeight: 600 }}>
-                {`${formatMoney(paneMoney.value, t)} ${t(TEXT.metricAtRiskSuffix)}`}
-              </Tag>
-            ) : null}
-            {(response.metrics ?? [])
-              .filter((metric) => metric.key === 'tieredNeedingAttention' && metric.value !== null)
-              .map((metric) => (
-                <Typography.Text key={metric.key} type="warning">
-                  {`${t(metric.label)}: ${metric.value}`}
-                </Typography.Text>
-              ))}
-          </Space>
-        ) : null}
-      </Space>
-      {config.showPaneSearch ? (
-        <Input.Search
-          allowClear
-          size="small"
-          placeholder={t(TEXT.paneSearchPlaceholder)}
-          aria-label={`${t(config.titleKey)} ${t(TEXT.searchLabel)}`}
-          style={{ maxWidth: 320, marginBottom: 8, display: 'block' }}
-          value={paneSearchInput}
-          onChange={(event) => setPaneSearchInput(event.target.value)}
-        />
-      ) : null}
-      {state.status === 'error' ? (
-        <Alert
-          type="error"
-          showIcon
-          message={`${t(TEXT.loadFailed)}: ${state.message}`}
-          action={
-            <Button size="small" onClick={() => load(page)}>
-              {t(TEXT.retry)}
-            </Button>
-          }
-        />
-      ) : state.status === 'loading' || state.status === 'idle' ? (
-        <Spin aria-label={`${t(config.titleKey)} ${t(TEXT.loading)}`} />
-      ) : (
-        <Table<DashboardRow>
-          size="small"
-          rowKey={(row) => `${row.identity.listingRowId}:${row.order?.orderId ?? ''}`}
-          columns={columns}
-          dataSource={Array.isArray(response?.rows) ? response.rows : []}
-          locale={{ emptyText: t(TEXT.empty) }}
-          onRow={(row) => ({
-            onClick: (event) => onRowClick?.(row, event.currentTarget as HTMLElement),
-            onKeyDown: (event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                onRowClick?.(row, event.currentTarget as HTMLElement);
-              }
-            },
-            tabIndex: 0,
-            role: 'button',
-            'aria-label': `${t(config.titleKey)}: ${
-              row.identity?.sku ?? row.identity?.asin ?? row.identity?.familyKey
-            }`,
-          })}
-          pagination={{
-            current: response?.pagination?.page ?? page,
-            pageSize: response?.pagination?.pageSize ?? pageSize,
-            total: response?.pagination?.total ?? 0,
-            hideOnSinglePage: true,
-            onChange: (nextPage) => setPage(nextPage),
-          }}
-          scroll={{ x: true }}
-        />
-      )}
+      {/* T-R1 (R1-1): independently collapsible pane, default expanded (the old
+          page's one-open accordion is deliberately NOT copied). */}
+      <Collapse
+        activeKey={expanded ? [config.pane] : []}
+        onChange={(keys) => setExpanded(Array.isArray(keys) ? keys.includes(config.pane) : keys === config.pane)}
+        items={[
+          {
+            key: config.pane,
+            label: (
+              <Typography.Title
+                level={3}
+                id={headingId}
+                tabIndex={-1}
+                ref={headingRef}
+                style={{ margin: 0, fontSize: 18, display: 'inline' }}
+              >
+                {t(config.titleKey)}
+              </Typography.Title>
+            ),
+            // Controls live in `extra` behind a stopPropagation wrapper so they
+            // never toggle the collapse (legacy pattern, re-implemented).
+            extra: (
+              <span
+                role="presentation"
+                onClick={(event) => event.stopPropagation()}
+                onKeyDown={(event) => event.stopPropagation()}
+              >
+                <Space size="middle" align="center">
+                  {response ? (
+                    <Typography.Text type="secondary">{`${t(TEXT.metricRows)}: ${
+                      response.pagination?.total ?? 0
+                    }`}</Typography.Text>
+                  ) : null}
+                  {needOrdering && typeof needOrdering.value === 'number' && needOrdering.value > 0 ? (
+                    <Tag color={DASHBOARD_TAG_COLORS.danger} style={{ borderRadius: 999, fontWeight: 600 }}>
+                      {`${needOrdering.value} ${t(TEXT.metricNeedOrdering)}`}
+                    </Tag>
+                  ) : null}
+                  {paneMoney && typeof paneMoney.value === 'number' && paneMoney.value > 0 ? (
+                    <Tag color={DASHBOARD_TAG_COLORS.warning} style={{ borderRadius: 999, fontWeight: 600 }}>
+                      {`${formatMoney(paneMoney.value, t)} ${t(TEXT.metricAtRiskSuffix)}`}
+                    </Tag>
+                  ) : null}
+                  {(response?.metrics ?? [])
+                    .filter((metric) => metric.key === 'tieredNeedingAttention' && metric.value !== null)
+                    .map((metric) => (
+                      <Typography.Text key={metric.key} type="warning">
+                        {`${t(metric.label)}: ${metric.value}`}
+                      </Typography.Text>
+                    ))}
+                  {config.sortOptions ? (
+                    <Select
+                      size="small"
+                      aria-label={`${t(config.titleKey)} ${t(TEXT.sortLabel)}`}
+                      style={{ minWidth: 150 }}
+                      value={paneSort ?? ''}
+                      options={config.sortOptions.map((option) => ({
+                        value: option.value ?? '',
+                        label: t(option.labelKey),
+                      }))}
+                      onChange={(value: string) => {
+                        // R1-2: server-side sorting — a scenario change restarts at page 1.
+                        setPaneSort(value === '' ? undefined : value);
+                        setPage(1);
+                      }}
+                    />
+                  ) : null}
+                </Space>
+              </span>
+            ),
+            children: (
+              <>
+                {config.showPaneSearch ? (
+                  <Input.Search
+                    allowClear
+                    size="small"
+                    placeholder={t(TEXT.paneSearchPlaceholder)}
+                    aria-label={`${t(config.titleKey)} ${t(TEXT.searchLabel)}`}
+                    style={{ maxWidth: 320, marginBottom: 8, display: 'block' }}
+                    value={paneSearchInput}
+                    onChange={(event) => setPaneSearchInput(event.target.value)}
+                  />
+                ) : null}
+                {state.status === 'error' ? (
+                  <Alert
+                    type="error"
+                    showIcon
+                    message={`${t(TEXT.loadFailed)}: ${state.message}`}
+                    action={
+                      <Button size="small" onClick={() => load(page)}>
+                        {t(TEXT.retry)}
+                      </Button>
+                    }
+                  />
+                ) : state.status === 'loading' || state.status === 'idle' ? (
+                  <Spin aria-label={`${t(config.titleKey)} ${t(TEXT.loading)}`} />
+                ) : (
+                  <Table<DashboardRow>
+                    size="small"
+                    rowKey={(row) => `${row.identity.listingRowId}:${row.order?.orderId ?? ''}`}
+                    columns={columns}
+                    dataSource={Array.isArray(response?.rows) ? response.rows : []}
+                    locale={{ emptyText: t(TEXT.empty) }}
+                    onRow={(row) => ({
+                      onClick: (event) => onRowClick?.(row, event.currentTarget as HTMLElement),
+                      onKeyDown: (event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          onRowClick?.(row, event.currentTarget as HTMLElement);
+                        }
+                      },
+                      tabIndex: 0,
+                      role: 'button',
+                      'aria-label': `${t(config.titleKey)}: ${
+                        row.identity?.sku ?? row.identity?.asin ?? row.identity?.familyKey
+                      }`,
+                    })}
+                    pagination={{
+                      current: response?.pagination?.page ?? page,
+                      pageSize: response?.pagination?.pageSize ?? pageSize,
+                      total: response?.pagination?.total ?? 0,
+                      hideOnSinglePage: true,
+                      onChange: (nextPage) => setPage(nextPage),
+                    }}
+                    scroll={{ x: true }}
+                  />
+                )}
+              </>
+            ),
+          },
+        ]}
+      />
     </section>
   );
 }

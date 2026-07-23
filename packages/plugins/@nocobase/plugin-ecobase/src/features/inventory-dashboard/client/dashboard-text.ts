@@ -163,10 +163,6 @@ export const TEXT = {
   metricAtRiskSuffix: 'at risk',
   onlyMemberNote: 'Only member of its family',
   coversPrefix: 'covers',
-  afterArrivalSuffix: 'd after arrival',
-  growthTargetPrefix: 'target',
-  growthLabel: 'Growth %',
-  stockoutGapSuffix: 'd stockout gap',
   reasonRequiredLabel: 'Reason (required)',
   // T8b — Supply Action drawer v2.
   btnCreateOrder: 'Create order',
@@ -231,6 +227,13 @@ export const TEXT = {
   // T-QA1 a11y: freshness-dot labels (wording matches the ghost age pill).
   leadTimeFreshLabel: 'lead time fresh',
   leadTimeStaleLabel: 'lead time',
+  // T-R1: round-1 user feedback.
+  hintOrderQty: 'Quantity to cover the target days of stock after arrival (default 45 d)',
+  hintMoneyAtRisk: 'Profit lost to the stockout gap if you order today (gap days × daily profit)',
+  sortLabel: 'Sort by',
+  sortMostUrgent: 'Most urgent',
+  noSupplier: 'No supplier',
+  listingsSuffix: 'listings',
 } as const;
 
 export type DashboardTextKey = keyof typeof TEXT;

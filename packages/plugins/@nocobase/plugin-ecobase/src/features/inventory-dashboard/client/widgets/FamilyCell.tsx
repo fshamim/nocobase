@@ -25,6 +25,7 @@ import { TEXT } from '../dashboard-text';
 import { DASHBOARD_TAG_COLORS, TIER_TAG_COLOR } from '../dashboard-tokens';
 import { isDrawerContextPayload, unwrapEnvelope } from '../envelope';
 import type { Translate } from '../format';
+import { CellInteractive } from './CellInteractive';
 import type { PaneRenderContext } from './render-context';
 import { SyncDot } from './SyncState';
 
@@ -33,6 +34,7 @@ type FamilyMember = DrawerContextResponse['familyMembers'][number];
 export function FamilyCell({ row, t, ctx }: { row: DashboardRow; t: Translate; ctx?: PaneRenderContext }) {
   const tier = (row.tier.baseline ?? row.tier.current ?? '').trim();
   const pending = Boolean(ctx?.pendingFamilies.has(row.identity.familyKey));
+  const memberCount = row.familyMemberCount ?? 1;
   return (
     <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 3, minWidth: 200 }}>
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
@@ -44,8 +46,17 @@ export function FamilyCell({ row, t, ctx }: { row: DashboardRow; t: Translate; c
             {tier.toUpperCase()}
           </Tag>
         ) : null}
-        <Typography.Text strong>{row.identity.asin ?? row.identity.sku ?? ''}</Typography.Text>
+        <Typography.Text strong>{row.identity.asin ?? ''}</Typography.Text>
         {pending ? <SyncDot t={t} /> : null}
+      </span>
+      {/* R1-5: the TARGET SKU is the working identity — prominent, not buried. */}
+      <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 6 }}>
+        <Typography.Text strong style={{ fontSize: 12.5 }}>
+          {row.identity.sku ?? ''}
+        </Typography.Text>
+        <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+          {`· ${memberCount} ${t(TEXT.listingsSuffix)}`}
+        </Typography.Text>
       </span>
       {row.identity.title ? (
         <Typography.Text type="secondary" ellipsis style={{ fontSize: 12, maxWidth: 230 }}>
@@ -55,7 +66,11 @@ export function FamilyCell({ row, t, ctx }: { row: DashboardRow; t: Translate; c
       <Typography.Text type="secondary" style={{ fontSize: 11, opacity: 0.75 }}>
         {[row.identity.company, row.identity.marketplace].filter(Boolean).join(' · ')}
       </Typography.Text>
-      {ctx ? <TargetControl row={row} t={t} ctx={ctx} /> : null}
+      {ctx ? (
+        <CellInteractive>
+          <TargetControl row={row} t={t} ctx={ctx} memberCount={memberCount} />
+        </CellInteractive>
+      ) : null}
     </span>
   );
 }
@@ -66,7 +81,17 @@ type MembersState = { status: 'idle' | 'loading' } | { status: 'loaded'; members
  * The inline target picker. The current family-grain representative row IS the
  * persisted target (the server prefers it), so its SKU labels the control.
  */
-function TargetControl({ row, t, ctx }: { row: DashboardRow; t: Translate; ctx: PaneRenderContext }) {
+function TargetControl({
+  row,
+  t,
+  ctx,
+  memberCount,
+}: {
+  row: DashboardRow;
+  t: Translate;
+  ctx: PaneRenderContext;
+  memberCount: number;
+}) {
   const { message } = App.useApp();
   const [membersState, setMembersState] = useState<MembersState>({ status: 'idle' });
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -74,7 +99,11 @@ function TargetControl({ row, t, ctx }: { row: DashboardRow; t: Translate; ctx: 
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  // R1-5: single-member families have nothing to choose — disabled, NO lazy fetch.
+  const disabled = memberCount <= 1;
+
   const openPicker = async () => {
+    if (disabled) return;
     setPickerOpen(true);
     if (membersState.status === 'loaded') return;
     setMembersState({ status: 'loading' });
@@ -123,7 +152,9 @@ function TargetControl({ row, t, ctx }: { row: DashboardRow; t: Translate; ctx: 
     <>
       <button
         type="button"
-        aria-label={`${t(TEXT.drawerFamilyTarget)}: ${row.identity.sku ?? ''}`}
+        disabled={disabled}
+        aria-label={`${t(TEXT.btnChangeTarget)} ${row.identity.sku ?? ''}`}
+        aria-disabled={disabled}
         onClick={openPicker}
         style={{
           display: 'inline-flex',
@@ -131,17 +162,19 @@ function TargetControl({ row, t, ctx }: { row: DashboardRow; t: Translate; ctx: 
           gap: 5,
           marginTop: 2,
           fontSize: 11.5,
-          color: 'rgba(0,0,0,0.48)',
+          // R1-5 affordance: gray/no-op for single-member families, accent
+          // border + caret (mockup .target style) when there is a real choice.
+          color: disabled ? 'rgba(0,0,0,0.28)' : '#0958d9',
           background: 'transparent',
-          border: '1px solid #e3e3e0',
+          border: `1px solid ${disabled ? '#e3e3e0' : '#91caff'}`,
           borderRadius: 999,
           padding: '1px 9px',
           width: 'fit-content',
-          cursor: 'pointer',
+          cursor: disabled ? 'default' : 'pointer',
         }}
       >
-        {`${t(TEXT.targetPrefix)} ${row.identity.sku ?? row.identity.asin ?? ''}`}
-        <span aria-hidden style={{ fontSize: 9, opacity: 0.6 }}>
+        {t(TEXT.btnChangeTarget)}
+        <span aria-hidden style={{ fontSize: 9, opacity: disabled ? 0.4 : 0.9 }}>
           ▼
         </span>
       </button>

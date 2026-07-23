@@ -99,7 +99,8 @@
         "arrivalProvenance": null,
         "bufferStatus": "unknown"
       },
-      "lastActivity": null
+      "lastActivity": null,
+      "familyMemberCount": 1
     },
     {
       "identity": {
@@ -180,7 +181,8 @@
         "arrivalProvenance": null,
         "bufferStatus": "unknown"
       },
-      "lastActivity": null
+      "lastActivity": null,
+      "familyMemberCount": 1
     },
     {
       "identity": {
@@ -261,7 +263,8 @@
         "arrivalProvenance": null,
         "bufferStatus": "sufficient"
       },
-      "lastActivity": null
+      "lastActivity": null,
+      "familyMemberCount": 1
     },
     {
       "identity": {
@@ -342,7 +345,8 @@
         "arrivalProvenance": null,
         "bufferStatus": "sufficient"
       },
-      "lastActivity": null
+      "lastActivity": null,
+      "familyMemberCount": 1
     },
     {
       "identity": {
@@ -423,7 +427,8 @@
         "arrivalProvenance": null,
         "bufferStatus": "late"
       },
-      "lastActivity": null
+      "lastActivity": null,
+      "familyMemberCount": 1
     }
   ],
   "pagination": {

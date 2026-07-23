@@ -23,6 +23,8 @@ export interface PaneRenderContext {
   api: DashboardRequestApi;
   runId: string;
   fbaReceivingBufferDays: number | null;
+  /** R1-6: rows only annotate coverage horizons that DIFFER from this default. */
+  targetCoverDaysDefault: number | null;
   pendingFamilies: ReadonlySet<string>;
   markPending: (familyKey: string) => void;
   onMutated: (pane: PaneKey) => void;

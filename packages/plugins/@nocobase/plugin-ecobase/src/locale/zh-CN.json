@@ -344,10 +344,6 @@
   "at risk": "存在风险",
   "Only member of its family": "该产品族仅此一个成员",
   "covers": "覆盖",
-  "d after arrival": "天（到货后）",
-  "target": "目标",
-  "Growth %": "增长 %",
-  "d stockout gap": "天断货缺口",
   "Reason (required)": "原因（必填）",
   "Create order": "创建订单",
   "Change target…": "更改目标…",
@@ -407,5 +403,11 @@
   "Urgent — stockout ≤": "紧急 — 预计断货 ≤",
   "Urgent — stockout imminent": "紧急 — 即将断货",
   "lead time fresh": "交期数据新鲜",
-  "lead time": "交期"
+  "lead time": "交期",
+  "Sort by": "排序方式",
+  "Most urgent": "最紧急",
+  "No supplier": "无供应商",
+  "listings": "个商品",
+  "Quantity to cover the target days of stock after arrival (default 45 d)": "到货后覆盖目标天数库存的数量（默认 45 天）",
+  "Profit lost to the stockout gap if you order today (gap days × daily profit)": "今天下单仍会损失的断货利润（缺口天数 × 日利润）"
 }

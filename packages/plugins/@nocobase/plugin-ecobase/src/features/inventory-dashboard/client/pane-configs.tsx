@@ -16,8 +16,8 @@
  * everything else waits for the drawer. Badges come from served fields only.
  */
 
-import { InputNumber, Tag, Tooltip, Typography } from 'antd';
-import React, { useState } from 'react';
+import { Tag, Tooltip, Typography } from 'antd';
+import React from 'react';
 import type { BufferStatus, DashboardRow, PaneKey, PerformanceBand, VelocityTrend } from '../server/contract';
 import { reasonLabel, TEXT } from './dashboard-text';
 import {
@@ -41,12 +41,14 @@ import { ActionPill } from './widgets/ActionPill';
 import { FamilyCell } from './widgets/FamilyCell';
 import type { PaneRenderContext } from './widgets/render-context';
 import { StockBuckets } from './widgets/StockBuckets';
-import { SupplierLeadTime } from './widgets/SupplierLeadTime';
+import { SupplierBadge } from './widgets/SupplierLeadTime';
 import { VelocityCover } from './widgets/VelocityCover';
 
 export interface PaneColumnConfig {
   key: string;
   titleKey: string;
+  /** T-R1 (R1-6): optional header hint — static rules live in a tooltip, not in every row. */
+  hintKey?: string;
   render: (row: DashboardRow, t: Translate, ctx?: PaneRenderContext) => React.ReactNode;
 }
 
@@ -56,6 +58,8 @@ export interface PaneConfig {
   columns: PaneColumnConfig[];
   /** Task 002: dedicated search box at the top of this pane's table. */
   showPaneSearch?: boolean;
+  /** T-R1 (R1-2): selectable sort scenarios (value undefined = server default). */
+  sortOptions?: Array<{ value?: string; labelKey: string }>;
 }
 
 function productCell(row: DashboardRow): React.ReactNode {
@@ -266,8 +270,8 @@ function signals(options: SignalOptions = {}): PaneColumnConfig {
   return { key: 'signals', titleKey: TEXT.colSignals, render: (row, t) => signalsCell(row, t, options) };
 }
 
-/** T7 (mockup Order-by column): date + relative urgency + supplier line. */
-function orderByCell(row: DashboardRow, t: Translate, ctx?: PaneRenderContext): React.ReactNode {
+/** T7/R1-4: date + relative urgency ONLY (the supplier badge lives in Order qty now). */
+function orderByCell(row: DashboardRow, t: Translate): React.ReactNode {
   const days = row.daysUntilSafeReorder;
   const passed = days !== null && days <= 0;
   const soon = days !== null && days > 0 && days <= 7;
@@ -283,57 +287,41 @@ function orderByCell(row: DashboardRow, t: Translate, ctx?: PaneRenderContext): 
       ) : (
         <Typography.Text type="secondary">{EM_DASH}</Typography.Text>
       )}
-      <span style={{ display: 'block', marginTop: 4 }}>
-        <SupplierLeadTime supplier={row.supplier} fbaReceivingBufferDays={ctx?.fbaReceivingBufferDays ?? null} t={t} />
-      </span>
     </span>
   );
 }
 
 /**
- * T7 (R5): recommended qty + the UI-ONLY growth-target percent. The percent is
- * component state only — never persisted, never sent to the server.
+ * T7/R1-3/R1-4 (R5): recommended qty + cover note + the supplier badge (the
+ * growth-percent control is REMOVED — parked concept).
  */
-function OrderQtyCell({ row, t }: { row: DashboardRow; t: Translate }) {
-  const [growthPercent, setGrowthPercent] = useState<number>(0);
+function orderQtyCell(row: DashboardRow, t: Translate, ctx?: PaneRenderContext): React.ReactNode {
   const qty = row.recommendedOrderQty;
-  if (qty === null) return <Typography.Text type="secondary">{EM_DASH}</Typography.Text>;
-  const grown = Math.ceil(qty * (1 + growthPercent / 100));
   return (
-    <span style={{ fontVariantNumeric: 'tabular-nums', display: 'inline-flex', flexDirection: 'column', gap: 2 }}>
-      <Typography.Text strong style={{ fontSize: 15 }}>
-        {qty}
-      </Typography.Text>
-      {row.targetCoverDays !== null ? (
+    <span style={{ fontVariantNumeric: 'tabular-nums', display: 'inline-flex', flexDirection: 'column', gap: 3 }}>
+      {qty !== null ? (
+        <Typography.Text strong style={{ fontSize: 15 }}>
+          {qty}
+        </Typography.Text>
+      ) : (
+        <Typography.Text type="secondary">{EM_DASH}</Typography.Text>
+      )}
+      {/* R1-6: the coverage rule lives in the header hint; a row only speaks
+          up when its horizon DIFFERS from the default (a real operator override). */}
+      {qty !== null &&
+      row.targetCoverDays !== null &&
+      typeof ctx?.targetCoverDaysDefault === 'number' &&
+      row.targetCoverDays !== ctx.targetCoverDaysDefault ? (
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          {`${t(TEXT.coversPrefix)} ${row.targetCoverDays} ${t(TEXT.afterArrivalSuffix)}`}
+          {`${t(TEXT.coversPrefix)} ${row.targetCoverDays} ${t(TEXT.dSuffix)}`}
         </Typography.Text>
       ) : null}
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
-        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          {t(TEXT.growthTargetPrefix)}
-        </Typography.Text>
-        <InputNumber
-          aria-label={t(TEXT.growthLabel)}
-          size="small"
-          min={0}
-          max={100}
-          value={growthPercent}
-          onChange={(value) => setGrowthPercent(typeof value === 'number' ? value : 0)}
-          formatter={(value) => `+${value ?? 0}%`}
-          style={{ width: 64 }}
-        />
-        {growthPercent > 0 ? (
-          <Typography.Text strong style={{ fontSize: 12 }}>
-            {`→ ${grown}`}
-          </Typography.Text>
-        ) : null}
-      </span>
+      <SupplierBadge supplier={row.supplier} fbaReceivingBufferDays={ctx?.fbaReceivingBufferDays ?? null} t={t} />
     </span>
   );
 }
 
-/** T7 (R6): money at risk — danger money + stockout-gap note; em-dash when null/0. */
+/** T7/R1-6 (R6): compact dynamic-only money cell — the rule lives in the header hint. */
 function moneyAtRiskCell(row: DashboardRow, t: Translate): React.ReactNode {
   const risk = row.estimatedProfitRisk;
   if (risk === null || risk === 0) return <Typography.Text type="secondary">{EM_DASH}</Typography.Text>;
@@ -343,8 +331,8 @@ function moneyAtRiskCell(row: DashboardRow, t: Translate): React.ReactNode {
         {formatMoney(risk, t)}
       </Typography.Text>
       {row.moneyRiskUncoveredDays !== null ? (
-        <Typography.Text type="secondary" style={{ display: 'block', fontSize: 12 }}>
-          {`~${Math.round(row.moneyRiskUncoveredDays)} ${t(TEXT.stockoutGapSuffix)}`}
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          {` · ${Math.round(row.moneyRiskUncoveredDays)} ${t(TEXT.dSuffix)}`}
         </Typography.Text>
       ) : null}
     </span>
@@ -357,13 +345,21 @@ export const PANE_CONFIGS: PaneConfig[] = [
     // when to order → how much → cost of waiting → what was said → what to do.
     pane: 'supplyAction',
     titleKey: TEXT.paneSupplyAction,
+    // T-R1 (R1-2): visible sort scenarios; Tier (server default) first.
+    sortOptions: [
+      { labelKey: TEXT.tier },
+      { value: 'daysUntilSafeReorder', labelKey: TEXT.sortMostUrgent },
+      { value: 'estimatedProfitRisk', labelKey: TEXT.metricMoneyAtRisk },
+      { value: 'daysOfCover', labelKey: TEXT.colDaysOfCover },
+      { value: 'currentPlanningStock', labelKey: TEXT.colStock },
+    ],
     columns: [
       { key: 'family', titleKey: TEXT.colProduct, render: (row, t, ctx) => <FamilyCell row={row} t={t} ctx={ctx} /> },
       { key: 'stock', titleKey: TEXT.colStock, render: (row, t) => <StockBuckets stock={row.stock} t={t} /> },
       { key: 'velocity', titleKey: TEXT.colVelocityCover, render: (row, t) => <VelocityCover row={row} t={t} /> },
       { key: 'orderBy', titleKey: TEXT.colOrderBy, render: orderByCell },
-      { key: 'orderQty', titleKey: TEXT.colOrderQty, render: (row, t) => <OrderQtyCell row={row} t={t} /> },
-      { key: 'moneyAtRisk', titleKey: TEXT.metricMoneyAtRisk, render: moneyAtRiskCell },
+      { key: 'orderQty', titleKey: TEXT.colOrderQty, hintKey: TEXT.hintOrderQty, render: orderQtyCell },
+      { key: 'moneyAtRisk', titleKey: TEXT.metricMoneyAtRisk, hintKey: TEXT.hintMoneyAtRisk, render: moneyAtRiskCell },
       lastActivity,
       { key: 'action', titleKey: TEXT.colAction, render: (row, t) => <ActionPill row={row} t={t} /> },
     ],

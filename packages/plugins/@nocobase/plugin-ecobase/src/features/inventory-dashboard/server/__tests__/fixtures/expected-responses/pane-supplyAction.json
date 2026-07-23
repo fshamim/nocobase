@@ -88,7 +88,8 @@
       "reasonCodes": [],
       "velocityTrend": "flat",
       "performanceBand": "within_band",
-      "lastActivity": null
+      "lastActivity": null,
+      "familyMemberCount": 1
     },
     {
       "identity": {
@@ -153,7 +154,8 @@
       "reasonCodes": [],
       "velocityTrend": "unknown",
       "performanceBand": "insufficient_evidence",
-      "lastActivity": null
+      "lastActivity": null,
+      "familyMemberCount": 1
     },
     {
       "identity": {
@@ -218,7 +220,8 @@
       "reasonCodes": [],
       "velocityTrend": "unknown",
       "performanceBand": "insufficient_evidence",
-      "lastActivity": null
+      "lastActivity": null,
+      "familyMemberCount": 1
     },
     {
       "identity": {
@@ -283,7 +286,8 @@
       "reasonCodes": [],
       "velocityTrend": "unknown",
       "performanceBand": "insufficient_evidence",
-      "lastActivity": null
+      "lastActivity": null,
+      "familyMemberCount": 1
     },
     {
       "identity": {
@@ -349,7 +353,8 @@
       "velocityTrend": "unknown",
       "performanceBand": "insufficient_evidence",
       "familySplit": true,
-      "lastActivity": null
+      "lastActivity": null,
+      "familyMemberCount": 2
     }
   ],
   "pagination": {

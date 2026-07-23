@@ -45,6 +45,7 @@
     }
   ],
   "settings": {
-    "fbaReceivingBufferDays": 7
+    "fbaReceivingBufferDays": 7,
+    "targetCoverDays": 45
   }
 }

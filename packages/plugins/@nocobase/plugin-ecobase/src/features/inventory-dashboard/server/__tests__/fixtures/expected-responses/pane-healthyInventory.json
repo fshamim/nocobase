@@ -84,7 +84,8 @@
       "velocityTrend": "unknown",
       "performanceBand": "insufficient_evidence",
       "familySplit": true,
-      "lastActivity": null
+      "lastActivity": null,
+      "familyMemberCount": 2
     },
     {
       "identity": {
@@ -161,7 +162,8 @@
         "supplierName": null,
         "supplierShipDestination": null
       },
-      "lastActivity": null
+      "lastActivity": null,
+      "familyMemberCount": 1
     },
     {
       "identity": {
@@ -229,7 +231,8 @@
       "stockoutUrgency": {
         "daysUntil": 12
       },
-      "lastActivity": null
+      "lastActivity": null,
+      "familyMemberCount": 1
     },
     {
       "identity": {
@@ -294,7 +297,8 @@
       "reasonCodes": [],
       "velocityTrend": "up",
       "performanceBand": "insufficient_evidence",
-      "lastActivity": null
+      "lastActivity": null,
+      "familyMemberCount": 1
     }
   ],
   "pagination": {

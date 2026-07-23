@@ -77,6 +77,7 @@ async function buildService(db: DashboardDatabase): Promise<EcobaseInventoryDash
     leadTimeFreshnessDays: settings.leadTimeFreshnessDays,
     followUpThresholdHours: settings.followUpThresholdHours,
     fbaReceivingBufferDays: settings.fbaReceivingBufferDays,
+    targetCoverDays: settings.targetCoverDays,
   });
 }
 

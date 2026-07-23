@@ -100,7 +100,8 @@
         "preview": "Approved to order",
         "author": null,
         "at": "2026-07-21T02:00:00.000Z"
-      }
+      },
+      "familyMemberCount": 2
     },
     {
       "identity": {
@@ -177,7 +178,8 @@
         "supplierName": null,
         "supplierShipDestination": null
       },
-      "lastActivity": null
+      "lastActivity": null,
+      "familyMemberCount": 1
     }
   ],
   "pagination": {

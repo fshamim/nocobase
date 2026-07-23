@@ -96,7 +96,8 @@
         "supplierShipDestination": "prep_center",
         "prepPath": "own_prep_center"
       },
-      "lastActivity": null
+      "lastActivity": null,
+      "familyMemberCount": 1
     },
     {
       "identity": {
@@ -178,7 +179,8 @@
         "preview": "Chased supplier for tracking",
         "author": "Kiran M.",
         "at": "2026-07-19T12:00:00.000Z"
-      }
+      },
+      "familyMemberCount": 1
     },
     {
       "identity": {
@@ -261,7 +263,8 @@
         "preview": "Paid, awaiting prep",
         "author": null,
         "at": "2026-07-21T07:00:00.000Z"
-      }
+      },
+      "familyMemberCount": 2
     },
     {
       "identity": {
@@ -344,7 +347,8 @@
         "preview": "",
         "author": null,
         "at": "2026-07-21T09:00:00.000Z"
-      }
+      },
+      "familyMemberCount": 1
     },
     {
       "identity": {
@@ -426,7 +430,8 @@
         "preview": "",
         "author": null,
         "at": "2026-07-21T10:00:00.000Z"
-      }
+      },
+      "familyMemberCount": 1
     }
   ],
   "pagination": {
