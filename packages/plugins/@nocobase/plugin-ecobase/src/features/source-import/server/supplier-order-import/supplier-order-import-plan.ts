@@ -148,7 +148,7 @@ export const EXPECTED_SOURCE_HEADERS: Record<SupplierOrderSourceRole, readonly s
   ],
 };
 
-const REQUIRED_SOURCE_HEADERS: Record<SupplierOrderSourceRole, readonly string[]> = {
+export const REQUIRED_SOURCE_HEADERS: Record<SupplierOrderSourceRole, readonly string[]> = {
   supplier_ids: ['SR ID', 'Supplier Name'],
   supplier_tracker: ['SR ID'],
   purchase_orders: ['Timestamp', 'Order ID', 'SR ID', 'Company', 'PO approval', 'Order status'],
@@ -187,7 +187,7 @@ interface ParsedPurchaseOrder {
   evidence: SourceEvidence;
 }
 
-function text(value: unknown) {
+export function text(value: unknown) {
   const result = String(value ?? '')
     .normalize('NFKC')
     .trim();
@@ -279,7 +279,7 @@ export function normalizeSourceAsin(value: unknown) {
   return normalized && /^[A-Z0-9]{10}$/.test(normalized) ? normalized : undefined;
 }
 
-function parseNumber(value: unknown) {
+export function parseNumber(value: unknown) {
   const raw = text(value);
   if (!raw || raw === '#N/A') return { value: undefined, valid: true };
   const normalized = raw
@@ -290,7 +290,7 @@ function parseNumber(value: unknown) {
   return Number.isFinite(parsed) ? { value: parsed, valid: true } : { value: undefined, valid: false };
 }
 
-function parseDate(value: unknown, format: 'day-first' | 'month-first' = 'day-first') {
+export function parseDate(value: unknown, format: 'day-first' | 'month-first' = 'day-first') {
   const raw = text(value);
   if (!raw) return { value: undefined, valid: true };
   const iso = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);

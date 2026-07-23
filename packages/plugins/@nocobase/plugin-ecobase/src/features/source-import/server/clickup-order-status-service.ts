@@ -52,7 +52,7 @@ const ORDER_REF_PATTERN = new RegExp(
 );
 const MAIN_ORDER_PATTERN = /\b(?:new\s*order|restock|po|order)\b/i;
 const HELPER_TASK_PATTERN = /shipping labels?|labels required|time tracking|approval|reimbursement|claim|sample/i;
-const MAIN_TASK_LISTS = new Set(['order management (orm)', 'prep & logistics']);
+export const MAIN_TASK_LISTS = new Set(['order management (orm)', 'prep & logistics']);
 const CLICKUP_TASK_OVERRIDES = validateSupplierOrderImportOverrides(clickupOverrides).clickupTasks;
 
 const COMMENT_PROPOSAL_LIMIT = 20;
@@ -195,7 +195,7 @@ export function extractClickupOrderRefsFromTitle(taskName: string) {
   return refs;
 }
 
-function isRootTask(parentId: string | undefined) {
+export function isRootTask(parentId: string | undefined) {
   return !parentId || ['blank', 'null', 'none'].includes(parentId.toLowerCase());
 }
 
