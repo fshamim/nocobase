@@ -98,6 +98,13 @@ const PO_OPTIONAL_DATE_COLUMNS = new Set(['Date of Payment', 'Exp. Delivery Date
 const ORDER_DETAILS_OPTIONAL_DATE_COLUMNS = new Set(['ETA on Amazon']);
 const ORDER_DETAILS_REQUIRED_COLUMNS = new Set(['Order ID', 'Company', 'ASIN', 'Qty']);
 
+/** Authority a kept Purchase Order lends to its order-detail lines. */
+export interface KeptPoAuthority {
+  company: string;
+  /** Present only when the PO's own SR ID passes normalizeExternalSupplierCode. */
+  supplierCode?: string;
+}
+
 export interface CleanFileReport {
   role: CanonicalRole;
   sourceName: string;
@@ -107,6 +114,8 @@ export interface CleanFileReport {
   keptViaParentPo?: number;
   /** order_details only: kept lines whose invalid SR ID cell was blanked (supplier evidence lives at order level). */
   blankedInvalidLineSupplierIds?: number;
+  /** order_details only: kept lines whose blank (or blanked) SR ID was backfilled from the kept parent PO's valid code. */
+  supplierIdFilledFromParentPo?: number;
   /** order_details only: kept lines whose Company was rewritten to their kept parent PO's Company. */
   companyAlignedToParentPo?: number;
   /** order_details only: kept lines with NO kept parent PO whose Company was rewritten to the order-id prefix company. */
@@ -119,6 +128,8 @@ export interface CleanFileReport {
   keptOrderIds?: string[];
   /** purchase_orders only: canonical company per kept order id (authoritative for line-item alignment). */
   keptOrderCompanies?: Record<string, string>;
+  /** purchase_orders only: valid normalized SR ID per kept order id (only entries whose PO code normalizes). */
+  keptOrderSupplierCodes?: Record<string, string>;
   clickupRefs?: string[];
   outputHeaders: string[];
   outputRows: string[][];
@@ -299,6 +310,12 @@ export function cleanPurchaseOrders(
     companyBreakdown,
     keptOrderIds: kept.map((candidate) => candidate.orderId),
     keptOrderCompanies: Object.fromEntries(kept.map((candidate) => [candidate.orderId, candidate.company])),
+    keptOrderSupplierCodes: Object.fromEntries(
+      kept.flatMap((candidate) => {
+        const code = normalizeExternalSupplierCode(candidate.reader.string('SR ID'));
+        return code ? [[candidate.orderId, code] as const] : [];
+      }),
+    ),
     outputHeaders: [...headers],
     outputRows,
   };
@@ -309,7 +326,7 @@ export function cleanOrderDetails(
   parsed: { headers: string[]; rows: CsvRow[]; rawRowCount: number },
   resolver: (raw: string | undefined) => CompanyResolution,
   cutoff: string,
-  keptPos: ReadonlyMap<string, string>,
+  keptPos: ReadonlyMap<string, KeptPoAuthority>,
 ): CleanFileReport {
   const headers = EXPECTED_SOURCE_HEADERS.order_details as readonly string[];
   const dropped: Record<string, number> = {};
@@ -322,6 +339,7 @@ export function cleanOrderDetails(
   const outputRows: string[][] = [];
   let keptViaParentPo = 0;
   let blankedInvalidLineSupplierIds = 0;
+  let supplierIdFilledFromParentPo = 0;
   let companyAlignedToParentPo = 0;
   let companyAlignedToOrderPrefix = 0;
   for (const row of parsed.rows) {
@@ -370,7 +388,8 @@ export function cleanOrderDetails(
     // order-id prefix company (company_aligned_to_order_prefix) because the importer's
     // decideCompanyScope treats the prefix as company evidence and blocks a
     // canonicalized-but-different line company as company_evidence_conflict.
-    const parentCompany = keptPos.get(orderId);
+    const parent = keptPos.get(orderId);
+    const parentCompany = parent?.company;
     const prefixCompany = COMPANY_NAME_BY_ORDER_PREFIX[orderId.slice(0, 2)] || undefined;
     const authoritativeCompany = parentCompany ?? prefixCompany;
     let lineCompany = company.name;
@@ -385,6 +404,14 @@ export function cleanOrderDetails(
     const rawSupplierCode = reader.string('SR ID');
     const supplierCodeInvalid = rawSupplierCode !== undefined && !normalizeExternalSupplierCode(rawSupplierCode);
     if (supplierCodeInvalid) blankedInvalidLineSupplierIds += 1;
+    // Rule 1b: a blank (or just-blanked) SR ID backfills from the kept parent PO's valid
+    // code (supplier_id_filled_from_parent_po) — same authority principle as company
+    // alignment. No kept parent, or a parent whose own code is invalid, stays blank.
+    let lineSupplierCode = supplierCodeInvalid ? '' : rawSupplierCode ?? '';
+    if (!lineSupplierCode && parent?.supplierCode) {
+      lineSupplierCode = parent.supplierCode;
+      supplierIdFilledFromParentPo += 1;
+    }
     if (!inWindow) keptViaParentPo += 1;
     incr(companyBreakdown, lineCompany);
     keptOrderIds.push(orderId);
@@ -394,7 +421,7 @@ export function cleanOrderDetails(
         if (header === 'Company') return lineCompany;
         if (header === 'Timestamp') return isoTimestamp ?? '';
         if (header === 'ASIN') return asin;
-        if (header === 'SR ID') return supplierCodeInvalid ? '' : rawSupplierCode ?? '';
+        if (header === 'SR ID') return lineSupplierCode;
         const value = reader.string(header) ?? '';
         if (ORDER_DETAILS_OPTIONAL_DATE_COLUMNS.has(header)) {
           const iso = parseDate(value, 'day-first');
@@ -414,6 +441,7 @@ export function cleanOrderDetails(
     keptRows: outputRows.length,
     keptViaParentPo,
     blankedInvalidLineSupplierIds,
+    supplierIdFilledFromParentPo,
     companyAlignedToParentPo,
     companyAlignedToOrderPrefix,
     droppedByReason: dropped,
@@ -643,7 +671,13 @@ export function cleanAssignedFiles(
   // out-of-window/junk timestamp and inherits the parent's canonical company).
   const poFile = assigned.find((file) => file.role === 'purchase_orders' && !failedRoles.has(file.role));
   const poReport = poFile ? cleanPurchaseOrders(poFile.sourceName, poFile.parsed, resolver, cutoff) : undefined;
-  const keptPos: ReadonlyMap<string, string> = new Map(Object.entries(poReport?.keptOrderCompanies ?? {}));
+  const keptSupplierCodes = poReport?.keptOrderSupplierCodes ?? {};
+  const keptPos: ReadonlyMap<string, KeptPoAuthority> = new Map(
+    Object.entries(poReport?.keptOrderCompanies ?? {}).map(([orderId, company]) => [
+      orderId,
+      { company, supplierCode: keptSupplierCodes[orderId] },
+    ]),
+  );
   const reports: CleanFileReport[] = [];
   for (const file of assigned) {
     if (failedRoles.has(file.role)) continue;
@@ -758,6 +792,11 @@ export function renderReport(result: CleanBundleResult): string {
     if (report.blankedInvalidLineSupplierIds !== undefined) {
       lines.push(
         `- blanked_invalid_line_supplier_id (SR ID cell failed importer normalization; blanked, line kept): ${report.blankedInvalidLineSupplierIds}`,
+      );
+    }
+    if (report.supplierIdFilledFromParentPo !== undefined) {
+      lines.push(
+        `- supplier_id_filled_from_parent_po (blank or blanked SR ID backfilled from the kept parent PO's valid code): ${report.supplierIdFilledFromParentPo}`,
       );
     }
     if (report.companyAlignedToParentPo !== undefined) {
@@ -885,6 +924,9 @@ function main() {
       report.keptViaParentPo !== undefined ? `kept_via_parent_po=${report.keptViaParentPo}` : undefined,
       report.blankedInvalidLineSupplierIds !== undefined
         ? `blanked_invalid_line_supplier_id=${report.blankedInvalidLineSupplierIds}`
+        : undefined,
+      report.supplierIdFilledFromParentPo !== undefined
+        ? `supplier_id_filled_from_parent_po=${report.supplierIdFilledFromParentPo}`
         : undefined,
       report.companyAlignedToParentPo !== undefined
         ? `company_aligned_to_parent_po=${report.companyAlignedToParentPo}`
