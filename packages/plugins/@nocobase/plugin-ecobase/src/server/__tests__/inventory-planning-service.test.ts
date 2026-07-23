@@ -2153,3 +2153,112 @@ describe('EcobaseInventoryPlanningService', () => {
     expect(digest.sections.suppliersToContactFirst).toEqual([]);
   });
 });
+
+describe('corrected operational supplier fallback chain (Batch B1)', () => {
+  type OperationalRows = Map<string, Record<string, unknown>>;
+  const buildRows = (overrides: Record<string, unknown>): OperationalRows =>
+    (
+      new EcobaseInventoryPlanningService({} as never) as unknown as {
+        correctedOperationalRowsFromSilver(input: Record<string, unknown>): OperationalRows;
+      }
+    ).correctedOperationalRowsFromSilver({
+      calculationDate: '2026-07-24',
+      settings: {
+        supplierOrderPlacedNotPurchasedStatuses: [],
+        supplierOrderPurchasedPipelineStatuses: [],
+        supplierOrderClosedStatuses: [],
+      },
+      sourceConnections: [],
+      inventorySnapshots: [],
+      suppliers: [],
+      supplierProducts: [],
+      productSuppliers: [],
+      orders: [],
+      orderLines: [],
+      companyProducts: [{ id: 'cp-1', productId: 'product-1', companyProductFamilyId: 'family-1' }],
+      familyRows: [],
+      ...overrides,
+    });
+
+  const linkSupplier = { id: 'supplier-link', name: 'Link Supplier' };
+  const familySupplier = { id: 'supplier-family', name: 'Family Supplier' };
+
+  it('keeps the per-product silver link as the strongest evidence over the family fallback', () => {
+    const row = buildRows({
+      suppliers: [linkSupplier, familySupplier],
+      supplierProducts: [
+        { id: 'sp-link', supplierId: 'supplier-link', productId: 'product-1', leadTimeDays: 10 },
+        { id: 'sp-family', supplierId: 'supplier-family', productId: 'product-1', leadTimeDays: 21 },
+      ],
+      productSuppliers: [{ id: 'link-1', companyProductId: 'cp-1', supplierProductId: 'sp-link', role: 'preferred' }],
+      familyRows: [{ id: 'family-1', preferredSupplierId: 'supplier-family', preferredSupplierProductId: 'sp-family' }],
+    }).get('cp-1');
+    expect(row).toMatchObject({
+      supplierId: 'supplier-link',
+      supplierSource: 'silver_company_product_supplier',
+      supplierRole: 'preferred',
+      supplierConfidence: 'resolved_silver_link',
+      supplierAvailability: 'resolved_silver_link',
+      leadTimeDays: 10,
+    });
+  });
+
+  it('falls back to the family preferred supplier product and carries its lead time', () => {
+    const row = buildRows({
+      suppliers: [familySupplier],
+      supplierProducts: [
+        { id: 'sp-family', supplierId: 'supplier-family', productId: 'product-other', leadTimeDays: 21, unitCost: 3 },
+      ],
+      familyRows: [{ id: 'family-1', preferredSupplierId: 'supplier-family', preferredSupplierProductId: 'sp-family' }],
+    }).get('cp-1');
+    expect(row).toMatchObject({
+      supplierId: 'supplier-family',
+      supplierName: 'Family Supplier',
+      supplierSource: 'family_preferred',
+      supplierConfidence: 'resolved_family_preferred',
+      supplierAvailability: 'resolved_family_preferred',
+      leadTimeDays: 21,
+      leadTimeAvailability: 'resolved_silver_link',
+      unitCost: 3,
+    });
+    expect(row?.supplierRole).toBeUndefined(); // no per-product link -> no link role
+  });
+
+  it('falls back to the family preferred supplier id alone with a null lead time', () => {
+    const row = buildRows({
+      suppliers: [familySupplier],
+      familyRows: [{ id: 'family-1', preferredSupplierId: 'supplier-family' }],
+    }).get('cp-1');
+    expect(row).toMatchObject({
+      supplierId: 'supplier-family',
+      supplierSource: 'family_preferred',
+      supplierConfidence: 'resolved_family_preferred',
+      supplierAvailability: 'resolved_family_preferred',
+      leadTimeAvailability: 'resolved_default_supplier_lead_time',
+    });
+    expect(row?.leadTimeDays).toBeUndefined();
+  });
+
+  it('recovers a lead time on the id-only fallback when a supplier product exists for the listing product', () => {
+    const row = buildRows({
+      suppliers: [familySupplier],
+      supplierProducts: [{ id: 'sp-match', supplierId: 'supplier-family', productId: 'product-1', leadTimeDays: 14 }],
+      familyRows: [{ id: 'family-1', preferredSupplierId: 'supplier-family' }],
+    }).get('cp-1');
+    expect(row).toMatchObject({
+      supplierId: 'supplier-family',
+      supplierSource: 'family_preferred',
+      leadTimeDays: 14,
+      leadTimeAvailability: 'resolved_silver_link',
+    });
+  });
+
+  it('stays unavailable_no_evidence when neither a link nor a family supplier exists', () => {
+    const row = buildRows({
+      familyRows: [{ id: 'family-1' }],
+    }).get('cp-1');
+    expect(row).toMatchObject({ supplierAvailability: 'unavailable_no_evidence' });
+    expect(row?.supplierId).toBeUndefined();
+    expect(row?.supplierSource).toBeUndefined();
+  });
+});

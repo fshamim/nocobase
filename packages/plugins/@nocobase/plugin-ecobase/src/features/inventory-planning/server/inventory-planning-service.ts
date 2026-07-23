@@ -2387,6 +2387,7 @@ export class EcobaseInventoryPlanningService {
       orders,
       orderLines,
       companyProducts,
+      familyRows,
     });
     const companiesById = new Map(companies.map((row) => [asString(row.id), row]));
     const accountsById = new Map(accounts.map((row) => [asString(row.id), row]));
@@ -2758,6 +2759,7 @@ export class EcobaseInventoryPlanningService {
     orders: PlainRecord[];
     orderLines: PlainRecord[];
     companyProducts: PlainRecord[];
+    familyRows: PlainRecord[];
   }) {
     const sellerboardSourceConnectionIds = new Set(
       input.sourceConnections
@@ -2772,6 +2774,10 @@ export class EcobaseInventoryPlanningService {
     const inventoryByCompanyProduct = this.groupBy(input.inventorySnapshots, 'companyProductId');
     const suppliersById = new Map(input.suppliers.map((row) => [asString(row.id), row]));
     const supplierProductsById = new Map(input.supplierProducts.map((row) => [asString(row.id), row]));
+    const supplierProductsBySupplierAndProduct = new Map(
+      input.supplierProducts.map((row) => [`${asString(row.supplierId)}:${asString(row.productId)}`, row]),
+    );
+    const familiesById = new Map(input.familyRows.map((row) => [asString(row.id), row]));
     const supplierLinksByCompanyProduct = this.groupBy(input.productSuppliers, 'companyProductId');
     const statusRules = supplierOrderStatusRules(input.settings);
     const ordersById = new Map<string | undefined, PlainRecord>(
@@ -2867,8 +2873,35 @@ export class EcobaseInventoryPlanningService {
             String(left.supplierProduct.id ?? '').localeCompare(String(right.supplierProduct.id ?? ''))
           );
         })[0];
-      const supplierProduct = supplierOffer?.supplierProduct;
-      const supplier = supplierOffer?.supplier;
+      // Supplier fallback chain (plan Step 3 / B1): the per-product silver link stays the
+      // strongest evidence; when none resolves, the family's preferred supplier becomes
+      // the supplier of record — first via preferredSupplierProductId (carries lead time
+      // and unit cost), else via preferredSupplierId alone (lead time only when a
+      // supplier product exists for that supplier + this listing's product). Fallback
+      // rows are marked supplierSource='family_preferred' and resolve
+      // supplierAvailability so readiness/pane logic treats the supplier as present.
+      let supplierProduct = supplierOffer?.supplierProduct;
+      let supplier = supplierOffer?.supplier;
+      let familyPreferred = false;
+      if (!supplier) {
+        const family = familiesById.get(asString(companyProduct.companyProductFamilyId));
+        const preferredSupplierProduct = supplierProductsById.get(asString(family?.preferredSupplierProductId));
+        const preferredSupplierFromProduct = suppliersById.get(asString(preferredSupplierProduct?.supplierId));
+        if (preferredSupplierProduct && preferredSupplierFromProduct) {
+          supplierProduct = preferredSupplierProduct;
+          supplier = preferredSupplierFromProduct;
+          familyPreferred = true;
+        } else {
+          const preferredSupplier = suppliersById.get(asString(family?.preferredSupplierId));
+          if (preferredSupplier) {
+            supplier = preferredSupplier;
+            supplierProduct = supplierProductsBySupplierAndProduct.get(
+              `${asString(preferredSupplier.id)}:${asString(companyProduct.productId)}`,
+            );
+            familyPreferred = true;
+          }
+        }
+      }
       rows.set(companyProductId, {
         inventoryAsOfDate: asString(inventory?.snapshotDate),
         currentPlanningStock: stock?.currentPlanningStock,
@@ -2889,12 +2922,24 @@ export class EcobaseInventoryPlanningService {
         pipelineHealthStatus: supplierOrderStale ? 'late' : openOrder.supplierOrderState,
         supplierId: asString(supplier?.id),
         supplierName: asString(supplier?.name),
-        supplierSource: supplier ? 'silver_company_product_supplier' : undefined,
+        supplierSource: supplier
+          ? familyPreferred
+            ? 'family_preferred'
+            : 'silver_company_product_supplier'
+          : undefined,
         supplierRole: asString(supplierOffer?.link.role),
-        supplierConfidence: supplier ? 'resolved_silver_link' : undefined,
+        supplierConfidence: supplier
+          ? familyPreferred
+            ? 'resolved_family_preferred'
+            : 'resolved_silver_link'
+          : undefined,
         unitCost: asNumber(supplierProduct?.unitCost),
         unitCostSource: supplierProduct ? 'silver_supplier_product' : undefined,
-        supplierAvailability: supplier ? 'resolved_silver_link' : 'unavailable_no_evidence',
+        supplierAvailability: supplier
+          ? familyPreferred
+            ? 'resolved_family_preferred'
+            : 'resolved_silver_link'
+          : 'unavailable_no_evidence',
         leadTimeAvailability: supplierProduct ? 'resolved_silver_link' : 'resolved_default_supplier_lead_time',
         unitCostAvailability:
           asNumber(supplierProduct?.unitCost) === undefined ? 'unavailable' : 'resolved_silver_link',
