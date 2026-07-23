@@ -3264,15 +3264,17 @@ describe('Ecobase import public API seam', () => {
       files: [
         expect.objectContaining({
           detectedShape: 'supplier-ids',
-          adapterName: 'google-sheets-migration-csv',
+          // Batch A: Supplier IDs join the canonical supplier-order group so a single
+          // Analyze -> Run covers PO + OrderDetails + Supplier IDs.
+          adapterName: 'supplier-order-csv',
           importable: true,
         }),
       ],
       groups: [
         expect.objectContaining({
-          adapterName: 'google-sheets-migration-csv',
+          adapterName: 'supplier-order-csv',
           sourceType: 'google_sheets',
-          domain: 'supplier_management',
+          domain: 'order_management',
         }),
       ],
     });
