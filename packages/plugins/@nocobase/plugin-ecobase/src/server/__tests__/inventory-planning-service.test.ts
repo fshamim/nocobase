@@ -2180,8 +2180,10 @@ describe('corrected operational supplier fallback chain (Batch B1)', () => {
       ...overrides,
     });
 
-  const linkSupplier = { id: 'supplier-link', name: 'Link Supplier' };
-  const familySupplier = { id: 'supplier-family', name: 'Family Supplier' };
+  // Mirror the real silverSuppliers shape: displayName + normalizedName, NO `name`
+  // column — a fixture `name` field previously masked the null-supplierName bug.
+  const linkSupplier = { id: 'supplier-link', displayName: 'Link Supplier', normalizedName: 'link supplier' };
+  const familySupplier = { id: 'supplier-family', displayName: 'Family Supplier', normalizedName: 'family supplier' };
 
   it('keeps the per-product silver link as the strongest evidence over the family fallback', () => {
     const row = buildRows({
@@ -2195,6 +2197,7 @@ describe('corrected operational supplier fallback chain (Batch B1)', () => {
     }).get('cp-1');
     expect(row).toMatchObject({
       supplierId: 'supplier-link',
+      supplierName: 'Link Supplier',
       supplierSource: 'silver_company_product_supplier',
       supplierRole: 'preferred',
       supplierConfidence: 'resolved_silver_link',
@@ -2231,6 +2234,7 @@ describe('corrected operational supplier fallback chain (Batch B1)', () => {
     }).get('cp-1');
     expect(row).toMatchObject({
       supplierId: 'supplier-family',
+      supplierName: 'Family Supplier',
       supplierSource: 'family_preferred',
       supplierConfidence: 'resolved_family_preferred',
       supplierAvailability: 'resolved_family_preferred',

@@ -2921,7 +2921,9 @@ export class EcobaseInventoryPlanningService {
         supplierOrderStale,
         pipelineHealthStatus: supplierOrderStale ? 'late' : openOrder.supplierOrderState,
         supplierId: asString(supplier?.id),
-        supplierName: asString(supplier?.name),
+        // silverSuppliers has no `name` column (normalizedName + displayName only) —
+        // displayName-first matches every other supplier-name mapping in this file.
+        supplierName: asString(supplier?.displayName) ?? asString(supplier?.name),
         supplierSource: supplier
           ? familyPreferred
             ? 'family_preferred'
