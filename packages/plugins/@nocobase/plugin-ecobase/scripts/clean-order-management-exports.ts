@@ -36,6 +36,7 @@ import {
   EXPECTED_SOURCE_HEADERS,
   REQUIRED_SOURCE_HEADERS,
   normalizeExternalOrderId,
+  normalizeExternalSupplierCode,
   normalizeSourceAsin,
   parseDate,
   parseNumber,
@@ -83,6 +84,15 @@ const CLICKUP_REQUIRED_COLUMNS = [
   'Date Created Text',
 ];
 
+// Canonical company name per order-id prefix (EF/MX/RH/SS) — the importer treats the
+// prefix as company evidence (decideCompanyScope), so alignment must honor it too.
+const COMPANY_NAME_BY_ORDER_PREFIX: Record<string, string> = Object.fromEntries(
+  Object.entries(FOUR_COMPANY_MIGRATION_PROFILE.orderPrefixCompanyKeys).map(([prefix, companyKey]) => [
+    prefix,
+    FOUR_COMPANY_MIGRATION_PROFILE.canonicalCompanies.find((company) => company.companyKey === companyKey)?.name ?? '',
+  ]),
+);
+
 // Optional PO date columns that benefit from ISO normalization (Timestamp is handled separately).
 const PO_OPTIONAL_DATE_COLUMNS = new Set(['Date of Payment', 'Exp. Delivery Date ', 'OR Status Date']);
 const ORDER_DETAILS_OPTIONAL_DATE_COLUMNS = new Set(['ETA on Amazon']);
@@ -95,12 +105,20 @@ export interface CleanFileReport {
   keptRows: number;
   /** order_details only: lines kept because their order id is in the kept-PO set despite their own timestamp. */
   keptViaParentPo?: number;
+  /** order_details only: kept lines whose invalid SR ID cell was blanked (supplier evidence lives at order level). */
+  blankedInvalidLineSupplierIds?: number;
+  /** order_details only: kept lines whose Company was rewritten to their kept parent PO's Company. */
+  companyAlignedToParentPo?: number;
+  /** order_details only: kept lines with NO kept parent PO whose Company was rewritten to the order-id prefix company. */
+  companyAlignedToOrderPrefix?: number;
   droppedByReason: Record<string, number>;
   corruptedOrderIdClasses?: Record<string, number>;
   duplicateOrderIds?: Array<{ orderId: string; keptDate: string | undefined; droppedCount: number }>;
   supplierNameConflicts?: Array<{ srId: string; keptName: string; conflictingNames: string[] }>;
   companyBreakdown?: Record<string, number>;
   keptOrderIds?: string[];
+  /** purchase_orders only: canonical company per kept order id (authoritative for line-item alignment). */
+  keptOrderCompanies?: Record<string, string>;
   clickupRefs?: string[];
   outputHeaders: string[];
   outputRows: string[][];
@@ -280,6 +298,7 @@ export function cleanPurchaseOrders(
     duplicateOrderIds,
     companyBreakdown,
     keptOrderIds: kept.map((candidate) => candidate.orderId),
+    keptOrderCompanies: Object.fromEntries(kept.map((candidate) => [candidate.orderId, candidate.company])),
     outputHeaders: [...headers],
     outputRows,
   };
@@ -290,7 +309,7 @@ export function cleanOrderDetails(
   parsed: { headers: string[]; rows: CsvRow[]; rawRowCount: number },
   resolver: (raw: string | undefined) => CompanyResolution,
   cutoff: string,
-  keptPoIds: ReadonlySet<string>,
+  keptPos: ReadonlyMap<string, string>,
 ): CleanFileReport {
   const headers = EXPECTED_SOURCE_HEADERS.order_details as readonly string[];
   const dropped: Record<string, number> = {};
@@ -302,6 +321,9 @@ export function cleanOrderDetails(
   const keptOrderIds: string[] = [];
   const outputRows: string[][] = [];
   let keptViaParentPo = 0;
+  let blankedInvalidLineSupplierIds = 0;
+  let companyAlignedToParentPo = 0;
+  let companyAlignedToOrderPrefix = 0;
   for (const row of parsed.rows) {
     const reader = new CsvRowReader(row);
     const orderId = normalizeExternalOrderId(reader.string('Order ID'));
@@ -312,7 +334,7 @@ export function cleanOrderDetails(
     // set is kept even when its own timestamp is unparseable or out-of-window (counted as
     // kept_via_parent_po). Company scope and required-field validity below still apply.
     // Lines not under a kept PO are windowed by their own timestamp, exactly as before.
-    const underKeptPo = orderId !== undefined && keptPoIds.has(orderId);
+    const underKeptPo = orderId !== undefined && keptPos.has(orderId);
     if (!inWindow && !underKeptPo) {
       incr(dropped, isoTimestamp === undefined ? 'junk_unparseable_date' : 'outside_6_month_window');
       continue;
@@ -338,19 +360,41 @@ export function cleanOrderDetails(
       continue;
     }
     const quantity = parseNumber(reader.string('Qty'));
-    if (!quantity.valid || quantity.value === undefined) {
+    if (!quantity.valid || quantity.value === undefined || quantity.value <= 0) {
+      // Required-field rule: Qty must be a positive number, not merely parseable.
       incr(dropped, 'qty_invalid');
       continue;
     }
+    // Company alignment: the kept parent PO's Company is authoritative
+    // (company_aligned_to_parent_po); a line with NO kept parent falls back to the
+    // order-id prefix company (company_aligned_to_order_prefix) because the importer's
+    // decideCompanyScope treats the prefix as company evidence and blocks a
+    // canonicalized-but-different line company as company_evidence_conflict.
+    const parentCompany = keptPos.get(orderId);
+    const prefixCompany = COMPANY_NAME_BY_ORDER_PREFIX[orderId.slice(0, 2)] || undefined;
+    const authoritativeCompany = parentCompany ?? prefixCompany;
+    let lineCompany = company.name;
+    if (authoritativeCompany !== undefined && authoritativeCompany !== company.name) {
+      lineCompany = authoritativeCompany;
+      if (parentCompany !== undefined) companyAlignedToParentPo += 1;
+      else companyAlignedToOrderPrefix += 1;
+    }
+    // An SR ID value the importer's normalizer rejects is blanked, never repaired: the
+    // cell content is DATA (may be arbitrary prose) and supplier evidence lives at order
+    // level, so blank-equals-absent keeps the line importable (blanked_invalid_line_supplier_id).
+    const rawSupplierCode = reader.string('SR ID');
+    const supplierCodeInvalid = rawSupplierCode !== undefined && !normalizeExternalSupplierCode(rawSupplierCode);
+    if (supplierCodeInvalid) blankedInvalidLineSupplierIds += 1;
     if (!inWindow) keptViaParentPo += 1;
-    incr(companyBreakdown, company.name);
+    incr(companyBreakdown, lineCompany);
     keptOrderIds.push(orderId);
     outputRows.push(
       headers.map((header) => {
         if (header === 'Order ID') return orderId;
-        if (header === 'Company') return company.name;
+        if (header === 'Company') return lineCompany;
         if (header === 'Timestamp') return isoTimestamp ?? '';
         if (header === 'ASIN') return asin;
+        if (header === 'SR ID') return supplierCodeInvalid ? '' : rawSupplierCode ?? '';
         const value = reader.string(header) ?? '';
         if (ORDER_DETAILS_OPTIONAL_DATE_COLUMNS.has(header)) {
           const iso = parseDate(value, 'day-first');
@@ -369,6 +413,9 @@ export function cleanOrderDetails(
     inputRows: parsed.rawRowCount,
     keptRows: outputRows.length,
     keptViaParentPo,
+    blankedInvalidLineSupplierIds,
+    companyAlignedToParentPo,
+    companyAlignedToOrderPrefix,
     droppedByReason: dropped,
     corruptedOrderIdClasses: corruptedClasses,
     companyBreakdown,
@@ -591,17 +638,18 @@ export function cleanAssignedFiles(
 ): CleanFileReport[] {
   const resolver = buildCompanyResolver();
   const cutoff = windowCutoff(asOf, months);
-  // Purchase Orders clean first: their kept order-id set governs OrderDetails line
-  // retention (a line under a kept PO survives its own out-of-window/junk timestamp).
+  // Purchase Orders clean first: their kept order ids (and companies) govern OrderDetails
+  // line retention and company alignment (a line under a kept PO survives its own
+  // out-of-window/junk timestamp and inherits the parent's canonical company).
   const poFile = assigned.find((file) => file.role === 'purchase_orders' && !failedRoles.has(file.role));
   const poReport = poFile ? cleanPurchaseOrders(poFile.sourceName, poFile.parsed, resolver, cutoff) : undefined;
-  const keptPoIds: ReadonlySet<string> = new Set(poReport?.keptOrderIds ?? []);
+  const keptPos: ReadonlyMap<string, string> = new Map(Object.entries(poReport?.keptOrderCompanies ?? {}));
   const reports: CleanFileReport[] = [];
   for (const file of assigned) {
     if (failedRoles.has(file.role)) continue;
     if (file.role === 'purchase_orders' && poReport) reports.push(poReport);
     else if (file.role === 'order_details')
-      reports.push(cleanOrderDetails(file.sourceName, file.parsed, resolver, cutoff, keptPoIds));
+      reports.push(cleanOrderDetails(file.sourceName, file.parsed, resolver, cutoff, keptPos));
     else if (file.role === 'supplier_ids') reports.push(cleanSupplierIds(file.sourceName, file.parsed));
     else if (file.role === 'clickup') reports.push(cleanClickup(file.sourceName, file.parsed));
   }
@@ -705,6 +753,21 @@ export function renderReport(result: CleanBundleResult): string {
     if (report.keptViaParentPo !== undefined) {
       lines.push(
         `- kept_via_parent_po (order id in kept-PO set; own timestamp unparseable or out-of-window): ${report.keptViaParentPo}`,
+      );
+    }
+    if (report.blankedInvalidLineSupplierIds !== undefined) {
+      lines.push(
+        `- blanked_invalid_line_supplier_id (SR ID cell failed importer normalization; blanked, line kept): ${report.blankedInvalidLineSupplierIds}`,
+      );
+    }
+    if (report.companyAlignedToParentPo !== undefined) {
+      lines.push(
+        `- company_aligned_to_parent_po (line Company rewritten to its kept parent PO's Company): ${report.companyAlignedToParentPo}`,
+      );
+    }
+    if (report.companyAlignedToOrderPrefix !== undefined) {
+      lines.push(
+        `- company_aligned_to_order_prefix (no kept parent PO; line Company rewritten to the order-id prefix company): ${report.companyAlignedToOrderPrefix}`,
       );
     }
     lines.push(`- Dropped rows: ${totalDropped}`);
@@ -818,9 +881,21 @@ function main() {
   process.stdout.write(`Cleaning report: ${reportPath}\n`);
   for (const report of result.reports) {
     const totalDropped = Object.values(report.droppedByReason).reduce((sum, count) => sum + count, 0);
-    const viaParentPo = report.keptViaParentPo !== undefined ? ` (kept_via_parent_po=${report.keptViaParentPo})` : '';
+    const adjustments = [
+      report.keptViaParentPo !== undefined ? `kept_via_parent_po=${report.keptViaParentPo}` : undefined,
+      report.blankedInvalidLineSupplierIds !== undefined
+        ? `blanked_invalid_line_supplier_id=${report.blankedInvalidLineSupplierIds}`
+        : undefined,
+      report.companyAlignedToParentPo !== undefined
+        ? `company_aligned_to_parent_po=${report.companyAlignedToParentPo}`
+        : undefined,
+      report.companyAlignedToOrderPrefix !== undefined
+        ? `company_aligned_to_order_prefix=${report.companyAlignedToOrderPrefix}`
+        : undefined,
+    ].filter(Boolean);
+    const suffix = adjustments.length ? ` (${adjustments.join(' ')})` : '';
     process.stdout.write(
-      `  ${report.role}: kept ${report.keptRows} / dropped ${totalDropped} / input ${report.inputRows}${viaParentPo}\n`,
+      `  ${report.role}: kept ${report.keptRows} / dropped ${totalDropped} / input ${report.inputRows}${suffix}\n`,
     );
   }
   process.stdout.write(

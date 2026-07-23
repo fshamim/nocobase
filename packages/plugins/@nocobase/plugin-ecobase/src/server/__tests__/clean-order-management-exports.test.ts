@@ -119,8 +119,15 @@ describe('cleanPurchaseOrders', () => {
 
 describe('cleanOrderDetails', () => {
   const resolver = buildCompanyResolver();
-  // Order date governs line items: EF2526B / MX111A / MX222A / SS333A are kept POs.
-  const keptPoIds = new Set(['EF2526B', 'MX111A', 'MX222A', 'SS333A']);
+  // Order date governs line items; the map carries each kept PO's authoritative company.
+  const keptPos = new Map([
+    ['EF2526B', 'Ecofission LLC'],
+    ['MX111A', 'Muxtex INC'],
+    ['MX222A', 'Muxtex INC'],
+    ['SS333A', 'Stop Shop LLC'],
+    ['MX444A', 'Muxtex INC'],
+    ['SS555B', 'Stop Shop LLC'],
+  ]);
   const report = cleanOrderDetails(
     'od.csv',
     parse(OD_HEADERS, [
@@ -135,25 +142,71 @@ describe('cleanOrderDetails', () => {
       ['SS333A', '24/01/2026', 'StopShop LLC', 'SRO-4', 'B052345678', 'SKU-6', '3', 'ok'],
       ['EF999A', '01/01/2020', 'Ecofission LLC', 'SRO-5', 'B062345678', 'SKU-7', '1', 'ok'],
       ['EF888A', 'not a date', 'Ecofission LLC', 'SRO-6', 'B092345678', 'SKU-10', '1', 'ok'],
+      ['MX444A', '24/01/2026', 'Ecofission LLC', 'SRO-9', 'B112345678', 'SKU-12', '2', 'ok'],
+      ['SS555B', '24/01/2026', 'Stop Shop LLC', 'SR-283', 'B122345678', 'SKU-13', '2', 'ok'],
+      ['SS555B', '24/01/2026', 'Stop Shop LLC', 'not a code, just prose', 'B132345678', 'SKU-14', '1', 'ok'],
+      ['MX444A', '24/01/2026', 'Muxtex INC', 'SRO-9', 'B142345678', 'SKU-15', '0', 'ok'],
+      ['MX444A', '24/01/2026', 'Muxtex INC', 'SRO-9', 'B152345678', 'SKU-16', '-2', 'ok'],
+      ['MX666C', '24/01/2026', 'Ecofission LLC', 'SRO-10', 'B162345678', 'SKU-17', '3', 'ok'],
+      ['EF777A', '24/01/2026', 'Ecofission LLC', 'SRO-11', 'B172345678', 'SKU-18', '2', 'ok'],
     ]),
     resolver,
     '2026-01-24',
-    keptPoIds,
+    keptPos,
   );
 
   it('keeps valid lines including empty SKUs, drops broken required fields and corrupted ids', () => {
-    // Two normal EF2526B lines + two rescued EF2526B lines + the misspelled-company SS333A line.
-    expect(report.keptRows).toBe(5);
+    // Two normal + two rescued EF2526B lines, SS333A, aligned MX444A, two SS555B lines,
+    // prefix-aligned orphan MX666C, and untouched orphan EF777A.
+    expect(report.keptRows).toBe(10);
     expect(report.droppedByReason).toMatchObject({
       corrupted_order_id: 1,
       asin_invalid: 1,
-      qty_invalid: 1,
+      qty_invalid: 3,
       outside_6_month_window: 1,
       junk_unparseable_date: 1,
       company_not_in_scope: 1,
     });
     expect(report.corruptedOrderIdClasses).toEqual({ long_form: 1 });
     expect(integrityHolds(report)).toBe(true);
+  });
+
+  it('passes valid SR-283-style supplier codes through and blanks invalid ones while keeping the line', () => {
+    const asinIndex = report.outputHeaders.indexOf('ASIN');
+    const srIdIndex = report.outputHeaders.indexOf('SR ID');
+    const validCodeRow = report.outputRows.find((row) => row[asinIndex] === 'B122345678');
+    const blankedRow = report.outputRows.find((row) => row[asinIndex] === 'B132345678');
+    expect(validCodeRow?.[srIdIndex]).toBe('SR-283'); // valid to the importer, passes through untouched
+    expect(blankedRow).toBeDefined(); // the line survives
+    expect(blankedRow?.[srIdIndex]).toBe(''); // the invalid prose cell is blanked, not repaired
+    expect(report.blankedInvalidLineSupplierIds).toBe(1);
+  });
+
+  it('drops non-positive quantities under the required-field rule', () => {
+    const asinIndex = report.outputHeaders.indexOf('ASIN');
+    expect(report.outputRows.find((row) => row[asinIndex] === 'B142345678')).toBeUndefined(); // Qty 0
+    expect(report.outputRows.find((row) => row[asinIndex] === 'B152345678')).toBeUndefined(); // Qty -2
+  });
+
+  it('aligns a mismatched line company to its kept parent PO company', () => {
+    const asinIndex = report.outputHeaders.indexOf('ASIN');
+    const companyIndex = report.outputHeaders.indexOf('Company');
+    const alignedRow = report.outputRows.find((row) => row[asinIndex] === 'B112345678');
+    expect(alignedRow?.[companyIndex]).toBe('Muxtex INC'); // line said Ecofission LLC; kept PO wins
+    expect(report.companyAlignedToParentPo).toBe(1);
+    expect(report.companyBreakdown?.['Muxtex INC']).toBe(2); // breakdown counts aligned companies (MX444A + MX666C)
+  });
+
+  it('aligns an orphan line company to its order-id prefix when no kept parent PO exists', () => {
+    const asinIndex = report.outputHeaders.indexOf('ASIN');
+    const companyIndex = report.outputHeaders.indexOf('Company');
+    // MX666C has no kept PO; its MX prefix is company evidence the importer enforces.
+    const prefixAlignedRow = report.outputRows.find((row) => row[asinIndex] === 'B162345678');
+    expect(prefixAlignedRow?.[companyIndex]).toBe('Muxtex INC'); // line said Ecofission LLC; prefix wins
+    expect(report.companyAlignedToOrderPrefix).toBe(1);
+    // An orphan whose company already matches its prefix passes through untouched.
+    const untouchedOrphan = report.outputRows.find((row) => row[asinIndex] === 'B172345678');
+    expect(untouchedOrphan?.[companyIndex]).toBe('Ecofission LLC');
   });
 
   it('keeps lines under a kept PO despite their own junk or out-of-window timestamp', () => {
@@ -197,7 +250,7 @@ describe('cleanOrderDetails', () => {
       ]),
       resolver,
       '2026-01-24',
-      new Set<string>(),
+      new Map<string, string>(),
     );
     expect(fallback.keptRows).toBe(1);
     expect(fallback.keptViaParentPo).toBe(0);
