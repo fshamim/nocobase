@@ -32,7 +32,9 @@ import { SyncDot } from './SyncState';
 type FamilyMember = DrawerContextResponse['familyMembers'][number];
 
 export function FamilyCell({ row, t, ctx }: { row: DashboardRow; t: Translate; ctx?: PaneRenderContext }) {
-  const tier = (row.tier.baseline ?? row.tier.current ?? '').trim();
+  // T-R2 root cause: this coalesced baseline-first while the sort/badge rule
+  // and every v1 renderer coalesce CURRENT-first — one canonical order now.
+  const tier = (row.tier.current ?? row.tier.baseline ?? '').trim();
   const pending = Boolean(ctx?.pendingFamilies.has(row.identity.familyKey));
   const memberCount = row.familyMemberCount ?? 1;
   return (

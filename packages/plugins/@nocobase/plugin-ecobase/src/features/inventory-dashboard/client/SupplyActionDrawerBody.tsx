@@ -77,7 +77,9 @@ export function SupplyActionDrawerBody(props: SupplyActionDrawerBodyProps) {
   const now = props.now ?? new Date();
   const [activeTab, setActiveTab] = useState('overview');
   const commentInputRef = useRef<{ focus: () => void } | null>(null);
-  const tier = (row.tier.baseline ?? row.tier.current ?? '').trim();
+  // T-R2 root cause: this coalesced baseline-first while the sort/badge rule
+  // and every v1 renderer coalesce CURRENT-first — one canonical order now.
+  const tier = (row.tier.current ?? row.tier.baseline ?? '').trim();
   const companyProductId = primaryCompanyProductId(row, context);
 
   const focusComments = () => {

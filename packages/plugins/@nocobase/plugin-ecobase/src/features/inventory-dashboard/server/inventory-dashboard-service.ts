@@ -348,7 +348,7 @@ export class EcobaseInventoryDashboardService {
 
   async pane(request: PaneRequest): Promise<PaneResult> {
     const pane = this.validatePane(request.pane);
-    this.validateSort(request.sort);
+    const sort = this.normalizeSort(request.sort);
     const run = await this.reader.findPublishedRun();
     if (!run) {
       return {
@@ -368,7 +368,7 @@ export class EcobaseInventoryDashboardService {
 
     const paneRows = this.rowsForPane(projected, pane);
     const searched = this.applySearch(paneRows, request.search);
-    const sorted = this.applySort(searched, pane, request.sort, request.sortDirection);
+    const sorted = this.applySort(searched, pane, sort, request.sortDirection);
     const { page, pageSize } = this.normalizePagination(request.page, request.pageSize);
     const total = sorted.length;
     const pageSlice = sorted.slice((page - 1) * pageSize, (page - 1) * pageSize + pageSize);
@@ -714,10 +714,14 @@ export class EcobaseInventoryDashboardService {
     return value;
   }
 
-  private validateSort(sort: string | undefined): void {
-    if (sort !== undefined && !SORTABLE_KEYS.has(sort)) {
-      throw new InventoryDashboardValidationError(`Unsupported sort key "${sort}".`);
-    }
+  /**
+   * T-R2 regression guard: an unknown/invalid sort key degrades to the DEFAULT
+   * composite order instead of erroring or silently serving unsorted rows —
+   * client/server key drift can never break the table (and unknown keys never
+   * reach raw-record indexing).
+   */
+  private normalizeSort(sort: string | undefined): string | undefined {
+    return sort !== undefined && SORTABLE_KEYS.has(sort) ? sort : undefined;
   }
 
   private projectRows(goldRows: Record<string, unknown>[]): ProjectedRow[] {

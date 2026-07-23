@@ -453,9 +453,20 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
     await expect(
       svc.pane({ pane: 'notapane' as PaneKey, runId: PUBLISHED_RUN_ID, page: 1, pageSize: 25 }),
     ).rejects.toBeInstanceOf(InventoryDashboardValidationError);
-    await expect(
-      svc.pane({ pane: 'supplyAction', runId: PUBLISHED_RUN_ID, page: 1, pageSize: 25, sort: 'evidence' }),
-    ).rejects.toBeInstanceOf(InventoryDashboardValidationError);
+    // T-R2: unknown sort keys degrade to the default composite (never reject,
+    // never silently unsorted) — key drift must not break the table.
+    const fallback = await svc.pane({
+      pane: 'supplyAction',
+      runId: PUBLISHED_RUN_ID,
+      page: 1,
+      pageSize: 25,
+      sort: 'evidence',
+    });
+    const defaulted = await svc.pane({ pane: 'supplyAction', runId: PUBLISHED_RUN_ID, page: 1, pageSize: 25 });
+    if (isRunSuperseded(fallback) || isRunSuperseded(defaulted)) throw new Error('bad');
+    expect(fallback.rows.map((row) => row.identity.listingRowId)).toEqual(
+      defaulted.rows.map((row) => row.identity.listingRowId),
+    );
   });
 
   it('flags staleClassification for gold in_prep vs silver amazon_inbound but keeps the gold pane', async () => {
@@ -921,6 +932,20 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
     push('tier-a-urgent', 'A', null, -2); // same tier -> urgency breaks the tie
     push('tier-d', 'D', null, -50);
     push('tier-b', null, 'B', 0); // baseline fallback
+    // T-R2 staging reality: rows whose two tiers DIFFER group by the COALESCED
+    // display tier (current-first) — the exact scatter QA observed.
+    push('tier-b-promoted', 'B', 'A', -9); // baseline A, current B -> sorts as B
+    push('tier-b-recovered', 'B', 'C', 3); // baseline C, current B -> sorts as B
+    const expectedOrder = [
+      'tier-a-urgent',
+      'tier-a-late',
+      'tier-b-promoted', // daysUntil -9
+      'tier-b', // 0
+      'tier-b-recovered', // 3
+      'tier-c',
+      'tier-d',
+      'tier-null',
+    ];
     const response = await service(local).pane({
       pane: 'supplyAction',
       runId: PUBLISHED_RUN_ID,
@@ -928,14 +953,28 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
       pageSize: 25,
     });
     if (isRunSuperseded(response)) throw new Error('bad');
-    expect(response.rows.map((row) => row.identity.listingRowId)).toEqual([
-      'tier-a-urgent',
-      'tier-a-late',
-      'tier-b',
-      'tier-c',
-      'tier-d',
-      'tier-null',
+    expect(response.rows.map((row) => row.identity.listingRowId)).toEqual(expectedOrder);
+    // The served pill tier equals the sort tier for every row (display == order).
+    expect(response.rows.map((row) => row.tier.current ?? row.tier.baseline ?? 'untiered')).toEqual([
+      'A',
+      'A',
+      'B',
+      'B',
+      'B',
+      'C',
+      'D',
+      'untiered',
     ]);
+    // T-R2 guard: an unknown sort key serves the SAME default composite order.
+    const junk = await service(local).pane({
+      pane: 'supplyAction',
+      runId: PUBLISHED_RUN_ID,
+      page: 1,
+      pageSize: 25,
+      sort: 'tier', // not a raw column — must fall back, not scatter
+    });
+    if (isRunSuperseded(junk)) throw new Error('bad');
+    expect(junk.rows.map((row) => row.identity.listingRowId)).toEqual(expectedOrder);
   });
 
   it('T-R1 (R1-5): familyMemberCount is served on EVERY pane row (zero extra queries)', async () => {

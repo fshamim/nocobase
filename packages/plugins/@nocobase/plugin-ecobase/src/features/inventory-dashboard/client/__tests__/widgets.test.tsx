@@ -390,6 +390,12 @@ describe('T7 widgets', () => {
     fireEvent.click(await within(document.body).findByText(TEXT.sortMostUrgent));
     await waitFor(() => expect(fetchPane).toHaveBeenCalledTimes(2));
     expect(fetchPane.mock.calls[1][0]).toMatchObject({ sort: 'daysUntilSafeReorder', page: 1 });
+    // T-R2: re-selecting "Tier" goes back to the CANONICAL default path — the
+    // request carries NO sort key (server composite), never a fake 'tier' key.
+    fireEvent.mouseDown(view.getByRole('combobox', { name: new RegExp(TEXT.sortLabel) }));
+    fireEvent.click(await within(document.body).findByText(TEXT.tier));
+    await waitFor(() => expect(fetchPane).toHaveBeenCalledTimes(3));
+    expect(fetchPane.mock.calls[2][0].sort).toBeUndefined();
   });
 
   it('T-D5: the urgency badge renders both variants in the shared signals cluster', () => {
@@ -454,6 +460,24 @@ describe('T7 widgets', () => {
     expect(within(view.container).getByText('€100.00')).toBeTruthy();
     expect(within(view.container).getByText(`· 28 ${TEXT.dSuffix}`)).toBeTruthy();
     expect(within(view.container).queryByText(/stockout gap/)).toBeNull();
+  });
+
+  it('T-R2: the FamilyCell tier pill coalesces CURRENT-first — identical to the sort/badge rule', () => {
+    // Staging repro: sorted by COALESCE(current, baseline) but the pill showed
+    // baseline ?? current — rows with differing tiers looked scattered.
+    const promoted = render(
+      <App>
+        <FamilyCell row={rowWith({ tier: { baseline: 'A', current: 'B' } })} t={t} ctx={makeContext()} />
+      </App>,
+    );
+    expect(within(promoted.container).getByText('B')).toBeTruthy();
+    expect(within(promoted.container).queryByText('A')).toBeNull();
+    const baselineOnly = render(
+      <App>
+        <FamilyCell row={rowWith({ tier: { baseline: 'C', current: null } })} t={t} ctx={makeContext()} />
+      </App>,
+    );
+    expect(within(baselineOnly.container).getByText('C')).toBeTruthy();
   });
 
   it('R1-5: FamilyCell shows the prominent target SKU + member count; picker disabled for singles', () => {
