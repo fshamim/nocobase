@@ -14,7 +14,7 @@
  * the header settings (never hardcoded on the client).
  */
 
-import { Tag, Typography } from 'antd';
+import { Tag, Tooltip, Typography } from 'antd';
 import React from 'react';
 import type { DashboardRowSupplier } from '../../server/contract';
 import { TEXT } from '../dashboard-text';
@@ -41,6 +41,12 @@ export function SupplierLeadTime({
   const ageDays = Number.isNaN(confirmedMs)
     ? null
     : Math.max(0, Math.floor(((now ?? new Date()).getTime() - confirmedMs) / MS_PER_DAY));
+  // T-QA1 a11y: the dot now carries a tooltip + aria-label, worded like the ghost pill.
+  const freshnessLabel = fresh
+    ? t(TEXT.leadTimeFreshLabel)
+    : ageDays !== null
+      ? `${t(TEXT.leadTimeStaleLabel)} ${ageDays} ${t(TEXT.dOldSuffix)}`
+      : `${t(TEXT.leadTimeStaleLabel)} ${supplier.leadTimeFreshness ?? t(TEXT.unknown)}`;
   const leadText =
     supplier.leadTimeDays !== null
       ? fbaReceivingBufferDays !== null
@@ -49,16 +55,19 @@ export function SupplierLeadTime({
       : EM_DASH;
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12 }}>
-      <span
-        aria-hidden
-        style={{
-          width: 7,
-          height: 7,
-          borderRadius: '50%',
-          flex: 'none',
-          background: fresh ? '#389e0d' : '#cf1322',
-        }}
-      />
+      <Tooltip title={freshnessLabel}>
+        <span
+          role="img"
+          aria-label={freshnessLabel}
+          style={{
+            width: 7,
+            height: 7,
+            borderRadius: '50%',
+            flex: 'none',
+            background: fresh ? '#389e0d' : '#cf1322',
+          }}
+        />
+      </Tooltip>
       <Typography.Text type="secondary" style={{ fontSize: 12 }}>
         {supplier.name ? `${supplier.name} · ${leadText}` : leadText}
       </Typography.Text>

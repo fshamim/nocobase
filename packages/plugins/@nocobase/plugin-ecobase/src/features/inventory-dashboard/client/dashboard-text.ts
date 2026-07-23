@@ -228,6 +228,9 @@ export const TEXT = {
   // T-D5 (approved OPEN-D5): urgent-stockout badge for non-action panes.
   urgentStockoutWithin: 'Urgent — stockout ≤',
   urgentStockoutNow: 'Urgent — stockout imminent',
+  // T-QA1 a11y: freshness-dot labels (wording matches the ghost age pill).
+  leadTimeFreshLabel: 'lead time fresh',
+  leadTimeStaleLabel: 'lead time',
 } as const;
 
 export type DashboardTextKey = keyof typeof TEXT;

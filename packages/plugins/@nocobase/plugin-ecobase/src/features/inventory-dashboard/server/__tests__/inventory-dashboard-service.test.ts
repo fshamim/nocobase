@@ -892,6 +892,60 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
     expect(tile?.targetPane).toBe('supplyAction');
   });
 
+  it('T-QA1: rawGoldRow is a PLAIN flat record even when the repository returns a live model instance', async () => {
+    const local = new RecordingDatabase();
+    local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).rows.push({
+      id: PUBLISHED_RUN_ID,
+      status: 'published',
+      calculationDate: FIXED_TODAY,
+      publishedAt: `${FIXED_TODAY}T00:00:00.000Z`,
+    });
+    const business = {
+      id: 'orm-row',
+      naturalKey: 'orm-row',
+      refreshRunId: PUBLISHED_RUN_ID,
+      primaryActionPane: 'supplyAction',
+      companyProductFamilyId: 'family-orm',
+      baselineTier: 'A',
+      salesVelocity: 1.5,
+      targetCoverDays: 45,
+      supplierOrderStatus: null,
+    };
+    // Sequelize-shaped instance: attribute getters work, but the ENUMERABLE
+    // keys are ORM internals — exactly what QA saw leak into the Data tab.
+    local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).rows.push({
+      ...business,
+      dataValues: { ...business },
+      _changed: {},
+      _previousDataValues: { ...business },
+      isNewRecord: false,
+      uniqno: 1,
+      toJSON() {
+        return { ...business };
+      },
+    });
+    const drawer = await service(local).drawerContext({
+      pane: 'supplyAction',
+      runId: PUBLISHED_RUN_ID,
+      familyId: 'family-orm',
+      includeRaw: true,
+    });
+    if (isRunSuperseded(drawer)) throw new Error('bad');
+    const raw = drawer.rawGoldRow ?? {};
+    // Flat business keys at the TOP level...
+    expect(raw.salesVelocity).toBe(1.5);
+    expect(raw.targetCoverDays).toBe(45);
+    expect('supplierOrderStatus' in raw).toBe(true);
+    // ...none of the ORM wrapper keys...
+    for (const key of ['dataValues', '_changed', '_previousDataValues', 'isNewRecord', 'uniqno', 'toJSON']) {
+      expect(key in raw, `${key} leaked`).toBe(false);
+    }
+    // ...and the bookkeeping strip still applies.
+    expect(raw.id).toBeUndefined();
+    expect(raw.naturalKey).toBeUndefined();
+    expect(raw.refreshRunId).toBeUndefined();
+  });
+
   it('T-D5 rider: targetCoverDays is served on the row (reader widened)', async () => {
     const response = await service(db).pane({ pane: 'supplyAction', runId: PUBLISHED_RUN_ID, page: 1, pageSize: 200 });
     if (isRunSuperseded(response)) throw new Error('bad');

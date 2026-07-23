@@ -172,6 +172,34 @@ const PaneDrawer: React.FC<PaneDrawerProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target?.pane, target?.familyId, target?.orderId, target?.listingRowId, runId]);
 
+  // T-QA1 fix: after an in-session comment post the OPEN drawer's thread must
+  // update in place. Same pinned-run request as load(), but the 'loaded' state
+  // is only REPLACED on success — no loading flash, so the v2 body keeps its
+  // tab + composer state (no remount).
+  const refreshContext = useCallback(async () => {
+    if (!target) return;
+    try {
+      const data = unwrapEnvelope(
+        await api.request({
+          url: 'ecobaseInventoryDashboard:drawerContext',
+          method: 'post',
+          data: {
+            pane: target.pane,
+            runId,
+            familyId: target.familyId,
+            orderId: target.orderId,
+            listingRowId: target.listingRowId,
+          },
+        }),
+      );
+      if (!isDrawerContextPayload(data) || isRunSuperseded(data)) return;
+      setState({ status: 'loaded', context: data });
+    } catch {
+      // Background refresh only — the posted comment already succeeded; the
+      // stale thread heals on the next open if this refetch fails.
+    }
+  }, [api, target, runId]);
+
   // Task 006: searchable supplier options for the Assign-supplier action.
   const loadSupplierOptions = useCallback(async (): Promise<Array<{ label: string; value: string }>> => {
     const data = unwrapEnvelope(
@@ -195,6 +223,10 @@ const PaneDrawer: React.FC<PaneDrawerProps> = ({
         await api.request({ url, method: 'post', data });
         markPending?.(target.familyId); // W5: pending until the next publish lands
         onMutated(target.pane); // scoped refresh: affected pane + header only
+        // T-QA1: comment posts refresh the open drawer's thread in place.
+        if (url === 'ecobaseInventoryDashboard:addProductComment' || url === 'ecobaseInventoryDashboard:addComment') {
+          await refreshContext();
+        }
         const successText = MUTATION_SUCCESS_TEXT[url];
         if (successText) message.success(t(successText));
         return true;
@@ -213,7 +245,7 @@ const PaneDrawer: React.FC<PaneDrawerProps> = ({
         }, 0);
       }
     },
-    [api, submitting, target, onMutated, message, t],
+    [api, submitting, target, onMutated, message, t, refreshContext, markPending],
   );
 
   const context = state.status === 'loaded' ? state.context : null;

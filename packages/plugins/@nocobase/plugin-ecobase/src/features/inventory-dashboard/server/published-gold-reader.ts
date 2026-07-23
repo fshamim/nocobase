@@ -149,6 +149,24 @@ function toRecord(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
 }
 
+/**
+ * T-QA1 fix: a full-row fetch can arrive as a live Sequelize model instance
+ * whose ENUMERABLE keys are ORM internals (`dataValues`, `_changed`,
+ * `_previousDataValues`, `isNewRecord`, `uniqno`) with the real record buried
+ * underneath — attribute GETTERS work, enumeration does not. Serve the plain
+ * business record instead (codebase toPlainRecord pattern: toJSON() first,
+ * dataValues fallback).
+ */
+function toPlainModelRecord(value: unknown): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null) return {};
+  const model = value as Record<string, unknown> & { toJSON?: () => Record<string, unknown> };
+  if (typeof model.toJSON === 'function') return { ...model.toJSON() };
+  if (typeof model.dataValues === 'object' && model.dataValues !== null) {
+    return { ...(model.dataValues as Record<string, unknown>) };
+  }
+  return { ...model };
+}
+
 export class PublishedGoldReader {
   constructor(private readonly db: DashboardDatabase) {}
 
@@ -191,6 +209,6 @@ export class PublishedGoldReader {
     const rows = await this.db
       .getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows)
       .find({ filter: { refreshRunId: runId, id: rowId }, limit: 1 });
-    return rows.length > 0 ? toRecord(rows[0]) : null;
+    return rows.length > 0 ? toPlainModelRecord(rows[0]) : null;
   }
 }

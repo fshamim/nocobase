@@ -255,6 +255,38 @@ describe('Supply Action drawer v2 (T8b)', () => {
     );
   });
 
+  it('T-QA1: posting a comment refreshes the OPEN drawer thread + tab count in place', async () => {
+    let context = drawerContext(); // 2 thread entries
+    request.mockReset();
+    request.mockImplementation((args: { url: string; data: Record<string, unknown> }) => {
+      if (args.url === 'ecobaseInventoryDashboard:drawerContext') {
+        return Promise.resolve({ data: { data: context } });
+      }
+      if (args.url === 'ecobaseInventoryDashboard:addProductComment') {
+        // The next context fetch sees the new comment (server round-trip).
+        context = {
+          ...context,
+          commentThread: [
+            { entityType: 'family', body: 'ordering today', author: 'Ops Anna', at: '2026-07-21T11:00:00.000Z' },
+            ...context.commentThread,
+          ],
+        };
+        return Promise.resolve({ data: { data: { ok: true } } });
+      }
+      return Promise.resolve({ data: { data: { ok: true } } });
+    });
+    const { dialog } = await openDrawer();
+    fireEvent.click(within(dialog).getByRole('tab', { name: new RegExp(TEXT.tabComments) }));
+    expect(within(dialog).getByRole('tab', { name: `${TEXT.tabComments} · 2` })).toBeTruthy();
+    fireEvent.change(within(dialog).getByLabelText(TEXT.commentPlaceholder), { target: { value: 'ordering today' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: TEXT.btnPost }));
+    // The thread gains the entry and the tab count increments WITHOUT closing the drawer.
+    expect(await within(dialog).findByText('ordering today')).toBeTruthy();
+    await waitFor(() => expect(within(dialog).getByRole('tab', { name: `${TEXT.tabComments} · 3` })).toBeTruthy());
+    // The composer cleared after the successful post.
+    expect((within(dialog).getByLabelText(TEXT.commentPlaceholder) as HTMLInputElement).value).toBe('');
+  });
+
   it('Data tab is LAZY: no includeRaw request until first open; then renders the filterable raw record', async () => {
     const { dialog } = await openDrawer();
     const includeRawCalls = () =>

@@ -405,5 +405,7 @@
   "just now": "just now",
   "yesterday": "yesterday",
   "Urgent — stockout ≤": "Urgent — stockout ≤",
-  "Urgent — stockout imminent": "Urgent — stockout imminent"
+  "Urgent — stockout imminent": "Urgent — stockout imminent",
+  "lead time fresh": "lead time fresh",
+  "lead time": "lead time"
 }

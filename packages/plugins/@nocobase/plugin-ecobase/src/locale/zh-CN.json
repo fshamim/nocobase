@@ -405,5 +405,7 @@
   "just now": "刚刚",
   "yesterday": "昨天",
   "Urgent — stockout ≤": "紧急 — 预计断货 ≤",
-  "Urgent — stockout imminent": "紧急 — 即将断货"
+  "Urgent — stockout imminent": "紧急 — 即将断货",
+  "lead time fresh": "交期数据新鲜",
+  "lead time": "交期"
 }

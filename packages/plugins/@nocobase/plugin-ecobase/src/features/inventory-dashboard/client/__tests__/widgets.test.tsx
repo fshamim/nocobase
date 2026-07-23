@@ -154,6 +154,8 @@ describe('T7 widgets', () => {
     );
     expect(stale.getByText(/30 \+ 7 d/)).toBeTruthy();
     expect(stale.getByText(`214 ${TEXT.dOldSuffix}`)).toBeTruthy();
+    // T-QA1 a11y: the freshness dot now carries an accessible label.
+    expect(within(stale.container).getByLabelText(`${TEXT.leadTimeStaleLabel} 214 ${TEXT.dOldSuffix}`)).toBeTruthy();
     const fresh = render(
       <SupplierLeadTime
         supplier={{ ...ENRICHED.supplier, leadTimeFreshness: 'fresh' }}
@@ -162,6 +164,7 @@ describe('T7 widgets', () => {
       />,
     );
     expect(within(fresh.container).queryByText(new RegExp(TEXT.dOldSuffix))).toBeNull();
+    expect(within(fresh.container).getByLabelText(TEXT.leadTimeFreshLabel)).toBeTruthy();
   });
 
   it('SyncState registry: marks families and clears WHOLESALE when the published run changes', async () => {
@@ -333,6 +336,10 @@ describe('T7 widgets', () => {
     expect(within(near.container).getByText(`${TEXT.urgentStockoutWithin} 12 ${TEXT.dSuffix}`)).toBeTruthy();
     const passed = render(<App>{signalsColumn.render(rowWith({ stockoutUrgency: { daysUntil: 0 } }), t)}</App>);
     expect(within(passed.container).getByText(TEXT.urgentStockoutNow)).toBeTruthy();
+    // T-QA1 verify: a NEGATIVE daysUntil (date already passed) is also the imminent variant.
+    const negative = render(<App>{signalsColumn.render(rowWith({ stockoutUrgency: { daysUntil: -3 } }), t)}</App>);
+    expect(within(negative.container).getByText(TEXT.urgentStockoutNow)).toBeTruthy();
+    expect(within(negative.container).queryByText(new RegExp('-3'))).toBeNull();
     // Rows without the served field never invent the badge.
     const absent = render(<App>{signalsColumn.render(rowWith({}), t)}</App>);
     expect(within(absent.container).queryByText(TEXT.urgentStockoutNow)).toBeNull();
