@@ -133,10 +133,19 @@ export function targetForCsvShape(shape: CsvShape): Omit<CsvBundleAnalysisGroup,
   if (shape === 'unknown') {
     return null;
   }
-  if (shape === 'order-details' || shape === 'purchase-orders' || shape === 'supplier-analysis-tracker') {
+  if (
+    shape === 'order-details' ||
+    shape === 'purchase-orders' ||
+    shape === 'supplier-analysis-tracker' ||
+    shape === 'supplier-ids'
+  ) {
+    // Supplier IDs join the canonical supplier-order group so Analyze -> Run hands the
+    // importer all three sources (PO + OrderDetails + Supplier IDs) in one group; it
+    // previously landed in google-sheets-migration-csv and the run threw
+    // "requires one supplier_ids source; received 0".
     return { adapterName: 'supplier-order-csv', sourceType: 'google_sheets', domain: 'order_management' };
   }
-  if (shape === 'supplier-ids' || shape === 'supplier-analysis-2026') {
+  if (shape === 'supplier-analysis-2026') {
     return { adapterName: 'google-sheets-migration-csv', sourceType: 'google_sheets', domain: 'supplier_management' };
   }
   if (shape === 'clickup-order-status') {

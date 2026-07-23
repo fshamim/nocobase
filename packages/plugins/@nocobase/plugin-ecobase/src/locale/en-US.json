@@ -10,6 +10,8 @@
   "Rows": "Rows",
   "Normalized": "Normalized",
   "Warnings": "Warnings",
+  "Excluded": "Excluded",
+  "Families reconciled": "Families reconciled",
   "Errors": "Errors",
   "Last run time": "Last run time",
   "Never": "Never",

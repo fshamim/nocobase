@@ -809,9 +809,9 @@ describe('Ecobase current Amazon operations CSV import', () => {
         expect.objectContaining({
           name: 'Supplier IDs.csv',
           detectedShape: 'supplier-ids',
-          adapterName: 'google-sheets-migration-csv',
+          adapterName: 'supplier-order-csv',
           sourceType: 'google_sheets',
-          domain: 'supplier_management',
+          domain: 'order_management',
           importable: true,
         }),
         expect.objectContaining({
@@ -854,13 +854,13 @@ describe('Ecobase current Amazon operations CSV import', () => {
           adapterName: 'supplier-order-csv',
           sourceType: 'google_sheets',
           domain: 'order_management',
-          files: ['OrderDetails.csv', 'Purchase Orders.csv'],
+          files: ['OrderDetails.csv', 'Purchase Orders.csv', 'Supplier IDs.csv'],
         }),
         expect.objectContaining({
           adapterName: 'google-sheets-migration-csv',
           sourceType: 'google_sheets',
           domain: 'supplier_management',
-          files: ['Supplier IDs.csv', 'Supplier 2026.csv'],
+          files: ['Supplier 2026.csv'],
         }),
         expect.objectContaining({
           adapterName: 'clickup-order-status-csv',

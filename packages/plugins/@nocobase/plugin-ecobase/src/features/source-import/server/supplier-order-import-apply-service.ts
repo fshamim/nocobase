@@ -19,8 +19,13 @@ import {
   prepareSupplierOrderCommentRelink,
   type ExportedSupplierOrderComment,
 } from './supplier-order-import/supplier-order-comment-relink';
-import { normalizeExternalOrderId } from './supplier-order-import/supplier-order-import-plan';
+import {
+  normalizeExternalOrderId,
+  summarizeSupplierOrderExclusions,
+  type SupplierOrderExclusionSummary,
+} from './supplier-order-import/supplier-order-import-plan';
 import { EcobaseInventoryPlanningGoldAccess } from '../../inventory-planning/server/inventory-planning-gold-access';
+import { EcobaseCompanyProductFamilyService } from '../../inventory-planning/server/company-product-family-service';
 import type {
   OrderImportPlanRow,
   OrderLineImportPlanRow,
@@ -71,8 +76,15 @@ export interface SupplierOrderImportApplyResult {
   deleted: number;
   unchanged: number;
   mappingExceptions: number;
+  exclusions: SupplierOrderExclusionSummary;
   updatedFields: Record<string, number>;
   byCollection: Record<string, CollectionWrites>;
+}
+
+export interface SupplierOrderFamilyReconciliationResult {
+  companyCount: number;
+  reconciledFamilyCount: number;
+  supplierReviewCount: number;
 }
 
 const PROTECTED_COLLECTIONS = [
@@ -245,9 +257,34 @@ export class EcobaseSupplierOrderImportApplyService {
       totalWrites,
       ...totals,
       mappingExceptions: preflight.mappingExceptions.length,
+      exclusions: summarizeSupplierOrderExclusions(preflight.plan.issues),
       updatedFields: this.updatedFields,
       byCollection: this.writes,
     };
+  }
+
+  /**
+   * Refresh family preferred suppliers from the just-applied orders. Runs after the apply
+   * transaction commits (so reconciliation reads committed rows); the
+   * applySupplierOrderImportPreflight endpoint invokes it so the supplier-order apply path
+   * reconciles — reconciliation was previously skipped for the migration adapter and absent
+   * from the apply endpoint, leaving family preferred suppliers stale after an import.
+   */
+  async reconcileFamiliesAfterApply(
+    preflight: SupplierOrderImportPreflight,
+  ): Promise<SupplierOrderFamilyReconciliationResult> {
+    const companyIds = [...(await this.resolveCompanyIds(preflight.plan)).values()];
+    const familyService = new EcobaseCompanyProductFamilyService(this.db);
+    let reconciledFamilyCount = 0;
+    let supplierReviewCount = 0;
+    for (const companyId of companyIds) {
+      const result = await familyService.reconcileAllFamilies(companyId, {
+        preserveCatalog: preflight.importMode === 'refresh',
+      });
+      reconciledFamilyCount += result.familyCount;
+      supplierReviewCount += result.supplierReviewCount;
+    }
+    return { companyCount: companyIds.length, reconciledFamilyCount, supplierReviewCount };
   }
 
   private async applyInTransaction(preflight: SupplierOrderImportPreflight, transaction?: unknown) {

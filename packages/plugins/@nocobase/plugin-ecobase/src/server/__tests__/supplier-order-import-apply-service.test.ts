@@ -462,4 +462,43 @@ describe('supplier/order import apply service', () => {
       expect.objectContaining({ id: 'legacy-supplier' }),
     ]);
   });
+
+  it('reconciles family preferred suppliers from the applied orders and surfaces exclusions', async () => {
+    const db = new MemoryDatabase();
+    seedCatalog(db);
+    // Give family-1 an account-scoped identity so reconciliation can resolve it.
+    db.getRepository(ECOBASE_COLLECTIONS.silverAmazonAccounts).records.push({
+      id: 'account-1',
+      companyId: 'company-1',
+      marketplace: 'amazon.com',
+    });
+    const companyProduct = db
+      .getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts)
+      .records.find((row) => row.id === 'company-product-1');
+    if (companyProduct) companyProduct.amazonAccountId = 'account-1';
+    const seededFamily = db
+      .getRepository(ECOBASE_COLLECTIONS.silverCompanyProductFamilies)
+      .records.find((row) => row.id === 'family-1');
+    if (seededFamily) seededFamily.amazonAccountId = 'account-1';
+
+    const preflight = readyPreflight(db);
+    const service = new EcobaseSupplierOrderImportApplyService(db as never);
+    const applied = await service.apply(preflight);
+
+    // T-A2(c): silent exclusions are surfaced in the apply result summary.
+    expect(applied.exclusions).toMatchObject({
+      excludedRows: expect.any(Number),
+      blockedRows: expect.any(Number),
+      reviewRows: expect.any(Number),
+    });
+
+    // T-A2(b): the supplier-order apply path reconciles the affected company's families.
+    const reconciliation = await service.reconcileFamiliesAfterApply(preflight);
+    expect(reconciliation.companyCount).toBe(1);
+    expect(reconciliation.reconciledFamilyCount).toBe(1);
+    const refreshed = db
+      .getRepository(ECOBASE_COLLECTIONS.silverCompanyProductFamilies)
+      .records.find((row) => row.id === 'family-1');
+    expect(refreshed?.preferredSupplierId).toBeTruthy();
+  });
 });

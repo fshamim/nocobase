@@ -180,13 +180,16 @@ describe('Ecobase resource registration', () => {
     expect(next).toHaveBeenCalledOnce();
   });
 
-  it('keeps protected family reconciliation outside supplier/order apply', async () => {
+  it('reconciles family preferred suppliers after supplier/order apply', async () => {
     const preflightDigest = '479bb3cb19ce0831bd353dfafc04ed138722d466545c26c94c65c00d2934b8d7';
     const preflight = { preflightDigest };
     const apply = { preflightDigest, totalWrites: 1 };
+    const familyReconciliation = { companyCount: 2, reconciledFamilyCount: 7, supplierReviewCount: 1 };
     vi.spyOn(EcobaseSupplierOrderImportService.prototype, 'assertCatalogCurrent').mockResolvedValue(undefined);
     vi.spyOn(EcobaseSupplierOrderImportApplyService.prototype, 'apply').mockResolvedValue(apply as never);
-    const reconcile = vi.spyOn(EcobaseCompanyProductFamilyService.prototype, 'reconcileAllFamilies');
+    const reconcile = vi
+      .spyOn(EcobaseSupplierOrderImportApplyService.prototype, 'reconcileFamiliesAfterApply')
+      .mockResolvedValue(familyReconciliation as never);
     const ctx = {
       state: { currentUser: { id: 1 }, currentRoles: ['root'] },
       action: {
@@ -210,8 +213,8 @@ describe('Ecobase resource registration', () => {
       next,
     );
 
-    expect(ctx.body).toEqual({ data: apply });
-    expect(reconcile).not.toHaveBeenCalled();
+    expect(reconcile).toHaveBeenCalledWith(preflight);
+    expect(ctx.body).toEqual({ data: { ...apply, familyReconciliation, reconciliationWarning: undefined } });
     expect(next).toHaveBeenCalledOnce();
   });
 });

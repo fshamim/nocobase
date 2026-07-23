@@ -10,6 +10,8 @@
   "Rows": "行数",
   "Normalized": "已规范化",
   "Warnings": "警告",
+  "Excluded": "已排除",
+  "Families reconciled": "已协调产品族",
   "Errors": "错误",
   "Last run time": "上次运行时间",
   "Never": "从未运行",

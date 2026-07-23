@@ -88,6 +88,8 @@ type ImportRunResult = {
   rowCount?: number;
   normalizedCount?: number;
   warningCount?: number;
+  excludedCount?: number;
+  reconciledFamilyCount?: number;
   errorCount?: number;
   errorMessage?: string | null;
   importedCount?: number;
@@ -352,12 +354,16 @@ export default function DataSourcesPage() {
           },
         });
         const apply = unwrapRecord(applyResponse);
+        const exclusions = (apply.exclusions ?? {}) as { excludedRows?: number };
+        const familyReconciliation = (apply.familyReconciliation ?? {}) as { reconciledFamilyCount?: number };
         result = {
           importMode: apply.importMode as SupplierOrderImportMode,
           status: 'success',
           rowCount: apply.totalWrites as number | undefined,
           normalizedCount: apply.created as number | undefined,
           warningCount: apply.mappingExceptions as number | undefined,
+          excludedCount: exclusions.excludedRows,
+          reconciledFamilyCount: familyReconciliation.reconciledFamilyCount,
           errorCount: 0,
         };
       } else if (clickupOrderStatus) {
@@ -756,9 +762,15 @@ export default function DataSourcesPage() {
                               }`
                             : `${t('Rows')}: ${result.rowCount ?? 0}; ${t('Normalized')}: ${
                                 result.normalizedCount ?? 0
-                              }; ${t('Warnings')}: ${result.warningCount ?? 0}; ${t('Errors')}: ${
-                                result.errorCount ?? 0
-                              }${result.errorMessage ? `; ${result.errorMessage}` : ''}`
+                              }; ${t('Warnings')}: ${result.warningCount ?? 0}${
+                                result.excludedCount !== undefined ? `; ${t('Excluded')}: ${result.excludedCount}` : ''
+                              }${
+                                result.reconciledFamilyCount !== undefined
+                                  ? `; ${t('Families reconciled')}: ${result.reconciledFamilyCount}`
+                                  : ''
+                              }; ${t('Errors')}: ${result.errorCount ?? 0}${
+                                result.errorMessage ? `; ${result.errorMessage}` : ''
+                              }`
                         }
                       />
                     ) : null}

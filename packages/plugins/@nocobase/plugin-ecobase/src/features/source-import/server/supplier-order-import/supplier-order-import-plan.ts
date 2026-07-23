@@ -396,6 +396,40 @@ function issue(
   });
 }
 
+export interface SupplierOrderExclusionSummary {
+  excludedRows: number;
+  blockedRows: number;
+  reviewRows: number;
+  excludedByReason: Record<string, number>;
+  blockedByReason: Record<string, number>;
+}
+
+/**
+ * Aggregate every row the plan excluded/blocked/flagged, keyed `<source>:<reason>`, so the
+ * run/preview summary can surface silent drops — a mass exclusion can never look like a
+ * clean success.
+ */
+export function summarizeSupplierOrderExclusions(issues: SupplierOrderImportIssue[]): SupplierOrderExclusionSummary {
+  const excludedByReason: Record<string, number> = {};
+  const blockedByReason: Record<string, number> = {};
+  let excludedRows = 0;
+  let blockedRows = 0;
+  let reviewRows = 0;
+  for (const item of issues) {
+    const key = `${item.sourceFile}:${item.reason}`;
+    if (item.disposition === 'excluded') {
+      excludedRows += 1;
+      excludedByReason[key] = (excludedByReason[key] ?? 0) + 1;
+    } else if (item.disposition === 'blocked') {
+      blockedRows += 1;
+      blockedByReason[key] = (blockedByReason[key] ?? 0) + 1;
+    } else if (item.disposition === 'review') {
+      reviewRows += 1;
+    }
+  }
+  return { excludedRows, blockedRows, reviewRows, excludedByReason, blockedByReason };
+}
+
 function preferredSourceName(names: string[]) {
   const counts = new Map<string, { displayName: string; count: number }>();
   for (const name of names) {

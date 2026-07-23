@@ -49,7 +49,10 @@ import { EcobaseOrderDetailsRelationshipVerifier } from '../features/source-impo
 import { EcobaseSellerboardCogsService } from '../features/source-import/server/sellerboard-cogs-service';
 import { EcobaseSellerboardHistoryApplyService } from '../features/source-import/server/sellerboard-history-apply-service';
 import { EcobaseSourceCoverageService } from '../features/source-import/server/source-coverage-service';
-import { EcobaseSupplierOrderImportApplyService } from '../features/source-import/server/supplier-order-import-apply-service';
+import {
+  EcobaseSupplierOrderImportApplyService,
+  type SupplierOrderFamilyReconciliationResult,
+} from '../features/source-import/server/supplier-order-import-apply-service';
 import { EcobaseSupplierOrderImportService } from '../features/source-import/server/supplier-order-import-service';
 import { EcobaseProtectedCatalogBoundary } from '../features/source-import/server/protected-catalog-boundary';
 import type {
@@ -3101,7 +3104,21 @@ export function createEcobaseImportActions(
         }
         try {
           await new EcobaseSupplierOrderImportService(ctx.db).assertCatalogCurrent(preflight);
-          ctx.body = { data: await new EcobaseSupplierOrderImportApplyService(ctx.db).apply(preflight) };
+          const applyService = new EcobaseSupplierOrderImportApplyService(ctx.db);
+          const applied = await applyService.apply(preflight);
+          // Refresh family preferred suppliers from the newly imported orders. A reconcile
+          // failure must not fail the already-committed import — surface it as a warning.
+          let familyReconciliation: SupplierOrderFamilyReconciliationResult | undefined;
+          let reconciliationWarning: string | undefined;
+          try {
+            familyReconciliation = await applyService.reconcileFamiliesAfterApply(preflight);
+          } catch (error) {
+            reconciliationWarning =
+              error instanceof Error
+                ? error.message
+                : 'Ecobase family reconciliation failed after supplier/order apply.';
+          }
+          ctx.body = { data: { ...applied, familyReconciliation, reconciliationWarning } };
         } catch (error) {
           ctx.throw(400, error instanceof Error ? error.message : 'Ecobase supplier/order import apply failed.');
           return;
