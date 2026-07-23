@@ -93,6 +93,8 @@ export interface CleanFileReport {
   sourceName: string;
   inputRows: number;
   keptRows: number;
+  /** order_details only: lines kept because their order id is in the kept-PO set despite their own timestamp. */
+  keptViaParentPo?: number;
   droppedByReason: Record<string, number>;
   corruptedOrderIdClasses?: Record<string, number>;
   duplicateOrderIds?: Array<{ orderId: string; keptDate: string | undefined; droppedCount: number }>;
@@ -288,6 +290,7 @@ export function cleanOrderDetails(
   parsed: { headers: string[]; rows: CsvRow[]; rawRowCount: number },
   resolver: (raw: string | undefined) => CompanyResolution,
   cutoff: string,
+  keptPoIds: ReadonlySet<string>,
 ): CleanFileReport {
   const headers = EXPECTED_SOURCE_HEADERS.order_details as readonly string[];
   const dropped: Record<string, number> = {};
@@ -298,15 +301,20 @@ export function cleanOrderDetails(
 
   const keptOrderIds: string[] = [];
   const outputRows: string[][] = [];
+  let keptViaParentPo = 0;
   for (const row of parsed.rows) {
     const reader = new CsvRowReader(row);
+    const orderId = normalizeExternalOrderId(reader.string('Order ID'));
     const parsedDate = parseDate(reader.string('Timestamp'), 'day-first');
-    if (!parsedDate.valid || !parsedDate.value) {
-      incr(dropped, 'junk_unparseable_date');
-      continue;
-    }
-    if (parsedDate.value < cutoff) {
-      incr(dropped, 'outside_6_month_window');
+    const isoTimestamp = parsedDate.valid ? parsedDate.value : undefined;
+    const inWindow = isoTimestamp !== undefined && isoTimestamp >= cutoff;
+    // The parent order's date governs line items: a line whose order id is in the kept-PO
+    // set is kept even when its own timestamp is unparseable or out-of-window (counted as
+    // kept_via_parent_po). Company scope and required-field validity below still apply.
+    // Lines not under a kept PO are windowed by their own timestamp, exactly as before.
+    const underKeptPo = orderId !== undefined && keptPoIds.has(orderId);
+    if (!inWindow && !underKeptPo) {
+      incr(dropped, isoTimestamp === undefined ? 'junk_unparseable_date' : 'outside_6_month_window');
       continue;
     }
     const company = resolver(reader.string('Company'));
@@ -318,8 +326,8 @@ export function cleanOrderDetails(
       incr(dropped, 'company_not_in_scope');
       continue;
     }
-    const orderId = normalizeExternalOrderId(reader.string('Order ID'));
     if (!orderId) {
+      // Only reachable for in-window rows: kept-PO membership requires a canonical id.
       incr(dropped, 'corrupted_order_id');
       incr(corruptedClasses, classifyCorruptedOrderId(reader.string('Order ID') ?? ''));
       continue;
@@ -334,13 +342,14 @@ export function cleanOrderDetails(
       incr(dropped, 'qty_invalid');
       continue;
     }
+    if (!inWindow) keptViaParentPo += 1;
     incr(companyBreakdown, company.name);
     keptOrderIds.push(orderId);
     outputRows.push(
       headers.map((header) => {
         if (header === 'Order ID') return orderId;
         if (header === 'Company') return company.name;
-        if (header === 'Timestamp') return parsedDate.value as string;
+        if (header === 'Timestamp') return isoTimestamp ?? '';
         if (header === 'ASIN') return asin;
         const value = reader.string(header) ?? '';
         if (ORDER_DETAILS_OPTIONAL_DATE_COLUMNS.has(header)) {
@@ -359,6 +368,7 @@ export function cleanOrderDetails(
     sourceName,
     inputRows: parsed.rawRowCount,
     keptRows: outputRows.length,
+    keptViaParentPo,
     droppedByReason: dropped,
     corruptedOrderIdClasses: corruptedClasses,
     companyBreakdown,
@@ -581,13 +591,17 @@ export function cleanAssignedFiles(
 ): CleanFileReport[] {
   const resolver = buildCompanyResolver();
   const cutoff = windowCutoff(asOf, months);
+  // Purchase Orders clean first: their kept order-id set governs OrderDetails line
+  // retention (a line under a kept PO survives its own out-of-window/junk timestamp).
+  const poFile = assigned.find((file) => file.role === 'purchase_orders' && !failedRoles.has(file.role));
+  const poReport = poFile ? cleanPurchaseOrders(poFile.sourceName, poFile.parsed, resolver, cutoff) : undefined;
+  const keptPoIds: ReadonlySet<string> = new Set(poReport?.keptOrderIds ?? []);
   const reports: CleanFileReport[] = [];
   for (const file of assigned) {
     if (failedRoles.has(file.role)) continue;
-    if (file.role === 'purchase_orders')
-      reports.push(cleanPurchaseOrders(file.sourceName, file.parsed, resolver, cutoff));
+    if (file.role === 'purchase_orders' && poReport) reports.push(poReport);
     else if (file.role === 'order_details')
-      reports.push(cleanOrderDetails(file.sourceName, file.parsed, resolver, cutoff));
+      reports.push(cleanOrderDetails(file.sourceName, file.parsed, resolver, cutoff, keptPoIds));
     else if (file.role === 'supplier_ids') reports.push(cleanSupplierIds(file.sourceName, file.parsed));
     else if (file.role === 'clickup') reports.push(cleanClickup(file.sourceName, file.parsed));
   }
@@ -688,6 +702,11 @@ export function renderReport(result: CleanBundleResult): string {
     lines.push('');
     lines.push(`- Input rows: ${report.inputRows}`);
     lines.push(`- Kept rows: ${report.keptRows}`);
+    if (report.keptViaParentPo !== undefined) {
+      lines.push(
+        `- kept_via_parent_po (order id in kept-PO set; own timestamp unparseable or out-of-window): ${report.keptViaParentPo}`,
+      );
+    }
     lines.push(`- Dropped rows: ${totalDropped}`);
     lines.push(
       `- Integrity: kept + dropped = ${report.keptRows + totalDropped} (input ${report.inputRows}) ${
@@ -799,8 +818,9 @@ function main() {
   process.stdout.write(`Cleaning report: ${reportPath}\n`);
   for (const report of result.reports) {
     const totalDropped = Object.values(report.droppedByReason).reduce((sum, count) => sum + count, 0);
+    const viaParentPo = report.keptViaParentPo !== undefined ? ` (kept_via_parent_po=${report.keptViaParentPo})` : '';
     process.stdout.write(
-      `  ${report.role}: kept ${report.keptRows} / dropped ${totalDropped} / input ${report.inputRows}\n`,
+      `  ${report.role}: kept ${report.keptRows} / dropped ${totalDropped} / input ${report.inputRows}${viaParentPo}\n`,
     );
   }
   process.stdout.write(

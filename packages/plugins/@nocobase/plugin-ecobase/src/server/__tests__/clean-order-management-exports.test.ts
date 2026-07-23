@@ -8,8 +8,8 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { parseDelimitedCsv } from '../../src/features/source-import/server/adapters/csv-utils';
-import { EXPECTED_SOURCE_HEADERS } from '../../src/features/source-import/server/supplier-order-import/supplier-order-import-plan';
+import { parseDelimitedCsv } from '../../features/source-import/server/adapters/csv-utils';
+import { EXPECTED_SOURCE_HEADERS } from '../../features/source-import/server/supplier-order-import/supplier-order-import-plan';
 import {
   assignRoles,
   buildCompanyResolver,
@@ -20,7 +20,7 @@ import {
   cleanSupplierIds,
   windowCutoff,
   type CleanFileReport,
-} from '../clean-order-management-exports';
+} from '../../../scripts/clean-order-management-exports';
 
 function csv(headers: string[], rows: string[][]): string {
   return (
@@ -119,31 +119,63 @@ describe('cleanPurchaseOrders', () => {
 
 describe('cleanOrderDetails', () => {
   const resolver = buildCompanyResolver();
+  // Order date governs line items: EF2526B / MX111A / MX222A / SS333A are kept POs.
+  const keptPoIds = new Set(['EF2526B', 'MX111A', 'MX222A', 'SS333A']);
   const report = cleanOrderDetails(
     'od.csv',
     parse(OD_HEADERS, [
       ['EF2526B', '24/01/2026', 'Ecofission LLC', 'SRO-1', 'B012345678', 'SKU-1', '4', 'ok'],
       ['EF2526B', '24/01/2026', 'Ecofission LLC', 'SRO-1', 'B022345678', '', '2', '#REF!'],
+      ['EF2526B', 'not a date', 'Ecofission LLC', 'SRO-1', 'B072345678', 'SKU-8', '5', 'ok'],
+      ['EF2526B', '01/01/2020', 'Ecofission LLC', 'SRO-1', 'B082345678', 'SKU-9', '6', 'ok'],
+      ['EF2526B', 'not a date', 'Gigi USA INC', 'SRO-7', 'B102345678', 'SKU-11', '1', 'ok'],
       ['USA-SS-BS-012426-01', '24/01/2026', 'Stop Shop LLC', 'SRO-2', 'B032345678', 'SKU-3', '1', 'ok'],
       ['MX111A', '24/01/2026', 'Muxtex INC', 'SRO-3', '#REF!', 'SKU-4', '1', 'ok'],
       ['MX222A', '24/01/2026', 'Muxtex INC', 'SRO-3', 'B042345678', 'SKU-5', '#REF!', 'ok'],
       ['SS333A', '24/01/2026', 'StopShop LLC', 'SRO-4', 'B052345678', 'SKU-6', '3', 'ok'],
       ['EF999A', '01/01/2020', 'Ecofission LLC', 'SRO-5', 'B062345678', 'SKU-7', '1', 'ok'],
+      ['EF888A', 'not a date', 'Ecofission LLC', 'SRO-6', 'B092345678', 'SKU-10', '1', 'ok'],
     ]),
     resolver,
     '2026-01-24',
+    keptPoIds,
   );
 
   it('keeps valid lines including empty SKUs, drops broken required fields and corrupted ids', () => {
-    expect(report.keptRows).toBe(3); // two EF2526B lines + the misspelled-company SS333A line
+    // Two normal EF2526B lines + two rescued EF2526B lines + the misspelled-company SS333A line.
+    expect(report.keptRows).toBe(5);
     expect(report.droppedByReason).toMatchObject({
       corrupted_order_id: 1,
       asin_invalid: 1,
       qty_invalid: 1,
       outside_6_month_window: 1,
+      junk_unparseable_date: 1,
+      company_not_in_scope: 1,
     });
     expect(report.corruptedOrderIdClasses).toEqual({ long_form: 1 });
     expect(integrityHolds(report)).toBe(true);
+  });
+
+  it('keeps lines under a kept PO despite their own junk or out-of-window timestamp', () => {
+    expect(report.keptViaParentPo).toBe(2);
+    const asinIndex = report.outputHeaders.indexOf('ASIN');
+    const timestampIndex = report.outputHeaders.indexOf('Timestamp');
+    const junkTimestampRow = report.outputRows.find((row) => row[asinIndex] === 'B072345678');
+    const oldTimestampRow = report.outputRows.find((row) => row[asinIndex] === 'B082345678');
+    expect(junkTimestampRow).toBeDefined(); // junk timestamp under kept PO -> kept
+    expect(junkTimestampRow?.[timestampIndex]).toBe(''); // unparseable timestamp emitted empty, not garbage
+    expect(oldTimestampRow).toBeDefined(); // out-of-window timestamp under kept PO -> kept
+    expect(oldTimestampRow?.[timestampIndex]).toBe('2020-01-01'); // real date preserved as ISO
+  });
+
+  it('still applies own-window and validity rules to lines not under a kept PO', () => {
+    const asinIndex = report.outputHeaders.indexOf('ASIN');
+    // EF999A (out-of-window) and EF888A (junk timestamp) are not kept POs -> dropped.
+    expect(report.outputRows.find((row) => row[asinIndex] === 'B062345678')).toBeUndefined();
+    expect(report.outputRows.find((row) => row[asinIndex] === 'B092345678')).toBeUndefined();
+    // Required-field validity and company scope still apply even under a kept PO.
+    expect(report.outputRows.find((row) => row[asinIndex] === 'B042345678')).toBeUndefined(); // qty #REF!
+    expect(report.outputRows.find((row) => row[asinIndex] === 'B102345678')).toBeUndefined(); // out-of-scope company
   });
 
   it('keeps the empty-SKU row and blanks a #REF! optional cell', () => {
@@ -154,6 +186,22 @@ describe('cleanOrderDetails', () => {
     expect(emptySkuRow?.[skuIndex]).toBe('');
     expect(emptySkuRow?.[remarksIndex]).toBe(''); // #REF! blanked, row kept
     expect(report.outputHeaders).toEqual(EXPECTED_SOURCE_HEADERS.order_details);
+  });
+
+  it('falls back to pure own-window behavior when the kept-PO set is empty', () => {
+    const fallback = cleanOrderDetails(
+      'od.csv',
+      parse(OD_HEADERS, [
+        ['EF2526B', '24/01/2026', 'Ecofission LLC', 'SRO-1', 'B012345678', 'SKU-1', '4', 'ok'],
+        ['EF2526B', '01/01/2020', 'Ecofission LLC', 'SRO-1', 'B082345678', 'SKU-9', '6', 'ok'],
+      ]),
+      resolver,
+      '2026-01-24',
+      new Set<string>(),
+    );
+    expect(fallback.keptRows).toBe(1);
+    expect(fallback.keptViaParentPo).toBe(0);
+    expect(fallback.droppedByReason).toMatchObject({ outside_6_month_window: 1 });
   });
 });
 
