@@ -200,19 +200,28 @@ const PaneDrawer: React.FC<PaneDrawerProps> = ({
     }
   }, [api, target, runId]);
 
-  // Task 006: searchable supplier options for the Assign-supplier action.
-  const loadSupplierOptions = useCallback(async (): Promise<Array<{ label: string; value: string }>> => {
-    const data = unwrapEnvelope(
-      await api.request({ url: 'ecobaseSupplierManagement:supplierOptions', method: 'post', data: { limit: 200 } }),
-    );
-    if (!Array.isArray(data)) return [];
-    return data.flatMap((entry) => {
-      const record = typeof entry === 'object' && entry !== null ? (entry as Record<string, unknown>) : {};
-      const value = typeof record.value === 'string' ? record.value : null;
-      const label = typeof record.label === 'string' ? record.label : value;
-      return value ? [{ value, label: label ?? value }] : [];
-    });
-  }, [api]);
+  // Task 006 + Batch B3: server-driven typeahead — the search text and the drawer's
+  // family run in the DB query (suppliers beyond the first slice stay findable; suppliers
+  // with order history for this family rank first).
+  const loadSupplierOptions = useCallback(
+    async (search?: string): Promise<Array<{ label: string; value: string }>> => {
+      const data = unwrapEnvelope(
+        await api.request({
+          url: 'ecobaseSupplierManagement:supplierOptions',
+          method: 'post',
+          data: { limit: 50, search: search?.trim() || undefined, familyId: target?.familyId },
+        }),
+      );
+      if (!Array.isArray(data)) return [];
+      return data.flatMap((entry) => {
+        const record = typeof entry === 'object' && entry !== null ? (entry as Record<string, unknown>) : {};
+        const value = typeof record.value === 'string' ? record.value : null;
+        const label = typeof record.label === 'string' ? record.label : value;
+        return value ? [{ value, label: label ?? value }] : [];
+      });
+    },
+    [api, target],
+  );
 
   const runMutation: RunDrawerMutation = useCallback(
     async (url, data) => {
@@ -364,7 +373,7 @@ interface DrawerBodyProps {
   submitting: boolean;
   t: Translate;
   navigate?: (path: string) => void;
-  loadSupplierOptions: () => Promise<Array<{ label: string; value: string }>>;
+  loadSupplierOptions: (search?: string) => Promise<Array<{ label: string; value: string }>>;
 }
 
 function DrawerBody({ pane, row, context, run, submitting, t, navigate, loadSupplierOptions }: DrawerBodyProps) {

@@ -14,7 +14,7 @@
  */
 
 import { Button, Descriptions, Input, InputNumber, Progress, Select, Space, Tag, Typography } from 'antd';
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import type { DashboardRow, DrawerContextResponse, MonthlyEvidencePoint } from '../server/contract';
 import { DASHBOARD_CLICKUP_OPERATIONAL_STATUSES } from '../server/workflow-stage';
 import { reasonLabel, TEXT } from './dashboard-text';
@@ -385,7 +385,7 @@ export function AssignSupplierForm({
   t,
 }: {
   familyId: string;
-  loadSupplierOptions: () => Promise<Array<{ label: string; value: string }>>;
+  loadSupplierOptions: (search?: string) => Promise<Array<{ label: string; value: string }>>;
   run: RunDrawerMutation;
   submitting: boolean;
   t: Translate;
@@ -393,8 +393,16 @@ export function AssignSupplierForm({
   const [options, setOptions] = useState<Array<{ label: string; value: string }> | null>(null);
   const [supplierId, setSupplierId] = useState<string | undefined>(undefined);
   const [reason, setReason] = useState('');
+  // B3: server-driven typeahead — every keystroke queries the DB, so suppliers beyond
+  // the first slice stay findable. The sequence guard drops stale async responses.
+  const requestSeq = useRef(0);
+  const load = async (search?: string) => {
+    const seq = (requestSeq.current += 1);
+    const loaded = await loadSupplierOptions(search);
+    if (seq === requestSeq.current) setOptions(loaded);
+  };
   const open = async () => {
-    if (options === null) setOptions(await loadSupplierOptions());
+    if (options === null) await load();
   };
   const submit = async () => {
     if (!supplierId || !reason.trim()) return;
@@ -420,7 +428,8 @@ export function AssignSupplierForm({
         onDropdownVisibleChange={(visible) => {
           if (visible) open();
         }}
-        optionFilterProp="label"
+        filterOption={false}
+        onSearch={(text) => load(text)}
         value={supplierId}
         onChange={(value: string) => setSupplierId(value)}
       />

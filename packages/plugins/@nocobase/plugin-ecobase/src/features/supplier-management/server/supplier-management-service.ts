@@ -168,6 +168,10 @@ function normalized(value: unknown) {
   );
 }
 
+function sortByDisplayName(rows: PlainRecord[]) {
+  return [...rows].sort((left, right) => String(left.displayName ?? '').localeCompare(String(right.displayName ?? '')));
+}
+
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -744,16 +748,57 @@ export class EcobaseSupplierManagementService {
     );
   }
 
-  async supplierOptions(params: { search?: string; limit?: number } = {}) {
-    const needle = normalized(params.search);
+  async supplierOptions(params: { search?: string; limit?: number; familyId?: string } = {}) {
+    const limit = params.limit ?? 50;
+    const search = asString(params.search)?.trim();
+    // The search runs in the DB (case-insensitive contains via $includes -> ILIKE) BEFORE
+    // limiting, so every supplier is findable by name — the previous fetch-then-filter
+    // made suppliers outside the first slice unfindable.
+    const searchFilter = search ? { displayName: { $includes: search } } : {};
     const orderedSupplierKeys = await this.orderedSupplierKeys();
-    return (await repoRows(this.db, ECOBASE_COLLECTIONS.silverSuppliers, params.limit ?? 50))
-      .filter((supplier) => !needle || normalized(supplier.displayName).includes(needle))
-      .map((supplier) => ({
-        value: supplier.id,
-        label: supplier.displayName,
-        status: effectiveSupplierLifecycleStatus(supplier, orderedSupplierKeys),
-      }));
+    const familySupplierIds = params.familyId ? await this.familyOrderSupplierIds(params.familyId) : [];
+    // Suppliers with order history for the family rank first (matches the family
+    // supplier-eligibility model); they are fetched separately so the general limit can
+    // never push them out of the option list.
+    const familyRows = familySupplierIds.length
+      ? await repoRowsFiltered(
+          this.db,
+          ECOBASE_COLLECTIONS.silverSuppliers,
+          { ...searchFilter, id: { $in: familySupplierIds } },
+          Math.max(familySupplierIds.length, limit),
+        )
+      : [];
+    const generalRows = await this.db
+      .getRepository(ECOBASE_COLLECTIONS.silverSuppliers)
+      .find({ filter: searchFilter, limit, sort: ['displayName'] })
+      .then((rows) => rows.map(toPlainRecord));
+    const seen = new Set<string>();
+    const option = (supplier: PlainRecord) => ({
+      value: supplier.id,
+      label: supplier.displayName,
+      status: effectiveSupplierLifecycleStatus(supplier, orderedSupplierKeys),
+    });
+    const merged: ReturnType<typeof option>[] = [];
+    for (const supplier of [...sortByDisplayName(familyRows), ...sortByDisplayName(generalRows)]) {
+      const id = asString(supplier.id);
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      merged.push(option(supplier));
+    }
+    return merged.slice(0, limit);
+  }
+
+  /** Supplier ids with order history for the family (orders whose lines link to it). */
+  private async familyOrderSupplierIds(familyId: string) {
+    const lines = await repoRowsFiltered(this.db, ECOBASE_COLLECTIONS.silverOrderLines, {
+      companyProductFamilyId: familyId,
+    });
+    const orders = await repoRowsByIds(
+      this.db,
+      ECOBASE_COLLECTIONS.silverOrders,
+      lines.map((line) => asString(line.orderId)),
+    );
+    return [...new Set(orders.map((order) => asString(order.supplierId)).filter((id): id is string => Boolean(id)))];
   }
 
   async productOptions(params: { search?: string; limit?: number } = {}) {

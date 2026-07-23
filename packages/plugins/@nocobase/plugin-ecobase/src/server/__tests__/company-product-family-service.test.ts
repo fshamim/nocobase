@@ -856,6 +856,61 @@ describe('EcobaseCompanyProductFamilyService', () => {
     });
   });
 
+  it('operator supplier assignment writes the target member preferred link for gold (Batch B2)', async () => {
+    const db = new MemoryDatabase();
+    await seed(db);
+    const service = new EcobaseCompanyProductFamilyService(db);
+    const family = await service.ensureFamily(identity);
+    await service.setReplenishmentTarget({
+      familyId: String(family.id),
+      companyProductId: 'company-product-a',
+      source: 'operator',
+      actorUserId: '102',
+      reason: 'freeze target',
+    });
+    // supplier-2 has no supplier product for product-a: a minimal one must be created.
+    await service.setPreferredSupplierOffer({
+      familyId: String(family.id),
+      supplierId: 'supplier-2',
+      source: 'operator',
+      actorUserId: '102',
+      reason: 'operator pick',
+    });
+
+    const createdOffers = await db
+      .getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts)
+      .find({ filter: { supplierId: 'supplier-2', productId: 'product-a' } });
+    expect(createdOffers).toHaveLength(1);
+    expect(createdOffers[0]).toMatchObject({ analysisStatus: 'operator_assigned' });
+    const links = await db
+      .getRepository(ECOBASE_COLLECTIONS.silverCompanyProductSuppliers)
+      .find({ filter: { companyProductId: 'company-product-a', role: 'preferred' } });
+    expect(links).toHaveLength(1);
+    expect(links[0]).toMatchObject({
+      supplierProductId: createdOffers[0].id,
+      role: 'preferred',
+      sourceEvidence: { source: 'operator_supplier_assignment', reason: 'operator pick', actorUserId: '102' },
+    });
+
+    // Re-assigning to a supplier with an existing offer reuses it and updates the link in place.
+    await service.setPreferredSupplierOffer({
+      familyId: String(family.id),
+      supplierId: 'supplier-1',
+      supplierProductId: 'supplier-product-a',
+      source: 'operator',
+      actorUserId: '102',
+      reason: 'switch back',
+    });
+    const updatedLinks = await db
+      .getRepository(ECOBASE_COLLECTIONS.silverCompanyProductSuppliers)
+      .find({ filter: { companyProductId: 'company-product-a', role: 'preferred' } });
+    expect(updatedLinks).toHaveLength(1);
+    expect(updatedLinks[0]).toMatchObject({
+      supplierProductId: 'supplier-product-a',
+      sourceEvidence: { reason: 'switch back' },
+    });
+  });
+
   it('preserves an operator supplier and reviews a different latest valid supplier', async () => {
     const db = new MemoryDatabase();
     await seed(db);

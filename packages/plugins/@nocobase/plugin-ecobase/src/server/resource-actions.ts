@@ -2464,6 +2464,7 @@ export function createEcobaseSupplierManagementActions() {
           data: await service.supplierOptions({
             search: getOptionalString(values, 'search'),
             limit: getOptionalNumber(values, 'limit'),
+            familyId: getOptionalString(values, 'familyId'),
           }),
         };
         await next();

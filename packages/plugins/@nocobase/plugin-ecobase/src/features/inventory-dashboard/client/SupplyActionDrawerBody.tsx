@@ -50,7 +50,7 @@ export interface SupplyActionDrawerBodyProps {
   run: RunDrawerMutation;
   submitting: boolean;
   t: Translate;
-  loadSupplierOptions: () => Promise<Array<{ label: string; value: string }>>;
+  loadSupplierOptions: (search?: string) => Promise<Array<{ label: string; value: string }>>;
   /** Data tab (D7): one includeRaw drawerContext fetch, only on first tab open. */
   fetchRaw: () => Promise<Record<string, unknown> | null>;
   now?: Date;
@@ -178,7 +178,7 @@ interface ActionBarProps {
   run: RunDrawerMutation;
   submitting: boolean;
   t: Translate;
-  loadSupplierOptions: () => Promise<Array<{ label: string; value: string }>>;
+  loadSupplierOptions: (search?: string) => Promise<Array<{ label: string; value: string }>>;
   onComment: () => void;
 }
 
@@ -253,7 +253,7 @@ function CreateOrderModal({
   companyProductId: string | null;
   run: RunDrawerMutation;
   t: Translate;
-  loadSupplierOptions: () => Promise<Array<{ label: string; value: string }>>;
+  loadSupplierOptions: (search?: string) => Promise<Array<{ label: string; value: string }>>;
   onClose: () => void;
 }) {
   const [qty, setQty] = useState<number | null>(row.recommendedOrderQty);
@@ -424,14 +424,22 @@ function ChangeSupplierModal({
   familyId: string;
   run: RunDrawerMutation;
   t: Translate;
-  loadSupplierOptions: () => Promise<Array<{ label: string; value: string }>>;
+  loadSupplierOptions: (search?: string) => Promise<Array<{ label: string; value: string }>>;
   onClose: () => void;
 }) {
   const [options, setOptions] = useState<Array<{ label: string; value: string }> | null>(null);
   const [supplierId, setSupplierId] = useState<string | undefined>(undefined);
   const [reason, setReason] = useState('');
+  // B3: server-driven typeahead — every keystroke queries the DB, so suppliers beyond
+  // the first slice stay findable. The sequence guard drops stale async responses.
+  const requestSeq = useRef(0);
+  const load = async (search?: string) => {
+    const seq = (requestSeq.current += 1);
+    const loaded = await loadSupplierOptions(search);
+    if (seq === requestSeq.current) setOptions(loaded);
+  };
   const openOptions = async () => {
-    if (options === null) setOptions(await loadSupplierOptions());
+    if (options === null) await load();
   };
   const submit = async () => {
     if (!supplierId || !reason.trim()) return;
@@ -459,7 +467,8 @@ function ChangeSupplierModal({
           placeholder={t(TEXT.drawerAssignSupplier)}
           style={{ width: '100%' }}
           options={options ?? []}
-          optionFilterProp="label"
+          filterOption={false}
+          onSearch={(text) => load(text)}
           value={supplierId}
           onDropdownVisibleChange={(visible) => {
             if (visible) openOptions();

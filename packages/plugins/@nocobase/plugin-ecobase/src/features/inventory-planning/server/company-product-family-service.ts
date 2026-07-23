@@ -410,7 +410,93 @@ export class EcobaseCompanyProductFamilyService {
           : {}),
       },
     });
+    if (params.source === 'operator') {
+      await this.ensureOperatorPreferredSupplierLink({
+        familyId: params.familyId,
+        supplierId,
+        supplierProductId,
+        actorUserId: params.actorUserId,
+        reason: params.reason,
+        selectedAt: supplierSelectedAt,
+      });
+    }
     return this.getFamily(params.familyId);
+  }
+
+  /**
+   * Operator supplier assignments become visible to gold by construction: gold's primary
+   * supplier evidence is the per-product silverCompanyProductSuppliers link on the
+   * family's target member, so the operator path ensures a silverSupplierProducts row for
+   * (supplier, target member's product) — created minimal when absent, mirroring the
+   * importer/repair row shape — and upserts the target company product's 'preferred' link.
+   * Families without a frozen target member skip the link (no supply-action row exists to
+   * render it; the family-level preferredSupplierId fallback still covers gold).
+   */
+  private async ensureOperatorPreferredSupplierLink(params: {
+    familyId: string;
+    supplierId: string;
+    supplierProductId?: string;
+    actorUserId?: string;
+    reason?: string;
+    selectedAt: string;
+  }) {
+    const family = await this.getFamily(params.familyId);
+    const targetCompanyProductId = idOf(family, 'replenishmentTargetCompanyProductId');
+    if (!targetCompanyProductId) return;
+    const companyProduct = toPlainRecord(
+      await this.db
+        .getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts)
+        .findOne({ filterByTk: targetCompanyProductId }),
+    );
+    const productId = idOf(companyProduct, 'productId');
+    if (!productId) return;
+    let supplierProductId = params.supplierProductId;
+    if (!supplierProductId) {
+      const supplierProductRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts);
+      const existing = toPlainRecord(
+        await supplierProductRepo.findOne({ filter: { supplierId: params.supplierId, productId } }),
+      );
+      supplierProductId = idOf(existing, 'id') as string | undefined;
+      if (!supplierProductId) {
+        supplierProductId = randomUUID();
+        await supplierProductRepo.create({
+          values: {
+            id: supplierProductId,
+            supplierId: params.supplierId,
+            productId,
+            analysisStatus: 'operator_assigned',
+          },
+        });
+      }
+    }
+    const linkRepo = this.db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductSuppliers);
+    const sourceEvidence = {
+      source: 'operator_supplier_assignment',
+      familyId: params.familyId,
+      actorUserId: params.actorUserId,
+      reason: params.reason,
+      selectedAt: params.selectedAt,
+    };
+    const existingPreferred = toPlainRecord(
+      await linkRepo.findOne({ filter: { companyProductId: targetCompanyProductId, role: 'preferred' } }),
+    );
+    const existingPreferredId = idOf(existingPreferred, 'id');
+    if (existingPreferredId) {
+      await linkRepo.update({
+        filterByTk: existingPreferredId as string,
+        values: { supplierProductId, sourceEvidence },
+      });
+    } else {
+      await linkRepo.create({
+        values: {
+          id: randomUUID(),
+          companyProductId: targetCompanyProductId,
+          supplierProductId,
+          role: 'preferred',
+          sourceEvidence,
+        },
+      });
+    }
   }
 
   async reconcileAllFamilies(companyId?: string, options: { preserveCatalog?: boolean } = {}) {
