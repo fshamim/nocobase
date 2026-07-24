@@ -517,11 +517,13 @@ export class EcobaseInventoryDashboardService {
       ),
       orderRows: orderRowsRaw.map((row) => this.buildRow(row, familyPaneSets, silverById, suppliersById, commentsById)),
       orderHistory: history.entries.map((entry) => ({
+        orderId: entry.orderId,
         orderDate: entry.orderDate,
         orderedQty: entry.orderedQty,
         supplierName: entry.supplierId ? suppliersById.get(entry.supplierId)?.displayName ?? null : null,
         status: entry.status,
       })),
+
       maxEverOrderedQty: history.maxEverOrderedQty,
       commentThread: buildCommentThread(commentRecords, commentAuthors),
     };

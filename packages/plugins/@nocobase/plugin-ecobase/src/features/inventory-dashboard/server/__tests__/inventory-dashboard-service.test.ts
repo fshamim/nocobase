@@ -759,10 +759,28 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
     });
     if (isRunSuperseded(drawer)) throw new Error('bad');
     expect(drawer.orderHistory).toEqual([
-      { orderDate: '2026-07-01', orderedQty: 120, supplierName: 'Lead Boundary Supplies', status: 'complete' },
+      {
+        orderId: 'order-h1',
+        orderDate: '2026-07-01',
+        orderedQty: 120,
+        supplierName: 'Lead Boundary Supplies',
+        status: 'complete',
+      },
       // 200 + 50 member lines of order-h2 aggregate into one entry.
-      { orderDate: '2026-05-15', orderedQty: 250, supplierName: 'Lead Boundary Supplies', status: 'complete' },
-      { orderDate: '2026-03-10', orderedQty: 80, supplierName: 'Unknown Route Supplier', status: 'hold/cancelled' },
+      {
+        orderId: 'order-h2',
+        orderDate: '2026-05-15',
+        orderedQty: 250,
+        supplierName: 'Lead Boundary Supplies',
+        status: 'complete',
+      },
+      {
+        orderId: 'order-h3',
+        orderDate: '2026-03-10',
+        orderedQty: 80,
+        supplierName: 'Unknown Route Supplier',
+        status: 'hold/cancelled',
+      },
     ]);
     // The unresolved-mapping line (qty 999) never contributes (pipeline parity).
     expect(drawer.maxEverOrderedQty).toBe(250);

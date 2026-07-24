@@ -322,6 +322,8 @@ const PaneDrawer: React.FC<PaneDrawerProps> = ({
               t={t}
               loadSupplierOptions={loadSupplierOptions}
               fetchRaw={fetchRaw}
+              api={api}
+              onOrderMutated={() => onMutated(target.pane)}
             />
           ) : (
             <Space direction="vertical" size="middle" style={{ width: '100%' }}>

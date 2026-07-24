@@ -26,6 +26,9 @@ import { EM_DASH, formatMoney, formatMonthDay, type Translate } from './format';
 import { ActionPill } from './widgets/ActionPill';
 import { ProfitRangeChart } from './widgets/ProfitRangeChart';
 import { StockBuckets } from './widgets/StockBuckets';
+import { CreateOrderModal as OrderWorkbenchCreateModal } from './order/CreateOrderModal';
+import { OrderViewDrawer } from './order/OrderViewDrawer';
+import type { OrderRequestClient } from './order/order-api';
 
 const TREND_TEXT: Record<string, string> = {
   up: TEXT.trendUp,
@@ -53,6 +56,9 @@ export interface SupplyActionDrawerBodyProps {
   loadSupplierOptions: (search?: string) => Promise<Array<{ label: string; value: string }>>;
   /** Data tab (D7): one includeRaw drawerContext fetch, only on first tab open. */
   fetchRaw: () => Promise<Record<string, unknown> | null>;
+  /** Order Create/View UI (T4/T5): request client + parent refresh hook. */
+  api?: OrderRequestClient;
+  onOrderMutated?: () => void;
   now?: Date;
 }
 
@@ -73,9 +79,23 @@ function relativeAge(at: string, t: Translate, now: Date): string {
 }
 
 export function SupplyActionDrawerBody(props: SupplyActionDrawerBodyProps) {
-  const { row, context, familyId, orderId, pendingSync, run, submitting, t, loadSupplierOptions, fetchRaw } = props;
+  const {
+    row,
+    context,
+    familyId,
+    orderId,
+    pendingSync,
+    run,
+    submitting,
+    t,
+    loadSupplierOptions,
+    fetchRaw,
+    api,
+    onOrderMutated,
+  } = props;
   const now = props.now ?? new Date();
   const [activeTab, setActiveTab] = useState('overview');
+  const [viewOrderId, setViewOrderId] = useState<string | null>(null);
   const commentInputRef = useRef<{ focus: () => void } | null>(null);
   // T-R2 root cause: this coalesced baseline-first while the sort/badge rule
   // and every v1 renderer coalesce CURRENT-first — one canonical order now.
@@ -125,7 +145,19 @@ export function SupplyActionDrawerBody(props: SupplyActionDrawerBodyProps) {
         t={t}
         loadSupplierOptions={loadSupplierOptions}
         onComment={focusComments}
+        api={api}
+        onOpenOrder={setViewOrderId}
       />
+      {api ? (
+        <OrderViewDrawer
+          open={viewOrderId !== null}
+          api={api}
+          t={t}
+          orderId={viewOrderId}
+          onClose={() => setViewOrderId(null)}
+          onMutated={onOrderMutated}
+        />
+      ) : null}
 
       <Tabs
         activeKey={activeTab}
@@ -139,7 +171,7 @@ export function SupplyActionDrawerBody(props: SupplyActionDrawerBodyProps) {
           {
             key: 'orders',
             label: `${t(TEXT.tabOrders)} · ${context.orderHistory.length}`,
-            children: <OrdersTab context={context} t={t} />,
+            children: <OrdersTab context={context} t={t} onOpenOrder={api ? setViewOrderId : undefined} />,
           },
           {
             key: 'comments',
@@ -180,10 +212,24 @@ interface ActionBarProps {
   t: Translate;
   loadSupplierOptions: (search?: string) => Promise<Array<{ label: string; value: string }>>;
   onComment: () => void;
+  api?: OrderRequestClient;
+  onOpenOrder: (orderId: string) => void;
 }
 
 function ActionBar(props: ActionBarProps) {
-  const { row, context, familyId, companyProductId, run, submitting, t, loadSupplierOptions, onComment } = props;
+  const {
+    row,
+    context,
+    familyId,
+    companyProductId,
+    run,
+    submitting,
+    t,
+    loadSupplierOptions,
+    onComment,
+    api,
+    onOpenOrder,
+  } = props;
   const [open, setOpen] = useState<'order' | 'target' | 'supplier' | 'leadTime' | 'status' | null>(null);
   const close = () => setOpen(null);
   return (
@@ -208,15 +254,21 @@ function ActionBar(props: ActionBarProps) {
           {t(TEXT.drawerComment)}
         </Button>
       </Space>
-      <CreateOrderModal
-        open={open === 'order'}
-        row={row}
-        companyProductId={companyProductId}
-        run={run}
-        t={t}
-        loadSupplierOptions={loadSupplierOptions}
-        onClose={close}
-      />
+      {api ? (
+        <OrderWorkbenchCreateModal
+          open={open === 'order'}
+          api={api}
+          t={t}
+          planningProductId={companyProductId}
+          familyId={familyId}
+          familyLabel={row.identity.title ?? row.identity.asin ?? undefined}
+          onClose={close}
+          onCreated={(newOrderId) => {
+            close();
+            onOpenOrder(newOrderId);
+          }}
+        />
+      ) : null}
       <ChangeTargetModal
         open={open === 'target'}
         context={context}
@@ -236,113 +288,6 @@ function ActionBar(props: ActionBarProps) {
       <UpdateLeadTimeModal open={open === 'leadTime'} row={row} run={run} t={t} onClose={close} />
       <SetStatusModal open={open === 'status'} companyProductId={companyProductId} run={run} t={t} onClose={close} />
     </>
-  );
-}
-
-function CreateOrderModal({
-  open,
-  row,
-  companyProductId,
-  run,
-  t,
-  loadSupplierOptions,
-  onClose,
-}: {
-  open: boolean;
-  row: DashboardRow;
-  companyProductId: string | null;
-  run: RunDrawerMutation;
-  t: Translate;
-  loadSupplierOptions: (search?: string) => Promise<Array<{ label: string; value: string }>>;
-  onClose: () => void;
-}) {
-  const [qty, setQty] = useState<number | null>(row.recommendedOrderQty);
-  const [supplierId, setSupplierId] = useState<string | undefined>(row.supplier.id ?? undefined);
-  const [options, setOptions] = useState<Array<{ label: string; value: string }> | null>(null);
-  const [unitCost, setUnitCost] = useState<number | null>(row.stock.unitCost);
-  const [expectedDeliveryDate, setExpectedDeliveryDate] = useState('');
-  const [expectedSellableDate, setExpectedSellableDate] = useState('');
-  const [notes, setNotes] = useState('');
-  const openOptions = async () => {
-    if (options === null) setOptions(await loadSupplierOptions());
-  };
-  const submit = async () => {
-    if (!companyProductId || !row.identity.company || qty === null || qty <= 0) return;
-    const ok = await run('ecobaseInventoryDashboard:createPlannedOrder', {
-      company: row.identity.company,
-      planningProductId: companyProductId,
-      supplierId,
-      orderedQty: qty,
-      unitCost: unitCost ?? undefined,
-      expectedDeliveryDate: expectedDeliveryDate.trim() || undefined,
-      expectedSellableDate: expectedSellableDate.trim() || undefined,
-      notes: notes.trim() || undefined,
-    });
-    if (ok) onClose();
-  };
-  return (
-    <Modal
-      open={open}
-      title={t(TEXT.btnCreateOrder)}
-      onCancel={onClose}
-      onOk={submit}
-      okText={t(TEXT.btnCreateOrder)}
-      okButtonProps={{ disabled: !companyProductId || qty === null || qty <= 0 }}
-      destroyOnClose
-    >
-      <Space direction="vertical" style={{ width: '100%' }}>
-        <InputNumber
-          aria-label={t(TEXT.qtyLabel)}
-          min={1}
-          value={qty}
-          onChange={(value) => setQty(typeof value === 'number' ? value : null)}
-          style={{ width: '100%' }}
-        />
-        <Select
-          showSearch
-          allowClear
-          aria-label={t(TEXT.drawerSupplier)}
-          placeholder={t(TEXT.drawerSupplier)}
-          style={{ width: '100%' }}
-          options={
-            options ??
-            (row.supplier.id && row.supplier.name ? [{ value: row.supplier.id, label: row.supplier.name }] : [])
-          }
-          optionFilterProp="label"
-          value={supplierId}
-          onDropdownVisibleChange={(visible) => {
-            if (visible) openOptions();
-          }}
-          onChange={(value: string | undefined) => setSupplierId(value ?? undefined)}
-        />
-        <InputNumber
-          aria-label={t(TEXT.colUnitCost)}
-          min={0}
-          value={unitCost}
-          onChange={(value) => setUnitCost(typeof value === 'number' ? value : null)}
-          style={{ width: '100%' }}
-        />
-        <Input
-          aria-label={t(TEXT.expectedDeliveryLabel)}
-          placeholder={t(TEXT.expectedDeliveryLabel)}
-          value={expectedDeliveryDate}
-          onChange={(event) => setExpectedDeliveryDate(event.target.value)}
-        />
-        <Input
-          aria-label={t(TEXT.expectedSellableLabel)}
-          placeholder={t(TEXT.expectedSellableLabel)}
-          value={expectedSellableDate}
-          onChange={(event) => setExpectedSellableDate(event.target.value)}
-        />
-        <Input.TextArea
-          aria-label={t(TEXT.notesLabel)}
-          placeholder={t(TEXT.notesLabel)}
-          rows={2}
-          value={notes}
-          onChange={(event) => setNotes(event.target.value)}
-        />
-      </Space>
-    </Modal>
   );
 }
 
@@ -722,28 +667,59 @@ function Stat({ label, value, suffix }: { label: string; value: string; suffix?:
   );
 }
 
-function OrdersTab({ context, t }: { context: DrawerContextResponse; t: Translate }) {
+function OrdersTab({
+  context,
+  t,
+  onOpenOrder,
+}: {
+  context: DrawerContextResponse;
+  t: Translate;
+  onOpenOrder?: (orderId: string) => void;
+}) {
   if (context.orderHistory.length === 0) {
     return <Typography.Text type="secondary">{t(TEXT.noOrdersYet)}</Typography.Text>;
   }
   return (
     <Space direction="vertical" size="small" style={{ width: '100%' }}>
-      {context.orderHistory.map((entry, index) => (
-        <Space key={`${entry.orderDate ?? 'unknown'}-${index}`} size={12} style={{ fontSize: 12.5 }}>
-          <Typography.Text type="secondary" style={{ minWidth: 72, fontVariantNumeric: 'tabular-nums' }}>
-            {formatMonthDay(entry.orderDate)}
-          </Typography.Text>
-          <Typography.Text strong style={{ minWidth: 60, fontVariantNumeric: 'tabular-nums' }}>
-            {entry.orderedQty !== null ? `${entry.orderedQty} u` : EM_DASH}
-          </Typography.Text>
-          <Typography.Text type="secondary">{entry.supplierName ?? EM_DASH}</Typography.Text>
-          {entry.status ? (
-            <Tag color={DASHBOARD_TAG_COLORS.neutral} style={{ borderRadius: 999 }}>
-              {entry.status}
-            </Tag>
-          ) : null}
-        </Space>
-      ))}
+      {context.orderHistory.map((entry, index) => {
+        const clickable = Boolean(onOpenOrder && entry.orderId);
+        const rowContent = (
+          <Space size={12} style={{ fontSize: 12.5 }}>
+            <Typography.Text type="secondary" style={{ minWidth: 72, fontVariantNumeric: 'tabular-nums' }}>
+              {formatMonthDay(entry.orderDate)}
+            </Typography.Text>
+            <Typography.Text strong style={{ minWidth: 60, fontVariantNumeric: 'tabular-nums' }}>
+              {entry.orderedQty !== null ? `${entry.orderedQty} u` : EM_DASH}
+            </Typography.Text>
+            <Typography.Text type="secondary">{entry.supplierName ?? EM_DASH}</Typography.Text>
+            {entry.status ? (
+              <Tag color={DASHBOARD_TAG_COLORS.neutral} style={{ borderRadius: 999 }}>
+                {entry.status}
+              </Tag>
+            ) : null}
+          </Space>
+        );
+        const key = `${entry.orderDate ?? 'unknown'}-${index}`;
+        return clickable ? (
+          <div
+            key={key}
+            role="button"
+            tabIndex={0}
+            style={{ cursor: 'pointer' }}
+            onClick={() => entry.orderId && onOpenOrder?.(entry.orderId)}
+            onKeyDown={(event) => {
+              if ((event.key === 'Enter' || event.key === ' ') && entry.orderId) {
+                event.preventDefault();
+                onOpenOrder?.(entry.orderId);
+              }
+            }}
+          >
+            {rowContent}
+          </div>
+        ) : (
+          <div key={key}>{rowContent}</div>
+        );
+      })}
       {context.maxEverOrderedQty !== null ? (
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
           {`${t(TEXT.maxEverPrefix)} ${context.maxEverOrderedQty}`}

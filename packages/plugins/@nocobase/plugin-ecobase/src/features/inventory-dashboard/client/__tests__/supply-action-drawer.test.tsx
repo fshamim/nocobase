@@ -83,6 +83,54 @@ function mockApi(context: DrawerContextResponse) {
     if (args.url === 'ecobaseSupplierManagement:supplierOptions') {
       return Promise.resolve({ data: { data: supplierOptions } });
     }
+    if (args.url === 'ecobaseInventoryDashboard:prepareOrderDraft') {
+      return Promise.resolve({
+        data: {
+          data: {
+            companyId: 'company-ef',
+            companyName: 'Ecofission LLC',
+            companyKey: 'EF',
+            orderDate: '2026-07-24',
+            suggestedOrderRef: 'EF072426A',
+            product: { companyProductId: 'cp-f11a', title: 'Lead Boundary Widget', asin: 'B0011A', sku: 'SKU-f11a' },
+            supplierDefault: { supplierId: 'supplier-lead-boundary', displayName: 'Lead Boundary Supplies' },
+          },
+        },
+      });
+    }
+    if (args.url === 'ecobaseInventoryDashboard:checkOrderRef') {
+      return Promise.resolve({ data: { data: { normalized: String(args.data.orderRef ?? ''), available: true } } });
+    }
+    if (args.url === 'ecobaseInventoryDashboard:productOptions') {
+      return Promise.resolve({ data: { data: [] } });
+    }
+    if (
+      args.url === 'ecobaseInventoryDashboard:createOrder' ||
+      args.url === 'ecobaseInventoryDashboard:getOrderDetail'
+    ) {
+      return Promise.resolve({
+        data: {
+          data: {
+            header: {
+              id: 'new-order-1',
+              orderRef: 'EF072426A',
+              companyId: 'company-ef',
+              companyName: 'Ecofission LLC',
+              supplierId: 'supplier-lead-boundary',
+              supplierName: 'Lead Boundary Supplies',
+              orderIntent: 'manual',
+              deletable: true,
+              lifecycleStatus: 'draft',
+              orderedUnits: 12,
+              observedUnits: 0,
+              productCount: 1,
+            },
+            lines: [],
+            activity: [],
+          },
+        },
+      });
+    }
     return Promise.resolve({ data: { data: { ok: true } } });
   });
 }
@@ -153,24 +201,32 @@ describe('Supply Action drawer v2 (T8b)', () => {
     expect(within(dialog).getByText(TEXT.bucketReserved)).toBeTruthy();
   });
 
-  it('Create order: qty prefilled from recommendedOrderQty, submits createPlannedOrder with the member identity', async () => {
-    const { dialog, markPending } = await openDrawer();
+  it('Create order: seeds the family product line, submits createOrder, and opens the order view', async () => {
+    const { dialog } = await openDrawer();
     fireEvent.click(within(dialog).getByRole('button', { name: TEXT.btnCreateOrder }));
-    const modal = await within(document.body).findByLabelText(TEXT.qtyLabel);
-    expect((modal as HTMLInputElement).value).toBe('520'); // prefilled from recommendedOrderQty
-    const modalDialog = modal.closest('.ant-modal') as HTMLElement;
-    fireEvent.click(within(modalDialog).getByRole('button', { name: TEXT.btnCreateOrder }));
+    // The workbench modal prefills the ref from prepareOrderDraft and seeds the
+    // family's target product as the first line (quantity left for the operator).
+    const qtyInput = await within(document.body).findByLabelText(TEXT.qtyLabel);
+    const modalDialog = qtyInput.closest('.ant-modal') as HTMLElement;
+    fireEvent.change(qtyInput, { target: { value: '12' } });
     await waitFor(() =>
-      expect(calls('ecobaseInventoryDashboard:createPlannedOrder')[0][0]).toMatchObject({
+      expect(within(document.body).getByText((text) => text.includes(TEXT.ocRefAvailable))).toBeTruthy(),
+    );
+    const submit = within(modalDialog).getByRole('button', { name: TEXT.ocSubmit });
+    await waitFor(() => expect(submit).not.toBeDisabled());
+    fireEvent.click(submit);
+    await waitFor(() =>
+      expect(calls('ecobaseInventoryDashboard:createOrder')[0][0]).toMatchObject({
         data: {
-          company: ENRICHED.identity.company,
-          planningProductId: 'cp-f11a',
-          orderedQty: 520,
-          supplierId: ENRICHED.supplier.id,
+          companyId: 'company-ef',
+          supplierId: 'supplier-lead-boundary',
+          orderRef: 'EF072426A',
+          lines: [{ companyProductId: 'cp-f11a', orderedQty: 12 }],
         },
       }),
     );
-    await waitFor(() => expect(markPending).toHaveBeenCalledWith('family-f11a-lead-boundary'));
+    // On success the order view drawer opens by id (getOrderDetail fetch).
+    await waitFor(() => expect(calls('ecobaseInventoryDashboard:getOrderDetail').length).toBeGreaterThan(0));
   });
 
   it('Change target: OK disabled until member + reason; submits setFamilyTarget', async () => {

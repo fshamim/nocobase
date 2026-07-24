@@ -289,6 +289,9 @@ export interface MonthlyEvidencePoint {
 
 /** T6 (D5): one recent supplier order of the family, quantities aggregated per order. */
 export interface DrawerOrderHistoryEntry {
+  // Order Create/View UI (T5): opaque navigation handle so an order row can open
+  // the Order view drawer. Not rendered to the user (D1 stays: no ids on screen).
+  orderId: string | null;
   orderDate: string | null;
   orderedQty: number | null;
   supplierName: string | null;
