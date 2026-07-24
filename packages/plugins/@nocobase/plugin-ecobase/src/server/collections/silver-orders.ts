@@ -82,6 +82,13 @@ export default defineCollection({
     { name: 'workflowStageEnteredAt', type: 'datetimeTz' },
     { name: 'orderApproval', type: 'string' },
     { name: 'paymentStatus', type: 'string' },
+    // Order Create/View UI (T1): raw sheet strings, sheet-faithful (day-first CSV).
+    // paymentMode = "Payment Mode" (ACH / CC / Bank transfer…);
+    // paymentDate = "Date of Payment" (day-first); placedBy = "Placed By"
+    // (operator display name for manual orders, alongside createdByUserId).
+    { name: 'paymentMode', type: 'string' },
+    { name: 'paymentDate', type: 'dateOnly' },
+    { name: 'placedBy', type: 'string' },
     { name: 'invoiceStatus', type: 'string' },
     { name: 'prepStatus', type: 'string' },
     // Inventory Dashboard (T-1.4): structured prep details captured from the

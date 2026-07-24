@@ -95,6 +95,11 @@ export default defineCollection({
     { name: 'mapPrice', type: 'double' },
     { name: 'productAnalysisStatus', type: 'string', allowNull: false, defaultValue: 'unknown' },
     { name: 'priority', type: 'string' },
+    // Order Create/View UI (T1): raw sheet strings, sheet-faithful.
+    // amazonCheckStatus = "AM Status" (Cleared / OOS / Rejected / In Progress);
+    // shipmentFlag = "Shipment" (Yes / No).
+    { name: 'amazonCheckStatus', type: 'string' },
+    { name: 'shipmentFlag', type: 'string' },
     { name: 'amazonReceiptStatus', type: 'string', allowNull: true, index: true },
     { name: 'amazonReceiptObservedQty', type: 'double' },
     { name: 'amazonReceiptBaselineAt', type: 'datetimeTz' },
