@@ -32,6 +32,7 @@ function timing(overrides: Partial<ReorderTimingInput> = {}): ReorderTimingInput
     calculationDate: CALC_DATE,
     salesVelocity: 2,
     salesVelocityBasis: 'rolling_30',
+    salesVelocityConfidence: 'high',
     daysOfCover: 10,
     futurePositionStock: 60,
     leadTimeDays: LEAD_TIME_DAYS,
@@ -80,6 +81,7 @@ function velocityInput(overrides: Partial<EffectiveVelocityInput> = {}): Effecti
     calculationDate: CALC_DATE,
     rollingSalesVelocity: null,
     rollingVelocityWindowEndDate: CALC_DATE,
+    rollingVelocityConfidence: 'high',
     monthlyPerformanceEvidence: [],
     averageMonthlyUnits: null,
     sourceAsOfDate: '2026-07-16',
@@ -103,6 +105,7 @@ describe('resolveEffectiveVelocity (F4 fallback ladder)', () => {
       salesVelocity: '2.00000000',
       salesVelocityBasis: 'rolling_30',
       salesVelocityAsOfDate: '2026-07-23',
+      salesVelocityConfidence: 'high',
       velocity: 2,
     });
   });
@@ -136,6 +139,7 @@ describe('resolveEffectiveVelocity (F4 fallback ladder)', () => {
       salesVelocity: '2.00000000', // 60 units / 30 days in June
       salesVelocityBasis: 'last_closed_month',
       salesVelocityAsOfDate: '2026-06-30',
+      salesVelocityConfidence: 'medium',
       velocity: 2,
     });
   });
@@ -158,6 +162,7 @@ describe('resolveEffectiveVelocity (F4 fallback ladder)', () => {
       salesVelocity: '1.50000000',
       salesVelocityBasis: 'baseline_average',
       salesVelocityAsOfDate: '2026-07-16',
+      salesVelocityConfidence: 'low',
       velocity: 1.5,
     });
     const withoutSource = resolveEffectiveVelocity(
@@ -171,6 +176,7 @@ describe('resolveEffectiveVelocity (F4 fallback ladder)', () => {
       salesVelocity: null,
       salesVelocityBasis: 'none',
       salesVelocityAsOfDate: null,
+      salesVelocityConfidence: 'none',
       velocity: null,
     });
   });
@@ -221,6 +227,16 @@ describe('deriveReorderTiming (F1 stockout dates, F2 order-by, V1 horizon)', () 
     expect(notDue.reorderDueKind).toBeNull();
     expect(notDue.trustedReorderDue).toBe(false);
     expect(notDue.daysUntilSafeReorder).toBe(56);
+  });
+
+  it('marks a due reorder under a sparse (non-high-confidence) rolling basis as estimated, not trusted', () => {
+    for (const salesVelocityConfidence of ['medium', 'low'] as const) {
+      const sparse = deriveReorderTiming(timing({ salesVelocityConfidence }));
+      expect(sparse.reorderDueKind).toBe('estimated');
+      expect(sparse.trustedReorderDue).toBe(false);
+    }
+    // Only a HIGH-confidence rolling basis stays trusted.
+    expect(deriveReorderTiming(timing({ salesVelocityConfidence: 'high' })).reorderDueKind).toBe('trusted');
   });
 
   it('emits no position runway for trusted-zero velocity (velocity must be > 0)', () => {

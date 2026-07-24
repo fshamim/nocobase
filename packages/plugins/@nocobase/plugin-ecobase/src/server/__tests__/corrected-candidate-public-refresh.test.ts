@@ -609,14 +609,22 @@ describe('corrected candidate public refresh seam', () => {
     ]);
   });
 
-  it('keeps a sparse baseline month unknown and suppresses new replenishment action', async () => {
+  it('counts a coverage-gap baseline month as partial evidence (sparse-tolerant), lowering confidence not visibility', async () => {
     const db = fixture();
+    // Drop February's coverage membership: its coverage no longer fully vouches, but the month
+    // still carries a fact — new philosophy ranks it as eligible_partial_month instead of nulling it.
     db.rows(ECOBASE_COLLECTIONS.sourceCoverageMemberships).splice(1, 1);
 
-    await refreshThroughPublicAction(db, 'sparse-baseline');
+    const result = await refreshThroughPublicAction(db, 'partial-baseline');
+    // Exercise the independent verifier's partial-month mirror: the graded-partial evidence must
+    // reproduce byte-for-byte from Silver or publication verification would fail.
+    await expect(
+      new EcobaseIndependentGoldReferenceVerifier(db).verify(String((result.run as Row).id)),
+    ).resolves.toMatchObject({ valid: true });
 
     expect(db.goldRows.rows[0]).toMatchObject({
-      baselineEligibleMonthCount: 5,
+      // Six eligible months (five complete + one partial): the sparse month stays visible.
+      baselineEligibleMonthCount: 6,
       baselineConfidence: 'moderate',
       replenishmentEligibility: 'review_insufficient_baseline_confidence',
       newReplenishmentActionable: false,
@@ -627,10 +635,11 @@ describe('corrected candidate public refresh seam', () => {
       expect.arrayContaining([
         expect.objectContaining({
           monthStart: '2026-02-01',
-          eligible: false,
-          reasonCode: 'product_scope_unknown',
-          monthlyUnits: null,
-          monthlyProfit: null,
+          eligible: true,
+          reasonCode: 'eligible_partial_month',
+          sourceFactCount: 1,
+          monthlyUnits: '10.00000000',
+          monthlyProfit: '300.00000000',
         }),
       ]),
     );
@@ -721,12 +730,39 @@ describe('corrected candidate public refresh seam', () => {
     });
   });
 
+  it('D1: anchors the rolling window to the covered as-of so a ~2-day-lagging feed keeps rolling_30 trusted', async () => {
+    const db = fixture();
+    // Calendar today is 07-18 but the sellerboard feed only covers through 07-16 (a normal lag).
+    // Old behavior anchored the trailing-30 window to 07-18, leaving 07-17/07-18 uncovered →
+    // insufficient rolling → last_closed_month estimate. D1 anchors to the covered as-of (07-16),
+    // so the fully-covered window stays trusted and rolling_30 remains the basis.
+    const { action, ctx, next } = publicRefreshInvocation(db, 'd1-lag-anchor', { calculationDate: '2026-07-18' });
+    await action(ctx as never, next);
+    expect(next).toHaveBeenCalledOnce();
+    const run = (ctx.body as { data: Row }).data.run as Row;
+    expect(db.goldRows.rows[0]).toMatchObject({
+      salesVelocityBasis: 'rolling_30',
+      salesVelocityAsOfDate: '2026-07-16',
+      rollingVelocityWindowEndDate: '2026-07-16',
+      rollingVelocityEvidenceStatus: 'trusted_positive',
+      salesVelocity: '0.33333333', // 10 units over the full 30-day covered window
+    });
+    await expect(new EcobaseIndependentGoldReferenceVerifier(db).verify(String(run.id))).resolves.toMatchObject({
+      valid: true,
+    });
+  });
+
   it('routes a fallback-velocity family into Supply Action with estimated provenance (T3, approved D2)', async () => {
     const db = fixture();
-    // Truncate source coverage so the rolling 30-day window (2026-06-17..07-16) is
-    // discontinuous (insufficient rolling evidence) while every closed month stays eligible.
+    // Truncate coverage to 07-10 AND drop the current-month (July) membership: the D1-anchored
+    // rolling window (2026-06-11..07-10) then has partial (unvouched) coverage with ZERO observed
+    // days — genuinely insufficient rolling evidence — while every CLOSED month (Jan–Jun) stays
+    // fully covered, so the F4 ladder falls to the last closed month (June).
     const interval = db.rows(ECOBASE_COLLECTIONS.sourceCoverageIntervals)[0];
     interval.coveredEndDate = '2026-07-10';
+    const memberships = db.rows(ECOBASE_COLLECTIONS.sourceCoverageMemberships);
+    const julyIndex = memberships.findIndex((row) => row.monthStart === '2026-07-01');
+    if (julyIndex >= 0) memberships.splice(julyIndex, 1);
 
     await refreshThroughPublicAction(db, 'estimated-membership');
 

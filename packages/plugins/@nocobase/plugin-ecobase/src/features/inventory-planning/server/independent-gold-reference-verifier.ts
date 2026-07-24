@@ -669,7 +669,10 @@ export class EcobaseIndependentGoldReferenceVerifier {
         });
       }
       if (month.eligible !== true) continue;
-      if (month.reasonCode !== 'eligible_complete_month') {
+      // Sparse-tolerant evidence: an eligible month is either fully covered (complete) or a
+      // coverage-gap month that still carries facts (partial). Both rank; only the completeness
+      // grade differs. Anything else on an eligible month is a contract violation.
+      if (month.reasonCode !== 'eligible_complete_month' && month.reasonCode !== 'eligible_partial_month') {
         mismatches.push({
           code: 'ELIGIBLE_REASON_MISMATCH',
           message: `Listing ${listingId} month ${monthStart} has an invalid eligible reason.`,
@@ -727,21 +730,29 @@ export class EcobaseIndependentGoldReferenceVerifier {
           message: `Listing ${listingId} month ${monthStart} score is not monthly NetProfit.`,
         });
       }
-      if (
-        this.coverageValid(
-          row,
-          monthStart,
-          monthEnd,
-          intervals,
-          membershipsByListingMonth.get(listingMonthKey(row.companyProductId, monthStart) ?? '') ?? [],
-          facts.length,
-        )
-      ) {
-        coverageVerifiedMonthCount += 1;
-      } else {
+      // Independently re-derive completeness and confirm the persisted grade agrees: a
+      // 'eligible_complete_month' MUST be gap-free reconciled coverage; a 'eligible_partial_month'
+      // must NOT be (else it should have been graded complete). Only fully-covered months count
+      // toward coverageVerifiedMonthCount.
+      const fullyCovered = this.coverageValid(
+        row,
+        monthStart,
+        monthEnd,
+        intervals,
+        membershipsByListingMonth.get(listingMonthKey(row.companyProductId, monthStart) ?? '') ?? [],
+        facts.length,
+      );
+      if (fullyCovered) coverageVerifiedMonthCount += 1;
+      if (month.reasonCode === 'eligible_complete_month' && !fullyCovered) {
         mismatches.push({
           code: 'COVERAGE_MEMBERSHIP_MISMATCH',
-          message: `Listing ${listingId} month ${monthStart} lacks gap-free reconciled coverage.`,
+          message: `Listing ${listingId} month ${monthStart} claims complete coverage without gap-free reconciled coverage.`,
+        });
+      }
+      if (month.reasonCode === 'eligible_partial_month' && fullyCovered) {
+        mismatches.push({
+          code: 'PARTIAL_MONTH_FULLY_COVERED',
+          message: `Listing ${listingId} month ${monthStart} is graded partial but has complete coverage.`,
         });
       }
       eligible.push({ month, units, profit });
@@ -752,7 +763,10 @@ export class EcobaseIndependentGoldReferenceVerifier {
     const averageUnits = count ? totalUnits.div(count) : null;
     const averageProfit = count ? totalProfit.div(count) : null;
     const weightedProfitPerUnit = count && !totalUnits.isZero() ? totalProfit.div(totalUnits) : null;
-    const confidence = count === 6 ? 'full' : count >= 3 ? 'moderate' : count >= 1 ? 'low' : 'none';
+    // Sparseness lowers confidence, never visibility: 'full' requires all six months fully
+    // covered; partial (coverage-gap) months still grant moderate/low and always rank.
+    const completeCount = eligible.filter((item) => item.month.reasonCode === 'eligible_complete_month').length;
+    const confidence = completeCount === 6 ? 'full' : count >= 3 ? 'moderate' : count >= 1 ? 'low' : 'none';
     const baselineState = count ? (totalUnits.isZero() ? 'no_movement' : 'ranked') : 'unclassified';
     const baselineTier = averageProfit && baselineState === 'ranked' ? monthTier(averageProfit) : null;
     const checks: Array<[string, unknown, Decimal | null]> = [

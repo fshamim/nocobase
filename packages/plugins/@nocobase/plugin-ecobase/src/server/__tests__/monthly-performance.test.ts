@@ -118,7 +118,7 @@ describe('individual monthly profit performance', () => {
     });
   });
 
-  it('keeps numeric zero and negative profit, but fails the whole baseline closed for invalid units or missing profit', () => {
+  it('keeps numeric zero and negative profit, and excludes a corrupt month while the valid month still ranks', () => {
     const numericZero = calculateMonthlyPerformance({
       asOfDate: '2026-07-18',
       months: [month('2026-01-01', [fact('2026-01-01', 2, 0), fact('2026-01-02', 1, -3)])],
@@ -130,6 +130,9 @@ describe('individual monthly profit performance', () => {
       baselineTierScore: '-3.00000000',
     });
 
+    // New philosophy (reversed): a corrupt month is excluded, but ANY remaining valid month
+    // still ranks the product — presence always produces a tier; corruption never nullifies
+    // the whole baseline.
     for (const [units, profit, reasonCode] of [
       [-1, 1, 'invalid_units'],
       [Number.POSITIVE_INFINITY, 1, 'invalid_units'],
@@ -144,13 +147,17 @@ describe('individual monthly profit performance', () => {
         ],
       });
       expect(result).toMatchObject({
-        baselineState: 'unclassified',
-        baselineTotalUnits: null,
-        baselineTotalProfit: null,
-        baselineWeightedProfitPerUnit: null,
-        baselineTierScore: null,
+        baselineState: 'ranked',
+        baselineEligibleMonthCount: 1,
+        baselineConfidence: 'low',
+        baselineTotalUnits: '1.00000000',
+        baselineTotalProfit: '10.00000000',
+        baselineWeightedProfitPerUnit: '10.00000000',
+        baselineTierScore: '10.00000000',
+        baselineReasonCodes: ['baseline_tier_classified'],
       });
       expect(result.monthlyPerformanceEvidence[1].reasonCode).toBe(reasonCode);
+      expect(result.monthlyPerformanceEvidence[1].eligible).toBe(false);
     }
   });
 
@@ -246,5 +253,81 @@ describe('individual monthly profit performance', () => {
         months: [month('2026-01-01', [fact('2026-02-01', 1, 1)])],
       }),
     ).toThrow('outside declared month 2026-01-01');
+  });
+
+  // Sparse-tolerant evidence (binding philosophy): a coverage-gap month that still carries
+  // ≥1 daily fact is real, lower-confidence evidence — it ranks and is graded partial, never
+  // nullified. Only true absence or a metric-quality failure keeps a month out of the baseline.
+  describe('partial-month eligibility (sparse-tolerant evidence)', () => {
+    it.each(['coverage_discontinuous', 'product_scope_unknown', 'coverage_interval_missing'] as const)(
+      'ranks a %s month that still carries facts as eligible_partial_month',
+      (coverageReason) => {
+        const result = calculateMonthlyPerformance({
+          asOfDate: '2026-07-18',
+          months: [month('2026-01-01', [fact('2026-01-05', 4, 40), fact('2026-01-06', 6, 60)], coverageReason)],
+        });
+        expect(result).toMatchObject({
+          baselineState: 'ranked',
+          baselineEligibleMonthCount: 1,
+          baselineConfidence: 'low',
+          baselineTotalUnits: '10.00000000',
+          baselineTotalProfit: '100.00000000',
+          baselineTierScore: '100.00000000',
+          baselineReasonCodes: ['baseline_tier_classified'],
+        });
+        expect(result.monthlyPerformanceEvidence[0]).toMatchObject({
+          eligible: true,
+          reasonCode: 'eligible_partial_month',
+          sourceFactCount: 2,
+          monthlyUnits: '10.00000000',
+        });
+      },
+    );
+
+    it('grades confidence down when a partial month sits among complete months (never full)', () => {
+      const months = monthsThrough(6);
+      months[1] = month('2026-02-01', [fact('2026-02-10', 1, 10)], 'coverage_discontinuous');
+      const result = calculateMonthlyPerformance({ asOfDate: '2026-07-18', months });
+      expect(result).toMatchObject({
+        baselineEligibleMonthCount: 6,
+        baselineConfidence: 'moderate',
+        baselineState: 'ranked',
+      });
+      expect(result.monthlyPerformanceEvidence[1].reasonCode).toBe('eligible_partial_month');
+      expect(result.monthlyPerformanceEvidence[0].reasonCode).toBe('eligible_complete_month');
+    });
+
+    it('keeps a metric-quality mismatch month non-eligible (corruption, not sparseness)', () => {
+      const result = calculateMonthlyPerformance({
+        asOfDate: '2026-07-18',
+        months: [
+          month('2026-01-01', [fact('2026-01-01', 1, 10)]),
+          month('2026-02-01', [fact('2026-02-01', 5, 50)], 'metric_normalization_mismatch'),
+        ],
+      });
+      expect(result).toMatchObject({
+        baselineEligibleMonthCount: 1,
+        baselineConfidence: 'low',
+        baselineState: 'ranked',
+      });
+      expect(result.monthlyPerformanceEvidence[1]).toMatchObject({
+        eligible: false,
+        reasonCode: 'metric_normalization_mismatch',
+        monthlyUnits: null,
+      });
+    });
+
+    it('treats a coverage-gap month with zero facts as true absence (not eligible)', () => {
+      const result = calculateMonthlyPerformance({
+        asOfDate: '2026-07-18',
+        months: [month('2026-01-01', [], 'coverage_discontinuous')],
+      });
+      expect(result).toMatchObject({
+        baselineEligibleMonthCount: 0,
+        baselineState: 'unclassified',
+        baselineReasonCodes: ['baseline_no_eligible_months'],
+      });
+      expect(result.monthlyPerformanceEvidence[0]).toMatchObject({ eligible: false, sourceFactCount: 0 });
+    });
   });
 });

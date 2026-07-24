@@ -236,14 +236,14 @@ function eligibilityDecision(input: ReplenishmentDecisionInput): Decision {
       reason: 'trusted_over_60_days_cover',
     };
   }
-  // T3 (approved D2): an estimated reorder-due row substitutes the F4 fallback velocity for
-  // the missing rolling evidence, so velocity insufficiency alone no longer blocks it. Every
-  // other readiness, baseline and tier gate below still applies unchanged.
+  // Reversed philosophy (binding): Data Readiness is for TRUE absence only — genuinely no usable
+  // sales history (baseline unclassified, or invalid identity/baseline evidence). A missing
+  // rolling-velocity signal is NOT absence: the F4 ladder (last closed month → baseline average)
+  // still yields a velocity, so a tiered product with a lagging/gappy feed stays healthy/eligible
+  // and is never dumped here. `insufficient_velocity_evidence` no longer routes to Data Readiness.
   if (
-    (input.inventoryDisposition === 'insufficient_velocity_evidence' && input.reorderDueKind !== 'estimated') ||
     !input.identityEvidenceValid ||
     !input.baselineEvidenceValid ||
-    input.baselineState === 'unclassified' ||
     (input.baselineState === 'ranked' && input.baselineTier === null)
   ) {
     return {
@@ -269,7 +269,10 @@ function eligibilityDecision(input: ReplenishmentDecisionInput): Decision {
       reason: 'baseline_tier_d',
     };
   }
-  if (input.baselineConfidence === 'none') {
+  // 'none' confidence means zero closed eligible months. That is true absence ONLY when there is
+  // also no current-month projection; a brand-new product WITH a projected tier flows on (to the
+  // last-closed/current review gates below), never to Data Readiness.
+  if (input.baselineConfidence === 'none' && input.currentProjectedState !== 'ranked') {
     return {
       precedence: 8,
       eligibility: 'blocked_insufficient_evidence',

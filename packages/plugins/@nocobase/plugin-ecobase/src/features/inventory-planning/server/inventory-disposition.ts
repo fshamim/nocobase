@@ -14,6 +14,13 @@ const DispositionDecimal = Decimal.clone({ precision: 40, rounding: Decimal.ROUN
 export const INVENTORY_FRESHNESS_MAX_AGE_DAYS = 1;
 
 export type RollingVelocityEvidenceStatus = 'trusted_zero' | 'trusted_positive' | 'insufficient_evidence';
+// Sparse-tolerant rolling velocity: confidence is graded by how many days in the trailing-30
+// window actually carried a fact (feed can miss days; the user will not backfill). ≥1 observed
+// day is enough for a velocity — sparseness lowers confidence, never visibility.
+export type RollingVelocityConfidence = 'high' | 'medium' | 'low' | 'none';
+export const ROLLING_VELOCITY_WINDOW_DAYS = 30;
+export const ROLLING_VELOCITY_HIGH_CONFIDENCE_DAYS = 21;
+export const ROLLING_VELOCITY_MEDIUM_CONFIDENCE_DAYS = 7;
 export type InventoryDisposition = 'none' | 'no_sell_through' | 'over_60_days_cover' | 'insufficient_velocity_evidence';
 export type InventoryFreshnessStatus = 'fresh' | 'stale' | 'missing' | 'invalid_future' | 'invalid';
 export type PipelineCondition = 'none' | 'active' | 'stalled';
@@ -24,7 +31,18 @@ export interface RollingUnitInput {
 }
 
 export interface InventoryDispositionInput {
+  /**
+   * Freshness/now reference used only to age the inventory snapshot. Callers pass the
+   * freshest data day they hold (never past calculation date) so a uniformly lagging feed
+   * does not turn a same-report inventory snapshot stale (D1).
+   */
   asOfDate: string;
+  /**
+   * Anchor for the trailing 30-day rolling velocity window — the latest COVERED sales day
+   * (source coverage end), which a lagging feed leaves behind calendar `asOfDate`. Defaults
+   * to `asOfDate` so single-date callers (and every existing test) keep prior behavior.
+   */
+  salesEvidenceAsOfDate?: string;
   coverageReason: MonthlyPerformanceCoverageReason;
   dailyUnits: RollingUnitInput[];
   sellableOnHandStock: unknown;
@@ -40,6 +58,9 @@ export interface InventoryDispositionResult {
   rollingVelocityWindowEndDate: string;
   rollingVelocityEvidenceStatus: RollingVelocityEvidenceStatus;
   rollingVelocityReasonCode: MonthlyPerformanceCoverageReason | RollingVelocityEvidenceStatus | 'invalid_units';
+  /** Days in the trailing-30 window that carried a fact (the velocity divisor). */
+  rollingVelocityCoveredDayCount: number;
+  rollingVelocityConfidence: RollingVelocityConfidence;
   rollingUnits30: string | null;
   salesVelocity: string | null;
   sellableOnHandStock: string | null;
@@ -70,8 +91,17 @@ export class InventoryDispositionError extends Error {
   }
 }
 
+// Coverage-gap reasons (feed missed days) — the rolling window still computes a velocity from
+// the observed facts, dividing by observed days. Metric-quality reasons stay non-computing.
+const PARTIAL_COVERAGE_REASONS = new Set<MonthlyPerformanceCoverageReason>([
+  'coverage_interval_missing',
+  'coverage_discontinuous',
+  'product_scope_unknown',
+]);
+
 const COVERAGE_REASONS = new Set<MonthlyPerformanceCoverageReason>([
   'eligible_complete_month',
+  'eligible_partial_month',
   'coverage_interval_missing',
   'coverage_discontinuous',
   'product_scope_unknown',
@@ -133,8 +163,12 @@ function daysBetween(later: Date, earlier: Date) {
 
 export function calculateInventoryDisposition(input: InventoryDispositionInput): InventoryDispositionResult {
   const asOf = utcDateOnly(input.asOfDate, 'asOfDate');
-  const rollingVelocityWindowEndDate = isoDate(asOf);
-  const rollingVelocityWindowStartDate = isoDate(new Date(asOf.getTime() - 29 * 86_400_000));
+  // D1: the rolling velocity window ends at the sales evidence as-of (latest covered sales
+  // day), not calendar `asOfDate`; a normally-lagging feed then shortens nothing. Inventory
+  // freshness below still ages against `asOfDate`.
+  const salesEvidenceAsOf = utcDateOnly(input.salesEvidenceAsOfDate ?? input.asOfDate, 'salesEvidenceAsOfDate');
+  const rollingVelocityWindowEndDate = isoDate(salesEvidenceAsOf);
+  const rollingVelocityWindowStartDate = isoDate(new Date(salesEvidenceAsOf.getTime() - 29 * 86_400_000));
   if (!COVERAGE_REASONS.has(input.coverageReason)) {
     throw new InventoryDispositionError(
       'ECOBASE_INVENTORY_DISPOSITION_COVERAGE_REASON_INVALID',
@@ -173,20 +207,43 @@ export function calculateInventoryDisposition(input: InventoryDispositionInput):
 
   const unitValues = sortedActivity.map((activity) => nonNegativeDecimal(activity.units));
   const unitsValid = unitValues.every((value) => value !== undefined);
+  const rollingVelocityCoveredDayCount = unitValues.length;
+  const rollingWindowComplete = input.coverageReason === 'eligible_complete_month';
+  const rollingWindowPartial = PARTIAL_COVERAGE_REASONS.has(input.coverageReason);
   let rollingVelocityEvidenceStatus: RollingVelocityEvidenceStatus = 'insufficient_evidence';
   let rollingVelocityReasonCode: InventoryDispositionResult['rollingVelocityReasonCode'] = input.coverageReason;
+  let rollingVelocityConfidence: RollingVelocityConfidence = 'none';
   let rollingUnits30: Decimal | null = null;
   let salesVelocity: Decimal | null = null;
-  if (input.coverageReason === 'eligible_complete_month' && unitsValid) {
+  if (!unitsValid) {
+    rollingVelocityReasonCode = 'invalid_units';
+  } else if (rollingWindowComplete) {
+    // Full coverage vouches for every one of the 30 window days: a missing daily fact is a real
+    // zero-sales day, so divide by the whole window (0 facts ⇒ trusted_zero) at high confidence.
     rollingUnits30 = unitValues.reduce<Decimal>(
       (total, value) => total.plus(value as Decimal),
       new DispositionDecimal(0),
     );
-    salesVelocity = rollingUnits30.div(30);
+    salesVelocity = rollingUnits30.div(ROLLING_VELOCITY_WINDOW_DAYS);
     rollingVelocityEvidenceStatus = rollingUnits30.isZero() ? 'trusted_zero' : 'trusted_positive';
     rollingVelocityReasonCode = rollingVelocityEvidenceStatus;
-  } else if (!unitsValid) {
-    rollingVelocityReasonCode = 'invalid_units';
+    rollingVelocityConfidence = 'high';
+  } else if (rollingWindowPartial && rollingVelocityCoveredDayCount >= 1) {
+    // Coverage gap: a missing daily fact is UNKNOWN, not zero — divide by the OBSERVED days only
+    // (never 30, which would understate a real seller) and grade confidence by observed days.
+    rollingUnits30 = unitValues.reduce<Decimal>(
+      (total, value) => total.plus(value as Decimal),
+      new DispositionDecimal(0),
+    );
+    salesVelocity = rollingUnits30.div(rollingVelocityCoveredDayCount);
+    rollingVelocityEvidenceStatus = rollingUnits30.isZero() ? 'trusted_zero' : 'trusted_positive';
+    rollingVelocityReasonCode = rollingVelocityEvidenceStatus;
+    rollingVelocityConfidence =
+      rollingVelocityCoveredDayCount >= ROLLING_VELOCITY_HIGH_CONFIDENCE_DAYS
+        ? 'high'
+        : rollingVelocityCoveredDayCount >= ROLLING_VELOCITY_MEDIUM_CONFIDENCE_DAYS
+          ? 'medium'
+          : 'low';
   }
 
   const sellableOnHandStock = nonNegativeDecimal(input.sellableOnHandStock);
@@ -232,6 +289,8 @@ export function calculateInventoryDisposition(input: InventoryDispositionInput):
     rollingVelocityWindowEndDate,
     rollingVelocityEvidenceStatus,
     rollingVelocityReasonCode,
+    rollingVelocityCoveredDayCount,
+    rollingVelocityConfidence,
     rollingUnits30: fixed8(rollingUnits30),
     salesVelocity: fixed8(salesVelocity),
     sellableOnHandStock: fixed8(sellableOnHandStock),

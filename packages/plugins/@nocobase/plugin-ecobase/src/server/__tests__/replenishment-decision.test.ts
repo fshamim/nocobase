@@ -68,13 +68,6 @@ describe('total replenishment and primary-pane decision', () => {
     ],
     [
       5,
-      { inventoryDisposition: 'insufficient_velocity_evidence' },
-      'blocked_insufficient_evidence',
-      'dataReadiness',
-      'missing_or_invalid_baseline_evidence',
-    ],
-    [
-      5,
       { identityEvidenceValid: false },
       'blocked_insufficient_evidence',
       'dataReadiness',
@@ -89,7 +82,14 @@ describe('total replenishment and primary-pane decision', () => {
     ],
     [
       5,
-      { baselineState: 'unclassified', baselineTier: null },
+      {
+        baselineState: 'unclassified',
+        baselineTier: null,
+        baselineEvidenceValid: false,
+        currentProjectedState: 'unclassified',
+        currentProjectedTier: null,
+        currentProjectionConfidence: 'unavailable',
+      },
       'blocked_insufficient_evidence',
       'dataReadiness',
       'missing_or_invalid_baseline_evidence',
@@ -104,7 +104,12 @@ describe('total replenishment and primary-pane decision', () => {
     [7, { baselineTier: 'D' }, 'blocked_baseline_tier_d', 'performanceReview', 'baseline_tier_d'],
     [
       8,
-      { baselineConfidence: 'none' },
+      {
+        baselineConfidence: 'none',
+        currentProjectedState: 'unclassified',
+        currentProjectedTier: null,
+        currentProjectionConfidence: 'unavailable',
+      },
       'blocked_insufficient_evidence',
       'dataReadiness',
       'missing_or_invalid_baseline_evidence',
@@ -310,7 +315,35 @@ describe('total replenishment and primary-pane decision', () => {
     }
   });
 
-  it('lets an estimated reorder-due row substitute ladder velocity for missing rolling evidence (D2)', () => {
+  it('never flags a brand-new product (current-month projection, no closed baseline) as missing baseline', () => {
+    // Only month-to-date data: no closed eligible month, but a projected tier from the current
+    // month. Reversed philosophy — this is trailing-30 evidence, so it must NOT land in Data
+    // Readiness / "missing baseline"; it flows to review (last closed period unknown) with a tier.
+    const result = decideReplenishment(
+      input({
+        baselineState: 'unclassified',
+        baselineTier: null,
+        baselineConfidence: 'none',
+        baselineEvidenceValid: true, // a current projection counts as evidence
+        lastClosedMonthState: 'unclassified',
+        lastClosedMonthTier: null,
+        closedTierMovement: 'not_comparable',
+        currentProjectionConfidence: 'early',
+        currentProjectedState: 'ranked',
+        currentProjectedTier: 'A',
+        projectedTierMovement: 'not_comparable',
+      }),
+    );
+    expect(result.primaryActionPane).not.toBe('dataReadiness');
+    expect(result.primaryActionReasonCode).not.toBe('missing_or_invalid_baseline_evidence');
+    expect(result).toMatchObject({
+      primaryActionPane: 'performanceReview',
+      primaryActionReasonCode: 'last_closed_period_unknown',
+    });
+  });
+
+  it('never routes a velocity gap with a valid baseline to Data Readiness (reversed philosophy, D2)', () => {
+    // A reorder-due estimate still lands in Supply Action with honest estimated provenance.
     expect(
       decideReplenishment(
         input({ inventoryDisposition: 'insufficient_velocity_evidence', reorderDueKind: 'estimated' }),
@@ -322,17 +355,31 @@ describe('total replenishment and primary-pane decision', () => {
       newReplenishmentActionable: true,
       supplyActionable: true,
     });
-    // Without the estimated due-kind the velocity-evidence gate still blocks.
+    // Not reorder-due (plenty of stock) + a valid baseline ⇒ HEALTHY, not Data Readiness. A missing
+    // rolling signal is not "missing evidence" — the baseline/ladder still supply the numbers.
     expect(
       decideReplenishment(input({ inventoryDisposition: 'insufficient_velocity_evidence', reorderDueKind: 'none' })),
     ).toMatchObject({
+      replenishmentEligibility: 'eligible',
+      primaryActionPane: 'healthyInventory',
+      primaryActionReasonCode: 'sufficient_stock',
+    });
+    // Data Readiness now fires ONLY on true absence — an unclassified baseline (no eligible history).
+    expect(
+      decideReplenishment(
+        input({
+          inventoryDisposition: 'insufficient_velocity_evidence',
+          reorderDueKind: 'none',
+          baselineState: 'unclassified',
+          baselineTier: null,
+          baselineEvidenceValid: false,
+        }),
+      ),
+    ).toMatchObject({
       replenishmentEligibility: 'blocked_insufficient_evidence',
       primaryActionPane: 'dataReadiness',
+      primaryActionReasonCode: 'missing_or_invalid_baseline_evidence',
     });
-    // The gate never softens for a (contradictory) trusted kind either.
-    expect(
-      decideReplenishment(input({ inventoryDisposition: 'insufficient_velocity_evidence', reorderDueKind: 'trusted' })),
-    ).toMatchObject({ replenishmentEligibility: 'blocked_insufficient_evidence' });
   });
 
   it('keeps every outranking branch above estimated reorder-due membership', () => {

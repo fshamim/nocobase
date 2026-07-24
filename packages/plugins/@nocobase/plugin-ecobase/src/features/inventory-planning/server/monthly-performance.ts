@@ -18,6 +18,12 @@ export const MONTHLY_PERFORMANCE_EVIDENCE_DIGEST_VERSION = 'monthly_performance_
 
 export type MonthlyPerformanceCoverageReason =
   | 'eligible_complete_month'
+  // Sparse-tolerant evidence (binding philosophy): a month whose coverage machinery does not
+  // fully vouch (discontinuous / partial member scope / no interval) but which still carries
+  // at least one valid daily fact is real, lower-confidence evidence — it ranks like any
+  // eligible month, it is NOT nullified. Only true absence (no facts) or a metric-quality
+  // failure (below) keeps a month out of the baseline.
+  | 'eligible_partial_month'
   | 'coverage_interval_missing'
   | 'coverage_discontinuous'
   | 'product_scope_unknown'
@@ -26,6 +32,19 @@ export type MonthlyPerformanceCoverageReason =
   | 'metric_normalization_mismatch'
   | 'invalid_units'
   | 'missing_net_profit';
+
+/**
+ * Coverage outcomes that describe missing/partial COVERAGE (not a metric-quality failure).
+ * When any of these carries ≥1 valid daily fact, the month is downgraded to
+ * `eligible_partial_month` rather than nullified. Metric-quality failures
+ * (`metric_normalization_mismatch`, `units_metric_incomplete`, `net_profit_metric_incomplete`,
+ * `invalid_units`, `missing_net_profit`) stay non-eligible — they are corruption, not sparseness.
+ */
+const PARTIAL_ELIGIBLE_COVERAGE_REASONS = new Set<MonthlyPerformanceCoverageReason>([
+  'coverage_interval_missing',
+  'coverage_discontinuous',
+  'product_scope_unknown',
+]);
 
 export type BaselineConfidence = 'full' | 'moderate' | 'low' | 'none';
 export type PerformanceState = 'ranked' | 'no_movement' | 'unclassified';
@@ -149,6 +168,7 @@ type CalculatedMonth = {
 
 const COVERAGE_REASONS = new Set<MonthlyPerformanceCoverageReason>([
   'eligible_complete_month',
+  'eligible_partial_month',
   'coverage_interval_missing',
   'coverage_discontinuous',
   'product_scope_unknown',
@@ -212,10 +232,13 @@ function exact(value: Decimal | null) {
   return value === null ? null : value.toSignificantDigits(40, Decimal.ROUND_HALF_EVEN).toFixed();
 }
 
-function confidence(monthsUsed: number): BaselineConfidence {
-  if (monthsUsed === 6) return 'full';
-  if (monthsUsed >= 3) return 'moderate';
-  if (monthsUsed >= 1) return 'low';
+function confidence(eligibleMonths: number, completeMonths: number): BaselineConfidence {
+  // Sparseness lowers confidence, never visibility: 'full' requires all six months fully
+  // covered; partial (coverage-gap) months still grant moderate/low so the tier stays visible
+  // and the product is never dumped to Data Readiness for lacking dense history.
+  if (completeMonths === 6) return 'full';
+  if (eligibleMonths >= 3) return 'moderate';
+  if (eligibleMonths >= 1) return 'low';
   return 'none';
 }
 
@@ -250,7 +273,12 @@ function calculateMonth(monthStartValue: string, input?: MonthlyPerformanceMonth
     );
   }
   const facts = [...(input?.facts ?? [])].sort((left, right) => left.date.localeCompare(right.date));
-  if (coverageReason !== 'eligible_complete_month') {
+  // Complete months always produce aggregates (0 facts ⇒ genuine zero movement). Coverage-gap
+  // months (discontinuous / partial scope / no interval) produce aggregates from the facts they
+  // DO carry — sparse but real evidence — and are graded down to `eligible_partial_month`.
+  const complete = coverageReason === 'eligible_complete_month';
+  const partial = PARTIAL_ELIGIBLE_COVERAGE_REASONS.has(coverageReason) && facts.length > 0;
+  if (!complete && !partial) {
     return {
       evidence: {
         monthStart: monthStartValue,
@@ -309,7 +337,7 @@ function calculateMonth(monthStartValue: string, input?: MonthlyPerformanceMonth
       monthStart: monthStartValue,
       monthEnd: monthEndValue,
       eligible: true,
-      reasonCode: 'eligible_complete_month',
+      reasonCode: complete ? 'eligible_complete_month' : 'eligible_partial_month',
       sourceFactCount: facts.length,
       monthlyUnits: fixed8(monthlyUnits),
       monthlyProfit: fixed8(monthlyProfit),
@@ -365,15 +393,18 @@ function extrema(months: CalculatedMonth[], dimension: 'units' | 'profit', direc
 }
 
 function baselineReason(params: {
-  fatalReasons: Set<MonthlyPerformanceCoverageReason>;
+  invalidReasons: Set<MonthlyPerformanceCoverageReason>;
   eligibleMonthCount: number;
   totalUnits: Decimal | null;
 }): BaselineReasonCode[] {
-  const reasons: BaselineReasonCode[] = [];
-  if (params.fatalReasons.has('invalid_units')) reasons.push('baseline_invalid_units');
-  if (params.fatalReasons.has('missing_net_profit')) reasons.push('baseline_missing_profit');
-  if (reasons.length) return reasons;
-  if (params.eligibleMonthCount === 0) return ['baseline_no_eligible_months'];
+  // Any eligible month (complete OR partial) ranks the baseline — presence always produces a
+  // tier. Corruption/absence codes only surface when there is NOTHING eligible to rank.
+  if (params.eligibleMonthCount === 0) {
+    const reasons: BaselineReasonCode[] = [];
+    if (params.invalidReasons.has('invalid_units')) reasons.push('baseline_invalid_units');
+    if (params.invalidReasons.has('missing_net_profit')) reasons.push('baseline_missing_profit');
+    return reasons.length ? reasons : ['baseline_no_eligible_months'];
+  }
   if (params.totalUnits?.isZero()) return ['baseline_no_movement'];
   return ['baseline_tier_classified'];
 }
@@ -409,13 +440,17 @@ export function calculateMonthlyPerformance(input: MonthlyPerformanceInput): Mon
 
   const calculatedMonths = baselineMonthStarts.map((start) => calculateMonth(start, inputByMonth.get(start)));
   const validMonths = calculatedMonths.filter((month) => month.evidence.eligible);
-  const fatalReasons = new Set<MonthlyPerformanceCoverageReason>(
+  // A corrupt month (invalid units / missing profit) is simply excluded — it no longer nullifies
+  // the whole baseline. Any remaining eligible month still ranks the product (presence → tier).
+  const invalidReasons = new Set<MonthlyPerformanceCoverageReason>(
     calculatedMonths
       .map((month) => month.evidence.reasonCode)
       .filter((reason) => reason === 'invalid_units' || reason === 'missing_net_profit'),
   );
-  const baselineInvalid = fatalReasons.size > 0;
   const baselineEligibleMonthCount = validMonths.length;
+  const baselineCompleteMonthCount = calculatedMonths.filter(
+    (month) => month.evidence.reasonCode === 'eligible_complete_month',
+  ).length;
 
   let baselineTotalUnits: Decimal | null = null;
   let baselineTotalProfit: Decimal | null = null;
@@ -424,7 +459,7 @@ export function calculateMonthlyPerformance(input: MonthlyPerformanceInput): Mon
   let averageMonthlyProfit: Decimal | null = null;
   let baselineTierScore: Decimal | null = null;
   let baselineState: PerformanceState = 'unclassified';
-  if (!baselineInvalid && baselineEligibleMonthCount > 0) {
+  if (baselineEligibleMonthCount > 0) {
     baselineTotalUnits = validMonths.reduce(
       (total, month) => total.plus(month.units as Decimal),
       new PerformanceDecimal(0),
@@ -452,7 +487,7 @@ export function calculateMonthlyPerformance(input: MonthlyPerformanceInput): Mon
     }
   }
 
-  const extremaMonths = baselineInvalid ? [] : validMonths;
+  const extremaMonths = validMonths;
   const bestUnits = extrema(extremaMonths, 'units', 'best');
   const worstUnits = extrema(extremaMonths, 'units', 'worst');
   const bestProfit = extrema(extremaMonths, 'profit', 'best');
@@ -484,7 +519,7 @@ export function calculateMonthlyPerformance(input: MonthlyPerformanceInput): Mon
     currentMonthStartDate,
     currentMonthEndDate,
     baselineEligibleMonthCount,
-    baselineConfidence: confidence(baselineEligibleMonthCount),
+    baselineConfidence: confidence(baselineEligibleMonthCount, baselineCompleteMonthCount),
     monthlyPerformanceEvidence: calculatedMonths.map((month) => month.evidence),
     baselineTotalUnits: fixed8(baselineTotalUnits),
     baselineTotalProfit: fixed8(baselineTotalProfit),
@@ -494,7 +529,7 @@ export function calculateMonthlyPerformance(input: MonthlyPerformanceInput): Mon
     baselineTierScore: fixed8(baselineTierScore),
     baselineState,
     baselineReasonCodes: baselineReason({
-      fatalReasons,
+      invalidReasons,
       eligibleMonthCount: baselineEligibleMonthCount,
       totalUnits: baselineTotalUnits,
     }),
@@ -735,14 +770,15 @@ export function calculateMonthlyTierTrend(input: MonthlyTierTrendInput): Monthly
   let currentProjectedState: PerformanceState = 'unclassified';
   let currentProjectedTier: ProfitTier | null = null;
 
-  if (currentCoverageReason === 'eligible_complete_month') {
-    const coveredThroughDate = input.currentMonth.coveredThroughDate;
-    if (!coveredThroughDate) {
-      throw new MonthlyPerformanceError(
-        'ECOBASE_MONTHLY_PERFORMANCE_INVALID_DATE',
-        'EcoBase eligible current coverage requires coveredThroughDate inside the current month and not later than asOfDate.',
-      );
-    }
+  // Sparse-tolerant current-month projection: a complete current month always projects; a
+  // coverage-gap current month projects too when it carries ≥1 fact, so brand-new products with
+  // only month-to-date data still surface a projected tier (display coalesces current ?? baseline).
+  // True absence (no coveredThroughDate / no facts) stays projection-unavailable.
+  const currentComplete = input.currentMonth.coverageReason === 'eligible_complete_month';
+  const currentPartial =
+    PARTIAL_ELIGIBLE_COVERAGE_REASONS.has(input.currentMonth.coverageReason) && input.currentMonth.facts.length > 0;
+  const coveredThroughDate = input.currentMonth.coveredThroughDate;
+  if ((currentComplete || currentPartial) && coveredThroughDate) {
     const coveredThrough = utcDateOnly(coveredThroughDate, 'coveredThroughDate');
     if (
       coveredThroughDate < performance.currentMonthStartDate ||
@@ -768,7 +804,7 @@ export function calculateMonthlyTierTrend(input: MonthlyTierTrendInput): Monthly
     currentCoveredDays = coveredThrough.getUTCDate();
     currentMonth = calculateMonth(performance.currentMonthStartDate, {
       monthStart: performance.currentMonthStartDate,
-      coverageReason: 'eligible_complete_month',
+      coverageReason: input.currentMonth.coverageReason,
       facts: input.currentMonth.facts,
     });
     currentCoverageReason = currentMonth.evidence.reasonCode;

@@ -18,7 +18,11 @@
 
 import { createHash } from 'node:crypto';
 import Decimal from 'decimal.js';
-import { calculateInventoryDisposition, type PipelineCondition } from './inventory-disposition';
+import {
+  calculateInventoryDisposition,
+  type PipelineCondition,
+  type RollingVelocityConfidence,
+} from './inventory-disposition';
 import {
   buildCorrectedGoldProjection,
   CORRECTED_ALGORITHM_CONTRACT_VERSION,
@@ -422,7 +426,34 @@ function currentCoverage(
       coveredThroughDate: null,
     };
   }
-  return coverageForRange(listing, start, coveredThroughDate, intervals, membershipsByListingMonth);
+  const coverage = coverageForRange(listing, start, coveredThroughDate, intervals, membershipsByListingMonth);
+  // Sparse-tolerant month-to-date: expose the current month's data as-of even when coverage is
+  // only partial (coverageForRange leaves it null off the complete path), so a brand-new or
+  // gap-covered current month can still project a tier from the facts it does carry.
+  return { ...coverage, coveredThroughDate: coverage.coveredThroughDate ?? coveredThroughDate };
+}
+
+/**
+ * D1 — the latest COVERED sales day for a listing's coverage scope, never past the
+ * calculation date. This is the data's real as-of: a normally-lagging sellerboard feed
+ * leaves it a couple of days behind `calculationDate`. Returns null when the scope has no
+ * active coverage at all (a truly-absent feed, not lag). The rolling velocity window and the
+ * inventory freshness reference anchor here so a lagging feed shortens nothing; date math
+ * (OOS/order-by projections) keeps using `calculationDate`.
+ */
+function salesCoverageEndDate(
+  listing: CorrectedOperationalListingSnapshot,
+  calculationDate: string,
+  intervals: readonly CorrectedCandidateCoverageInterval[],
+): string | null {
+  return (
+    intervals
+      .filter((interval) => sameScope(interval, listing.identity))
+      .map((interval) => interval.coveredEndDate)
+      .filter((date) => date <= calculationDate)
+      .sort()
+      .at(-1) ?? null
+  );
 }
 
 function factsForRange(facts: readonly CorrectedCandidateSourceFact[], start: string, end: string) {
@@ -492,6 +523,21 @@ export function independentRecommendedOrderQty(
 
 const MONEY_RISK_BASIS = 'uncovered_days_x_velocity_x_profit_per_unit';
 
+// D3 — quiet source-freshness surfacing. The sales feed is month-to-date and may lag a few days
+// (D2 decision: alert only when older than 3 days). 'current' ≤ 3 days behind, 'delayed' beyond,
+// 'no_coverage' when the current month has no covered sales day yet. Per-company (all of a
+// company's rows share one coverage scope, so they carry the same status).
+const SOURCE_FRESHNESS_MAX_AGE_DAYS = 3;
+
+function deriveSourceFreshnessStatus(sourceAsOfDate: string | null, calculationDate: string): string {
+  if (!sourceAsOfDate) return 'no_coverage';
+  const ageDays = Math.round(
+    (utcDate(calculationDate, 'calculationDate').getTime() - utcDate(sourceAsOfDate, 'sourceAsOfDate').getTime()) /
+      DAY_MS,
+  );
+  return ageDays <= SOURCE_FRESHNESS_MAX_AGE_DAYS ? 'current' : 'delayed';
+}
+
 function roundTo8(value: number) {
   return new CandidateDecimal(value).toDecimalPlaces(8, Decimal.ROUND_HALF_EVEN).toNumber();
 }
@@ -505,9 +551,11 @@ export type EffectiveVelocityBasis = 'rolling_30' | 'last_closed_month' | 'basel
 
 export interface EffectiveVelocityInput {
   readonly calculationDate: string;
-  /** Disposition's rolling velocity (fixed8; non-null ⇔ trusted 30/30 evidence, may be 0). */
+  /** Disposition's rolling velocity (fixed8; non-null ⇔ ≥1 observed day, may be 0). */
   readonly rollingSalesVelocity: string | null;
   readonly rollingVelocityWindowEndDate: string;
+  /** Confidence of the rolling velocity, graded by observed days (see inventory-disposition). */
+  readonly rollingVelocityConfidence: RollingVelocityConfidence;
   readonly monthlyPerformanceEvidence: readonly MonthlyPerformanceEvidence[];
   readonly averageMonthlyUnits: string | null;
   readonly sourceAsOfDate: string | null;
@@ -518,6 +566,12 @@ export interface EffectiveVelocity {
   salesVelocity: string | null;
   salesVelocityBasis: EffectiveVelocityBasis;
   salesVelocityAsOfDate: string | null;
+  /**
+   * Confidence of the chosen basis: the rolling grade for rolling_30, else a fixed rung grade
+   * (last_closed_month → medium, baseline_average → low). Only a high-confidence rolling basis
+   * is "trusted"; every other outcome is an estimate.
+   */
+  salesVelocityConfidence: RollingVelocityConfidence;
   /** Numeric mirror of `salesVelocity` for downstream math. */
   velocity: number | null;
 }
@@ -538,6 +592,7 @@ export function resolveEffectiveVelocity(input: EffectiveVelocityInput): Effecti
       salesVelocity: input.rollingSalesVelocity,
       salesVelocityBasis: 'rolling_30',
       salesVelocityAsOfDate: input.rollingVelocityWindowEndDate,
+      salesVelocityConfidence: input.rollingVelocityConfidence,
       velocity: trusted,
     };
   }
@@ -556,6 +611,7 @@ export function resolveEffectiveVelocity(input: EffectiveVelocityInput): Effecti
       salesVelocity: velocity.toFixed(8),
       salesVelocityBasis: 'last_closed_month',
       salesVelocityAsOfDate: month.monthEnd,
+      salesVelocityConfidence: 'medium',
       velocity: velocity.toNumber(),
     };
   }
@@ -568,10 +624,17 @@ export function resolveEffectiveVelocity(input: EffectiveVelocityInput): Effecti
       salesVelocity: velocity.toFixed(8),
       salesVelocityBasis: 'baseline_average',
       salesVelocityAsOfDate: input.sourceAsOfDate ?? input.calculationDate,
+      salesVelocityConfidence: 'low',
       velocity: velocity.toNumber(),
     };
   }
-  return { salesVelocity: null, salesVelocityBasis: 'none', salesVelocityAsOfDate: null, velocity: null };
+  return {
+    salesVelocity: null,
+    salesVelocityBasis: 'none',
+    salesVelocityAsOfDate: null,
+    salesVelocityConfidence: 'none',
+    velocity: null,
+  };
 }
 
 export type ReorderDueKind = 'trusted' | 'estimated';
@@ -580,8 +643,10 @@ export interface ReorderTimingInput {
   readonly calculationDate: string;
   /** EFFECTIVE daily sell-through (units/day) from the F4 ladder (may be 0 under trusted_zero). */
   readonly salesVelocity: number | null;
-  /** Ladder rung that produced the velocity — 'rolling_30' is the only trusted basis. */
+  /** Ladder rung that produced the velocity — only a high-confidence rolling_30 is trusted. */
   readonly salesVelocityBasis: EffectiveVelocityBasis;
+  /** Confidence of the effective velocity — a reorder is 'trusted' only at high-confidence rolling_30. */
+  readonly salesVelocityConfidence: RollingVelocityConfidence;
   /** Sellable-only cover days (trusted disposition value, or the caller's freshness-gated fallback estimate). */
   readonly daysOfCover: number | null;
   /** sellable + amazon pipeline + supplier pipeline. */
@@ -641,7 +706,10 @@ export function deriveReorderTiming(input: ReorderTimingInput): ReorderTiming {
     daysUntilOos !== null ? addDays(input.calculationDate, daysUntilOos - reorderHorizonDays) : null;
   const daysUntilSafeReorder = positionCoverDays !== null ? roundTo8(positionCoverDays - reorderHorizonDays) : null;
   const due = daysUntilSafeReorder !== null && daysUntilSafeReorder <= 0;
-  const reorderDueKind = due ? (input.salesVelocityBasis === 'rolling_30' ? 'trusted' : 'estimated') : null;
+  // Trusted only under a HIGH-confidence rolling window (dense recent coverage). A sparse rolling
+  // window, a closed-month fallback, or a baseline average are all estimates — honest provenance.
+  const trustedBasis = input.salesVelocityBasis === 'rolling_30' && input.salesVelocityConfidence === 'high';
+  const reorderDueKind = due ? (trustedBasis ? 'trusted' : 'estimated') : null;
 
   return {
     estimatedOosDate,
@@ -796,20 +864,33 @@ function listingInput(
     currentProjectionGateMode: 'informational',
     paceTolerancePercent: input.settings.paceTolerancePercent,
   });
-  const rollingStart = addDays(input.calculationDate, -29);
+  // D1: anchor the trailing 30-day rolling window to the latest covered sales day (data
+  // as-of), not calendar today, so a lagging feed keeps a fully-covered window trusted.
+  const salesCoverageEnd = salesCoverageEndDate(listing, input.calculationDate, input.coverageIntervals);
+  const salesEvidenceAsOf = salesCoverageEnd ?? input.calculationDate;
+  const rollingStart = addDays(salesEvidenceAsOf, -29);
   const rollingCoverage = coverageForRange(
     listing,
     rollingStart,
-    input.calculationDate,
+    salesEvidenceAsOf,
     input.coverageIntervals,
     membershipsByListingMonth,
   );
+  // Freshness reference: the freshest data day we hold. A snapshot at (or, when the inventory
+  // feed leads sales, after) the sales as-of stays fresh; a snapshot that genuinely trails the
+  // sales feed still ages, and a snapshot dated beyond today still reads invalid_future.
+  const inventorySnapshotDate = listing.inventory.inventoryAsOfDate;
+  const freshnessAsOf =
+    inventorySnapshotDate && inventorySnapshotDate > salesEvidenceAsOf && inventorySnapshotDate <= input.calculationDate
+      ? inventorySnapshotDate
+      : salesEvidenceAsOf;
   const disposition = calculateInventoryDisposition({
-    asOfDate: input.calculationDate,
+    asOfDate: freshnessAsOf,
+    salesEvidenceAsOfDate: salesEvidenceAsOf,
     coverageReason: rollingCoverage.reasonCode,
-    dailyUnits: dailyUnits(facts, rollingStart, input.calculationDate),
+    dailyUnits: dailyUnits(facts, rollingStart, salesEvidenceAsOf),
     sellableOnHandStock: listing.inventory.onHandSellableStock,
-    inventorySnapshotDate: listing.inventory.inventoryAsOfDate,
+    inventorySnapshotDate,
     reservedStock: listing.inventory.reservedStock,
     pipelineStock: listing.inventory.pipelineStock,
     orderPipelineStatus: pipelineCondition(listing.order),
@@ -821,6 +902,7 @@ function listingInput(
     calculationDate: input.calculationDate,
     rollingSalesVelocity: disposition.salesVelocity,
     rollingVelocityWindowEndDate: disposition.rollingVelocityWindowEndDate,
+    rollingVelocityConfidence: disposition.rollingVelocityConfidence,
     monthlyPerformanceEvidence: performance.monthlyPerformanceEvidence,
     averageMonthlyUnits: performance.averageMonthlyUnits,
     sourceAsOfDate: current.coveredThroughDate,
@@ -844,6 +926,7 @@ function listingInput(
     calculationDate: input.calculationDate,
     salesVelocity: effectiveVelocity.velocity,
     salesVelocityBasis: effectiveVelocity.salesVelocityBasis,
+    salesVelocityConfidence: effectiveVelocity.salesVelocityConfidence,
     daysOfCover: effectiveDaysOfCover,
     futurePositionStock: listing.inventory.futurePositionStock,
     leadTimeDays: listing.planning.leadTimeDays,
@@ -861,7 +944,11 @@ function listingInput(
     hasFrozenTarget: isFrozenTarget,
     targetSelectionState: isFrozenTarget ? 'automatic' : 'review',
     identityEvidenceValid: true,
-    baselineEvidenceValid: performance.baselineState !== 'unclassified',
+    // Reversed philosophy: a current-month projection is real trailing-30 evidence. A brand-new
+    // product with only month-to-date data (no closed baseline) is NOT "missing baseline" — it has
+    // a projected tier, so it must never be dumped into Data Readiness for lacking closed history.
+    baselineEvidenceValid:
+      performance.baselineState !== 'unclassified' || performance.currentProjectedState === 'ranked',
     inventoryDisposition: disposition.inventoryDisposition,
     baselineState: performance.baselineState,
     baselineTier: performance.baselineTier,
@@ -886,7 +973,7 @@ function listingInput(
       ...coverage,
     })),
     current,
-    rolling: { start: rollingStart, end: input.calculationDate, ...rollingCoverage },
+    rolling: { start: rollingStart, end: salesEvidenceAsOf, ...rollingCoverage },
   });
   const monthlyPerformanceEvidence = performance.monthlyPerformanceEvidence.map((month, index) => ({
     ...month,
@@ -933,6 +1020,7 @@ function listingInput(
     ...moneyRisk,
     monthlyPerformanceEvidence,
     sourceAsOfDate: current.coveredThroughDate,
+    sourceFreshnessStatus: deriveSourceFreshnessStatus(current.coveredThroughDate, input.calculationDate),
     productCoverageDigest,
     isFrozenFamilyTarget: isFrozenTarget,
     familyTargetCompanyProductId: family.targetCompanyProductId,
@@ -970,7 +1058,7 @@ function listingInput(
           ...coverage,
         })),
         current,
-        rolling: { start: rollingStart, end: input.calculationDate, ...rollingCoverage },
+        rolling: { start: rollingStart, end: salesEvidenceAsOf, ...rollingCoverage },
       },
       pace: performance.paceEvidence,
       disposition,

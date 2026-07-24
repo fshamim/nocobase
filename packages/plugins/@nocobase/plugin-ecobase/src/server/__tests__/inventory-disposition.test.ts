@@ -174,6 +174,71 @@ describe('trusted listing sell-through and inventory disposition', () => {
     });
   });
 
+  describe('sparse-tolerant rolling velocity (coverage gaps)', () => {
+    it('divides a coverage-gap window by OBSERVED days (graded low), never by 30', () => {
+      const result = calculateInventoryDisposition(
+        input({
+          coverageReason: 'coverage_discontinuous',
+          dailyUnits: [unit('2026-07-16', 6), unit('2026-07-17', 9), unit('2026-07-18', 15)],
+          sellableOnHandStock: 100,
+        }),
+      );
+      expect(result).toMatchObject({
+        rollingVelocityCoveredDayCount: 3,
+        rollingVelocityConfidence: 'low',
+        rollingVelocityEvidenceStatus: 'trusted_positive',
+        rollingUnits30: '30.00000000',
+        salesVelocity: '10.00000000',
+        daysOfCover: '10.00000000',
+        inventoryDisposition: 'none',
+      });
+    });
+
+    it('grades a coverage-gap window medium once seven days are observed', () => {
+      const dailyUnits = [
+        '2026-07-12',
+        '2026-07-13',
+        '2026-07-14',
+        '2026-07-15',
+        '2026-07-16',
+        '2026-07-17',
+        '2026-07-18',
+      ].map((date) => unit(date, 1));
+      const result = calculateInventoryDisposition(input({ coverageReason: 'product_scope_unknown', dailyUnits }));
+      expect(result).toMatchObject({
+        rollingVelocityCoveredDayCount: 7,
+        rollingVelocityConfidence: 'medium',
+        salesVelocity: '1.00000000',
+      });
+    });
+
+    it('keeps full coverage at ÷30 high confidence even when facts are sparse (missing day = zero sales)', () => {
+      const result = calculateInventoryDisposition(
+        input({
+          coverageReason: 'eligible_complete_month',
+          dailyUnits: [unit('2026-07-18', 30)],
+          sellableOnHandStock: 100,
+        }),
+      );
+      expect(result).toMatchObject({
+        rollingVelocityCoveredDayCount: 1,
+        rollingVelocityConfidence: 'high',
+        rollingUnits30: '30.00000000',
+        salesVelocity: '1.00000000',
+      });
+    });
+
+    it('stays insufficient for a coverage gap with no observed days at all', () => {
+      const result = calculateInventoryDisposition(input({ coverageReason: 'coverage_discontinuous', dailyUnits: [] }));
+      expect(result).toMatchObject({
+        rollingVelocityCoveredDayCount: 0,
+        rollingVelocityConfidence: 'none',
+        rollingVelocityEvidenceStatus: 'insufficient_evidence',
+        inventoryDisposition: 'insufficient_velocity_evidence',
+      });
+    });
+  });
+
   it('rejects invalid dates, duplicate dates, and out-of-window facts', () => {
     expect(() => calculateInventoryDisposition(input({ asOfDate: '2026-02-30' }))).toThrow('valid UTC date-only');
     expect(() =>
