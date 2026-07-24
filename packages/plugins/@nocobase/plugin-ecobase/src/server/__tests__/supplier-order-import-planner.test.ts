@@ -209,6 +209,61 @@ describe('supplier/order import planner', () => {
     expect(plan.hasBlockingIssues).toBe(false);
   });
 
+  it('maps the previously-ignored PO header and order-detail line columns (T2)', () => {
+    const plan = buildSupplierOrderImportPlan({
+      asOfDate: '2026-07-16',
+      overrides,
+      files: [
+        source('supplier_ids', [{ 'SR ID': 'SRO-300', 'Supplier Name': 'Good Supply' }]),
+        source('purchase_orders', [
+          {
+            Timestamp: '16/07/2026',
+            'Order ID': 'EF71626A',
+            'SR ID ': 'SRO-300',
+            Company: 'Ecofission LLC',
+            'PO approval': 'Approved',
+            'Order status': 'In Progress',
+            'Payment Mode': 'ACH',
+            'Date of Payment': '17/07/2026',
+            'Placed By': 'Farhan Shamim',
+          },
+        ]),
+        source('order_details', [
+          {
+            'Order ID': 'EF71626A',
+            Company: 'Ecofission LLC',
+            'SR ID': 'SRO-300',
+            ASIN: 'B012345678',
+            SKU: 'SKU-1',
+            Qty: '72',
+            PPU: '$8.43',
+            'S.Price': '$19.95',
+            'Exp. Margin': '12.2%',
+            'T.Profit': '$120.50',
+            'AM Status': 'Cleared',
+            Shipment: 'Yes',
+            'Priority ': 'High',
+          },
+        ]),
+      ],
+    });
+
+    expect(plan.orders[0]).toMatchObject({
+      paymentMode: 'ACH',
+      paymentDate: '2026-07-17',
+      placedBy: 'Farhan Shamim',
+    });
+    expect(plan.orderLines[0]).toMatchObject({
+      expectedSellPrice: 19.95,
+      expectedMargin: 12.2,
+      expectedProfit: 120.5,
+      amazonCheckStatus: 'Cleared',
+      shipmentFlag: 'Yes',
+      priority: 'High',
+    });
+    expect(plan.hasBlockingIssues).toBe(false);
+  });
+
   it('uses runtime-independent code-point ordering for source evidence hashes', () => {
     expect(buildPlan().orderLines[0].sourceEvidence.hash).toBe(
       '0c3b291d8d3a1997388d30b1941c34e8d6f3913efbd766417c67fa275ddc7b38',

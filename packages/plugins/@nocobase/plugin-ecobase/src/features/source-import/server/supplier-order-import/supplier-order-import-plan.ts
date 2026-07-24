@@ -175,6 +175,9 @@ interface ParsedPurchaseOrder {
   sourceOrderStatus?: string;
   orderApproval?: string;
   paymentStatus?: string;
+  paymentMode?: string;
+  paymentDate?: string;
+  placedBy?: string;
   invoiceStatus?: string;
   prepStatus?: string;
   expectedCost?: number;
@@ -737,6 +740,7 @@ export function buildSupplierOrderImportPlan(params: {
       reader.string('Exp. Delivery Date'),
       poSource.file.dateFormat ?? 'day-first',
     );
+    const paymentDate = parseDate(reader.string('Date of Payment'), poSource.file.dateFormat ?? 'day-first');
     const expectedCost = parseNumber(reader.string('Exp. Cost'));
     const actualCost = parseNumber(reader.string('Act. Cost'));
     if (!orderDate.valid) {
@@ -762,6 +766,17 @@ export function buildSupplierOrderImportPlan(params: {
         'Exp. Delivery Date',
       );
     }
+    if (!paymentDate.valid) {
+      issue(
+        issues,
+        'purchase_orders',
+        sourceRow,
+        'purchase_order_optional_payment_date_invalid',
+        'review',
+        externalOrderId,
+        'Date of Payment',
+      );
+    }
     if (!expectedCost.valid || !actualCost.valid) {
       issue(issues, 'purchase_orders', sourceRow, 'purchase_order_optional_money_invalid', 'review', externalOrderId);
     }
@@ -778,6 +793,9 @@ export function buildSupplierOrderImportPlan(params: {
       sourceOrderStatus: reader.string('Order status'),
       orderApproval: reader.string('PO approval'),
       paymentStatus: reader.string('Payment Status'),
+      paymentMode: reader.string('Payment Mode'),
+      paymentDate: paymentDate.value,
+      placedBy: reader.string('Placed By'),
       invoiceStatus: reader.string('Invoice Status'),
       prepStatus: reader.string('Prep Status'),
       expectedCost: expectedCost.value,
@@ -882,6 +900,9 @@ export function buildSupplierOrderImportPlan(params: {
       sourceOrderStatus: order.sourceOrderStatus,
       orderApproval: order.orderApproval,
       paymentStatus: order.paymentStatus,
+      paymentMode: order.paymentMode,
+      paymentDate: order.paymentDate,
+      placedBy: order.placedBy,
       invoiceStatus: order.invoiceStatus,
       prepStatus: order.prepStatus,
       expectedCost: order.expectedCost,
@@ -1059,7 +1080,21 @@ export function buildSupplierOrderImportPlan(params: {
     const supplierPackSize = parseNumber(reader.string('Pack size'));
     const leadTimeDays = parseNumber(reader.string('Lead time(day)'));
     const mapPrice = parseNumber(reader.string('MAP'));
-    if (!unitCost.valid || !totalCost.valid || !supplierPackSize.valid || !leadTimeDays.valid || !mapPrice.valid) {
+    // Order Create/View UI (T2): sheet columns that exist but the importer skipped.
+    // parseNumber strips the '%' on Exp. Margin and currency symbols on money.
+    const expectedSellPrice = parseNumber(reader.string('S.Price'));
+    const expectedMargin = parseNumber(reader.string('Exp. Margin'));
+    const expectedProfit = parseNumber(reader.string('T.Profit'));
+    if (
+      !unitCost.valid ||
+      !totalCost.valid ||
+      !supplierPackSize.valid ||
+      !leadTimeDays.valid ||
+      !mapPrice.valid ||
+      !expectedSellPrice.valid ||
+      !expectedMargin.valid ||
+      !expectedProfit.valid
+    ) {
       issue(issues, 'order_details', sourceRow, 'order_detail_optional_numeric_field_invalid', 'review', identity);
     }
     const evidence = sourceEvidence(detailSource, row, sourceRow);
@@ -1079,6 +1114,12 @@ export function buildSupplierOrderImportPlan(params: {
       supplierPackSize: supplierPackSize.value,
       leadTimeDays: leadTimeDays.value,
       mapPrice: mapPrice.value,
+      expectedSellPrice: expectedSellPrice.value,
+      expectedMargin: expectedMargin.value,
+      expectedProfit: expectedProfit.value,
+      amazonCheckStatus: reader.string('AM Status'),
+      shipmentFlag: reader.string('Shipment'),
+      priority: reader.string('Priority'),
       orderType: reader.string('Order type'),
       poStatus: comparisonKey(reader.string('PO Status')) === 'addedtopo' ? 'added_to_po' : 'not_added_to_po',
       sourceEvidence: { ...evidence, rows: [evidence] },

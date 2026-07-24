@@ -115,6 +115,9 @@ export interface OrderImportPlanRow {
   workflowStage?: string;
   orderApproval?: string;
   paymentStatus?: string;
+  paymentMode?: string;
+  paymentDate?: string;
+  placedBy?: string;
   invoiceStatus?: string;
   prepStatus?: string;
   expectedCost?: number;
@@ -144,6 +147,12 @@ export interface OrderLineImportPlanRow {
   supplierPackSize?: number;
   leadTimeDays?: number;
   mapPrice?: number;
+  expectedSellPrice?: number;
+  expectedMargin?: number;
+  expectedProfit?: number;
+  amazonCheckStatus?: string;
+  shipmentFlag?: string;
+  priority?: string;
   orderType?: string;
   operationalStatus?: string;
   poStatus?: 'added_to_po' | 'not_added_to_po';
