@@ -118,9 +118,10 @@ function buildDatabase() {
     { id: 'product-1', asin: 'B007P55HOW', sku: 'DC-50944', title: 'Piano Humidifier Pads', brand: 'Dampp-Chaser' },
     { id: 'product-2', asin: 'B00948OEPQ', sku: 'DC-UHP-2', title: 'Humidifier Treatment 16oz', brand: 'Dampp-Chaser' },
   ]);
+  db.seed(ECOBASE_COLLECTIONS.silverCompanyProductFamilies, [{ id: 'family-1' }]);
   db.seed(ECOBASE_COLLECTIONS.silverCompanyProducts, [
-    { id: 'cp-1', companyId: COMPANY_ID, productId: 'product-1' },
-    { id: 'cp-2', companyId: COMPANY_ID, productId: 'product-2' },
+    { id: 'cp-1', companyId: COMPANY_ID, productId: 'product-1', companyProductFamilyId: 'family-1' },
+    { id: 'cp-2', companyId: COMPANY_ID, productId: 'product-2', companyProductFamilyId: 'family-1' },
   ]);
   return db;
 }
@@ -173,6 +174,9 @@ describe('EcobaseOrderWorkbenchService', () => {
     const lineRows = db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows;
     expect(lineRows).toHaveLength(2);
     expect(lineRows[0].companyProductId).toBe('cp-1');
+    // The silver_order_lines_mapping_scope_check constraint shape for manual lines.
+    expect(lineRows[0].mappingScope).toBe('exact_member');
+    expect(lineRows[0].companyProductFamilyId).toBe('family-1');
     // supplier-product upsert created a link for the ordering supplier + product.
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).rows).toHaveLength(2);
     // Computed gross margin was persisted on the line.
@@ -290,9 +294,10 @@ describe('EcobaseOrderWorkbenchService', () => {
   });
 
   it('prepareOrderDraft falls back to the family preferred supplier when no supplier-product link exists', async () => {
-    db.seed(ECOBASE_COLLECTIONS.silverCompanyProductFamilies, [{ id: 'family-1', preferredSupplierId: SUPPLIER_ID }]);
-    const cp = db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).rows.find((row) => row.id === 'cp-1');
-    if (cp) cp.companyProductFamilyId = 'family-1';
+    const family = db
+      .getRepository(ECOBASE_COLLECTIONS.silverCompanyProductFamilies)
+      .rows.find((row) => row.id === 'family-1');
+    if (family) family.preferredSupplierId = SUPPLIER_ID;
     const draft = await service.prepareOrderDraft({ planningProductId: 'cp-1' });
     expect(draft.supplierDefault).toMatchObject({
       supplierId: SUPPLIER_ID,

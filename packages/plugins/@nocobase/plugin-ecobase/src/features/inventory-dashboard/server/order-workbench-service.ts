@@ -235,8 +235,23 @@ export class EcobaseOrderWorkbenchService {
       }),
     });
 
-    for (const line of validatedLines) {
-      await this.insertLine(orderId, line, input.actorUserId);
+    // Atomic-by-compensation: if any line insert fails (e.g. a DB check
+    // constraint), remove the freshly created header + partial lines so no
+    // orphan draft order survives and the generated ref stays reusable.
+    try {
+      for (const line of validatedLines) {
+        await this.insertLine(orderId, line, input.actorUserId);
+      }
+    } catch (error) {
+      await this.repo(ECOBASE_COLLECTIONS.silverOrderLines)
+        .destroy({ filter: { orderId } })
+        .catch(() => undefined);
+      await this.repo(ECOBASE_COLLECTIONS.silverOrders)
+        .destroy({ filterByTk: orderId })
+        .catch(() => undefined);
+      throw error instanceof OrderWorkbenchError
+        ? error
+        : new OrderWorkbenchError(error instanceof Error ? error.message : 'Order line creation failed.');
     }
 
     return this.getOrderDetail({ orderId });

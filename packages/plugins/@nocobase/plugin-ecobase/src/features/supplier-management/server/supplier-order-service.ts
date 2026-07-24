@@ -890,11 +890,22 @@ export class EcobaseSupplierOrderService {
     }
 
     const lineId = randomUUID();
+    // The silver_order_lines_mapping_scope_check DB constraint requires exact_member
+    // rows to carry BOTH the company product AND its family; a manual line always
+    // resolves to a concrete company product, so it must be written as exact_member.
+    const companyProductFamilyId = asString(product.companyProductFamilyId);
+    if (!companyProductFamilyId) {
+      throw new Error(
+        'Ecobase supplier-order line create failed: the selected product is not linked to a product family yet.',
+      );
+    }
     const values: PlainRecord = {
       id: lineId,
       sourceLineKey: `manual:${lineId}`,
       orderId: order.id,
       companyProductId: asString(product.id),
+      companyProductFamilyId,
+      mappingScope: 'exact_member',
       supplierProductId: asString(supplierProduct.id),
       orderedQty: params.orderedQty,
       confirmedQty: 0,

@@ -88,7 +88,8 @@ export function CreateOrderModal(props: CreateOrderModalProps) {
   const [supplierId, setSupplierId] = useState<string | null>(null);
   const [supplierOptions, setSupplierOptions] = useState<OrderSupplierOption[]>([]);
   const [marketplace, setMarketplace] = useState<string>('US');
-  const [placedBy] = useState<string>('');
+  const [placedBy, setPlacedBy] = useState<string>('');
+  const [notes, setNotes] = useState<string>('');
   const [lines, setLines] = useState<EditorLine[]>([]);
   const [productOptions, setProductOptions] = useState<OrderProductOption[]>([]);
   // Optional payment & shipping.
@@ -119,6 +120,7 @@ export function CreateOrderModal(props: CreateOrderModalProps) {
         setOrderRef(draft.suggestedOrderRef ?? '');
         setOrderDate(draft.orderDate ?? dayjs().format('YYYY-MM-DD'));
         setSupplierId(draft.supplierDefault?.supplierId ?? null);
+        setPlacedBy(draft.placedBy ?? '');
         setSupplierOptions(
           draft.supplierDefault
             ? [{ value: draft.supplierDefault.supplierId, label: draft.supplierDefault.displayName }]
@@ -240,6 +242,7 @@ export function CreateOrderModal(props: CreateOrderModalProps) {
         shippingCarrier: carrier || undefined,
         trackingId: tracking || undefined,
         expectedDeliveryDate: expectedDelivery || undefined,
+        remarks: notes || undefined,
         lines: validLines.map((line) => ({
           companyProductId: line.companyProductId,
           orderedQty: line.orderedQty,
@@ -268,6 +271,7 @@ export function CreateOrderModal(props: CreateOrderModalProps) {
     paymentStatus,
     paymentMode,
     paymentDate,
+    notes,
     invoiceNo,
     carrier,
     tracking,
@@ -355,6 +359,14 @@ export function CreateOrderModal(props: CreateOrderModalProps) {
           </Form.Item>
           <Form.Item label={t(TEXT.ocPlacedBy)} style={{ marginBottom: 8 }}>
             <Input value={placedBy} readOnly placeholder={t(TEXT.ocPlacedBy)} aria-label={t(TEXT.ocPlacedBy)} />
+          </Form.Item>
+          <Form.Item label={t(TEXT.notesLabel)} style={{ marginBottom: 8, gridColumn: '1 / -1' }}>
+            <Input.TextArea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={2}
+              aria-label={t(TEXT.notesLabel)}
+            />
           </Form.Item>
         </div>
 

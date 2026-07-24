@@ -309,12 +309,13 @@ export function createEcobaseInventoryDashboardActions() {
       // ---- Order Create/View workbench (T3) --------------------------------
       prepareOrderDraft: async (ctx: DashboardActionContext, next: DashboardNext) => {
         const values = getValues(ctx.action.params);
-        await runWorkbench(ctx, next, (service) =>
-          service.prepareOrderDraft({
+        await runWorkbench(ctx, next, async (service) => ({
+          ...(await service.prepareOrderDraft({
             planningProductId: optionalString(values, 'planningProductId'),
             company: optionalString(values, 'company'),
-          }),
-        );
+          })),
+          placedBy: actorDisplayName(ctx),
+        }));
       },
       checkOrderRef: async (ctx: DashboardActionContext, next: DashboardNext) => {
         const values = getValues(ctx.action.params);

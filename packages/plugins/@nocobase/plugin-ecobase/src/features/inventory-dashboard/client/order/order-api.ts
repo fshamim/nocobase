@@ -42,6 +42,7 @@ export interface OrderDraftPreparation {
   suggestedOrderRef: string;
   product: { companyProductId?: string; title?: string; asin?: string; sku?: string; brand?: string };
   supplierDefault?: { supplierId: string; displayName: string };
+  placedBy?: string;
 }
 
 export interface OrderRefCheck {
