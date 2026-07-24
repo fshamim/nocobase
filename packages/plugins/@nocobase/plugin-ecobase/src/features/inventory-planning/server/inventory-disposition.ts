@@ -263,6 +263,10 @@ export function calculateInventoryDisposition(input: InventoryDispositionInput):
     else inventoryFreshnessStatus = 'fresh';
   }
 
+  // Q1: only a medium-or-better rolling window (complete coverage is 'high' by construction;
+  // partial needs ≥ ROLLING_VELOCITY_MEDIUM_CONFIDENCE_DAYS observed days) may assert a BLOCKING
+  // disposition. This is a false-alarm guard, not an evidence gate — the velocity itself stays.
+  const blockingDispositionConfidence = rollingVelocityConfidence === 'high' || rollingVelocityConfidence === 'medium';
   let daysOfCover: Decimal | null = null;
   let inventoryDisposition: InventoryDisposition = 'insufficient_velocity_evidence';
   if (sellableOnHandStock?.isZero()) {
@@ -272,7 +276,11 @@ export function calculateInventoryDisposition(input: InventoryDispositionInput):
     inventoryFreshnessStatus === 'fresh' &&
     rollingVelocityEvidenceStatus === 'trusted_zero'
   ) {
-    inventoryDisposition = 'no_sell_through';
+    // Q1 gate (tech-lead decision): the blocking dispositions require MEDIUM+ rolling confidence
+    // (complete coverage, or ≥7 observed days in the trailing-30 window). A low-confidence window
+    // never asserts stuck/excess off a blip — the row keeps disposition 'none' with its
+    // low-confidence velocity fully visible and flows to its otherwise-computed pane.
+    inventoryDisposition = blockingDispositionConfidence ? 'no_sell_through' : 'none';
   } else if (
     sellableOnHandStock &&
     inventoryFreshnessStatus === 'fresh' &&
@@ -280,7 +288,7 @@ export function calculateInventoryDisposition(input: InventoryDispositionInput):
     salesVelocity?.isPositive()
   ) {
     daysOfCover = sellableOnHandStock.div(salesVelocity);
-    inventoryDisposition = daysOfCover.greaterThan(60) ? 'over_60_days_cover' : 'none';
+    inventoryDisposition = daysOfCover.greaterThan(60) && blockingDispositionConfidence ? 'over_60_days_cover' : 'none';
   }
 
   return {

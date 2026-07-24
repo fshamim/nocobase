@@ -764,7 +764,12 @@ describe('corrected candidate public refresh seam', () => {
     const julyIndex = memberships.findIndex((row) => row.monthStart === '2026-07-01');
     if (julyIndex >= 0) memberships.splice(julyIndex, 1);
 
-    await refreshThroughPublicAction(db, 'estimated-membership');
+    const result = await refreshThroughPublicAction(db, 'estimated-membership');
+    // Verifier parity for the reversed velocity-gap routing: an ACTIONABLE in-stock row carrying
+    // `insufficient_velocity_evidence` (estimated reorder-due) must NOT read as an action leak.
+    await expect(
+      new EcobaseIndependentGoldReferenceVerifier(db).verify(String((result.run as Row).id)),
+    ).resolves.toMatchObject({ valid: true });
 
     expect(db.goldRows.rows[0]).toMatchObject({
       rollingVelocityEvidenceStatus: 'insufficient_evidence',
@@ -788,6 +793,34 @@ describe('corrected candidate public refresh seam', () => {
       estimatedProfitRisk: 70,
       recommendedOrderQty: 5,
       currentPlanningStock: 10,
+    });
+  });
+
+  it('Q1: one observed zero-day under a coverage gap stays healthy — never stuckInventory off a blip', async () => {
+    const db = fixture();
+    // Coverage still reaches 07-16 but July's membership no longer vouches → the D1-anchored
+    // rolling window (06-17..07-16) is a coverage gap whose ONLY observed day (07-16) sold zero.
+    // Low-confidence trusted_zero must not assert no_sell_through: the row keeps its visible
+    // zero velocity and flows to its otherwise-computed pane (healthy), not stuckInventory.
+    const memberships = db.rows(ECOBASE_COLLECTIONS.sourceCoverageMemberships);
+    const julyIndex = memberships.findIndex((row) => row.monthStart === '2026-07-01');
+    if (julyIndex >= 0) memberships.splice(julyIndex, 1);
+    const currentFact = db
+      .rows(ECOBASE_COLLECTIONS.silverListingDailyFacts)
+      .find((row) => row.snapshotDate === '2026-07-16');
+    if (!currentFact) throw new Error('Q1 zero-blip fixture fact is missing.');
+    currentFact.units = 0;
+
+    await refreshThroughPublicAction(db, 'q1-zero-blip');
+
+    expect(db.goldRows.rows[0]).toMatchObject({
+      rollingVelocityEvidenceStatus: 'trusted_zero',
+      inventoryDisposition: 'none',
+      salesVelocity: '0.00000000',
+      salesVelocityBasis: 'rolling_30',
+      replenishmentEligibility: 'eligible',
+      primaryActionPane: 'healthyInventory',
+      primaryActionReasonCode: 'sufficient_stock',
     });
   });
 

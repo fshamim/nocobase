@@ -836,11 +836,15 @@ export class EcobaseIndependentGoldReferenceVerifier {
 
   private hasActionLeak(row: PlainRecord) {
     if (row.newReplenishmentActionable !== true) return false;
+    // Mirror of the decision engine's action gate. Reversed philosophy: a velocity gap no longer
+    // blocks, so an actionable row may carry 'none' OR 'insufficient_velocity_evidence' (e.g. an
+    // in-stock estimated reorder-due row, or trusted rolling velocity with a stale inventory
+    // snapshot). Only the BLOCKING dispositions (stuck/excess) are a leak.
     return !(
       row.replenishmentEligibility === 'eligible' &&
       row.baselineConfidence === 'full' &&
       ['A', 'B', 'C'].includes(String(row.baselineTier)) &&
-      row.inventoryDisposition === 'none' &&
+      !['no_sell_through', 'over_60_days_cover'].includes(String(row.inventoryDisposition)) &&
       row.isFrozenFamilyTarget === true &&
       row.existingOrderFollowUp !== true
     );

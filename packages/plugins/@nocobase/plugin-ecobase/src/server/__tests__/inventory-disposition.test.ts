@@ -237,6 +237,79 @@ describe('trusted listing sell-through and inventory disposition', () => {
         inventoryDisposition: 'insufficient_velocity_evidence',
       });
     });
+
+    // Q1 gate (tech-lead decision): no_sell_through and over_60_days_cover require MEDIUM+
+    // rolling confidence (≥7 observed days; complete coverage is high by construction). Below
+    // that, no blocking disposition — the low-confidence velocity stays fully visible.
+    it('Q1: one observed zero-day never asserts stuck — zero velocity visible, disposition none', () => {
+      const result = calculateInventoryDisposition(
+        input({ coverageReason: 'coverage_discontinuous', dailyUnits: [unit('2026-07-18', 0)] }),
+      );
+      expect(result).toMatchObject({
+        rollingVelocityCoveredDayCount: 1,
+        rollingVelocityConfidence: 'low',
+        rollingVelocityEvidenceStatus: 'trusted_zero',
+        salesVelocity: '0.00000000',
+        inventoryDisposition: 'none',
+      });
+    });
+
+    it('Q1: seven observed zero-days (medium confidence) assert no_sell_through as before', () => {
+      const dailyUnits = [
+        '2026-07-12',
+        '2026-07-13',
+        '2026-07-14',
+        '2026-07-15',
+        '2026-07-16',
+        '2026-07-17',
+        '2026-07-18',
+      ].map((date) => unit(date, 0));
+      const result = calculateInventoryDisposition(input({ coverageReason: 'coverage_discontinuous', dailyUnits }));
+      expect(result).toMatchObject({
+        rollingVelocityCoveredDayCount: 7,
+        rollingVelocityConfidence: 'medium',
+        rollingVelocityEvidenceStatus: 'trusted_zero',
+        inventoryDisposition: 'no_sell_through',
+      });
+    });
+
+    it('Q1: one observed slow-sales day never asserts excess — cover stays visible, disposition none', () => {
+      const result = calculateInventoryDisposition(
+        input({
+          coverageReason: 'product_scope_unknown',
+          dailyUnits: [unit('2026-07-18', 1)],
+          sellableOnHandStock: 100,
+        }),
+      );
+      expect(result).toMatchObject({
+        rollingVelocityCoveredDayCount: 1,
+        rollingVelocityConfidence: 'low',
+        salesVelocity: '1.00000000',
+        daysOfCover: '100.00000000',
+        inventoryDisposition: 'none',
+      });
+    });
+
+    it('Q1: seven observed days over 60-day cover (medium confidence) assert over_60_days_cover as before', () => {
+      const dailyUnits = [
+        '2026-07-12',
+        '2026-07-13',
+        '2026-07-14',
+        '2026-07-15',
+        '2026-07-16',
+        '2026-07-17',
+        '2026-07-18',
+      ].map((date) => unit(date, 1));
+      const result = calculateInventoryDisposition(
+        input({ coverageReason: 'product_scope_unknown', dailyUnits, sellableOnHandStock: 100 }),
+      );
+      expect(result).toMatchObject({
+        rollingVelocityConfidence: 'medium',
+        salesVelocity: '1.00000000',
+        daysOfCover: '100.00000000',
+        inventoryDisposition: 'over_60_days_cover',
+      });
+    });
   });
 
   it('rejects invalid dates, duplicate dates, and out-of-window facts', () => {
