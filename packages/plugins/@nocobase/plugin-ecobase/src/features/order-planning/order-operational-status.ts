@@ -82,9 +82,21 @@ export function normalizeOrderOperationalStatus(value: unknown): string | undefi
   return typeof value === 'string' && value.trim() ? value.trim().toLowerCase() : undefined;
 }
 
+// Raw ClickUp statuses that fold into a canonical operational status. The alias is
+// resolution-only: the stored clickupStatus stays source-faithful and the alias is not
+// offered as an operator option. User decision (2026-07-24): `at-prep-not started`
+// means "at prep, but not started" and belongs to the prep stage.
+const CLICKUP_OPERATIONAL_STATUS_ALIASES: Record<string, ClickupOrderOperationalStatus> = {
+  'at-prep-not started': 'prep-in-progress',
+};
+
 export function clickupOrderOperationalStatus(value: unknown): ClickupOrderOperationalStatus | undefined {
   const normalized = normalizeOrderOperationalStatus(value);
-  return CLICKUP_ORDER_OPERATIONAL_STATUSES.find((status) => status === normalized);
+  if (!normalized) return undefined;
+  return (
+    CLICKUP_ORDER_OPERATIONAL_STATUSES.find((status) => status === normalized) ??
+    CLICKUP_OPERATIONAL_STATUS_ALIASES[normalized]
+  );
 }
 
 export function canonicalOrderStatusForOperationalStatus(value: unknown) {

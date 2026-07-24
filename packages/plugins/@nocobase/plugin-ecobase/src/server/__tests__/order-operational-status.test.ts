@@ -73,4 +73,19 @@ describe('order operational status contract', () => {
     expect(workflowStageForOperationalStatus('waiting for supplier')).toBeUndefined();
     expect(canonicalOrderStatusForOperationalStatus('waiting for supplier')).toBeUndefined();
   });
+
+  it('folds the at-prep-not started alias into prep-in-progress (user decision 2026-07-24)', () => {
+    // Case/whitespace tolerant, resolving to the same status object as prep-in-progress.
+    expect(clickupOrderOperationalStatus('At-Prep-Not Started ')).toBe('prep-in-progress');
+    expect(canonicalOrderStatusForOperationalStatus('at-prep-not started')).toBe(
+      canonicalOrderStatusForOperationalStatus('prep-in-progress'),
+    );
+    expect(lifecycleStatusForOperationalStatus('at-prep-not started')).toBe('PREP IN-PROGRESS');
+    expect(workflowStageForOperationalStatus('at-prep-not started')).toBe('in_prep');
+    // The ClickUp importer marks statusCheckRequired exactly when the canonical mapping is
+    // absent — a defined mapping means the previous unmapped behavior no longer triggers.
+    expect(canonicalOrderStatusForOperationalStatus('at-prep-not started')).toBe('paid');
+    // The alias never joins the operator-facing vocabulary.
+    expect(CLICKUP_ORDER_OPERATIONAL_STATUSES).not.toContain('at-prep-not started');
+  });
 });
