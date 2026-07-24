@@ -834,7 +834,7 @@ describe('Gold refresh publication control', () => {
     });
   });
 
-  it.each(['failed', 'succeeded', 'superseded', 'rejected', 'retired'] as const)(
+  it.each(['failed', 'succeeded', 'superseded', 'rejected'] as const)(
     'never reuses a %s terminal run',
     async (terminalStatus) => {
       const db = new MemoryDatabase();
@@ -884,6 +884,46 @@ describe('Gold refresh publication control', () => {
       expect(materializationCount).toBe(1);
     },
   );
+
+  it('reopens a retired run when data reverts to its exact input digest, re-verifies, and republishes', async () => {
+    const db = new MemoryDatabase();
+    const service = new EcobaseGoldRefreshRunService(db);
+
+    // Publish run A, then replace it with run B → A becomes 'retired'.
+    const runA = await buildRun(db, { date: '2026-07-14', key: 'reopen-a', publish: false });
+    const runAId = String((runA.run as Row).id);
+    await service.verify(runAId);
+    await service.publish(publicationPayloadFixture(db, runAId));
+    const runB = await buildRun(db, { date: '2026-07-15', key: 'reopen-b', publish: false });
+    const runBId = String((runB.run as Row).id);
+    await service.verify(runBId);
+    await service.publish(publicationPayloadFixture(db, runBId));
+    expect(db.runs.rows.find((run) => run.id === runAId)).toMatchObject({ status: 'retired' });
+
+    // Direct republish of the retired run stays forbidden (locked invariant).
+    await expect(service.publish(publicationPayloadFixture(db, runAId))).rejects.toMatchObject({
+      code: 'ECOBASE_GOLD_INVALID_TRANSITION',
+    });
+
+    // Data reverts to run A's exact world: same idempotency key + candidate digest
+    // → digest-gated reopen (no re-materialization), then full re-verify + republish.
+    const reopened = await service.execute({
+      calculationDate: '2026-07-14',
+      idempotencyKey: 'reopen-a',
+      candidateInputDigests: testCandidateInputDigests('reopen-a'),
+      request: { calculationDate: '2026-07-14' },
+      materialize: async () => {
+        throw new Error('reopen must not re-materialize');
+      },
+    });
+    expect(String((reopened.run as Row).id)).toBe(runAId);
+    expect(reopened.reused).toBe(true);
+    expect(db.runs.rows.find((run) => run.id === runAId)).toMatchObject({ status: 'materialized' });
+
+    const republished = await service.verifyAndPublish(runAId);
+    expect((republished.run as Row).status).toBe('published');
+    expect(db.runs.rows.find((run) => run.id === runBId)).toMatchObject({ status: 'retired' });
+  });
 
   it('binds an idempotency key to the full candidate input digest', async () => {
     const db = new MemoryDatabase();

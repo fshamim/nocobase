@@ -476,6 +476,25 @@ export class EcobaseGoldRefreshRunService {
           }
           const status = String(run.status ?? '');
           if (['materialized', 'verified', 'published'].includes(status)) return this.result(run, true);
+          // Digest-gated reopen: this branch is only reachable when the CURRENT request's
+          // candidateInputDigest equals the stored run's (checked above), i.e. the data
+          // has reverted to an exactly previously-published world (e.g. a manual order
+          // created and then deleted). The retired run's gold rows persist, so it is
+          // reopened as 'materialized' and must pass full row re-verification before it
+          // can be published again. Direct republish of retired runs stays forbidden.
+          if (status === 'retired') {
+            await this.runRepository().update({
+              filterByTk: String(run.id),
+              values: {
+                status: 'materialized',
+                retiredAt: null,
+                terminalReasonCode: null,
+                terminalReasonJson: { reopened: true, reason: 'input_digest_reverted', at: new Date().toISOString() },
+              },
+              transaction,
+            });
+            return this.result(toPlainRecord(await this.getRun(String(run.id), transaction)), true);
+          }
           throw this.invalidTransition(String(run.id), status, 'reuse');
         }
 
@@ -834,7 +853,7 @@ export class EcobaseGoldRefreshRunService {
   }
 
   private invalidTransition(runId: string, from: string, to: string) {
-    if (to === 'reuse' && ['failed', 'succeeded', 'superseded', 'rejected', 'retired'].includes(from)) {
+    if (to === 'reuse' && ['failed', 'succeeded', 'superseded', 'rejected'].includes(from)) {
       return new EcobaseGoldError(
         'ECOBASE_GOLD_TERMINAL_RUN_REUSE',
         `EcoBase Gold terminal run "${runId}" cannot be reused.`,
