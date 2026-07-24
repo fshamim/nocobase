@@ -237,7 +237,7 @@ export class EcobaseOrderWorkbenchService {
 
   async getOrderDetail(params: { orderId?: string }) {
     const order = await this.requireOrder(params.orderId);
-    const orderId = asString(order.id)!;
+    const orderId = String(order.id);
     const [company, supplier] = await Promise.all([
       this.findRecord(ECOBASE_COLLECTIONS.silverCompanies, asString(order.companyId)),
       this.findRecord(ECOBASE_COLLECTIONS.silverSuppliers, asString(order.supplierId)),
@@ -336,8 +336,8 @@ export class EcobaseOrderWorkbenchService {
 
   async updateOrderHeader(params: PlainRecord & { orderId?: string; actorUserId?: string }) {
     const order = await this.requireOrder(params.orderId);
-    const orderId = asString(order.id)!;
-    const companyId = asString(order.companyId)!;
+    const orderId = String(order.id);
+    const companyId = String(order.companyId);
     const values: PlainRecord = {};
 
     if ('orderRef' in params) {
@@ -383,8 +383,8 @@ export class EcobaseOrderWorkbenchService {
 
   async updateOrderLine(params: PlainRecord & { orderLineId?: string; actorUserId?: string }) {
     const line = await this.requireLine(params.orderLineId);
-    const lineId = asString(line.id)!;
-    const orderId = asString(line.orderId)!;
+    const lineId = String(line.id);
+    const orderId = String(line.orderId);
     const values: PlainRecord = {};
     for (const field of LINE_EDITABLE_FIELDS) {
       if (!(field in params)) continue;
@@ -425,7 +425,7 @@ export class EcobaseOrderWorkbenchService {
 
   async addOrderLine(params: { orderId?: string; line?: OrderLineInput; actorUserId?: string }) {
     const order = await this.requireOrder(params.orderId);
-    const orderId = asString(order.id)!;
+    const orderId = String(order.id);
     const line = params.line;
     if (!line) throw new OrderWorkbenchError('A product line is required.');
     const companyProduct = await this.requireCompanyProduct(line.companyProductId);
@@ -444,8 +444,8 @@ export class EcobaseOrderWorkbenchService {
 
   async deleteOrderLine(params: { orderLineId?: string; actorUserId?: string }) {
     const line = await this.requireLine(params.orderLineId);
-    const lineId = asString(line.id)!;
-    const orderId = asString(line.orderId)!;
+    const lineId = String(line.id);
+    const orderId = String(line.orderId);
     const remaining = await this.repo(ECOBASE_COLLECTIONS.silverOrderLines).count({ filter: { orderId } });
     if (remaining <= 1) {
       throw new OrderWorkbenchError(
@@ -461,7 +461,7 @@ export class EcobaseOrderWorkbenchService {
 
   async deleteOrder(params: { orderId?: string; actorUserId?: string }) {
     const order = await this.requireOrder(params.orderId);
-    const orderId = asString(order.id)!;
+    const orderId = String(order.id);
     const isManual = MANUAL_ORDER_INTENTS.has(asString(order.orderIntent) ?? '');
     if (isManual) {
       // Lines CASCADE on the silverOrders FK.
@@ -488,7 +488,7 @@ export class EcobaseOrderWorkbenchService {
 
   async setOrderStatus(params: { orderId?: string; status?: unknown; actorUserId?: string }) {
     const order = await this.requireOrder(params.orderId);
-    const orderId = asString(order.id)!;
+    const orderId = String(order.id);
     const write = deriveStatusWrite(params.status);
     const now = new Date().toISOString();
     await this.repo(ECOBASE_COLLECTIONS.silverOrders).update({
