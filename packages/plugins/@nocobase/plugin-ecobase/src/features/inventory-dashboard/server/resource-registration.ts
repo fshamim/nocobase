@@ -32,6 +32,12 @@ import { guardEcobaseActions } from '../../../server/role-boundary';
 import { EcobasePlanningSettingsService } from '../../../server/services/planning-settings-service';
 import { isPaneKey, type PaneKey, type SortDirection } from './contract';
 import { EcobaseInventoryDashboardService, InventoryDashboardValidationError } from './inventory-dashboard-service';
+import {
+  EcobaseOrderWorkbenchService,
+  OrderWorkbenchError,
+  type CreateOrderInput,
+  type OrderLineInput,
+} from './order-workbench-service';
 import type { DashboardDatabase } from './published-gold-reader';
 
 interface DashboardActionContext {
@@ -69,6 +75,54 @@ function actorUserId(ctx: DashboardActionContext): string | undefined {
     return typeof id === 'string' || typeof id === 'number' ? String(id) : undefined;
   }
   return undefined;
+}
+
+function actorDisplayName(ctx: DashboardActionContext): string | undefined {
+  const currentUser = ctx.state?.currentUser;
+  if (typeof currentUser !== 'object' || currentUser === null) return undefined;
+  const record = currentUser as Record<string, unknown>;
+  for (const key of ['nickname', 'fullName', 'username', 'email']) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
+/** Map the workbench's typed errors onto HTTP statuses; other errors bubble. */
+async function runWorkbench<T>(
+  ctx: DashboardActionContext,
+  next: DashboardNext,
+  work: (service: EcobaseOrderWorkbenchService) => Promise<T>,
+) {
+  const service = new EcobaseOrderWorkbenchService(ctx.db);
+  try {
+    ctx.body = { data: await work(service) };
+  } catch (error) {
+    if (error instanceof OrderWorkbenchError) ctx.throw(error.status, error.message);
+    throw error;
+  }
+  await next();
+}
+
+function toOrderLineInput(value: unknown): OrderLineInput | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const record = value as Record<string, unknown>;
+  const companyProductId = typeof record.companyProductId === 'string' ? record.companyProductId : undefined;
+  const orderedQty = typeof record.orderedQty === 'number' ? record.orderedQty : Number(record.orderedQty);
+  if (!companyProductId || !Number.isFinite(orderedQty)) return undefined;
+  const num = (key: string) => (typeof record[key] === 'number' ? (record[key] as number) : undefined);
+  const str = (key: string) => (typeof record[key] === 'string' && record[key] ? (record[key] as string) : undefined);
+  return {
+    companyProductId,
+    orderedQty,
+    unitCost: num('unitCost'),
+    supplierPackSize: num('supplierPackSize'),
+    expectedSellPrice: num('expectedSellPrice'),
+    expectedMargin: num('expectedMargin'),
+    expectedDeliveryDate: str('expectedDeliveryDate'),
+    expectedSellableDate: str('expectedSellableDate'),
+    priority: str('priority'),
+  };
 }
 
 async function buildService(db: DashboardDatabase): Promise<EcobaseInventoryDashboardService> {
@@ -252,12 +306,135 @@ export function createEcobaseInventoryDashboardActions() {
         }
         await next();
       },
+      // ---- Order Create/View workbench (T3) --------------------------------
+      prepareOrderDraft: async (ctx: DashboardActionContext, next: DashboardNext) => {
+        const values = getValues(ctx.action.params);
+        await runWorkbench(ctx, next, (service) =>
+          service.prepareOrderDraft({
+            planningProductId: optionalString(values, 'planningProductId'),
+            company: optionalString(values, 'company'),
+          }),
+        );
+      },
+      checkOrderRef: async (ctx: DashboardActionContext, next: DashboardNext) => {
+        const values = getValues(ctx.action.params);
+        await runWorkbench(ctx, next, (service) =>
+          service.checkOrderRef({
+            companyId: optionalString(values, 'companyId'),
+            orderRef: optionalString(values, 'orderRef'),
+            excludeOrderId: optionalString(values, 'excludeOrderId'),
+          }),
+        );
+      },
+      orderStatusOptions: async (ctx: DashboardActionContext, next: DashboardNext) => {
+        await runWorkbench(ctx, next, (service) => Promise.resolve(service.statusOptions()));
+      },
+      productOptions: async (ctx: DashboardActionContext, next: DashboardNext) => {
+        const values = getValues(ctx.action.params);
+        await runWorkbench(ctx, next, (service) =>
+          service.productOptions({
+            companyId: optionalString(values, 'companyId'),
+            search: optionalString(values, 'search'),
+            limit: optionalNumber(values, 'limit'),
+          }),
+        );
+      },
+      getOrderDetail: async (ctx: DashboardActionContext, next: DashboardNext) => {
+        const values = getValues(ctx.action.params);
+        await runWorkbench(ctx, next, (service) =>
+          service.getOrderDetail({ orderId: optionalString(values, 'orderId') }),
+        );
+      },
+      createOrder: async (ctx: DashboardActionContext, next: DashboardNext) => {
+        const values = getValues(ctx.action.params);
+        const rawLines = Array.isArray(values.lines) ? values.lines : [];
+        const lines = rawLines.map(toOrderLineInput).filter((line): line is OrderLineInput => line !== undefined);
+        const input: CreateOrderInput = {
+          companyId: optionalString(values, 'companyId'),
+          orderRef: optionalString(values, 'orderRef'),
+          orderDate: optionalString(values, 'orderDate'),
+          supplierId: optionalString(values, 'supplierId'),
+          sourceMarketplace: optionalString(values, 'sourceMarketplace'),
+          paymentStatus: optionalString(values, 'paymentStatus'),
+          paymentMode: optionalString(values, 'paymentMode'),
+          paymentDate: optionalString(values, 'paymentDate'),
+          invoiceStatus: optionalString(values, 'invoiceStatus'),
+          attachmentReference: optionalString(values, 'attachmentReference'),
+          shippingCarrier: optionalString(values, 'shippingCarrier'),
+          trackingId: optionalString(values, 'trackingId'),
+          expectedDeliveryDate: optionalString(values, 'expectedDeliveryDate'),
+          remarks: optionalString(values, 'remarks'),
+          lines,
+          actorUserId: actorUserId(ctx),
+          actorDisplayName: actorDisplayName(ctx),
+        };
+        await runWorkbench(ctx, next, (service) => service.createOrder(input));
+      },
+      updateOrderHeader: async (ctx: DashboardActionContext, next: DashboardNext) => {
+        const values = getValues(ctx.action.params);
+        await runWorkbench(ctx, next, (service) =>
+          service.updateOrderHeader({ ...values, actorUserId: actorUserId(ctx) }),
+        );
+      },
+      updateOrderLine: async (ctx: DashboardActionContext, next: DashboardNext) => {
+        const values = getValues(ctx.action.params);
+        await runWorkbench(ctx, next, (service) =>
+          service.updateOrderLine({ ...values, actorUserId: actorUserId(ctx) }),
+        );
+      },
+      addOrderLine: async (ctx: DashboardActionContext, next: DashboardNext) => {
+        const values = getValues(ctx.action.params);
+        await runWorkbench(ctx, next, (service) =>
+          service.addOrderLine({
+            orderId: optionalString(values, 'orderId'),
+            line: toOrderLineInput(values.line),
+            actorUserId: actorUserId(ctx),
+          }),
+        );
+      },
+      deleteOrderLine: async (ctx: DashboardActionContext, next: DashboardNext) => {
+        const values = getValues(ctx.action.params);
+        await runWorkbench(ctx, next, (service) =>
+          service.deleteOrderLine({
+            orderLineId: optionalString(values, 'orderLineId'),
+            actorUserId: actorUserId(ctx),
+          }),
+        );
+      },
+      deleteOrder: async (ctx: DashboardActionContext, next: DashboardNext) => {
+        const values = getValues(ctx.action.params);
+        await runWorkbench(ctx, next, (service) =>
+          service.deleteOrder({ orderId: optionalString(values, 'orderId'), actorUserId: actorUserId(ctx) }),
+        );
+      },
+      setOrderStatus: async (ctx: DashboardActionContext, next: DashboardNext) => {
+        const values = getValues(ctx.action.params);
+        await runWorkbench(ctx, next, (service) =>
+          service.setOrderStatus({
+            orderId: optionalString(values, 'orderId'),
+            status: values.status,
+            actorUserId: actorUserId(ctx),
+          }),
+        );
+      },
     },
     {
       savePrepDetails: 'operator',
       saveSupplierShipDestination: 'operator',
       reactivateFamily: 'operator',
       addProductComment: 'operator',
+      prepareOrderDraft: 'operator',
+      checkOrderRef: 'operator',
+      orderStatusOptions: 'operator',
+      productOptions: 'operator',
+      getOrderDetail: 'operator',
+      createOrder: 'operator',
+      updateOrderHeader: 'operator',
+      updateOrderLine: 'operator',
+      addOrderLine: 'operator',
+      deleteOrderLine: 'operator',
+      deleteOrder: 'operator',
+      setOrderStatus: 'operator',
     },
   );
 }
@@ -283,6 +460,14 @@ export function createInventoryDashboardResourceRegistration(
             'updateSupplierLeadTime',
             'addComment',
             'addProductComment',
+            // Order Create/View workbench mutations (T3): each rides the publish debounce.
+            'createOrder',
+            'updateOrderHeader',
+            'updateOrderLine',
+            'addOrderLine',
+            'deleteOrderLine',
+            'deleteOrder',
+            'setOrderStatus',
           ],
           onOperatorWrite,
         ),
@@ -303,6 +488,18 @@ export function createInventoryDashboardResourceRegistration(
           'updateSupplierLeadTime',
           'addComment',
           'addProductComment',
+          'prepareOrderDraft',
+          'checkOrderRef',
+          'orderStatusOptions',
+          'productOptions',
+          'getOrderDetail',
+          'createOrder',
+          'updateOrderHeader',
+          'updateOrderLine',
+          'addOrderLine',
+          'deleteOrderLine',
+          'deleteOrder',
+          'setOrderStatus',
         ],
         role: OPERATOR,
       },

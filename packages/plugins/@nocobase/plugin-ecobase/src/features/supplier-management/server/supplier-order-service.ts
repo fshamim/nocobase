@@ -196,6 +196,12 @@ export interface CreateSupplierOrderLineParams {
   planningProductId: string;
   orderedQty: number;
   unitCost?: number;
+  // Order Create/View UI (T3): richer per-line fields for the workbench modal.
+  supplierPackSize?: number;
+  expectedSellPrice?: number;
+  expectedMargin?: number;
+  expectedProfit?: number;
+  priority?: string;
   expectedDeliveryDate?: string;
   expectedSellableDate?: string;
   notes?: string;
@@ -893,6 +899,11 @@ export class EcobaseSupplierOrderService {
       orderedQty: params.orderedQty,
       confirmedQty: 0,
       unitCost: params.unitCost,
+      supplierPackSize: params.supplierPackSize,
+      expectedSellPrice: params.expectedSellPrice,
+      expectedMargin: params.expectedMargin,
+      expectedProfit: params.expectedProfit,
+      priority: params.priority,
       expectedDeliveryDate: params.expectedDeliveryDate
         ? requireIsoDate(params.expectedDeliveryDate, 'expectedDeliveryDate')
         : undefined,

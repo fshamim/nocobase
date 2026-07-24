@@ -1,0 +1,257 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
+import { beforeEach, describe, expect, it } from 'vitest';
+import { ECOBASE_COLLECTIONS } from '../../../../server/collections/names';
+import { EcobaseOrderWorkbenchService, OrderWorkbenchError } from '../order-workbench-service';
+
+type PlainRecord = Record<string, unknown>;
+
+function matchesFilter(row: PlainRecord, filter?: PlainRecord): boolean {
+  if (!filter) return true;
+  return Object.entries(filter).every(([key, value]) => {
+    if (key === '$or' && Array.isArray(value)) {
+      return (value as PlainRecord[]).some((sub) => matchesFilter(row, sub));
+    }
+    if (key === 'transaction') return true;
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const clause = value as Record<string, unknown>;
+      if (Array.isArray(clause.$in)) return clause.$in.includes(row[key]);
+      if (typeof clause.$includes === 'string') {
+        return String(row[key] ?? '')
+          .toLowerCase()
+          .includes(clause.$includes.toLowerCase());
+      }
+    }
+    return row[key] === value;
+  });
+}
+
+function sortRows(rows: PlainRecord[], sort?: string[]): PlainRecord[] {
+  if (!sort || sort.length === 0) return rows;
+  const [spec] = sort;
+  const desc = spec.startsWith('-');
+  const field = desc ? spec.slice(1) : spec;
+  return [...rows].sort((left, right) => {
+    const a = String(left[field] ?? '');
+    const b = String(right[field] ?? '');
+    return desc ? b.localeCompare(a) : a.localeCompare(b);
+  });
+}
+
+class FakeRepository {
+  rows: PlainRecord[] = [];
+
+  async find(params?: { filter?: PlainRecord; limit?: number; sort?: string[] }) {
+    const rows = sortRows(
+      this.rows.filter((row) => matchesFilter(row, params?.filter)),
+      params?.sort,
+    );
+    return typeof params?.limit === 'number' ? rows.slice(0, params.limit) : rows;
+  }
+
+  async findOne(params?: { filter?: PlainRecord; filterByTk?: string | number }) {
+    if (params?.filterByTk !== undefined) return this.rows.find((row) => row.id === params.filterByTk) ?? null;
+    return this.rows.find((row) => matchesFilter(row, params?.filter)) ?? null;
+  }
+
+  async count(params?: { filter?: PlainRecord }) {
+    return this.rows.filter((row) => matchesFilter(row, params?.filter)).length;
+  }
+
+  async create(params: { values: PlainRecord }) {
+    const values = { updatedAt: new Date().toISOString(), ...params.values };
+    this.rows.push({ ...values });
+    return values;
+  }
+
+  async update(params: { filterByTk?: string | number; filter?: PlainRecord; values: PlainRecord }) {
+    const rows = this.rows.filter((row) =>
+      params.filterByTk !== undefined ? row.id === params.filterByTk : matchesFilter(row, params.filter),
+    );
+    rows.forEach((row) => Object.assign(row, params.values));
+    return rows[0] ?? null;
+  }
+
+  async destroy(params: { filterByTk?: string | number; filter?: PlainRecord }) {
+    const before = this.rows.length;
+    this.rows = this.rows.filter((row) =>
+      params.filterByTk !== undefined ? row.id !== params.filterByTk : !matchesFilter(row, params.filter),
+    );
+    return before - this.rows.length;
+  }
+}
+
+class FakeDatabase {
+  repositories = new Map<string, FakeRepository>();
+
+  getRepository(name: string) {
+    const existing = this.repositories.get(name);
+    if (existing) return existing;
+    const repo = new FakeRepository();
+    this.repositories.set(name, repo);
+    return repo;
+  }
+
+  seed(name: string, rows: PlainRecord[]) {
+    const repo = this.getRepository(name);
+    repo.rows.push(...rows.map((row) => ({ ...row })));
+  }
+}
+
+const COMPANY_ID = 'company-ef';
+const SUPPLIER_ID = 'supplier-1';
+
+function buildDatabase() {
+  const db = new FakeDatabase();
+  db.seed(ECOBASE_COLLECTIONS.silverCompanies, [{ id: COMPANY_ID, name: 'Ecofission LLC', companyKey: 'EF' }]);
+  db.seed(ECOBASE_COLLECTIONS.silverSuppliers, [
+    { id: SUPPLIER_ID, displayName: 'allied piano and finish', normalizedName: 'alliedpianoandfinish' },
+  ]);
+  db.seed(ECOBASE_COLLECTIONS.silverProducts, [
+    { id: 'product-1', asin: 'B007P55HOW', sku: 'DC-50944', title: 'Piano Humidifier Pads', brand: 'Dampp-Chaser' },
+    { id: 'product-2', asin: 'B00948OEPQ', sku: 'DC-UHP-2', title: 'Humidifier Treatment 16oz', brand: 'Dampp-Chaser' },
+  ]);
+  db.seed(ECOBASE_COLLECTIONS.silverCompanyProducts, [
+    { id: 'cp-1', companyId: COMPANY_ID, productId: 'product-1' },
+    { id: 'cp-2', companyId: COMPANY_ID, productId: 'product-2' },
+  ]);
+  return db;
+}
+
+async function createSampleOrder(service: EcobaseOrderWorkbenchService, orderRef?: string) {
+  return service.createOrder({
+    companyId: COMPANY_ID,
+    orderRef,
+    orderDate: '2026-07-24',
+    supplierId: SUPPLIER_ID,
+    sourceMarketplace: 'US',
+    actorUserId: '4',
+    actorDisplayName: 'Farhan Shamim',
+    lines: [
+      { companyProductId: 'cp-1', orderedQty: 72, unitCost: 8.43, expectedSellPrice: 19.95 },
+      { companyProductId: 'cp-2', orderedQty: 36, unitCost: 16.87, expectedSellPrice: 34.9 },
+    ],
+  });
+}
+
+describe('EcobaseOrderWorkbenchService', () => {
+  let db: FakeDatabase;
+  let service: EcobaseOrderWorkbenchService;
+
+  beforeEach(() => {
+    db = buildDatabase();
+    service = new EcobaseOrderWorkbenchService(db as never);
+  });
+
+  it('creates a manual draft order with the supplier display name, summed cost, and manual provenance', async () => {
+    const detail = await createSampleOrder(service, 'EF072426A');
+    expect(detail.header.orderRef).toBe('EF072426A');
+    expect(detail.header.orderIntent).toBe('manual');
+    expect(detail.header.lifecycleStatus).toBe('draft');
+    expect(detail.header.canonicalStatus).toBe('draft');
+    expect(detail.header.placedBy).toBe('Farhan Shamim');
+    // Red-proof: the drawer must render the supplier's display name, never the id.
+    expect(detail.header.supplierName).toBe('allied piano and finish');
+    expect(detail.header.supplierName).not.toBe(SUPPLIER_ID);
+    expect(detail.header.expectedCost).toBe(1214.28);
+    expect(detail.header.productCount).toBe(2);
+    expect(detail.header.orderedUnits).toBe(108);
+
+    const orderRow = db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[0];
+    expect(orderRow.dailySequenceLetter).toBe('A');
+    expect(orderRow.statusSource).toBe('operator');
+    // The engine reads canonicalStatus 'draft' → placed_not_purchased → activeOrders.
+    expect(orderRow.canonicalStatus).toBe('draft');
+
+    const lineRows = db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows;
+    expect(lineRows).toHaveLength(2);
+    expect(lineRows[0].companyProductId).toBe('cp-1');
+    // supplier-product upsert created a link for the ordering supplier + product.
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverSupplierProducts).rows).toHaveLength(2);
+    // Computed gross margin was persisted on the line.
+    expect(lineRows[0].expectedMargin).toBeCloseTo(57.7, 1);
+  });
+
+  it('rejects a duplicate order reference with a 409-style error (no silent reuse)', async () => {
+    await createSampleOrder(service, 'EF072426A');
+    await expect(createSampleOrder(service, 'EF072426A')).rejects.toMatchObject({
+      status: 409,
+    });
+    // Only one order row exists — the collision did not append lines to the first order.
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows).toHaveLength(1);
+  });
+
+  it('forbids deleting the last remaining line', async () => {
+    const detail = await createSampleOrder(service);
+    const [first, second] = detail.lines;
+    await service.deleteOrderLine({ orderLineId: second.id });
+    await expect(service.deleteOrderLine({ orderLineId: first.id })).rejects.toBeInstanceOf(OrderWorkbenchError);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows).toHaveLength(1);
+  });
+
+  it('hard-deletes a manual order but cancels an imported one', async () => {
+    const detail = await createSampleOrder(service);
+    const manual = await service.deleteOrder({ orderId: detail.header.id });
+    expect(manual.action).toBe('deleted');
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows).toHaveLength(0);
+
+    db.seed(ECOBASE_COLLECTIONS.silverOrders, [
+      {
+        id: 'imported-1',
+        companyId: COMPANY_ID,
+        supplierId: SUPPLIER_ID,
+        orderRef: 'EF010101A',
+        orderIntent: 'source_import',
+        lifecycleStatus: 'ORDERED',
+        canonicalStatus: 'paid',
+      },
+    ]);
+    const imported = await service.deleteOrder({ orderId: 'imported-1' });
+    expect(imported.action).toBe('cancelled');
+    const row = db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows.find((r) => r.id === 'imported-1')!;
+    expect(row.canonicalStatus).toBe('cancelled');
+    expect(row.statusSource).toBe('operator');
+  });
+
+  it('setOrderStatus writes the mapped lifecycle + canonical + workflow stage through the operator path', async () => {
+    const detail = await createSampleOrder(service);
+    const updated = await service.setOrderStatus({
+      orderId: detail.header.id,
+      status: 'INBOUND MONITORING',
+      actorUserId: '4',
+    });
+    expect(updated.header.lifecycleStatus).toBe('INBOUND MONITORING');
+    const row = db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[0];
+    expect(row.canonicalStatus).toBe('shipped_inbound');
+    expect(row.workflowStage).toBe('amazon_inbound');
+    expect(row.statusSource).toBe('operator');
+    expect(row.operatorStatusOverrideByUserId).toBe('4');
+  });
+
+  it('productOptions searches the company catalog in the DB before limiting', async () => {
+    const byAsin = await service.productOptions({ companyId: COMPANY_ID, search: 'B00948OEPQ' });
+    expect(byAsin).toHaveLength(1);
+    expect(byAsin[0]).toMatchObject({ companyProductId: 'cp-2', title: 'Humidifier Treatment 16oz' });
+
+    const byTitle = await service.productOptions({ companyId: COMPANY_ID, search: 'piano' });
+    expect(byTitle.map((option) => option.companyProductId)).toEqual(['cp-1']);
+  });
+
+  it('prepareOrderDraft returns a canonical suggested ref and product identity', async () => {
+    const draft = await service.prepareOrderDraft({ planningProductId: 'cp-1' });
+    expect(draft.companyId).toBe(COMPANY_ID);
+    expect(draft.product).toMatchObject({
+      companyProductId: 'cp-1',
+      asin: 'B007P55HOW',
+      title: 'Piano Humidifier Pads',
+    });
+    expect(draft.suggestedOrderRef).toMatch(/^EF\d{6}[A-Z]$/);
+  });
+});
