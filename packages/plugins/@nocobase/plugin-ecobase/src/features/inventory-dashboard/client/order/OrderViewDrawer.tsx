@@ -195,14 +195,18 @@ export function OrderViewDrawer(props: OrderViewDrawerProps) {
                   ) : null}
                   {header.invoiceStatus ? (
                     <span style={{ fontSize: 11, color: 'rgba(0,0,0,0.45)' }}>
-                      {t(TEXT.ocInvoiceNo)} · {header.invoiceStatus}
+                      {t(TEXT.ovInvoiceLabel)} · {header.invoiceStatus}
                     </span>
                   ) : null}
                 </div>
                 <Typography.Text type="secondary" style={{ fontSize: 13 }}>
                   {[
                     header.companyName,
-                    header.supplierName,
+                    header.supplierName
+                      ? header.supplierExternalRef
+                        ? `${header.supplierName} (${header.supplierExternalRef})`
+                        : header.supplierName
+                      : null,
                     header.sourceMarketplace,
                     header.orderDate ? `${t(TEXT.ovOrderedPrefix)} ${formatDate(header.orderDate, t)}` : null,
                     header.placedBy ? `${t(TEXT.ovPlacedByPrefix)} ${header.placedBy}` : null,

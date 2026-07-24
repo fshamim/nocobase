@@ -259,6 +259,7 @@ export const TEXT = {
   ocPaymentMode: 'Payment mode',
   ocPaymentDate: 'Payment date',
   ocInvoiceNo: 'Invoice no',
+  ovInvoiceLabel: 'Invoice',
   ocCarrier: 'Shipping carrier',
   ocTracking: 'Tracking ID',
   ocExpectedDelivery: 'Expected delivery',

@@ -85,6 +85,7 @@ export interface OrderHeaderDetail {
   companyName?: string;
   supplierId?: string;
   supplierName?: string;
+  supplierExternalRef?: string;
   sourceMarketplace?: string;
   orderDate?: string;
   orderIntent?: string;

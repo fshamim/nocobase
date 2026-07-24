@@ -238,9 +238,10 @@ export class EcobaseOrderWorkbenchService {
   async getOrderDetail(params: { orderId?: string }) {
     const order = await this.requireOrder(params.orderId);
     const orderId = String(order.id);
-    const [company, supplier] = await Promise.all([
+    const [company, supplier, supplierRef] = await Promise.all([
       this.findRecord(ECOBASE_COLLECTIONS.silverCompanies, asString(order.companyId)),
       this.findRecord(ECOBASE_COLLECTIONS.silverSuppliers, asString(order.supplierId)),
+      this.latestSupplierExternalRef(asString(order.supplierId)),
     ]);
     const lineRows = (await this.repo(ECOBASE_COLLECTIONS.silverOrderLines).find({ filter: { orderId } })).map(
       toPlainRecord,
@@ -301,7 +302,7 @@ export class EcobaseOrderWorkbenchService {
         companyName: asString(company.name),
         supplierId: asString(order.supplierId),
         supplierName: asString(supplier.displayName),
-        supplierExternalRef: asString(supplier.normalizedName),
+        supplierExternalRef: supplierRef,
         sourceMarketplace: asString(order.sourceMarketplace),
         orderDate: asString(order.orderDate),
         orderIntent: asString(order.orderIntent),
@@ -373,7 +374,6 @@ export class EcobaseOrderWorkbenchService {
     if ('expectedDeliveryDate' in params) values.expectedDeliveryDate = normalizeDateOnly(params.expectedDeliveryDate);
 
     if (Object.keys(values).length > 0) {
-      values.lastOperatorEditAt = new Date().toISOString();
       await this.repo(ECOBASE_COLLECTIONS.silverOrders).update({ filterByTk: orderId, values });
     }
     return this.getOrderDetail({ orderId });
@@ -603,6 +603,18 @@ export class EcobaseOrderWorkbenchService {
     );
     const existingId = asString(existing.id);
     return !existingId || existingId === excludeOrderId;
+  }
+
+  /** The supplier's sheet SR code (e.g. SRO-12865), newest external ref first. */
+  private async latestSupplierExternalRef(supplierId: string | undefined) {
+    if (!supplierId) return undefined;
+    const ref = toPlainRecord(
+      await this.repo(ECOBASE_COLLECTIONS.silverSupplierExternalRefs).findOne({
+        filter: { supplierId },
+        sort: ['-lastSeenAt'],
+      }),
+    );
+    return asString(ref.externalSupplierCode);
   }
 
   private async defaultSupplierForProduct(productId: string | undefined) {
