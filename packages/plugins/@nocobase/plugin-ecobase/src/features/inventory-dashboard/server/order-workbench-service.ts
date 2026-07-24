@@ -122,7 +122,9 @@ export class EcobaseOrderWorkbenchService {
     ]);
     const orderDate = todayIso();
     const suggested = await this.medallion.generateOrderRef(companyId, orderDate);
-    const supplierDefault = await this.defaultSupplierForProduct(asString(companyProduct.productId));
+    const supplierDefault =
+      (await this.defaultSupplierForProduct(asString(companyProduct.productId))) ??
+      (await this.familyPreferredSupplier(asString(companyProduct.companyProductFamilyId)));
     return {
       companyId,
       companyName: asString(company.name),
@@ -207,9 +209,16 @@ export class EcobaseOrderWorkbenchService {
         canonicalStatus: 'draft',
         statusSource: 'operator',
         operatorStatusOverrideAt: now,
-        operatorStatusOverrideByUserId: input.actorUserId,
-        statusEvidenceJson: { source: 'order_workbench', createdAt: now },
-        createdByUserId: input.actorUserId,
+        // NocoBase user ids are integers while these legacy columns are uuid-typed;
+        // the actor is always recorded in statusEvidenceJson + placedBy instead.
+        operatorStatusOverrideByUserId: uuidOrUndefined(input.actorUserId),
+        statusEvidenceJson: {
+          source: 'order_workbench',
+          createdAt: now,
+          actorUserId: input.actorUserId,
+          actorName: input.actorDisplayName,
+        },
+        createdByUserId: uuidOrUndefined(input.actorUserId),
         placedBy: input.actorDisplayName,
         sourceMarketplace: input.sourceMarketplace,
         paymentStatus: input.paymentStatus,
@@ -477,8 +486,13 @@ export class EcobaseOrderWorkbenchService {
         workflowStage: 'cancelled',
         statusSource: 'operator',
         operatorStatusOverrideAt: now,
-        operatorStatusOverrideByUserId: params.actorUserId,
-        statusEvidenceJson: { source: 'order_workbench', action: 'cancel_imported', cancelledAt: now },
+        operatorStatusOverrideByUserId: uuidOrUndefined(params.actorUserId),
+        statusEvidenceJson: {
+          source: 'order_workbench',
+          action: 'cancel_imported',
+          cancelledAt: now,
+          actorUserId: params.actorUserId,
+        },
       },
     });
     return { orderId, action: 'cancelled' as const };
@@ -499,13 +513,14 @@ export class EcobaseOrderWorkbenchService {
         workflowStage: write.workflowStage,
         statusSource: 'operator',
         operatorStatusOverrideAt: now,
-        operatorStatusOverrideByUserId: params.actorUserId,
+        operatorStatusOverrideByUserId: uuidOrUndefined(params.actorUserId),
         statusEvidenceJson: {
           source: 'order_workbench',
           action: 'set_status',
           lifecycleStatus: write.lifecycleStatus,
           canonicalStatus: write.canonicalStatus,
           at: now,
+          actorUserId: params.actorUserId,
         },
       },
     });
@@ -625,7 +640,17 @@ export class EcobaseOrderWorkbenchService {
         sort: ['-updatedAt'],
       }),
     );
-    const supplierId = asString(supplierProduct.supplierId);
+    return this.supplierOption(asString(supplierProduct.supplierId));
+  }
+
+  /** Family-level fallback: the family's preferred supplier (same chain the gold engine uses). */
+  private async familyPreferredSupplier(familyId: string | undefined) {
+    if (!familyId) return undefined;
+    const family = await this.findRecord(ECOBASE_COLLECTIONS.silverCompanyProductFamilies, familyId);
+    return this.supplierOption(asString(family.preferredSupplierId));
+  }
+
+  private async supplierOption(supplierId: string | undefined) {
     if (!supplierId) return undefined;
     const supplier = await this.findRecord(ECOBASE_COLLECTIONS.silverSuppliers, supplierId);
     const displayName = asString(supplier.displayName);
@@ -761,6 +786,14 @@ function asNumber(value: unknown): number | undefined {
     return Number.isFinite(parsed) ? parsed : undefined;
   }
   return undefined;
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Only pass values that are genuinely uuids into uuid-typed columns (NocoBase user ids are integers). */
+function uuidOrUndefined(value: unknown): string | undefined {
+  const text = asString(value);
+  return text && UUID_PATTERN.test(text) ? text : undefined;
 }
 
 function optionalStringValue(value: unknown): string | null {

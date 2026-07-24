@@ -232,7 +232,9 @@ describe('EcobaseOrderWorkbenchService', () => {
     expect(row.canonicalStatus).toBe('shipped_inbound');
     expect(row.workflowStage).toBe('amazon_inbound');
     expect(row.statusSource).toBe('operator');
-    expect(row.operatorStatusOverrideByUserId).toBe('4');
+    // Integer NocoBase user ids stay OUT of the uuid column; the actor is recorded in evidence.
+    expect(row.operatorStatusOverrideByUserId).toBeUndefined();
+    expect(row.statusEvidenceJson).toMatchObject({ actorUserId: '4' });
   });
 
   it('productOptions searches the company catalog in the DB before limiting', async () => {
@@ -253,5 +255,48 @@ describe('EcobaseOrderWorkbenchService', () => {
       title: 'Piano Humidifier Pads',
     });
     expect(draft.suggestedOrderRef).toMatch(/^EF\d{6}[A-Z]$/);
+  });
+
+  // Red-proof for the staging 500: NocoBase user ids are integers ("1"), while
+  // createdByUserId / operatorStatusOverrideByUserId are uuid columns in postgres.
+  // Integer actor ids must never be written into those columns.
+  it('never writes non-uuid actor ids into uuid-typed columns; actor lands in evidence + placedBy', async () => {
+    await createSampleOrder(service, 'EF072426A'); // actorUserId '4'
+    const orderRow = db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[0];
+    expect(orderRow.createdByUserId).toBeUndefined();
+    expect(orderRow.operatorStatusOverrideByUserId).toBeUndefined();
+    expect(orderRow.placedBy).toBe('Farhan Shamim');
+    expect(orderRow.statusEvidenceJson).toMatchObject({ actorUserId: '4', actorName: 'Farhan Shamim' });
+
+    await service.setOrderStatus({ orderId: String(orderRow.id), status: 'ORDERED', actorUserId: '4' });
+    expect(orderRow.operatorStatusOverrideByUserId).toBeUndefined();
+    expect(orderRow.statusEvidenceJson).toMatchObject({ action: 'set_status', actorUserId: '4' });
+  });
+
+  it('keeps genuine uuid actor ids on the uuid columns', async () => {
+    const uuidActor = '6b3a2c9e-1d2f-4a5b-8c7d-9e0f1a2b3c4d';
+    await service.createOrder({
+      companyId: COMPANY_ID,
+      orderRef: 'EF072426B',
+      orderDate: '2026-07-24',
+      supplierId: SUPPLIER_ID,
+      actorUserId: uuidActor,
+      lines: [{ companyProductId: 'cp-1', orderedQty: 1, unitCost: 2 }],
+    });
+    const orderRow = db
+      .getRepository(ECOBASE_COLLECTIONS.silverOrders)
+      .rows.find((row) => row.orderRef === 'EF072426B');
+    expect(orderRow?.createdByUserId).toBe(uuidActor);
+  });
+
+  it('prepareOrderDraft falls back to the family preferred supplier when no supplier-product link exists', async () => {
+    db.seed(ECOBASE_COLLECTIONS.silverCompanyProductFamilies, [{ id: 'family-1', preferredSupplierId: SUPPLIER_ID }]);
+    const cp = db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).rows.find((row) => row.id === 'cp-1');
+    if (cp) cp.companyProductFamilyId = 'family-1';
+    const draft = await service.prepareOrderDraft({ planningProductId: 'cp-1' });
+    expect(draft.supplierDefault).toMatchObject({
+      supplierId: SUPPLIER_ID,
+      displayName: 'allied piano and finish',
+    });
   });
 });
