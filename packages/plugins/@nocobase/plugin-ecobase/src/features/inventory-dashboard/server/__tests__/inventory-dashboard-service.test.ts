@@ -232,6 +232,44 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
     expect(byKey.get('stuckCapital')).toMatchObject({ count: 1, moneyAtRisk: null, unknownCount: 1 });
   });
 
+  it('(d3) surfaces the oldest covered sales day and one quiet alert only when a feed is >3 days behind', async () => {
+    const local = new RecordingDatabase();
+    local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).rows.push({
+      id: PUBLISHED_RUN_ID,
+      status: 'published',
+      calculationDate: FIXED_TODAY,
+      publishedAt: `${FIXED_TODAY}T00:00:00.000Z`,
+    });
+    const goldRepo = local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows);
+    for (const [id, sourceAsOfDate, sourceFreshnessStatus] of [
+      ['fresh-a', '2026-07-19', 'current'],
+      ['delayed-b', '2026-07-10', 'delayed'],
+      ['nocov-c', null, 'no_coverage'],
+    ] as const) {
+      goldRepo.rows.push({
+        id,
+        naturalKey: id,
+        refreshRunId: PUBLISHED_RUN_ID,
+        primaryActionPane: 'healthyInventory',
+        companyProductFamilyId: `family-${id}`,
+        sourceAsOfDate,
+        sourceFreshnessStatus,
+      });
+    }
+    const delayed = await service(local).header();
+    expect(delayed.salesDataThroughDate).toBe('2026-07-10'); // oldest covered day across companies
+    expect(delayed.salesDataDelayed).toBe(true);
+
+    // Drop the >3-day-late feed: the date advances and the alert clears — a normal ~2-day lag stays quiet.
+    goldRepo.rows.splice(
+      goldRepo.rows.findIndex((row) => row.id === 'delayed-b'),
+      1,
+    );
+    const quiet = await service(local).header();
+    expect(quiet.salesDataThroughDate).toBe('2026-07-19');
+    expect(quiet.salesDataDelayed).toBe(false);
+  });
+
   it('(e) sorts P1 by latestSafeReorderDate with nulls last, both directions; pagination is stable', async () => {
     const local = new RecordingDatabase();
     local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).rows.push({

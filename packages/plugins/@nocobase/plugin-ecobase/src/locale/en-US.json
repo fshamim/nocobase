@@ -410,6 +410,8 @@
   "Most urgent": "Most urgent",
   "No supplier": "No supplier",
   "listings": "listings",
+  "Sales data through": "Sales data through",
+  "Sellerboard data delayed — latest sales through": "Sellerboard data delayed — latest sales through",
   "Quantity to cover the target days of stock after arrival (default 45 d)": "Quantity to cover the target days of stock after arrival (default 45 d)",
   "Profit lost to the stockout gap if you order today (gap days × daily profit)": "Profit lost to the stockout gap if you order today (gap days × daily profit)",
   "Marketplace": "Marketplace",

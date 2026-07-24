@@ -410,6 +410,8 @@
   "Most urgent": "最紧急",
   "No supplier": "无供应商",
   "listings": "个商品",
+  "Sales data through": "销售数据截至",
+  "Sellerboard data delayed — latest sales through": "Sellerboard 数据延迟 — 最新销售数据截至",
   "Quantity to cover the target days of stock after arrival (default 45 d)": "到货后覆盖目标天数库存的数量（默认 45 天）",
   "Profit lost to the stockout gap if you order today (gap days × daily profit)": "今天下单仍会损失的断货利润（缺口天数 × 日利润）",
   "Marketplace": "站点",

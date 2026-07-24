@@ -234,6 +234,9 @@ export const TEXT = {
   sortMostUrgent: 'Most urgent',
   noSupplier: 'No supplier',
   listingsSuffix: 'listings',
+  // D3 — quiet source-freshness surfacing in the header.
+  salesDataThrough: 'Sales data through',
+  salesDataDelayedAlert: 'Sellerboard data delayed — latest sales through',
 } as const;
 
 export type DashboardTextKey = keyof typeof TEXT;

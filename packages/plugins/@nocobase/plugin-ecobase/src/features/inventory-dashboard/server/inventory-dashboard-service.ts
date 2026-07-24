@@ -325,6 +325,8 @@ export class EcobaseInventoryDashboardService {
         dataFreshness: 'unknown',
         tiles: emptyTiles(),
         settings: this.headerSettings(),
+        salesDataThroughDate: null,
+        salesDataDelayed: false,
       };
     }
     const goldRows = await this.reader.findRowsForRun(run.id, request.companyId);
@@ -337,12 +339,24 @@ export class EcobaseInventoryDashboardService {
         .map((row) => row.supplierOrderId),
     });
     const tiles = this.buildTiles(projected, silverById, commentsById);
+    // D3: "Sales data through <date>" is the OLDEST covered sales day across the (company-scoped)
+    // rows; the single quiet alert fires only when a company's feed is graded 'delayed' (>3 days).
+    const salesThroughDates = goldRows
+      .map((row) => asString((row as Record<string, unknown>).sourceAsOfDate))
+      .filter((date): date is string => Boolean(date))
+      .sort();
+    const salesDataThroughDate = salesThroughDates[0] ?? null;
+    const salesDataDelayed = goldRows.some(
+      (row) => asString((row as Record<string, unknown>).sourceFreshnessStatus) === 'delayed',
+    );
     return {
       publishedRunId: run.id,
       calculationDate: run.calculationDate,
       dataFreshness: run.calculationDate ? 'fresh' : 'unknown',
       tiles,
       settings: this.headerSettings(),
+      salesDataThroughDate,
+      salesDataDelayed,
     };
   }
 

@@ -211,6 +211,13 @@ const InventoryDashboardPageInner: React.FC<InventoryDashboardPageProps> = ({
           {header ? (
             <Typography.Text type="secondary">{`${t(TEXT.publishedRun)}: ${header.publishedRunId}`}</Typography.Text>
           ) : null}
+          {header?.salesDataThroughDate ? (
+            <div>
+              <Typography.Text type="secondary">
+                {`${t(TEXT.salesDataThrough)} ${header.salesDataThroughDate}`}
+              </Typography.Text>
+            </div>
+          ) : null}
         </div>
         <Space wrap>
           <Select
@@ -244,6 +251,15 @@ const InventoryDashboardPageInner: React.FC<InventoryDashboardPageProps> = ({
               {t(TEXT.refresh)}
             </Button>
           }
+        />
+      ) : null}
+
+      {header?.salesDataDelayed && header.salesDataThroughDate ? (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: DASHBOARD_TOKENS.sectionGap }}
+          message={`${t(TEXT.salesDataDelayedAlert)} ${header.salesDataThroughDate}`}
         />
       ) : null}
 

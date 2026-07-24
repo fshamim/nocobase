@@ -59,6 +59,14 @@ export interface DashboardHeader {
   tiles: DashboardHeaderTile[];
   /** T7/R1-6: display-relevant planning settings — the client never hardcodes these. */
   settings: { fbaReceivingBufferDays: number; targetCoverDays: number };
+  /**
+   * D3 quiet source-freshness surfacing. `salesDataThroughDate` is the OLDEST covered sales
+   * day across the (company-scoped) rows — "Sales data through <date>". `salesDataDelayed` is
+   * true only when that date is more than 3 days behind the calculation date (the single quiet
+   * alert; normal lag shows the date with no warning). Null date ⇒ no covered current-month data.
+   */
+  salesDataThroughDate: string | null;
+  salesDataDelayed: boolean;
 }
 
 /** Family/product identity carried by every row (nulls stay null). */

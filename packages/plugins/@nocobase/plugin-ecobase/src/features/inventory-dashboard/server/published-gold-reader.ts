@@ -125,6 +125,9 @@ const GOLD_ROW_FIELDS = [
   'salesVelocityBasis',
   'salesVelocityAsOfDate',
   'rollingVelocityEvidenceStatus',
+  // D3: quiet source-freshness surfacing in the header ("Sales data through <date>").
+  'sourceAsOfDate',
+  'sourceFreshnessStatus',
   // T4: D3/D4 profit stats for the drawer.
   'averageMonthlyProfit',
   'bestMonthlyProfit',
