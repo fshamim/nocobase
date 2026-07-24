@@ -223,7 +223,7 @@ describe('Ecobase no-op import and status seam', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.importRuns).all()).toEqual([]);
   });
 
-  it('blocks Sellerboard refresh before Bronze writes when a row proposes protected catalog drift', async () => {
+  it('quarantines a Sellerboard refresh row that proposes protected catalog drift instead of aborting', async () => {
     const db = new MemoryDatabase();
     await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).create({
       values: {
@@ -274,11 +274,25 @@ describe('Ecobase no-op import and status seam', () => {
       sourceVersion: 'v1',
     });
 
+    // The one unknown listing is skipped (quarantined) rather than failing the whole refresh:
+    // no error, no Bronze row for it, and the identity is surfaced on the run summary.
     expect(run).toMatchObject({
-      status: 'failed',
-      errorCount: 1,
-      errorMessage:
-        'Ecobase Sellerboard refresh preflight failed: Ecofission LLC/Amazon.com/B000000001/SKU-1 would create protected company, amazon account, product, company product identity. Run an explicit canonical rebuild instead.',
+      status: 'success',
+      errorCount: 0,
+      rowCount: 0,
+      normalizedCount: 0,
+      summary: {
+        reportQuarantine: [
+          {
+            company: 'Ecofission LLC',
+            marketplace: 'Amazon.com',
+            asin: 'B000000001',
+            listingSku: 'SKU-1',
+            missing: ['company', 'amazon account', 'product', 'company product'],
+            reasonCode: 'protected_company_product_identity',
+          },
+        ],
+      },
     });
     expect(sourceReadStarted).toBe(true);
     expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toEqual([]);

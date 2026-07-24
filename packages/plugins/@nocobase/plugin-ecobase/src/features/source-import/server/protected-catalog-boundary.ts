@@ -58,6 +58,21 @@ export interface ProtectedCatalogReport {
   companyProductsWithMissingFamily: number;
 }
 
+/**
+ * A Sellerboard listing whose identity is not yet part of the protected catalog. Batch C
+ * quarantines these rows (skip + report) instead of aborting the company refresh: the row is
+ * left out of the import and surfaced for review, while everything else imports normally. Adding
+ * the identity for real still goes through an explicit canonical rebuild.
+ */
+export interface QuarantinedListingIdentity {
+  company: string;
+  marketplace: string;
+  asin: string;
+  listingSku: string;
+  missing: string[];
+  reasonCode: 'protected_company_product_identity';
+}
+
 function plain(value: unknown): PlainRecord {
   if (!value || typeof value !== 'object') return {};
   const record = value as PlainRecord & { toJSON?: () => PlainRecord };
@@ -164,16 +179,39 @@ export class EcobaseProtectedCatalogBoundary {
     return report;
   }
 
-  async assertExistingSellerboardIdentity(payload: PlainRecord) {
+  /**
+   * Batch C: report (never throw) when a Sellerboard row would create a protected identity.
+   * Returns a quarantine descriptor for unknown/new listings so the caller can skip that single
+   * row and keep importing the rest of the company's report; returns null when the identity is
+   * already part of the protected catalog. A genuinely unknown company (outside the canonical
+   * four) is quarantined too rather than aborting the whole refresh.
+   */
+  async checkSellerboardIdentity(payload: PlainRecord): Promise<QuarantinedListingIdentity | null> {
     const companyName = text(payload.company);
     const marketplace = text(payload.marketplace) ?? text(payload.account);
     const asin = text(payload.asin)?.toUpperCase();
     const sku = text(payload.listingSku);
-    if (!companyName || !marketplace || !asin || !sku) return;
+    if (!companyName || !marketplace || !asin || !sku) return null;
+
+    let canonicalName: string;
+    let companyKey: string;
+    try {
+      const canonicalCompany = requireCanonicalCompany(companyName);
+      canonicalName = canonicalCompany.name;
+      companyKey = canonicalCompany.companyKey;
+    } catch {
+      return {
+        company: companyName,
+        marketplace,
+        asin,
+        listingSku: sku,
+        missing: ['company', 'amazon account', 'product', 'company product'],
+        reasonCode: 'protected_company_product_identity',
+      };
+    }
 
     const index = await this.index();
-    const canonicalCompany = requireCanonicalCompany(companyName);
-    const companyId = index.companyIdByKey.get(canonicalCompany.companyKey);
+    const companyId = index.companyIdByKey.get(companyKey);
     const productId = index.productIdByAsinSku.get(`${asin}::${sku.toLowerCase()}`);
     const accountId = companyId
       ? index.accountIdByCompanyMarketplace.get(`${companyId}::${marketplace.toLowerCase()}`)
@@ -182,21 +220,20 @@ export class EcobaseProtectedCatalogBoundary {
       companyId && accountId && productId
         ? index.companyProductKeys.has(`${companyId}::${accountId}::${productId}`)
         : false;
-    if (!companyId || !productId || !accountId || !companyProduct) {
-      const missing = [
+    if (companyId && productId && accountId && companyProduct) return null;
+    return {
+      company: canonicalName,
+      marketplace,
+      asin,
+      listingSku: sku,
+      missing: [
         !companyId && 'company',
         !accountId && 'amazon account',
         !productId && 'product',
         !companyProduct && 'company product',
-      ].filter(Boolean);
-      throw new Error(
-        `Ecobase Sellerboard refresh preflight failed: ${
-          canonicalCompany.name
-        }/${marketplace}/${asin}/${sku} would create protected ${missing.join(
-          ', ',
-        )} identity. Run an explicit canonical rebuild instead.`,
-      );
-    }
+      ].filter((value): value is string => Boolean(value)),
+      reasonCode: 'protected_company_product_identity',
+    };
   }
 
   private async index(): Promise<ProtectedCatalogIndex> {

@@ -1,3 +1,12 @@
+/**
+ * This file is part of the NocoBase (R) project.
+ * Copyright (c) 2020-2024 NocoBase Co., Ltd.
+ * Authors: NocoBase Team.
+ *
+ * This project is dual-licensed under AGPL-3.0 and NocoBase Commercial License.
+ * For more information, please refer to: https://www.nocobase.com/agreement.
+ */
+
 import { useAPIClient, useRequest } from '@nocobase/client';
 import {
   Alert,
@@ -40,6 +49,14 @@ type SellerboardImportIssue = {
 
 type SellerboardIssueMessage = { code?: string | null; message: string | null };
 
+type SellerboardQuarantinedListing = {
+  company: string;
+  marketplace: string;
+  asin: string;
+  listingSku: string;
+  missing: string[];
+};
+
 type SellerboardImportRunLog = {
   importRunId: string | null;
   status: string | null;
@@ -53,6 +70,7 @@ type SellerboardImportRunLog = {
   errorCount: number;
   errorMessage: string | null;
   issues: SellerboardImportIssue[];
+  quarantinedListings: SellerboardQuarantinedListing[];
 };
 
 type SellerboardSourceRow = {
@@ -76,6 +94,7 @@ type SellerboardSourceRow = {
   latestRunWarningCount: number;
   latestRunErrorCount: number;
   latestRunErrorMessage: string | null;
+  latestRunQuarantine: SellerboardQuarantinedListing[];
   latestRunLogs: SellerboardImportRunLog[];
 };
 
@@ -275,7 +294,9 @@ function issueExplanation(issue: SellerboardIssueMessage) {
   }
   return {
     title: 'Import issue',
-    body: [message.replace(/^Sellerboard live import failed:\s*/, '') || 'Ecobase recorded an import issue for this run.'],
+    body: [
+      message.replace(/^Sellerboard live import failed:\s*/, '') || 'Ecobase recorded an import issue for this run.',
+    ],
   };
 }
 
@@ -389,10 +410,54 @@ export default function SellerboardSourcesPage() {
     );
   };
 
+  const renderQuarantine = (listings: SellerboardQuarantinedListing[]) => {
+    if (!listings || listings.length === 0) {
+      return null;
+    }
+    return (
+      <Alert
+        type="warning"
+        showIcon
+        message={t('{{count}} new listing(s) skipped for review', { count: listings.length })}
+        description={
+          <Space direction="vertical" size="small" style={{ width: '100%' }}>
+            <Typography.Text type="secondary">
+              {t(
+                'These listings are not in the protected catalog yet, so this refresh imported everything else and set them aside. Run an explicit canonical rebuild to add them.',
+              )}
+            </Typography.Text>
+            <Table
+              size="small"
+              pagination={false}
+              rowKey={(listing) => `${listing.company}-${listing.marketplace}-${listing.asin}-${listing.listingSku}`}
+              dataSource={listings}
+              columns={[
+                { title: String(t('Company')), dataIndex: 'company', key: 'company' },
+                { title: String(t('Marketplace')), dataIndex: 'marketplace', key: 'marketplace' },
+                { title: String(t('ASIN')), dataIndex: 'asin', key: 'asin' },
+                { title: String(t('SKU')), dataIndex: 'listingSku', key: 'listingSku' },
+                {
+                  title: String(t('Missing')),
+                  dataIndex: 'missing',
+                  key: 'missing',
+                  render: (missing: string[]) => <Typography.Text>{(missing ?? []).join(', ')}</Typography.Text>,
+                },
+              ]}
+            />
+          </Space>
+        }
+      />
+    );
+  };
+
   const renderImportLogs = (row: SellerboardSourceRow) => {
     const runs = row.latestRunLogs ?? [];
     if (runs.length === 0) {
-      return <Typography.Text type="secondary">{t('No import runs have been recorded for this source yet.')}</Typography.Text>;
+      return (
+        <Typography.Text type="secondary">
+          {t('No import runs have been recorded for this source yet.')}
+        </Typography.Text>
+      );
     }
 
     return (
@@ -404,19 +469,24 @@ export default function SellerboardSourcesPage() {
             title={
               <Space wrap>
                 <Tag color={statusColor(run.status)}>{t(statusLabel(run.status))}</Tag>
-                <Typography.Text>{formatTimestamp(run.finishedAt ?? run.startedAt) ?? t('No timestamp')}</Typography.Text>
+                <Typography.Text>
+                  {formatTimestamp(run.finishedAt ?? run.startedAt) ?? t('No timestamp')}
+                </Typography.Text>
                 <Typography.Text type="secondary">{run.sourceIdentifier ?? t('No source identifier')}</Typography.Text>
               </Space>
             }
           >
             <Space direction="vertical" size="small" style={{ width: '100%' }}>
               <Typography.Text type="secondary">
-                {t('{{rows}} CSV rows imported, {{normalized}} database records saved, {{warnings}} warnings, {{errors}} errors', {
-                  rows: run.rowCount,
-                  normalized: run.normalizedCount,
-                  warnings: run.warningCount,
-                  errors: run.errorCount,
-                })}
+                {t(
+                  '{{rows}} CSV rows imported, {{normalized}} database records saved, {{warnings}} warnings, {{errors}} errors',
+                  {
+                    rows: run.rowCount,
+                    normalized: run.normalizedCount,
+                    warnings: run.warningCount,
+                    errors: run.errorCount,
+                  },
+                )}
               </Typography.Text>
               {run.errorMessage ? (
                 <Alert
@@ -426,6 +496,7 @@ export default function SellerboardSourcesPage() {
                   showIcon
                 />
               ) : null}
+              {renderQuarantine(run.quarantinedListings)}
               {run.issues.length > 0 ? (
                 <Table
                   size="small"
@@ -439,7 +510,11 @@ export default function SellerboardSourcesPage() {
                       key: 'severity',
                       render: (value: string | null, issue: SellerboardImportIssue) => (
                         <Tag color={value === 'error' ? 'red' : value === 'warning' ? 'gold' : 'default'}>
-                          {value === 'error' ? t('Error') : value === 'warning' ? t('Warning') : issue.status ?? t('Issue')}
+                          {value === 'error'
+                            ? t('Error')
+                            : value === 'warning'
+                              ? t('Warning')
+                              : issue.status ?? t('Issue')}
                         </Tag>
                       ),
                     },
@@ -447,7 +522,9 @@ export default function SellerboardSourcesPage() {
                       title: String(t('Issue')),
                       dataIndex: 'code',
                       key: 'code',
-                      render: (value: string | null) => <Typography.Text>{value?.replace(/_/g, ' ') ?? t('Issue')}</Typography.Text>,
+                      render: (value: string | null) => (
+                        <Typography.Text>{value?.replace(/_/g, ' ') ?? t('Issue')}</Typography.Text>
+                      ),
                     },
                     {
                       title: String(t('Report')),
@@ -456,7 +533,9 @@ export default function SellerboardSourcesPage() {
                       render: (value: string | null, issue: SellerboardImportIssue) => (
                         <Space direction="vertical" size={0}>
                           <Typography.Text>{humanSourceKey(value)}</Typography.Text>
-                          {payloadReportName(issue) ? <Typography.Text type="secondary">{payloadReportName(issue)}</Typography.Text> : null}
+                          {payloadReportName(issue) ? (
+                            <Typography.Text type="secondary">{payloadReportName(issue)}</Typography.Text>
+                          ) : null}
                         </Space>
                       ),
                     },
@@ -470,14 +549,20 @@ export default function SellerboardSourcesPage() {
                             <Typography.Text>{humanIssueMessage({ ...issue, message: value })}</Typography.Text>
                             {renderIssueHelp({ ...issue, message: value })}
                           </Space>
-                          {issue.rowNumber ? <Typography.Text type="secondary">{t('CSV row {{row}}', { row: issue.rowNumber })}</Typography.Text> : null}
+                          {issue.rowNumber ? (
+                            <Typography.Text type="secondary">
+                              {t('CSV row {{row}}', { row: issue.rowNumber })}
+                            </Typography.Text>
+                          ) : null}
                         </Space>
                       ),
                     },
                   ]}
                 />
               ) : (
-                <Typography.Text type="secondary">{t('No warnings or errors were recorded for this import run.')}</Typography.Text>
+                <Typography.Text type="secondary">
+                  {t('No warnings or errors were recorded for this import run.')}
+                </Typography.Text>
               )}
             </Space>
           </Card>
@@ -495,7 +580,9 @@ export default function SellerboardSourcesPage() {
         <Space direction="vertical" size={0}>
           <Typography.Text>{value}</Typography.Text>
           <Typography.Text type="secondary">{row.companyName ?? t('No company')}</Typography.Text>
-          <Typography.Text type="secondary">{t('ID …{{id}}', { id: shortSourceId(row.sourceConnectionId) })}</Typography.Text>
+          <Typography.Text type="secondary">
+            {t('ID …{{id}}', { id: shortSourceId(row.sourceConnectionId) })}
+          </Typography.Text>
         </Space>
       ),
     },
@@ -512,9 +599,15 @@ export default function SellerboardSourcesPage() {
       render: (schedule: SellerboardSourceRow['schedule']) => (
         <Space direction="vertical" size={0}>
           <Tag color={schedule.enabled ? 'green' : 'default'}>{schedule.enabled ? t('Enabled') : t('Disabled')}</Tag>
-          <Typography.Text type="secondary">{t('Refresh every {{duration}}', { duration: formatDuration(schedule.refreshIntervalMinutes) })}</Typography.Text>
-          <Typography.Text type="secondary">{t('Daily floor {{time}} UTC', { time: schedule.dailyRefreshTime })}</Typography.Text>
-          <Typography.Text type="secondary">{t('Retry failures every {{duration}}', { duration: formatDuration(schedule.retryIntervalMinutes) })}</Typography.Text>
+          <Typography.Text type="secondary">
+            {t('Refresh every {{duration}}', { duration: formatDuration(schedule.refreshIntervalMinutes) })}
+          </Typography.Text>
+          <Typography.Text type="secondary">
+            {t('Daily floor {{time}} UTC', { time: schedule.dailyRefreshTime })}
+          </Typography.Text>
+          <Typography.Text type="secondary">
+            {t('Retry failures every {{duration}}', { duration: formatDuration(schedule.retryIntervalMinutes) })}
+          </Typography.Text>
         </Space>
       ),
     },
@@ -527,12 +620,15 @@ export default function SellerboardSourcesPage() {
           <Tag color={statusColor(row.latestRunStatus)}>{t(statusLabel(row.latestRunStatus))}</Tag>
           <Typography.Text type="secondary">{formatTimestamp(row.latestRunAt) ?? t('Never')}</Typography.Text>
           <Typography.Text type="secondary">
-            {t('{{rows}} CSV rows imported, {{normalized}} database records saved, {{warnings}} warnings, {{errors}} errors', {
-              rows: row.latestRunRowCount,
-              normalized: row.latestRunNormalizedCount,
-              warnings: row.latestRunWarningCount,
-              errors: row.latestRunErrorCount,
-            })}
+            {t(
+              '{{rows}} CSV rows imported, {{normalized}} database records saved, {{warnings}} warnings, {{errors}} errors',
+              {
+                rows: row.latestRunRowCount,
+                normalized: row.latestRunNormalizedCount,
+                warnings: row.latestRunWarningCount,
+                errors: row.latestRunErrorCount,
+              },
+            )}
           </Typography.Text>
           {row.latestRunErrorMessage ? (
             <Space align="start">
@@ -541,6 +637,9 @@ export default function SellerboardSourcesPage() {
               </Typography.Text>
               {renderIssueHelp({ message: row.latestRunErrorMessage })}
             </Space>
+          ) : null}
+          {row.latestRunQuarantine && row.latestRunQuarantine.length > 0 ? (
+            <Tag color="gold">{t('{{count}} listing(s) need review', { count: row.latestRunQuarantine.length })}</Tag>
           ) : null}
         </Space>
       ),
@@ -568,7 +667,10 @@ export default function SellerboardSourcesPage() {
           >
             {runningSourceId === row.sourceConnectionId ? t('Running...') : t('Run now')}
           </Button>
-          <Popconfirm title={t('Delete this Sellerboard source?')} onConfirm={() => deleteSource(row.sourceConnectionId)}>
+          <Popconfirm
+            title={t('Delete this Sellerboard source?')}
+            onConfirm={() => deleteSource(row.sourceConnectionId)}
+          >
             <Button size="small" danger>
               {t('Delete')}
             </Button>
@@ -586,7 +688,9 @@ export default function SellerboardSourcesPage() {
             'Add the Sellerboard automation report CSV URLs for one company here. Scheduled imports use these live URLs; Run now fetches immediately.',
           )}
         </Typography.Paragraph>
-        {error ? <Alert type="error" message={t('Failed to load Sellerboard sources')} style={{ marginBottom: 16 }} /> : null}
+        {error ? (
+          <Alert type="error" message={t('Failed to load Sellerboard sources')} style={{ marginBottom: 16 }} />
+        ) : null}
         <Table
           columns={columns}
           dataSource={rows}

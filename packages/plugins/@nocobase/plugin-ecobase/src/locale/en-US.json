@@ -411,5 +411,11 @@
   "No supplier": "No supplier",
   "listings": "listings",
   "Quantity to cover the target days of stock after arrival (default 45 d)": "Quantity to cover the target days of stock after arrival (default 45 d)",
-  "Profit lost to the stockout gap if you order today (gap days × daily profit)": "Profit lost to the stockout gap if you order today (gap days × daily profit)"
+  "Profit lost to the stockout gap if you order today (gap days × daily profit)": "Profit lost to the stockout gap if you order today (gap days × daily profit)",
+  "Marketplace": "Marketplace",
+  "ASIN": "ASIN",
+  "Missing": "Missing",
+  "{{count}} new listing(s) skipped for review": "{{count}} new listing(s) skipped for review",
+  "These listings are not in the protected catalog yet, so this refresh imported everything else and set them aside. Run an explicit canonical rebuild to add them.": "These listings are not in the protected catalog yet, so this refresh imported everything else and set them aside. Run an explicit canonical rebuild to add them.",
+  "{{count}} listing(s) need review": "{{count}} listing(s) need review"
 }

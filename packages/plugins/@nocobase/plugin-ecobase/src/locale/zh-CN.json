@@ -411,5 +411,11 @@
   "No supplier": "无供应商",
   "listings": "个商品",
   "Quantity to cover the target days of stock after arrival (default 45 d)": "到货后覆盖目标天数库存的数量（默认 45 天）",
-  "Profit lost to the stockout gap if you order today (gap days × daily profit)": "今天下单仍会损失的断货利润（缺口天数 × 日利润）"
+  "Profit lost to the stockout gap if you order today (gap days × daily profit)": "今天下单仍会损失的断货利润（缺口天数 × 日利润）",
+  "Marketplace": "站点",
+  "ASIN": "ASIN",
+  "Missing": "缺失项",
+  "{{count}} new listing(s) skipped for review": "{{count}} 个新商品已跳过，待人工复核",
+  "These listings are not in the protected catalog yet, so this refresh imported everything else and set them aside. Run an explicit canonical rebuild to add them.": "这些商品尚未加入受保护目录，本次刷新已导入其他所有数据并将它们单独搁置。请运行一次显式的规范重建以添加它们。",
+  "{{count}} listing(s) need review": "{{count}} 个商品待复核"
 }

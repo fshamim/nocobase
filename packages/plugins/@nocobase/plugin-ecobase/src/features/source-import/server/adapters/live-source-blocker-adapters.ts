@@ -18,13 +18,17 @@ interface SellerboardReportConfig {
   category: SellerboardReportCategory;
   url: string;
   snapshotDate?: string;
-  expectedFreshDate?: string;
 }
 
-const ROLLING_SELLERBOARD_REPORT_CATEGORIES = new Set<SellerboardReportCategory>([
-  'profit_dashboard',
-  'profit_by_product_daily',
-]);
+// Batch C freshness backstop: Sellerboard reports are month-to-date snapshots and a multi-day
+// delivery lag is NORMAL, so the newest downloadable/parseable report is always accepted and
+// coverage is stamped from its real data date. The only staleness that can reject a report is a
+// deliberately generous ceiling (a broken-feed guard) that a normal 2-3 day lag can never trip.
+// A healthy feed's newest row is only ever a few days old; a newest row 45+ days behind almost
+// always means a stale or broken CSV URL, not a real Sellerboard delay. The default clears
+// legitimate cross-month data (a full prior-month report is ~31 days old) with room to spare.
+// Operators may override per source with config.maxReportAgeDays, or set it to null to opt out.
+const SELLERBOARD_DEFAULT_MAX_REPORT_AGE_DAYS = 45;
 
 function hasCredential(config: Record<string, unknown>, secretRef: string | undefined, keys: string[]) {
   if (secretRef) {
@@ -53,33 +57,6 @@ function blockerRecord(
       message,
       checkedAt,
       payload: { sourceIdentifier: input.sourceIdentifier, sourceVersion: input.sourceVersion },
-    },
-  };
-}
-
-function accessAuditRecord(
-  input: SourceAdapterImportInput,
-  adapterName: string,
-  status: string,
-  blockerCode: string,
-  message: string,
-  payload: Record<string, unknown> = {},
-) {
-  const checkedAt = new Date().toISOString();
-  return {
-    kind: 'source_access_audit',
-    data: {
-      naturalKey: [input.sourceConnectionId, 'source_access_audit', adapterName, input.sourceVersion, blockerCode].join(
-        ':',
-      ),
-      sourceConnectionId: input.sourceConnectionId,
-      sourceType: 'sellerboard',
-      adapterName,
-      status,
-      blockerCode,
-      message,
-      checkedAt,
-      payload: { sourceIdentifier: input.sourceIdentifier, sourceVersion: input.sourceVersion, ...payload },
     },
   };
 }
@@ -134,7 +111,6 @@ function readReportConfigs(config: Record<string, unknown>): SellerboardReportCo
           category,
           url,
           snapshotDate: typeof record.snapshotDate === 'string' ? record.snapshotDate : undefined,
-          expectedFreshDate: typeof record.expectedFreshDate === 'string' ? record.expectedFreshDate : undefined,
         },
       ];
     });
@@ -153,7 +129,6 @@ function readReportConfigs(config: Record<string, unknown>): SellerboardReportCo
           : 'profit_dashboard',
       url: singleUrl,
       snapshotDate: typeof config.snapshotDate === 'string' ? config.snapshotDate : undefined,
-      expectedFreshDate: typeof config.expectedFreshDate === 'string' ? config.expectedFreshDate : undefined,
     },
   ];
 }
@@ -167,23 +142,6 @@ function reportConfigs(input: SourceAdapterImportInput) {
 
 function redactedSourceKey(report: SellerboardReportConfig) {
   return `${report.category}:${report.name}`;
-}
-
-function isoDate(value: string | undefined) {
-  if (!value) {
-    return undefined;
-  }
-  const trimmed = value.trim();
-  const iso = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (iso) {
-    return `${iso[1]}-${iso[2]}-${iso[3]}`;
-  }
-  const dayMonthYear = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-  if (dayMonthYear) {
-    return `${dayMonthYear[3]}-${dayMonthYear[2].padStart(2, '0')}-${dayMonthYear[1].padStart(2, '0')}`;
-  }
-  const parsed = new Date(trimmed);
-  return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString().slice(0, 10);
 }
 
 function compareIsoDate(left: string, right: string) {
@@ -234,49 +192,30 @@ export function maxReportDate(csvContent: string, format: SellerboardDateFormat)
   return maxDate;
 }
 
-function previousIsoDate(value: string) {
-  const date = new Date(`${value}T00:00:00.000Z`);
-  if (Number.isNaN(date.getTime())) {
-    return undefined;
+// The reference day a report's age is measured against: the run's own as-of (sourceVersion day)
+// when it is date-like, else today. Sellerboard delivers historical data, so the report date is
+// normally a few days behind this reference — that lag is expected and accepted.
+function runAsOfDay(input: SourceAdapterImportInput) {
+  const match = input.sourceVersion.trim().match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : new Date().toISOString().slice(0, 10);
+}
+
+// Resolve the broken-feed staleness ceiling in days. Absent config uses the generous default;
+// an explicit null opts out of any ceiling (accept a report of any age).
+function reportMaxAgeDays(input: SourceAdapterImportInput) {
+  const configured = input.config.maxReportAgeDays;
+  if (configured === null) return null;
+  if (typeof configured === 'number' && Number.isFinite(configured) && configured > 0) {
+    return Math.floor(configured);
   }
-  date.setUTCDate(date.getUTCDate() - 1);
-  return date.toISOString().slice(0, 10);
+  return SELLERBOARD_DEFAULT_MAX_REPORT_AGE_DAYS;
 }
 
-function expectedFreshDate(input: SourceAdapterImportInput, report: SellerboardReportConfig) {
-  if (report.expectedFreshDate) return report.expectedFreshDate;
-  if (typeof input.config.expectedFreshDate === 'string') return input.config.expectedFreshDate;
-  if (typeof input.config.expectedReportDate === 'string') return input.config.expectedReportDate;
-  const sourceDate = /^\d{4}-\d{2}-\d{2}/.test(input.sourceVersion) ? input.sourceVersion.slice(0, 10) : undefined;
-  if (!sourceDate) return undefined;
-  return (input.sourceIdentifier === 'sellerboard-scheduled' ||
-    input.sourceIdentifier.startsWith('sellerboard-api-bootstrap')) &&
-    ROLLING_SELLERBOARD_REPORT_CATEGORIES.has(report.category)
-    ? previousIsoDate(sourceDate)
-    : sourceDate;
-}
-
-function shouldRequireFreshData(input: SourceAdapterImportInput) {
-  return input.config.requireFreshData === true || input.sourceIdentifier === 'sellerboard-scheduled';
-}
-
-function shouldAssessReportFreshness(report: SellerboardReportConfig, maxDate: string | undefined) {
-  return report.category !== 'stock_daily' || Boolean(maxDate);
-}
-
-function staleStatusMessage(staleReports: Array<Record<string, unknown>>, filesLength: number) {
-  const staleSummary = staleReports
-    .map(
-      (report) =>
-        `${report.reportName ?? '(unnamed report)'} expected ${
-          report.expectedFreshDate ?? '(unknown expected date)'
-        }, got ${report.maxReportDate ?? 'no report date'}`,
-    )
-    .join('; ');
-  if (filesLength === 0) {
-    return `Sellerboard live import did not find any report fresh enough to trust. Stale report details: ${staleSummary}.`;
-  }
-  return `Sellerboard live import normalized available report data, but these report freshness checks need attention: ${staleSummary}.`;
+function daysBetweenIso(earlier: string, later: string) {
+  const start = new Date(`${earlier}T00:00:00.000Z`).getTime();
+  const end = new Date(`${later}T00:00:00.000Z`).getTime();
+  if (Number.isNaN(start) || Number.isNaN(end)) return 0;
+  return Math.round((end - start) / 86_400_000);
 }
 
 const SELLERBOARD_FETCH_TIMEOUT_MS = 10 * 60 * 1000;
@@ -330,7 +269,8 @@ async function* sellerboardApiImport(input: SourceAdapterImportInput): AsyncIter
 
   const headers = requestHeaders(input);
   const files: CsvSourceFile[] = [];
-  const staleReports: Array<Record<string, unknown>> = [];
+  const asOfDay = runAsOfDay(input);
+  const maxAgeDays = reportMaxAgeDays(input);
 
   for (const report of reports) {
     const sourceKey = redactedSourceKey(report);
@@ -356,35 +296,28 @@ async function* sellerboardApiImport(input: SourceAdapterImportInput): AsyncIter
     }
 
     const dateFormat = detectSellerboardDateFormat(csvContent);
-    const expected = expectedFreshDate(input, report);
     const maxDate = maxReportDate(csvContent, dateFormat);
-    const stale =
-      shouldRequireFreshData(input) &&
-      expected &&
-      shouldAssessReportFreshness(report, maxDate) &&
-      (!maxDate || compareIsoDate(maxDate, expected) < 0);
-    if (stale) {
-      staleReports.push({
-        reportName: report.name,
-        category: report.category,
-        expectedFreshDate: expected,
-        maxReportDate: maxDate,
-      });
+
+    // Accept the newest report we could download and parse regardless of its lag. The only
+    // staleness that rejects a report is the generous broken-feed ceiling above (default 30
+    // days) — a report older than that almost always means a stale/broken URL, not a normal
+    // Sellerboard delay. Reports without a parseable date fall through to importCsvFiles, which
+    // reports its own shape/row issues, so genuine parse failures still surface.
+    if (maxDate && maxAgeDays !== null && daysBetweenIso(maxDate, asOfDay) > maxAgeDays) {
       yield {
         type: 'rowIssue',
         issue: {
           rowNumber: 0,
-          severity: 'warning',
-          code: 'sellerboard_data_not_fresh',
-          message: `Sellerboard report "${report.name}" is not fresh enough: expected at least ${expected}, got ${
-            maxDate ?? 'no date'
-          }.`,
+          severity: 'error',
+          code: 'sellerboard_report_exceeds_max_age',
+          message: `Sellerboard report "${report.name}" is unusable: newest data ${maxDate} is more than ${maxAgeDays} days behind ${asOfDay}. Re-copy the Sellerboard CSV link or raise config.maxReportAgeDays.`,
           sourceKey,
           payload: {
             reportName: report.name,
             category: report.category,
-            expectedFreshDate: expected,
             maxReportDate: maxDate,
+            maxReportAgeDays: maxAgeDays,
+            asOfDate: asOfDay,
           },
         },
       };
@@ -394,36 +327,13 @@ async function* sellerboardApiImport(input: SourceAdapterImportInput): AsyncIter
     files.push({
       name: `${report.category}-${report.name}.csv`,
       content: csvContent,
-      snapshotDate: report.snapshotDate ?? (report.category === 'stock_daily' ? expected ?? maxDate : undefined),
+      snapshotDate: report.snapshotDate ?? (report.category === 'stock_daily' ? maxDate : undefined),
       dateFormat,
     });
   }
 
-  if (staleReports.length > 0) {
-    const message = staleStatusMessage(staleReports, files.length);
-    yield {
-      type: 'record',
-      rowNumber: 0,
-      sourceKey: 'sellerboard-api-freshness',
-      payload: { status: 'stale', staleReports },
-      record: accessAuditRecord(input, 'sellerboard-api', 'stale', 'sellerboard_data_not_fresh', message, {
-        staleReports,
-        freshReportCount: files.length,
-      }),
-    };
-  }
-
   if (files.length > 0) {
     yield* importCsvFiles({ ...input, config: { ...input.config, files } });
-  }
-
-  if (staleReports.length > 0) {
-    yield {
-      type: 'status',
-      status: 'stale',
-      message: staleStatusMessage(staleReports, files.length),
-      payload: { staleReports, freshReportCount: files.length },
-    };
   }
 }
 

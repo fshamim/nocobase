@@ -104,23 +104,49 @@ describe('EcobaseProtectedCatalogBoundary', () => {
     });
   });
 
-  it('blocks Sellerboard identities outside the protected catalog', async () => {
+  it('accepts protected Sellerboard identities and quarantines unknown ones without throwing', async () => {
     const boundary = new EcobaseProtectedCatalogBoundary(seedCatalog());
     await expect(
-      boundary.assertExistingSellerboardIdentity({
+      boundary.checkSellerboardIdentity({
         company: 'Ecofission LLC',
         marketplace: 'Amazon.com',
         asin: 'B000000001',
         listingSku: 'SKU-0',
       }),
-    ).resolves.toBeUndefined();
+    ).resolves.toBeNull();
     await expect(
-      boundary.assertExistingSellerboardIdentity({
+      boundary.checkSellerboardIdentity({
         company: 'Ecofission LLC',
         marketplace: 'Amazon.com',
         asin: 'B999999999',
         listingSku: 'NEW-SKU',
       }),
-    ).rejects.toThrow('would create protected product, company product identity');
+    ).resolves.toEqual({
+      company: 'Ecofission LLC',
+      marketplace: 'Amazon.com',
+      asin: 'B999999999',
+      listingSku: 'NEW-SKU',
+      missing: ['product', 'company product'],
+      reasonCode: 'protected_company_product_identity',
+    });
+  });
+
+  it('quarantines a row for a company outside the canonical four instead of throwing', async () => {
+    const boundary = new EcobaseProtectedCatalogBoundary(seedCatalog());
+    await expect(
+      boundary.checkSellerboardIdentity({
+        company: 'Not A Real Company',
+        marketplace: 'Amazon.com',
+        asin: 'B000000001',
+        listingSku: 'SKU-0',
+      }),
+    ).resolves.toEqual({
+      company: 'Not A Real Company',
+      marketplace: 'Amazon.com',
+      asin: 'B000000001',
+      listingSku: 'SKU-0',
+      missing: ['company', 'amazon account', 'product', 'company product'],
+      reasonCode: 'protected_company_product_identity',
+    });
   });
 });

@@ -232,6 +232,40 @@ function payloadPreview(record: unknown) {
   return preview;
 }
 
+type QuarantinedListingView = {
+  company: string;
+  marketplace: string;
+  asin: string;
+  listingSku: string;
+  missing: string[];
+};
+
+// Batch C: read the preflight-quarantined Sellerboard listings recorded on a run's summary so the
+// Sources admin page can show the review list (skip + report, never silent).
+function quarantinedListings(run: unknown): QuarantinedListingView[] {
+  const summary = toPlainRecord(toPlainRecord(run).summary);
+  const raw = summary.reportQuarantine;
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((entry): QuarantinedListingView[] => {
+    const record = toPlainRecord(entry);
+    const company = getString(record, 'company');
+    const asin = getString(record, 'asin');
+    const listingSku = getString(record, 'listingSku');
+    if (!company || !asin || !listingSku) return [];
+    return [
+      {
+        company,
+        marketplace: getString(record, 'marketplace') ?? '',
+        asin,
+        listingSku,
+        missing: Array.isArray(record.missing)
+          ? record.missing.filter((value): value is string => typeof value === 'string')
+          : [],
+      },
+    ];
+  });
+}
+
 function repoWithDestroy(repository: EcobaseRepository, collectionName: string): DestroyableRepository {
   const destroyable = repository as DestroyableRepository;
   if (typeof destroyable.destroy !== 'function') {
@@ -348,9 +382,11 @@ export class EcobaseSourceConnectionService {
               errorCount: getNumber(run, 'errorCount') ?? 0,
               errorMessage: getString(run, 'errorMessage') ?? null,
               issues,
+              quarantinedListings: quarantinedListings(run),
             };
           }),
         );
+        const latestRunQuarantine = quarantinedListings(latestRun);
         return {
           sourceConnectionId,
           name: getString(source, 'name') ?? '(unnamed Sellerboard source)',
@@ -368,6 +404,7 @@ export class EcobaseSourceConnectionService {
           latestRunWarningCount: getNumber(latestRun, 'warningCount') ?? 0,
           latestRunErrorCount: getNumber(latestRun, 'errorCount') ?? 0,
           latestRunErrorMessage: getString(latestRun, 'errorMessage') ?? null,
+          latestRunQuarantine,
           latestRunLogs,
         };
       }),

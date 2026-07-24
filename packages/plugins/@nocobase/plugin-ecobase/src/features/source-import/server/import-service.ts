@@ -46,7 +46,11 @@ import { EcobaseOrderPlanningService } from '../../order-planning/server/order-p
 import { EcobasePlanningProductService } from '../../inventory-planning/server/planning-product-service';
 import { EcobaseSupplierManagementService } from '../../supplier-management/server/supplier-management-service';
 import { validateSupplierLeadTimeDays } from '../../supplier-management/server/supplier-order-service';
-import { EcobaseProtectedCatalogBoundary, type ProtectedCatalogReport } from './protected-catalog-boundary';
+import {
+  EcobaseProtectedCatalogBoundary,
+  type ProtectedCatalogReport,
+  type QuarantinedListingIdentity,
+} from './protected-catalog-boundary';
 import { EcobaseCoverageError, EcobaseSourceCoverageService } from './source-coverage-service';
 
 type Filter = Record<string, unknown>;
@@ -103,12 +107,18 @@ type AdapterImportStreamResult = {
   accountabilityTouched: boolean;
   migrationSummary: ImportDecisionCounts & { bySourceGroup: Record<string, ImportDecisionCounts> };
   protectedCatalog?: ProtectedCatalogReport;
+  // Newest listing_daily_fact snapshot date observed in this run: the Sellerboard report's REAL
+  // as-of. Stamped onto the run's sourceVersion so coverage advances to the data's actual date.
+  reportAsOfDate?: string;
+  // Unknown/new Sellerboard listings skipped by the preflight quarantine (Batch C).
+  reportQuarantine?: QuarantinedListingIdentity[];
 };
 
 type PreparedAdapterReportUnit = {
   items: AdapterStreamItem[];
   inputDigest: string;
   protectedCatalog?: ProtectedCatalogReport;
+  quarantinedIdentities?: QuarantinedListingIdentity[];
 };
 
 class SellerboardReportPreparationError extends Error {
@@ -137,6 +147,7 @@ type AdapterImportStreamParams = {
   skipExistingNormalizedKinds: Set<string>;
   preparedItems?: AdapterStreamItem[];
   preparedProtectedCatalog?: ProtectedCatalogReport;
+  preparedQuarantine?: QuarantinedListingIdentity[];
 };
 
 const NORMALIZED_RECORD_COLLECTIONS: Record<string, string> = {
@@ -1436,6 +1447,40 @@ export class EcobaseImportService {
     return { imports, normalization, failures, goldRefreshRequired };
   }
 
+  /**
+   * Batch C preflight quarantine: instead of throwing on the first Sellerboard row whose identity
+   * is unknown (which aborted the whole company refresh), skip only that row and record its
+   * identity. Every other row streams through untouched, so one new listing no longer blocks the
+   * source. Identities are de-duplicated so a listing that appears on many daily rows is listed
+   * once. Adding a quarantined identity for real still goes through an explicit canonical rebuild.
+   */
+  private async quarantineUnknownSellerboardIdentities(
+    boundaryService: EcobaseProtectedCatalogBoundary,
+    adapter: SourceAdapter,
+    defaultCompany: string | undefined,
+    sourceItems: AsyncIterable<AdapterStreamItem> | AdapterStreamItem[],
+  ): Promise<{ items: AdapterStreamItem[]; quarantine: QuarantinedListingIdentity[] }> {
+    const items: AdapterStreamItem[] = [];
+    const quarantineByKey = new Map<string, QuarantinedListingIdentity>();
+    for await (const sourceItem of sourceItems) {
+      if (sourceItem.type !== 'status') {
+        const boundary = applySafeImportBoundary({ adapter, defaultCompany }, sourceItem);
+        if (boundary.disposition !== 'discard' && boundary.item.type === 'record') {
+          const quarantined = await boundaryService.checkSellerboardIdentity(boundary.item.payload);
+          if (quarantined) {
+            const key = [quarantined.company, quarantined.marketplace, quarantined.asin, quarantined.listingSku].join(
+              ' ',
+            );
+            if (!quarantineByKey.has(key)) quarantineByKey.set(key, quarantined);
+            continue;
+          }
+        }
+      }
+      items.push(sourceItem);
+    }
+    return { items, quarantine: [...quarantineByKey.values()] };
+  }
+
   private async prepareSellerboardReportUnit(
     params: RunAdapterImportParams,
     sourceIdentifier: string,
@@ -1483,27 +1528,31 @@ export class EcobaseImportService {
       secretRef: getString(sourceConnection, 'secretRef'),
     };
     let protectedCatalog: ProtectedCatalogReport | undefined;
-    const items: AdapterStreamItem[] = [];
+    let items: AdapterStreamItem[] = [];
+    let quarantinedIdentities: QuarantinedListingIdentity[] = [];
     const requiresCatalogPreflight =
       adapter.metadata.name === 'sellerboard-api' && getString(adapterConfig, 'catalogMutationMode') !== 'rebuild';
     const boundaryService = requiresCatalogPreflight ? new EcobaseProtectedCatalogBoundary(this.db) : undefined;
-    if (boundaryService) protectedCatalog = await boundaryService.inspect();
-    for await (const sourceItem of adapter.import(adapterInput)) {
-      if (boundaryService && sourceItem.type !== 'status') {
-        const boundary = applySafeImportBoundary(
-          { adapter, defaultCompany: getString(adapterConfig, 'defaultCompany') },
-          sourceItem,
-        );
-        if (boundary.disposition !== 'discard' && boundary.item.type === 'record') {
-          await boundaryService.assertExistingSellerboardIdentity(boundary.item.payload);
-        }
+    if (boundaryService) {
+      protectedCatalog = await boundaryService.inspect();
+      const preflighted = await this.quarantineUnknownSellerboardIdentities(
+        boundaryService,
+        adapter,
+        getString(adapterConfig, 'defaultCompany'),
+        adapter.import(adapterInput),
+      );
+      items = preflighted.items;
+      quarantinedIdentities = preflighted.quarantine;
+    } else {
+      for await (const sourceItem of adapter.import(adapterInput)) {
+        items.push(sourceItem);
       }
-      items.push(sourceItem);
     }
     const prepared: PreparedAdapterReportUnit = {
       items,
       inputDigest: sellerboardReportInputDigest(items),
       ...(protectedCatalog ? { protectedCatalog } : {}),
+      ...(quarantinedIdentities.length > 0 ? { quarantinedIdentities } : {}),
     };
     try {
       this.validatePreparedSellerboardReportUnit(adapter, adapterConfig, prepared.items);
@@ -1880,6 +1929,7 @@ export class EcobaseImportService {
       skipExistingNormalizedKinds: new Set(params.skipExistingNormalizedKinds ?? []),
       preparedItems: params.preparedReportUnit?.items,
       preparedProtectedCatalog: params.preparedReportUnit?.protectedCatalog,
+      preparedQuarantine: params.preparedReportUnit?.quarantinedIdentities,
     });
     const {
       rowCount,
@@ -1961,6 +2011,13 @@ export class EcobaseImportService {
 
     const finishedAt = new Date();
     const status = this.getFinalStatus(errorMessage, errorCount, normalizedCount, finalStatusOverride);
+    // Batch C: stamp the run's as-of with the Sellerboard report's REAL data date (the newest
+    // daily fact observed) so coverage advances to the data's actual date instead of the run's
+    // schedule day. A normal 2-3 day feed lag then extends coverage through the report's as-of
+    // and never opens a false gap. Only the live sellerboard-api adapter is stamped.
+    const sellerboardReportAsOf =
+      adapter.metadata.name === 'sellerboard-api' && stream.reportAsOfDate ? stream.reportAsOfDate : undefined;
+    const effectiveAsOfDate = (sellerboardReportAsOf ?? sourceVersion).slice(0, 10);
     const runSummary = {
       files: fileSummaries,
       medallionNormalization,
@@ -1968,16 +2025,20 @@ export class EcobaseImportService {
       goldRefreshRequired,
       migration: {
         profileVersion: FOUR_COMPANY_MIGRATION_PROFILE.profileVersion,
-        asOfDate: sourceVersion.slice(0, 10),
+        asOfDate: effectiveAsOfDate,
         ...stream.migrationSummary,
       },
       ...(params.summary ?? {}),
       ...(catalogMutationMode ? { catalogMutationMode } : {}),
       ...(stream.protectedCatalog ? { protectedCatalog: stream.protectedCatalog } : {}),
+      ...(stream.reportQuarantine && stream.reportQuarantine.length > 0
+        ? { reportQuarantine: stream.reportQuarantine }
+        : {}),
     };
     const completionValues = {
       finishedAt,
       status,
+      ...(sellerboardReportAsOf ? { sourceVersion: sellerboardReportAsOf } : {}),
       rowCount,
       normalizedCount,
       warningCount,
@@ -2064,6 +2125,9 @@ export class EcobaseImportService {
       let sourceItems: AsyncIterable<AdapterStreamItem> | AdapterStreamItem[] =
         params.preparedItems ?? params.adapter.import(params.adapterInput);
       result.protectedCatalog = params.preparedProtectedCatalog;
+      if (params.preparedQuarantine && params.preparedQuarantine.length > 0) {
+        result.reportQuarantine = params.preparedQuarantine;
+      }
       if (
         !params.preparedItems &&
         params.adapter.metadata.name === 'sellerboard-api' &&
@@ -2071,20 +2135,14 @@ export class EcobaseImportService {
       ) {
         const boundaryService = new EcobaseProtectedCatalogBoundary(this.db);
         result.protectedCatalog = await boundaryService.inspect();
-        const preflightedItems: AdapterStreamItem[] = [];
-        for await (const sourceItem of sourceItems) {
-          if (sourceItem.type !== 'status') {
-            const boundary = applySafeImportBoundary(
-              { adapter: params.adapter, defaultCompany: getString(params.adapterConfig, 'defaultCompany') },
-              sourceItem,
-            );
-            if (boundary.disposition !== 'discard' && boundary.item.type === 'record') {
-              await boundaryService.assertExistingSellerboardIdentity(boundary.item.payload);
-            }
-          }
-          preflightedItems.push(sourceItem);
-        }
-        sourceItems = preflightedItems;
+        const preflighted = await this.quarantineUnknownSellerboardIdentities(
+          boundaryService,
+          params.adapter,
+          getString(params.adapterConfig, 'defaultCompany'),
+          sourceItems,
+        );
+        sourceItems = preflighted.items;
+        if (preflighted.quarantine.length > 0) result.reportQuarantine = preflighted.quarantine;
       }
       await params.bronzeService.createSourceFiles(params.bronzeContext, inlineCsvFiles(params.adapterConfig));
       for await (const sourceItem of sourceItems) {
@@ -2149,6 +2207,15 @@ export class EcobaseImportService {
           const records = Array.isArray(item.record) ? item.record : [item.record];
           const fileName = getSourceFileName(item.sourceKey);
           result.rowCount += 1;
+          for (const record of records) {
+            if (record.kind !== 'listing_daily_fact') continue;
+            const snapshotDate = getString(record.data, 'snapshotDate');
+            if (snapshotDate && /^\d{4}-\d{2}-\d{2}$/.test(snapshotDate)) {
+              if (!result.reportAsOfDate || snapshotDate > result.reportAsOfDate) {
+                result.reportAsOfDate = snapshotDate;
+              }
+            }
+          }
           const normalized = await this.upsertNormalizedRecords(
             records,
             params.importRunId,
