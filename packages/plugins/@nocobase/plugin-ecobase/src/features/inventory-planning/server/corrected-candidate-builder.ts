@@ -523,13 +523,14 @@ export function independentRecommendedOrderQty(
 
 const MONEY_RISK_BASIS = 'uncovered_days_x_velocity_x_profit_per_unit';
 
-// D3 — quiet source-freshness surfacing. The sales feed is month-to-date and may lag a few days
-// (D2 decision: alert only when older than 3 days). 'current' ≤ 3 days behind, 'delayed' beyond,
-// 'no_coverage' when the current month has no covered sales day yet. Per-company (all of a
-// company's rows share one coverage scope, so they carry the same status).
+// D3 — quiet source-freshness surfacing. The sales feed may lag a few days (D2 decision: alert
+// only when older than 3 days). Evaluated against the UN-month-restricted latest covered sales
+// day (F4): 'current' ≤ 3 days behind, 'delayed' beyond (a long-dead feed reads delayed, never a
+// quiet no_coverage), 'no_coverage' strictly when the scope has no coverage at all. Per-company
+// (all of a company's rows share one coverage scope, so they carry the same status).
 const SOURCE_FRESHNESS_MAX_AGE_DAYS = 3;
 
-function deriveSourceFreshnessStatus(sourceAsOfDate: string | null, calculationDate: string): string {
+export function deriveSourceFreshnessStatus(sourceAsOfDate: string | null, calculationDate: string): string {
   if (!sourceAsOfDate) return 'no_coverage';
   const ageDays = Math.round(
     (utcDate(calculationDate, 'calculationDate').getTime() - utcDate(sourceAsOfDate, 'sourceAsOfDate').getTime()) /
@@ -1011,6 +1012,10 @@ function listingInput(
     salesVelocity: effectiveVelocity.salesVelocity,
     salesVelocityBasis: effectiveVelocity.salesVelocityBasis,
     salesVelocityAsOfDate: effectiveVelocity.salesVelocityAsOfDate,
+    // F1: persist velocity confidence so a sparse rolling extrapolation can never render
+    // identically to a dense 30/30 velocity (rollingVelocityCoveredDayCount arrives via
+    // ...disposition above).
+    salesVelocityConfidence: effectiveVelocity.salesVelocityConfidence,
     estimatedOosDate: reorderTiming.estimatedOosDate,
     positionDaysOfCover: reorderTiming.positionDaysOfCover,
     positionEstimatedOosDate: reorderTiming.positionEstimatedOosDate,
@@ -1020,7 +1025,11 @@ function listingInput(
     ...moneyRisk,
     monthlyPerformanceEvidence,
     sourceAsOfDate: current.coveredThroughDate,
-    sourceFreshnessStatus: deriveSourceFreshnessStatus(current.coveredThroughDate, input.calculationDate),
+    // F4: freshness STATUS anchors to the un-month-restricted latest covered sales day
+    // (salesCoverageEnd), so a month-start run does not read no_coverage while yesterday's data
+    // is fresh, and a long-dead feed reads delayed (alert fires). `sourceAsOfDate` keeps its
+    // current-month meaning for its existing consumers (rung-3 provenance, header date line).
+    sourceFreshnessStatus: deriveSourceFreshnessStatus(salesCoverageEnd, input.calculationDate),
     productCoverageDigest,
     isFrozenFamilyTarget: isFrozenTarget,
     familyTargetCompanyProductId: family.targetCompanyProductId,

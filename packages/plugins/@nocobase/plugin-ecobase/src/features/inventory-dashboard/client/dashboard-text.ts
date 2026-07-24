@@ -237,6 +237,9 @@ export const TEXT = {
   // D3 — quiet source-freshness surfacing in the header.
   salesDataThrough: 'Sales data through',
   salesDataDelayedAlert: 'Sellerboard data delayed — latest sales through',
+  // F1 — sparse rolling velocity wears the estimate pill: "estimate — N of 30 days observed".
+  estimateObservedPrefix: 'estimate —',
+  observedOf30DaysSuffix: 'of 30 days observed',
 } as const;
 
 export type DashboardTextKey = keyof typeof TEXT;

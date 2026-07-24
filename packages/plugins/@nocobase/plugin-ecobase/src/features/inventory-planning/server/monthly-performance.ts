@@ -160,10 +160,19 @@ export class MonthlyPerformanceError extends Error {
 
 type CalculatedMonth = {
   evidence: MonthlyPerformanceEvidence;
+  /**
+   * Month-rate contribution feeding the baseline aggregates. Complete months carry the raw sum
+   * (their zero days are vouched); PARTIAL months are normalized to month-rate
+   * (observed total ÷ observed days × days-in-month) so sparse observation never dilutes the
+   * tier score — `eligible_partial_month` + sourceFactCount stay the confidence marker (F2b).
+   */
   units: Decimal | null;
   profit: Decimal | null;
   profitPerUnit: Decimal | null;
   tierScore: Decimal | null;
+  /** Raw observed sums (un-normalized) — the honest month-to-date actuals for the current month. */
+  rawUnits: Decimal | null;
+  rawProfit: Decimal | null;
 };
 
 const COVERAGE_REASONS = new Set<MonthlyPerformanceCoverageReason>([
@@ -295,6 +304,8 @@ function calculateMonth(monthStartValue: string, input?: MonthlyPerformanceMonth
       profit: null,
       profitPerUnit: null,
       tierScore: null,
+      rawUnits: null,
+      rawProfit: null,
     };
   }
 
@@ -326,11 +337,15 @@ function calculateMonth(monthStartValue: string, input?: MonthlyPerformanceMonth
   if (profits.some((value) => !value)) {
     return invalidMonth(monthStartValue, monthEndValue, facts.length, 'missing_net_profit');
   }
-  const monthlyUnits = units.reduce<Decimal>((total, value) => total.plus(value as Decimal), new PerformanceDecimal(0));
-  const monthlyProfit = profits.reduce<Decimal>(
-    (total, value) => total.plus(value as Decimal),
-    new PerformanceDecimal(0),
-  );
+  const rawUnits = units.reduce<Decimal>((total, value) => total.plus(value as Decimal), new PerformanceDecimal(0));
+  const rawProfit = profits.reduce<Decimal>((total, value) => total.plus(value as Decimal), new PerformanceDecimal(0));
+  // F2b: a partial month's contribution is normalized to month-rate (observed ÷ observed days ×
+  // days-in-month) so it averages against complete months without dilution. Complete months keep
+  // raw sums (missing fact days are vouched zero-sales days). The independent verifier mirrors
+  // this exact operation order (mul days-in-month, then div observed days).
+  const daysInMonth = Number(monthEndValue.slice(8, 10));
+  const monthlyUnits = complete ? rawUnits : rawUnits.mul(daysInMonth).div(facts.length);
+  const monthlyProfit = complete ? rawProfit : rawProfit.mul(daysInMonth).div(facts.length);
   const monthlyProfitPerUnit = monthlyUnits.isZero() ? null : monthlyProfit.div(monthlyUnits);
   return {
     evidence: {
@@ -348,6 +363,8 @@ function calculateMonth(monthStartValue: string, input?: MonthlyPerformanceMonth
     profit: monthlyProfit,
     profitPerUnit: monthlyProfitPerUnit,
     tierScore: monthlyProfit,
+    rawUnits,
+    rawProfit,
   };
 }
 
@@ -373,6 +390,8 @@ function invalidMonth(
     profit: null,
     profitPerUnit: null,
     tierScore: null,
+    rawUnits: null,
+    rawProfit: null,
   };
 }
 
@@ -809,11 +828,23 @@ export function calculateMonthlyTierTrend(input: MonthlyTierTrendInput): Monthly
     });
     currentCoverageReason = currentMonth.evidence.reasonCode;
     if (currentMonth.evidence.eligible) {
-      currentMonthUnits = currentMonth.units;
-      currentMonthProfit = currentMonth.profit;
+      const currentIsPartial = currentMonth.evidence.reasonCode === 'eligible_partial_month';
+      // F2a: a coverage-gap current month projects at the OBSERVED rate — divisor is the number
+      // of observed fact days (mirroring the rolling rule), never calendar-elapsed days, which
+      // would understate exactly the brand-new/gappy products. Complete months keep the calendar
+      // divisor: their zero days are vouched. `currentCoveredDays` honestly reports the divisor.
+      if (currentIsPartial) currentCoveredDays = currentMonth.evidence.sourceFactCount;
+      // Month-to-date ACTUALS stay the raw observed sums; calculateMonth's normalized `units`
+      // (month-rate) is exactly the partial month's projection.
+      currentMonthUnits = currentMonth.rawUnits;
+      currentMonthProfit = currentMonth.rawProfit;
       const daysInCurrentMonth = utcDateOnly(performance.currentMonthEndDate, 'currentMonthEndDate').getUTCDate();
-      projectedMonthlyUnits = currentMonthUnits?.div(currentCoveredDays).mul(daysInCurrentMonth) ?? null;
-      projectedMonthlyProfit = currentMonthProfit?.div(currentCoveredDays).mul(daysInCurrentMonth) ?? null;
+      projectedMonthlyUnits = currentIsPartial
+        ? currentMonth.units
+        : currentMonthUnits?.div(currentCoveredDays).mul(daysInCurrentMonth) ?? null;
+      projectedMonthlyProfit = currentIsPartial
+        ? currentMonth.profit
+        : currentMonthProfit?.div(currentCoveredDays).mul(daysInCurrentMonth) ?? null;
       currentProjectionConfidence = currentCoveredDays >= input.minimumProjectionCoveredDays ? 'trusted' : 'early';
       if (currentMonthUnits?.isZero()) {
         currentProjectedState = 'no_movement';

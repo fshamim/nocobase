@@ -11,6 +11,7 @@ import Decimal from 'decimal.js';
 import { describe, expect, it } from 'vitest';
 import {
   calculateMonthlyPerformance,
+  calculateMonthlyTierTrend,
   type MonthlyPerformanceMonthInput,
 } from '../../features/inventory-planning/server/monthly-performance';
 
@@ -266,20 +267,25 @@ describe('individual monthly profit performance', () => {
           asOfDate: '2026-07-18',
           months: [month('2026-01-01', [fact('2026-01-05', 4, 40), fact('2026-01-06', 6, 60)], coverageReason)],
         });
+        // F2b: the partial month's contribution is normalized to month-rate
+        // (10 units / 2 observed days × 31 days in January = 155) so sparse observation never
+        // dilutes the tier score. The profit-per-unit ratio is scale-invariant (10/unit).
         expect(result).toMatchObject({
           baselineState: 'ranked',
           baselineEligibleMonthCount: 1,
           baselineConfidence: 'low',
-          baselineTotalUnits: '10.00000000',
-          baselineTotalProfit: '100.00000000',
-          baselineTierScore: '100.00000000',
+          baselineTotalUnits: '155.00000000',
+          baselineTotalProfit: '1550.00000000',
+          baselineTierScore: '1550.00000000',
           baselineReasonCodes: ['baseline_tier_classified'],
         });
         expect(result.monthlyPerformanceEvidence[0]).toMatchObject({
           eligible: true,
           reasonCode: 'eligible_partial_month',
           sourceFactCount: 2,
-          monthlyUnits: '10.00000000',
+          monthlyUnits: '155.00000000',
+          monthlyProfit: '1550.00000000',
+          monthlyProfitPerUnit: '10.00000000',
         });
       },
     );
@@ -328,6 +334,40 @@ describe('individual monthly profit performance', () => {
         baselineReasonCodes: ['baseline_no_eligible_months'],
       });
       expect(result.monthlyPerformanceEvidence[0]).toMatchObject({ eligible: false, sourceFactCount: 0 });
+    });
+
+    it('F2a: a coverage-gap current month projects at the OBSERVED rate, complete months at calendar pace', () => {
+      const base = {
+        asOfDate: '2026-07-18',
+        months: monthsThrough(6),
+        thresholds: { profitTierAThreshold: 250, profitTierBThreshold: 100, profitTierCThreshold: 0 },
+        minimumProjectionCoveredDays: 3,
+        currentProjectionGateMode: 'informational' as const,
+      };
+      const facts = [fact('2026-07-10', 5, 50), fact('2026-07-16', 5, 50)];
+      const partial = calculateMonthlyTierTrend({
+        ...base,
+        currentMonth: { coverageReason: 'coverage_discontinuous', coveredThroughDate: '2026-07-16', facts },
+      });
+      expect(partial).toMatchObject({
+        currentCoveredDays: 2, // observed fact days, never the 16 calendar-elapsed days
+        currentMonthUnits: '10.00000000', // month-to-date ACTUALS stay the raw observed sums
+        currentMonthProfit: '100.00000000',
+        projectedMonthlyUnits: '155.00000000', // 10 ÷ 2 observed days × 31 days in July
+        projectedMonthlyProfit: '1550.00000000',
+        currentProjectionConfidence: 'early', // 2 observed < minimum 3
+        currentProjectedState: 'ranked',
+        currentProjectedTier: 'A',
+      });
+      const complete = calculateMonthlyTierTrend({
+        ...base,
+        currentMonth: { coverageReason: 'eligible_complete_month', coveredThroughDate: '2026-07-16', facts },
+      });
+      expect(complete).toMatchObject({
+        currentCoveredDays: 16, // vouched zero days count for a complete month
+        projectedMonthlyUnits: '19.37500000', // 10 ÷ 16 elapsed days × 31
+        currentProjectionConfidence: 'trusted',
+      });
     });
   });
 });

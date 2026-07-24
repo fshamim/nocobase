@@ -705,6 +705,14 @@ export class EcobaseIndependentGoldReferenceVerifier {
           message: `Listing ${listingId} month ${monthStart} source facts do not match evidence.`,
         });
       }
+      // F2b mirror: a partial month's persisted contribution is month-rate normalized
+      // (observed total × days-in-month ÷ observed days) — reproduce the engine's exact
+      // operation order so fixed-scale comparison and baseline aggregation stay byte-identical.
+      if (month.reasonCode === 'eligible_partial_month' && facts.length > 0) {
+        const daysInMonth = Number(monthEnd.slice(8, 10));
+        units = units.mul(daysInMonth).div(facts.length);
+        profit = profit.mul(daysInMonth).div(facts.length);
+      }
       if (!sameDecimal(month.monthlyUnits, units)) {
         mismatches.push({
           code: 'MONTHLY_UNITS_MISMATCH',

@@ -52,7 +52,9 @@
         "value": null,
         "basis": null,
         "asOfDate": null,
-        "evidenceStatus": null
+        "evidenceStatus": null,
+        "confidence": null,
+        "observedDays": null
       },
       "supplier": {
         "id": null,
@@ -119,7 +121,9 @@
         "value": null,
         "basis": null,
         "asOfDate": null,
-        "evidenceStatus": null
+        "evidenceStatus": null,
+        "confidence": null,
+        "observedDays": null
       },
       "supplier": {
         "id": null,
@@ -197,7 +201,9 @@
         "value": null,
         "basis": null,
         "asOfDate": null,
-        "evidenceStatus": null
+        "evidenceStatus": null,
+        "confidence": null,
+        "observedDays": null
       },
       "supplier": {
         "id": null,
@@ -266,7 +272,9 @@
         "value": null,
         "basis": null,
         "asOfDate": null,
-        "evidenceStatus": null
+        "evidenceStatus": null,
+        "confidence": null,
+        "observedDays": null
       },
       "supplier": {
         "id": null,

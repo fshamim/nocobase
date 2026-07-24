@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest';
 import {
   deriveMoneyRisk,
   deriveReorderTiming,
+  deriveSourceFreshnessStatus,
   independentRecommendedOrderQty,
   resolveEffectiveVelocity,
   type CorrectedOperationalListingSnapshot,
@@ -471,5 +472,26 @@ describe('independentRecommendedOrderQty (T2: per-product targetCoverDays overri
     expect(
       independentRecommendedOrderQty(listingSnapshot({ futurePositionStock: null, targetCoverDays: 45 }), '2', true),
     ).toBeNull();
+  });
+});
+
+// F4: freshness anchors to the UN-month-restricted latest covered sales day, so month
+// boundaries never read no_coverage while data is fresh, and a dead feed alerts as delayed.
+describe('deriveSourceFreshnessStatus (F4)', () => {
+  it('month boundary: data covered through yesterday reads current, never no_coverage', () => {
+    expect(deriveSourceFreshnessStatus('2026-07-30', '2026-08-01')).toBe('current');
+  });
+
+  it('a long-dead feed reads delayed so the single source alert fires', () => {
+    expect(deriveSourceFreshnessStatus('2026-06-20', '2026-07-16')).toBe('delayed');
+  });
+
+  it('no_coverage strictly means the scope has no covered sales day at all', () => {
+    expect(deriveSourceFreshnessStatus(null, '2026-07-16')).toBe('no_coverage');
+  });
+
+  it('threshold: exactly 3 days behind stays current; 4 days flips to delayed', () => {
+    expect(deriveSourceFreshnessStatus('2026-07-13', '2026-07-16')).toBe('current');
+    expect(deriveSourceFreshnessStatus('2026-07-12', '2026-07-16')).toBe('delayed');
   });
 });

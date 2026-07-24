@@ -204,6 +204,7 @@ export default defineCollection({
     { name: 'rollingVelocityWindowStartDate', type: 'dateOnly', interface: 'date' },
     { name: 'rollingVelocityWindowEndDate', type: 'dateOnly', interface: 'date' },
     { name: 'rollingVelocityEvidenceStatus', type: 'string', interface: 'input', index: true },
+    { name: 'rollingVelocityCoveredDayCount', type: 'integer', interface: 'integer' },
     { name: 'inventoryDisposition', type: 'string', interface: 'input', index: true },
     { name: 'inventoryDispositionReasonCode', type: 'string', interface: 'input' },
     { name: 'replenishmentEligibility', type: 'string', interface: 'input', index: true },
@@ -279,6 +280,12 @@ export default defineCollection({
     { name: 'estimatedOrderCost', type: 'double', interface: 'number', uiSchema: { title: 'Estimated Order Cost' } },
     { name: 'salesVelocity', type: 'double', interface: 'number', uiSchema: { title: 'Sales Velocity' } },
     { name: 'salesVelocityBasis', type: 'string', interface: 'input', uiSchema: { title: 'Velocity Basis' } },
+    {
+      name: 'salesVelocityConfidence',
+      type: 'string',
+      interface: 'input',
+      uiSchema: { title: 'Velocity Confidence' },
+    },
     { name: 'salesVelocityStatus', type: 'string', interface: 'input', uiSchema: { title: 'Velocity Status' } },
     {
       name: 'salesVelocityWindowStart',

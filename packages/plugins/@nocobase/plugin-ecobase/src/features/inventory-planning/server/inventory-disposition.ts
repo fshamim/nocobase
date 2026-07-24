@@ -53,6 +53,13 @@ export interface InventoryDispositionInput {
 }
 
 export interface InventoryDispositionResult {
+  /**
+   * F5 clarification: echoes the SALES-EVIDENCE anchor (== `rollingVelocityWindowEndDate`, i.e.
+   * `salesEvidenceAsOfDate` when provided) — the latest covered sales day the velocity window
+   * ends on. It is NOT the freshness reference: inventory age (`inventoryAgeDays` /
+   * `inventoryFreshnessStatus`) is measured against the INPUT `asOfDate`, the freshest data day
+   * the caller holds.
+   */
   asOfDate: string;
   rollingVelocityWindowStartDate: string;
   rollingVelocityWindowEndDate: string;

@@ -109,6 +109,13 @@ export interface DashboardRowVelocity {
   asOfDate: string | null;
   /** Trusted-path authority: 'trusted_positive' | 'trusted_zero' | 'insufficient_evidence'. */
   evidenceStatus: string | null;
+  /**
+   * F1: 'high' | 'medium' | 'low' | 'none' | null (runs published before the column existed).
+   * Only a HIGH-confidence rolling_30 velocity is fully trusted; anything less is an estimate.
+   */
+  confidence: string | null;
+  /** F1: fact-carrying days observed in the trailing-30 window (the sparse-velocity divisor). */
+  observedDays: number | null;
 }
 
 /** T4 (R4): row-level assigned supplier + lead time (order-specific supplier stays on `order`). */

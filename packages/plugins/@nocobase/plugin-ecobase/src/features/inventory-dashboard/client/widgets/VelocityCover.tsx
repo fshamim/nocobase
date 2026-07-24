@@ -10,11 +10,14 @@
 /**
  * W3 VelocityCover (T7, R3): rate + cover days + OOS date in one cluster.
  * A fallback velocity basis (anything other than 'rolling_30') wears the ghost
- * "estimate — from <MMM>" pill; a null basis renders an em-dash and invents
- * NOTHING. The OOS date turns danger-red when it is 14 days away or less.
+ * "estimate — from <MMM>" pill; a SPARSE rolling_30 (confidence below high, F1)
+ * wears the same ghost affordance stating its observed-day count, so a 1-day
+ * extrapolation can never render identically to a dense 30/30 velocity; a null
+ * basis renders an em-dash and invents NOTHING. The OOS date turns danger-red
+ * when it is 14 days away or less.
  */
 
-import { Tag, Typography } from 'antd';
+import { Tag, Tooltip, Typography } from 'antd';
 import React from 'react';
 import type { DashboardRow } from '../../server/contract';
 import { TEXT } from '../dashboard-text';
@@ -24,6 +27,15 @@ const OOS_DANGER_WINDOW_DAYS = 14;
 
 export function isFallbackVelocityBasis(basis: string | null): boolean {
   return basis !== null && basis !== 'rolling_30' && basis !== 'none';
+}
+
+/**
+ * F1: a rolling_30 velocity is fully trusted only at HIGH confidence. A null/absent confidence
+ * (runs published before the column existed) stays trusted — those runs only ever granted
+ * rolling_30 to dense fully-covered windows.
+ */
+export function isSparseRollingVelocity(basis: string | null, confidence: string | null | undefined): boolean {
+  return basis === 'rolling_30' && confidence !== null && confidence !== undefined && confidence !== 'high';
 }
 
 export function VelocityCover({ row, t, now }: { row: DashboardRow; t: Translate; now?: Date }) {
@@ -36,6 +48,10 @@ export function VelocityCover({ row, t, now }: { row: DashboardRow; t: Translate
   const oosIn = daysFromNow(oosDate, now);
   const oosHot = oosIn !== null && oosIn <= OOS_DANGER_WINDOW_DAYS;
   const fallback = isFallbackVelocityBasis(velocity.basis);
+  const sparseRolling = isSparseRollingVelocity(velocity.basis, velocity.confidence);
+  const estimatePillText = sparseRolling
+    ? `${t(TEXT.estimateObservedPrefix)} ${velocity.observedDays ?? EM_DASH} ${t(TEXT.observedOf30DaysSuffix)}`
+    : `${t(TEXT.estimateFromPrefix)} ${formatMonth(velocity.asOfDate)}`;
   return (
     <span style={{ fontVariantNumeric: 'tabular-nums' }}>
       <Typography.Text strong>{velocity.value.toFixed(1)}</Typography.Text>
@@ -60,13 +76,21 @@ export function VelocityCover({ row, t, now }: { row: DashboardRow; t: Translate
           </>
         ) : null}
       </Typography.Text>
-      {fallback ? (
-        <Tag
-          bordered
-          style={{ marginTop: 2, borderRadius: 999, borderStyle: 'dashed', fontSize: 10.5, color: 'rgba(0,0,0,0.45)' }}
-        >
-          {`${t(TEXT.estimateFromPrefix)} ${formatMonth(velocity.asOfDate)}`}
-        </Tag>
+      {fallback || sparseRolling ? (
+        <Tooltip title={estimatePillText}>
+          <Tag
+            bordered
+            style={{
+              marginTop: 2,
+              borderRadius: 999,
+              borderStyle: 'dashed',
+              fontSize: 10.5,
+              color: 'rgba(0,0,0,0.45)',
+            }}
+          >
+            {estimatePillText}
+          </Tag>
+        </Tooltip>
       ) : null}
     </span>
   );

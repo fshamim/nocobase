@@ -83,7 +83,9 @@
       "value": 8,
       "basis": "rolling_30",
       "asOfDate": "2026-07-21",
-      "evidenceStatus": "trusted_positive"
+      "evidenceStatus": "trusted_positive",
+      "confidence": null,
+      "observedDays": null
     },
     "supplier": {
       "id": "supplier-lead-1",

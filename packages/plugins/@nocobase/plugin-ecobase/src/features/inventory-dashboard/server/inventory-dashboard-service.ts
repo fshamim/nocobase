@@ -1115,6 +1115,8 @@ export class EcobaseInventoryDashboardService {
         basis: asString(raw.salesVelocityBasis),
         asOfDate: asString(raw.salesVelocityAsOfDate),
         evidenceStatus: asString(raw.rollingVelocityEvidenceStatus),
+        confidence: asString(raw.salesVelocityConfidence),
+        observedDays: asNumber(raw.rollingVelocityCoveredDayCount),
       },
       supplier: {
         id: asString(raw.supplierId),

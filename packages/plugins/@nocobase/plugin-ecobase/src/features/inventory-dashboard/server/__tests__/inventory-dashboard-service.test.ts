@@ -270,6 +270,38 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
     expect(quiet.salesDataDelayed).toBe(false);
   });
 
+  it('(f1) serves velocity confidence and observed-day count verbatim so sparse rolling reads as an estimate', async () => {
+    const local = new RecordingDatabase();
+    local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).rows.push({
+      id: PUBLISHED_RUN_ID,
+      status: 'published',
+      calculationDate: FIXED_TODAY,
+      publishedAt: `${FIXED_TODAY}T00:00:00.000Z`,
+    });
+    local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).rows.push({
+      id: 'sparse-velocity',
+      naturalKey: 'sparse-velocity',
+      refreshRunId: PUBLISHED_RUN_ID,
+      primaryActionPane: 'supplyAction',
+      companyProductFamilyId: 'family-sparse-velocity',
+      baselineTier: 'A',
+      salesVelocity: 2,
+      salesVelocityBasis: 'rolling_30',
+      salesVelocityAsOfDate: '2026-07-19',
+      rollingVelocityEvidenceStatus: 'trusted_positive',
+      salesVelocityConfidence: 'low',
+      rollingVelocityCoveredDayCount: 3,
+    });
+    const pane = await service(local).pane({ pane: 'supplyAction', runId: PUBLISHED_RUN_ID, page: 1, pageSize: 10 });
+    if (isRunSuperseded(pane)) throw new Error('Unexpected superseded pane response.');
+    expect(pane.rows[0].velocity).toMatchObject({
+      value: 2,
+      basis: 'rolling_30',
+      confidence: 'low',
+      observedDays: 3,
+    });
+  });
+
   it('(e) sorts P1 by latestSafeReorderDate with nulls last, both directions; pagination is stable', async () => {
     const local = new RecordingDatabase();
     local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).rows.push({
@@ -465,7 +497,14 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
     expect(enriched?.positionEstimatedOosDate).toEqual(expect.any(String));
     // Nulls stay null on a row without the widened columns (never coerced to 0).
     const bare = response.rows.find((row) => row.identity.asin === 'B0011B');
-    expect(bare?.velocity).toEqual({ value: null, basis: null, asOfDate: null, evidenceStatus: null });
+    expect(bare?.velocity).toEqual({
+      value: null,
+      basis: null,
+      asOfDate: null,
+      evidenceStatus: null,
+      confidence: null,
+      observedDays: null,
+    });
     expect(bare?.stock.sellableStock).toBeNull();
     expect(bare?.stock.futurePositionStock).toBeNull();
     expect(bare?.profit.perUnit).toBeNull();

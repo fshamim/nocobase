@@ -638,8 +638,10 @@ describe('corrected candidate public refresh seam', () => {
           eligible: true,
           reasonCode: 'eligible_partial_month',
           sourceFactCount: 1,
-          monthlyUnits: '10.00000000',
-          monthlyProfit: '300.00000000',
+          // F2b: month-rate normalized — 10 units / 1 observed day × 28 days in February 2026
+          // (engine AND independent verifier reproduce this identically; the verify() above gates it).
+          monthlyUnits: '280.00000000',
+          monthlyProfit: '8400.00000000',
         }),
       ]),
     );
@@ -746,6 +748,9 @@ describe('corrected candidate public refresh seam', () => {
       rollingVelocityWindowEndDate: '2026-07-16',
       rollingVelocityEvidenceStatus: 'trusted_positive',
       salesVelocity: '0.33333333', // 10 units over the full 30-day covered window
+      // F1: confidence + observed-day count persist to gold (complete coverage ⇒ high).
+      salesVelocityConfidence: 'high',
+      rollingVelocityCoveredDayCount: 1,
     });
     await expect(new EcobaseIndependentGoldReferenceVerifier(db).verify(String(run.id))).resolves.toMatchObject({
       valid: true,
@@ -778,6 +783,9 @@ describe('corrected candidate public refresh seam', () => {
       salesVelocity: '0.33333333',
       salesVelocityBasis: 'last_closed_month',
       salesVelocityAsOfDate: '2026-06-30',
+      // F1: the closed-month rung persists its fixed medium grade; zero observed rolling days.
+      salesVelocityConfidence: 'medium',
+      rollingVelocityCoveredDayCount: 0,
       // D2 membership: estimated velocity substitutes for the missing rolling evidence.
       replenishmentEligibility: 'eligible',
       primaryActionPane: 'supplyAction',
@@ -818,9 +826,33 @@ describe('corrected candidate public refresh seam', () => {
       inventoryDisposition: 'none',
       salesVelocity: '0.00000000',
       salesVelocityBasis: 'rolling_30',
+      // F1: the sparse rolling grade persists — the dashboard renders this as an estimate.
+      salesVelocityConfidence: 'low',
+      rollingVelocityCoveredDayCount: 1,
       replenishmentEligibility: 'eligible',
       primaryActionPane: 'healthyInventory',
       primaryActionReasonCode: 'sufficient_stock',
+    });
+  });
+
+  it('F4: a dead feed reads delayed (never a quiet no_coverage) while D1 anchoring keeps its last velocity', async () => {
+    const db = fixture();
+    // Feed dead since 06-20 (26 days before the 07-16 calculation date): the current month has no
+    // coverage at all, but the SCOPE does — freshness must alert as delayed, not hide behind
+    // no_coverage. The D1 anchor still lands the rolling window on the last covered 30 days
+    // (05-22..06-20, fully covered) so the June fact keeps a trusted rolling velocity.
+    const interval = db.rows(ECOBASE_COLLECTIONS.sourceCoverageIntervals)[0];
+    interval.coveredEndDate = '2026-06-20';
+
+    await refreshThroughPublicAction(db, 'f4-dead-feed');
+
+    expect(db.goldRows.rows[0]).toMatchObject({
+      sourceFreshnessStatus: 'delayed',
+      // sourceAsOfDate keeps its current-month meaning (no covered day THIS month ⇒ null).
+      sourceAsOfDate: null,
+      salesVelocityBasis: 'rolling_30',
+      salesVelocityAsOfDate: '2026-06-20',
+      rollingVelocityWindowEndDate: '2026-06-20',
     });
   });
 

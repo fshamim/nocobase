@@ -119,6 +119,8 @@ describe('T7 widgets', () => {
             basis: 'last_closed_month',
             asOfDate: '2026-05-31',
             evidenceStatus: 'insufficient_evidence',
+            confidence: 'medium',
+            observedDays: 0,
           },
         })}
         t={t}
@@ -127,7 +129,16 @@ describe('T7 widgets', () => {
     expect(fallback.getByText(`${TEXT.estimateFromPrefix} May`)).toBeTruthy();
     const none = render(
       <VelocityCover
-        row={rowWith({ velocity: { value: null, basis: null, asOfDate: null, evidenceStatus: null } })}
+        row={rowWith({
+          velocity: {
+            value: null,
+            basis: null,
+            asOfDate: null,
+            evidenceStatus: null,
+            confidence: null,
+            observedDays: null,
+          },
+        })}
         t={t}
       />,
     );
@@ -137,6 +148,38 @@ describe('T7 widgets', () => {
     const trusted = render(<VelocityCover row={ENRICHED} t={t} />);
     expect(within(trusted.container).queryByText(new RegExp(TEXT.estimateFromPrefix))).toBeNull();
     expect(within(trusted.container).getByText('8.0')).toBeTruthy();
+  });
+
+  it('VelocityCover (F1): sparse rolling_30 wears the estimate pill stating its observed-day count', () => {
+    const velocity = {
+      value: 2,
+      basis: 'rolling_30',
+      asOfDate: '2026-07-16',
+      evidenceStatus: 'trusted_positive' as const,
+    };
+    const sparse = render(
+      <VelocityCover row={rowWith({ velocity: { ...velocity, confidence: 'low', observedDays: 1 } })} t={t} />,
+    );
+    expect(
+      sparse.getAllByText(`${TEXT.estimateObservedPrefix} 1 ${TEXT.observedOf30DaysSuffix}`).length,
+    ).toBeGreaterThan(0);
+    const medium = render(
+      <VelocityCover row={rowWith({ velocity: { ...velocity, confidence: 'medium', observedDays: 12 } })} t={t} />,
+    );
+    expect(
+      medium.getAllByText(`${TEXT.estimateObservedPrefix} 12 ${TEXT.observedOf30DaysSuffix}`).length,
+    ).toBeGreaterThan(0);
+    // High-confidence rolling stays fully trusted — no estimate affordance at all.
+    const high = render(
+      <VelocityCover row={rowWith({ velocity: { ...velocity, confidence: 'high', observedDays: 30 } })} t={t} />,
+    );
+    expect(within(high.container).queryByText(new RegExp(TEXT.observedOf30DaysSuffix))).toBeNull();
+    expect(within(high.container).queryByText(new RegExp(TEXT.estimateFromPrefix))).toBeNull();
+    // Runs published before the confidence column existed (null) keep the old trusted rendering.
+    const legacy = render(
+      <VelocityCover row={rowWith({ velocity: { ...velocity, confidence: null, observedDays: null } })} t={t} />,
+    );
+    expect(within(legacy.container).queryByText(new RegExp(TEXT.observedOf30DaysSuffix))).toBeNull();
   });
 
   it('SupplierLeadTime: settings-driven buffer, freshness dot, ghost age pill only when not fresh', () => {

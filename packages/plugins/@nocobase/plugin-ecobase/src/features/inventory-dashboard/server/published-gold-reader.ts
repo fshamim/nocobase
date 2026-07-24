@@ -125,6 +125,9 @@ const GOLD_ROW_FIELDS = [
   'salesVelocityBasis',
   'salesVelocityAsOfDate',
   'rollingVelocityEvidenceStatus',
+  // F1: velocity confidence + observed-day count so sparse extrapolations render as estimates.
+  'salesVelocityConfidence',
+  'rollingVelocityCoveredDayCount',
   // D3: quiet source-freshness surfacing in the header ("Sales data through <date>").
   'sourceAsOfDate',
   'sourceFreshnessStatus',
