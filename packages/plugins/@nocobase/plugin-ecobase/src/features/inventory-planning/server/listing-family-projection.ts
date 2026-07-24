@@ -17,8 +17,13 @@ import {
 import type { CurrentProjectionGateMode } from './monthly-performance';
 import type { ReplenishmentDecisionResult } from './replenishment-decision';
 
-export const CORRECTED_TIER_RULE_VERSION = 'individual_dynamic_6m_profit_trend_v1';
-export const CORRECTED_ALGORITHM_CONTRACT_VERSION = 'individual_monthly_profit_performance_v1';
+// v2 (Batch D, 2026-07): sparse-tolerant evidence model — partial months rank at month-rate,
+// data-as-of anchored rolling windows with graded confidence, observed-day divisors, reversed
+// velocity-gap routing, confidence-gated blocking dispositions. Bumped so run identity
+// (candidateInputDigest → derived idempotency key) can never reuse a v1 run for identical
+// silver inputs after the behavior change.
+export const CORRECTED_TIER_RULE_VERSION = 'individual_dynamic_6m_profit_trend_v2';
+export const CORRECTED_ALGORITHM_CONTRACT_VERSION = 'individual_monthly_profit_performance_v2';
 export const CORRECTED_CANONICAL_SERIALIZER_VERSION = 'canonical_json_schema_normalized_bytewise_v2';
 export const CORRECTED_CANDIDATE_INPUT_DIGEST_VERSION = 'candidate_input_digest_v1';
 export const CORRECTED_SOURCE_COVERAGE_DIGEST_VERSION = 'source_coverage_digest_v1';

@@ -12,7 +12,10 @@ import Decimal from 'decimal.js';
 
 const PerformanceDecimal = Decimal.clone({ precision: 40, rounding: Decimal.ROUND_HALF_EVEN });
 
-export const INDIVIDUAL_MONTHLY_PERFORMANCE_ALGORITHM_VERSION = 'individual_monthly_profit_performance_v1';
+// v2: sparse-tolerant monthly evidence (partial-month eligibility at month-rate, observed-day
+// divisors, completeness-graded confidence, corrupt-month exclusion) — kept in lockstep with the
+// run-level CORRECTED_ALGORITHM_CONTRACT_VERSION so row provenance matches run provenance.
+export const INDIVIDUAL_MONTHLY_PERFORMANCE_ALGORITHM_VERSION = 'individual_monthly_profit_performance_v2';
 export const MONTHLY_PERFORMANCE_CANONICAL_SERIALIZER_VERSION = 'canonical_json_decimal8_v1';
 export const MONTHLY_PERFORMANCE_EVIDENCE_DIGEST_VERSION = 'monthly_performance_evidence_digest_v1';
 

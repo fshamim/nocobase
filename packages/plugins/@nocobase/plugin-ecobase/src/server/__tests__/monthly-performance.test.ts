@@ -199,7 +199,9 @@ describe('individual monthly profit performance', () => {
       result.exactValues.averageMonthlyUnits as string,
     );
     expect(weightedIdentity.eq(result.exactValues.baselineTierScore as string)).toBe(true);
-    expect(result.evidenceDigest).toBe('c791be8f546929d0356c2ea9fec38d935ea8e59de6870d1dd12d33a21c9177d0');
+    // Deterministic digest pin — the canonical evidence embeds the algorithm version, so this
+    // hash moves exactly when INDIVIDUAL_MONTHLY_PERFORMANCE_ALGORITHM_VERSION bumps (now v2).
+    expect(result.evidenceDigest).toBe('a7fb7d590288f8cfdcc18ad9810dba2c2e528789a9624324b9b313a73a17bd2d');
     expect(
       calculateMonthlyPerformance({
         asOfDate: '2026-07-18',

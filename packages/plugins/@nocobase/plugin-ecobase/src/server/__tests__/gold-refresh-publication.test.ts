@@ -494,6 +494,61 @@ describe('Gold refresh publication control', () => {
     expect([first.reused, second.reused].sort()).toEqual([false, true]);
   });
 
+  it('a bumped algorithm contract version derives a NEW run identity for identical silver inputs', async () => {
+    // Batch D regression: the engine behavior changed while silver inputs stayed identical, and
+    // the pre-bump refreshAndPublish reused the old published run. The derived idempotency key
+    // must incorporate the algorithm contract version so a version bump always computes fresh.
+    const db = new MemoryDatabase();
+    const service = new EcobaseGoldRefreshRunService(db);
+    let materializationCount = 0;
+    const execute = (algorithmContractVersion: string) =>
+      service.execute({
+        calculationDate: '2026-07-15',
+        // No explicit idempotency key: exercise the derived `inventory-planning:<digest>` path.
+        candidateInputDigests: {
+          ...testCandidateInputDigests('unchanged-silver'),
+          algorithmContractVersion,
+        },
+        request: { calculationDate: '2026-07-15', algorithmContractVersion },
+        materialize: async ({ runId }) => {
+          materializationCount += 1;
+          await db.gold.create({
+            values: {
+              id: `${runId}:row`,
+              refreshRunId: runId,
+              naturalKey: `${runId}:row`,
+              companyProductId: 'row',
+              company: 'ACME',
+              asin: 'B000ROW',
+              calculationDate: '2026-07-15',
+              ...validStockContract(),
+            },
+          });
+          return {
+            calculationDate: '2026-07-15',
+            rowCount: 1,
+            created: 1,
+            updated: 0,
+            lastRefreshedAt: '2026-07-15T00:00:00.000Z',
+          };
+        },
+      });
+
+    type ExecuteResult = { reused: boolean; run: { id: string } };
+    const v1 = (await execute('individual_monthly_profit_performance_v1')) as ExecuteResult;
+    const v2 = (await execute(CORRECTED_ALGORITHM_CONTRACT_VERSION)) as ExecuteResult;
+
+    expect(materializationCount).toBe(2);
+    expect(v1.reused).toBe(false);
+    expect(v2.reused).toBe(false);
+    expect(v2.run.id).not.toBe(v1.run.id);
+    expect(db.runs.rows).toHaveLength(2);
+    // Same version + same inputs still reuses — the identity change comes ONLY from the bump.
+    const repeat = (await execute(CORRECTED_ALGORITHM_CONTRACT_VERSION)) as ExecuteResult;
+    expect(repeat.reused).toBe(true);
+    expect(materializationCount).toBe(2);
+  });
+
   it('keeps the published pointer unchanged when a run fails and rejects failed publication', async () => {
     const db = new MemoryDatabase();
     const published = await buildRun(db, { date: '2026-07-14', key: 'current', publish: true });
@@ -679,9 +734,9 @@ describe('Gold refresh publication control', () => {
         sourceInputDigest: digest('source'),
         coverageInputDigest: digest('coverage'),
         settingsDigest: digest('settings'),
-        algorithmContractVersion: 'individual_monthly_profit_performance_v1',
+        algorithmContractVersion: 'individual_monthly_profit_performance_v2',
       },
-      request: { calculationDate: '2026-07-18', ruleVersion: 'individual_dynamic_6m_profit_trend_v1' },
+      request: { calculationDate: '2026-07-18', ruleVersion: 'individual_dynamic_6m_profit_trend_v2' },
       materialize: async ({ runId, candidateInputDigest }) => {
         await db.gold.create({
           values: {
@@ -701,8 +756,8 @@ describe('Gold refresh publication control', () => {
           created: 1,
           updated: 0,
           lastRefreshedAt: '2026-07-18T00:00:00.000Z',
-          ruleVersion: 'individual_dynamic_6m_profit_trend_v1',
-          algorithmContractVersion: 'individual_monthly_profit_performance_v1',
+          ruleVersion: 'individual_dynamic_6m_profit_trend_v2',
+          algorithmContractVersion: 'individual_monthly_profit_performance_v2',
           currentProjectionGateMode: 'informational',
           resolvedPlanningSettingsDigest: digest('settings'),
           sourceCoverageDigest: digest('coverage'),
@@ -723,8 +778,8 @@ describe('Gold refresh publication control', () => {
     });
 
     expect(result.run).toMatchObject({
-      ruleVersion: 'individual_dynamic_6m_profit_trend_v1',
-      algorithmContractVersion: 'individual_monthly_profit_performance_v1',
+      ruleVersion: 'individual_dynamic_6m_profit_trend_v2',
+      algorithmContractVersion: 'individual_monthly_profit_performance_v2',
       currentProjectionGateMode: 'informational',
       resolvedPlanningSettingsDigest: digest('settings'),
       sourceCoverageDigest: digest('coverage'),

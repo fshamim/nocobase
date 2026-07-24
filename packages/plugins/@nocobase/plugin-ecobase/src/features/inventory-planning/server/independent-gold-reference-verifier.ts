@@ -22,8 +22,10 @@ import { EcobaseInventoryPlanningGoldAccess } from './inventory-planning-gold-ac
 const ReferenceDecimal = Decimal.clone({ precision: 40, rounding: Decimal.ROUND_HALF_EVEN });
 
 const REFERENCE_VERIFIER_VERSION = 'independent_gold_reference_v1';
-const CORRECTED_RULE_VERSION = 'individual_dynamic_6m_profit_trend_v1';
-const CORRECTED_ALGORITHM_VERSION = 'individual_monthly_profit_performance_v1';
+// v2 pins (Batch D sparse-tolerant contract) — must track the engine constants in
+// listing-family-projection.ts or every fresh publication fails verification.
+const CORRECTED_RULE_VERSION = 'individual_dynamic_6m_profit_trend_v2';
+const CORRECTED_ALGORITHM_VERSION = 'individual_monthly_profit_performance_v2';
 const CORRECTED_SERIALIZER_VERSION = 'canonical_json_schema_normalized_bytewise_v2';
 const CORRECTED_LISTING_DIGEST_VERSION = 'listing_performance_digest_v2';
 const CORRECTED_FAMILY_DIGEST_VERSION = 'family_action_digest_v2';
