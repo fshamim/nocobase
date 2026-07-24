@@ -23,7 +23,10 @@ import { randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import type { EcobaseDatabase } from '../../source-import/server/import-service';
 import { toPlainRecord } from '../../source-import/server/import-service';
-import { EcobaseMedallionOrderService } from '../../semantic-model/server/medallion-order-service';
+import {
+  EcobaseMedallionOrderService,
+  ORDER_REF_PREFIX_BY_COMPANY_KEY,
+} from '../../semantic-model/server/medallion-order-service';
 import { normalizeCompanyKey } from '../../semantic-model/server/medallion-identity-service';
 import { EcobaseSupplierOrderService } from '../../supplier-management/server/supplier-order-service';
 import { amazonReceivedQty } from '../../supplier-management/server/silver-supplier-order-read-model';
@@ -128,7 +131,7 @@ export class EcobaseOrderWorkbenchService {
     return {
       companyId,
       companyName: asString(company.name),
-      companyKey: normalizeCompanyKey(asString(company.companyKey) ?? ''),
+      companyKey: orderRefPrefix(asString(company.companyKey)),
       orderDate,
       suggestedOrderRef: suggested.orderRef,
       product: {
@@ -168,7 +171,7 @@ export class EcobaseOrderWorkbenchService {
     await this.requireSupplierForCompany(supplierId, companyId);
 
     const company = await this.findRecord(ECOBASE_COLLECTIONS.silverCompanies, companyId);
-    const companyKey = normalizeCompanyKey(asString(company.companyKey) ?? '');
+    const companyKey = orderRefPrefix(asString(company.companyKey));
     const orderDate = normalizeDateOnly(input.orderDate) ?? todayIso();
 
     // Ref: operator value if given, else generate the next free canonical letter.
@@ -371,7 +374,7 @@ export class EcobaseOrderWorkbenchService {
         throw new OrderWorkbenchError(`Order reference ${orderRef} is already used for this company.`, 409);
       }
       const company = await this.findRecord(ECOBASE_COLLECTIONS.silverCompanies, companyId);
-      const companyKey = normalizeCompanyKey(asString(company.companyKey) ?? '');
+      const companyKey = orderRefPrefix(asString(company.companyKey));
       const orderDate = normalizeDateOnly(params.orderDate) ?? asString(order.orderDate) ?? todayIso();
       values.orderRef = orderRef;
       values.dailySequenceLetter = trailingSequenceLetter(orderRef, companyKey, orderDate);
@@ -801,6 +804,12 @@ function asNumber(value: unknown): number | undefined {
     return Number.isFinite(parsed) ? parsed : undefined;
   }
   return undefined;
+}
+
+/** Sheet-style compact ref prefix (EF/MX/RH/SS) for a company key. */
+function orderRefPrefix(companyKey: string | undefined): string {
+  const normalized = normalizeCompanyKey(companyKey ?? '');
+  return ORDER_REF_PREFIX_BY_COMPANY_KEY[normalized] ?? normalized;
 }
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

@@ -12,6 +12,7 @@ import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import type { EcobaseDatabase, EcobaseRepository } from '../../source-import/server/import-service';
 import { toPlainRecord } from '../../source-import/server/import-service';
 import { normalizeCompanyKey } from './medallion-identity-service';
+import { FOUR_COMPANY_MIGRATION_PROFILE } from '../../source-import/server/four-company-migration-profile';
 
 const SEQUENCE_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 
@@ -63,12 +64,18 @@ export interface CreateNormalInvoiceParams {
   remarks?: string;
 }
 
+/** Sheet-style compact order-ref prefix (EF/MX/RH/SS) per company key; falls back to the raw key. */
+export const ORDER_REF_PREFIX_BY_COMPANY_KEY: Record<string, string> = Object.fromEntries(
+  Object.entries(FOUR_COMPANY_MIGRATION_PROFILE.orderPrefixCompanyKeys).map(([prefix, key]) => [key, prefix]),
+);
+
 export class EcobaseMedallionOrderService {
   constructor(private db: EcobaseDatabase) {}
 
   async generateOrderRef(companyId: string, orderDate: string) {
     const company = await this.requireRecord(ECOBASE_COLLECTIONS.silverCompanies, companyId, 'company');
-    const companyKey = normalizeCompanyKey(String(toPlainRecord(company).companyKey ?? ''));
+    const rawCompanyKey = normalizeCompanyKey(String(toPlainRecord(company).companyKey ?? ''));
+    const companyKey = ORDER_REF_PREFIX_BY_COMPANY_KEY[rawCompanyKey] ?? rawCompanyKey;
     const date = normalizeDate(orderDate, 'orderDate');
     const used = new Set(
       (await this.repo(ECOBASE_COLLECTIONS.silverOrders).find({ filter: { companyId, orderDate: date } }))
