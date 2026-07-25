@@ -26,7 +26,10 @@ export type PlanningSettingKey =
   | 'defaultSupplierLeadTimeDays'
   | 'fbaReceivingBufferDays'
   | 'followUpThresholdHours'
-  | 'operatorWritePublishDebounceSeconds';
+  | 'operatorWritePublishDebounceSeconds'
+  | 'activeOrderFollowUpDays'
+  | 'prepIdleDays'
+  | 'inboundOverdueDays';
 
 type ProfitTierSettingKey = keyof ProfitTierThresholds;
 type NumberSettingKey = PlanningSettingKey | ProfitTierSettingKey;
@@ -82,6 +85,9 @@ const SETTING_KEYS: PlanningSettingKey[] = [
   'fbaReceivingBufferDays',
   'followUpThresholdHours',
   'operatorWritePublishDebounceSeconds',
+  'activeOrderFollowUpDays',
+  'prepIdleDays',
+  'inboundOverdueDays',
 ];
 
 const PROFIT_TIER_SETTING_KEYS: ProfitTierSettingKey[] = [
@@ -111,6 +117,12 @@ export const DEFAULT_PLANNING_SETTINGS: Record<PlanningSettingKey, number> = {
   fbaReceivingBufferDays: 7,
   followUpThresholdHours: 48,
   operatorWritePublishDebounceSeconds: 45,
+  // Order-pane attention thresholds (T3): Active orders with no activity for
+  // longer than this → follow-up; In-prep idle beyond this → prep_idle; Inbound
+  // in-pane longer than this → inbound_overdue.
+  activeOrderFollowUpDays: 2,
+  prepIdleDays: 7,
+  inboundOverdueDays: 40,
 };
 
 export const DEFAULT_PLANNING_FEATURE_FLAGS: Record<PlanningFeatureFlagKey, boolean> = {
@@ -153,6 +165,9 @@ const SETTING_LABELS: Record<NumberSettingKey, string> = {
   fbaReceivingBufferDays: 'FBA receiving buffer days',
   followUpThresholdHours: 'Follow-up threshold hours',
   operatorWritePublishDebounceSeconds: 'Operator-write publish debounce seconds',
+  activeOrderFollowUpDays: 'Active order follow-up days',
+  prepIdleDays: 'Prep idle days',
+  inboundOverdueDays: 'Inbound overdue days',
   profitTierAThreshold: 'Profit tier A threshold',
   profitTierBThreshold: 'Profit tier B threshold',
   profitTierCThreshold: 'Profit tier C threshold',
@@ -306,6 +321,10 @@ function normalize(row: PlainRecord): EcobasePlanningSettings {
     operatorWritePublishDebounceSeconds:
       positiveInteger(row.operatorWritePublishDebounceSeconds, 'operatorWritePublishDebounceSeconds') ??
       defaults.operatorWritePublishDebounceSeconds,
+    activeOrderFollowUpDays:
+      positiveInteger(row.activeOrderFollowUpDays, 'activeOrderFollowUpDays') ?? defaults.activeOrderFollowUpDays,
+    prepIdleDays: positiveInteger(row.prepIdleDays, 'prepIdleDays') ?? defaults.prepIdleDays,
+    inboundOverdueDays: positiveInteger(row.inboundOverdueDays, 'inboundOverdueDays') ?? defaults.inboundOverdueDays,
     enableCurrentOrderCycleSelection: asBoolean(
       row.enableCurrentOrderCycleSelection,
       defaults.enableCurrentOrderCycleSelection,

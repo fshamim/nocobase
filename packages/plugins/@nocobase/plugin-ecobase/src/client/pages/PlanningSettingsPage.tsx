@@ -22,7 +22,10 @@ type PlanningSettingKey =
   | 'leadTimeFreshnessDays'
   | 'purchasedPipelineGraceDays'
   | 'defaultSupplierLeadTimeDays'
-  | 'fbaReceivingBufferDays';
+  | 'fbaReceivingBufferDays'
+  | 'activeOrderFollowUpDays'
+  | 'prepIdleDays'
+  | 'inboundOverdueDays';
 
 type PlanningFeatureFlagKey = 'enableCurrentOrderCycleSelection';
 type ProfitTierSettingKey = 'profitTierAThreshold' | 'profitTierBThreshold' | 'profitTierCThreshold';
@@ -42,6 +45,9 @@ const SETTING_KEYS: PlanningSettingKey[] = [
   'purchasedPipelineGraceDays',
   'defaultSupplierLeadTimeDays',
   'fbaReceivingBufferDays',
+  'activeOrderFollowUpDays',
+  'prepIdleDays',
+  'inboundOverdueDays',
 ];
 
 const FEATURE_FLAG_KEYS: PlanningFeatureFlagKey[] = ['enableCurrentOrderCycleSelection'];
@@ -113,6 +119,24 @@ const SETTING_HELP: Record<NumberSettingKey, { label: string; meaning: string; e
     meaning: 'Expected Amazon receiving time added after supplier lead time; it never closes an order.',
     example: 'Order date + 30-day lead time + 7-day receiving buffer produces the expected arrival date.',
     usedBy: 'Expected-arrival projection and pipeline timing.',
+  },
+  activeOrderFollowUpDays: {
+    label: 'Active order follow-up days',
+    meaning: 'How long an active order can go without any activity before it is flagged for supplier follow-up.',
+    example: 'With 2 days, an active order whose last note is 3 days old shows a follow-up alert.',
+    usedBy: 'Order panes: Active orders attention alerts.',
+  },
+  prepIdleDays: {
+    label: 'Prep idle days',
+    meaning: 'How long an order can sit in its current prep status before it is flagged as idle at the prep center.',
+    example: 'With 7 days, an order 9 days in the same prep status shows a prep-idle alert.',
+    usedBy: 'Order panes: In-prep monitoring attention alerts.',
+  },
+  inboundOverdueDays: {
+    label: 'Inbound overdue days',
+    meaning: 'How long an order can stay in inbound monitoring before it is flagged as overdue to check.',
+    example: 'With 40 days, an order 44 days in the inbound pane shows an inbound-overdue alert.',
+    usedBy: 'Order panes: Inbound monitoring attention alerts.',
   },
   profitTierAThreshold: {
     label: 'Profit tier A threshold',
