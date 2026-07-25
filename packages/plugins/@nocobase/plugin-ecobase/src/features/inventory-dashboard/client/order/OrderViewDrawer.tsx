@@ -15,7 +15,7 @@
  * refetches getOrderDetail after each mutation and reports success upward.
  */
 
-import { App, Button, Drawer, Modal, Radio, Space, Spin, Typography } from 'antd';
+import { App, Button, Modal, Radio, Space, Spin, Typography } from 'antd';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { TEXT } from '../dashboard-text';
 import { EM_DASH, formatDate, formatMoney, type Translate } from '../format';
@@ -171,12 +171,15 @@ export function OrderViewDrawer(props: OrderViewDrawerProps) {
   const linesTotalCost = lines.reduce((sum, line) => sum + (line.expectedCost ?? 0), 0);
 
   return (
-    <Drawer
+    <Modal
       open={open}
-      onClose={onClose}
-      width={720}
+      onCancel={onClose}
+      width={880}
       destroyOnClose
+      footer={null}
       title={header ? header.orderRef ?? EM_DASH : t(TEXT.colOrder)}
+      style={{ top: 32 }}
+      styles={{ body: { maxHeight: 'calc(100vh - 160px)', overflowY: 'auto' } }}
     >
       <div aria-label={t(TEXT.colOrder)}>
         {loading && !detail ? (
@@ -462,7 +465,7 @@ export function OrderViewDrawer(props: OrderViewDrawerProps) {
           />
         </>
       ) : null}
-    </Drawer>
+    </Modal>
   );
 }
 

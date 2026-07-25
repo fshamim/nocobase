@@ -1442,17 +1442,29 @@ function normalizeShippingId(value: unknown): string | null {
 function normalizeLabelFilesLink(value: unknown): string | null {
   const text = typeof value === 'string' ? value.trim() : '';
   if (!text) return null;
-  if (text.length > 2048) throw new OrderWorkbenchError('Labels link must be 2048 characters or fewer.');
-  let url: URL;
-  try {
-    url = new URL(text);
-  } catch {
-    throw new OrderWorkbenchError('Labels link must be a valid http(s) URL.');
+  if (text.length > 4096) throw new OrderWorkbenchError('Labels links must be 4096 characters or fewer.');
+  // The prep team posts one or more label-file links (they live in chat) — one per
+  // line. Every non-empty line must be a valid http(s) URL.
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  for (const line of lines) {
+    let url: URL;
+    try {
+      url = new URL(line);
+    } catch {
+      throw new OrderWorkbenchError(
+        `Labels links must be valid http(s) URLs, one per line; "${line.slice(0, 60)}" is not.`,
+      );
+    }
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      throw new OrderWorkbenchError(
+        `Labels links must be valid http(s) URLs, one per line; "${line.slice(0, 60)}" is not.`,
+      );
+    }
   }
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new OrderWorkbenchError('Labels link must be a valid http(s) URL.');
-  }
-  return text;
+  return lines.join('\n');
 }
 
 function normalizePrepDimensions(value: unknown): PlainRecord | null {

@@ -582,7 +582,10 @@ export function PrepDetailsSection(props: {
     }
   };
 
-  const linkValid = /^https?:\/\//i.test(labelsLink.trim());
+  const labelLines = labelsLink
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => /^https?:\/\//i.test(line));
 
   return (
     <Collapse
@@ -698,20 +701,29 @@ export function PrepDetailsSection(props: {
                 </Form.Item>
               </div>
               <Form.Item label={t(TEXT.opLabelsLink)} style={{ marginBottom: 12 }}>
-                <Space>
-                  <Input
-                    value={labelsLink}
-                    onChange={(e) => setLabelsLink(e.target.value)}
-                    style={{ width: 320 }}
-                    placeholder="https://"
-                    aria-label={t(TEXT.opLabelsLink)}
-                  />
-                  {linkValid ? (
-                    <a href={labelsLink} target="_blank" rel="noreferrer">
-                      {t(TEXT.opOpenLink)}
-                    </a>
-                  ) : null}
-                </Space>
+                <Input.TextArea
+                  value={labelsLink}
+                  onChange={(e) => setLabelsLink(e.target.value)}
+                  rows={4}
+                  style={{ width: '100%', maxWidth: 520 }}
+                  placeholder={'https://\nhttps://'}
+                  aria-label={t(TEXT.opLabelsLink)}
+                />
+                {labelLines.length > 0 ? (
+                  <Space wrap style={{ marginTop: 6 }}>
+                    {labelLines.map((line, index) => (
+                      <a
+                        key={`${line}-${index}`}
+                        href={line}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ fontSize: 12.5 }}
+                      >
+                        {t(TEXT.opOpenLink)} {labelLines.length > 1 ? index + 1 : ''}
+                      </a>
+                    ))}
+                  </Space>
+                ) : null}
               </Form.Item>
               <Button type="primary" loading={saving} onClick={save}>
                 {t(TEXT.drawerSavePrepDetails)}

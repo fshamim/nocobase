@@ -414,6 +414,26 @@ describe('EcobaseOrderWorkbenchService', () => {
     ).rejects.toBeInstanceOf(OrderWorkbenchError);
   });
 
+  it('updatePrepDetails accepts multiple label links (one per line, trimmed, stored newline-joined) and rejects a bad line naming it', async () => {
+    const detail = await createSampleOrder(service);
+    // Blank lines and surrounding whitespace are tolerated; each surviving line must be http(s).
+    await service.updatePrepDetails({
+      orderId: detail.header.id,
+      labelFilesLink: 'https://example.com/a.pdf\n  https://example.com/b.pdf  \n\nhttps://example.com/c.pdf',
+      actorUserId: '4',
+    });
+    const row = db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[0];
+    expect(row.labelFilesLink).toBe('https://example.com/a.pdf\nhttps://example.com/b.pdf\nhttps://example.com/c.pdf');
+
+    // One malformed line rejects the whole update and the message quotes the offending line.
+    await expect(
+      service.updatePrepDetails({
+        orderId: detail.header.id,
+        labelFilesLink: 'https://example.com/a.pdf\nnot-a-url',
+      }),
+    ).rejects.toThrow(/"not-a-url" is not/);
+  });
+
   // ---- T2.2 updateOrderPaperwork -------------------------------------------
 
   it('updateOrderPaperwork writes only the milestone whitelist and never stamps statusChangedAt', async () => {

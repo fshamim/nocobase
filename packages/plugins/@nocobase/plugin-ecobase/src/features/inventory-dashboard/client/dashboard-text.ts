@@ -359,7 +359,7 @@ export const TEXT = {
   opWeight: 'Weight',
   opWeightUnitLbs: 'lbs',
   opWeightUnitKg: 'kg',
-  opLabelsLink: 'Labels link',
+  opLabelsLink: 'Labels links (one per line)',
   opOpenLink: 'Open',
   opYes: 'Yes',
   opNo: 'No',
