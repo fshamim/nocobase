@@ -15,14 +15,15 @@
  * refetches getOrderDetail after each mutation and reports success upward.
  */
 
-import { App, Button, Modal, Radio, Space, Spin, Typography } from 'antd';
+import { App, Button, Input, Modal, Radio, Space, Spin, Tabs, Typography } from 'antd';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { TEXT } from '../dashboard-text';
-import { EM_DASH, formatDate, formatMoney, type Translate } from '../format';
+import { EM_DASH, formatDate, formatMoney, relativeTime, type Translate } from '../format';
 import { EditLineModal, EditOrderModal, EditPaperworkModal, PrepDetailsSection } from './OrderEditPopups';
 import {
   createOrderApi,
   type OrderApi,
+  type OrderCommentEntry,
   type OrderDetail,
   type OrderRequestClient,
   type OrderStatusOption,
@@ -123,6 +124,7 @@ export function OrderViewDrawer(props: OrderViewDrawerProps) {
 
   const header = detail?.header;
   const lines = detail?.lines ?? [];
+  const comments = detail?.comments ?? [];
 
   const confirmDelete = useCallback(() => {
     if (!header) return;
@@ -304,97 +306,124 @@ export function OrderViewDrawer(props: OrderViewDrawerProps) {
               onSaved={afterMutation}
             />
 
-            {/* lines */}
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10 }}>
-                <span style={SEC_LABEL}>
-                  {t(TEXT.ovOrderLines)} · {lines.length}
-                </span>
-                <Button size="small" onClick={() => setAddOpen(true)}>
-                  ＋ {t(TEXT.ocAddProduct)}
-                </Button>
-              </div>
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                  <thead>
-                    <tr>
-                      <th style={thStyle}>{t(TEXT.colProduct)}</th>
-                      <th style={thNum}>{t(TEXT.ocColQty)}</th>
-                      <th style={thNum}>{t(TEXT.ocColUnitCost)}</th>
-                      <th style={thNum}>{t(TEXT.ocColTotal)}</th>
-                      <th style={thNum}>{t(TEXT.ocColSellPrice)}</th>
-                      <th style={thNum}>{t(TEXT.ocColMargin)}</th>
-                      <th style={thStyle}>{t(TEXT.ovAmazonCheck)}</th>
-                      <th style={thStyle}>{t(TEXT.ovReceipt)}</th>
-                      <th style={thStyle} aria-label="actions" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {lines.map((line) => (
-                      <tr key={line.id}>
-                        <td style={{ ...tdStyle, minWidth: 210 }}>
-                          <div style={{ display: 'flex', flexDirection: 'column' }}>
-                            <Typography.Text strong style={{ fontSize: 13 }}>
-                              {line.title ?? EM_DASH}
-                            </Typography.Text>
-                            <span style={{ ...MONO, color: 'rgba(0,0,0,0.45)' }}>
-                              {[line.asin, line.sku, line.brand].filter(Boolean).join(' · ') || EM_DASH}
-                            </span>
-                          </div>
-                        </td>
-                        <td style={tdNum}>{line.orderedQty}</td>
-                        <td style={tdNum}>{formatMoney(line.unitCost ?? null, t)}</td>
-                        <td style={tdNum}>{formatMoney(line.expectedCost ?? null, t)}</td>
-                        <td style={tdNum}>{formatMoney(line.expectedSellPrice ?? null, t)}</td>
-                        <td style={tdNum}>{line.expectedMargin !== undefined ? `${line.expectedMargin}%` : EM_DASH}</td>
-                        <td style={tdStyle}>
-                          <AmazonCheckPill status={line.amazonCheckStatus} />
-                        </td>
-                        <td style={tdStyle}>
-                          <ReceiptPill
-                            status={line.amazonReceiptStatus}
-                            observed={line.receivedQty}
-                            ordered={line.orderedQty}
-                            observedLabel={t(TEXT.ovObserved)}
-                            awaitingLabel={t(TEXT.ovAwaitingStock)}
-                          />
-                        </td>
-                        <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
-                          <Button
-                            type="text"
-                            size="small"
-                            aria-label={t(TEXT.ovEditLine)}
-                            onClick={() => setEditLineId(line.id ?? null)}
-                          >
-                            ✎
-                          </Button>
-                          <Button
-                            type="text"
-                            danger
-                            size="small"
-                            aria-label={t(TEXT.ovDeleteLine)}
-                            onClick={() => line.id && deleteLine(line.id)}
-                          >
-                            ✕
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr>
-                      <td style={{ ...tdStyle, fontWeight: 700, background: '#fafafa' }}>{t(TEXT.ocColTotal)}</td>
-                      <td style={{ ...tdNum, fontWeight: 700, background: '#fafafa' }}>{header.orderedUnits}</td>
-                      <td style={{ ...tdNum, background: '#fafafa' }} />
-                      <td style={{ ...tdNum, fontWeight: 700, background: '#fafafa' }}>
-                        {formatMoney(linesTotalCost, t)}
-                      </td>
-                      <td colSpan={5} style={{ ...tdStyle, background: '#fafafa' }} />
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-            </div>
+            {/* T8: order lines + comments as a tab pair; the activity log below stays as is. */}
+            <Tabs
+              defaultActiveKey="lines"
+              items={[
+                {
+                  key: 'lines',
+                  label: `${t(TEXT.ovOrderLines)} · ${lines.length}`,
+                  children: (
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+                        <Button size="small" onClick={() => setAddOpen(true)}>
+                          ＋ {t(TEXT.ocAddProduct)}
+                        </Button>
+                      </div>
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                          <thead>
+                            <tr>
+                              <th style={thStyle}>{t(TEXT.colProduct)}</th>
+                              <th style={thNum}>{t(TEXT.ocColQty)}</th>
+                              <th style={thNum}>{t(TEXT.ocColUnitCost)}</th>
+                              <th style={thNum}>{t(TEXT.ocColTotal)}</th>
+                              <th style={thNum}>{t(TEXT.ocColSellPrice)}</th>
+                              <th style={thNum}>{t(TEXT.ocColMargin)}</th>
+                              <th style={thStyle}>{t(TEXT.ovAmazonCheck)}</th>
+                              <th style={thStyle}>{t(TEXT.ovReceipt)}</th>
+                              <th style={thStyle} aria-label="actions" />
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {lines.map((line) => (
+                              <tr key={line.id}>
+                                <td style={{ ...tdStyle, minWidth: 210 }}>
+                                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                    <Typography.Text strong style={{ fontSize: 13 }}>
+                                      {line.title ?? EM_DASH}
+                                    </Typography.Text>
+                                    <span style={{ ...MONO, color: 'rgba(0,0,0,0.45)' }}>
+                                      {[line.asin, line.sku, line.brand].filter(Boolean).join(' · ') || EM_DASH}
+                                    </span>
+                                  </div>
+                                </td>
+                                <td style={tdNum}>{line.orderedQty}</td>
+                                <td style={tdNum}>{formatMoney(line.unitCost ?? null, t)}</td>
+                                <td style={tdNum}>{formatMoney(line.expectedCost ?? null, t)}</td>
+                                <td style={tdNum}>{formatMoney(line.expectedSellPrice ?? null, t)}</td>
+                                <td style={tdNum}>
+                                  {line.expectedMargin !== undefined ? `${line.expectedMargin}%` : EM_DASH}
+                                </td>
+                                <td style={tdStyle}>
+                                  <AmazonCheckPill status={line.amazonCheckStatus} />
+                                </td>
+                                <td style={tdStyle}>
+                                  <ReceiptPill
+                                    status={line.amazonReceiptStatus}
+                                    observed={line.receivedQty}
+                                    ordered={line.orderedQty}
+                                    observedLabel={t(TEXT.ovObserved)}
+                                    awaitingLabel={t(TEXT.ovAwaitingStock)}
+                                  />
+                                </td>
+                                <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
+                                  <Button
+                                    type="text"
+                                    size="small"
+                                    aria-label={t(TEXT.ovEditLine)}
+                                    onClick={() => setEditLineId(line.id ?? null)}
+                                  >
+                                    ✎
+                                  </Button>
+                                  <Button
+                                    type="text"
+                                    danger
+                                    size="small"
+                                    aria-label={t(TEXT.ovDeleteLine)}
+                                    onClick={() => line.id && deleteLine(line.id)}
+                                  >
+                                    ✕
+                                  </Button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot>
+                            <tr>
+                              <td style={{ ...tdStyle, fontWeight: 700, background: '#fafafa' }}>
+                                {t(TEXT.ocColTotal)}
+                              </td>
+                              <td style={{ ...tdNum, fontWeight: 700, background: '#fafafa' }}>
+                                {header.orderedUnits}
+                              </td>
+                              <td style={{ ...tdNum, background: '#fafafa' }} />
+                              <td style={{ ...tdNum, fontWeight: 700, background: '#fafafa' }}>
+                                {formatMoney(linesTotalCost, t)}
+                              </td>
+                              <td colSpan={5} style={{ ...tdStyle, background: '#fafafa' }} />
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    </div>
+                  ),
+                },
+                {
+                  key: 'comments',
+                  label: `${t(TEXT.tabComments)} · ${comments.length}`,
+                  children: (
+                    <CommentsTab
+                      comments={comments}
+                      orderApi={orderApi}
+                      t={t}
+                      orderId={header.id}
+                      onPosted={afterMutation}
+                    />
+                  ),
+                },
+              ]}
+            />
 
             {/* activity */}
             <div>
@@ -466,6 +495,94 @@ export function OrderViewDrawer(props: OrderViewDrawerProps) {
         </>
       ) : null}
     </Modal>
+  );
+}
+
+/**
+ * T8 Comments tab: newest-first history (author strong, relative time muted, body in
+ * the drawer comment-bubble idiom) plus an add-comment box. Posting rides the workbench
+ * addOrderComment endpoint, which returns the recomputed detail so the list + tab count
+ * refresh in one round trip.
+ */
+function CommentsTab(props: {
+  comments: OrderCommentEntry[];
+  orderApi: OrderApi;
+  t: Translate;
+  orderId: string;
+  onPosted: (next: OrderDetail) => void;
+}) {
+  const { comments, orderApi, t, orderId, onPosted } = props;
+  const { message } = App.useApp();
+  const [body, setBody] = useState('');
+  const [posting, setPosting] = useState(false);
+  const now = Date.now();
+
+  const submit = useCallback(async () => {
+    const trimmed = body.trim();
+    if (!trimmed) return;
+    setPosting(true);
+    try {
+      const next = await orderApi.addOrderComment(orderId, trimmed);
+      onPosted(next);
+      setBody('');
+      message.success(t(TEXT.toastCommentPosted));
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : t(TEXT.unexpectedResponse));
+    } finally {
+      setPosting(false);
+    }
+  }, [body, orderApi, orderId, onPosted, message, t]);
+
+  return (
+    <Space direction="vertical" size={14} style={{ width: '100%' }}>
+      {comments.length === 0 ? (
+        <Typography.Text type="secondary" style={{ fontSize: 12.5 }}>
+          {t(TEXT.noCommentsYet)}
+        </Typography.Text>
+      ) : (
+        <Space direction="vertical" size={10} style={{ width: '100%' }}>
+          {comments.map((comment, index) => (
+            <div key={`${comment.at}-${index}`} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              <Typography.Text type="secondary" style={{ fontSize: 11.5 }}>
+                <Typography.Text strong style={{ fontSize: 11.5 }}>
+                  {comment.author}
+                </Typography.Text>
+                {` · ${relativeTime(comment.at, now, t)}`}
+              </Typography.Text>
+              <Typography.Text
+                style={{
+                  fontSize: 12.5,
+                  background: '#fafafa',
+                  border: '1px solid #f0f0f0',
+                  borderRadius: 10,
+                  padding: '7px 11px',
+                  width: 'fit-content',
+                  maxWidth: '100%',
+                  whiteSpace: 'pre-wrap',
+                }}
+              >
+                {comment.body}
+              </Typography.Text>
+            </div>
+          ))}
+        </Space>
+      )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <Input.TextArea
+          aria-label={t(TEXT.drawerAddComment)}
+          placeholder={t(TEXT.commentPlaceholder)}
+          value={body}
+          onChange={(event) => setBody(event.target.value)}
+          autoSize={{ minRows: 2, maxRows: 6 }}
+          maxLength={4000}
+        />
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <Button type="primary" size="small" loading={posting} disabled={!body.trim()} onClick={submit}>
+            {t(TEXT.drawerAddComment)}
+          </Button>
+        </div>
+      </div>
+    </Space>
   );
 }
 

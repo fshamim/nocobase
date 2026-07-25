@@ -470,6 +470,17 @@ export function createEcobaseInventoryDashboardActions() {
           }),
         );
       },
+      // ---- Order popup Comments tab (T8) -----------------------------------
+      addOrderComment: async (ctx: DashboardActionContext, next: DashboardNext) => {
+        const values = getValues(ctx.action.params);
+        await runWorkbench(ctx, next, (service) =>
+          service.addOrderComment({
+            orderId: optionalString(values, 'orderId'),
+            body: values.body,
+            actorUserId: actorUserId(ctx),
+          }),
+        );
+      },
     },
     {
       savePrepDetails: 'operator',
@@ -491,6 +502,7 @@ export function createEcobaseInventoryDashboardActions() {
       updateOrderPaperwork: 'operator',
       updatePrepDetails: 'operator',
       confirmInboundCompletion: 'operator',
+      addOrderComment: 'operator',
     },
   );
 }
@@ -528,6 +540,8 @@ export function createInventoryDashboardResourceRegistration(
             'updateOrderPaperwork',
             'updatePrepDetails',
             'confirmInboundCompletion',
+            // T8: logging a comment is an operator write — it rides the debounce too.
+            'addOrderComment',
           ],
           onOperatorWrite,
         ),
@@ -567,6 +581,7 @@ export function createInventoryDashboardResourceRegistration(
           'updateOrderPaperwork',
           'updatePrepDetails',
           'confirmInboundCompletion',
+          'addOrderComment',
         ],
         role: OPERATOR,
       },

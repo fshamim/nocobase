@@ -52,6 +52,23 @@ export function formatMonth(value: string | null | undefined): string {
   return Number.isNaN(parsed) ? '' : MONTH_ONLY.format(new Date(parsed));
 }
 
+/**
+ * Relative age of an ISO timestamp against a client-clock millisecond `now`:
+ * `just now` → `N min ago` → `N h ago` → `N d ago`; empty string when unparseable.
+ * Shared by the order panes' last-activity cell and the order popup's Comments tab.
+ */
+export function relativeTime(at: string | null | undefined, now: number, t: Translate): string {
+  if (!at) return '';
+  const ms = Date.parse(at);
+  if (Number.isNaN(ms)) return '';
+  const minutes = Math.floor((now - ms) / 60_000);
+  if (minutes < 1) return t(TEXT.relJustNow);
+  if (minutes < 60) return `${minutes} ${t(TEXT.opMinAgo)}`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} ${t(TEXT.relHoursAgo)}`;
+  return `${Math.floor(hours / 24)} ${t(TEXT.relDaysAgo)}`;
+}
+
 /** Whole days from now (client clock) to a date-only value; null when unparseable. */
 export function daysFromNow(value: string | null | undefined, now: Date = new Date()): number | null {
   const parsed = typeof value === 'string' && value.trim() ? Date.parse(`${value.slice(0, 10)}T00:00:00.000Z`) : NaN;

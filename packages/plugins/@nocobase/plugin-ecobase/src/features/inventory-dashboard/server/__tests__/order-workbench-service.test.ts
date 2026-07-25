@@ -529,4 +529,85 @@ describe('EcobaseOrderWorkbenchService', () => {
     const result = await service.paneOrders({ pane: 'activeOrders', runId: 'run-x' });
     expect(result).toMatchObject({ publishedRunId: '', rows: [] });
   });
+
+  // ---- T8 order comments (popup Comments tab) ------------------------------
+
+  it('getOrderDetail returns order comments newest-first, excludes soft-deleted, and resolves the author', async () => {
+    const detail = await createSampleOrder(service);
+    const orderId = detail.header.id;
+    // Fresh order has no comments yet.
+    expect(detail.comments).toEqual([]);
+    db.seed('users', [{ id: 7, nickname: 'Ada Ops' }]);
+    db.seed(ECOBASE_COLLECTIONS.silverActivityComments, [
+      {
+        id: 'c-old',
+        entityType: 'order',
+        entityId: orderId,
+        body: 'first note',
+        actorUserId: 7,
+        occurredAt: '2026-07-24T09:00:00.000Z',
+      },
+      {
+        id: 'c-new',
+        entityType: 'order',
+        entityId: orderId,
+        body: 'latest note',
+        actorUserId: 7,
+        occurredAt: '2026-07-24T15:00:00.000Z',
+      },
+      {
+        id: 'c-del',
+        entityType: 'order',
+        entityId: orderId,
+        body: 'deleted note',
+        actorUserId: 7,
+        occurredAt: '2026-07-24T18:00:00.000Z',
+        deletedAt: '2026-07-24T18:05:00.000Z',
+      },
+      // A comment on a DIFFERENT order must never leak into this thread.
+      {
+        id: 'c-other',
+        entityType: 'order',
+        entityId: 'someone-else',
+        body: 'not mine',
+        actorUserId: 7,
+        occurredAt: '2026-07-24T20:00:00.000Z',
+      },
+    ]);
+    const refreshed = await service.getOrderDetail({ orderId });
+    expect(refreshed.comments.map((comment) => comment.body)).toEqual(['latest note', 'first note']);
+    expect(refreshed.comments.some((comment) => comment.body === 'deleted note')).toBe(false);
+    expect(refreshed.comments[0]).toMatchObject({ author: 'Ada Ops', at: '2026-07-24T15:00:00.000Z' });
+  });
+
+  it('addOrderComment writes an order-scoped comment and the round-trip detail reflects the new count + author', async () => {
+    const detail = await createSampleOrder(service);
+    const orderId = detail.header.id;
+    db.seed('users', [{ id: '4', nickname: 'Farhan Shamim' }]);
+    expect((await service.getOrderDetail({ orderId })).comments).toHaveLength(0);
+
+    const after = await service.addOrderComment({ orderId, body: '  paid the supplier today  ', actorUserId: '4' });
+    expect(after.comments).toHaveLength(1);
+    // Body is trimmed; the actor resolves to the seeded user's display name.
+    expect(after.comments[0]).toMatchObject({ body: 'paid the supplier today', author: 'Farhan Shamim' });
+
+    // Persisted with the canonical 'order' entityType so the thread + paneOrders lastActivity agree.
+    const commentRow = db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).rows[0];
+    expect(commentRow).toMatchObject({
+      entityType: 'order',
+      entityId: orderId,
+      actorType: 'operator',
+      commentType: 'note',
+      body: 'paid the supplier today',
+    });
+    expect(commentRow.occurredAt).toBeTruthy();
+  });
+
+  it('addOrderComment falls back to Operator when the actor resolves to no user, and rejects an empty body', async () => {
+    const detail = await createSampleOrder(service);
+    const orderId = detail.header.id;
+    const after = await service.addOrderComment({ orderId, body: 'no user seeded', actorUserId: '999' });
+    expect(after.comments[0]).toMatchObject({ body: 'no user seeded', author: 'Operator' });
+    await expect(service.addOrderComment({ orderId, body: '   ' })).rejects.toBeInstanceOf(OrderWorkbenchError);
+  });
 });

@@ -64,6 +64,9 @@ type PlainRecord = Record<string, unknown>;
 /** Manual order intents that own their row and may be hard-deleted. */
 const MANUAL_ORDER_INTENTS = new Set(['manual', 'operator_draft']);
 
+/** Author label when a comment's actor id resolves to no known user (T8). */
+const DEFAULT_COMMENT_AUTHOR = 'Operator';
+
 /** Line fields the operator may edit via updateOrderLine (T3 #6). */
 const LINE_EDITABLE_FIELDS = [
   'orderedQty',
@@ -452,6 +455,8 @@ export class EcobaseOrderWorkbenchService {
         prepStatus: asString(order.prepStatus),
       },
       lines,
+      // T8: the popup's Comments tab reads this thread (newest-first, deleted excluded).
+      comments: await this.loadOrderCommentThread(orderId),
       activity: await this.buildActivity(order, orderId),
     };
   }
@@ -763,6 +768,90 @@ export class EcobaseOrderWorkbenchService {
       },
     });
     return this.getOrderDetail({ orderId });
+  }
+
+  // ---- 16. addOrderComment (T8) ---------------------------------------------
+
+  /**
+   * Log an operator comment on the order (the popup's Comments tab). Writes into
+   * silverActivityComments with entityType 'order' — the SAME thread getOrderDetail
+   * reads and paneOrders' lastActivity summarises — stamping occurredAt so the
+   * newest-first ordering is deterministic. actorUserId lands in the bigInt-typed
+   * comment actor column (integer NocoBase ids are fine there). Returns the
+   * recomputed OrderDetail so the popup refreshes its list + count in one round trip.
+   */
+  async addOrderComment(params: { orderId?: string; body?: unknown; actorUserId?: string }) {
+    const order = await this.requireOrder(params.orderId);
+    const orderId = String(order.id);
+    const body = typeof params.body === 'string' ? params.body.trim() : '';
+    if (!body) throw new OrderWorkbenchError('A comment cannot be empty.');
+    if (body.length > 4000) throw new OrderWorkbenchError('A comment must be 4000 characters or fewer.');
+    await this.repo(ECOBASE_COLLECTIONS.silverActivityComments).create({
+      values: {
+        id: randomUUID(),
+        entityType: 'order',
+        entityId: orderId,
+        actorType: 'operator',
+        actorUserId: params.actorUserId,
+        commentType: 'note',
+        body,
+        occurredAt: new Date().toISOString(),
+        workflowDetectionStatus: 'none',
+      },
+    });
+    return this.getOrderDetail({ orderId });
+  }
+
+  /**
+   * Full order comment thread for the popup: newest-first, soft-deleted excluded,
+   * each author resolved through one page-scoped users lookup (fallback 'Operator').
+   */
+  private async loadOrderCommentThread(orderId: string): Promise<Array<{ author: string; at: string; body: string }>> {
+    const rows = (
+      await this.repo(ECOBASE_COLLECTIONS.silverActivityComments)
+        .find({ filter: { entityType: 'order', entityId: orderId }, limit: 500 })
+        .catch(() => [])
+    ).map(toPlainRecord);
+    const entries: Array<{ at: string; body: string; actorUserId: unknown }> = [];
+    for (const row of rows) {
+      if (asString(row.deletedAt)) continue;
+      const body = asString(row.body);
+      const at = asTimestampString(row.occurredAt) ?? asTimestampString(row.createdAt);
+      if (!body || !at) continue;
+      entries.push({ at, body, actorUserId: row.actorUserId });
+    }
+    const authors = await this.resolveCommentAuthors(entries.map((entry) => entry.actorUserId));
+    return entries
+      .map((entry) => ({
+        author: authors.get(String(entry.actorUserId)) ?? DEFAULT_COMMENT_AUTHOR,
+        at: entry.at,
+        body: entry.body,
+      }))
+      .sort((left, right) => right.at.localeCompare(left.at));
+  }
+
+  /**
+   * ONE users lookup for the given comment actors (mirrors inventory-dashboard-service's
+   * displayName precedence: nickname → name → email → username). Keyed by String(id).
+   */
+  private async resolveCommentAuthors(actorIds: unknown[]): Promise<Map<string, string>> {
+    const ids = new Map<string, unknown>();
+    for (const actorUserId of actorIds) {
+      if (actorUserId !== null && actorUserId !== undefined) ids.set(String(actorUserId), actorUserId);
+    }
+    const names = new Map<string, string>();
+    if (ids.size === 0) return names;
+    const users = (
+      await this.repo('users')
+        .find({ filter: { id: { $in: [...ids.values()] } }, limit: ids.size })
+        .catch(() => [])
+    ).map(toPlainRecord);
+    for (const user of users) {
+      if (user.id === null || user.id === undefined) continue;
+      const name = asString(user.nickname) ?? asString(user.name) ?? asString(user.email) ?? asString(user.username);
+      if (name) names.set(String(user.id), name);
+    }
+    return names;
   }
 
   // ---- 15. paneOrders (T2.5) ------------------------------------------------

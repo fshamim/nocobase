@@ -22,7 +22,7 @@ import { Alert, App, Button, Collapse, Spin, Table, Tag, Tooltip, Typography } f
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { TEXT } from '../dashboard-text';
 import { DASHBOARD_TOKENS } from '../dashboard-tokens';
-import { EM_DASH, formatMoney, type Translate } from '../format';
+import { EM_DASH, formatMoney, relativeTime, type Translate } from '../format';
 import type { ObserveVisibility, PaneSectionHandle } from '../PaneSection';
 import {
   createOrderApi,
@@ -81,18 +81,6 @@ function reasonLabel(reason: OrderAttentionReason, t: Translate): string {
     default:
       return '';
   }
-}
-
-function relativeTime(at: string | null | undefined, now: number, t: Translate): string {
-  if (!at) return '';
-  const ms = Date.parse(at);
-  if (Number.isNaN(ms)) return '';
-  const minutes = Math.floor((now - ms) / 60_000);
-  if (minutes < 1) return t(TEXT.relJustNow);
-  if (minutes < 60) return `${minutes} ${t(TEXT.opMinAgo)}`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} ${t(TEXT.relHoursAgo)}`;
-  return `${Math.floor(hours / 24)} ${t(TEXT.relDaysAgo)}`;
 }
 
 function OrderPaneTableInner(props: OrderPaneTableProps, ref: React.Ref<PaneSectionHandle>) {

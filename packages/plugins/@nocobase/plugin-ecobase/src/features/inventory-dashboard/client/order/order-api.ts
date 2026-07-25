@@ -130,9 +130,17 @@ export interface OrderActivityEntry {
   summary: string;
 }
 
+/** One entry in the order popup's Comments tab (T8): newest-first, deleted excluded. */
+export interface OrderCommentEntry {
+  author: string;
+  at: string;
+  body: string;
+}
+
 export interface OrderDetail {
   header: OrderHeaderDetail;
   lines: OrderLineDetail[];
+  comments: OrderCommentEntry[];
   activity: OrderActivityEntry[];
 }
 
@@ -252,6 +260,8 @@ export function createOrderApi(api: OrderRequestClient) {
     updatePrepDetails: (data: Record<string, unknown>) => call<OrderDetail>(api, 'updatePrepDetails', data),
     updateOrderPaperwork: (data: Record<string, unknown>) => call<OrderDetail>(api, 'updateOrderPaperwork', data),
     confirmInboundCompletion: (orderId: string) => call<OrderDetail>(api, 'confirmInboundCompletion', { orderId }),
+    // Order popup Comments tab (T8): log a comment, get the recomputed detail back.
+    addOrderComment: (orderId: string, body: string) => call<OrderDetail>(api, 'addOrderComment', { orderId, body }),
     supplierOptions: async (search?: string, familyId?: string): Promise<OrderSupplierOption[]> => {
       const response = await api.request({
         url: 'ecobaseSupplierManagement:supplierOptions',
