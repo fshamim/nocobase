@@ -370,7 +370,7 @@ describe('EcobaseOrderWorkbenchService', () => {
 
   // ---- T2.3 updatePrepDetails ----------------------------------------------
 
-  it('updatePrepDetails writes the whitelist, stamps the audit fields, and keeps integer actor ids off the uuid column', async () => {
+  it('updatePrepDetails writes the whitelist, stamps the audit fields, and keeps attribution on the string column', async () => {
     const detail = await createSampleOrder(service);
     await service.updatePrepDetails({
       orderId: detail.header.id,
@@ -396,7 +396,9 @@ describe('EcobaseOrderWorkbenchService', () => {
     expect(row.labelFilesLink).toBe('https://example.com/labels');
     expect(row.prepStatus).toBe('Completed');
     expect(row.prepDetailsUpdatedAt).toBeTruthy();
-    expect(row.prepDetailsUpdatedByUserId).toBeUndefined();
+    // String-typed column (not uuid): integer NocoBase ids are stored as-is so
+    // prep edits stay attributed, matching the v1 savePrepDetails behavior.
+    expect(row.prepDetailsUpdatedByUserId).toBe('4');
   });
 
   it('updatePrepDetails rejects unknown fields and bad values', async () => {
