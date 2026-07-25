@@ -13,9 +13,9 @@
  * validates and recomputes on save.
  */
 
-import { App, DatePicker, Form, Input, InputNumber, Modal, Select, Typography } from 'antd';
+import { App, Button, Collapse, DatePicker, Form, Input, InputNumber, Modal, Select, Space, Typography } from 'antd';
 import dayjs from 'dayjs';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { TEXT } from '../dashboard-text';
 import { type Translate } from '../format';
 import type { OrderApi, OrderHeaderDetail, OrderLineDetail, OrderProductOption } from './order-api';
@@ -419,5 +419,307 @@ export function EditLineModal(props: {
         </div>
       </Form>
     </Modal>
+  );
+}
+
+/** Edit paperwork milestones (T5.2) — the six whitelisted fields → updateOrderPaperwork. */
+export function EditPaperworkModal(props: {
+  open: boolean;
+  orderApi: OrderApi;
+  t: Translate;
+  header: OrderHeaderDetail;
+  onClose: () => void;
+  onSaved: (next: OrderDetailResult) => void;
+}) {
+  const { open, orderApi, t, header, onClose, onSaved } = props;
+  const { message } = App.useApp();
+  const [orderApproval, setOrderApproval] = useState('');
+  const [paymentStatus, setPaymentStatus] = useState('');
+  const [paymentMode, setPaymentMode] = useState('');
+  const [paymentDate, setPaymentDate] = useState('');
+  const [invoiceStatus, setInvoiceStatus] = useState('');
+  const [attachmentReference, setAttachmentReference] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setOrderApproval(header.orderApproval ?? '');
+    setPaymentStatus(header.paymentStatus ?? '');
+    setPaymentMode(header.paymentMode ?? '');
+    setPaymentDate(header.paymentDate ?? '');
+    setInvoiceStatus(header.invoiceStatus ?? '');
+    setAttachmentReference(header.attachmentReference ?? '');
+  }, [open, header]);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const next = await orderApi.updateOrderPaperwork({
+        orderId: header.id,
+        orderApproval,
+        paymentStatus,
+        paymentMode,
+        paymentDate: paymentDate || null,
+        invoiceStatus,
+        attachmentReference,
+      });
+      message.success(t(TEXT.opPaperworkSaved));
+      onSaved(next);
+      onClose();
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : t(TEXT.unexpectedResponse));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal
+      open={open}
+      title={t(TEXT.opEditPaperwork)}
+      okText={t(TEXT.drawerSave)}
+      cancelText={t(TEXT.ocCancel)}
+      onOk={save}
+      onCancel={onClose}
+      okButtonProps={{ loading: saving }}
+      confirmLoading={saving}
+      width={560}
+      destroyOnClose
+    >
+      <Form layout="vertical" component="div">
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <Form.Item label={t(TEXT.ovApproval)} style={{ marginBottom: 8 }}>
+            <Input value={orderApproval} onChange={(e) => setOrderApproval(e.target.value)} />
+          </Form.Item>
+          <Form.Item label={t(TEXT.ocPaymentStatus)} style={{ marginBottom: 8 }}>
+            <Input value={paymentStatus} onChange={(e) => setPaymentStatus(e.target.value)} />
+          </Form.Item>
+          <Form.Item label={t(TEXT.ocPaymentMode)} style={{ marginBottom: 8 }}>
+            <Input value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)} />
+          </Form.Item>
+          <Form.Item label={t(TEXT.ocPaymentDate)} style={{ marginBottom: 8 }}>
+            <DatePicker
+              value={dateValue(paymentDate)}
+              onChange={(_, s) => setPaymentDate(dateString(s))}
+              style={{ width: '100%' }}
+              aria-label={t(TEXT.ocPaymentDate)}
+            />
+          </Form.Item>
+          <Form.Item label={t(TEXT.opInvoiceStatus)} style={{ marginBottom: 8 }}>
+            <Input value={invoiceStatus} onChange={(e) => setInvoiceStatus(e.target.value)} />
+          </Form.Item>
+          <Form.Item label={t(TEXT.opAttachmentRef)} style={{ marginBottom: 8 }}>
+            <Input value={attachmentReference} onChange={(e) => setAttachmentReference(e.target.value)} />
+          </Form.Item>
+        </div>
+      </Form>
+    </Modal>
+  );
+}
+
+/**
+ * Prep details section (T5.1). Collapsible, auto-expanded when the order is in
+ * prep. One Save writes the whole whitelist through updatePrepDetails.
+ */
+export function PrepDetailsSection(props: {
+  orderApi: OrderApi;
+  t: Translate;
+  header: OrderHeaderDetail;
+  defaultExpanded: boolean;
+  onSaved: (next: OrderDetailResult) => void;
+}) {
+  const { orderApi, t, header, defaultExpanded, onSaved } = props;
+  const { message } = App.useApp();
+  const [expanded, setExpanded] = useState(defaultExpanded);
+  const [shippingId, setShippingId] = useState('');
+  const [hazmat, setHazmat] = useState(false);
+  const [prepStatus, setPrepStatus] = useState('');
+  const [boxes, setBoxes] = useState<number | null>(null);
+  const [units, setUnits] = useState<number | null>(null);
+  const [length, setLength] = useState<number | null>(null);
+  const [breadth, setBreadth] = useState<number | null>(null);
+  const [height, setHeight] = useState<number | null>(null);
+  const [weight, setWeight] = useState<number | null>(null);
+  const [weightUnit, setWeightUnit] = useState('lbs');
+  const [labelsLink, setLabelsLink] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setShippingId(header.shippingId ?? '');
+    setHazmat(header.hazmatFlag ?? false);
+    setPrepStatus(header.prepStatus ?? '');
+    setBoxes(header.prepBoxes ?? null);
+    setUnits(header.prepUnits ?? null);
+    setLength(header.prepDimensions?.length ?? null);
+    setBreadth(header.prepDimensions?.breadth ?? null);
+    setHeight(header.prepDimensions?.height ?? null);
+    setWeight(header.prepWeightValue ?? null);
+    setWeightUnit(header.prepWeightUnit ?? 'lbs');
+    setLabelsLink(header.labelFilesLink ?? '');
+  }, [header]);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const next = await orderApi.updatePrepDetails({
+        orderId: header.id,
+        shippingId,
+        hazmatFlag: hazmat,
+        prepStatus,
+        prepBoxes: boxes,
+        prepUnits: units,
+        prepDimensions: { length, breadth, height },
+        prepWeightValue: weight,
+        prepWeightUnit: weightUnit,
+        labelFilesLink: labelsLink,
+      });
+      message.success(t(TEXT.opPrepSaved));
+      onSaved(next);
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : t(TEXT.unexpectedResponse));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const linkValid = /^https?:\/\//i.test(labelsLink.trim());
+
+  return (
+    <Collapse
+      activeKey={expanded ? ['prep'] : []}
+      onChange={(keys) => setExpanded(Array.isArray(keys) ? keys.includes('prep') : keys === 'prep')}
+      items={[
+        {
+          key: 'prep',
+          label: t(TEXT.drawerPrepDetails),
+          children: (
+            <Form layout="vertical" component="div">
+              <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 12 }}>
+                <Form.Item label={t(TEXT.opShippingId)} style={{ marginBottom: 0 }}>
+                  <Input
+                    value={shippingId}
+                    onChange={(e) => setShippingId(e.target.value)}
+                    style={{ width: 170, fontFamily: 'ui-monospace, monospace' }}
+                    aria-label={t(TEXT.opShippingId)}
+                  />
+                </Form.Item>
+                <Form.Item label={t(TEXT.opHazmat)} style={{ marginBottom: 0 }}>
+                  <Select
+                    value={hazmat ? 'yes' : 'no'}
+                    style={{ width: 90 }}
+                    aria-label={t(TEXT.opHazmat)}
+                    onChange={(v) => setHazmat(v === 'yes')}
+                    options={[
+                      { value: 'no', label: t(TEXT.opNo) },
+                      { value: 'yes', label: t(TEXT.opYes) },
+                    ]}
+                  />
+                </Form.Item>
+                <Form.Item label={t(TEXT.opPrepStatusLabel)} style={{ marginBottom: 0 }}>
+                  <Select
+                    value={prepStatus || undefined}
+                    style={{ width: 150 }}
+                    allowClear
+                    aria-label={t(TEXT.opPrepStatusLabel)}
+                    onChange={(v) => setPrepStatus(v ?? '')}
+                    options={[
+                      { value: 'In progress', label: t(TEXT.opPrepInProgress) },
+                      { value: 'Completed', label: t(TEXT.opPrepCompleted) },
+                    ]}
+                  />
+                </Form.Item>
+              </div>
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+                <Form.Item label={t(TEXT.drawerBoxes)} style={{ marginBottom: 0 }}>
+                  <InputNumber
+                    value={boxes}
+                    min={0}
+                    onChange={(v) => setBoxes(v ?? null)}
+                    style={{ width: 90 }}
+                    aria-label={t(TEXT.drawerBoxes)}
+                  />
+                </Form.Item>
+                <Form.Item label={t(TEXT.ocUnits)} style={{ marginBottom: 0 }}>
+                  <InputNumber
+                    value={units}
+                    min={0}
+                    onChange={(v) => setUnits(v ?? null)}
+                    style={{ width: 90 }}
+                    aria-label={t(TEXT.ocUnits)}
+                  />
+                </Form.Item>
+                <Form.Item label={t(TEXT.opLength)} style={{ marginBottom: 0 }}>
+                  <InputNumber
+                    value={length}
+                    min={0}
+                    onChange={(v) => setLength(v ?? null)}
+                    style={{ width: 90 }}
+                    aria-label={t(TEXT.opLength)}
+                  />
+                </Form.Item>
+                <Form.Item label={t(TEXT.opBreadth)} style={{ marginBottom: 0 }}>
+                  <InputNumber
+                    value={breadth}
+                    min={0}
+                    onChange={(v) => setBreadth(v ?? null)}
+                    style={{ width: 90 }}
+                    aria-label={t(TEXT.opBreadth)}
+                  />
+                </Form.Item>
+                <Form.Item label={t(TEXT.opHeight)} style={{ marginBottom: 0 }}>
+                  <InputNumber
+                    value={height}
+                    min={0}
+                    onChange={(v) => setHeight(v ?? null)}
+                    style={{ width: 90 }}
+                    aria-label={t(TEXT.opHeight)}
+                  />
+                </Form.Item>
+                <Form.Item label={t(TEXT.opWeight)} style={{ marginBottom: 0 }}>
+                  <Space.Compact>
+                    <InputNumber
+                      value={weight}
+                      min={0}
+                      onChange={(v) => setWeight(v ?? null)}
+                      style={{ width: 90 }}
+                      aria-label={t(TEXT.opWeight)}
+                    />
+                    <Select
+                      value={weightUnit}
+                      style={{ width: 76 }}
+                      aria-label={t(TEXT.opWeight)}
+                      onChange={setWeightUnit}
+                      options={[
+                        { value: 'lbs', label: t(TEXT.opWeightUnitLbs) },
+                        { value: 'kg', label: t(TEXT.opWeightUnitKg) },
+                      ]}
+                    />
+                  </Space.Compact>
+                </Form.Item>
+              </div>
+              <Form.Item label={t(TEXT.opLabelsLink)} style={{ marginBottom: 12 }}>
+                <Space>
+                  <Input
+                    value={labelsLink}
+                    onChange={(e) => setLabelsLink(e.target.value)}
+                    style={{ width: 320 }}
+                    placeholder="https://"
+                    aria-label={t(TEXT.opLabelsLink)}
+                  />
+                  {linkValid ? (
+                    <a href={labelsLink} target="_blank" rel="noreferrer">
+                      {t(TEXT.opOpenLink)}
+                    </a>
+                  ) : null}
+                </Space>
+              </Form.Item>
+              <Button type="primary" loading={saving} onClick={save}>
+                {t(TEXT.drawerSavePrepDetails)}
+              </Button>
+            </Form>
+          ),
+        },
+      ]}
+    />
   );
 }

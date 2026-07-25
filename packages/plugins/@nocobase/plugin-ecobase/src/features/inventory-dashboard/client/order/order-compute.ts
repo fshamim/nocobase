@@ -32,3 +32,71 @@ export function sumLineTotals(lines: Array<{ orderedQty?: number | null; unitCos
 export function sumUnits(lines: Array<{ orderedQty?: number | null }>): number {
   return lines.reduce((total, line) => total + (typeof line.orderedQty === 'number' ? line.orderedQty : 0), 0);
 }
+
+// ---- paperwork chain (drawer T5) ------------------------------------------
+// getOrderDetail does not return the derived paperwork tuple that paneOrders does,
+// so the drawer derives the same APPR → ORDER → PAY → INV chain client-side. These
+// rules mirror deriveOrderPaperworkMilestones in order-workbench-compute.ts exactly.
+
+import type { MilestoneStateValue, OrderMilestone, OrderPaperwork } from './order-api';
+
+const CANONICAL_PROGRESSION = [
+  'draft',
+  'supplier_contacted',
+  'supplier_confirmed',
+  'approval_pending',
+  'payment_pending',
+  'paid',
+  'supplier_preparing',
+  'shipped_inbound',
+  'completed',
+];
+
+function includesAny(raw: string | undefined | null, needles: string[]): boolean {
+  if (typeof raw !== 'string') return false;
+  const lower = raw.toLowerCase();
+  return needles.some((needle) => lower.includes(needle));
+}
+
+function isBlockedRaw(raw?: string | null): boolean {
+  return includesAny(raw, ['block', 'reject', 'hold']);
+}
+
+export function deriveClientPaperwork(header: {
+  orderApproval?: string;
+  canonicalStatus?: string;
+  lifecycleStatus?: string;
+  paymentStatus?: string;
+  paymentMode?: string;
+  invoiceStatus?: string;
+}): OrderPaperwork {
+  const approvalRaw = header.orderApproval;
+  const orderRaw = header.lifecycleStatus ?? header.canonicalStatus;
+  const paymentRaw = header.paymentStatus;
+  const invoiceRaw = header.invoiceStatus;
+  const canonicalIndex = CANONICAL_PROGRESSION.indexOf((header.canonicalStatus ?? '').toLowerCase());
+  const paymentPendingIndex = CANONICAL_PROGRESSION.indexOf('payment_pending');
+  const done = [
+    includesAny(approvalRaw, ['approved']),
+    canonicalIndex !== -1 && canonicalIndex > paymentPendingIndex,
+    includesAny(paymentRaw, ['completed', 'complete', 'paid']),
+    includesAny(invoiceRaw, ['uploaded', 'received', 'paid']),
+  ];
+  const raws = [approvalRaw, orderRaw, paymentRaw, invoiceRaw];
+  const currentIndex = done.findIndex((value) => !value);
+  const build = (index: number): OrderMilestone => {
+    const raw = raws[index];
+    let state: MilestoneStateValue;
+    if (isBlockedRaw(raw)) state = 'blocked';
+    else if (done[index]) state = 'done';
+    else if (index === currentIndex) state = 'current';
+    else state = 'pending';
+    const milestone: OrderMilestone = { state };
+    if (raw && raw.trim()) milestone.raw = raw;
+    if (index === 2 && done[2] && header.paymentMode && header.paymentMode.trim()) {
+      milestone.paymentMode = header.paymentMode;
+    }
+    return milestone;
+  };
+  return { approval: build(0), order: build(1), payment: build(2), invoice: build(3) };
+}

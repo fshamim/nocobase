@@ -19,7 +19,7 @@ import { App, Button, Drawer, Modal, Radio, Space, Spin, Typography } from 'antd
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { TEXT } from '../dashboard-text';
 import { EM_DASH, formatDate, formatMoney, type Translate } from '../format';
-import { EditLineModal, EditOrderModal } from './OrderEditPopups';
+import { EditLineModal, EditOrderModal, EditPaperworkModal, PrepDetailsSection } from './OrderEditPopups';
 import {
   createOrderApi,
   type OrderApi,
@@ -27,6 +27,8 @@ import {
   type OrderRequestClient,
   type OrderStatusOption,
 } from './order-api';
+import { deriveClientPaperwork } from './order-compute';
+import { PaperworkChain } from './order-milestones';
 import { AmazonCheckPill, LifecycleStatusPill, ReceiptPill } from './order-pills';
 
 export interface OrderViewDrawerProps {
@@ -90,6 +92,7 @@ export function OrderViewDrawer(props: OrderViewDrawerProps) {
   const [busy, setBusy] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [paperworkOpen, setPaperworkOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [editLineId, setEditLineId] = useState<string | null>(null);
 
@@ -214,6 +217,10 @@ export function OrderViewDrawer(props: OrderViewDrawerProps) {
                     .filter(Boolean)
                     .join(' · ')}
                 </Typography.Text>
+                {/* T5.2: paperwork milestone chain under the status pill. */}
+                <span style={{ marginTop: 2 }}>
+                  <PaperworkChain paperwork={deriveClientPaperwork(header)} t={t} />
+                </span>
               </div>
               <Space wrap>
                 <Button type="primary" size="small" onClick={() => setEditOpen(true)}>
@@ -221,6 +228,9 @@ export function OrderViewDrawer(props: OrderViewDrawerProps) {
                 </Button>
                 <Button size="small" onClick={() => setStatusOpen(true)}>
                   {t(TEXT.btnSetStatus)}
+                </Button>
+                <Button size="small" onClick={() => setPaperworkOpen(true)}>
+                  {t(TEXT.opEditPaperwork)}
                 </Button>
                 <Button size="small" danger loading={busy} onClick={confirmDelete}>
                   {header.deletable ? t(TEXT.ovDelete) : t(TEXT.ovCancelBtn)}
@@ -281,6 +291,15 @@ export function OrderViewDrawer(props: OrderViewDrawerProps) {
                 {header.remarks}
               </div>
             ) : null}
+
+            {/* T5.1: prep details — auto-expanded when the order is at the prep stage. */}
+            <PrepDetailsSection
+              orderApi={orderApi}
+              t={t}
+              header={header}
+              defaultExpanded={header.workflowStage === 'in_prep'}
+              onSaved={afterMutation}
+            />
 
             {/* lines */}
             <div>
@@ -414,6 +433,14 @@ export function OrderViewDrawer(props: OrderViewDrawerProps) {
             t={t}
             header={header}
             onClose={() => setEditOpen(false)}
+            onSaved={afterMutation}
+          />
+          <EditPaperworkModal
+            open={paperworkOpen}
+            orderApi={orderApi}
+            t={t}
+            header={header}
+            onClose={() => setPaperworkOpen(false)}
             onSaved={afterMutation}
           />
           <EditLineModal
