@@ -370,9 +370,9 @@ function orderCell(row: OrderPaneRow, ctx: CellContext): React.ReactNode {
             }}
           />
         ) : null}
-        <span style={{ ...MONO, fontWeight: 700, fontSize: 13 }}>{row.orderRef ?? EM_DASH}</span>
+        <span style={{ ...MONO, fontWeight: 700, fontSize: 15 }}>{row.orderRef ?? EM_DASH}</span>
       </span>
-      <span style={{ fontSize: 11.5, color: MUTED }}>
+      <span style={{ fontSize: 12, color: MUTED }}>
         {[row.companyName, row.sourceMarketplace].filter(Boolean).join(' · ') || EM_DASH}
       </span>
       <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
@@ -391,7 +391,7 @@ function inboundStatusCell(row: OrderPaneRow, ctx: CellContext): React.ReactNode
       <span>
         <LifecycleStatusPill status={row.lifecycleStatus} fallbackLabel={ctx.t(TEXT.ovNoStatus)} />
       </span>
-      <span style={{ fontSize: 12.5 }}>
+      <span style={{ fontSize: 13 }}>
         {t(TEXT.opSellerboard)} {t(TEXT.ovOrderedPrefix)} <strong style={NUM}>{buckets.orderedUnits}</strong>{' '}
         {t(TEXT.opUnitAbbrev)} · {t(TEXT.opInboundWord)} <strong style={NUM}>{buckets.arrivedUnits}</strong>{' '}
         {t(TEXT.opUnitAbbrev)}{' '}
@@ -402,11 +402,11 @@ function inboundStatusCell(row: OrderPaneRow, ctx: CellContext): React.ReactNode
         ) : null}
       </span>
       {buckets.alreadyConfirmed ? (
-        <span style={{ fontSize: 11, color: MUTED }}>{t(TEXT.opCompleted)}</span>
+        <span style={{ fontSize: 12, color: MUTED }}>{t(TEXT.opCompleted)}</span>
       ) : buckets.arrivalDetected ? (
         actionChip(t(TEXT.opConfirmInboundChip), () => ctx.confirmInbound(row.orderId), 'success')
       ) : (
-        <span style={{ fontSize: 11, color: MUTED }}>{t(TEXT.opNothingMoved)}</span>
+        <span style={{ fontSize: 12, color: MUTED }}>{t(TEXT.opNothingMoved)}</span>
       )}
     </div>
   );
@@ -435,7 +435,7 @@ function costCell(row: OrderPaneRow, ctx: CellContext): React.ReactNode {
   if (typeof actualCost === 'number' && typeof expectedCost === 'number') {
     const diff = Math.round((actualCost - expectedCost) * 100) / 100;
     const text = diff > 0 ? `+${formatMoney(diff, t)}` : diff < 0 ? formatMoney(diff, t) : `±${formatMoney(0, t)}`;
-    delta = <span style={{ fontSize: 11, color: diff > 0 ? RED : GREEN }}>{text}</span>;
+    delta = <span style={{ fontSize: 12, color: diff > 0 ? RED : GREEN }}>{text}</span>;
   }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 110, alignItems: 'flex-end' }}>
@@ -456,7 +456,7 @@ function inStatusCell(row: OrderPaneRow, ctx: CellContext): React.ReactNode {
   const reason = reasonLabel(row.attention.reason, t);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-      <span style={NUM}>
+      <span style={{ ...NUM, fontSize: 15 }}>
         {days === null ? (
           t(TEXT.unknown)
         ) : row.attention.flagged ? (
@@ -479,7 +479,7 @@ function lastActivityCell(row: OrderPaneRow, ctx: CellContext): React.ReactNode 
   const rel = relativeTime(row.lastActivity.at, ctx.now, ctx.t);
   const firstLine = row.lastActivity.body.split('\n')[0];
   return (
-    <span style={{ fontSize: 12.5 }}>
+    <span style={{ fontSize: 13 }}>
       <span style={{ color: MUTED }}>{rel}</span>
       {' — '}
       {firstLine}
@@ -493,7 +493,7 @@ function moneyCell(row: OrderPaneRow, ctx: CellContext): React.ReactNode {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'flex-end' }}>
         <span style={NUM}>{EM_DASH}</span>
-        <span style={{ fontSize: 11, color: MUTED }}>{translate(TEXT.opStockCoversEta)}</span>
+        <span style={{ fontSize: 12, color: MUTED }}>{translate(TEXT.opStockCoversEta)}</span>
       </div>
     );
   }
@@ -502,7 +502,7 @@ function moneyCell(row: OrderPaneRow, ctx: CellContext): React.ReactNode {
       <span style={{ ...NUM, fontWeight: 700, color: row.moneyAtRiskPastSafe ? RED : undefined }}>
         {formatMoney(row.moneyAtRisk, translate)}
       </span>
-      <span style={{ fontSize: 11, color: MUTED }}>
+      <span style={{ fontSize: 12, color: MUTED }}>
         {row.atRiskProductCount} {translate(TEXT.opOf)} {row.productCount} {translate(TEXT.opProductsAtRisk)}
       </span>
     </div>
