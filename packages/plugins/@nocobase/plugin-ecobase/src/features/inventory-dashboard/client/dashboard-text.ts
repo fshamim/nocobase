@@ -260,6 +260,7 @@ export const TEXT = {
   ocPaymentDate: 'Payment date',
   ocInvoiceNo: 'Invoice no',
   ovInvoiceLabel: 'Invoice',
+  ovNoStatus: 'No status',
   ocCarrier: 'Shipping carrier',
   ocTracking: 'Tracking ID',
   ocExpectedDelivery: 'Expected delivery',

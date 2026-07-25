@@ -18,10 +18,13 @@ const PILL_STYLE: React.CSSProperties = { borderRadius: 999, marginInlineEnd: 0 
 const TINY_PILL_STYLE: React.CSSProperties = { ...PILL_STYLE, fontSize: 11, paddingInline: 7 };
 
 /** Lifecycle status pill using the order-lifecycle metadata colour. */
-export function LifecycleStatusPill({ status }: { status?: string | null }) {
+export function LifecycleStatusPill({ status, fallbackLabel }: { status?: string | null; fallbackLabel?: string }) {
   const canonical = canonicalOrderLifecycleStatus(status);
   if (!canonical) {
-    return status ? <Tag style={PILL_STYLE}>{status}</Tag> : null;
+    // Imported orders can carry a blank lifecycle status; the layout still needs
+    // a pill (QA order-panes round 1), so render the raw value or the fallback.
+    const text = status ?? fallbackLabel;
+    return text ? <Tag style={PILL_STYLE}>{text}</Tag> : null;
   }
   const meta = ORDER_LIFECYCLE_STATUS_METADATA[canonical];
   return (

@@ -357,6 +357,7 @@ function orderCell(row: OrderPaneRow, ctx: CellContext): React.ReactNode {
       <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
         {row.attention.flagged ? (
           <span
+            role="img"
             title={reason}
             aria-label={reason}
             style={{
@@ -388,7 +389,7 @@ function inboundStatusCell(row: OrderPaneRow, ctx: CellContext): React.ReactNode
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 210 }}>
       <span>
-        <LifecycleStatusPill status={row.lifecycleStatus} />
+        <LifecycleStatusPill status={row.lifecycleStatus} fallbackLabel={ctx.t(TEXT.ovNoStatus)} />
       </span>
       <span style={{ fontSize: 12.5 }}>
         {t(TEXT.opSellerboard)} {t(TEXT.ovOrderedPrefix)} <strong style={NUM}>{buckets.orderedUnits}</strong>{' '}
@@ -416,7 +417,7 @@ function statusCell(row: OrderPaneRow, ctx: CellContext): React.ReactNode {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 210 }}>
       <span>
-        <LifecycleStatusPill status={row.lifecycleStatus} />
+        <LifecycleStatusPill status={row.lifecycleStatus} fallbackLabel={ctx.t(TEXT.ovNoStatus)} />
       </span>
       {ctx.pane === 'inPrepMonitoring' ? (
         <PrepChain prep={row.prep} t={ctx.t} />

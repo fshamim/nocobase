@@ -946,19 +946,19 @@ export class EcobaseOrderWorkbenchService {
 
     const daysInStatus = resolveDaysSince(
       [
-        asString(order.statusChangedAt),
-        asString(order.operatorStatusOverrideAt),
-        asString(order.authorityAsOf),
-        asString(order.orderDate),
+        asTimestampString(order.statusChangedAt),
+        asTimestampString(order.operatorStatusOverrideAt),
+        asTimestampString(order.authorityAsOf),
+        asTimestampString(order.orderDate),
       ],
       now,
     );
     const daysInPane = resolveDaysSince(
       [
-        asString(order.workflowStageEnteredAt),
-        asString(order.operatorStatusOverrideAt),
-        asString(order.authorityAsOf),
-        asString(order.orderDate),
+        asTimestampString(order.workflowStageEnteredAt),
+        asTimestampString(order.operatorStatusOverrideAt),
+        asTimestampString(order.authorityAsOf),
+        asTimestampString(order.orderDate),
       ],
       now,
     );
@@ -978,10 +978,10 @@ export class EcobaseOrderWorkbenchService {
     const risk = computeOrderMoneyAtRisk({ products, etaDate, now });
 
     const statusChangedRef =
-      asString(order.statusChangedAt) ??
-      asString(order.operatorStatusOverrideAt) ??
-      asString(order.authorityAsOf) ??
-      asString(order.orderDate);
+      asTimestampString(order.statusChangedAt) ??
+      asTimestampString(order.operatorStatusOverrideAt) ??
+      asTimestampString(order.authorityAsOf) ??
+      asTimestampString(order.orderDate);
     const attention = deriveOrderAttention({
       pane,
       daysInStatus,
@@ -1048,7 +1048,7 @@ export class EcobaseOrderWorkbenchService {
       if (asString(row.deletedAt)) continue;
       const entityId = asString(row.entityId);
       const body = asString(row.body);
-      const at = asString(row.occurredAt) ?? asString(row.createdAt);
+      const at = asTimestampString(row.occurredAt) ?? asTimestampString(row.createdAt);
       if (!entityId || !body || !at) continue;
       const existing = result.get(entityId);
       if (!existing || at > existing.at) result.set(entityId, { at, body: body.slice(0, 120) });
@@ -1298,6 +1298,16 @@ export class EcobaseOrderWorkbenchService {
   private repo(name: string) {
     return this.db.getRepository(name);
   }
+}
+
+/**
+ * Datetime columns hydrate as JS Date objects from the real database (the fake
+ * test repository seeds ISO strings) — accept both, always returning an ISO
+ * string. Red-proofed by the Date-object paneOrders test.
+ */
+function asTimestampString(value: unknown): string | undefined {
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? undefined : value.toISOString();
+  return asString(value);
 }
 
 function asString(value: unknown): string | undefined {

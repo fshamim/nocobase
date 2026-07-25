@@ -479,6 +479,25 @@ describe('EcobaseOrderWorkbenchService', () => {
     expect(row.supplierName).toBe('allied piano and finish');
   });
 
+  it('paneOrders computes ages from Date-object timestamps (real DB hydration, not ISO strings)', async () => {
+    const detail = await createSampleOrder(service, 'EF072426B');
+    seedRun('run-d', detail.header.id);
+    const row = db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows.find((r) => r.id === detail.header.id);
+    if (!row) throw new Error('order row missing');
+    // Red-proof: postgres hydrates datetimeTz columns as JS Date objects, while the
+    // fake repository (and the old code path) assumed ISO strings — the QA round-1
+    // "In status stuck at 8 d" bug. Two days ago as a Date object must yield 2 d,
+    // never fall through to orderDate.
+    const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+    row.statusChangedAt = twoDaysAgo;
+    row.workflowStageEnteredAt = twoDaysAgo;
+    row.orderDate = '2026-06-01';
+    const result = await service.paneOrders({ pane: 'activeOrders', runId: 'run-d' });
+    if ('runSuperseded' in result) throw new Error('unexpected superseded result');
+    expect(result.rows[0].daysInStatus).toBe(2);
+    expect(result.rows[0].daysInPane).toBe(2);
+  });
+
   it('paneOrders signals runSuperseded when the pinned run is stale', async () => {
     const detail = await createSampleOrder(service);
     seedRun('run-2', detail.header.id);

@@ -190,7 +190,7 @@ export function OrderViewDrawer(props: OrderViewDrawerProps) {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                   <span style={{ ...MONO, fontSize: 19, fontWeight: 700 }}>{header.orderRef ?? EM_DASH}</span>
-                  <LifecycleStatusPill status={header.lifecycleStatus} />
+                  <LifecycleStatusPill status={header.lifecycleStatus} fallbackLabel={t(TEXT.ovNoStatus)} />
                   {header.paymentStatus ? (
                     <span style={{ fontSize: 11, color: 'rgba(0,0,0,0.45)' }}>
                       {t(TEXT.ocPaymentStatus)} · {header.paymentStatus}
