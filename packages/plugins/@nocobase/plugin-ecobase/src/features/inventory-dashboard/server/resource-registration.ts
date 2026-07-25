@@ -418,6 +418,58 @@ export function createEcobaseInventoryDashboardActions() {
           }),
         );
       },
+      // ---- Order panes (T2.5) — order-grain read (LOGGED_IN, not an operator write) ----
+      paneOrders: async (ctx: DashboardActionContext, next: DashboardNext) => {
+        const values = getValues(ctx.action.params);
+        await runWorkbench(ctx, next, (service) =>
+          service.paneOrders({
+            pane: values.pane,
+            runId: optionalString(values, 'runId'),
+            companyId: optionalString(values, 'companyId'),
+            search: optionalString(values, 'search'),
+            page: optionalNumber(values, 'page'),
+            pageSize: optionalNumber(values, 'pageSize'),
+          }),
+        );
+      },
+      // ---- Order-pane popup mutations (T2.2–T2.4) --------------------------
+      updateOrderPaperwork: async (ctx: DashboardActionContext, next: DashboardNext) => {
+        const values = getValues(ctx.action.params);
+        await runWorkbench(ctx, next, (service) =>
+          service.updateOrderPaperwork({ ...values, actorUserId: actorUserId(ctx) }),
+        );
+      },
+      updatePrepDetails: async (ctx: DashboardActionContext, next: DashboardNext) => {
+        const values = getValues(ctx.action.params);
+        const payload: Record<string, unknown> = {
+          orderId: optionalString(values, 'orderId'),
+          actorUserId: actorUserId(ctx),
+        };
+        for (const field of [
+          'prepBoxes',
+          'prepCartons',
+          'prepUnits',
+          'prepDimensions',
+          'prepWeightValue',
+          'prepWeightUnit',
+          'hazmatFlag',
+          'shippingId',
+          'labelFilesLink',
+          'prepStatus',
+        ]) {
+          if (field in values) payload[field] = values[field];
+        }
+        await runWorkbench(ctx, next, (service) => service.updatePrepDetails(payload));
+      },
+      confirmInboundCompletion: async (ctx: DashboardActionContext, next: DashboardNext) => {
+        const values = getValues(ctx.action.params);
+        await runWorkbench(ctx, next, (service) =>
+          service.confirmInboundCompletion({
+            orderId: optionalString(values, 'orderId'),
+            actorUserId: actorUserId(ctx),
+          }),
+        );
+      },
     },
     {
       savePrepDetails: 'operator',
@@ -436,6 +488,9 @@ export function createEcobaseInventoryDashboardActions() {
       deleteOrderLine: 'operator',
       deleteOrder: 'operator',
       setOrderStatus: 'operator',
+      updateOrderPaperwork: 'operator',
+      updatePrepDetails: 'operator',
+      confirmInboundCompletion: 'operator',
     },
   );
 }
@@ -469,13 +524,21 @@ export function createInventoryDashboardResourceRegistration(
             'deleteOrderLine',
             'deleteOrder',
             'setOrderStatus',
+            // Order-pane popup mutations (T2.2–T2.4) ride the publish debounce too.
+            'updateOrderPaperwork',
+            'updatePrepDetails',
+            'confirmInboundCompletion',
           ],
           onOperatorWrite,
         ),
       },
     ],
     acl: [
-      { resource: 'ecobaseInventoryDashboard', actions: ['header', 'pane', 'drawerContext'], role: LOGGED_IN },
+      {
+        resource: 'ecobaseInventoryDashboard',
+        actions: ['header', 'pane', 'drawerContext', 'paneOrders'],
+        role: LOGGED_IN,
+      },
       {
         resource: 'ecobaseInventoryDashboard',
         actions: [
@@ -501,6 +564,9 @@ export function createInventoryDashboardResourceRegistration(
           'deleteOrderLine',
           'deleteOrder',
           'setOrderStatus',
+          'updateOrderPaperwork',
+          'updatePrepDetails',
+          'confirmInboundCompletion',
         ],
         role: OPERATOR,
       },

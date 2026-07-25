@@ -17,6 +17,7 @@
 
 import {
   ORDER_LIFECYCLE_STATUSES,
+  canonicalOrderLifecycleStatus,
   requireOrderLifecycleStatus,
   type OrderLifecycleStatus,
 } from '../../order-planning/order-lifecycle-status';
@@ -139,6 +140,331 @@ export function deriveStatusWrite(value: unknown): StatusWrite {
 }
 
 export const ORDER_LIFECYCLE_STATUS_SET: ReadonlySet<string> = new Set(ORDER_LIFECYCLE_STATUSES);
+
+/**
+ * Receipt statuses that unambiguously mean "the units reached Amazon's inbound/stock
+ * buckets" — the arrival signal the inbound pane and confirmInboundCompletion share.
+ */
+export const RECEIPT_ARRIVAL_STATUSES: ReadonlySet<string> = new Set([
+  'amazon_stock_observed',
+  'completed_by_later_inbound',
+]);
+
+export interface OrderReceiptLine {
+  amazonReceiptStatus?: string | null;
+  amazonReceiptObservedQty?: number | null;
+  orderedQty?: number | null;
+}
+
+/**
+ * The single arrival predicate used by BOTH confirmInboundCompletion (guard) and
+ * paneOrders (arrivalDetected), so the row's "✓ arrived" chip and the confirm action
+ * never disagree. Arrival is true when the order-level or ANY line receipt status is
+ * an arrival status, OR the summed observed quantity has reached the summed ordered
+ * quantity. Requires ordered > 0 so an order with no ordered units never reads as a
+ * vacuous 0 ≥ 0 arrival.
+ */
+export function orderArrivalDetected(input: {
+  orderReceiptStatus?: string | null;
+  lines: OrderReceiptLine[];
+}): boolean {
+  if (input.orderReceiptStatus && RECEIPT_ARRIVAL_STATUSES.has(input.orderReceiptStatus)) return true;
+  let orderedTotal = 0;
+  let observedTotal = 0;
+  for (const line of input.lines) {
+    if (line.amazonReceiptStatus && RECEIPT_ARRIVAL_STATUSES.has(line.amazonReceiptStatus)) return true;
+    const ordered = finiteNumber(line.orderedQty ?? undefined);
+    const observed = finiteNumber(line.amazonReceiptObservedQty ?? undefined);
+    if (ordered !== undefined && ordered > 0) orderedTotal += ordered;
+    if (observed !== undefined && observed > 0) observedTotal += observed;
+  }
+  return orderedTotal > 0 && observedTotal >= orderedTotal;
+}
+
+// ---- paneOrders derivations (T2.5) — pure, DB-free, unit-tested ------------
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+
+/** Parse a `yyyy-mm-dd` (dateOnly, UTC midnight) or ISO timestamp to epoch ms. */
+export function parseDateMs(value: string | null | undefined): number | undefined {
+  if (typeof value !== 'string' || !value.trim()) return undefined;
+  const text = value.trim();
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+  const ms = dateOnly ? Date.parse(`${text}T00:00:00.000Z`) : Date.parse(text);
+  return Number.isFinite(ms) ? ms : undefined;
+}
+
+/** First parseable timestamp in the candidate chain, as epoch ms. */
+function firstDateMs(candidates: Array<string | null | undefined>): number | undefined {
+  for (const candidate of candidates) {
+    const ms = parseDateMs(candidate);
+    if (ms !== undefined) return ms;
+  }
+  return undefined;
+}
+
+/**
+ * Whole days elapsed since the first available timestamp in the fallback chain,
+ * relative to `now`. Returns null when no candidate parses (renders "unknown",
+ * never 0). Never negative.
+ */
+export function resolveDaysSince(candidates: Array<string | null | undefined>, now: Date): number | null {
+  const ms = firstDateMs(candidates);
+  if (ms === undefined) return null;
+  const diff = now.getTime() - ms;
+  return diff <= 0 ? 0 : Math.floor(diff / DAY_MS);
+}
+
+export type MilestoneStateValue = 'done' | 'current' | 'pending' | 'blocked';
+
+export interface DerivedMilestone {
+  state: MilestoneStateValue;
+  raw?: string;
+  paymentMode?: string;
+}
+
+export interface OrderPaperworkMilestones {
+  approval: DerivedMilestone;
+  order: DerivedMilestone;
+  payment: DerivedMilestone;
+  invoice: DerivedMilestone;
+}
+
+/** Canonical supplier-order status progression; "order done" means past payment_pending. */
+const CANONICAL_STATUS_PROGRESSION = [
+  'draft',
+  'supplier_contacted',
+  'supplier_confirmed',
+  'approval_pending',
+  'payment_pending',
+  'paid',
+  'supplier_preparing',
+  'shipped_inbound',
+  'completed',
+];
+
+function includesAny(raw: string | null | undefined, needles: string[]): boolean {
+  if (typeof raw !== 'string') return false;
+  const lower = raw.toLowerCase();
+  return needles.some((needle) => lower.includes(needle));
+}
+
+/** A raw milestone value counts as blocked when it mentions block / reject / hold. */
+function isBlockedRaw(raw: string | null | undefined): boolean {
+  return includesAny(raw, ['block', 'reject', 'hold']);
+}
+
+/**
+ * Derive the APPR → ORDER → PAY → INV paperwork chain for the Active-orders pane.
+ * Each milestone is done/current/pending/blocked; "current" is the first non-done
+ * milestone in the fixed order; a blocked raw value always renders blocked. Rules
+ * are documented inline and are deterministic (T2.5).
+ */
+export function deriveOrderPaperworkMilestones(input: {
+  orderApproval?: string | null;
+  canonicalStatus?: string | null;
+  sourceOrderStatus?: string | null;
+  lifecycleStatus?: string | null;
+  paymentStatus?: string | null;
+  paymentMode?: string | null;
+  invoiceStatus?: string | null;
+}): OrderPaperworkMilestones {
+  const approvalRaw = input.orderApproval ?? undefined;
+  const orderRaw = input.sourceOrderStatus ?? input.lifecycleStatus ?? input.canonicalStatus ?? undefined;
+  const paymentRaw = input.paymentStatus ?? undefined;
+  const invoiceRaw = input.invoiceStatus ?? undefined;
+
+  const canonicalIndex = CANONICAL_STATUS_PROGRESSION.indexOf((input.canonicalStatus ?? '').toLowerCase());
+  const paymentPendingIndex = CANONICAL_STATUS_PROGRESSION.indexOf('payment_pending');
+
+  const done = [
+    includesAny(approvalRaw, ['approved']),
+    (canonicalIndex !== -1 && canonicalIndex > paymentPendingIndex) ||
+      includesAny(input.sourceOrderStatus, ['completed']),
+    includesAny(paymentRaw, ['completed', 'complete', 'paid']),
+    includesAny(invoiceRaw, ['uploaded', 'received', 'paid']),
+  ];
+  const raws = [approvalRaw, orderRaw, paymentRaw, invoiceRaw];
+  const currentIndex = done.findIndex((value) => !value);
+
+  const build = (index: number): DerivedMilestone => {
+    const raw = raws[index];
+    let state: MilestoneStateValue;
+    if (isBlockedRaw(raw)) state = 'blocked';
+    else if (done[index]) state = 'done';
+    else if (index === currentIndex) state = 'current';
+    else state = 'pending';
+    const milestone: DerivedMilestone = { state };
+    if (typeof raw === 'string' && raw.trim()) milestone.raw = raw;
+    // Payment shows its mode only once the payment is done.
+    if (index === 2 && done[2] && typeof input.paymentMode === 'string' && input.paymentMode.trim()) {
+      milestone.paymentMode = input.paymentMode;
+    }
+    return milestone;
+  };
+
+  return { approval: build(0), order: build(1), payment: build(2), invoice: build(3) };
+}
+
+export type PrepMilestoneState = 'done' | 'current' | 'pending';
+
+export interface OrderPrepMilestones {
+  transit: PrepMilestoneState;
+  atPrep: PrepMilestoneState;
+  prep: PrepMilestoneState;
+  ready: PrepMilestoneState;
+  prepMeasured: boolean;
+}
+
+/** Position of an in-prep lifecycle status on the TRANSIT → AT PREP → PREP ladder. */
+const PREP_LADDER_RANK: Partial<Record<OrderLifecycleStatus, number>> = {
+  ORDERED: 0,
+  'IN TRANSIT TO PREP': 1,
+  'AT PREP NOT STARTED': 2,
+  'PREP IN-PROGRESS': 3,
+};
+const PREP_LADDER_COMPLETE_STATUSES: ReadonlySet<OrderLifecycleStatus> = new Set<OrderLifecycleStatus>([
+  'SHIPPED TO FBA',
+  'INBOUND MONITORING',
+  'DIRECT SHIP FBA',
+  'COMPLETE',
+]);
+
+/**
+ * Derive the TRANSIT → AT PREP → PREP → READY chain from the lifecycle-status
+ * ladder, with READY driven by prepStatus === 'Completed', plus a `prepMeasured`
+ * flag (all three dimensions AND a weight present). In-prep pane only (T2.5).
+ */
+export function deriveOrderPrepMilestones(input: {
+  lifecycleStatus?: string | null;
+  prepStatus?: string | null;
+  prepDimensions?: { length?: number | null; breadth?: number | null; height?: number | null } | null;
+  prepWeightValue?: number | null;
+}): OrderPrepMilestones {
+  const canonical = canonicalOrderLifecycleStatus(input.lifecycleStatus);
+  let rank = 0;
+  if (canonical && canonical in PREP_LADDER_RANK) rank = PREP_LADDER_RANK[canonical] ?? 0;
+  else if (canonical && PREP_LADDER_COMPLETE_STATUSES.has(canonical)) rank = 4;
+
+  const readyDone = typeof input.prepStatus === 'string' && input.prepStatus.trim().toLowerCase() === 'completed';
+  const prepDone = readyDone || rank >= 4;
+  const atPrepDone = prepDone || rank >= 3;
+  const transitDone = atPrepDone || rank >= 2;
+  const done = [transitDone, atPrepDone, prepDone, readyDone];
+  const currentIndex = done.findIndex((value) => !value);
+  const state = (index: number): PrepMilestoneState =>
+    done[index] ? 'done' : index === currentIndex ? 'current' : 'pending';
+
+  const dims = input.prepDimensions;
+  const hasDims =
+    !!dims &&
+    finiteNumber(dims.length) !== undefined &&
+    finiteNumber(dims.breadth) !== undefined &&
+    finiteNumber(dims.height) !== undefined;
+  const prepMeasured = hasDims && finiteNumber(input.prepWeightValue) !== undefined;
+
+  return { transit: state(0), atPrep: state(1), prep: state(2), ready: state(3), prepMeasured };
+}
+
+export interface OrderRiskProduct {
+  companyProductId: string;
+  estimatedProfitRisk?: number | null;
+  estimatedOosDate?: string | null;
+}
+
+export interface OrderMoneyAtRisk {
+  moneyAtRisk: number;
+  atRiskProductCount: number;
+  productCount: number;
+  pastSafeDate: boolean;
+}
+
+/**
+ * Money at risk for an order: sum of its (deduped) products' gold estimatedProfitRisk
+ * where the product's estimatedOosDate falls before the order ETA — OR the ETA is
+ * unknown, in which case every product is pessimistically at risk (locked decision).
+ * `pastSafeDate` is true when any at-risk product's OOS date is already in the past.
+ */
+export function computeOrderMoneyAtRisk(input: {
+  products: OrderRiskProduct[];
+  etaDate?: string | null;
+  now: Date;
+}): OrderMoneyAtRisk {
+  const seen = new Set<string>();
+  const products = input.products.filter((product) => {
+    if (!product.companyProductId || seen.has(product.companyProductId)) return false;
+    seen.add(product.companyProductId);
+    return true;
+  });
+  const etaMs = parseDateMs(input.etaDate);
+  const nowMs = input.now.getTime();
+  let moneyAtRisk = 0;
+  let atRiskProductCount = 0;
+  let pastSafeDate = false;
+  for (const product of products) {
+    const oosMs = parseDateMs(product.estimatedOosDate);
+    const atRisk = etaMs === undefined ? true : oosMs !== undefined && oosMs < etaMs;
+    if (!atRisk) continue;
+    atRiskProductCount += 1;
+    const risk = finiteNumber(product.estimatedProfitRisk);
+    if (risk !== undefined) moneyAtRisk += risk;
+    if (oosMs !== undefined && oosMs <= nowMs) pastSafeDate = true;
+  }
+  return { moneyAtRisk: round2(moneyAtRisk), atRiskProductCount, productCount: products.length, pastSafeDate };
+}
+
+export type OrderAttentionReason = 'follow_up' | 'prep_idle' | 'inbound_overdue' | 'payment_blocked' | null;
+
+export interface OrderAttentionThresholds {
+  activeOrderFollowUpDays: number;
+  prepIdleDays: number;
+  inboundOverdueDays: number;
+}
+
+/**
+ * Exactly one attention reason per row, evaluated in the fixed precedence order
+ * follow_up → prep_idle → inbound_overdue → payment_blocked (T2.5). The three
+ * threshold reasons are pane-exclusive; boundary values (exactly at the threshold)
+ * are NOT flagged — only strictly over.
+ */
+export function deriveOrderAttention(input: {
+  pane: string;
+  daysInStatus: number | null;
+  daysInPane: number | null;
+  lastActivityAt?: string | null;
+  statusChangedAt?: string | null;
+  paymentBlocked: boolean;
+  now: Date;
+  thresholds: OrderAttentionThresholds;
+}): { flagged: boolean; reason: OrderAttentionReason } {
+  const flag = (reason: Exclude<OrderAttentionReason, null>) => ({ flagged: true, reason });
+  const { thresholds } = input;
+
+  if (input.pane === 'activeOrders') {
+    const refMs = firstDateMs([input.lastActivityAt, input.statusChangedAt]);
+    if (refMs !== undefined) {
+      const hours = (input.now.getTime() - refMs) / HOUR_MS;
+      if (hours > thresholds.activeOrderFollowUpDays * 24) return flag('follow_up');
+    }
+  }
+  if (
+    input.pane === 'inPrepMonitoring' &&
+    input.daysInStatus !== null &&
+    input.daysInStatus > thresholds.prepIdleDays
+  ) {
+    return flag('prep_idle');
+  }
+  if (
+    input.pane === 'inboundMonitoring' &&
+    input.daysInPane !== null &&
+    input.daysInPane > thresholds.inboundOverdueDays
+  ) {
+    return flag('inbound_overdue');
+  }
+  if (input.paymentBlocked) return flag('payment_blocked');
+  return { flagged: false, reason: null };
+}
 
 function finiteNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;

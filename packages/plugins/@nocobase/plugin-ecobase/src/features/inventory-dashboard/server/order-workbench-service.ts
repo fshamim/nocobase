@@ -34,16 +34,30 @@ import {
   ORDER_LIFECYCLE_STATUS_METADATA,
   ORDER_LIFECYCLE_STATUS_OPTIONS,
   canonicalOrderLifecycleStatus,
+  isCompleteLifecycleStatus,
 } from '../../order-planning/order-lifecycle-status';
 import {
   computeLineExpectedCost,
   computeLineMargin,
+  computeOrderMoneyAtRisk,
+  deriveOrderAttention,
+  deriveOrderPaperworkMilestones,
+  deriveOrderPrepMilestones,
   deriveStatusWrite,
   normalizeOrderRef,
+  orderArrivalDetected,
   requireValidOrderRef,
+  resolveDaysSince,
   sumExpectedCost,
   trailingSequenceLetter,
+  type OrderAttentionReason,
+  type OrderAttentionThresholds,
+  type OrderPaperworkMilestones,
+  type OrderPrepMilestones,
+  type OrderRiskProduct,
 } from './order-workbench-compute';
+import { PublishedGoldReader, type DashboardDatabase } from './published-gold-reader';
+import { EcobasePlanningSettingsService } from '../../../server/services/planning-settings-service';
 
 type PlainRecord = Record<string, unknown>;
 
@@ -61,6 +75,77 @@ const LINE_EDITABLE_FIELDS = [
   'expectedSellableDate',
   'priority',
 ] as const;
+
+/** Whitelisted prep-detail fields accepted by updatePrepDetails (T2.3). */
+const PREP_DETAIL_FIELDS: ReadonlySet<string> = new Set([
+  'prepBoxes',
+  'prepCartons',
+  'prepUnits',
+  'prepDimensions',
+  'prepWeightValue',
+  'prepWeightUnit',
+  'hazmatFlag',
+  'shippingId',
+  'labelFilesLink',
+  'prepStatus',
+]);
+
+/** The three order panes served by paneOrders (T2.5). */
+export const ORDER_PANE_KEYS = ['activeOrders', 'inPrepMonitoring', 'inboundMonitoring'] as const;
+export type OrderPaneKey = (typeof ORDER_PANE_KEYS)[number];
+
+export function isOrderPaneKey(value: unknown): value is OrderPaneKey {
+  return typeof value === 'string' && (ORDER_PANE_KEYS as readonly string[]).includes(value);
+}
+
+export interface OrderPaneInboundBuckets {
+  orderedUnits: number;
+  arrivedUnits: number;
+  arrivalDetected: boolean;
+  alreadyConfirmed: boolean;
+}
+
+export interface OrderPaneRow {
+  orderId: string;
+  orderRef?: string;
+  companyName?: string;
+  sourceMarketplace?: string;
+  supplierName?: string;
+  supplierShipDestination: 'direct_fba' | 'prep_center' | null;
+  lifecycleStatus?: string;
+  paperwork: OrderPaperworkMilestones;
+  prep: OrderPrepMilestones;
+  inbound: OrderPaneInboundBuckets;
+  expectedCost?: number;
+  actualCost?: number;
+  units: number;
+  daysInStatus: number | null;
+  daysInPane: number | null;
+  lastActivity: { at: string; body: string } | null;
+  moneyAtRisk: number;
+  atRiskProductCount: number;
+  productCount: number;
+  moneyAtRiskPastSafe: boolean;
+  attention: { flagged: boolean; reason: OrderAttentionReason };
+}
+
+export interface OrderPaneResponse {
+  pane: OrderPaneKey;
+  publishedRunId: string;
+  rows: OrderPaneRow[];
+  pagination: { page: number; pageSize: number; total: number };
+}
+
+export interface OrderPaneRunSuperseded {
+  runSuperseded: true;
+  publishedRunId: string;
+}
+
+export type OrderPaneResult = OrderPaneResponse | OrderPaneRunSuperseded;
+
+export function isOrderPaneRunSuperseded(value: OrderPaneResult): value is OrderPaneRunSuperseded {
+  return (value as OrderPaneRunSuperseded).runSuperseded === true;
+}
 
 export class OrderWorkbenchError extends Error {
   constructor(
@@ -354,6 +439,17 @@ export class EcobaseOrderWorkbenchService {
         observedUnits,
         productCount: lines.length,
         amazonReceiptStatus: asString(order.amazonReceiptStatus),
+        // Prep details (T5): surfaced so the popup's Prep section can prefill.
+        hazmatFlag: typeof order.hazmatFlag === 'boolean' ? order.hazmatFlag : undefined,
+        prepBoxes: asNumber(order.prepBoxes),
+        prepCartons: asNumber(order.prepCartons),
+        prepUnits: asNumber(order.prepUnits),
+        prepDimensions: readDimensions(order.prepDimensions) ?? undefined,
+        prepWeightValue: asNumber(order.prepWeightValue),
+        prepWeightUnit: asString(order.prepWeightUnit),
+        shippingId: asString(order.shippingId),
+        labelFilesLink: asString(order.labelFilesLink),
+        prepStatus: asString(order.prepStatus),
       },
       lines,
       activity: await this.buildActivity(order, orderId),
@@ -523,6 +619,126 @@ export class EcobaseOrderWorkbenchService {
     const orderId = String(order.id);
     const write = deriveStatusWrite(params.status);
     const now = new Date().toISOString();
+    // T2.1: the days-in-status / days-in-pane clocks reset ONLY when the MAIN
+    // lifecycle status (statusChangedAt) or the mapped workflow stage
+    // (workflowStageEnteredAt) actually changes. A same-status re-set leaves both
+    // stamps untouched; sub-status/milestone editors never call through here.
+    const lifecycleChanged = canonicalOrderLifecycleStatus(order.lifecycleStatus) !== write.lifecycleStatus;
+    const stageChanged = asString(order.workflowStage) !== write.workflowStage;
+    const values: PlainRecord = {
+      lifecycleStatus: write.lifecycleStatus,
+      canonicalStatus: write.canonicalStatus,
+      workflowStage: write.workflowStage,
+      statusSource: 'operator',
+      operatorStatusOverrideAt: now,
+      operatorStatusOverrideByUserId: uuidOrUndefined(params.actorUserId),
+      statusEvidenceJson: {
+        source: 'order_workbench',
+        action: 'set_status',
+        lifecycleStatus: write.lifecycleStatus,
+        canonicalStatus: write.canonicalStatus,
+        at: now,
+        actorUserId: params.actorUserId,
+      },
+    };
+    if (lifecycleChanged) values.statusChangedAt = now;
+    if (stageChanged) values.workflowStageEnteredAt = now;
+    await this.repo(ECOBASE_COLLECTIONS.silverOrders).update({ filterByTk: orderId, values });
+    return this.getOrderDetail({ orderId });
+  }
+
+  // ---- 12. updateOrderPaperwork (T2.2) --------------------------------------
+
+  /**
+   * Narrow, auditable surface for the popup's paperwork-milestone editor. Writes
+   * only the six whitelisted milestone fields. It deliberately NEVER touches the
+   * lifecycle status or the status clocks (statusChangedAt / workflowStageEnteredAt) —
+   * paperwork edits are sub-status edits, and only setOrderStatus resets the clocks.
+   */
+  async updateOrderPaperwork(params: PlainRecord & { orderId?: string; actorUserId?: string }) {
+    const order = await this.requireOrder(params.orderId);
+    const orderId = String(order.id);
+    const values: PlainRecord = {};
+    for (const field of ['orderApproval', 'paymentStatus', 'paymentMode', 'invoiceStatus', 'attachmentReference']) {
+      if (field in params) values[field] = optionalStringValue(params[field]);
+    }
+    if ('paymentDate' in params) values.paymentDate = normalizeDateOnly(params.paymentDate);
+    if (Object.keys(values).length > 0) {
+      await this.repo(ECOBASE_COLLECTIONS.silverOrders).update({ filterByTk: orderId, values });
+    }
+    return this.getOrderDetail({ orderId });
+  }
+
+  // ---- 13. updatePrepDetails (T2.3) -----------------------------------------
+
+  /**
+   * Workbench prep-details editor (the popup's Prep section). Whitelist-only; any
+   * unrecognised field is rejected. Stamps prepDetailsUpdatedAt/ByUserId. The v1
+   * dashboard `savePrepDetails` action is a separate, untouched surface.
+   */
+  async updatePrepDetails(params: PlainRecord & { orderId?: string; actorUserId?: string }) {
+    const order = await this.requireOrder(params.orderId);
+    const orderId = String(order.id);
+    for (const key of Object.keys(params)) {
+      if (key === 'orderId' || key === 'actorUserId') continue;
+      if (!PREP_DETAIL_FIELDS.has(key)) {
+        throw new OrderWorkbenchError(`Unknown prep-detail field "${key}".`);
+      }
+    }
+    const values: PlainRecord = {};
+    if ('prepBoxes' in params) values.prepBoxes = integerOrNull(params.prepBoxes, 'Boxes');
+    if ('prepCartons' in params) values.prepCartons = integerOrNull(params.prepCartons, 'Cartons');
+    if ('prepUnits' in params) values.prepUnits = nonNegativeNumberOrNull(params.prepUnits, 'Units');
+    if ('prepDimensions' in params) values.prepDimensions = normalizePrepDimensions(params.prepDimensions);
+    if ('prepWeightValue' in params) values.prepWeightValue = nonNegativeNumberOrNull(params.prepWeightValue, 'Weight');
+    if ('prepWeightUnit' in params) values.prepWeightUnit = normalizePrepWeightUnit(params.prepWeightUnit);
+    if ('hazmatFlag' in params) values.hazmatFlag = booleanOrNull(params.hazmatFlag);
+    if ('shippingId' in params) values.shippingId = normalizeShippingId(params.shippingId);
+    if ('labelFilesLink' in params) values.labelFilesLink = normalizeLabelFilesLink(params.labelFilesLink);
+    if ('prepStatus' in params) values.prepStatus = normalizePrepStatus(params.prepStatus);
+    values.prepDetailsUpdatedAt = new Date().toISOString();
+    // Spec (T2.3) mandates uuidOrUndefined here even though the column is string-typed,
+    // so integer NocoBase user ids never persist as the "updated by" value.
+    values.prepDetailsUpdatedByUserId = uuidOrUndefined(params.actorUserId);
+    await this.repo(ECOBASE_COLLECTIONS.silverOrders).update({ filterByTk: orderId, values });
+    return this.getOrderDetail({ orderId });
+  }
+
+  // ---- 14. confirmInboundCompletion (T2.4) ----------------------------------
+
+  /**
+   * Operator confirmation that an inbound-monitored order has fully arrived at
+   * Amazon. Guarded: the order must be in the amazon_inbound stage AND show receipt
+   * evidence of arrival (the shared orderArrivalDetected predicate). On success it
+   * writes COMPLETE through the same operator path deriveStatusWrite drives and
+   * resets both status clocks so the family leaves the pane on the next publish.
+   */
+  async confirmInboundCompletion(params: { orderId?: string; actorUserId?: string }) {
+    const order = await this.requireOrder(params.orderId);
+    const orderId = String(order.id);
+    if (asString(order.workflowStage) !== 'amazon_inbound') {
+      throw new OrderWorkbenchError(
+        'This order is not in inbound monitoring, so it cannot be confirmed as inbound-complete.',
+      );
+    }
+    const lineRows = (await this.repo(ECOBASE_COLLECTIONS.silverOrderLines).find({ filter: { orderId } })).map(
+      toPlainRecord,
+    );
+    const arrived = orderArrivalDetected({
+      orderReceiptStatus: asString(order.amazonReceiptStatus),
+      lines: lineRows.map((line) => ({
+        amazonReceiptStatus: asString(line.amazonReceiptStatus),
+        amazonReceiptObservedQty: asNumber(line.amazonReceiptObservedQty),
+        orderedQty: asNumber(line.orderedQty),
+      })),
+    });
+    if (!arrived) {
+      throw new OrderWorkbenchError(
+        'No Amazon arrival detected yet — units have not moved from ordered into inbound, so this order cannot be completed.',
+      );
+    }
+    const write = deriveStatusWrite('COMPLETE');
+    const now = new Date().toISOString();
     await this.repo(ECOBASE_COLLECTIONS.silverOrders).update({
       filterByTk: orderId,
       values: {
@@ -532,9 +748,11 @@ export class EcobaseOrderWorkbenchService {
         statusSource: 'operator',
         operatorStatusOverrideAt: now,
         operatorStatusOverrideByUserId: uuidOrUndefined(params.actorUserId),
+        statusChangedAt: now,
+        workflowStageEnteredAt: now,
         statusEvidenceJson: {
           source: 'order_workbench',
-          action: 'set_status',
+          action: 'confirm_inbound_completion',
           lifecycleStatus: write.lifecycleStatus,
           canonicalStatus: write.canonicalStatus,
           at: now,
@@ -543,6 +761,297 @@ export class EcobaseOrderWorkbenchService {
       },
     });
     return this.getOrderDetail({ orderId });
+  }
+
+  // ---- 15. paneOrders (T2.5) ------------------------------------------------
+
+  /**
+   * Order-grain read for the three order panes. Joins the pinned run's published
+   * gold rows with silver orders/lines/suppliers/comments and derives every number
+   * at read time (milestones, ages, money-at-risk, attention). Membership stays as
+   * published: an order is in the pane when any of its pinned-run gold rows carry
+   * primaryActionPane === pane. Mirrors the dashboard pane endpoint's run contract
+   * (empty envelope when nothing is published; a runSuperseded signal when the
+   * pinned run is stale).
+   */
+  async paneOrders(params: {
+    pane?: unknown;
+    runId?: string;
+    page?: number;
+    pageSize?: number;
+    search?: string;
+    companyId?: string;
+  }): Promise<OrderPaneResult> {
+    if (!isOrderPaneKey(params.pane)) {
+      throw new OrderWorkbenchError(`paneOrders requires a valid order pane; received "${String(params.pane)}".`);
+    }
+    const pane = params.pane;
+    const requestedRunId = asString(params.runId);
+    if (!requestedRunId) throw new OrderWorkbenchError('paneOrders requires the pinned runId.');
+    const pageSize = normalizePageSize(params.pageSize);
+
+    const reader = new PublishedGoldReader(this.db as unknown as DashboardDatabase);
+    const run = await reader.findPublishedRun();
+    if (!run) {
+      return { pane, publishedRunId: '', rows: [], pagination: { page: 1, pageSize, total: 0 } };
+    }
+    if (requestedRunId !== run.id) {
+      return { runSuperseded: true, publishedRunId: run.id };
+    }
+
+    const goldRows = await reader.findRowsForRun(run.id, asString(params.companyId));
+    const goldByCompanyProductId = new Map<string, { estimatedProfitRisk?: number; estimatedOosDate?: string }>();
+    const orderIdsInPane = new Set<string>();
+    for (const gold of goldRows) {
+      const companyProductId = asString(gold.companyProductId);
+      if (companyProductId && !goldByCompanyProductId.has(companyProductId)) {
+        goldByCompanyProductId.set(companyProductId, {
+          estimatedProfitRisk: asNumber(gold.estimatedProfitRisk),
+          estimatedOosDate: asString(gold.estimatedOosDate),
+        });
+      }
+      const supplierOrderId = asString(gold.supplierOrderId);
+      if (supplierOrderId && asString(gold.primaryActionPane) === pane) orderIdsInPane.add(supplierOrderId);
+    }
+    if (orderIdsInPane.size === 0) {
+      return { pane, publishedRunId: run.id, rows: [], pagination: { page: 1, pageSize, total: 0 } };
+    }
+
+    const orderIds = [...orderIdsInPane];
+    const now = new Date();
+    const thresholds = await this.resolveAttentionThresholds();
+    const orders = (
+      await this.repo(ECOBASE_COLLECTIONS.silverOrders).find({
+        filter: { id: { $in: orderIds } },
+        limit: orderIds.length,
+      })
+    ).map(toPlainRecord);
+    const lineRows = (
+      await this.repo(ECOBASE_COLLECTIONS.silverOrderLines).find({
+        filter: { orderId: { $in: orderIds } },
+        limit: 20000,
+      })
+    ).map(toPlainRecord);
+    const linesByOrderId = new Map<string, PlainRecord[]>();
+    for (const line of lineRows) {
+      const orderId = asString(line.orderId);
+      if (!orderId) continue;
+      const bucket = linesByOrderId.get(orderId) ?? [];
+      bucket.push(line);
+      linesByOrderId.set(orderId, bucket);
+    }
+    const [suppliers, companies, commentsByOrderId] = await Promise.all([
+      this.mapByIds(
+        ECOBASE_COLLECTIONS.silverSuppliers,
+        orders.map((order) => asString(order.supplierId)),
+      ),
+      this.mapByIds(
+        ECOBASE_COLLECTIONS.silverCompanies,
+        orders.map((order) => asString(order.companyId)),
+      ),
+      this.loadLatestOrderComments(orderIds),
+    ]);
+
+    const rows = orders.map((order) =>
+      this.buildOrderPaneRow({
+        order,
+        lines: linesByOrderId.get(String(order.id)) ?? [],
+        supplier: suppliers.get(asString(order.supplierId) ?? '') ?? {},
+        company: companies.get(asString(order.companyId) ?? '') ?? {},
+        comment: commentsByOrderId.get(String(order.id)) ?? null,
+        goldByCompanyProductId,
+        pane,
+        thresholds,
+        now,
+      }),
+    );
+
+    const term = asString(params.search)?.toLowerCase();
+    const filtered = term
+      ? rows.filter((row) =>
+          [row.orderRef, row.supplierName, row.companyName].some((field) => (field ?? '').toLowerCase().includes(term)),
+        )
+      : rows;
+    // Attention-flagged first, then longest time in the pane.
+    filtered.sort((left, right) => {
+      if (left.attention.flagged !== right.attention.flagged) return left.attention.flagged ? -1 : 1;
+      return (right.daysInPane ?? -1) - (left.daysInPane ?? -1);
+    });
+
+    const total = filtered.length;
+    const page = normalizePage(params.page);
+    const start = (page - 1) * pageSize;
+    return {
+      pane,
+      publishedRunId: run.id,
+      rows: filtered.slice(start, start + pageSize),
+      pagination: { page, pageSize, total },
+    };
+  }
+
+  private buildOrderPaneRow(input: {
+    order: PlainRecord;
+    lines: PlainRecord[];
+    supplier: PlainRecord;
+    company: PlainRecord;
+    comment: { at: string; body: string } | null;
+    goldByCompanyProductId: Map<string, { estimatedProfitRisk?: number; estimatedOosDate?: string }>;
+    pane: OrderPaneKey;
+    thresholds: OrderAttentionThresholds;
+    now: Date;
+  }): OrderPaneRow {
+    const { order, lines, supplier, company, comment, goldByCompanyProductId, pane, thresholds, now } = input;
+    const orderId = String(order.id);
+    const lifecycleStatus = canonicalOrderLifecycleStatus(order.lifecycleStatus) ?? asString(order.lifecycleStatus);
+
+    let orderedUnits = 0;
+    let arrivedUnits = 0;
+    let actualCost = 0;
+    let hasActualCost = false;
+    for (const line of lines) {
+      orderedUnits += asNumber(line.orderedQty) ?? 0;
+      arrivedUnits += amazonReceivedQty(line);
+      const lineActual = asNumber(line.actualCost);
+      if (lineActual !== undefined) {
+        actualCost += lineActual;
+        hasActualCost = true;
+      }
+    }
+
+    const paperwork = deriveOrderPaperworkMilestones({
+      orderApproval: asString(order.orderApproval),
+      canonicalStatus: asString(order.canonicalStatus),
+      sourceOrderStatus: asString(order.sourceOrderStatus),
+      lifecycleStatus,
+      paymentStatus: asString(order.paymentStatus),
+      paymentMode: asString(order.paymentMode),
+      invoiceStatus: asString(order.invoiceStatus),
+    });
+    const prep = deriveOrderPrepMilestones({
+      lifecycleStatus,
+      prepStatus: asString(order.prepStatus),
+      prepDimensions: readDimensions(order.prepDimensions),
+      prepWeightValue: asNumber(order.prepWeightValue),
+    });
+    const arrivalDetected = orderArrivalDetected({
+      orderReceiptStatus: asString(order.amazonReceiptStatus),
+      lines: lines.map((line) => ({
+        amazonReceiptStatus: asString(line.amazonReceiptStatus),
+        amazonReceiptObservedQty: asNumber(line.amazonReceiptObservedQty),
+        orderedQty: asNumber(line.orderedQty),
+      })),
+    });
+
+    const daysInStatus = resolveDaysSince(
+      [
+        asString(order.statusChangedAt),
+        asString(order.operatorStatusOverrideAt),
+        asString(order.authorityAsOf),
+        asString(order.orderDate),
+      ],
+      now,
+    );
+    const daysInPane = resolveDaysSince(
+      [
+        asString(order.workflowStageEnteredAt),
+        asString(order.operatorStatusOverrideAt),
+        asString(order.authorityAsOf),
+        asString(order.orderDate),
+      ],
+      now,
+    );
+
+    const etaDate = asString(order.expectedDeliveryDate) ?? asString(order.expectedArrivalDate);
+    const products: OrderRiskProduct[] = lines
+      .map((line) => asString(line.companyProductId))
+      .filter((id): id is string => Boolean(id))
+      .map((companyProductId) => {
+        const gold = goldByCompanyProductId.get(companyProductId);
+        return {
+          companyProductId,
+          estimatedProfitRisk: gold?.estimatedProfitRisk ?? null,
+          estimatedOosDate: gold?.estimatedOosDate ?? null,
+        };
+      });
+    const risk = computeOrderMoneyAtRisk({ products, etaDate, now });
+
+    const statusChangedRef =
+      asString(order.statusChangedAt) ??
+      asString(order.operatorStatusOverrideAt) ??
+      asString(order.authorityAsOf) ??
+      asString(order.orderDate);
+    const attention = deriveOrderAttention({
+      pane,
+      daysInStatus,
+      daysInPane,
+      lastActivityAt: comment?.at ?? null,
+      statusChangedAt: statusChangedRef,
+      paymentBlocked: paperwork.payment.state === 'blocked',
+      now,
+      thresholds,
+    });
+
+    return {
+      orderId,
+      orderRef: asString(order.orderRef),
+      companyName: asString(company.name),
+      sourceMarketplace: asString(order.sourceMarketplace),
+      supplierName: asString(supplier.displayName),
+      supplierShipDestination: asShipDestination(supplier.shipDestination),
+      lifecycleStatus,
+      paperwork,
+      prep,
+      inbound: {
+        orderedUnits,
+        arrivedUnits,
+        arrivalDetected,
+        alreadyConfirmed: isCompleteLifecycleStatus(order.lifecycleStatus),
+      },
+      expectedCost: asNumber(order.expectedCost) ?? sumExpectedCost(lines),
+      actualCost: hasActualCost ? round2(actualCost) : asNumber(order.actualCost),
+      units: orderedUnits,
+      daysInStatus,
+      daysInPane,
+      lastActivity: comment,
+      moneyAtRisk: risk.moneyAtRisk,
+      atRiskProductCount: risk.atRiskProductCount,
+      productCount: risk.productCount,
+      moneyAtRiskPastSafe: risk.pastSafeDate,
+      attention,
+    };
+  }
+
+  private async resolveAttentionThresholds(): Promise<OrderAttentionThresholds> {
+    const settings = await new EcobasePlanningSettingsService(this.db).getResolvedSettings();
+    return {
+      activeOrderFollowUpDays: settings.activeOrderFollowUpDays,
+      prepIdleDays: settings.prepIdleDays,
+      inboundOverdueDays: settings.inboundOverdueDays,
+    };
+  }
+
+  /** Latest non-deleted comment per order (entityType 'order'); body clipped to 120 chars. */
+  private async loadLatestOrderComments(orderIds: string[]): Promise<Map<string, { at: string; body: string }>> {
+    const result = new Map<string, { at: string; body: string }>();
+    if (orderIds.length === 0) return result;
+    const rows = (
+      await this.repo(ECOBASE_COLLECTIONS.silverActivityComments)
+        .find({
+          filter: { entityType: 'order', entityId: { $in: orderIds } },
+          limit: Math.min(orderIds.length * 100, 10000),
+        })
+        .catch(() => [])
+    ).map(toPlainRecord);
+    for (const row of rows) {
+      if (asString(row.deletedAt)) continue;
+      const entityId = asString(row.entityId);
+      const body = asString(row.body);
+      const at = asString(row.occurredAt) ?? asString(row.createdAt);
+      if (!entityId || !body || !at) continue;
+      const existing = result.get(entityId);
+      if (!existing || at > existing.at) result.set(entityId, { at, body: body.slice(0, 120) });
+    }
+    return result;
   }
 
   /** The 11 canonical lifecycle statuses with pill colour + stage, for the Set-status popup. */
@@ -848,6 +1357,108 @@ function todayIso(): string {
 
 function round2(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+function normalizePageSize(value: unknown): number {
+  const page = typeof value === 'number' && Number.isFinite(value) ? Math.floor(value) : 25;
+  return Math.min(Math.max(page, 1), 200);
+}
+
+function normalizePage(value: unknown): number {
+  const page = typeof value === 'number' && Number.isFinite(value) ? Math.floor(value) : 1;
+  return Math.max(page, 1);
+}
+
+function asShipDestination(value: unknown): 'direct_fba' | 'prep_center' | null {
+  return value === 'direct_fba' || value === 'prep_center' ? value : null;
+}
+
+/** Coerce the stored jsonb prep dimensions into numeric length/breadth/height for derivation. */
+function readDimensions(value: unknown): { length?: number; breadth?: number; height?: number } | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const source = value as PlainRecord;
+  return { length: asNumber(source.length), breadth: asNumber(source.breadth), height: asNumber(source.height) };
+}
+
+// ---- updatePrepDetails field validators (T2.3) ----------------------------
+
+function integerOrNull(value: unknown, label: string): number | null {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = asNumber(value);
+  if (parsed === undefined || !Number.isInteger(parsed) || parsed < 0) {
+    throw new OrderWorkbenchError(`${label} must be a whole number of zero or more.`);
+  }
+  return parsed;
+}
+
+function nonNegativeNumberOrNull(value: unknown, label: string): number | null {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = asNumber(value);
+  if (parsed === undefined || parsed < 0) throw new OrderWorkbenchError(`${label} must be a number of zero or more.`);
+  return parsed;
+}
+
+function booleanOrNull(value: unknown): boolean | null {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value === 'boolean') return value;
+  if (value === 'true' || value === 'Yes' || value === 'yes') return true;
+  if (value === 'false' || value === 'No' || value === 'no') return false;
+  throw new OrderWorkbenchError('Hazmat must be Yes or No.');
+}
+
+function normalizePrepWeightUnit(value: unknown): string | null {
+  if (value === undefined || value === null || value === '') return null;
+  const text = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (text === 'lbs' || text === 'kg') return text;
+  throw new OrderWorkbenchError('Weight unit must be lbs or kg.');
+}
+
+function normalizePrepStatus(value: unknown): string | null {
+  if (value === undefined || value === null || value === '') return null;
+  const text = typeof value === 'string' ? value.trim() : '';
+  if (text === 'In progress' || text === 'Completed') return text;
+  throw new OrderWorkbenchError("Prep status must be 'In progress' or 'Completed'.");
+}
+
+function normalizeShippingId(value: unknown): string | null {
+  const text = typeof value === 'string' ? value.trim() : '';
+  if (!text) return null;
+  if (text.length > 64) throw new OrderWorkbenchError('Shipping ID must be 64 characters or fewer.');
+  return text;
+}
+
+function normalizeLabelFilesLink(value: unknown): string | null {
+  const text = typeof value === 'string' ? value.trim() : '';
+  if (!text) return null;
+  if (text.length > 2048) throw new OrderWorkbenchError('Labels link must be 2048 characters or fewer.');
+  let url: URL;
+  try {
+    url = new URL(text);
+  } catch {
+    throw new OrderWorkbenchError('Labels link must be a valid http(s) URL.');
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new OrderWorkbenchError('Labels link must be a valid http(s) URL.');
+  }
+  return text;
+}
+
+function normalizePrepDimensions(value: unknown): PlainRecord | null {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value !== 'object') {
+    throw new OrderWorkbenchError('Dimensions must be an object of length, breadth and height.');
+  }
+  const source = value as PlainRecord;
+  const dims: PlainRecord = {};
+  for (const key of ['length', 'breadth', 'height']) {
+    if (source[key] === undefined || source[key] === null || source[key] === '') continue;
+    const parsed = asNumber(source[key]);
+    if (parsed === undefined || parsed < 0) {
+      throw new OrderWorkbenchError(`Dimension ${key} must be a number of zero or more.`);
+    }
+    dims[key] = parsed;
+  }
+  return Object.keys(dims).length > 0 ? dims : null;
 }
 
 // Re-export the normalizer so action wrappers can pre-normalize without importing compute.

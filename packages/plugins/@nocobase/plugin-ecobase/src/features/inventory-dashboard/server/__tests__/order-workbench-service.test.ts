@@ -304,4 +304,188 @@ describe('EcobaseOrderWorkbenchService', () => {
       displayName: 'allied piano and finish',
     });
   });
+
+  // ---- T2.1 status-stamp matrix -------------------------------------------
+
+  const OLD_STAMP = '2000-01-01T00:00:00.000Z';
+
+  it('setOrderStatus leaves both clocks untouched on a same-status re-set', async () => {
+    const detail = await createSampleOrder(service);
+    await service.setOrderStatus({ orderId: detail.header.id, status: 'ORDERED' });
+    const row = db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[0];
+    row.statusChangedAt = OLD_STAMP;
+    row.workflowStageEnteredAt = OLD_STAMP;
+    await service.setOrderStatus({ orderId: detail.header.id, status: 'ORDERED' });
+    expect(row.statusChangedAt).toBe(OLD_STAMP);
+    expect(row.workflowStageEnteredAt).toBe(OLD_STAMP);
+  });
+
+  it('setOrderStatus resets statusChangedAt but NOT the stage clock on a same-stage status change', async () => {
+    const detail = await createSampleOrder(service);
+    await service.setOrderStatus({ orderId: detail.header.id, status: 'ORDERED' }); // in_prep
+    const row = db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[0];
+    row.statusChangedAt = OLD_STAMP;
+    row.workflowStageEnteredAt = OLD_STAMP;
+    await service.setOrderStatus({ orderId: detail.header.id, status: 'IN TRANSIT TO PREP' }); // still in_prep
+    expect(row.statusChangedAt).not.toBe(OLD_STAMP);
+    expect(row.workflowStageEnteredAt).toBe(OLD_STAMP);
+  });
+
+  it('setOrderStatus resets BOTH clocks on a stage change', async () => {
+    const detail = await createSampleOrder(service);
+    await service.setOrderStatus({ orderId: detail.header.id, status: 'ORDERED' }); // in_prep
+    const row = db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[0];
+    row.statusChangedAt = OLD_STAMP;
+    row.workflowStageEnteredAt = OLD_STAMP;
+    await service.setOrderStatus({ orderId: detail.header.id, status: 'INBOUND MONITORING' }); // amazon_inbound
+    expect(row.statusChangedAt).not.toBe(OLD_STAMP);
+    expect(row.workflowStageEnteredAt).not.toBe(OLD_STAMP);
+  });
+
+  // ---- T2.4 confirmInboundCompletion guards --------------------------------
+
+  it('confirmInboundCompletion rejects an order that is not in inbound monitoring', async () => {
+    const detail = await createSampleOrder(service);
+    await expect(service.confirmInboundCompletion({ orderId: detail.header.id })).rejects.toMatchObject({
+      status: 400,
+    });
+  });
+
+  it('confirmInboundCompletion rejects when no Amazon arrival is detected, then completes once it is', async () => {
+    const detail = await createSampleOrder(service);
+    await service.setOrderStatus({ orderId: detail.header.id, status: 'INBOUND MONITORING' });
+    await expect(service.confirmInboundCompletion({ orderId: detail.header.id })).rejects.toMatchObject({
+      status: 400,
+    });
+    const row = db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[0];
+    row.amazonReceiptStatus = 'amazon_stock_observed';
+    const completed = await service.confirmInboundCompletion({ orderId: detail.header.id, actorUserId: '4' });
+    expect(completed.header.lifecycleStatus).toBe('COMPLETE');
+    expect(row.canonicalStatus).toBe('completed');
+    expect(row.workflowStage).toBe('complete');
+    expect(row.statusEvidenceJson).toMatchObject({ action: 'confirm_inbound_completion', actorUserId: '4' });
+    expect(row.statusChangedAt).toBeTruthy();
+    expect(row.workflowStageEnteredAt).toBeTruthy();
+  });
+
+  // ---- T2.3 updatePrepDetails ----------------------------------------------
+
+  it('updatePrepDetails writes the whitelist, stamps the audit fields, and keeps integer actor ids off the uuid column', async () => {
+    const detail = await createSampleOrder(service);
+    await service.updatePrepDetails({
+      orderId: detail.header.id,
+      prepBoxes: 2,
+      prepUnits: 108,
+      prepDimensions: { length: 21, breadth: 13, height: 7 },
+      prepWeightValue: 25,
+      prepWeightUnit: 'lbs',
+      hazmatFlag: false,
+      shippingId: 'FBA185R9Z2W',
+      labelFilesLink: 'https://example.com/labels',
+      prepStatus: 'Completed',
+      actorUserId: '4',
+    });
+    const row = db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[0];
+    expect(row.prepBoxes).toBe(2);
+    expect(row.prepUnits).toBe(108);
+    expect(row.prepDimensions).toEqual({ length: 21, breadth: 13, height: 7 });
+    expect(row.prepWeightValue).toBe(25);
+    expect(row.prepWeightUnit).toBe('lbs');
+    expect(row.hazmatFlag).toBe(false);
+    expect(row.shippingId).toBe('FBA185R9Z2W');
+    expect(row.labelFilesLink).toBe('https://example.com/labels');
+    expect(row.prepStatus).toBe('Completed');
+    expect(row.prepDetailsUpdatedAt).toBeTruthy();
+    expect(row.prepDetailsUpdatedByUserId).toBeUndefined();
+  });
+
+  it('updatePrepDetails rejects unknown fields and bad values', async () => {
+    const detail = await createSampleOrder(service);
+    await expect(
+      service.updatePrepDetails({ orderId: detail.header.id, somethingElse: 1 } as never),
+    ).rejects.toBeInstanceOf(OrderWorkbenchError);
+    await expect(
+      service.updatePrepDetails({ orderId: detail.header.id, prepWeightUnit: 'stone' }),
+    ).rejects.toBeInstanceOf(OrderWorkbenchError);
+    await expect(
+      service.updatePrepDetails({ orderId: detail.header.id, labelFilesLink: 'not-a-url' }),
+    ).rejects.toBeInstanceOf(OrderWorkbenchError);
+  });
+
+  // ---- T2.2 updateOrderPaperwork -------------------------------------------
+
+  it('updateOrderPaperwork writes only the milestone whitelist and never stamps statusChangedAt', async () => {
+    const detail = await createSampleOrder(service);
+    await service.updateOrderPaperwork({
+      orderId: detail.header.id,
+      orderApproval: 'Approved',
+      paymentStatus: 'Completed',
+      paymentMode: 'ACH',
+      paymentDate: '2026-07-20',
+      invoiceStatus: 'Uploaded',
+    });
+    const row = db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[0];
+    expect(row.orderApproval).toBe('Approved');
+    expect(row.paymentStatus).toBe('Completed');
+    expect(row.paymentMode).toBe('ACH');
+    expect(row.paymentDate).toBe('2026-07-20');
+    expect(row.invoiceStatus).toBe('Uploaded');
+    expect(row.statusChangedAt).toBeUndefined();
+  });
+
+  // ---- T2.5 paneOrders ------------------------------------------------------
+
+  function seedRun(runId: string, orderId: string) {
+    db.seed(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns, [
+      { id: runId, status: 'published', publishedAt: '2026-07-25T00:00:00.000Z', calculationDate: '2026-07-25' },
+    ]);
+    db.seed(ECOBASE_COLLECTIONS.goldInventoryPlanningRows, [
+      {
+        id: 'g1',
+        refreshRunId: runId,
+        supplierOrderId: orderId,
+        companyProductId: 'cp-1',
+        primaryActionPane: 'activeOrders',
+        estimatedProfitRisk: 100,
+        estimatedOosDate: '2026-08-01',
+      },
+      {
+        id: 'g2',
+        refreshRunId: runId,
+        supplierOrderId: orderId,
+        companyProductId: 'cp-2',
+        primaryActionPane: 'activeOrders',
+        estimatedProfitRisk: 250,
+        estimatedOosDate: null,
+      },
+    ]);
+  }
+
+  it('paneOrders builds an order row with pessimistic money-at-risk when the ETA is unknown', async () => {
+    const detail = await createSampleOrder(service, 'EF072426A');
+    seedRun('run-1', detail.header.id);
+    const result = await service.paneOrders({ pane: 'activeOrders', runId: 'run-1' });
+    if ('runSuperseded' in result) throw new Error('unexpected superseded result');
+    expect(result.rows).toHaveLength(1);
+    const row = result.rows[0];
+    expect(row.orderId).toBe(detail.header.id);
+    expect(row.units).toBe(108);
+    expect(row.productCount).toBe(2);
+    // No ETA on the order → both products pessimistically at risk (100 + 250).
+    expect(row.atRiskProductCount).toBe(2);
+    expect(row.moneyAtRisk).toBe(350);
+    expect(row.supplierName).toBe('allied piano and finish');
+  });
+
+  it('paneOrders signals runSuperseded when the pinned run is stale', async () => {
+    const detail = await createSampleOrder(service);
+    seedRun('run-2', detail.header.id);
+    const result = await service.paneOrders({ pane: 'activeOrders', runId: 'run-OLD' });
+    expect(result).toMatchObject({ runSuperseded: true, publishedRunId: 'run-2' });
+  });
+
+  it('paneOrders returns an empty envelope when nothing is published', async () => {
+    const result = await service.paneOrders({ pane: 'activeOrders', runId: 'run-x' });
+    expect(result).toMatchObject({ publishedRunId: '', rows: [] });
+  });
 });
