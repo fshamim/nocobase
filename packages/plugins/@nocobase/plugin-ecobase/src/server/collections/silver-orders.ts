@@ -80,6 +80,10 @@ export default defineCollection({
     // import/status-change (backfill provenance 'derived'); see the dashboard
     // implementation plan §8 (FLAG-1).
     { name: 'workflowStageEnteredAt', type: 'datetimeTz' },
+    // Order panes (T1): stamped when the MAIN lifecycle status changes (never on
+    // sub-status/milestone edits). Drives the "In status" days-in-status column.
+    // Nullable — null falls back to operatorStatusOverrideAt → authorityAsOf → orderDate.
+    { name: 'statusChangedAt', type: 'datetimeTz' },
     { name: 'orderApproval', type: 'string' },
     { name: 'paymentStatus', type: 'string' },
     // Order Create/View UI (T1): raw sheet strings, sheet-faithful (day-first CSV).
@@ -96,6 +100,16 @@ export default defineCollection({
     { name: 'prepBoxes', type: 'integer' },
     { name: 'prepCartons', type: 'integer' },
     { name: 'prepDimensions', type: 'jsonb' },
+    // Order panes (T1): prep-shipment details captured in the order popup's Prep
+    // section (`ecobaseInventoryDashboard:updatePrepDetails`). All nullable.
+    // prepUnits = sheet "Units" (may differ from Σ line qty). Weight stored as a
+    // number + unit ('lbs'|'kg') since the sheet WT column mixes "2lbs"/"1.8kg".
+    { name: 'prepUnits', type: 'double' },
+    { name: 'prepWeightValue', type: 'double' },
+    { name: 'prepWeightUnit', type: 'string' },
+    { name: 'hazmatFlag', type: 'boolean' },
+    { name: 'shippingId', type: 'string' },
+    { name: 'labelFilesLink', type: 'text' },
     { name: 'prepDetailsUpdatedAt', type: 'datetimeTz' },
     { name: 'prepDetailsUpdatedByUserId', type: 'string' },
     { name: 'statusSource', type: 'string' },
