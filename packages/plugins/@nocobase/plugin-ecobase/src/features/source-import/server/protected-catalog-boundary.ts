@@ -40,8 +40,13 @@ type ProtectedCatalogIndex = {
   companyIdByKey: Map<string, string>;
   productIdByAsinSku: Map<string, string>;
   accountIdByCompanyMarketplace: Map<string, string>;
+  accountMarketplaceById: Map<string, string>;
   companyProductKeys: Set<string>;
 };
+
+// Amazon ASINs are 10-character uppercase alphanumerics. A row whose ASIN does not match this
+// shape is treated as malformed rather than turned into a new catalog record.
+const WELL_FORMED_ASIN = /^[A-Z0-9]{10}$/;
 
 export interface ProtectedCatalogReport {
   fingerprint: string;
@@ -72,6 +77,34 @@ export interface QuarantinedListingIdentity {
   missing: string[];
   reasonCode: 'protected_company_product_identity';
 }
+
+/**
+ * A Sellerboard row for a known company + resolvable default account + well-formed ASIN + SKU that
+ * has no catalog record yet. This is a WELCOME new listing, not a problem: the caller creates it
+ * through the canonical catalog machinery and then imports its sales data in the same run.
+ */
+export interface NewSellerboardListing {
+  companyId: string;
+  company: string;
+  amazonAccountId: string;
+  marketplace: string;
+  asin: string;
+  listingSku: string;
+  title?: string;
+  existingProductId?: string;
+}
+
+/**
+ * Three-way verdict for a Sellerboard listing row:
+ * - `known`: already in the protected catalog (or carries no listing identity) — import untouched.
+ * - `new_listing`: valid identity with no catalog record — auto-create, then import its rows.
+ * - `malformed`: genuinely unusable (unknown company, invalid ASIN shape, missing SKU, or an
+ *   unresolved company/account scaffold) — quarantine for review, never abort the refresh.
+ */
+export type SellerboardIdentityDisposition =
+  | { kind: 'known' }
+  | { kind: 'new_listing'; listing: NewSellerboardListing }
+  | { kind: 'malformed'; quarantine: QuarantinedListingIdentity };
 
 function plain(value: unknown): PlainRecord {
   if (!value || typeof value !== 'object') return {};
@@ -180,59 +213,101 @@ export class EcobaseProtectedCatalogBoundary {
   }
 
   /**
-   * Batch C: report (never throw) when a Sellerboard row would create a protected identity.
-   * Returns a quarantine descriptor for unknown/new listings so the caller can skip that single
-   * row and keep importing the rest of the company's report; returns null when the identity is
-   * already part of the protected catalog. A genuinely unknown company (outside the canonical
-   * four) is quarantined too rather than aborting the whole refresh.
+   * Classify a Sellerboard listing row against the protected catalog without ever throwing. A
+   * known identity imports untouched; a valid identity with no catalog record is a new listing the
+   * caller auto-creates; a genuinely malformed row (unknown company, invalid ASIN shape, missing
+   * SKU, or an unresolved company/account scaffold) is quarantined so the rest of the refresh
+   * proceeds.
    */
-  async checkSellerboardIdentity(payload: PlainRecord): Promise<QuarantinedListingIdentity | null> {
+  async classifySellerboardIdentity(payload: PlainRecord): Promise<SellerboardIdentityDisposition> {
     const companyName = text(payload.company);
     const marketplace = text(payload.marketplace) ?? text(payload.account);
     const asin = text(payload.asin)?.toUpperCase();
     const sku = text(payload.listingSku);
-    if (!companyName || !marketplace || !asin || !sku) return null;
+    const title = text(payload.title);
+
+    // A row that carries no listing identity at all is not ours to reshape; pass it through.
+    if (!companyName && !marketplace && !asin && !sku) return { kind: 'known' };
 
     let canonicalName: string;
     let companyKey: string;
     try {
-      const canonicalCompany = requireCanonicalCompany(companyName);
+      const canonicalCompany = requireCanonicalCompany(companyName ?? '');
       canonicalName = canonicalCompany.name;
       companyKey = canonicalCompany.companyKey;
     } catch {
-      return {
-        company: companyName,
-        marketplace,
-        asin,
-        listingSku: sku,
-        missing: ['company', 'amazon account', 'product', 'company product'],
-        reasonCode: 'protected_company_product_identity',
-      };
+      // Unknown company: the whole identity is unresolved -> malformed.
+      return this.quarantine(companyName ?? '', marketplace, asin, sku, [
+        'company',
+        'amazon account',
+        'product',
+        'company product',
+      ]);
     }
 
     const index = await this.index();
     const companyId = index.companyIdByKey.get(companyKey);
-    const productId = index.productIdByAsinSku.get(`${asin}::${sku.toLowerCase()}`);
-    const accountId = companyId
-      ? index.accountIdByCompanyMarketplace.get(`${companyId}::${marketplace.toLowerCase()}`)
-      : undefined;
-    const companyProduct =
+    const productId = asin && sku ? index.productIdByAsinSku.get(`${asin}::${sku.toLowerCase()}`) : undefined;
+    const accountId =
+      companyId && marketplace
+        ? index.accountIdByCompanyMarketplace.get(`${companyId}::${marketplace.toLowerCase()}`)
+        : undefined;
+    const companyProductExists =
       companyId && accountId && productId
         ? index.companyProductKeys.has(`${companyId}::${accountId}::${productId}`)
         : false;
-    if (companyId && productId && accountId && companyProduct) return null;
-    return {
-      company: canonicalName,
+    if (companyId && accountId && productId && companyProductExists) return { kind: 'known' };
+
+    // A well-formed listing for a known company + resolvable default account, with a well-formed
+    // ASIN and a SKU, is a WELCOME new listing -> auto-create through the canonical machinery.
+    if (companyId && accountId && sku && asin && WELL_FORMED_ASIN.test(asin)) {
+      return {
+        kind: 'new_listing',
+        listing: {
+          companyId,
+          company: canonicalName,
+          amazonAccountId: accountId,
+          marketplace: index.accountMarketplaceById.get(accountId) ?? marketplace ?? '',
+          asin,
+          listingSku: sku,
+          ...(title ? { title } : {}),
+          ...(productId ? { existingProductId: productId } : {}),
+        },
+      };
+    }
+
+    // Invalid ASIN shape, missing SKU, or an unresolved company/account scaffold -> quarantine.
+    return this.quarantine(
+      canonicalName,
       marketplace,
       asin,
-      listingSku: sku,
-      missing: [
+      sku,
+      [
         !companyId && 'company',
         !accountId && 'amazon account',
         !productId && 'product',
-        !companyProduct && 'company product',
+        !companyProductExists && 'company product',
       ].filter((value): value is string => Boolean(value)),
-      reasonCode: 'protected_company_product_identity',
+    );
+  }
+
+  private quarantine(
+    company: string,
+    marketplace: string | undefined,
+    asin: string | undefined,
+    listingSku: string | undefined,
+    missing: string[],
+  ): { kind: 'malformed'; quarantine: QuarantinedListingIdentity } {
+    return {
+      kind: 'malformed',
+      quarantine: {
+        company,
+        marketplace: marketplace ?? '',
+        asin: asin ?? '',
+        listingSku: listingSku ?? '',
+        missing,
+        reasonCode: 'protected_company_product_identity',
+      },
     };
   }
 
@@ -261,6 +336,13 @@ export class EcobaseProtectedCatalogBoundary {
           const marketplace = text(row.marketplace)?.toLowerCase();
           const id = text(row.id);
           return companyId && marketplace && id && row.isDefault === true ? [[`${companyId}::${marketplace}`, id]] : [];
+        }),
+      ),
+      accountMarketplaceById: new Map(
+        rows.amazonAccounts.flatMap<[string, string]>((row) => {
+          const id = text(row.id);
+          const marketplace = text(row.marketplace);
+          return id && marketplace ? [[id, marketplace]] : [];
         }),
       ),
       companyProductKeys: new Set(

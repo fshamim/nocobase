@@ -421,6 +421,8 @@
   "{{count}} new listing(s) skipped for review": "{{count}} new listing(s) skipped for review",
   "These listings are not in the protected catalog yet, so this refresh imported everything else and set them aside. Run an explicit canonical rebuild to add them.": "These listings are not in the protected catalog yet, so this refresh imported everything else and set them aside. Run an explicit canonical rebuild to add them.",
   "{{count}} listing(s) need review": "{{count}} listing(s) need review",
+  "{{count}} new listing(s) added": "{{count}} new listing(s) added",
+  "These listings were new to the catalog, so this refresh created them and imported their sales data in the same run.": "These listings were new to the catalog, so this refresh created them and imported their sales data in the same run.",
   "Order details": "Order details",
   "Order ref": "Order ref",
   "Reference available": "Reference available",

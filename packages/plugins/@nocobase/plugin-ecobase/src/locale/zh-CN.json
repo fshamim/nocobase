@@ -421,6 +421,8 @@
   "{{count}} new listing(s) skipped for review": "{{count}} 个新商品已跳过，待人工复核",
   "These listings are not in the protected catalog yet, so this refresh imported everything else and set them aside. Run an explicit canonical rebuild to add them.": "这些商品尚未加入受保护目录，本次刷新已导入其他所有数据并将它们单独搁置。请运行一次显式的规范重建以添加它们。",
   "{{count}} listing(s) need review": "{{count}} 个商品待复核",
+  "{{count}} new listing(s) added": "已新增 {{count}} 个新商品",
+  "These listings were new to the catalog, so this refresh created them and imported their sales data in the same run.": "这些商品是目录中的新商品，本次刷新已创建它们并在同一次运行中导入了其销售数据。",
   "Order details": "订单信息",
   "Order ref": "订单编号",
   "Reference available": "编号可用",

@@ -51,6 +51,7 @@ import {
   type ProtectedCatalogReport,
   type QuarantinedListingIdentity,
 } from './protected-catalog-boundary';
+import { EcobaseSellerboardListingAutoAdd, type NewlyAddedListing } from './sellerboard-listing-auto-add';
 import { EcobaseCoverageError, EcobaseSourceCoverageService } from './source-coverage-service';
 
 type Filter = Record<string, unknown>;
@@ -110,8 +111,10 @@ type AdapterImportStreamResult = {
   // Newest listing_daily_fact snapshot date observed in this run: the Sellerboard report's REAL
   // as-of. Stamped onto the run's sourceVersion so coverage advances to the data's actual date.
   reportAsOfDate?: string;
-  // Unknown/new Sellerboard listings skipped by the preflight quarantine (Batch C).
+  // Genuinely malformed Sellerboard listings the preflight set aside for review.
   reportQuarantine?: QuarantinedListingIdentity[];
+  // New Sellerboard listings the preflight auto-created into the catalog this run.
+  newlyAddedListings?: NewlyAddedListing[];
 };
 
 type PreparedAdapterReportUnit = {
@@ -119,6 +122,7 @@ type PreparedAdapterReportUnit = {
   inputDigest: string;
   protectedCatalog?: ProtectedCatalogReport;
   quarantinedIdentities?: QuarantinedListingIdentity[];
+  newlyAddedListings?: NewlyAddedListing[];
 };
 
 class SellerboardReportPreparationError extends Error {
@@ -148,6 +152,7 @@ type AdapterImportStreamParams = {
   preparedItems?: AdapterStreamItem[];
   preparedProtectedCatalog?: ProtectedCatalogReport;
   preparedQuarantine?: QuarantinedListingIdentity[];
+  preparedNewlyAdded?: NewlyAddedListing[];
 };
 
 const NORMALIZED_RECORD_COLLECTIONS: Record<string, string> = {
@@ -1448,37 +1453,49 @@ export class EcobaseImportService {
   }
 
   /**
-   * Batch C preflight quarantine: instead of throwing on the first Sellerboard row whose identity
-   * is unknown (which aborted the whole company refresh), skip only that row and record its
-   * identity. Every other row streams through untouched, so one new listing no longer blocks the
-   * source. Identities are de-duplicated so a listing that appears on many daily rows is listed
-   * once. Adding a quarantined identity for real still goes through an explicit canonical rebuild.
+   * Sellerboard preflight: classify each row against the protected catalog without ever aborting
+   * the refresh. A valid identity with no catalog record is a WELCOME new listing — auto-create it
+   * through the canonical catalog machinery and keep the row so its sales data imports in the same
+   * run. Only genuinely malformed rows (unknown company, invalid ASIN shape, missing SKU) are set
+   * aside for review. Both auto-adds and quarantines are de-duplicated by identity so a listing
+   * appearing on many daily rows is handled exactly once.
    */
-  private async quarantineUnknownSellerboardIdentities(
+  private async preflightSellerboardListings(
     boundaryService: EcobaseProtectedCatalogBoundary,
     adapter: SourceAdapter,
     defaultCompany: string | undefined,
     sourceItems: AsyncIterable<AdapterStreamItem> | AdapterStreamItem[],
-  ): Promise<{ items: AdapterStreamItem[]; quarantine: QuarantinedListingIdentity[] }> {
+  ): Promise<{
+    items: AdapterStreamItem[];
+    quarantine: QuarantinedListingIdentity[];
+    newlyAdded: NewlyAddedListing[];
+  }> {
     const items: AdapterStreamItem[] = [];
     const quarantineByKey = new Map<string, QuarantinedListingIdentity>();
+    const addedByKey = new Map<string, NewlyAddedListing>();
+    const autoAdd = new EcobaseSellerboardListingAutoAdd(this.db);
     for await (const sourceItem of sourceItems) {
       if (sourceItem.type !== 'status') {
         const boundary = applySafeImportBoundary({ adapter, defaultCompany }, sourceItem);
         if (boundary.disposition !== 'discard' && boundary.item.type === 'record') {
-          const quarantined = await boundaryService.checkSellerboardIdentity(boundary.item.payload);
-          if (quarantined) {
-            const key = [quarantined.company, quarantined.marketplace, quarantined.asin, quarantined.listingSku].join(
-              ' ',
-            );
-            if (!quarantineByKey.has(key)) quarantineByKey.set(key, quarantined);
+          const disposition = await boundaryService.classifySellerboardIdentity(boundary.item.payload);
+          if (disposition.kind === 'malformed') {
+            const q = disposition.quarantine;
+            const key = [q.company, q.marketplace, q.asin, q.listingSku].join(' ');
+            if (!quarantineByKey.has(key)) quarantineByKey.set(key, q);
             continue;
+          }
+          if (disposition.kind === 'new_listing') {
+            const listing = disposition.listing;
+            const key = [listing.companyId, listing.amazonAccountId, listing.asin, listing.listingSku].join(' ');
+            if (!addedByKey.has(key)) addedByKey.set(key, await autoAdd.addListing(listing));
+            // Fall through: keep the row so its sales data imports in this same run.
           }
         }
       }
       items.push(sourceItem);
     }
-    return { items, quarantine: [...quarantineByKey.values()] };
+    return { items, quarantine: [...quarantineByKey.values()], newlyAdded: [...addedByKey.values()] };
   }
 
   private async prepareSellerboardReportUnit(
@@ -1530,12 +1547,13 @@ export class EcobaseImportService {
     let protectedCatalog: ProtectedCatalogReport | undefined;
     let items: AdapterStreamItem[] = [];
     let quarantinedIdentities: QuarantinedListingIdentity[] = [];
+    let newlyAddedListings: NewlyAddedListing[] = [];
     const requiresCatalogPreflight =
       adapter.metadata.name === 'sellerboard-api' && getString(adapterConfig, 'catalogMutationMode') !== 'rebuild';
     const boundaryService = requiresCatalogPreflight ? new EcobaseProtectedCatalogBoundary(this.db) : undefined;
     if (boundaryService) {
       protectedCatalog = await boundaryService.inspect();
-      const preflighted = await this.quarantineUnknownSellerboardIdentities(
+      const preflighted = await this.preflightSellerboardListings(
         boundaryService,
         adapter,
         getString(adapterConfig, 'defaultCompany'),
@@ -1543,6 +1561,12 @@ export class EcobaseImportService {
       );
       items = preflighted.items;
       quarantinedIdentities = preflighted.quarantine;
+      newlyAddedListings = preflighted.newlyAdded;
+      if (newlyAddedListings.length > 0) {
+        // Auto-add grew the catalog during preflight; re-baseline the fingerprint so the refresh's
+        // preserve-catalog guard compares against the post-add state, not the stale pre-add one.
+        protectedCatalog = await new EcobaseProtectedCatalogBoundary(this.db).inspect();
+      }
     } else {
       for await (const sourceItem of adapter.import(adapterInput)) {
         items.push(sourceItem);
@@ -1553,6 +1577,7 @@ export class EcobaseImportService {
       inputDigest: sellerboardReportInputDigest(items),
       ...(protectedCatalog ? { protectedCatalog } : {}),
       ...(quarantinedIdentities.length > 0 ? { quarantinedIdentities } : {}),
+      ...(newlyAddedListings.length > 0 ? { newlyAddedListings } : {}),
     };
     try {
       this.validatePreparedSellerboardReportUnit(adapter, adapterConfig, prepared.items);
@@ -1930,6 +1955,7 @@ export class EcobaseImportService {
       preparedItems: params.preparedReportUnit?.items,
       preparedProtectedCatalog: params.preparedReportUnit?.protectedCatalog,
       preparedQuarantine: params.preparedReportUnit?.quarantinedIdentities,
+      preparedNewlyAdded: params.preparedReportUnit?.newlyAddedListings,
     });
     const {
       rowCount,
@@ -2033,6 +2059,9 @@ export class EcobaseImportService {
       ...(stream.protectedCatalog ? { protectedCatalog: stream.protectedCatalog } : {}),
       ...(stream.reportQuarantine && stream.reportQuarantine.length > 0
         ? { reportQuarantine: stream.reportQuarantine }
+        : {}),
+      ...(stream.newlyAddedListings && stream.newlyAddedListings.length > 0
+        ? { newlyAddedListings: stream.newlyAddedListings }
         : {}),
     };
     const completionValues = {
@@ -2139,6 +2168,9 @@ export class EcobaseImportService {
       if (params.preparedQuarantine && params.preparedQuarantine.length > 0) {
         result.reportQuarantine = params.preparedQuarantine;
       }
+      if (params.preparedNewlyAdded && params.preparedNewlyAdded.length > 0) {
+        result.newlyAddedListings = params.preparedNewlyAdded;
+      }
       if (
         !params.preparedItems &&
         params.adapter.metadata.name === 'sellerboard-api' &&
@@ -2146,7 +2178,7 @@ export class EcobaseImportService {
       ) {
         const boundaryService = new EcobaseProtectedCatalogBoundary(this.db);
         result.protectedCatalog = await boundaryService.inspect();
-        const preflighted = await this.quarantineUnknownSellerboardIdentities(
+        const preflighted = await this.preflightSellerboardListings(
           boundaryService,
           params.adapter,
           getString(params.adapterConfig, 'defaultCompany'),
@@ -2154,6 +2186,12 @@ export class EcobaseImportService {
         );
         sourceItems = preflighted.items;
         if (preflighted.quarantine.length > 0) result.reportQuarantine = preflighted.quarantine;
+        if (preflighted.newlyAdded.length > 0) {
+          result.newlyAddedListings = preflighted.newlyAdded;
+          // Re-baseline after auto-add so the preserve-catalog fingerprint guard compares the
+          // post-add catalog, not the stale pre-add snapshot captured above.
+          result.protectedCatalog = await new EcobaseProtectedCatalogBoundary(this.db).inspect();
+        }
       }
       await params.bronzeService.createSourceFiles(params.bronzeContext, inlineCsvFiles(params.adapterConfig));
       for await (const sourceItem of sourceItems) {

@@ -57,6 +57,14 @@ type SellerboardQuarantinedListing = {
   missing: string[];
 };
 
+type SellerboardNewlyAddedListing = {
+  company: string;
+  marketplace: string;
+  asin: string;
+  sku: string;
+  title: string | null;
+};
+
 type SellerboardImportRunLog = {
   importRunId: string | null;
   status: string | null;
@@ -71,6 +79,7 @@ type SellerboardImportRunLog = {
   errorMessage: string | null;
   issues: SellerboardImportIssue[];
   quarantinedListings: SellerboardQuarantinedListing[];
+  newlyAddedListings: SellerboardNewlyAddedListing[];
 };
 
 type SellerboardSourceRow = {
@@ -95,6 +104,7 @@ type SellerboardSourceRow = {
   latestRunErrorCount: number;
   latestRunErrorMessage: string | null;
   latestRunQuarantine: SellerboardQuarantinedListing[];
+  latestRunNewlyAdded: SellerboardNewlyAddedListing[];
   latestRunLogs: SellerboardImportRunLog[];
 };
 
@@ -450,6 +460,46 @@ export default function SellerboardSourcesPage() {
     );
   };
 
+  const renderNewlyAdded = (listings: SellerboardNewlyAddedListing[]) => {
+    if (!listings || listings.length === 0) {
+      return null;
+    }
+    return (
+      <Alert
+        type="success"
+        showIcon
+        message={t('{{count}} new listing(s) added', { count: listings.length })}
+        description={
+          <Space direction="vertical" size="small" style={{ width: '100%' }}>
+            <Typography.Text type="secondary">
+              {t(
+                'These listings were new to the catalog, so this refresh created them and imported their sales data in the same run.',
+              )}
+            </Typography.Text>
+            <Table
+              size="small"
+              pagination={false}
+              rowKey={(listing) => `${listing.company}-${listing.marketplace}-${listing.asin}-${listing.sku}`}
+              dataSource={listings}
+              columns={[
+                { title: String(t('Company')), dataIndex: 'company', key: 'company' },
+                { title: String(t('Marketplace')), dataIndex: 'marketplace', key: 'marketplace' },
+                { title: String(t('ASIN')), dataIndex: 'asin', key: 'asin' },
+                { title: String(t('SKU')), dataIndex: 'sku', key: 'sku' },
+                {
+                  title: String(t('Title')),
+                  dataIndex: 'title',
+                  key: 'title',
+                  render: (title: string | null) => <Typography.Text>{title ?? ''}</Typography.Text>,
+                },
+              ]}
+            />
+          </Space>
+        }
+      />
+    );
+  };
+
   const renderImportLogs = (row: SellerboardSourceRow) => {
     const runs = row.latestRunLogs ?? [];
     if (runs.length === 0) {
@@ -496,6 +546,7 @@ export default function SellerboardSourcesPage() {
                   showIcon
                 />
               ) : null}
+              {renderNewlyAdded(run.newlyAddedListings)}
               {renderQuarantine(run.quarantinedListings)}
               {run.issues.length > 0 ? (
                 <Table
@@ -637,6 +688,9 @@ export default function SellerboardSourcesPage() {
               </Typography.Text>
               {renderIssueHelp({ message: row.latestRunErrorMessage })}
             </Space>
+          ) : null}
+          {row.latestRunNewlyAdded && row.latestRunNewlyAdded.length > 0 ? (
+            <Tag color="green">{t('{{count}} new listing(s) added', { count: row.latestRunNewlyAdded.length })}</Tag>
           ) : null}
           {row.latestRunQuarantine && row.latestRunQuarantine.length > 0 ? (
             <Tag color="gold">{t('{{count}} listing(s) need review', { count: row.latestRunQuarantine.length })}</Tag>

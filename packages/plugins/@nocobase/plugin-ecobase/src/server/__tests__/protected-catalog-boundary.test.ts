@@ -104,49 +104,90 @@ describe('EcobaseProtectedCatalogBoundary', () => {
     });
   });
 
-  it('accepts protected Sellerboard identities and quarantines unknown ones without throwing', async () => {
+  it('passes through a protected Sellerboard identity untouched', async () => {
     const boundary = new EcobaseProtectedCatalogBoundary(seedCatalog());
     await expect(
-      boundary.checkSellerboardIdentity({
+      boundary.classifySellerboardIdentity({
         company: 'Ecofission LLC',
         marketplace: 'Amazon.com',
         asin: 'B000000001',
         listingSku: 'SKU-0',
       }),
-    ).resolves.toBeNull();
+    ).resolves.toEqual({ kind: 'known' });
+  });
+
+  it('treats a known company + valid unknown identity as a new listing to auto-add', async () => {
+    const boundary = new EcobaseProtectedCatalogBoundary(seedCatalog());
     await expect(
-      boundary.checkSellerboardIdentity({
+      boundary.classifySellerboardIdentity({
         company: 'Ecofission LLC',
         marketplace: 'Amazon.com',
         asin: 'B999999999',
         listingSku: 'NEW-SKU',
+        title: 'Widget Deluxe',
       }),
     ).resolves.toEqual({
-      company: 'Ecofission LLC',
-      marketplace: 'Amazon.com',
-      asin: 'B999999999',
-      listingSku: 'NEW-SKU',
-      missing: ['product', 'company product'],
-      reasonCode: 'protected_company_product_identity',
+      kind: 'new_listing',
+      listing: {
+        companyId: 'company-0',
+        company: 'Ecofission LLC',
+        amazonAccountId: 'account-0',
+        marketplace: 'Amazon.com',
+        asin: 'B999999999',
+        listingSku: 'NEW-SKU',
+        title: 'Widget Deluxe',
+      },
     });
+  });
+
+  it('quarantines a genuinely malformed row (invalid ASIN shape / missing SKU)', async () => {
+    const boundary = new EcobaseProtectedCatalogBoundary(seedCatalog());
+    await expect(
+      boundary.classifySellerboardIdentity({
+        company: 'Ecofission LLC',
+        marketplace: 'Amazon.com',
+        asin: 'BADASIN',
+        listingSku: 'NEW-SKU',
+      }),
+    ).resolves.toEqual({
+      kind: 'malformed',
+      quarantine: {
+        company: 'Ecofission LLC',
+        marketplace: 'Amazon.com',
+        asin: 'BADASIN',
+        listingSku: 'NEW-SKU',
+        missing: ['product', 'company product'],
+        reasonCode: 'protected_company_product_identity',
+      },
+    });
+    await expect(
+      boundary.classifySellerboardIdentity({
+        company: 'Ecofission LLC',
+        marketplace: 'Amazon.com',
+        asin: 'B999999999',
+      }),
+    ).resolves.toMatchObject({ kind: 'malformed', quarantine: { missing: ['product', 'company product'] } });
   });
 
   it('quarantines a row for a company outside the canonical four instead of throwing', async () => {
     const boundary = new EcobaseProtectedCatalogBoundary(seedCatalog());
     await expect(
-      boundary.checkSellerboardIdentity({
+      boundary.classifySellerboardIdentity({
         company: 'Not A Real Company',
         marketplace: 'Amazon.com',
         asin: 'B000000001',
         listingSku: 'SKU-0',
       }),
     ).resolves.toEqual({
-      company: 'Not A Real Company',
-      marketplace: 'Amazon.com',
-      asin: 'B000000001',
-      listingSku: 'SKU-0',
-      missing: ['company', 'amazon account', 'product', 'company product'],
-      reasonCode: 'protected_company_product_identity',
+      kind: 'malformed',
+      quarantine: {
+        company: 'Not A Real Company',
+        marketplace: 'Amazon.com',
+        asin: 'B000000001',
+        listingSku: 'SKU-0',
+        missing: ['company', 'amazon account', 'product', 'company product'],
+        reasonCode: 'protected_company_product_identity',
+      },
     });
   });
 });

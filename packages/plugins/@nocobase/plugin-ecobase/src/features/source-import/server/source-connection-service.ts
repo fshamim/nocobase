@@ -240,6 +240,14 @@ type QuarantinedListingView = {
   missing: string[];
 };
 
+type NewlyAddedListingView = {
+  company: string;
+  marketplace: string;
+  asin: string;
+  sku: string;
+  title: string | null;
+};
+
 // Batch C: read the preflight-quarantined Sellerboard listings recorded on a run's summary so the
 // Sources admin page can show the review list (skip + report, never silent).
 function quarantinedListings(run: unknown): QuarantinedListingView[] {
@@ -261,6 +269,30 @@ function quarantinedListings(run: unknown): QuarantinedListingView[] {
         missing: Array.isArray(record.missing)
           ? record.missing.filter((value): value is string => typeof value === 'string')
           : [],
+      },
+    ];
+  });
+}
+
+// Read the auto-added Sellerboard listings recorded on a run's summary so the Sources admin page
+// can show an informational "N new listing(s) added" note (distinct from the malformed review list).
+function newlyAddedListings(run: unknown): NewlyAddedListingView[] {
+  const summary = toPlainRecord(toPlainRecord(run).summary);
+  const raw = summary.newlyAddedListings;
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((entry): NewlyAddedListingView[] => {
+    const record = toPlainRecord(entry);
+    const company = getString(record, 'company');
+    const asin = getString(record, 'asin');
+    const sku = getString(record, 'sku');
+    if (!company || !asin || !sku) return [];
+    return [
+      {
+        company,
+        marketplace: getString(record, 'marketplace') ?? '',
+        asin,
+        sku,
+        title: getString(record, 'title') ?? null,
       },
     ];
   });
@@ -383,10 +415,12 @@ export class EcobaseSourceConnectionService {
               errorMessage: getString(run, 'errorMessage') ?? null,
               issues,
               quarantinedListings: quarantinedListings(run),
+              newlyAddedListings: newlyAddedListings(run),
             };
           }),
         );
         const latestRunQuarantine = quarantinedListings(latestRun);
+        const latestRunNewlyAdded = newlyAddedListings(latestRun);
         return {
           sourceConnectionId,
           name: getString(source, 'name') ?? '(unnamed Sellerboard source)',
@@ -405,6 +439,7 @@ export class EcobaseSourceConnectionService {
           latestRunErrorCount: getNumber(latestRun, 'errorCount') ?? 0,
           latestRunErrorMessage: getString(latestRun, 'errorMessage') ?? null,
           latestRunQuarantine,
+          latestRunNewlyAdded,
           latestRunLogs,
         };
       }),

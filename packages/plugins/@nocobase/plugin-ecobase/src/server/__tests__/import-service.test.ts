@@ -298,6 +298,107 @@ describe('Ecobase no-op import and status seam', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all()).toEqual([]);
   });
 
+  it('auto-adds a new Sellerboard listing (once), imports its row, and quarantines only malformed ones', async () => {
+    const db = new MemoryDatabase();
+    await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).create({
+      values: {
+        id: 'sellerboard-source',
+        name: 'Sellerboard source',
+        sourceType: 'sellerboard',
+        domain: 'profitability',
+        companyId: 'company-0',
+        config: {},
+        active: true,
+      },
+    });
+    // A known company + default account already exist; the listing itself does not.
+    await db
+      .getRepository(ECOBASE_COLLECTIONS.silverCompanies)
+      .create({ values: { id: 'company-0', companyKey: 'ECOFISSION_LLC', name: 'Ecofission LLC' } });
+    await db
+      .getRepository(ECOBASE_COLLECTIONS.silverAmazonAccounts)
+      .create({ values: { id: 'account-0', companyId: 'company-0', marketplace: 'Amazon.com', isDefault: true } });
+
+    const newListingRow = (rowNumber: number) => ({
+      type: 'record' as const,
+      rowNumber,
+      sourceKey: `sellerboard.csv:${rowNumber}`,
+      payload: {
+        Company: 'Ecofission LLC',
+        Date: '2026-07-17',
+        Marketplace: 'Amazon.com',
+        ASIN: 'B999999999',
+        SKU: 'NEW-SKU',
+        SalesOrganic: '10',
+      },
+      record: {
+        kind: 'listing_daily_fact' as const,
+        data: { company: 'Ecofission LLC', asin: 'B999999999', sku: 'NEW-SKU' },
+      },
+    });
+    const sellerboardAdapter: SourceAdapter = {
+      metadata: {
+        name: 'sellerboard-api',
+        title: 'Sellerboard API',
+        sourceType: 'sellerboard',
+        supportedDomains: ['profitability'],
+        version: '1',
+      },
+      async *import() {
+        // Same new listing twice (double occurrence) plus one genuinely malformed row.
+        yield newListingRow(2);
+        yield newListingRow(3);
+        yield {
+          type: 'record',
+          rowNumber: 4,
+          sourceKey: 'sellerboard.csv:4',
+          payload: {
+            Company: 'Ecofission LLC',
+            Date: '2026-07-17',
+            Marketplace: 'Amazon.com',
+            ASIN: 'BADXYZ',
+            SKU: 'BAD-SKU',
+            SalesOrganic: '3',
+          },
+          record: {
+            kind: 'listing_daily_fact',
+            data: { company: 'Ecofission LLC', asin: 'BADXYZ', sku: 'BAD-SKU' },
+          },
+        };
+      },
+    };
+    const service = new EcobaseImportService(db, createSourceAdapterRegistry([sellerboardAdapter]));
+
+    const run = await service.runAdapterImport({
+      sourceConnectionId: 'sellerboard-source',
+      adapterName: 'sellerboard-api',
+      sourceIdentifier: 'sellerboard-refresh',
+      sourceVersion: 'v1',
+    });
+
+    const summary = run.summary as Record<string, unknown>;
+    // The unknown-but-valid listing is auto-added exactly once, counted on the summary. (Daily-fact
+    // rows carry no Title column, so no title is projected — that is expected for this dataset.)
+    expect(summary.newlyAddedListings).toEqual([
+      {
+        company: 'Ecofission LLC',
+        asin: 'B999999999',
+        sku: 'NEW-SKU',
+        marketplace: 'Amazon.com',
+      },
+    ]);
+    // The malformed row (invalid ASIN shape) is set aside for review, not auto-added.
+    expect(summary.reportQuarantine).toMatchObject([
+      { asin: 'BADXYZ', reasonCode: 'protected_company_product_identity' },
+    ]);
+    // Exactly one catalog record set was created for the new listing.
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).all()).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).all()).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductFamilies).all()).toHaveLength(1);
+    // Its sales rows imported in the same run (the malformed row did not).
+    expect(run.rowCount).toBe(2);
+  });
+
   it('rejects invalid generic supplier lead-time imports before persistence', async () => {
     const db = new MemoryDatabase();
     await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).create({
