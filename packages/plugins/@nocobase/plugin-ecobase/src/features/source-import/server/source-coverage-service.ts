@@ -150,12 +150,27 @@ export interface CoverageEvidencePlan {
   memberships: CoverageMembershipEvidence[];
 }
 
+/**
+ * An incoming coverage interval whose window sits fully inside an existing ACTIVE interval we
+ * already hold from an equal-or-newer source. Sellerboard routinely re-serves an older/stale
+ * report for days a fresher pull already covered; refusing to overwrite is correct, but it must
+ * be a quiet no-op, not an error. Each skipped metric set is surfaced here so the sources page can
+ * show an informational note instead of a red failure.
+ */
+export interface CoverageSkippedStale {
+  metricSet: string;
+  incomingAsOf: string;
+  heldAsOf: string;
+  window: string;
+}
+
 export interface CoverageReconciliationResult {
   intervalCreatedCount: number;
   membershipCreatedCount: number;
   supersededIntervalCount: number;
   idempotentIntervalCount: number;
   idempotentMembershipCount: number;
+  coverageSkippedStale: CoverageSkippedStale[];
   noOp: boolean;
 }
 
@@ -1288,6 +1303,8 @@ export class EcobaseSourceCoverageService {
       existingIntervals.map((interval) => [String(interval.naturalKey), interval]),
     );
     const intervalIds = new Map<string, string>();
+    const staleSkippedIntervalKeys = new Set<string>();
+    const coverageSkippedStale: CoverageSkippedStale[] = [];
     let intervalCreatedCount = 0;
     let membershipCreatedCount = 0;
     let supersededIntervalCount = 0;
@@ -1319,6 +1336,22 @@ export class EcobaseSourceCoverageService {
       }
       const predecessor = activeOverlaps[0];
       if (predecessor && String(values.sourceAsOfDate) <= String(predecessor.sourceAsOfDate)) {
+        const fullyWithinPredecessor =
+          String(predecessor.coveredStartDate) <= String(values.coveredStartDate) &&
+          String(values.coveredEndDate) <= String(predecessor.coveredEndDate);
+        if (fullyWithinPredecessor) {
+          // Stale re-serve: the incoming window is already owned by an equal-or-newer active
+          // interval. Do not regress the newer daily facts with older ones — write nothing for
+          // this metric set, leave the held coverage untouched, and record a quiet note.
+          staleSkippedIntervalKeys.add(interval.naturalKey);
+          coverageSkippedStale.push({
+            metricSet: String(values.metricSet),
+            incomingAsOf: String(values.sourceAsOfDate),
+            heldAsOf: String(predecessor.sourceAsOfDate),
+            window: `${values.coveredStartDate}..${values.coveredEndDate}`,
+          });
+          continue;
+        }
         throw this.conflict(interval.naturalKey, 'overlap is not owned by a strictly later source as-of date');
       }
 
@@ -1358,6 +1391,8 @@ export class EcobaseSourceCoverageService {
     );
     const duplicateMembershipKeys = new Set<string>();
     for (const membership of plan.memberships) {
+      // Memberships that belong to a stale-skipped interval are dropped alongside it.
+      if (staleSkippedIntervalKeys.has(membership.intervalNaturalKey)) continue;
       const coverageIntervalId = intervalIds.get(membership.intervalNaturalKey);
       if (!coverageIntervalId) {
         throw new EcobaseCoverageError(
@@ -1394,6 +1429,7 @@ export class EcobaseSourceCoverageService {
       supersededIntervalCount,
       idempotentIntervalCount,
       idempotentMembershipCount,
+      coverageSkippedStale,
       noOp: intervalCreatedCount === 0 && membershipCreatedCount === 0 && supersededIntervalCount === 0,
     };
   }

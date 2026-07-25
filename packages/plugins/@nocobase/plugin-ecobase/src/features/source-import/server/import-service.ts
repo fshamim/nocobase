@@ -2057,9 +2057,20 @@ export class EcobaseImportService {
           transaction,
         },
       );
+      // A stale Sellerboard re-serve (older/equal as-of, window already held) is a quiet no-op, not
+      // an error; surface it as an informational summary note so the sources page can show it.
+      const coverageSkippedStale = coverageMaintenance.recorded
+        ? coverageMaintenance.reconciliation.coverageSkippedStale
+        : [];
       await importRunRepo.update({
         filterByTk: importRunId,
-        values: { summary: { ...runSummary, coverageMaintenance } },
+        values: {
+          summary: {
+            ...runSummary,
+            coverageMaintenance,
+            ...(coverageSkippedStale.length > 0 ? { coverageSkippedStale } : {}),
+          },
+        },
         transaction,
       });
     };

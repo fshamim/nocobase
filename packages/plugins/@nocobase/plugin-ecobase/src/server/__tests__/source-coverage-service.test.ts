@@ -208,6 +208,46 @@ function evidencePlan(
   };
 }
 
+// An incoming interval whose window sits fully inside the seeded 2026-01-01..2026-01-31 active
+// interval, with a distinct sourceVersion so it reaches the overlap lineage branch (not the
+// same-natural-key idempotency branch).
+function staleWithinPlan(sourceVersion: string, sourceAsOfDate: string, coveredEndDate: string): CoverageEvidencePlan {
+  const intervalNaturalKey = `coverage:source-1:account-1:2026-01-01:${sourceVersion}`;
+  return {
+    intervals: [
+      {
+        naturalKey: intervalNaturalKey,
+        sourceConnectionId: scope.sourceConnectionId,
+        companyId: scope.companyId,
+        amazonAccountId: scope.amazonAccountId,
+        marketplace: scope.marketplace,
+        coveredStartDate: '2026-01-01',
+        coveredEndDate,
+        continuousCoverage: true,
+        sourceAsOfDate,
+        sourceVersion,
+        importRunId: `run-${sourceVersion}`,
+        inputDigest: '5'.repeat(64),
+        scopeDigest: '6'.repeat(64),
+        evidenceJson: { observedDateCount: 20 },
+      },
+    ],
+    memberships: [
+      {
+        intervalNaturalKey,
+        companyProductId: scope.companyProductId,
+        monthStart: scope.monthStart,
+        scopeEvidenceKinds: ['profit_by_product_daily'],
+        scopeEvidenceDigest: '7'.repeat(64),
+        sourceMetricRowCount: 20,
+        normalizedFactLinkCount: 20,
+        metricReconciliationStatus: 'complete',
+        metricEvidenceDigest: '8'.repeat(64),
+      },
+    ],
+  };
+}
+
 describe('EcoBase source coverage ledger', () => {
   it('distinguishes eligible trusted zero, missing product scope, discontinuity, and metric mismatch', async () => {
     const eligibleDb = new MemoryDatabase();
@@ -1035,5 +1075,52 @@ describe('EcoBase source coverage ledger', () => {
       reasonCode: 'eligible_complete_month',
       intervalIds: expect.any(Array),
     });
+  });
+
+  it('quietly skips a stale re-serve fully within a newer active interval without erroring', async () => {
+    const db = new MemoryDatabase();
+    const service = new EcobaseSourceCoverageService(db);
+    // Establish the held ACTIVE interval: 2026-01-01..2026-01-31 as-of 2026-02-01.
+    await expect(service.reconcileEvidence(evidencePlan())).resolves.toMatchObject({ intervalCreatedCount: 1 });
+
+    // Older as-of, narrower window fully within the held one -> quiet no-op + informational flag.
+    const older = await service.reconcileEvidence(staleWithinPlan('older', '2026-01-25', '2026-01-20'));
+    expect(older).toMatchObject({
+      intervalCreatedCount: 0,
+      membershipCreatedCount: 0,
+      supersededIntervalCount: 0,
+      noOp: true,
+    });
+    expect(older.coverageSkippedStale).toEqual([
+      {
+        metricSet: 'sellerboard_units_net_profit_v1',
+        incomingAsOf: '2026-01-25',
+        heldAsOf: '2026-02-01',
+        window: '2026-01-01..2026-01-20',
+      },
+    ]);
+
+    // Equal as-of, narrower window fully within the held one -> same quiet no-op + flag.
+    const equal = await service.reconcileEvidence(staleWithinPlan('equal', '2026-02-01', '2026-01-22'));
+    expect(equal).toMatchObject({ intervalCreatedCount: 0, membershipCreatedCount: 0, noOp: true });
+    expect(equal.coverageSkippedStale).toEqual([
+      {
+        metricSet: 'sellerboard_units_net_profit_v1',
+        incomingAsOf: '2026-02-01',
+        heldAsOf: '2026-02-01',
+        window: '2026-01-01..2026-01-22',
+      },
+    ]);
+
+    // Existing coverage is left untouched: still exactly one active interval, unchanged window/as-of,
+    // and no membership was written for the skipped reports.
+    const intervals = db.getRepository(ECOBASE_COLLECTIONS.sourceCoverageIntervals).all();
+    expect(intervals).toHaveLength(1);
+    expect(intervals[0]).toMatchObject({
+      coverageStatus: 'active',
+      coveredEndDate: '2026-01-31',
+      sourceAsOfDate: '2026-02-01',
+    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.sourceCoverageMemberships).all()).toHaveLength(1);
   });
 });
