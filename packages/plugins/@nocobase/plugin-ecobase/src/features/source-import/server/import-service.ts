@@ -378,6 +378,38 @@ function sellerboardReportKind(params: RunAdapterImportParams) {
     : undefined;
 }
 
+/**
+ * Adapters whose rows carry Sellerboard listing identity (company + marketplace + ASIN + SKU):
+ * the live report pull and the uploaded history CSV bundle. Both feed the same protected-catalog
+ * machinery, so both answer catalogMutationMode and both run the unknown-listing preflight. An
+ * unknown listing must be auto-added the same way regardless of which transport delivered the row.
+ */
+const SELLERBOARD_CATALOG_ADAPTER_NAMES = new Set(['sellerboard-api', 'sellerboard-history-csv']);
+
+/**
+ * The run's catalog mutation mode: `refresh` (default) preserves the protected catalog and welcomes
+ * new listings through the preflight; `rebuild` is the explicit canonical-rebuild escape hatch that
+ * skips the preflight because the run is allowed to reshape the catalog itself. Adapters that carry
+ * no listing identity have no mode at all.
+ */
+function sellerboardCatalogMutationMode(adapter: SourceAdapter, adapterConfig: Record<string, unknown>) {
+  if (!SELLERBOARD_CATALOG_ADAPTER_NAMES.has(adapter.metadata.name)) return undefined;
+  const catalogMutationMode = getString(adapterConfig, 'catalogMutationMode') ?? 'refresh';
+  if (!['rebuild', 'refresh'].includes(catalogMutationMode)) {
+    throw new Error(
+      `Ecobase import failed: catalogMutationMode must be rebuild or refresh, received "${catalogMutationMode}".`,
+    );
+  }
+  return catalogMutationMode;
+}
+
+function requiresSellerboardCatalogPreflight(adapter: SourceAdapter, adapterConfig: Record<string, unknown>) {
+  return (
+    SELLERBOARD_CATALOG_ADAPTER_NAMES.has(adapter.metadata.name) &&
+    getString(adapterConfig, 'catalogMutationMode') !== 'rebuild'
+  );
+}
+
 function configuredSellerboardReports(config: Record<string, unknown>) {
   const configured = config.reportUrls ?? config.sellerboardReportUrls ?? config.urls;
   const reports: Array<{ reportKind: SellerboardReportKind; reportName: string }> = [];
@@ -1459,6 +1491,10 @@ export class EcobaseImportService {
    * run. Only genuinely malformed rows (unknown company, invalid ASIN shape, missing SKU) are set
    * aside for review. Both auto-adds and quarantines are de-duplicated by identity so a listing
    * appearing on many daily rows is handled exactly once.
+   *
+   * Transport-agnostic: the live report pull and an uploaded history CSV bundle both project to the
+   * `sellerboard_daily_facts` dataset, so the same classification runs for either. A backfill that
+   * contains listings born after the last live pull adds them instead of reporting them as problems.
    */
   private async preflightSellerboardListings(
     boundaryService: EcobaseProtectedCatalogBoundary,
@@ -1512,15 +1548,7 @@ export class EcobaseImportService {
     const adapter = this.registry.get(params.adapterName);
     validateSourceConnectionForAdapter(sourceConnection, adapter);
     const adapterConfig = mergeConfig(sourceConnection, params.runtimeConfig);
-    const catalogMutationMode =
-      adapter.metadata.name === 'sellerboard-api'
-        ? getString(adapterConfig, 'catalogMutationMode') ?? 'refresh'
-        : undefined;
-    if (catalogMutationMode && !['rebuild', 'refresh'].includes(catalogMutationMode)) {
-      throw new Error(
-        `Ecobase import failed: catalogMutationMode must be rebuild or refresh, received "${catalogMutationMode}".`,
-      );
-    }
+    const catalogMutationMode = sellerboardCatalogMutationMode(adapter, adapterConfig);
     if (catalogMutationMode) adapterConfig.catalogMutationMode = catalogMutationMode;
     const companyId = getString(sourceConnection, 'companyId');
     if (companyId && !getString(adapterConfig, 'defaultCompany')) {
@@ -1548,8 +1576,7 @@ export class EcobaseImportService {
     let items: AdapterStreamItem[] = [];
     let quarantinedIdentities: QuarantinedListingIdentity[] = [];
     let newlyAddedListings: NewlyAddedListing[] = [];
-    const requiresCatalogPreflight =
-      adapter.metadata.name === 'sellerboard-api' && getString(adapterConfig, 'catalogMutationMode') !== 'rebuild';
+    const requiresCatalogPreflight = requiresSellerboardCatalogPreflight(adapter, adapterConfig);
     const boundaryService = requiresCatalogPreflight ? new EcobaseProtectedCatalogBoundary(this.db) : undefined;
     if (boundaryService) {
       protectedCatalog = await boundaryService.inspect();
@@ -1807,15 +1834,7 @@ export class EcobaseImportService {
     validateSourceConnectionForAdapter(sourceConnection, adapter);
 
     const adapterConfig = mergeConfig(sourceConnection, params.runtimeConfig);
-    const catalogMutationMode =
-      adapter.metadata.name === 'sellerboard-api'
-        ? getString(adapterConfig, 'catalogMutationMode') ?? 'refresh'
-        : undefined;
-    if (catalogMutationMode && !['rebuild', 'refresh'].includes(catalogMutationMode)) {
-      throw new Error(
-        `Ecobase import failed: catalogMutationMode must be rebuild or refresh, received "${catalogMutationMode}".`,
-      );
-    }
+    const catalogMutationMode = sellerboardCatalogMutationMode(adapter, adapterConfig);
     if (catalogMutationMode) adapterConfig.catalogMutationMode = catalogMutationMode;
     const companyId = getString(sourceConnection, 'companyId');
     if (companyId && !getString(adapterConfig, 'defaultCompany')) {
@@ -2171,11 +2190,7 @@ export class EcobaseImportService {
       if (params.preparedNewlyAdded && params.preparedNewlyAdded.length > 0) {
         result.newlyAddedListings = params.preparedNewlyAdded;
       }
-      if (
-        !params.preparedItems &&
-        params.adapter.metadata.name === 'sellerboard-api' &&
-        getString(params.adapterConfig, 'catalogMutationMode') !== 'rebuild'
-      ) {
+      if (!params.preparedItems && requiresSellerboardCatalogPreflight(params.adapter, params.adapterConfig)) {
         const boundaryService = new EcobaseProtectedCatalogBoundary(this.db);
         result.protectedCatalog = await boundaryService.inspect();
         const preflighted = await this.preflightSellerboardListings(

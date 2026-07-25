@@ -8,7 +8,11 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { createSourceAdapterRegistry, noopTestAdapter } from '../../features/source-import/server/adapters';
+import {
+  createSourceAdapterRegistry,
+  noopTestAdapter,
+  sellerboardHistoryCsvAdapter,
+} from '../../features/source-import/server/adapters';
 import type { SourceAdapter } from '../../features/source-import/server/adapters';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import {
@@ -124,6 +128,43 @@ function createServiceWithSourceConnection() {
   return {
     db,
     service: new EcobaseImportService(db, createSourceAdapterRegistry([noopTestAdapter])),
+  };
+}
+
+// A semicolon Sellerboard "Dashboard by product" history export, the shape the sources page
+// uploads as a CSV bundle. Dates are day-first and inside the six-month history window.
+function historyBundleFile(rows: string[]) {
+  return {
+    name: 'Fissionem_Dashboard_by_product_01_01_2026-03_07_2026.csv',
+    content: ['Date;Marketplace;ASIN;SKU;Name;SalesOrganic;UnitsOrganic;NetProfit', ...rows].join('\n'),
+  };
+}
+
+// A Sellerboard source connection whose company and default Amazon account already exist, but
+// whose listings do not: the exact state a history backfill lands in when the bundle contains a
+// listing born after the last live pull.
+function createSellerboardHistoryBundleService() {
+  const db = new MemoryDatabase();
+  db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).create({
+    values: {
+      id: 'sellerboard-source',
+      name: 'Sellerboard history bundle',
+      sourceType: 'sellerboard',
+      domain: 'amazon_operations',
+      companyId: 'company-0',
+      config: {},
+      active: true,
+    },
+  });
+  db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
+    values: { id: 'company-0', companyKey: 'ECOFISSION_LLC', name: 'Ecofission LLC' },
+  });
+  db.getRepository(ECOBASE_COLLECTIONS.silverAmazonAccounts).create({
+    values: { id: 'account-0', companyId: 'company-0', marketplace: 'Amazon.com', isDefault: true },
+  });
+  return {
+    db,
+    service: new EcobaseImportService(db, createSourceAdapterRegistry([sellerboardHistoryCsvAdapter])),
   };
 }
 
@@ -397,6 +438,107 @@ describe('Ecobase no-op import and status seam', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductFamilies).all()).toHaveLength(1);
     // Its sales rows imported in the same run (the malformed row did not).
     expect(run.rowCount).toBe(2);
+  });
+
+  it('auto-adds a new listing from an uploaded Sellerboard history CSV bundle and re-baselines the catalog', async () => {
+    const { db, service } = createSellerboardHistoryBundleService();
+
+    const run = await service.runAdapterImport({
+      sourceConnectionId: 'sellerboard-source',
+      adapterName: 'sellerboard-history-csv',
+      sourceIdentifier: 'sellerboard-history-backfill',
+      sourceVersion: '2026-07-05',
+      preserveAuditRun: true,
+      runtimeConfig: { files: [historyBundleFile([`02/01/2026;Amazon.com;B999999999;NEW-SKU;New Widget;10;1;4`])] },
+    });
+
+    const summary = run.summary as Record<string, unknown>;
+    // The bundle's unknown-but-valid listing is auto-added exactly like the live pull does.
+    expect(summary.newlyAddedListings).toEqual([
+      { company: 'Ecofission LLC', asin: 'B999999999', sku: 'NEW-SKU', marketplace: 'Amazon.com' },
+    ]);
+    expect(summary.reportQuarantine).toBeUndefined();
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverProducts).all()).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).all()).toHaveLength(1);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductFamilies).all()).toHaveLength(1);
+    // The row itself still imports in the same run.
+    expect(run).toMatchObject({ status: 'success', rowCount: 1, normalizedCount: 1 });
+    // The fingerprint on the run summary is the post-add baseline, not the stale pre-add one
+    // (pre-add the catalog held zero company products and zero families).
+    expect((summary.protectedCatalog as Record<string, unknown>).actualCounts).toEqual({
+      companies: 1,
+      amazonAccounts: 1,
+      companyProducts: 1,
+      productFamilies: 1,
+    });
+  });
+
+  it('quarantines a malformed Sellerboard history bundle row and keeps importing the rest', async () => {
+    const { db, service } = createSellerboardHistoryBundleService();
+
+    const run = await service.runAdapterImport({
+      sourceConnectionId: 'sellerboard-source',
+      adapterName: 'sellerboard-history-csv',
+      sourceIdentifier: 'sellerboard-history-backfill',
+      sourceVersion: '2026-07-05',
+      preserveAuditRun: true,
+      runtimeConfig: {
+        files: [
+          historyBundleFile([
+            `02/01/2026;Amazon.com;B999999999;NEW-SKU;New Widget;10;1;4`,
+            `03/01/2026;Amazon.com;BADXYZ;BAD-SKU;Bad Widget;3;1;1`,
+          ]),
+        ],
+      },
+    });
+
+    const summary = run.summary as Record<string, unknown>;
+    expect(summary.reportQuarantine).toMatchObject([
+      { asin: 'BADXYZ', listingSku: 'BAD-SKU', reasonCode: 'protected_company_product_identity' },
+    ]);
+    // The malformed row is dropped; the valid one still imports and the run keeps going.
+    expect(run).toMatchObject({ status: 'success', rowCount: 1, normalizedCount: 1 });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).all()).toHaveLength(1);
+  });
+
+  it('skips the Sellerboard history bundle preflight in rebuild mode', async () => {
+    const { db, service } = createSellerboardHistoryBundleService();
+
+    const run = await service.runAdapterImport({
+      sourceConnectionId: 'sellerboard-source',
+      adapterName: 'sellerboard-history-csv',
+      sourceIdentifier: 'sellerboard-history-backfill',
+      sourceVersion: '2026-07-05',
+      preserveAuditRun: true,
+      runtimeConfig: {
+        catalogMutationMode: 'rebuild',
+        files: [historyBundleFile([`02/01/2026;Amazon.com;B999999999;NEW-SKU;New Widget;10;1;4`])],
+      },
+    });
+
+    const summary = run.summary as Record<string, unknown>;
+    expect(summary.catalogMutationMode).toBe('rebuild');
+    // A canonical rebuild owns the catalog itself: nothing is classified, auto-added, or quarantined.
+    expect(summary.newlyAddedListings).toBeUndefined();
+    expect(summary.reportQuarantine).toBeUndefined();
+    expect(summary.protectedCatalog).toBeUndefined();
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).all()).toEqual([]);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductFamilies).all()).toEqual([]);
+  });
+
+  it('rejects an unsupported catalog mutation mode on a Sellerboard history bundle', async () => {
+    const { service } = createSellerboardHistoryBundleService();
+
+    await expect(
+      service.runAdapterImport({
+        sourceConnectionId: 'sellerboard-source',
+        adapterName: 'sellerboard-history-csv',
+        sourceIdentifier: 'sellerboard-history-backfill',
+        sourceVersion: '2026-07-05',
+        preserveAuditRun: true,
+        runtimeConfig: { catalogMutationMode: 'wipe', files: [historyBundleFile([])] },
+      }),
+    ).rejects.toThrow('Ecobase import failed: catalogMutationMode must be rebuild or refresh, received "wipe".');
   });
 
   it('rejects invalid generic supplier lead-time imports before persistence', async () => {

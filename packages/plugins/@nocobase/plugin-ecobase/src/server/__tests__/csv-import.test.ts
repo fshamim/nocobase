@@ -299,6 +299,30 @@ function createService(sourceType = 'seller_central_file', domain = 'amazon_oper
   return { db, service };
 }
 
+// Sellerboard imports classify every listing row against the protected catalog, so a history
+// fixture needs the listing it reports on to already exist; otherwise the row is a new listing the
+// run auto-adds. Seeding it as known keeps these date-parsing tests about dates.
+function seedKnownSellerboardListing(
+  db: MemoryDatabase,
+  params: { companyKey: string; company: string; asin: string; sku: string },
+) {
+  const companyId = `company-${params.companyKey}`;
+  const amazonAccountId = `account-${params.companyKey}`;
+  const productId = `product-${params.asin}-${params.sku}`;
+  db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
+    values: { id: companyId, companyKey: params.companyKey, name: params.company },
+  });
+  db.getRepository(ECOBASE_COLLECTIONS.silverAmazonAccounts).create({
+    values: { id: amazonAccountId, companyId, marketplace: 'Amazon.com', isDefault: true },
+  });
+  db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
+    values: { id: productId, asin: params.asin, sku: params.sku },
+  });
+  db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+    values: { id: `company-product-${productId}`, companyId, amazonAccountId, productId },
+  });
+}
+
 describe('Ecobase bronze import write path', () => {
   it('imports the Supplier IDs master through the supplier-management path', async () => {
     const items: unknown[] = [];
@@ -930,6 +954,12 @@ describe('Ecobase current Amazon operations CSV import', () => {
 
   it('imports one-time semicolon Sellerboard history rows with strict day-first dates', async () => {
     const { db, service } = createService('sellerboard');
+    seedKnownSellerboardListing(db, {
+      companyKey: 'ECOFISSION_LLC',
+      company: 'Ecofission LLC',
+      asin: 'B007P55HOW',
+      sku: 'DC50944',
+    });
     db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
       filterByTk: 'source-1',
       values: {
@@ -991,6 +1021,12 @@ describe('Ecobase current Amazon operations CSV import', () => {
 
   it('imports one-time semicolon Sellerboard history rows with month-first dates', async () => {
     const { db, service } = createService('sellerboard');
+    seedKnownSellerboardListing(db, {
+      companyKey: 'RETAIL_HEAVEN_INC',
+      company: 'Retail Heaven Inc',
+      asin: 'B007P55HOW',
+      sku: 'DC50944',
+    });
     db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
       filterByTk: 'source-1',
       values: {
@@ -1069,6 +1105,12 @@ describe('Ecobase current Amazon operations CSV import', () => {
 
   it('rejects Sellerboard history dates after the import source version', async () => {
     const { db, service } = createService('sellerboard');
+    seedKnownSellerboardListing(db, {
+      companyKey: 'RETAIL_HEAVEN_INC',
+      company: 'Retail Heaven Inc',
+      asin: 'B007P55HOW',
+      sku: 'DC50944',
+    });
     db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
       filterByTk: 'source-1',
       values: {
