@@ -16,8 +16,8 @@
  * feature directory — mechanically.
  */
 
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import { ECOBASE_COLLECTIONS } from '../../../../server/collections/names';
@@ -100,6 +100,74 @@ const OPERATOR_MUTATIONS = [
   'addComment',
   'addProductComment',
 ] as const;
+
+/**
+ * AD-1 import boundary (issue 055). Two rules, both enforced mechanically below.
+ *
+ * 1. Zero tolerance: no file under `features/inventory-dashboard/` — the relocated gold
+ *    engine included — may import from `features/inventory-planning/`. That folder is
+ *    scheduled for deletion (issue 042), so the edge is only ever legal the other way
+ *    round: legacy planning code imports the engine at its new home, never the reverse.
+ * 2. Every other cross-feature import must be enumerated in ALLOWED_FOREIGN_MODULES, so a
+ *    NEW foreign dependency fails this test until somebody adds it here deliberately.
+ *
+ * Specifiers are resolved to real files before classifying them. The predecessor of this
+ * check matched the literal string `features/` in the import text, which real cross-feature
+ * imports (`../../order-planning/...`) never contain — it could not fail.
+ */
+const ALLOWED_FOREIGN_MODULES = new Set([
+  'order-planning/order-lifecycle-status',
+  'order-planning/order-operational-status',
+  'semantic-model/server/medallion-identity-service',
+  'semantic-model/server/medallion-order-service',
+  'source-import/server/import-service',
+  'supplier-management/server/silver-supplier-order-read-model',
+  'supplier-management/server/supplier-order-service',
+]);
+
+/** The only part of the dashboard the doomed planning folder is allowed to import. */
+const DASHBOARD_ENGINE_MODULE_PREFIX = 'inventory-dashboard/server/engine';
+
+const MODULE_RESOLUTION_SUFFIXES = ['', '.ts', '.tsx', '.json', '/index.ts', '/index.tsx'];
+
+function collectSourceFiles(root: string): string[] {
+  const files: string[] = [];
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir)) {
+      const path = join(dir, entry);
+      if (statSync(path).isDirectory()) walk(path);
+      else if (/\.tsx?$/.test(entry)) files.push(path);
+    }
+  };
+  walk(root);
+  return files;
+}
+
+function relativeImportSpecifiers(source: string): string[] {
+  const specifiers: string[] = [];
+  for (const match of source.matchAll(/(?:\bfrom|\bimport|\brequire|\bvi\.mock)\s*\(?\s*'(\.[^']*)'/g)) {
+    specifiers.push(match[1]);
+  }
+  return specifiers;
+}
+
+function resolveModulePath(base: string): string | null {
+  for (const suffix of MODULE_RESOLUTION_SUFFIXES) {
+    const candidate = `${base}${suffix}`;
+    if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
+  }
+  return null;
+}
+
+/** `<feature>/<path/to/module>` when the target lives under src/features, else null. */
+function featureModuleId(featuresRoot: string, target: string): string | null {
+  const fromFeatures = relative(featuresRoot, target);
+  if (fromFeatures.startsWith('..')) return null;
+  return fromFeatures
+    .replace(/\.(tsx?|json)$/, '')
+    .split(sep)
+    .join('/');
+}
 
 describe('ecobaseInventoryDashboard operator actions (T8a, X4 closure)', () => {
   it('rejects every mutation for an authenticated non-operator with 403', async () => {
@@ -231,23 +299,54 @@ describe('ecobaseInventoryDashboard operator actions (T8a, X4 closure)', () => {
     );
   });
 
-  it('AD-1 import boundary: the dashboard feature never imports from another feature directory', () => {
-    const featureRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
-    const files: string[] = [];
-    const walk = (dir: string) => {
-      for (const entry of readdirSync(dir)) {
-        const path = join(dir, entry);
-        if (statSync(path).isDirectory()) walk(path);
-        else if (/\.tsx?$/.test(entry)) files.push(path);
-      }
-    };
-    walk(featureRoot);
+  it('AD-1 import boundary: the dashboard feature imports no foreign feature outside the allowlist, and never inventory-planning', () => {
+    const featuresRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+    const files = collectSourceFiles(join(featuresRoot, 'inventory-dashboard'));
     expect(files.length).toBeGreaterThan(10);
-    const offenders = files.filter((path) => {
-      const source = readFileSync(path, 'utf8');
-      // Any relative import that climbs into src/features/<other-feature>/.
-      return /from '(\.\.\/)+features\/(?!inventory-dashboard\/)/.test(source);
-    });
+
+    const unresolved: string[] = [];
+    const doomedFolderEdges: string[] = [];
+    const unallowlisted: string[] = [];
+    for (const file of files) {
+      for (const specifier of relativeImportSpecifiers(readFileSync(file, 'utf8'))) {
+        const target = resolveModulePath(resolve(dirname(file), specifier));
+        if (target === null) {
+          unresolved.push(`${relative(featuresRoot, file)} -> ${specifier}`);
+          continue;
+        }
+        const moduleId = featureModuleId(featuresRoot, target);
+        if (moduleId === null || moduleId.startsWith('inventory-dashboard/')) continue;
+        const edge = `${relative(featuresRoot, file)} -> ${moduleId}`;
+        if (moduleId.startsWith('inventory-planning/')) doomedFolderEdges.push(edge);
+        else if (!ALLOWED_FOREIGN_MODULES.has(moduleId)) unallowlisted.push(edge);
+      }
+    }
+
+    expect(unresolved).toEqual([]);
+    // Rule 1 — zero tolerance, not allowlistable.
+    expect(doomedFolderEdges).toEqual([]);
+    // Rule 2 — deliberate, enumerated exceptions only.
+    expect(unallowlisted).toEqual([]);
+  });
+
+  it('AD-1 reverse edge: legacy inventory-planning may reach the relocated engine and nothing else in the dashboard', () => {
+    const featuresRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+    const files = collectSourceFiles(join(featuresRoot, 'inventory-planning'));
+    expect(files.length).toBeGreaterThan(0);
+
+    const offenders: string[] = [];
+    for (const file of files) {
+      for (const specifier of relativeImportSpecifiers(readFileSync(file, 'utf8'))) {
+        const target = resolveModulePath(resolve(dirname(file), specifier));
+        if (target === null) continue;
+        const moduleId = featureModuleId(featuresRoot, target);
+        if (moduleId === null || !moduleId.startsWith('inventory-dashboard/')) continue;
+        if (!moduleId.startsWith(`${DASHBOARD_ENGINE_MODULE_PREFIX}/`)) {
+          offenders.push(`${relative(featuresRoot, file)} -> ${moduleId}`);
+        }
+      }
+    }
+
     expect(offenders).toEqual([]);
   });
 });
