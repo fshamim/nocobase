@@ -111,6 +111,17 @@ export interface OrderHeaderDetail {
   observedUnits: number;
   productCount: number;
   amazonReceiptStatus?: string;
+  // Prep details (T5) — surfaced so the drawer's Prep section can prefill.
+  hazmatFlag?: boolean;
+  prepBoxes?: number;
+  prepCartons?: number;
+  prepUnits?: number;
+  prepDimensions?: { length?: number; breadth?: number; height?: number };
+  prepWeightValue?: number;
+  prepWeightUnit?: string;
+  shippingId?: string;
+  labelFilesLink?: string;
+  prepStatus?: string;
 }
 
 export interface OrderActivityEntry {
@@ -123,6 +134,92 @@ export interface OrderDetail {
   header: OrderHeaderDetail;
   lines: OrderLineDetail[];
   activity: OrderActivityEntry[];
+}
+
+// ---- Order panes (T2.5 / T4) ----------------------------------------------
+
+export type OrderPaneKey = 'activeOrders' | 'inPrepMonitoring' | 'inboundMonitoring';
+export type MilestoneStateValue = 'done' | 'current' | 'pending' | 'blocked';
+export type PrepMilestoneState = 'done' | 'current' | 'pending';
+export type OrderAttentionReason = 'follow_up' | 'prep_idle' | 'inbound_overdue' | 'payment_blocked' | null;
+
+export interface OrderMilestone {
+  state: MilestoneStateValue;
+  raw?: string;
+  paymentMode?: string;
+}
+
+export interface OrderPaperwork {
+  approval: OrderMilestone;
+  order: OrderMilestone;
+  payment: OrderMilestone;
+  invoice: OrderMilestone;
+}
+
+export interface OrderPrep {
+  transit: PrepMilestoneState;
+  atPrep: PrepMilestoneState;
+  prep: PrepMilestoneState;
+  ready: PrepMilestoneState;
+  prepMeasured: boolean;
+}
+
+export interface OrderInbound {
+  orderedUnits: number;
+  arrivedUnits: number;
+  arrivalDetected: boolean;
+  alreadyConfirmed: boolean;
+}
+
+export interface OrderPaneRow {
+  orderId: string;
+  orderRef?: string;
+  companyName?: string;
+  sourceMarketplace?: string;
+  supplierName?: string;
+  supplierShipDestination: 'direct_fba' | 'prep_center' | null;
+  lifecycleStatus?: string;
+  paperwork: OrderPaperwork;
+  prep: OrderPrep;
+  inbound: OrderInbound;
+  expectedCost?: number;
+  actualCost?: number;
+  units: number;
+  daysInStatus: number | null;
+  daysInPane: number | null;
+  lastActivity: { at: string; body: string } | null;
+  moneyAtRisk: number;
+  atRiskProductCount: number;
+  productCount: number;
+  moneyAtRiskPastSafe: boolean;
+  attention: { flagged: boolean; reason: OrderAttentionReason };
+}
+
+export interface OrderPaneResponse {
+  pane: OrderPaneKey;
+  publishedRunId: string;
+  rows: OrderPaneRow[];
+  pagination: { page: number; pageSize: number; total: number };
+}
+
+export interface OrderPaneRunSuperseded {
+  runSuperseded: true;
+  publishedRunId: string;
+}
+
+export type OrderPaneResult = OrderPaneResponse | OrderPaneRunSuperseded;
+
+export function isOrderPaneRunSuperseded(value: OrderPaneResult): value is OrderPaneRunSuperseded {
+  return (value as OrderPaneRunSuperseded).runSuperseded === true;
+}
+
+export interface OrderPaneRequest {
+  pane: OrderPaneKey;
+  runId: string;
+  companyId?: string;
+  search?: string;
+  page?: number;
+  pageSize?: number;
 }
 
 async function call<T>(api: OrderRequestClient, action: string, data: Record<string, unknown>): Promise<T> {
@@ -149,6 +246,12 @@ export function createOrderApi(api: OrderRequestClient) {
     deleteOrder: (orderId: string) =>
       call<{ orderId: string; action: 'deleted' | 'cancelled' }>(api, 'deleteOrder', { orderId }),
     setOrderStatus: (orderId: string, status: string) => call<OrderDetail>(api, 'setOrderStatus', { orderId, status }),
+    // Order panes (T2.5): order-grain rows for the pinned run.
+    paneOrders: (request: OrderPaneRequest) => call<OrderPaneResult>(api, 'paneOrders', { ...request }),
+    // Order-pane popup mutations (T2.2–T2.4): each returns the recomputed OrderDetail.
+    updatePrepDetails: (data: Record<string, unknown>) => call<OrderDetail>(api, 'updatePrepDetails', data),
+    updateOrderPaperwork: (data: Record<string, unknown>) => call<OrderDetail>(api, 'updateOrderPaperwork', data),
+    confirmInboundCompletion: (orderId: string) => call<OrderDetail>(api, 'confirmInboundCompletion', { orderId }),
     supplierOptions: async (search?: string, familyId?: string): Promise<OrderSupplierOption[]> => {
       const response = await api.request({
         url: 'ecobaseSupplierManagement:supplierOptions',

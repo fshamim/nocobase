@@ -30,6 +30,8 @@ import PaneSection, {
   type PaneSectionHandle,
 } from './PaneSection';
 import { PANE_CONFIGS } from './pane-configs';
+import OrderPaneTable from './order/OrderPaneTable';
+import type { OrderPaneKey } from './order/order-api';
 import { TEXT } from './dashboard-text';
 import { DASHBOARD_TOKENS } from './dashboard-tokens';
 import type { PaneRenderContext } from './widgets/render-context';
@@ -169,6 +171,11 @@ const InventoryDashboardPageInner: React.FC<InventoryDashboardPageProps> = ({
   const runId = header?.publishedRunId ?? '';
   const frozen = supersededBy !== null;
 
+  // The three order panes render the richer order-grain OrderPaneTable (T4); every
+  // other pane keeps the generic PaneSection. Both share the paneRefs handle so KPI
+  // deep-links and scoped post-mutation refresh keep working across the swap.
+  const ORDER_PANE_KEYS = new Set<PaneKey>(['activeOrders', 'inPrepMonitoring', 'inboundMonitoring']);
+
   // T7 (W5): a NEW published run means every pending edit has landed in gold.
   const syncState = useSyncState();
   const { onRunChanged } = syncState;
@@ -285,27 +292,51 @@ const InventoryDashboardPageInner: React.FC<InventoryDashboardPageProps> = ({
       )}
 
       {runId
-        ? PANE_CONFIGS.map((config) => (
-            <PaneSection
-              key={`${config.pane}:${runId}`}
-              ref={(handle) => {
-                paneRefs.current.set(config.pane, handle);
-              }}
-              config={config}
-              runId={runId}
-              companyId={companyId}
-              search={search}
-              frozen={frozen}
-              fetchPane={fetchPane}
-              onSuperseded={onSuperseded}
-              onRowsLoaded={onRowsLoaded}
-              observeVisibility={observeVisibility}
-              t={t}
-              onRowClick={onRowClick}
-              onRender={onPaneRender}
-              renderContext={renderContext}
-            />
-          ))
+        ? PANE_CONFIGS.map((config) =>
+            ORDER_PANE_KEYS.has(config.pane) ? (
+              <OrderPaneTable
+                key={`${config.pane}:${runId}`}
+                ref={(handle) => {
+                  paneRefs.current.set(config.pane, handle);
+                }}
+                pane={config.pane as OrderPaneKey}
+                titleKey={config.titleKey}
+                runId={runId}
+                companyId={companyId}
+                search={search}
+                frozen={frozen}
+                api={api}
+                t={t}
+                observeVisibility={observeVisibility}
+                onSuperseded={onSuperseded}
+                onRender={onPaneRender}
+                onMutated={onDrawerMutated}
+                defaultExpanded={false}
+              />
+            ) : (
+              <PaneSection
+                key={`${config.pane}:${runId}`}
+                ref={(handle) => {
+                  paneRefs.current.set(config.pane, handle);
+                }}
+                config={config}
+                runId={runId}
+                companyId={companyId}
+                search={search}
+                frozen={frozen}
+                fetchPane={fetchPane}
+                onSuperseded={onSuperseded}
+                onRowsLoaded={onRowsLoaded}
+                observeVisibility={observeVisibility}
+                t={t}
+                onRowClick={onRowClick}
+                onRender={onPaneRender}
+                renderContext={renderContext}
+                // T6: every pane starts collapsed except Supply Action.
+                defaultExpanded={config.pane === 'supplyAction'}
+              />
+            ),
+          )
         : null}
       <PaneDrawer
         target={drawerTarget}

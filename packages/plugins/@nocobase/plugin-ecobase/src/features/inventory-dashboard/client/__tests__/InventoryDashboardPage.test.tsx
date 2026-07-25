@@ -64,6 +64,54 @@ const PANE_FIXTURES: Record<string, unknown> = {
   discontinuedPaused: paneDiscontinued,
 };
 
+// The three order panes are served by the order-grain `paneOrders` endpoint and
+// rendered by OrderPaneTable (T4). Minimal typed OrderPaneResponse fixtures below.
+function orderRow(orderRef: string, extra: Record<string, unknown> = {}) {
+  return {
+    orderId: `id-${orderRef}`,
+    orderRef,
+    companyName: 'Ecofission LLC',
+    sourceMarketplace: 'USA',
+    supplierName: 'allied piano and finish',
+    supplierShipDestination: 'prep_center',
+    lifecycleStatus: 'PREP IN-PROGRESS',
+    paperwork: {
+      approval: { state: 'done' },
+      order: { state: 'done' },
+      payment: { state: 'current' },
+      invoice: { state: 'pending' },
+    },
+    prep: { transit: 'done', atPrep: 'done', prep: 'current', ready: 'pending', prepMeasured: false },
+    inbound: { orderedUnits: 108, arrivedUnits: 0, arrivalDetected: false, alreadyConfirmed: false },
+    expectedCost: 1214.28,
+    units: 108,
+    daysInStatus: 2,
+    daysInPane: 2,
+    lastActivity: { at: '2026-07-24T00:00:00.000Z', body: 'arrived at prep' },
+    moneyAtRisk: 0,
+    atRiskProductCount: 0,
+    productCount: 2,
+    moneyAtRiskPastSafe: false,
+    attention: { flagged: false, reason: null },
+    ...extra,
+  };
+}
+
+function orderPaneResponse(pane: string, refs: string[]) {
+  return {
+    pane,
+    publishedRunId: headerFixture.publishedRunId,
+    rows: refs.map((ref) => orderRow(ref)),
+    pagination: { page: 1, pageSize: 25, total: refs.length },
+  };
+}
+
+const ORDER_PANE_FIXTURES: Record<string, unknown> = {
+  activeOrders: orderPaneResponse('activeOrders', ['EFACTIVE1', 'MXACTIVE2', 'SSACTIVE3']),
+  inPrepMonitoring: orderPaneResponse('inPrepMonitoring', ['EFPREP5', 'SSPREP6', 'MXPREP7']),
+  inboundMonitoring: orderPaneResponse('inboundMonitoring', ['RHINB1', 'MXINB2', 'EFINB3']),
+};
+
 /**
  * REAL transport envelope, captured from staging 2026-07-22 (image
  * staging-83737af): the HTTP body is `{"data":{"data":<payload>}}` — the
@@ -96,6 +144,14 @@ function mockApi(options: MockApiOptions = {}) {
       }
       return respond(PANE_FIXTURES[pane]);
     }
+    if (args.url === 'ecobaseInventoryDashboard:paneOrders') {
+      const pane = String(args.data.pane);
+      if (options.failPanes?.has(pane)) return Promise.reject(new Error('boom'));
+      if (options.supersedePanes?.has(pane)) {
+        return respond({ runSuperseded: true, publishedRunId: 'run-published-0002' });
+      }
+      return respond(ORDER_PANE_FIXTURES[pane]);
+    }
     return Promise.reject(new Error(`Unexpected dashboard request: ${args.url}`));
   });
 }
@@ -120,6 +176,21 @@ function paneRequests(pane?: string) {
     ([args]: [{ url: string; data: Record<string, unknown> }]) =>
       args.url === 'ecobaseInventoryDashboard:pane' && (pane === undefined || args.data.pane === pane),
   );
+}
+
+function paneOrdersRequests(pane?: string) {
+  return request.mock.calls.filter(
+    ([args]: [{ url: string; data: Record<string, unknown> }]) =>
+      args.url === 'ecobaseInventoryDashboard:paneOrders' && (pane === undefined || args.data.pane === pane),
+  );
+}
+
+/** T6: panes default collapsed (except supplyAction); expand one by clicking its header. */
+async function expandPane(pane: string) {
+  await waitFor(() => expect(document.querySelector(`section[data-pane="${pane}"]`)).not.toBeNull());
+  const section = document.querySelector(`section[data-pane="${pane}"]`) as HTMLElement;
+  const collapseHeader = section.querySelector('.ant-collapse-header') as HTMLElement;
+  fireEvent.click(collapseHeader);
 }
 
 function renderPage(observeVisibility: ObserveVisibility) {
@@ -165,12 +236,13 @@ describe('InventoryDashboardPage (Gate G2)', () => {
     expect(await screen.findByText('B0009B')).toBeTruthy();
   });
 
-  it('deep-links a KPI tile to its un-fetched pane and focuses the pane heading (REQ-H6)', async () => {
+  it('deep-links a KPI tile to its un-fetched order pane and focuses the pane heading (REQ-H6)', async () => {
     renderPage(observeNever);
     const tile = await screen.findByRole('button', { name: 'Needs follow-up' });
-    expect(paneRequests('inPrepMonitoring')).toHaveLength(0);
+    // Needs-follow-up deep-links to In-prep monitoring, an order pane served by paneOrders.
+    expect(paneOrdersRequests('inPrepMonitoring')).toHaveLength(0);
     fireEvent.click(tile);
-    await waitFor(() => expect(paneRequests('inPrepMonitoring')).toHaveLength(1));
+    await waitFor(() => expect(paneOrdersRequests('inPrepMonitoring')).toHaveLength(1));
     const heading = document.getElementById('inventory-dashboard-pane-inPrepMonitoring');
     expect(heading).not.toBeNull();
     expect(document.activeElement).toBe(heading);
@@ -214,23 +286,26 @@ describe('InventoryDashboardPage (Gate G2)', () => {
     expect(await screen.findByText('B0009B')).toBeTruthy();
   });
 
-  it('renders the contradictory (gold in-prep vs silver inbound) row verbatim in its served pane with a stale badge', async () => {
+  it('renders order-grain rows in the In-prep pane via the order-pane table (T4)', async () => {
     renderPage(observeOnly('inPrepMonitoring'));
-    await waitFor(() => expect(document.querySelector('section[data-pane="inPrepMonitoring"]')).not.toBeNull());
+    await expandPane('inPrepMonitoring');
+    await waitFor(() => expect(paneOrdersRequests('inPrepMonitoring')).toHaveLength(1));
     const section = document.querySelector('section[data-pane="inPrepMonitoring"]') as HTMLElement;
-    await waitFor(() => expect(within(section).queryAllByText('order-5').length).toBeGreaterThan(0));
-    expect(within(section).getByText('Stale data')).toBeTruthy();
-    // direct-ship-fba never leaks into P3 (AD-2 #3).
-    expect(within(section).queryByText('order-3')).toBeNull();
+    expect(await within(section).findByText('EFPREP5')).toBeTruthy();
+    // The prep chain is the In-prep pane's status cell anatomy (TRANSIT → AT PREP → PREP → READY);
+    // the trailing READY chip renders without a state glyph, so its label is an exact match.
+    expect(within(section).getAllByText('READY').length).toBeGreaterThan(0);
   });
 
   it('REQ-X6: no non-badge literal repeats in >80% of rows; at most one badge cluster per row', async () => {
     renderPage(observeAll);
-    // T7: supplyAction now follows the approved v2 mockup (pill-rich widgets,
-    // static sub-labels per cell) — the v1 single-badge-cluster rule is
-    // superseded for THAT pane only; it still guards every other pane.
-    const targetPanes = ['inPrepMonitoring', 'inboundMonitoring', 'performanceReview'];
+    // supplyAction (approved v2 mockup) and the three order panes (order-grain
+    // OrderPaneTable — intentionally pill-rich per the approved prototype) are
+    // exempt from the v1 single-badge-cluster rule; it still guards the generic
+    // PaneSection panes such as Performance Review.
+    const targetPanes = ['performanceReview'];
     for (const pane of targetPanes) {
+      await expandPane(pane);
       await waitFor(() =>
         expect(
           document.querySelectorAll(`section[data-pane="${pane}"] tbody tr.ant-table-row`).length,
@@ -332,6 +407,7 @@ describe('InventoryDashboardPage (Gate G2)', () => {
 
   it('task 002: renders Discontinued & Paused as the LAST pane with its own debounced search box', async () => {
     renderPage(observeOnly('discontinuedPaused'));
+    await expandPane('discontinuedPaused');
     await waitFor(() => expect(paneRequests('discontinuedPaused')).toHaveLength(1));
     const sections = Array.from(document.querySelectorAll('section[data-pane]'));
     expect((sections.at(-1) as HTMLElement).dataset.pane).toBe('discontinuedPaused');
