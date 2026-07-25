@@ -210,8 +210,14 @@ function evidencePlan(
 
 // An incoming interval whose window sits fully inside the seeded 2026-01-01..2026-01-31 active
 // interval, with a distinct sourceVersion so it reaches the overlap lineage branch (not the
-// same-natural-key idempotency branch).
-function staleWithinPlan(sourceVersion: string, sourceAsOfDate: string, coveredEndDate: string): CoverageEvidencePlan {
+// same-natural-key idempotency branch). Digests default to content that differs from the seeded
+// interval; pass the seeded digests to exercise the "same content" quiet-skip clause.
+function staleWithinPlan(
+  sourceVersion: string,
+  sourceAsOfDate: string,
+  coveredEndDate: string,
+  digests: { inputDigest?: string; scopeDigest?: string } = {},
+): CoverageEvidencePlan {
   const intervalNaturalKey = `coverage:source-1:account-1:2026-01-01:${sourceVersion}`;
   return {
     intervals: [
@@ -227,8 +233,8 @@ function staleWithinPlan(sourceVersion: string, sourceAsOfDate: string, coveredE
         sourceAsOfDate,
         sourceVersion,
         importRunId: `run-${sourceVersion}`,
-        inputDigest: '5'.repeat(64),
-        scopeDigest: '6'.repeat(64),
+        inputDigest: digests.inputDigest ?? '5'.repeat(64),
+        scopeDigest: digests.scopeDigest ?? '6'.repeat(64),
         evidenceJson: { observedDateCount: 20 },
       },
     ],
@@ -243,6 +249,57 @@ function staleWithinPlan(sourceVersion: string, sourceAsOfDate: string, coveredE
         normalizedFactLinkCount: 20,
         metricReconciliationStatus: 'complete',
         metricEvidenceDigest: '8'.repeat(64),
+      },
+    ],
+  };
+}
+
+// Same natural key as evidencePlan() (sourceVersion 'v1', equal as-of), but the interval scope and
+// membership set changed — mid-run auto-add resolved an extra product. `restated` also changes an
+// existing member's per-product evidence (Sellerboard same-day restatement).
+function sameKeyChangedPlan(scopeDigest: string, options: { restated?: boolean } = {}): CoverageEvidencePlan {
+  const intervalNaturalKey = 'coverage:source-1:account-1:2026-01-01:v1';
+  return {
+    intervals: [
+      {
+        naturalKey: intervalNaturalKey,
+        sourceConnectionId: scope.sourceConnectionId,
+        companyId: scope.companyId,
+        amazonAccountId: scope.amazonAccountId,
+        marketplace: scope.marketplace,
+        coveredStartDate: '2026-01-01',
+        coveredEndDate: '2026-01-31',
+        continuousCoverage: true,
+        sourceAsOfDate: '2026-02-01',
+        sourceVersion: 'v1',
+        importRunId: 'run-grown',
+        inputDigest: '1'.repeat(64),
+        scopeDigest,
+        evidenceJson: { observedDateCount: 31 },
+      },
+    ],
+    memberships: [
+      {
+        intervalNaturalKey,
+        companyProductId: scope.companyProductId,
+        monthStart: scope.monthStart,
+        scopeEvidenceKinds: ['profit_by_product_daily'],
+        scopeEvidenceDigest: '3'.repeat(64),
+        sourceMetricRowCount: 31,
+        normalizedFactLinkCount: 31,
+        metricReconciliationStatus: 'complete',
+        metricEvidenceDigest: options.restated ? 'e'.repeat(64) : '4'.repeat(64),
+      },
+      {
+        intervalNaturalKey,
+        companyProductId: 'company-product-2',
+        monthStart: scope.monthStart,
+        scopeEvidenceKinds: ['profit_by_product_daily'],
+        scopeEvidenceDigest: '5'.repeat(64),
+        sourceMetricRowCount: 20,
+        normalizedFactLinkCount: 20,
+        metricReconciliationStatus: 'complete',
+        metricEvidenceDigest: '6'.repeat(64),
       },
     ],
   };
@@ -1060,8 +1117,13 @@ describe('EcoBase source coverage ledger', () => {
       idempotentMembershipCount: 1,
       noOp: true,
     });
-    await expect(service.reconcileEvidence(evidencePlan('v1', '9'.repeat(64)))).rejects.toMatchObject({
-      code: 'ECOBASE_COVERAGE_CONFLICT',
+    // Same natural key, equal as-of, changed interval evidence -> supersede in place (the latest
+    // pull is the truth; naturalKey is unique so no second row is forked), not a conflict.
+    await expect(service.reconcileEvidence(evidencePlan('v1', '9'.repeat(64)))).resolves.toMatchObject({
+      intervalCreatedCount: 0,
+      supersededInPlaceCount: 1,
+      idempotentMembershipCount: 1,
+      noOp: false,
     });
 
     await expect(service.reconcileEvidence(evidencePlan('v2'))).resolves.toMatchObject({
@@ -1100,8 +1162,14 @@ describe('EcoBase source coverage ledger', () => {
       },
     ]);
 
-    // Equal as-of, narrower window fully within the held one -> same quiet no-op + flag.
-    const equal = await service.reconcileEvidence(staleWithinPlan('equal', '2026-02-01', '2026-01-22'));
+    // Equal as-of, fully within, and identical content already held -> still a quiet no-op + flag
+    // (precedence: equal as-of skips only when the digest matches; changed content supersedes).
+    const equal = await service.reconcileEvidence(
+      staleWithinPlan('equal', '2026-02-01', '2026-01-22', {
+        inputDigest: '1'.repeat(64),
+        scopeDigest: '2'.repeat(64),
+      }),
+    );
     expect(equal).toMatchObject({ intervalCreatedCount: 0, membershipCreatedCount: 0, noOp: true });
     expect(equal.coverageSkippedStale).toEqual([
       {
@@ -1122,5 +1190,59 @@ describe('EcoBase source coverage ledger', () => {
       sourceAsOfDate: '2026-02-01',
     });
     expect(db.getRepository(ECOBASE_COLLECTIONS.sourceCoverageMemberships).all()).toHaveLength(1);
+  });
+
+  it('supersedes in place on equal-as-of scope growth and restatement, and stays a no-op on identical content', async () => {
+    const db = new MemoryDatabase();
+    const service = new EcobaseSourceCoverageService(db);
+    // Establish v1: window 01-01..01-31 as-of 02-01 with one member.
+    await expect(service.reconcileEvidence(evidencePlan())).resolves.toMatchObject({
+      intervalCreatedCount: 1,
+      membershipCreatedCount: 1,
+    });
+
+    // (branch: supersede) same natural key, equal as-of, changed scope + a newly-resolved product
+    // (mid-run auto-add) -> replace the held evidence in place and extend the membership set. No
+    // second interval row is forked (naturalKey is unique).
+    const grown = await service.reconcileEvidence(sameKeyChangedPlan('7'.repeat(64)));
+    expect(grown).toMatchObject({
+      intervalCreatedCount: 0,
+      supersededInPlaceCount: 1,
+      membershipCreatedCount: 1,
+      idempotentMembershipCount: 1,
+      membershipUpdatedCount: 0,
+      noOp: false,
+    });
+    const intervals = db.getRepository(ECOBASE_COLLECTIONS.sourceCoverageIntervals).all();
+    expect(intervals).toHaveLength(1);
+    expect(intervals[0]).toMatchObject({ coverageStatus: 'active', scopeDigest: '7'.repeat(64) });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.sourceCoverageMemberships).all()).toHaveLength(2);
+
+    // (branch: identical) replaying the exact same grown content -> idempotent no-op.
+    await expect(service.reconcileEvidence(sameKeyChangedPlan('7'.repeat(64)))).resolves.toMatchObject({
+      intervalCreatedCount: 0,
+      supersededInPlaceCount: 0,
+      membershipCreatedCount: 0,
+      membershipUpdatedCount: 0,
+      idempotentIntervalCount: 1,
+      idempotentMembershipCount: 2,
+      noOp: true,
+    });
+
+    // (branch: restatement) equal as-of, same-day restatement of an existing member's numbers ->
+    // supersede in place and refresh that member's evidence rather than erroring.
+    const restated = await service.reconcileEvidence(sameKeyChangedPlan('8'.repeat(64), { restated: true }));
+    expect(restated).toMatchObject({
+      supersededInPlaceCount: 1,
+      membershipUpdatedCount: 1,
+      membershipCreatedCount: 0,
+      idempotentMembershipCount: 1,
+      noOp: false,
+    });
+    // The company product remains eligible after the in-place supersession.
+    await expect(service.evaluateProductMonth(scope)).resolves.toMatchObject({
+      eligible: true,
+      reasonCode: 'eligible_complete_month',
+    });
   });
 });

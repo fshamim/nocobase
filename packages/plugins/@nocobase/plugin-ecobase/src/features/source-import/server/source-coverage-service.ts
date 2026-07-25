@@ -168,8 +168,15 @@ export interface CoverageReconciliationResult {
   intervalCreatedCount: number;
   membershipCreatedCount: number;
   supersededIntervalCount: number;
+  // An ACTIVE interval whose held natural key matched the incoming one but whose evidence/scope
+  // changed with an equal-or-newer as-of (catalog scope growth from auto-add, or same-day
+  // Sellerboard restatement). naturalKey is unique, so the latest pull replaces the held evidence
+  // in place rather than forking a second row.
+  supersededInPlaceCount: number;
   idempotentIntervalCount: number;
   idempotentMembershipCount: number;
+  // Members of a superseded-in-place interval whose per-product evidence was refreshed to match.
+  membershipUpdatedCount: number;
   coverageSkippedStale: CoverageSkippedStale[];
   noOp: boolean;
 }
@@ -1304,12 +1311,15 @@ export class EcobaseSourceCoverageService {
     );
     const intervalIds = new Map<string, string>();
     const staleSkippedIntervalKeys = new Set<string>();
+    const supersededInPlaceKeys = new Set<string>();
     const coverageSkippedStale: CoverageSkippedStale[] = [];
     let intervalCreatedCount = 0;
     let membershipCreatedCount = 0;
     let supersededIntervalCount = 0;
+    let supersededInPlaceCount = 0;
     let idempotentIntervalCount = 0;
     let idempotentMembershipCount = 0;
+    let membershipUpdatedCount = 0;
 
     const duplicateIntervalKeys = new Set<string>();
     for (const interval of plan.intervals) {
@@ -1320,12 +1330,43 @@ export class EcobaseSourceCoverageService {
       const values = this.intervalValues(interval);
       const sameKey = existingIntervalByNaturalKey.get(String(values.naturalKey));
       if (sameKey) {
-        if (bronzePayloadHash(intervalProjection(sameKey)) !== bronzePayloadHash(intervalProjection(values))) {
-          throw this.conflict(interval.naturalKey, 'the same natural key has different evidence digests or scope');
+        if (
+          bronzePayloadHash(intervalProjection(sameKey)) === bronzePayloadHash(intervalProjection(values)) &&
+          sameKey.coverageStatus === 'active'
+        ) {
+          intervalIds.set(interval.naturalKey, String(sameKey.id));
+          idempotentIntervalCount += 1;
+          continue;
         }
-        intervalIds.set(interval.naturalKey, String(sameKey.id));
-        idempotentIntervalCount += 1;
-        continue;
+        // Same natural key (same window) but the evidence/scope changed. This is normal: auto-add
+        // can grow the resolved product scope mid-run, and Sellerboard restates same-day numbers.
+        // When the incoming as-of is equal-or-newer than the active held one, the latest pull is
+        // the truth. naturalKey is unique, so we cannot fork a second row — supersede in place by
+        // replacing the held evidence, and let the membership loop refresh/extend its scope.
+        if (sameKey.coverageStatus === 'active' && String(values.sourceAsOfDate) >= String(sameKey.sourceAsOfDate)) {
+          await intervalRepo.update({
+            filterByTk: sameKey.id as string | number,
+            values: {
+              coveredStartDate: values.coveredStartDate,
+              coveredEndDate: values.coveredEndDate,
+              continuousCoverage: values.continuousCoverage,
+              sourceAsOfDate: values.sourceAsOfDate,
+              sourceVersion: values.sourceVersion,
+              importRunId: values.importRunId,
+              inputDigest: values.inputDigest,
+              scopeDigest: values.scopeDigest,
+              evidenceJson: values.evidenceJson,
+            },
+            transaction,
+          });
+          Object.assign(sameKey, values);
+          intervalIds.set(interval.naturalKey, String(sameKey.id));
+          supersededInPlaceKeys.add(interval.naturalKey);
+          supersededInPlaceCount += 1;
+          continue;
+        }
+        // Strictly-older as-of claiming the same key with different content -> genuine conflict.
+        throw this.conflict(interval.naturalKey, 'the same natural key has different evidence digests or scope');
       }
 
       const activeOverlaps = existingIntervals
@@ -1339,9 +1380,13 @@ export class EcobaseSourceCoverageService {
         const fullyWithinPredecessor =
           String(predecessor.coveredStartDate) <= String(values.coveredStartDate) &&
           String(values.coveredEndDate) <= String(predecessor.coveredEndDate);
-        if (fullyWithinPredecessor) {
-          // Stale re-serve: the incoming window is already owned by an equal-or-newer active
-          // interval. Do not regress the newer daily facts with older ones — write nothing for
+        const olderAsOf = String(values.sourceAsOfDate) < String(predecessor.sourceAsOfDate);
+        const sameContent =
+          String(values.inputDigest) === String(predecessor.inputDigest) &&
+          String(values.scopeDigest) === String(predecessor.scopeDigest);
+        if (fullyWithinPredecessor && (olderAsOf || sameContent)) {
+          // Stale re-serve: strictly-older data, or content we already hold, sitting inside an
+          // active window. Do not regress newer daily facts with older ones — write nothing for
           // this metric set, leave the held coverage untouched, and record a quiet note.
           staleSkippedIntervalKeys.add(interval.naturalKey);
           coverageSkippedStale.push({
@@ -1352,7 +1397,15 @@ export class EcobaseSourceCoverageService {
           });
           continue;
         }
-        throw this.conflict(interval.naturalKey, 'overlap is not owned by a strictly later source as-of date');
+        const coversPredecessor =
+          String(values.coveredStartDate) <= String(predecessor.coveredStartDate) &&
+          String(values.coveredEndDate) >= String(predecessor.coveredEndDate);
+        // An equal as-of with changed content that covers the held window supersedes it (falls
+        // through to the create + supersede logic below); everything else — older changed content,
+        // or a change that cannot cleanly supersede the held window — is a genuine conflict.
+        if (olderAsOf || !coversPredecessor) {
+          throw this.conflict(interval.naturalKey, 'overlap is not owned by a strictly later source as-of date');
+        }
       }
 
       const created = toPlainRecord(
@@ -1409,11 +1462,19 @@ export class EcobaseSourceCoverageService {
       const values = this.membershipValues(membership, naturalKey, coverageIntervalId);
       const existing = existingMembershipByNaturalKey.get(naturalKey);
       if (existing) {
-        if (bronzePayloadHash(membershipProjection(existing)) !== bronzePayloadHash(membershipProjection(values))) {
-          throw this.conflict(naturalKey, 'the same membership natural key has different evidence');
+        if (bronzePayloadHash(membershipProjection(existing)) === bronzePayloadHash(membershipProjection(values))) {
+          idempotentMembershipCount += 1;
+          continue;
         }
-        idempotentMembershipCount += 1;
-        continue;
+        if (supersededInPlaceKeys.has(membership.intervalNaturalKey)) {
+          // The interval's content was replaced in place; refresh this member's evidence to match
+          // rather than treating the restatement as a conflict.
+          await membershipRepo.update({ filterByTk: existing.id as string | number, values, transaction });
+          Object.assign(existing, values);
+          membershipUpdatedCount += 1;
+          continue;
+        }
+        throw this.conflict(naturalKey, 'the same membership natural key has different evidence');
       }
       const created = toPlainRecord(
         await membershipRepo.create({ values: { id: randomUUID(), ...values }, transaction }),
@@ -1427,10 +1488,17 @@ export class EcobaseSourceCoverageService {
       intervalCreatedCount,
       membershipCreatedCount,
       supersededIntervalCount,
+      supersededInPlaceCount,
       idempotentIntervalCount,
       idempotentMembershipCount,
+      membershipUpdatedCount,
       coverageSkippedStale,
-      noOp: intervalCreatedCount === 0 && membershipCreatedCount === 0 && supersededIntervalCount === 0,
+      noOp:
+        intervalCreatedCount === 0 &&
+        membershipCreatedCount === 0 &&
+        supersededIntervalCount === 0 &&
+        supersededInPlaceCount === 0 &&
+        membershipUpdatedCount === 0,
     };
   }
 
