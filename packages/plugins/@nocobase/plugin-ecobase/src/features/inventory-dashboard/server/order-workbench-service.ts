@@ -699,7 +699,9 @@ export class EcobaseOrderWorkbenchService {
     values.prepDetailsUpdatedAt = new Date().toISOString();
     // Spec (T2.3) mandates uuidOrUndefined here even though the column is string-typed,
     // so integer NocoBase user ids never persist as the "updated by" value.
-    values.prepDetailsUpdatedByUserId = uuidOrUndefined(params.actorUserId);
+    // String-typed column (unlike the uuid actor columns) — store the id as-is so
+    // prep edits stay attributed, matching the v1 savePrepDetails behavior.
+    values.prepDetailsUpdatedByUserId = asString(params.actorUserId);
     await this.repo(ECOBASE_COLLECTIONS.silverOrders).update({ filterByTk: orderId, values });
     return this.getOrderDetail({ orderId });
   }

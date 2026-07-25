@@ -344,8 +344,9 @@ describe('deriveOrderAttention (T3 thresholds, boundary red-proof)', () => {
     ).toEqual({ flagged: true, reason: 'follow_up' });
   });
 
-  it('precedence: follow_up outranks payment_blocked in the spec-listed order; payment_blocked is the fallback', () => {
-    // Active + stale + payment blocked → follow_up wins (spec precedence order).
+  it('precedence: payment_blocked outranks the time-based reasons (approved prototype behavior)', () => {
+    // Active + stale + payment blocked → payment_blocked wins: it is the specific,
+    // immediately actionable problem (prototype row SS072226A shows "payment overdue").
     expect(
       deriveOrderAttention({
         pane: 'activeOrders',
@@ -356,7 +357,7 @@ describe('deriveOrderAttention (T3 thresholds, boundary red-proof)', () => {
         now,
         thresholds: THRESHOLDS,
       }).reason,
-    ).toBe('follow_up');
+    ).toBe('payment_blocked');
     // Fresh active order + payment blocked → payment_blocked is the reason.
     expect(
       deriveOrderAttention({

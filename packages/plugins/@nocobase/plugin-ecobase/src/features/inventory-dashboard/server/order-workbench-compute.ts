@@ -423,10 +423,12 @@ export interface OrderAttentionThresholds {
 }
 
 /**
- * Exactly one attention reason per row, evaluated in the fixed precedence order
- * follow_up → prep_idle → inbound_overdue → payment_blocked (T2.5). The three
- * threshold reasons are pane-exclusive; boundary values (exactly at the threshold)
- * are NOT flagged — only strictly over.
+ * Exactly one attention reason per row. A blocked payment is the most specific,
+ * immediately actionable problem, so it outranks the time-based reasons:
+ * payment_blocked → follow_up → prep_idle → inbound_overdue (approved prototype
+ * behavior, e.g. the stale-AND-payment-blocked row shows "payment overdue").
+ * The three threshold reasons are pane-exclusive; boundary values (exactly at
+ * the threshold) are NOT flagged — only strictly over.
  */
 export function deriveOrderAttention(input: {
   pane: string;
@@ -441,6 +443,7 @@ export function deriveOrderAttention(input: {
   const flag = (reason: Exclude<OrderAttentionReason, null>) => ({ flagged: true, reason });
   const { thresholds } = input;
 
+  if (input.paymentBlocked) return flag('payment_blocked');
   if (input.pane === 'activeOrders') {
     const refMs = firstDateMs([input.lastActivityAt, input.statusChangedAt]);
     if (refMs !== undefined) {
@@ -462,7 +465,6 @@ export function deriveOrderAttention(input: {
   ) {
     return flag('inbound_overdue');
   }
-  if (input.paymentBlocked) return flag('payment_blocked');
   return { flagged: false, reason: null };
 }
 
