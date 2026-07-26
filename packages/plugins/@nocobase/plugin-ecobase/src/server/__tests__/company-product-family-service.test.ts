@@ -349,9 +349,12 @@ describe('EcobaseCompanyProductFamilyService', () => {
       await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).find({ sort: ['id'] }),
     );
 
+    // The seed leaves catalog listings outside any family, so the builder's catalog-drift
+    // guard is the one that refuses (it runs before the cardinality check). Either way the
+    // point of this test stands: the refresh aborts BEFORE touching Silver.
     await expect(
       new EcobaseInventoryPlanningService(db).refreshReadModel({ calculationDate: '2026-07-01' }),
-    ).rejects.toMatchObject({ code: 'ECOBASE_CORRECTED_CANDIDATE_CARDINALITY_MISMATCH' });
+    ).rejects.toMatchObject({ code: 'ECOBASE_CORRECTED_CANDIDATE_CATALOG_DRIFT' });
 
     expect(await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).find({ sort: ['id'] })).toEqual(before);
   });

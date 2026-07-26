@@ -1343,11 +1343,20 @@ describe('Ecobase supplier-order workspace API seam', () => {
     await db.getRepository(ECOBASE_COLLECTIONS.silverProducts).create({
       values: { id: 'product-other', asin: 'B00ORDER' },
     });
+    // Order lines are written as exact_member rows, so the company product must carry its
+    // family (silver_order_lines_mapping_scope_check) — the fixture predates that rule.
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductFamilies).create({
+      values: { id: 'family-eco', companyId: 'company-eco', canonicalAsin: 'B00ORDER' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductFamilies).create({
+      values: { id: 'family-other', companyId: 'company-other', canonicalAsin: 'B00ORDER' },
+    });
     await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
       values: {
         id: '22222222-2222-4222-8222-222222222222',
         companyId: 'company-eco',
         productId: 'product-eco',
+        companyProductFamilyId: 'family-eco',
       },
     });
     await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
@@ -1355,6 +1364,7 @@ describe('Ecobase supplier-order workspace API seam', () => {
         id: '33333333-3333-4333-8333-333333333333',
         companyId: 'company-other',
         productId: 'product-other',
+        companyProductFamilyId: 'family-other',
       },
     });
     await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).create({
