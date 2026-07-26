@@ -2343,6 +2343,7 @@ export function createEcobaseImportActions(
           sourceVersion: getOptionalString(values, 'sourceVersion'),
           idempotencyKey: getOptionalString(values, 'idempotencyKey'),
           preserveAuditRun: true,
+          onCommittedUnit: onSellerboardCommitted,
         });
         ctx.body = { data: importRun };
         await next();
@@ -2365,6 +2366,7 @@ export function createEcobaseImportActions(
           idempotencyKey: getOptionalString(values, 'idempotencyKey'),
           preserveAuditRun: true,
           skipIfNoNewerData: true,
+          onCommittedUnit: onSellerboardCommitted,
         });
         ctx.body = { data: importRun };
         await next();
@@ -2387,6 +2389,7 @@ export function createEcobaseImportActions(
               sourceVersion: getOptionalString(values, 'sourceVersion'),
               idempotencyKey: getOptionalString(values, 'idempotencyKey'),
               preserveAuditRun: true,
+              onCommittedUnit: onSellerboardCommitted,
             }),
           };
         } catch (error) {

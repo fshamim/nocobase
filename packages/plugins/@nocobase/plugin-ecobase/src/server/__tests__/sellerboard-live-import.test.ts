@@ -10,15 +10,26 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createSourceAdapterRegistry, sellerboardApiAdapter } from '../../features/source-import/server/adapters';
+import {
+  createSourceAdapterRegistry,
+  noopTestAdapter,
+  sellerboardApiAdapter,
+} from '../../features/source-import/server/adapters';
 import { parseSellerboardCsv } from '../../features/source-import/server/adapters/live-source-blocker-adapters';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
-import { SELLERBOARD_GOLD_PROMOTION_DEBOUNCE_MS, SellerboardGoldPromotionDebouncer } from '../plugin';
+import {
+  SELLERBOARD_GOLD_PROMOTION_DEBOUNCE_MS,
+  SellerboardGoldPromotionDebouncer,
+  createEcobaseGoldPromotions,
+} from '../plugin';
 import {
   EcobaseDatabase,
   EcobaseImportService,
   EcobaseRepository,
 } from '../../features/source-import/server/import-service';
+import { EcobaseInventoryPlanningService } from '../../features/inventory-dashboard/server/engine/inventory-planning-service';
+import { EcobaseOrderReceiptReconciliationService } from '../../features/inventory-dashboard/server/engine/order-receipt-reconciliation-service';
+import { createEcobaseImportActions } from '../resource-actions';
 
 interface FindParams {
   filter?: Record<string, unknown>;
@@ -169,9 +180,98 @@ function createService(csv = sellerboardGoodsCsv('2026-06-05', 15.2)) {
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe('Sellerboard live URL import', () => {
+  /**
+   * Issue 054 R1 follow-up: the settings page's "Run now" (forceRefresh) went
+   * through runAdapterImport with no committed-unit hook, so a manual pull
+   * committed thousands of records and then promoted nothing — no receipt
+   * reconciliation, no Gold publish. Every Sellerboard entry point must promote.
+   */
+  it('promotes Gold from a committed forceRefresh: reconciles receipts, then publishes', async () => {
+    const { db } = createService();
+    await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
+      filterByTk: 'sellerboard-source-1',
+      values: { companyId: 'company-1' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+      values: { id: 'order-open', companyId: 'company-1', amazonReceiptStatus: 'awaiting_amazon_stock' },
+    });
+
+    const sequence: string[] = [];
+    const reconcile = vi
+      .spyOn(EcobaseOrderReceiptReconciliationService.prototype, 'reconcileAffectedOrders')
+      .mockImplementation(async () => {
+        sequence.push('reconcile');
+        return {
+          processedOrders: 1,
+          updatedOrders: 1,
+          updatedLines: 1,
+          unchangedLines: 0,
+          reviewRequired: 0,
+          affectedFamilyIds: [],
+          errors: [],
+        };
+      });
+    const publish = vi
+      .spyOn(EcobaseInventoryPlanningService.prototype, 'refreshAndPublish')
+      .mockImplementation(async () => {
+        sequence.push('publish');
+        return { status: 'published' } as never;
+      });
+
+    const promotions = createEcobaseGoldPromotions({ db, logger: { info: vi.fn(), error: vi.fn() } });
+    const actions = createEcobaseImportActions(
+      createSourceAdapterRegistry([sellerboardApiAdapter]),
+      promotions.onSellerboardCommittedUnit,
+    );
+    const ctx = {
+      db,
+      action: { params: { values: { sourceConnectionId: 'sellerboard-source-1', sourceVersion: '2026-06-05' } } },
+      state: { currentUser: { id: 1 }, currentRoles: ['root'] },
+      body: undefined as unknown,
+      throw(status: number, message: string): never {
+        throw Object.assign(new Error(message), { status });
+      },
+    };
+
+    await actions.forceRefresh(ctx as never, vi.fn());
+
+    expect(ctx.body).toMatchObject({
+      data: { status: 'success', normalizedCount: 2, goldTrigger: { status: 'scheduled' } },
+    });
+    // The debounced promotion fires on its own timer; wait past one window.
+    await new Promise((resolve) => setTimeout(resolve, SELLERBOARD_GOLD_PROMOTION_DEBOUNCE_MS + 300));
+
+    expect(sequence).toEqual(['reconcile', 'publish']);
+    expect(reconcile.mock.calls[0][0].orderIds).toEqual(['order-open']);
+    expect(publish).toHaveBeenCalledTimes(1);
+    promotions.stop();
+  });
+
+  it('never fires the Sellerboard committed-unit hook for a non-Sellerboard source', async () => {
+    // run/runDailySnapshot may target any adapter, so they pass the hook
+    // unconditionally — the service is what keeps it Sellerboard-only.
+    const { db } = createService();
+    await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).create({
+      values: { id: 'noop-source-1', name: 'Noop', sourceType: 'noop_test', domain: 'foundation', active: true },
+    });
+    const onCommittedUnit = vi.fn();
+
+    const run = await new EcobaseImportService(db, createSourceAdapterRegistry([noopTestAdapter])).runAdapterImport({
+      sourceConnectionId: 'noop-source-1',
+      adapterName: 'noop-test',
+      sourceVersion: '2026-06-05',
+      preserveAuditRun: true,
+      onCommittedUnit,
+    });
+
+    expect(onCommittedUnit).not.toHaveBeenCalled();
+    expect(run).not.toHaveProperty('goldTrigger');
+  });
+
   it('debounces successful report-unit commits into the smallest delayed Gold trigger', async () => {
     vi.useFakeTimers();
     const promote = vi.fn(async () => undefined);
@@ -1192,7 +1292,9 @@ describe('Sellerboard live URL import', () => {
 
     const run = await service.runScheduledSellerboardImports({
       now: '2026-06-05T09:01:00.000Z',
-      onCommittedUnit: ({ reportKind }) => committed.push(reportKind),
+      onCommittedUnit: ({ reportKind }) => {
+        committed.push(reportKind);
+      },
     });
 
     expect(run.results).toEqual(

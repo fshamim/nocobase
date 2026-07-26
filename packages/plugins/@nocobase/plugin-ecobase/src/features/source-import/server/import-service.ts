@@ -481,6 +481,12 @@ type RunAdapterImportParams = RunNoopImportParams & {
   preparedReportUnit?: PreparedAdapterReportUnit;
   retryPersistedFailure?: boolean;
   assertReservation?: () => Promise<void>;
+  /**
+   * Fired once when a Sellerboard source commits Gold-worthy data. Callers that
+   * may target any adapter can pass this unconditionally — the hook only fires
+   * for Sellerboard source connections.
+   */
+  onCommittedUnit?: SellerboardCommittedUnitHandler;
 };
 
 export interface RunCsvBundleImportParams {
@@ -543,10 +549,20 @@ interface SellerboardReportUnitExecutionParams {
  * source connection's company so downstream consumers (054 R1 receipt
  * reconciliation) can scope their work to the companies whose data just moved.
  * It is optional because a source connection may not be linked to a company.
+ *
+ * `reportKind` / `reportName` identify the committed report unit. They are absent
+ * for a whole-source adapter import (the settings page's "Run now"), which pulls
+ * every configured report of the source in a single run.
  */
-export interface SellerboardCommittedUnit extends SellerboardReportUnitDescriptor {
+export interface SellerboardCommittedUnit {
+  sourceConnectionId: string;
+  sourceName: string;
+  sourceActive: boolean;
+  scheduleEnabled: boolean;
   importRunId: string;
   companyId?: string;
+  reportKind?: SellerboardReportKind;
+  reportName?: string;
 }
 
 export type SellerboardCommittedUnitHandler = (unit: SellerboardCommittedUnit) => void | Promise<void>;
@@ -2163,8 +2179,51 @@ export class EcobaseImportService {
       });
     }
 
-    const completedRun = await importRunRepo.findOne({ filterByTk: importRunId });
-    return toPlainRecord(completedRun ?? pendingRun);
+    const completedRun = toPlainRecord((await importRunRepo.findOne({ filterByTk: importRunId })) ?? pendingRun);
+    // Issue 054 R1: a committed whole-source Sellerboard import must promote Gold
+    // exactly like a committed report unit does. The settings page's "Run now"
+    // (forceRefresh) went through here with no hook at all, so it committed
+    // records without ever reconciling receipts or publishing.
+    const goldTrigger = await this.notifySellerboardAdapterCommit(params, sourceConnection, {
+      importRunId,
+      status: getString(completedRun, 'status'),
+      goldRefreshRequired,
+    });
+    return goldTrigger ? { ...completedRun, goldTrigger } : completedRun;
+  }
+
+  private async notifySellerboardAdapterCommit(
+    params: RunAdapterImportParams,
+    sourceConnection: unknown,
+    run: { importRunId: string; status?: string; goldRefreshRequired: boolean },
+  ) {
+    if (
+      !params.onCommittedUnit ||
+      // The report-unit path fires its own hook after the outer transaction commits.
+      params.unitTransaction ||
+      getString(sourceConnection, 'sourceType') !== 'sellerboard' ||
+      run.status !== 'success' ||
+      !run.goldRefreshRequired
+    ) {
+      return undefined;
+    }
+    try {
+      await params.onCommittedUnit({
+        sourceConnectionId: params.sourceConnectionId,
+        sourceName: getString(sourceConnection, 'name') ?? params.sourceConnectionId,
+        sourceActive: getBoolean(sourceConnection, 'active', true),
+        scheduleEnabled: this.readSellerboardSchedule(getConfig(sourceConnection)).enabled,
+        companyId: getString(sourceConnection, 'companyId'),
+        importRunId: run.importRunId,
+      });
+      return { status: 'scheduled' as const };
+    } catch (error) {
+      return {
+        status: 'failed' as const,
+        reasonCode: 'gold_trigger_scheduling_failed',
+        message: error instanceof Error ? error.message : 'Gold trigger scheduling failed with a non-Error value.',
+      };
+    }
   }
 
   private async runAdapterStream(params: AdapterImportStreamParams): Promise<AdapterImportStreamResult> {

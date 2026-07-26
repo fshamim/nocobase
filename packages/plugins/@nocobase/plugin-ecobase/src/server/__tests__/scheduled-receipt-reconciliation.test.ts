@@ -13,20 +13,24 @@
  * - reconciliation failures are logged and counted, never blocking the publish;
  * - reconciling the same snapshot twice leaves byte-identical stamps;
  * - operator-write promotions never reconcile;
- * - units committed inside one debounce window accumulate into one reconcile.
+ * - units committed inside one debounce window accumulate into one reconcile;
+ * - every direct Sellerboard adapter import action threads the committed-unit hook.
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { createEcobaseGoldPromotions } from '../plugin';
+import { createSourceAdapterRegistry, noopTestAdapter } from '../../features/source-import/server/adapters';
 import { EcobaseInventoryPlanningService } from '../../features/inventory-dashboard/server/engine/inventory-planning-service';
 import { EcobaseOrderReceiptReconciliationService } from '../../features/inventory-dashboard/server/engine/order-receipt-reconciliation-service';
 import { reconcileReceiptsForScheduledRefresh } from '../../features/inventory-dashboard/server/engine/scheduled-receipt-reconciliation';
-import type {
-  EcobaseDatabase,
-  EcobaseRepository,
-  SellerboardCommittedUnit,
+import {
+  EcobaseImportService,
+  type EcobaseDatabase,
+  type EcobaseRepository,
+  type SellerboardCommittedUnit,
 } from '../../features/source-import/server/import-service';
+import { createEcobaseImportActions } from '../resource-actions';
 import { EcobasePlanningSettingsService } from '../services/planning-settings-service';
 
 type Row = Record<string, unknown> & { id: string };
@@ -190,6 +194,18 @@ function committedUnit(companyId?: string): SellerboardCommittedUnit {
 
 async function flushMicrotasks(times = 3) {
   for (let index = 0; index < times; index += 1) await Promise.resolve();
+}
+
+function importActionContext(values: Record<string, unknown>) {
+  return {
+    db: {},
+    action: { params: { values } },
+    state: { currentUser: { id: 1 }, currentRoles: ['root'] },
+    body: undefined as unknown,
+    throw(status: number, message: string): never {
+      throw Object.assign(new Error(message), { status });
+    },
+  } as never;
 }
 
 function logger() {
@@ -387,6 +403,36 @@ describe('scheduled Gold promotion receipt reconciliation (054 R1)', () => {
     expect(second.reconciliation).toMatchObject({ processedOrders: 1, updatedOrders: 0, updatedLines: 0 });
     // ...and writes nothing: every stamp, evidence key and timestamp is identical.
     expect(afterSecond).toEqual(afterFirst);
+  });
+
+  it('threads the committed-unit hook into every direct Sellerboard adapter import action', async () => {
+    const runAdapterImport = vi
+      .spyOn(EcobaseImportService.prototype, 'runAdapterImport')
+      .mockResolvedValue({ id: 'import-run-1', status: 'success' } as never);
+    const promotions = createEcobaseGoldPromotions({ db: scopedOrdersDatabase(), logger: logger() });
+    const actions = createEcobaseImportActions(
+      createSourceAdapterRegistry([noopTestAdapter]),
+      promotions.onSellerboardCommittedUnit,
+    );
+
+    // The settings page's "Run now" is forceRefresh; run/runDailySnapshot are the
+    // generic siblings that can equally target a Sellerboard source.
+    await actions.run(importActionContext({ sourceConnectionId: 'source-1', adapterName: 'sellerboard-api' }), vi.fn());
+    await actions.runDailySnapshot(
+      importActionContext({ sourceConnectionId: 'source-1', adapterName: 'sellerboard-api' }),
+      vi.fn(),
+    );
+    await actions.forceRefresh(importActionContext({ sourceConnectionId: 'source-1' }), vi.fn());
+
+    expect(runAdapterImport).toHaveBeenCalledTimes(3);
+    for (const [params] of runAdapterImport.mock.calls) {
+      expect(params.onCommittedUnit).toBe(promotions.onSellerboardCommittedUnit);
+    }
+    expect(runAdapterImport.mock.calls[2][0]).toMatchObject({
+      adapterName: 'sellerboard-api',
+      sourceIdentifier: 'sellerboard-force-refresh',
+    });
+    promotions.stop();
   });
 
   it('reconciles nothing when the scoped companies have no reconciliation-eligible open orders', async () => {
