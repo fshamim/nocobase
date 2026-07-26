@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 import {
   decideReplenishment,
   type ReplenishmentDecisionInput,
-} from '../../features/inventory-planning/server/replenishment-decision';
+} from '../../features/inventory-dashboard/server/engine/replenishment-decision';
 
 function input(overrides: Partial<ReplenishmentDecisionInput> = {}): ReplenishmentDecisionInput {
   return {

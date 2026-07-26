@@ -15,7 +15,7 @@ import type { EcobaseDatabase } from './import-service';
 import { toPlainRecord } from './import-service';
 import { orderDetailSourceIdentity } from './order-detail-source-identity';
 import { orderRowExclusionReason } from './order-import-policy';
-import { EcobaseInventoryPlanningGoldAccess } from '../../inventory-planning/server/inventory-planning-gold-access';
+import { EcobaseInventoryPlanningGoldAccess } from '../../inventory-dashboard/server/engine/inventory-planning-gold-access';
 
 type PlainRecord = Record<string, unknown>;
 type Classification =

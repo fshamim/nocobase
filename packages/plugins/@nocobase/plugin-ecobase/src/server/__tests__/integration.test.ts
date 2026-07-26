@@ -11,8 +11,8 @@ import { resolve } from 'node:path';
 import { createMockServer, MockServer } from '@nocobase/test';
 import { afterEach, describe, expect, it } from 'vitest';
 import PluginEcobaseServer from '..';
-import { withGoldInventoryPlanningWriteAuthority } from '../../features/inventory-planning/server/gold-write-guard';
-import { EcobaseInventoryPlanningService } from '../../features/inventory-planning/server/inventory-planning-service';
+import { withGoldInventoryPlanningWriteAuthority } from '../../features/inventory-dashboard/server/engine/gold-write-guard';
+import { EcobaseInventoryPlanningService } from '../../features/inventory-dashboard/server/engine/inventory-planning-service';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { EcobaseOperatorWorkspaceService } from '../services/operator-workspace-service';
 

@@ -16,13 +16,13 @@ import {
   type AmazonReceiptEvidence,
   type ReceiptInventorySnapshot,
   type ReceiptSalesFact,
-} from './order-receipt-evidence';
+} from '../../inventory-dashboard/server/engine/order-receipt-evidence';
 import {
   isAmazonReceiptStatus,
   resolveAmazonReceiptState,
   type AmazonReceiptStatus,
   type AmazonReceiptTransition,
-} from './order-receipt-state';
+} from '../../inventory-dashboard/server/engine/order-receipt-state';
 
 type Row = Record<string, unknown>;
 type Transaction = unknown;

@@ -19,9 +19,9 @@ import {
   type CorrectedListingPerformanceInput,
   type CorrectedListingPerformanceRow,
   type FrozenFamilyDecisionInput,
-} from '../../features/inventory-planning/server/listing-family-projection';
-import { CORRECTED_INVENTORY_PLANNING_ROW_FIELDS } from '../../features/inventory-planning/server/gold-schema-contract';
-import { decideReplenishment } from '../../features/inventory-planning/server/replenishment-decision';
+} from '../../features/inventory-dashboard/server/engine/listing-family-projection';
+import { CORRECTED_INVENTORY_PLANNING_ROW_FIELDS } from '../../features/inventory-dashboard/server/engine/gold-schema-contract';
+import { decideReplenishment } from '../../features/inventory-dashboard/server/engine/replenishment-decision';
 
 function sha256(value: string) {
   return createHash('sha256').update(value).digest('hex');

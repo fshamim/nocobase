@@ -21,7 +21,7 @@ import {
   classifyInventoryFamily,
   INVENTORY_PLANNING_PANES,
   type InventoryFamilyClassificationInput,
-} from '../../features/inventory-planning/server/inventory-planning-pane-classifier';
+} from '../../features/inventory-dashboard/server/engine/inventory-planning-pane-classifier';
 import { workflowStageForOperationalStatus } from '../../features/order-planning/order-operational-status';
 
 const readyFamily: InventoryFamilyClassificationInput = {

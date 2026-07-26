@@ -22,15 +22,15 @@ import {
   canonicalJson,
   EcobaseGoldRefreshRunService,
   type GoldPublicationPayload,
-} from '../../features/inventory-planning/server/gold-refresh-run-service';
-import { OBSOLETE_INVENTORY_PLANNING_ROW_FIELDS } from '../../features/inventory-planning/server/gold-schema-contract';
-import { EcobaseIndependentGoldReferenceVerifier } from '../../features/inventory-planning/server/independent-gold-reference-verifier';
+} from '../../features/inventory-dashboard/server/engine/gold-refresh-run-service';
+import { OBSOLETE_INVENTORY_PLANNING_ROW_FIELDS } from '../../features/inventory-dashboard/server/engine/gold-schema-contract';
+import { EcobaseIndependentGoldReferenceVerifier } from '../../features/inventory-dashboard/server/engine/independent-gold-reference-verifier';
 import {
   CORRECTED_CANONICAL_SERIALIZER_VERSION,
   CORRECTED_FAMILY_ACTION_DIGEST_VERSION,
   CORRECTED_LISTING_ROW_DIGEST_VERSION,
-} from '../../features/inventory-planning/server/listing-family-projection';
-import { EcobaseInventoryPlanningService } from '../../features/inventory-planning/server/inventory-planning-service';
+} from '../../features/inventory-dashboard/server/engine/listing-family-projection';
+import { EcobaseInventoryPlanningService } from '../../features/inventory-dashboard/server/engine/inventory-planning-service';
 import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { createEcobaseInventoryPlanningActions } from '../resource-actions';

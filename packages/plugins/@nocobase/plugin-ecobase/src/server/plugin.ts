@@ -26,10 +26,10 @@ import { createDailyOperationsBriefResourceRegistration } from '../features/dail
 import {
   blockRawGoldInventoryPlanningAccess,
   registerGoldInventoryPlanningWriteGuard,
-} from '../features/inventory-planning/server/gold-write-guard';
+} from '../features/inventory-dashboard/server/engine/gold-write-guard';
 import { createInventoryDashboardResourceRegistration } from '../features/inventory-dashboard/server/resource-registration';
 import { createInventoryPlanningResourceRegistration } from '../features/inventory-planning/server/resource-registration';
-import { EcobaseInventoryPlanningService } from '../features/inventory-planning/server/inventory-planning-service';
+import { EcobaseInventoryPlanningService } from '../features/inventory-dashboard/server/engine/inventory-planning-service';
 import { createOrderPlanningResourceRegistration } from '../features/order-planning/server/resource-registration';
 import { createSemanticModelResourceRegistration } from '../features/semantic-model/server/resource-registration';
 import { createSourceImportResourceRegistration } from '../features/source-import/server/resource-registration';

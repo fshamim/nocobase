@@ -15,8 +15,8 @@ import {
   canonicalJson,
   EcobaseGoldRefreshRunService,
   type GoldPublicationPayload,
-} from '../../features/inventory-planning/server/gold-refresh-run-service';
-import { EcobaseInventoryPlanningService } from '../../features/inventory-planning/server/inventory-planning-service';
+} from '../../features/inventory-dashboard/server/engine/gold-refresh-run-service';
+import { EcobaseInventoryPlanningService } from '../../features/inventory-dashboard/server/engine/inventory-planning-service';
 import {
   CORRECTED_ALGORITHM_CONTRACT_VERSION,
   CORRECTED_CANONICAL_SERIALIZER_VERSION,
@@ -29,14 +29,14 @@ import {
   correctedListingRowDigest,
   deriveCorrectedFamilyActionsFromListingRows,
   type CorrectedListingPerformanceRow,
-} from '../../features/inventory-planning/server/listing-family-projection';
-import { EcobaseInventoryPlanningGoldAccess } from '../../features/inventory-planning/server/inventory-planning-gold-access';
-import { referenceProtectedSilverFingerprint } from '../../features/inventory-planning/server/independent-gold-reference-verifier';
+} from '../../features/inventory-dashboard/server/engine/listing-family-projection';
+import { EcobaseInventoryPlanningGoldAccess } from '../../features/inventory-dashboard/server/engine/inventory-planning-gold-access';
+import { referenceProtectedSilverFingerprint } from '../../features/inventory-dashboard/server/engine/independent-gold-reference-verifier';
 import {
   blockRawGoldInventoryPlanningAccess,
   registerGoldInventoryPlanningWriteGuard,
   withGoldInventoryPlanningWriteAuthority,
-} from '../../features/inventory-planning/server/gold-write-guard';
+} from '../../features/inventory-dashboard/server/engine/gold-write-guard';
 import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
 import { EcobaseSupplierOrderService } from '../../features/supplier-management/server/supplier-order-service';
 import { EcobaseSupplierManagementService } from '../../features/supplier-management/server/supplier-management-service';
@@ -1210,9 +1210,9 @@ describe('Gold refresh publication control', () => {
   it('keeps every operational Gold reader behind the typed published-run boundary', () => {
     const sourceRoot = resolve(process.cwd(), 'packages/plugins/@nocobase/plugin-ecobase/src');
     const allowedOwners = new Set([
-      'features/inventory-planning/server/gold-refresh-run-service.ts',
-      'features/inventory-planning/server/inventory-planning-gold-access.ts',
-      'features/inventory-planning/server/inventory-planning-service.ts',
+      'features/inventory-dashboard/server/engine/gold-refresh-run-service.ts',
+      'features/inventory-dashboard/server/engine/inventory-planning-gold-access.ts',
+      'features/inventory-dashboard/server/engine/inventory-planning-service.ts',
       // Dashboard v1 AD-1 adjudication: deliberately vendored published-run reader (encapsulation over reuse).
       'features/inventory-dashboard/server/published-gold-reader.ts',
       // v1 plan task 003 (user-approved 2026-07-22): published-run-scoped tiered-first target selection.

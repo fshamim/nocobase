@@ -15,7 +15,7 @@ import { EcobaseSupplierOrderService } from '../../features/supplier-management/
 import {
   EcobaseInventoryPlanningGoldAccess,
   familyActionDecisionRecord,
-} from '../../features/inventory-planning/server/inventory-planning-gold-access';
+} from '../../features/inventory-dashboard/server/engine/inventory-planning-gold-access';
 
 const ALERT_RULE_VERSION = 'ecobase_alerts_mvp_v1';
 const DEFAULT_ALERT_CONFIG = {

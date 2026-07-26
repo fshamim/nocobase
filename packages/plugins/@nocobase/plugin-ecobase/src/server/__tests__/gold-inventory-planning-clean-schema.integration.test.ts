@@ -21,7 +21,7 @@ import { createMockServer, type MockServer } from '@nocobase/test';
 import { DataTypes } from 'sequelize';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import PluginEcobaseServer from '..';
-import { OBSOLETE_INVENTORY_PLANNING_ROW_FIELDS } from '../../features/inventory-planning/server/gold-schema-contract';
+import { OBSOLETE_INVENTORY_PLANNING_ROW_FIELDS } from '../../features/inventory-dashboard/server/engine/gold-schema-contract';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import CleanGoldSchemaMigration from '../migrations/20260720134500-remove-obsolete-gold-inventory-planning-fields';
 

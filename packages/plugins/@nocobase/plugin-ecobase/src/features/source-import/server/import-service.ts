@@ -31,7 +31,7 @@ import { projectSourceRecord } from './source-record-projection';
 import { decideCompanyScope } from './source-scope-policy';
 import { EcobaseDataWarningService } from '../../../server/services/data-warning-service';
 import type { EcobaseDataWarning } from '../../../server/services/data-warning-service';
-import { EcobaseInventoryPlanningService } from '../../inventory-planning/server/inventory-planning-service';
+import { EcobaseInventoryPlanningService } from '../../inventory-dashboard/server/engine/inventory-planning-service';
 import { EcobaseCompanyProductFamilyService } from '../../inventory-planning/server/company-product-family-service';
 import {
   EcobaseOrderReceiptReconciliationService,

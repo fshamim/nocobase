@@ -23,7 +23,7 @@ import {
   EcobaseImportService,
   EcobaseRepository,
 } from '../../features/source-import/server/import-service';
-import { EcobaseInventoryPlanningService } from '../../features/inventory-planning/server/inventory-planning-service';
+import { EcobaseInventoryPlanningService } from '../../features/inventory-dashboard/server/engine/inventory-planning-service';
 import { EcobaseSupplierOrderService } from '../../features/supplier-management/server/supplier-order-service';
 import { findForbiddenSourceMaterial } from '../../features/source-import/server/source-record-projection';
 

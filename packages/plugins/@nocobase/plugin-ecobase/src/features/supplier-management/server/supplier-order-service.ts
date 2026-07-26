@@ -13,7 +13,7 @@ import { EcobaseCompanyProductFamilyService } from '../../inventory-planning/ser
 import {
   EcobaseInventoryPlanningGoldAccess,
   familyActionDecisionRecord,
-} from '../../inventory-planning/server/inventory-planning-gold-access';
+} from '../../inventory-dashboard/server/engine/inventory-planning-gold-access';
 import {
   EcobaseMedallionIdentityService,
   normalizeExternalSupplierCode,

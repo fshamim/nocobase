@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 import {
   calculateMonthlyPaceStatus,
   type MonthlyPaceStatusInput,
-} from '../../features/inventory-planning/server/monthly-performance';
+} from '../../features/inventory-dashboard/server/engine/monthly-performance';
 
 function fact(date: string, units: unknown, netProfit: unknown) {
   return { date, units, netProfit };

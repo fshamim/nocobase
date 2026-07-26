@@ -80,7 +80,7 @@ describe('TD-15 typed Gold consumer contract', () => {
         /getRepository\([^)]*goldInventoryPlanningRows/,
       );
       expect(text, `${consumer.path} must consume published artifacts rather than recalculate them`).not.toContain(
-        "from '../../features/inventory-planning/server/monthly-performance'",
+        "from '../../features/inventory-dashboard/server/engine/monthly-performance'",
       );
     }
   });
@@ -93,7 +93,7 @@ describe('TD-15 typed Gold consumer contract', () => {
     expect(help).toContain('Listing filters never create or duplicate a family action');
     expect(help).not.toContain('actual units sold in latest rolling 30 days');
 
-    const inventory = source('../../features/inventory-planning/server/inventory-planning-service.ts');
+    const inventory = source('../../features/inventory-dashboard/server/engine/inventory-planning-service.ts');
     for (const field of [
       'baselineTier',
       'lastClosedMonthTier',

@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 import {
   calculateInventoryDisposition,
   type InventoryDispositionInput,
-} from '../../features/inventory-planning/server/inventory-disposition';
+} from '../../features/inventory-dashboard/server/engine/inventory-disposition';
 
 function unit(date: string, units: unknown) {
   return { date, units };

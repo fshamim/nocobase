@@ -18,8 +18,8 @@ import {
   type EffectiveVelocityInput,
   type MoneyRiskInput,
   type ReorderTimingInput,
-} from '../../features/inventory-planning/server/corrected-candidate-builder';
-import type { MonthlyPerformanceEvidence } from '../../features/inventory-planning/server/monthly-performance';
+} from '../../features/inventory-dashboard/server/engine/corrected-candidate-builder';
+import type { MonthlyPerformanceEvidence } from '../../features/inventory-dashboard/server/engine/monthly-performance';
 
 const CALC_DATE = '2026-07-23';
 // Settings snapshot defaults exercised throughout: lead time 30 (default supplier lead time when

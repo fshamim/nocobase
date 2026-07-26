@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { evaluatePlanningReadiness } from '../../features/inventory-planning/server/planning-readiness';
+import { evaluatePlanningReadiness } from '../../features/inventory-dashboard/server/engine/planning-readiness';
 
 const readyInput = {
   familyRole: 'target',

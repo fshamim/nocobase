@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { calculateAmazonReceiptEvidence } from '../../features/inventory-planning/server/order-receipt-evidence';
+import { calculateAmazonReceiptEvidence } from '../../features/inventory-dashboard/server/engine/order-receipt-evidence';
 
 const identity = {
   companyId: 'company-1',

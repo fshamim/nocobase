@@ -12,7 +12,7 @@ import {
   AMAZON_RECEIPT_STATUSES,
   isAmazonReceiptStatus,
   resolveAmazonReceiptState,
-} from '../../features/inventory-planning/server/order-receipt-state';
+} from '../../features/inventory-dashboard/server/engine/order-receipt-state';
 
 describe('Amazon receipt-state vocabulary', () => {
   it('accepts only the closed assessed-state set', () => {

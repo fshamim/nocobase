@@ -14,7 +14,7 @@ import { toPlainRecord } from '../../source-import/server/import-service';
 import {
   EcobaseInventoryPlanningGoldAccess,
   familyActionDecisionRecord,
-} from '../../inventory-planning/server/inventory-planning-gold-access';
+} from '../../inventory-dashboard/server/engine/inventory-planning-gold-access';
 
 type PlainRecord = Record<string, unknown>;
 

@@ -13,7 +13,7 @@ import { isApprovedOrderLineBusinessAmbiguity } from '../../inventory-planning/s
 import { canonicalOrderLifecycleStatus, resolveOrderLifecycle } from '../../order-planning/server/order-lifecycle';
 import type { EcobaseDatabase } from '../../source-import/server/import-service';
 import { toPlainRecord } from '../../source-import/server/import-service';
-import { EcobaseInventoryPlanningGoldAccess } from '../../inventory-planning/server/inventory-planning-gold-access';
+import { EcobaseInventoryPlanningGoldAccess } from '../../inventory-dashboard/server/engine/inventory-planning-gold-access';
 
 type PlainRecord = Record<string, unknown>;
 type Severity = 'error' | 'warning';

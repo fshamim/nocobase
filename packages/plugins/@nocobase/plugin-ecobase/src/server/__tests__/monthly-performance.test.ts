@@ -13,7 +13,7 @@ import {
   calculateMonthlyPerformance,
   calculateMonthlyTierTrend,
   type MonthlyPerformanceMonthInput,
-} from '../../features/inventory-planning/server/monthly-performance';
+} from '../../features/inventory-dashboard/server/engine/monthly-performance';
 
 type CoverageReason = MonthlyPerformanceMonthInput['coverageReason'];
 

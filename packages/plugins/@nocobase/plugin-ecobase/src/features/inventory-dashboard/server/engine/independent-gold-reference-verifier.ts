@@ -9,12 +9,12 @@
 
 import { createHash } from 'node:crypto';
 import Decimal from 'decimal.js';
-import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
+import { ECOBASE_COLLECTIONS } from '../../../../server/collections/names';
 import {
   correctedInventoryPlanningDigestProjection,
   normalizeCorrectedInventoryPlanningDigestValue,
 } from './gold-schema-contract';
-import type { EcobaseDatabase } from '../../source-import/server/import-service';
+import type { EcobaseDatabase } from '../../../source-import/server/import-service';
 import { readAllRowsById } from './deterministic-repository-pagination';
 import { EcobaseGoldError } from './gold-errors';
 import { EcobaseInventoryPlanningGoldAccess } from './inventory-planning-gold-access';

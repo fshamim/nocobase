@@ -13,12 +13,12 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
-import { buildCorrectedGoldProjection } from '../../features/inventory-planning/server/listing-family-projection';
-import { EcobaseGoldRefreshRunService } from '../../features/inventory-planning/server/gold-refresh-run-service';
+import { buildCorrectedGoldProjection } from '../../features/inventory-dashboard/server/engine/listing-family-projection';
+import { EcobaseGoldRefreshRunService } from '../../features/inventory-dashboard/server/engine/gold-refresh-run-service';
 import {
   EcobaseIndependentGoldReferenceVerifier,
   referenceProtectedSilverFingerprint,
-} from '../../features/inventory-planning/server/independent-gold-reference-verifier';
+} from '../../features/inventory-dashboard/server/engine/independent-gold-reference-verifier';
 
 class MemoryRepository implements EcobaseRepository {
   readonly rows: Record<string, unknown>[] = [];
@@ -371,7 +371,7 @@ describe('independent Gold reference verifier', () => {
     const implementation = readFileSync(
       join(
         process.cwd(),
-        'packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/independent-gold-reference-verifier.ts',
+        'packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-dashboard/server/engine/independent-gold-reference-verifier.ts',
       ),
       'utf8',
     );

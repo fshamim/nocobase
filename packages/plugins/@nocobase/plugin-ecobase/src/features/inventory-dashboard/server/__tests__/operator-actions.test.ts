@@ -120,7 +120,10 @@ const ALLOWED_FOREIGN_MODULES = new Set([
   'order-planning/order-operational-status',
   'semantic-model/server/medallion-identity-service',
   'semantic-model/server/medallion-order-service',
+  // Carried in by the relocated gold engine (issue 055). None of these features is doomed.
+  'semantic-model/server/silver-data-service',
   'source-import/server/import-service',
+  'source-import/server/sellerboard-cogs-service',
   'supplier-management/server/silver-supplier-order-read-model',
   'supplier-management/server/supplier-order-service',
 ]);

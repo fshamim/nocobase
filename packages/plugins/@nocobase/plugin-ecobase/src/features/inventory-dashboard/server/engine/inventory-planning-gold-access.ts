@@ -8,9 +8,9 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
-import type { EcobaseDatabase } from '../../source-import/server/import-service';
-import { toPlainRecord } from '../../source-import/server/import-service';
+import { ECOBASE_COLLECTIONS } from '../../../../server/collections/names';
+import type { EcobaseDatabase } from '../../../source-import/server/import-service';
+import { toPlainRecord } from '../../../source-import/server/import-service';
 import { readAllRowsById } from './deterministic-repository-pagination';
 import { EcobaseGoldError } from './gold-errors';
 import {

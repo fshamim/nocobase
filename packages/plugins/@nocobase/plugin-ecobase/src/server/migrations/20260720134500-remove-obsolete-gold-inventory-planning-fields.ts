@@ -17,7 +17,7 @@
  */
 
 import { Migration } from '@nocobase/server';
-import { OBSOLETE_INVENTORY_PLANNING_ROW_FIELDS } from '../../features/inventory-planning/server/gold-schema-contract';
+import { OBSOLETE_INVENTORY_PLANNING_ROW_FIELDS } from '../../features/inventory-dashboard/server/engine/gold-schema-contract';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 
 const PUBLICATION_CAPABLE_STATUSES = ['requested', 'running', 'materialized', 'verified', 'published'] as const;

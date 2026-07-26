@@ -11,7 +11,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EcobaseCompanyProductFamilyService } from '../../features/inventory-planning/server/company-product-family-service';
-import { EcobaseInventoryPlanningService } from '../../features/inventory-planning/server/inventory-planning-service';
+import { EcobaseInventoryPlanningService } from '../../features/inventory-dashboard/server/engine/inventory-planning-service';
 import { EcobaseOrderReceiptReconciliationService } from '../../features/inventory-planning/server/order-receipt-reconciliation-service';
 import { EcobaseOrderPlanningService } from '../../features/order-planning/server/order-planning-service';
 import { EcobaseMedallionWorkflowService } from '../../features/semantic-model/server/medallion-workflow-service';

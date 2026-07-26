@@ -16,9 +16,13 @@ import {
   DEFAULT_PLANNING_SETTINGS,
   EcobasePlanningSettingsService,
 } from '../../../server/services/planning-settings-service';
-import { addDays, diffDays, isoDate } from './planning-date';
-import { profitTierFor, rollingDemandProfitTier, type ProfitTierThresholds } from './profit-tier';
-import { summarizeHistoricalProductFacts } from './historical-product-metrics';
+import { addDays, diffDays, isoDate } from '../../inventory-dashboard/server/engine/planning-date';
+import {
+  profitTierFor,
+  rollingDemandProfitTier,
+  type ProfitTierThresholds,
+} from '../../inventory-dashboard/server/engine/profit-tier';
+import { summarizeHistoricalProductFacts } from '../../inventory-dashboard/server/engine/historical-product-metrics';
 
 const RULE_VERSION = 'explicit_inventory_position_v2';
 const ZERO_VELOCITY_DAYS_OF_COVER_SENTINEL = 999;

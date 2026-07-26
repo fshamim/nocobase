@@ -13,7 +13,7 @@ import type { EcobaseDatabase } from '../../features/source-import/server/import
 import {
   DEFAULT_PROFIT_TIER_THRESHOLDS,
   type ProfitTierThresholds,
-} from '../../features/inventory-planning/server/profit-tier';
+} from '../../features/inventory-dashboard/server/engine/profit-tier';
 import { normalizeSupplierOrderStatus } from '../../features/supplier-management/server/supplier-order-service';
 
 export type PlanningSettingKey =

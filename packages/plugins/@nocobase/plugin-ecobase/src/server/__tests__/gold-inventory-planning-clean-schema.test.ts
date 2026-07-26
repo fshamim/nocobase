@@ -17,8 +17,8 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
-import { buildCorrectedGoldProjection } from '../../features/inventory-planning/server/listing-family-projection';
-import { OBSOLETE_INVENTORY_PLANNING_ROW_FIELDS } from '../../features/inventory-planning/server/gold-schema-contract';
+import { buildCorrectedGoldProjection } from '../../features/inventory-dashboard/server/engine/listing-family-projection';
+import { OBSOLETE_INVENTORY_PLANNING_ROW_FIELDS } from '../../features/inventory-dashboard/server/engine/gold-schema-contract';
 import goldInventoryPlanningRows from '../collections/gold-inventory-planning-rows';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import Migration from '../migrations/20260720134500-remove-obsolete-gold-inventory-planning-fields';

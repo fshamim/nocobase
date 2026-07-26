@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { selectCurrentFamilyOrderCycle } from '../../features/inventory-planning/server/order-cycle-selection';
+import { selectCurrentFamilyOrderCycle } from '../../features/inventory-dashboard/server/engine/order-cycle-selection';
 
 const cycle = (orderId: string, authorityAsOf: string, values: Record<string, unknown> = {}) => ({
   lineId: `line-${orderId}`,

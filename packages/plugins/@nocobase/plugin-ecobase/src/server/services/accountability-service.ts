@@ -14,7 +14,7 @@ import { toPlainRecord } from '../../features/source-import/server/import-servic
 import {
   EcobaseInventoryPlanningGoldAccess,
   familyActionDecisionRecord,
-} from '../../features/inventory-planning/server/inventory-planning-gold-access';
+} from '../../features/inventory-dashboard/server/engine/inventory-planning-gold-access';
 
 const ACCOUNTABILITY_RULE_VERSION = 'ecobase_accountability_mvp_v1';
 const DEFAULT_ACCOUNTABILITY_CONFIG = {

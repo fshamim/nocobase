@@ -15,7 +15,7 @@ import { validateSupplierLeadTimeDays, validateSupplierOrderStatus } from './sup
 import {
   EcobaseInventoryPlanningGoldAccess,
   familyActionDecisionRecord,
-} from '../../inventory-planning/server/inventory-planning-gold-access';
+} from '../../inventory-dashboard/server/engine/inventory-planning-gold-access';
 
 type PlainRecord = Record<string, unknown>;
 

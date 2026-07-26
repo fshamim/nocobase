@@ -66,12 +66,12 @@ import {
   type InventoryCommandCenterPane,
   type InventoryPlanningCommandCenterQuery,
   type InventoryPlanningListingReviewQuery,
-} from '../features/inventory-planning/server/inventory-planning-service';
-import type { ListingReviewCategory } from '../features/inventory-planning/server/listing-family-projection';
+} from '../features/inventory-dashboard/server/engine/inventory-planning-service';
+import type { ListingReviewCategory } from '../features/inventory-dashboard/server/engine/listing-family-projection';
 import { EcobaseOrderReceiptReconciliationService } from '../features/inventory-planning/server/order-receipt-reconciliation-service';
-import { EcobaseInventoryPlanningGoldAccess } from '../features/inventory-planning/server/inventory-planning-gold-access';
-import { EcobaseGoldError } from '../features/inventory-planning/server/gold-errors';
-import type { AmazonReceiptStatus } from '../features/inventory-planning/server/order-receipt-state';
+import { EcobaseInventoryPlanningGoldAccess } from '../features/inventory-dashboard/server/engine/inventory-planning-gold-access';
+import { EcobaseGoldError } from '../features/inventory-dashboard/server/engine/gold-errors';
+import type { AmazonReceiptStatus } from '../features/inventory-dashboard/server/engine/order-receipt-state';
 import { EcobaseOrderPlanningService } from '../features/order-planning/server/order-planning-service';
 import { EcobaseMedallionNormalizationService } from '../features/semantic-model/server/medallion-normalization-service';
 import { EcobaseMedallionOrderService } from '../features/semantic-model/server/medallion-order-service';

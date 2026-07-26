@@ -16,7 +16,7 @@ import { EcobaseSupplierOrderService } from '../../features/supplier-management/
 import {
   EcobaseInventoryPlanningGoldAccess,
   familyActionDecisionRecord,
-} from '../../features/inventory-planning/server/inventory-planning-gold-access';
+} from '../../features/inventory-dashboard/server/engine/inventory-planning-gold-access';
 
 type PlainRecord = Record<string, unknown>;
 

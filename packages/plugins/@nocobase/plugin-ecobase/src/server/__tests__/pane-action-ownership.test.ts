@@ -14,11 +14,11 @@ import {
   filterListingPerformanceReview,
   type CorrectedListingPerformanceInput,
   type FrozenFamilyDecisionInput,
-} from '../../features/inventory-planning/server/listing-family-projection';
+} from '../../features/inventory-dashboard/server/engine/listing-family-projection';
 import {
   decideReplenishment,
   type ReplenishmentDecisionInput,
-} from '../../features/inventory-planning/server/replenishment-decision';
+} from '../../features/inventory-dashboard/server/engine/replenishment-decision';
 
 function sha(value: string) {
   return createHash('sha256').update(value).digest('hex');

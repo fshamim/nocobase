@@ -16,9 +16,9 @@ import type { EcobaseDataWarning } from '../../../server/services/data-warning-s
 import {
   EcobaseInventoryPlanningService,
   type InventoryCommandCenterPane,
-} from '../../inventory-planning/server/inventory-planning-service';
-import { INVENTORY_PLANNING_PANES } from '../../inventory-planning/server/inventory-planning-pane-classifier';
-import { EcobaseInventoryPlanningGoldAccess } from '../../inventory-planning/server/inventory-planning-gold-access';
+} from '../../inventory-dashboard/server/engine/inventory-planning-service';
+import { INVENTORY_PLANNING_PANES } from '../../inventory-dashboard/server/engine/inventory-planning-pane-classifier';
+import { EcobaseInventoryPlanningGoldAccess } from '../../inventory-dashboard/server/engine/inventory-planning-gold-access';
 import {
   isReliableSupplierOrderCoverageStatus,
   normalizeSupplierOrderStatus,

@@ -9,8 +9,8 @@
 
 import { describe, expect, it } from 'vitest';
 import { createSourceAdapterRegistry, type SourceAdapter } from '../../features/source-import/server/adapters';
-import { EcobaseGoldRefreshRunService } from '../../features/inventory-planning/server/gold-refresh-run-service';
-import { EcobaseInventoryPlanningService } from '../../features/inventory-planning/server/inventory-planning-service';
+import { EcobaseGoldRefreshRunService } from '../../features/inventory-dashboard/server/engine/gold-refresh-run-service';
+import { EcobaseInventoryPlanningService } from '../../features/inventory-dashboard/server/engine/inventory-planning-service';
 import {
   EcobaseImportService,
   type EcobaseDatabase,

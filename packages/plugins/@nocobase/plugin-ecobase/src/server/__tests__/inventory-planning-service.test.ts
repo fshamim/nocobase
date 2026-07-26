@@ -15,8 +15,8 @@ import {
   EcobaseInventoryPlanningService,
   expectedArrivalEvidence,
   supplierCoverageStatus,
-} from '../../features/inventory-planning/server/inventory-planning-service';
-import { profitTierMovement } from '../../features/inventory-planning/server/profit-tier';
+} from '../../features/inventory-dashboard/server/engine/inventory-planning-service';
+import { profitTierMovement } from '../../features/inventory-dashboard/server/engine/profit-tier';
 import { EcobaseCompanyProductFamilyService } from '../../features/inventory-planning/server/company-product-family-service';
 import { EcobaseSilverIntegrityVerifier } from '../../features/inventory-planning/server/silver-integrity-verifier';
 import { EcobaseSupplierOrderService } from '../../features/supplier-management/server/supplier-order-service';

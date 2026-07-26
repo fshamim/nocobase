@@ -12,7 +12,7 @@ import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { createEcobasePlanningActions } from '../plugin';
 import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
 import { EcobasePlanningCalculationService } from '../../features/inventory-planning/server/planning-calculation-service';
-import { expectedArrivalEvidence } from '../../features/inventory-planning/server/inventory-planning-service';
+import { expectedArrivalEvidence } from '../../features/inventory-dashboard/server/engine/inventory-planning-service';
 
 interface FindParams {
   filter?: Record<string, unknown>;

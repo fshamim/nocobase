@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 import {
   calculateMonthlyTierTrend,
   type MonthlyTierTrendInput,
-} from '../../features/inventory-planning/server/monthly-performance';
+} from '../../features/inventory-dashboard/server/engine/monthly-performance';
 
 const thresholds = {
   profitTierAThreshold: '250',

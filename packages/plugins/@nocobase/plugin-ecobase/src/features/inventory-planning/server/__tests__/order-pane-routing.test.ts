@@ -22,7 +22,10 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { decideReplenishment, type ReplenishmentDecisionInput } from '../replenishment-decision';
+import {
+  decideReplenishment,
+  type ReplenishmentDecisionInput,
+} from '../../../inventory-dashboard/server/engine/replenishment-decision';
 import { silverOrderStatus } from '../../../supplier-management/server/silver-supplier-order-read-model';
 import { DEFAULT_SUPPLIER_ORDER_STATUS_BUCKETS } from '../../../../server/services/planning-settings-service';
 

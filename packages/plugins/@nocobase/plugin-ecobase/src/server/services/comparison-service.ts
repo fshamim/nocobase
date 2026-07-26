@@ -9,7 +9,7 @@
 
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import type { EcobaseDatabase } from '../../features/source-import/server/import-service';
-import { EcobaseInventoryPlanningGoldAccess } from '../../features/inventory-planning/server/inventory-planning-gold-access';
+import { EcobaseInventoryPlanningGoldAccess } from '../../features/inventory-dashboard/server/engine/inventory-planning-gold-access';
 
 type PlainRecord = Record<string, unknown>;
 type ComparisonGroupBy = 'company' | 'account' | 'planning_product' | 'raw_listing_sku' | 'tier';

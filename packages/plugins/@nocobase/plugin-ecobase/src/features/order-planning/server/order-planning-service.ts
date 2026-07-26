@@ -18,11 +18,11 @@ import {
   resolveOrderLifecycle,
   type OrderLifecycleStatus,
 } from './order-lifecycle';
-import { isProfitTier, profitTierRank } from '../../inventory-planning/server/profit-tier';
+import { isProfitTier, profitTierRank } from '../../inventory-dashboard/server/engine/profit-tier';
 import {
   EcobaseInventoryPlanningGoldAccess,
   familyActionDecisionRecord,
-} from '../../inventory-planning/server/inventory-planning-gold-access';
+} from '../../inventory-dashboard/server/engine/inventory-planning-gold-access';
 import {
   clickupOrderOperationalStatus,
   lifecycleStatusForOperationalStatus,

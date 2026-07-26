@@ -33,7 +33,7 @@ import {
   extractClickupOrderRefsFromTitle,
   parseClickupOrderStatusFiles,
 } from '../../features/source-import/server/clickup-order-status-service';
-import { commandCenterPaneForRow } from '../../features/inventory-planning/server/inventory-planning-service';
+import { commandCenterPaneForRow } from '../../features/inventory-dashboard/server/engine/inventory-planning-service';
 
 interface FindParams {
   filter?: Record<string, unknown>;

@@ -8,7 +8,7 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
+import { ECOBASE_COLLECTIONS } from '../../../../server/collections/names';
 import { EcobaseGoldError } from './gold-errors';
 
 const goldWriteAuthority = Object.freeze({ owner: 'gold-refresh-run-service' });
