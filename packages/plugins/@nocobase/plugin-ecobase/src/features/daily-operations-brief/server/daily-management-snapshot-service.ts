@@ -596,8 +596,8 @@ export class EcobaseDailyManagementSnapshotService {
     );
     const knownMoneyRiskRows = moneyRiskRows.filter(
       (row) =>
-        (asNumber(row.familySalesVelocity) ?? asNumber(row.salesVelocity) ?? 0) > 0 &&
-        (asNumber(row.profitPerUnit) ?? 0) > 0 &&
+        (asNumber(row.salesVelocity) ?? 0) > 0 &&
+        (asNumber(row.baselineWeightedProfitPerUnit) ?? 0) > 0 &&
         asNumber(row.estimatedProfitRisk) !== undefined,
     );
     const sevenDaysOut = dateAdd(params.snapshotDate, 7);
@@ -641,7 +641,7 @@ export class EcobaseDailyManagementSnapshotService {
       inventoryMoneyAtRiskUnknownCount: moneyRiskRows.length - knownMoneyRiskRows.length,
       urgentInventorySkuCount: supplyActionRows.length,
       overdueInventorySkuCount: count(supplyActionRows, (row) => asString(row.actionStatus) === 'overdue'),
-      aTierInventoryRiskCount: count(supplyActionRows, (row) => asString(row.tier) === 'A'),
+      aTierInventoryRiskCount: count(supplyActionRows, (row) => asString(row.baselineTier) === 'A'),
       next7DayOosSkuCount: count(supplyActionRows, (row) =>
         Boolean(dateOnly(row.estimatedOosDate) && dateOnly(row.estimatedOosDate)! <= sevenDaysOut),
       ),

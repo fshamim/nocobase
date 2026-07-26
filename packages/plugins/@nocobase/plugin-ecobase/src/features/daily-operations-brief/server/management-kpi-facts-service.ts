@@ -958,7 +958,7 @@ export class EcobaseManagementKpiFactsService {
         makeFact({
           ...common,
           metricKey: 'aTierInventoryRiskCount',
-          value: count(supplyActionRows, (row) => asString(row.tier) === 'A'),
+          value: count(supplyActionRows, (row) => asString(row.baselineTier) === 'A'),
         }),
         makeFact({
           ...common,

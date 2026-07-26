@@ -371,7 +371,7 @@ function tierRank(value: unknown) {
 
 function bestTier(rows: PlainRecord[]) {
   return rows
-    .map((row) => text(row.tier) ?? text(row.profitTier))
+    .map((row) => text(row.baselineTier) ?? text(row.profitTier))
     .filter(isProfitTier)
     .sort((left, right) => tierRank(left) - tierRank(right))[0];
 }
@@ -1376,7 +1376,7 @@ export class EcobaseOrderPlanningService {
       .filter((row) => {
         const company = text(row.company) ?? '';
         return (
-          isProfitTier(row.tier) &&
+          isProfitTier(row.baselineTier) &&
           text(row.supplierOrderRef) &&
           (!wantedCompanies.size || wantedCompanies.has(company))
         );

@@ -354,7 +354,7 @@ export class EcobaseAlertEvaluationService {
           canonicalAsin: asString(product.canonicalAsin) ?? asString(product.asin),
           evaluatedAt: new Date().toISOString(),
           ruleVersionId: asString(ruleVersion.id),
-          tier: asString(calculation.tier) ?? 'unclassified',
+          tier: asString(calculation.baselineTier) ?? 'unclassified',
           sellableStock: asNumber(calculation.sellableStock),
           pipelineStock: asNumber(calculation.pipelineStock),
           salesVelocity: asNumber(calculation.salesVelocity),
@@ -462,7 +462,7 @@ export class EcobaseAlertEvaluationService {
     const daysOfCover = asNumber(calculation.daysOfCover);
     const daysLeftOrOverdue = asNumber(calculation.daysLeftOrOverdue);
     const profitGap = asNumber(calculation.profitGap);
-    const profitPerUnit = asNumber(calculation.profitPerUnit);
+    const profitPerUnit = asNumber(calculation.baselineWeightedProfitPerUnit);
     const buyBoxPercentage = asNumber(context.buyBoxPercentage);
     const margin = asNumber(context.margin);
     const refundRate = asNumber(context.refundRate);
@@ -652,7 +652,7 @@ export class EcobaseAlertEvaluationService {
 
   private estimateProfitRisk(calculation: PlainRecord, coverage: any) {
     const velocity = asNumber(calculation.salesVelocity);
-    const profitPerUnit = asNumber(calculation.profitPerUnit);
+    const profitPerUnit = asNumber(calculation.baselineWeightedProfitPerUnit);
     const oosDate = asString(calculation.oosDate);
     const recoveryDate = asString(coverage.nextExpectedSellableDate) ?? asString(coverage.nextLateExpectedSellableDate);
     if (!velocity || velocity <= 0 || typeof profitPerUnit !== 'number' || !oosDate || !recoveryDate) {
