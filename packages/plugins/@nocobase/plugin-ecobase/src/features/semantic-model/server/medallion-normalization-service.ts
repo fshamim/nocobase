@@ -17,7 +17,7 @@ import { toPlainRecord } from '../../source-import/server/import-service';
 import { EcobaseMedallionIdentityService, normalizeExternalSupplierCode } from './medallion-identity-service';
 import { resolveOrderLifecycle } from '../../order-planning/server/order-lifecycle';
 import { requireCanonicalCompany } from '../../../server/company-identity';
-import { EcobaseCompanyProductFamilyService } from '../../inventory-planning/server/company-product-family-service';
+import { EcobaseCompanyProductFamilyService } from './company-product-family-service';
 import { FOUR_COMPANY_MIGRATION_PROFILE } from '../../source-import/server/four-company-migration-profile';
 
 export interface NormalizePendingParams {

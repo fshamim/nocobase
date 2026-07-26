@@ -7,20 +7,32 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
-import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
+/**
+ * Gold engine maintenance surface (issue 042).
+ *
+ * `ecobaseInventoryPlanning` and `ecobasePlanningConfiguration` outlived the legacy
+ * Inventory Planning page they were born under: the resource names are the engine's
+ * publish/maintenance API (Gold Maintenance page → `refreshAndPublish`, admin-only
+ * rebuild/verify/reconcile escape hatches) and the settings that feed the engine
+ * (Planning Settings page). The operator writers stay registered because the
+ * Inventory Dashboard delegates to the same handlers under its own resource.
+ * The resource NAMES are deliberately unchanged — clients and stored ACL rows use them.
+ */
+
+import { ECOBASE_COLLECTIONS } from '../../../../server/collections/names';
 import {
   createEcobaseInventoryPlanningActions,
   createEcobasePlanningSettingsActions,
-} from '../../../server/resource-actions';
+} from '../../../../server/resource-actions';
 import {
   ADMIN,
   LOGGED_IN,
   OPERATOR,
   type EcobaseFeatureResourceRegistration,
   triggerOnOperatorWrite,
-} from '../../../server/resource-registration';
+} from '../../../../server/resource-registration';
 
-export function createInventoryPlanningResourceRegistration(
+export function createGoldEngineMaintenanceResourceRegistration(
   onOperatorWrite?: () => void,
 ): EcobaseFeatureResourceRegistration {
   return {

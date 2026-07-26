@@ -20,7 +20,7 @@ import {
   EcobaseImportService,
   EcobaseRepository,
 } from '../../features/source-import/server/import-service';
-import { EcobasePlanningProductService } from '../../features/inventory-planning/server/planning-product-service';
+import { EcobasePlanningProductService } from '../../features/source-import/server/planning-product-service';
 
 interface FindParams {
   filter?: Record<string, unknown>;

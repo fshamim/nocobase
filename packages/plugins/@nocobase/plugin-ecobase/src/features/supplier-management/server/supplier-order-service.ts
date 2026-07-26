@@ -9,7 +9,7 @@
 
 import { createHash, randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
-import { EcobaseCompanyProductFamilyService } from '../../inventory-planning/server/company-product-family-service';
+import { EcobaseCompanyProductFamilyService } from '../../semantic-model/server/company-product-family-service';
 import {
   EcobaseInventoryPlanningGoldAccess,
   familyActionDecisionRecord,

@@ -9,7 +9,7 @@
 
 import { createHash, randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
-import type { EcobaseDatabase } from '../../source-import/server/import-service';
+import type { EcobaseDatabase } from './import-service';
 
 export interface SyncPlanningProductsParams {
   importRunId?: string;

@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { allocateReceiptAdditionFifo } from '../../features/inventory-planning/server/order-receipt-allocation';
+import { allocateReceiptAdditionFifo } from '../../features/inventory-dashboard/server/engine/order-receipt-allocation';
 
 describe('Amazon receipt FIFO allocation', () => {
   it('allocates observed additions to the oldest compatible open lines without exceeding ordered quantity', () => {

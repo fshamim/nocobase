@@ -10,7 +10,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createDailyOperationsBriefResourceRegistration } from '../../features/daily-operations-brief/server/resource-registration';
 import { createInventoryDashboardResourceRegistration } from '../../features/inventory-dashboard/server/resource-registration';
-import { createInventoryPlanningResourceRegistration } from '../../features/inventory-planning/server/resource-registration';
+import { createGoldEngineMaintenanceResourceRegistration } from '../../features/inventory-dashboard/server/engine/maintenance-resource-registration';
 import { createOrderPlanningResourceRegistration } from '../../features/order-planning/server/resource-registration';
 import { createSemanticModelResourceRegistration } from '../../features/semantic-model/server/resource-registration';
 import { createSourceAdapterRegistry, noopTestAdapter } from '../../features/source-import/server/adapters';
@@ -18,7 +18,7 @@ import { createSourceImportResourceRegistration } from '../../features/source-im
 import { EcobaseImportService } from '../../features/source-import/server/import-service';
 import { EcobaseSupplierOrderImportApplyService } from '../../features/source-import/server/supplier-order-import-apply-service';
 import { EcobaseSupplierOrderImportService } from '../../features/source-import/server/supplier-order-import-service';
-import { EcobaseCompanyProductFamilyService } from '../../features/inventory-planning/server/company-product-family-service';
+import { EcobaseCompanyProductFamilyService } from '../../features/semantic-model/server/company-product-family-service';
 import { createSupplierManagementResourceRegistration } from '../../features/supplier-management/server/resource-registration';
 import { createEcobaseImportActions, createEcobaseInventoryPlanningActions } from '../resource-actions';
 import { LOGGED_IN, OPERATOR, registerEcobaseResources } from '../resource-registration';
@@ -33,7 +33,7 @@ function registerAll() {
     },
     [
       createSourceImportResourceRegistration(createSourceAdapterRegistry([noopTestAdapter])),
-      createInventoryPlanningResourceRegistration(),
+      createGoldEngineMaintenanceResourceRegistration(),
       createInventoryDashboardResourceRegistration(),
       createOrderPlanningResourceRegistration(),
       createSupplierManagementResourceRegistration(),
@@ -80,7 +80,7 @@ describe('Ecobase resource registration', () => {
         'optimizeBudget',
       ]),
     );
-    const inventoryGrants = createInventoryPlanningResourceRegistration().acl;
+    const inventoryGrants = createGoldEngineMaintenanceResourceRegistration().acl;
     const operatorActions = inventoryGrants
       .filter((grant) => grant.resource === 'ecobaseInventoryPlanning' && grant.role === OPERATOR)
       .flatMap((grant) => grant.actions);

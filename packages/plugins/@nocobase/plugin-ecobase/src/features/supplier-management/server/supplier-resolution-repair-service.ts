@@ -9,7 +9,7 @@
 
 import { createHash, randomUUID } from 'node:crypto';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
-import { EcobaseCompanyProductFamilyService } from '../../inventory-planning/server/company-product-family-service';
+import { EcobaseCompanyProductFamilyService } from '../../semantic-model/server/company-product-family-service';
 import { normalizeSupplierName } from '../../semantic-model/server/medallion-identity-service';
 import { orderLineSourceKeyForBronze } from '../../semantic-model/server/medallion-normalization-service';
 import type { EcobaseDatabase, EcobaseRepository } from '../../source-import/server/import-service';

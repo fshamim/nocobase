@@ -8,7 +8,7 @@
  */
 
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
-import { EcobaseCompanyProductFamilyService } from '../../inventory-planning/server/company-product-family-service';
+import { EcobaseCompanyProductFamilyService } from '../../semantic-model/server/company-product-family-service';
 import { EcobaseMedallionIdentityService } from '../../semantic-model/server/medallion-identity-service';
 import type { EcobaseDatabase } from './import-service';
 import { toPlainRecord } from './import-service';

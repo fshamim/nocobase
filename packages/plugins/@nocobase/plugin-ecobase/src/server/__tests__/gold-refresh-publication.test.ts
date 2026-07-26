@@ -1216,7 +1216,7 @@ describe('Gold refresh publication control', () => {
       // Dashboard v1 AD-1 adjudication: deliberately vendored published-run reader (encapsulation over reuse).
       'features/inventory-dashboard/server/published-gold-reader.ts',
       // v1 plan task 003 (user-approved 2026-07-22): published-run-scoped tiered-first target selection.
-      'features/inventory-planning/server/company-product-family-service.ts',
+      'features/semantic-model/server/company-product-family-service.ts',
     ]);
     const directRead =
       /(?:getRepository|repoRows|repoRowsFiltered|this\.repo|this\.all)\s*\([\s\S]{0,160}ECOBASE_COLLECTIONS\.goldInventoryPlanningRows/;
@@ -1285,7 +1285,7 @@ describe('Gold refresh publication control', () => {
     const registrationSource = readFileSync(
       resolve(
         process.cwd(),
-        'packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/server/resource-registration.ts',
+        'packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-dashboard/server/engine/maintenance-resource-registration.ts',
       ),
       'utf8',
     );

@@ -13,7 +13,7 @@ import {
   EcobaseOrderReceiptReconciliationService,
   historicalReceiptCandidateOrderIds,
   receiptReconciliationOrderIdsForRefresh,
-} from '../../features/inventory-planning/server/order-receipt-reconciliation-service';
+} from '../../features/inventory-dashboard/server/engine/order-receipt-reconciliation-service';
 import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
 
 type Row = Record<string, unknown> & { id: string };

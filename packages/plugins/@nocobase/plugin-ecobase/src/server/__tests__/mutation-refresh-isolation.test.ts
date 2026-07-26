@@ -10,9 +10,9 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { EcobaseCompanyProductFamilyService } from '../../features/inventory-planning/server/company-product-family-service';
+import { EcobaseCompanyProductFamilyService } from '../../features/semantic-model/server/company-product-family-service';
 import { EcobaseInventoryPlanningService } from '../../features/inventory-dashboard/server/engine/inventory-planning-service';
-import { EcobaseOrderReceiptReconciliationService } from '../../features/inventory-planning/server/order-receipt-reconciliation-service';
+import { EcobaseOrderReceiptReconciliationService } from '../../features/inventory-dashboard/server/engine/order-receipt-reconciliation-service';
 import { EcobaseOrderPlanningService } from '../../features/order-planning/server/order-planning-service';
 import { EcobaseMedallionWorkflowService } from '../../features/semantic-model/server/medallion-workflow-service';
 import { EcobaseSupplierOrderService } from '../../features/supplier-management/server/supplier-order-service';

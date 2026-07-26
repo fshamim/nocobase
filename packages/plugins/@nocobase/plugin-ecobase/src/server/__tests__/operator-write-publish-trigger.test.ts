@@ -19,7 +19,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SellerboardGoldPromotionDebouncer } from '../plugin';
 import { triggerOnOperatorWrite } from '../resource-registration';
-import { createInventoryPlanningResourceRegistration } from '../../features/inventory-planning/server/resource-registration';
+import { createGoldEngineMaintenanceResourceRegistration } from '../../features/inventory-dashboard/server/engine/maintenance-resource-registration';
 import { createInventoryDashboardResourceRegistration } from '../../features/inventory-dashboard/server/resource-registration';
 import { createOrderPlanningResourceRegistration } from '../../features/order-planning/server/resource-registration';
 import { createSupplierManagementResourceRegistration } from '../../features/supplier-management/server/resource-registration';
@@ -130,7 +130,7 @@ describe('operator-write publish debounce (task 001)', () => {
     // enumeration test.
     const spy = vi.fn();
     const registrations = [
-      createInventoryPlanningResourceRegistration(spy),
+      createGoldEngineMaintenanceResourceRegistration(spy),
       createInventoryDashboardResourceRegistration(spy),
       createOrderPlanningResourceRegistration(spy),
       createSupplierManagementResourceRegistration(spy),

@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { EcobaseSilverIntegrityVerifier } from '../../features/inventory-planning/server/silver-integrity-verifier';
+import { EcobaseSilverIntegrityVerifier } from '../../features/semantic-model/server/silver-integrity-verifier';
 import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 

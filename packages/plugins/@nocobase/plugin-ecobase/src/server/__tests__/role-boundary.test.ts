@@ -23,7 +23,7 @@ import {
   createEcobaseInventoryDashboardActions,
   createInventoryDashboardResourceRegistration,
 } from '../../features/inventory-dashboard/server/resource-registration';
-import { createInventoryPlanningResourceRegistration } from '../../features/inventory-planning/server/resource-registration';
+import { createGoldEngineMaintenanceResourceRegistration } from '../../features/inventory-dashboard/server/engine/maintenance-resource-registration';
 import { EcobaseInventoryPlanningService } from '../../features/inventory-dashboard/server/engine/inventory-planning-service';
 import { createOrderPlanningResourceRegistration } from '../../features/order-planning/server/resource-registration';
 
@@ -172,7 +172,7 @@ describe('EcoBase role boundary', () => {
 
   it('registers distinct read, operator, and admin ACL grants', () => {
     const grants = [
-      ...createInventoryPlanningResourceRegistration().acl,
+      ...createGoldEngineMaintenanceResourceRegistration().acl,
       ...createOrderPlanningResourceRegistration().acl,
     ];
     const isGranted = (resource: string, action: string, user: (typeof USERS)[keyof typeof USERS]) => {

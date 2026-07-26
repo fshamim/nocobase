@@ -9,7 +9,7 @@
 
 import { resolveCanonicalCompany } from '../../../server/company-identity';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
-import { isApprovedOrderLineBusinessAmbiguity } from '../../inventory-planning/server/silver-integrity-verifier';
+import { isApprovedOrderLineBusinessAmbiguity } from './silver-integrity-verifier';
 import { canonicalOrderLifecycleStatus, resolveOrderLifecycle } from '../../order-planning/server/order-lifecycle';
 import type { EcobaseDatabase } from '../../source-import/server/import-service';
 import { toPlainRecord } from '../../source-import/server/import-service';

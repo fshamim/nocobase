@@ -32,18 +32,18 @@ import { decideCompanyScope } from './source-scope-policy';
 import { EcobaseDataWarningService } from '../../../server/services/data-warning-service';
 import type { EcobaseDataWarning } from '../../../server/services/data-warning-service';
 import { EcobaseInventoryPlanningService } from '../../inventory-dashboard/server/engine/inventory-planning-service';
-import { EcobaseCompanyProductFamilyService } from '../../inventory-planning/server/company-product-family-service';
+import { EcobaseCompanyProductFamilyService } from '../../semantic-model/server/company-product-family-service';
 import {
   EcobaseOrderReceiptReconciliationService,
   receiptReconciliationOrderIdsForRefresh,
   type ReceiptReconciliationResult,
   type ReceiptStateCoverage,
-} from '../../inventory-planning/server/order-receipt-reconciliation-service';
+} from '../../inventory-dashboard/server/engine/order-receipt-reconciliation-service';
 import { EcobaseManagementKpiFactsService } from '../../daily-operations-brief/server/management-kpi-facts-service';
 import { EcobaseMedallionNormalizationService } from '../../semantic-model/server/medallion-normalization-service';
 import type { NormalizePendingResult } from '../../semantic-model/server/medallion-normalization-service';
 import { EcobaseOrderPlanningService } from '../../order-planning/server/order-planning-service';
-import { EcobasePlanningProductService } from '../../inventory-planning/server/planning-product-service';
+import { EcobasePlanningProductService } from './planning-product-service';
 import { EcobaseSupplierManagementService } from '../../supplier-management/server/supplier-management-service';
 import { validateSupplierLeadTimeDays } from '../../supplier-management/server/supplier-order-service';
 import {

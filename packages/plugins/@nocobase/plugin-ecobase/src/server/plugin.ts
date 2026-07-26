@@ -28,7 +28,7 @@ import {
   registerGoldInventoryPlanningWriteGuard,
 } from '../features/inventory-dashboard/server/engine/gold-write-guard';
 import { createInventoryDashboardResourceRegistration } from '../features/inventory-dashboard/server/resource-registration';
-import { createInventoryPlanningResourceRegistration } from '../features/inventory-planning/server/resource-registration';
+import { createGoldEngineMaintenanceResourceRegistration } from '../features/inventory-dashboard/server/engine/maintenance-resource-registration';
 import { EcobaseInventoryPlanningService } from '../features/inventory-dashboard/server/engine/inventory-planning-service';
 import { createOrderPlanningResourceRegistration } from '../features/order-planning/server/resource-registration';
 import { createSemanticModelResourceRegistration } from '../features/semantic-model/server/resource-registration';
@@ -237,7 +237,7 @@ export class PluginEcobaseServer extends Plugin {
     const onOperatorWrite = () => this.operatorWriteGoldPromotion?.schedule();
     registerEcobaseResources(this.app, [
       createSourceImportResourceRegistration(this.registry, () => this.sellerboardGoldPromotion?.schedule()),
-      createInventoryPlanningResourceRegistration(onOperatorWrite),
+      createGoldEngineMaintenanceResourceRegistration(onOperatorWrite),
       createInventoryDashboardResourceRegistration(onOperatorWrite),
       createOrderPlanningResourceRegistration(onOperatorWrite),
       createSupplierManagementResourceRegistration(onOperatorWrite),

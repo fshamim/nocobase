@@ -10,7 +10,7 @@
 import { Alert, Card, Typography } from 'antd';
 import React from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { CandidatePreviewLoader } from '../../features/inventory-planning/client/CandidatePreviewLoader';
+import { CandidatePreviewLoader } from './CandidatePreviewLoader';
 import { useT } from '../locale';
 
 export default function CandidatePreviewPage() {

@@ -68,7 +68,7 @@ import {
   type InventoryPlanningListingReviewQuery,
 } from '../features/inventory-dashboard/server/engine/inventory-planning-service';
 import type { ListingReviewCategory } from '../features/inventory-dashboard/server/engine/listing-family-projection';
-import { EcobaseOrderReceiptReconciliationService } from '../features/inventory-planning/server/order-receipt-reconciliation-service';
+import { EcobaseOrderReceiptReconciliationService } from '../features/inventory-dashboard/server/engine/order-receipt-reconciliation-service';
 import { EcobaseInventoryPlanningGoldAccess } from '../features/inventory-dashboard/server/engine/inventory-planning-gold-access';
 import { EcobaseGoldError } from '../features/inventory-dashboard/server/engine/gold-errors';
 import type { AmazonReceiptStatus } from '../features/inventory-dashboard/server/engine/order-receipt-state';
@@ -81,11 +81,11 @@ import {
   type EntityLinkParams,
   type WorkflowActionParams,
 } from '../features/semantic-model/server/medallion-workflow-service';
-import { EcobaseCompanyProductFamilyService } from '../features/inventory-planning/server/company-product-family-service';
-import { EcobaseSilverIntegrityVerifier } from '../features/inventory-planning/server/silver-integrity-verifier';
+import { EcobaseCompanyProductFamilyService } from '../features/semantic-model/server/company-product-family-service';
+import { EcobaseSilverIntegrityVerifier } from '../features/semantic-model/server/silver-integrity-verifier';
 import { EcobasePlanningCalculationService } from '../features/inventory-planning/server/planning-calculation-service';
 import { EcobasePlanningSettingsService } from './services/planning-settings-service';
-import { EcobasePlanningProductService } from '../features/inventory-planning/server/planning-product-service';
+import { EcobasePlanningProductService } from '../features/source-import/server/planning-product-service';
 import { EcobaseOperatorWorkspaceService } from './services/operator-workspace-service';
 import { EcobaseReportService } from './services/report-service';
 import { EcobaseSilverDataService } from '../features/semantic-model/server/silver-data-service';

@@ -25,7 +25,7 @@ import {
   type SupplierOrderExclusionSummary,
 } from './supplier-order-import/supplier-order-import-plan';
 import { EcobaseInventoryPlanningGoldAccess } from '../../inventory-dashboard/server/engine/inventory-planning-gold-access';
-import { EcobaseCompanyProductFamilyService } from '../../inventory-planning/server/company-product-family-service';
+import { EcobaseCompanyProductFamilyService } from '../../semantic-model/server/company-product-family-service';
 import type {
   OrderImportPlanRow,
   OrderLineImportPlanRow,

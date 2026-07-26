@@ -42,7 +42,7 @@ import {
   CorrectedInventoryEvidencePanel,
   ListingPerformanceReviewPanel,
   type CorrectedInventoryEvidenceRow,
-} from './CorrectedInventoryEvidence';
+} from '../../../client/pages/CorrectedInventoryEvidence';
 
 type PlainRecord = Record<string, any>;
 

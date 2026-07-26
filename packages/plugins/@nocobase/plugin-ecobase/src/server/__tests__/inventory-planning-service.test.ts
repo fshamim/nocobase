@@ -17,8 +17,8 @@ import {
   supplierCoverageStatus,
 } from '../../features/inventory-dashboard/server/engine/inventory-planning-service';
 import { profitTierMovement } from '../../features/inventory-dashboard/server/engine/profit-tier';
-import { EcobaseCompanyProductFamilyService } from '../../features/inventory-planning/server/company-product-family-service';
-import { EcobaseSilverIntegrityVerifier } from '../../features/inventory-planning/server/silver-integrity-verifier';
+import { EcobaseCompanyProductFamilyService } from '../../features/semantic-model/server/company-product-family-service';
+import { EcobaseSilverIntegrityVerifier } from '../../features/semantic-model/server/silver-integrity-verifier';
 import { EcobaseSupplierOrderService } from '../../features/supplier-management/server/supplier-order-service';
 import { EcobaseDailyOperationsBriefService } from '../../features/daily-operations-brief/server/daily-operations-brief-service';
 import type { EcobaseDatabase, EcobaseRepository } from '../../features/source-import/server/import-service';

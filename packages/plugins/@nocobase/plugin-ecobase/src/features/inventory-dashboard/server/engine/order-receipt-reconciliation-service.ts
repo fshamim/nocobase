@@ -8,21 +8,21 @@
  */
 
 import { createHash } from 'node:crypto';
-import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
-import type { EcobaseDatabase, EcobaseRepository } from '../../source-import/server/import-service';
+import { ECOBASE_COLLECTIONS } from '../../../../server/collections/names';
+import type { EcobaseDatabase, EcobaseRepository } from '../../../source-import/server/import-service';
 import { allocateReceiptAdditionFifo } from './order-receipt-allocation';
 import {
   calculateAmazonReceiptEvidence,
   type AmazonReceiptEvidence,
   type ReceiptInventorySnapshot,
   type ReceiptSalesFact,
-} from '../../inventory-dashboard/server/engine/order-receipt-evidence';
+} from './order-receipt-evidence';
 import {
   isAmazonReceiptStatus,
   resolveAmazonReceiptState,
   type AmazonReceiptStatus,
   type AmazonReceiptTransition,
-} from '../../inventory-dashboard/server/engine/order-receipt-state';
+} from './order-receipt-state';
 
 type Row = Record<string, unknown>;
 type Transaction = unknown;

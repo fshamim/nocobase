@@ -10,7 +10,7 @@
 import { useAPIClient } from '@nocobase/client';
 import { Alert, Button, Input, Space, Spin, Typography } from 'antd';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { useT } from '../../../client/locale';
+import { useT } from '../locale';
 import {
   CandidatePreviewPanel,
   type CorrectedFamilyActionEvidenceRow,
