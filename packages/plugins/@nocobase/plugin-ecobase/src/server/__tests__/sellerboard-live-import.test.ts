@@ -30,6 +30,10 @@ import {
 import { EcobaseInventoryPlanningService } from '../../features/inventory-dashboard/server/engine/inventory-planning-service';
 import { EcobaseOrderReceiptReconciliationService } from '../../features/inventory-dashboard/server/engine/order-receipt-reconciliation-service';
 import { createEcobaseImportActions } from '../resource-actions';
+import {
+  EcobaseCoverageError,
+  EcobaseSourceCoverageService,
+} from '../../features/source-import/server/source-coverage-service';
 
 interface FindParams {
   filter?: Record<string, unknown>;
@@ -249,6 +253,75 @@ describe('Sellerboard live URL import', () => {
     expect(reconcile.mock.calls[0][0].orderIds).toEqual(['order-open']);
     expect(publish).toHaveBeenCalledTimes(1);
     promotions.stop();
+  });
+
+  /**
+   * The live failure this guards: a Muxtex force refresh committed 7,299 records
+   * and then hit ECOBASE_COVERAGE_CONFLICT, so the run landed as `partial`
+   * ("Completed with errors") and promoted nothing. A run that committed its
+   * datasets must promote whether or not a non-fatal step complained.
+   */
+  it('promotes Gold from a partial run that committed its datasets', async () => {
+    const { db } = createService();
+    await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
+      filterByTk: 'sellerboard-source-1',
+      values: { companyId: 'company-1' },
+    });
+    vi.spyOn(EcobaseSourceCoverageService.prototype, 'maintainSuccessfulImport').mockRejectedValue(
+      new EcobaseCoverageError('ECOBASE_COVERAGE_CONFLICT', 'Coverage window is already held by a later run.'),
+    );
+    const onCommittedUnit = vi.fn();
+
+    const run = await new EcobaseImportService(
+      db,
+      createSourceAdapterRegistry([sellerboardApiAdapter]),
+    ).runAdapterImport({
+      sourceConnectionId: 'sellerboard-source-1',
+      adapterName: 'sellerboard-api',
+      sourceIdentifier: 'sellerboard-force-refresh',
+      sourceVersion: '2026-06-05',
+      preserveAuditRun: true,
+      onCommittedUnit,
+    });
+
+    expect(run).toMatchObject({
+      status: 'partial',
+      normalizedCount: 2,
+      // The predicate itself was never the problem: it is computed before
+      // coverage maintenance runs and stays true on a committing partial run.
+      summary: { goldRefreshRequired: true },
+      goldTrigger: { status: 'scheduled' },
+    });
+    expect(onCommittedUnit).toHaveBeenCalledTimes(1);
+    expect(onCommittedUnit.mock.calls[0][0]).toMatchObject({
+      sourceConnectionId: 'sellerboard-source-1',
+      companyId: 'company-1',
+    });
+  });
+
+  it('does not promote Gold from a failed run that committed nothing', async () => {
+    const { db } = createService();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: false, status: 503, text: async () => '' })),
+    );
+    const onCommittedUnit = vi.fn();
+
+    const run = await new EcobaseImportService(
+      db,
+      createSourceAdapterRegistry([sellerboardApiAdapter]),
+    ).runAdapterImport({
+      sourceConnectionId: 'sellerboard-source-1',
+      adapterName: 'sellerboard-api',
+      sourceIdentifier: 'sellerboard-force-refresh',
+      sourceVersion: '2026-06-05',
+      preserveAuditRun: true,
+      onCommittedUnit,
+    });
+
+    expect(run).toMatchObject({ status: 'failed', normalizedCount: 0 });
+    expect(onCommittedUnit).not.toHaveBeenCalled();
+    expect(run).not.toHaveProperty('goldTrigger');
   });
 
   it('never fires the Sellerboard committed-unit hook for a non-Sellerboard source', async () => {

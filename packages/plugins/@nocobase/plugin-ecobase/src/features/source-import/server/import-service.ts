@@ -2202,7 +2202,11 @@ export class EcobaseImportService {
       // The report-unit path fires its own hook after the outer transaction commits.
       params.unitTransaction ||
       getString(sourceConnection, 'sourceType') !== 'sellerboard' ||
-      run.status !== 'success' ||
+      // A `partial` run committed its datasets and then hit a non-fatal problem —
+      // a normalization warning, or coverage maintenance rejecting the window.
+      // It must promote exactly like the per-unit scheduled path does, otherwise
+      // one flaky report silences the Gold refresh for the whole source.
+      !['success', 'partial'].includes(run.status ?? '') ||
       !run.goldRefreshRequired
     ) {
       return undefined;
