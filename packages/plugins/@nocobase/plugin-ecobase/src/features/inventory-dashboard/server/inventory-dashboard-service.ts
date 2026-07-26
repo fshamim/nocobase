@@ -19,6 +19,7 @@ import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import {
   DASHBOARD_PANE_KEYS,
   isPaneKey,
+  PRODUCT_TABLE_PANES,
   type DashboardHeader,
   type DashboardHeaderTile,
   type DashboardRow,
@@ -832,8 +833,10 @@ export class EcobaseInventoryDashboardService {
     sort: string | undefined,
     direction: 'asc' | 'desc' | undefined,
   ): ProjectedRow[] {
-    if (!sort && pane === 'supplyAction') {
-      // T-R1 (R1-2): composite DEFAULT — tier rank A -> B -> C -> D -> untiered
+    if (!sort && PRODUCT_TABLE_PANES.has(pane)) {
+      // T-R1 (R1-2), widened to every product pane by 063 (D4) so the shared
+      // table's "Tier" default-sort label is truthful everywhere it is shown:
+      // composite DEFAULT — tier rank A -> B -> C -> D -> untiered
       // via COALESCE(currentProjectedTier, baselineTier) (strict uppercase
       // A|B|C|D enum in gold, so case-folded alphabetical IS the rank), nulls
       // last; ties broken by the exact urgency scalar asc, nulls last.

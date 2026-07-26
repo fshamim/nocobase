@@ -171,6 +171,74 @@
     },
     {
       "identity": {
+        "familyKey": "family-f-healthy",
+        "listingRowId": "f-healthy",
+        "company": "Acme",
+        "amazonAccountId": "account-acme-us",
+        "marketplace": "Amazon.com",
+        "asin": "B0018",
+        "sku": "SKU-f-healthy",
+        "title": "Fixture product f-healthy"
+      },
+      "pane": "healthyInventory",
+      "tier": {
+        "baseline": "A",
+        "current": "A"
+      },
+      "stock": {
+        "currentPlanningStock": 100,
+        "inventoryPositionStock": 100,
+        "unitCost": 5,
+        "sellableStock": null,
+        "reservedStock": null,
+        "inboundStock": null,
+        "prepStock": null,
+        "orderedStock": null,
+        "awdStock": null,
+        "futurePositionStock": null
+      },
+      "velocity": {
+        "value": null,
+        "basis": null,
+        "asOfDate": null,
+        "evidenceStatus": null,
+        "confidence": null,
+        "observedDays": null
+      },
+      "supplier": {
+        "id": null,
+        "name": null,
+        "leadTimeDays": null,
+        "leadTimeConfirmedAt": "2026-07-01T00:00:00.000Z",
+        "leadTimeFreshness": "fresh"
+      },
+      "profit": {
+        "averageMonthly": null,
+        "bestMonthly": null,
+        "worstMonthly": null,
+        "lastClosedMonth": null,
+        "projectedMonthly": null,
+        "perUnit": null
+      },
+      "daysOfCover": 40,
+      "positionDaysOfCover": null,
+      "estimatedOosDate": null,
+      "positionEstimatedOosDate": null,
+      "latestSafeReorderDate": null,
+      "daysUntilSafeReorder": null,
+      "estimatedProfitRisk": null,
+      "moneyRiskStatus": null,
+      "moneyRiskUncoveredDays": null,
+      "recommendedOrderQty": null,
+      "targetCoverDays": null,
+      "reasonCodes": [],
+      "velocityTrend": "up",
+      "performanceBand": "insufficient_evidence",
+      "lastActivity": null,
+      "familyMemberCount": 1
+    },
+    {
+      "identity": {
         "familyKey": "family-f-urgent-badge",
         "listingRowId": "f-urgent-badge",
         "company": "Acme",
@@ -237,74 +305,6 @@
       "stockoutUrgency": {
         "daysUntil": 12
       },
-      "lastActivity": null,
-      "familyMemberCount": 1
-    },
-    {
-      "identity": {
-        "familyKey": "family-f-healthy",
-        "listingRowId": "f-healthy",
-        "company": "Acme",
-        "amazonAccountId": "account-acme-us",
-        "marketplace": "Amazon.com",
-        "asin": "B0018",
-        "sku": "SKU-f-healthy",
-        "title": "Fixture product f-healthy"
-      },
-      "pane": "healthyInventory",
-      "tier": {
-        "baseline": "A",
-        "current": "A"
-      },
-      "stock": {
-        "currentPlanningStock": 100,
-        "inventoryPositionStock": 100,
-        "unitCost": 5,
-        "sellableStock": null,
-        "reservedStock": null,
-        "inboundStock": null,
-        "prepStock": null,
-        "orderedStock": null,
-        "awdStock": null,
-        "futurePositionStock": null
-      },
-      "velocity": {
-        "value": null,
-        "basis": null,
-        "asOfDate": null,
-        "evidenceStatus": null,
-        "confidence": null,
-        "observedDays": null
-      },
-      "supplier": {
-        "id": null,
-        "name": null,
-        "leadTimeDays": null,
-        "leadTimeConfirmedAt": "2026-07-01T00:00:00.000Z",
-        "leadTimeFreshness": "fresh"
-      },
-      "profit": {
-        "averageMonthly": null,
-        "bestMonthly": null,
-        "worstMonthly": null,
-        "lastClosedMonth": null,
-        "projectedMonthly": null,
-        "perUnit": null
-      },
-      "daysOfCover": 40,
-      "positionDaysOfCover": null,
-      "estimatedOosDate": null,
-      "positionEstimatedOosDate": null,
-      "latestSafeReorderDate": null,
-      "daysUntilSafeReorder": null,
-      "estimatedProfitRisk": null,
-      "moneyRiskStatus": null,
-      "moneyRiskUncoveredDays": null,
-      "recommendedOrderQty": null,
-      "targetCoverDays": null,
-      "reasonCodes": [],
-      "velocityTrend": "up",
-      "performanceBand": "insufficient_evidence",
       "lastActivity": null,
       "familyMemberCount": 1
     }

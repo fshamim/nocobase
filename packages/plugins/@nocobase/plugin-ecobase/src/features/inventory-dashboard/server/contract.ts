@@ -38,6 +38,25 @@ export function isPaneKey(value: unknown): value is PaneKey {
   return typeof value === 'string' && (DASHBOARD_PANE_KEYS as readonly string[]).includes(value);
 }
 
+/**
+ * Issue 063 (D1/D4): the panes that render the shared PRODUCT table — the same
+ * eight columns and the same tier-composite DEFAULT sort, so the client's
+ * "Tier" default-sort label is truthful on every one of them. (Row grain is
+ * whatever each pane serves; a split family can put several member listings in
+ * one pane.) The three order panes (order grain), dataReadiness (tiered-first
+ * default) and performanceReview are NOT product tables and are deliberately
+ * absent.
+ */
+export const PRODUCT_TABLE_PANES: ReadonlySet<PaneKey> = new Set<PaneKey>([
+  'supplyAction',
+  'healthyInventory',
+  'excessInventory',
+  'stuckInventory',
+  'zeroStock',
+  'untieredProducts',
+  'discontinuedPaused',
+]);
+
 export type DataFreshness = 'fresh' | 'stale' | 'unknown';
 
 export type HeaderTileKey = 'urgentStockout' | 'orderedButLate' | 'staleLeadTimes' | 'needsFollowUp' | 'stuckCapital';

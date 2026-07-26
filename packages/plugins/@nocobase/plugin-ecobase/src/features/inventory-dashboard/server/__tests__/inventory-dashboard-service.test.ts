@@ -1217,6 +1217,134 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
     expect(junk.rows.map((row) => row.identity.listingRowId)).toEqual(expectedOrder);
   });
 
+  it('063 (D4): a non-supplyAction product pane defaults to the SAME tier composite as supplyAction', async () => {
+    // Same eight rows seeded into two different product panes: the served order
+    // must be identical, proving the default is a product-table property and not
+    // a supplyAction special case.
+    const productPaneDb = (pane: PaneKey) => {
+      const local = new RecordingDatabase();
+      local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).rows.push({
+        id: PUBLISHED_RUN_ID,
+        status: 'published',
+        calculationDate: FIXED_TODAY,
+        publishedAt: `${FIXED_TODAY}T00:00:00.000Z`,
+      });
+      const goldRepo = local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows);
+      const push = (id: string, current: string | null, baseline: string | null, daysUntil: number | null) =>
+        goldRepo.rows.push({
+          id,
+          naturalKey: id,
+          refreshRunId: PUBLISHED_RUN_ID,
+          primaryActionPane: pane,
+          companyProductFamilyId: `family-${id}`,
+          currentProjectedTier: current,
+          baselineTier: baseline,
+          // Keeps the COALESCE-null row inside the pane (REQ-X5 would otherwise
+          // project it to untieredProducts) while its sort rank stays null-last.
+          lastClosedMonthTier: 'C',
+          daysUntilSafeReorder: daysUntil,
+        });
+      // Seeded deliberately out of order — the composite, not insertion, decides.
+      push('p-b-urgent', 'B', null, -10); // most urgent overall, still behind every A
+      push('p-a-null-urgency', 'A', null, null); // null urgency -> last WITHIN tier A
+      push('p-untiered', null, null, -100); // no tier -> LAST despite peak urgency
+      push('p-a-late', 'A', null, 4);
+      push('p-d', 'D', null, -99);
+      push('p-a-urgent', 'A', null, -3);
+      push('p-b-baseline', null, 'B', 2); // COALESCE falls back to baseline B
+      return local;
+    };
+    const expectedOrder = [
+      'p-a-urgent', // A, -3
+      'p-a-late', // A, 4
+      'p-a-null-urgency', // A, null urgency last within the tier
+      'p-b-urgent', // B, -10 (tier outranks urgency)
+      'p-b-baseline', // B, 2
+      'p-d', // D
+      'p-untiered', // null tier last
+    ];
+    const excess = await service(productPaneDb('excessInventory')).pane({
+      pane: 'excessInventory',
+      runId: PUBLISHED_RUN_ID,
+      page: 1,
+      pageSize: 25,
+    });
+    const supply = await service(productPaneDb('supplyAction')).pane({
+      pane: 'supplyAction',
+      runId: PUBLISHED_RUN_ID,
+      page: 1,
+      pageSize: 25,
+    });
+    if (isRunSuperseded(excess) || isRunSuperseded(supply)) throw new Error('bad');
+    expect(excess.rows.map((row) => row.identity.listingRowId)).toEqual(expectedOrder);
+    // Supply Action is unchanged by 063 — byte-identical ordering on the same rows.
+    expect(supply.rows.map((row) => row.identity.listingRowId)).toEqual(expectedOrder);
+
+    // 063 (D4): an EXPLICIT sort key on a product pane still wins over the
+    // composite — single-key, tier-blind, nulls last in BOTH directions.
+    const svc = service(productPaneDb('excessInventory'));
+    const asc = await svc.pane({
+      pane: 'excessInventory',
+      runId: PUBLISHED_RUN_ID,
+      page: 1,
+      pageSize: 25,
+      sort: 'daysUntilSafeReorder',
+      sortDirection: 'asc',
+    });
+    const desc = await svc.pane({
+      pane: 'excessInventory',
+      runId: PUBLISHED_RUN_ID,
+      page: 1,
+      pageSize: 25,
+      sort: 'daysUntilSafeReorder',
+      sortDirection: 'desc',
+    });
+    if (isRunSuperseded(asc) || isRunSuperseded(desc)) throw new Error('bad');
+    expect(asc.rows.map((row) => row.daysUntilSafeReorder)).toEqual([-100, -99, -10, -3, 2, 4, null]);
+    expect(desc.rows.map((row) => row.daysUntilSafeReorder)).toEqual([4, 2, -3, -10, -99, -100, null]);
+  });
+
+  it('063 (D4): dataReadiness keeps its tiered-first default and does NOT join the tier composite', async () => {
+    const local = new RecordingDatabase();
+    local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).rows.push({
+      id: PUBLISHED_RUN_ID,
+      status: 'published',
+      calculationDate: FIXED_TODAY,
+      publishedAt: `${FIXED_TODAY}T00:00:00.000Z`,
+    });
+    const goldRepo = local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows);
+    const push = (id: string, tier: string | null) =>
+      goldRepo.rows.push({
+        id,
+        naturalKey: id,
+        refreshRunId: PUBLISHED_RUN_ID,
+        primaryActionPane: 'dataReadiness',
+        companyProductFamilyId: `family-${id}`,
+        currentProjectedTier: tier,
+        baselineTier: tier,
+        daysUntilSafeReorder: null,
+      });
+    push('r-untiered-1', null);
+    push('r-tier-c', 'C');
+    push('r-untiered-2', null);
+    push('r-tier-a', 'A');
+    const response = await service(local).pane({
+      pane: 'dataReadiness',
+      runId: PUBLISHED_RUN_ID,
+      page: 1,
+      pageSize: 25,
+    });
+    if (isRunSuperseded(response)) throw new Error('bad');
+    // Tiered rows hoisted in STABLE seeded order (C before A) — under the tier
+    // composite the A row would have overtaken the C row.
+    expect(response.rows.map((row) => row.identity.listingRowId)).toEqual([
+      'r-tier-c',
+      'r-tier-a',
+      'r-untiered-1',
+      'r-untiered-2',
+    ]);
+  });
+
   it('T-R1 (R1-5): familyMemberCount is served on EVERY pane row (zero extra queries)', async () => {
     const svc = service(db);
     db.findCalls.length = 0;
