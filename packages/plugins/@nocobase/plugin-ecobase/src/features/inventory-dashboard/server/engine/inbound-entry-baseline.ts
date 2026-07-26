@@ -88,14 +88,58 @@ export class EcobaseInboundEntryBaselineStamper {
     transaction?: unknown;
   }): Promise<{ stampedLines: number }> {
     if (!entersAmazonInbound(params.previousStage, params.nextStage)) return { stampedLines: 0 };
+    const { stampedLines } = await this.stampLines({
+      orderId: params.orderId,
+      transaction: params.transaction,
+      onlyMissingBaselines: false,
+      dryRun: false,
+    });
+    return { stampedLines };
+  }
+
+  /**
+   * The 054 R4 sweep's entry point: stamps only the lines whose baseline is still NULL,
+   * without a stage transition.
+   *
+   * Orders that were already sitting inbound when R2 shipped have no recorded entry state
+   * and no way to recover one, so the sweep's own snapshot becomes that record — the shift
+   * is measured from the sweep date, which is the honest reading of an unknowable past.
+   * Lines that already carry a baseline are never rewritten, which is what makes a second
+   * sweep a no-op. `dryRun` resolves every baseline it would write and reports the same
+   * counts a real run produces, but issues no update.
+   */
+  async stampMissingBaselines(params: {
+    orderId: string;
+    transaction?: unknown;
+    dryRun?: boolean;
+  }): Promise<{ stampedLines: number; unresolvedLines: number }> {
+    return this.stampLines({
+      orderId: params.orderId,
+      transaction: params.transaction,
+      onlyMissingBaselines: true,
+      dryRun: params.dryRun === true,
+    });
+  }
+
+  /** `unresolvedLines` counts lines whose listing yielded no usable snapshot. */
+  private async stampLines(params: {
+    orderId: string;
+    transaction?: unknown;
+    onlyMissingBaselines: boolean;
+    dryRun: boolean;
+  }): Promise<{ stampedLines: number; unresolvedLines: number }> {
     const orderId = text(params.orderId);
-    if (!orderId) return { stampedLines: 0 };
-    const lines = await this.find(ECOBASE_COLLECTIONS.silverOrderLines, { orderId }, params.transaction);
-    if (lines.length === 0) return { stampedLines: 0 };
+    if (!orderId) return { stampedLines: 0, unresolvedLines: 0 };
+    const orderLines = await this.find(ECOBASE_COLLECTIONS.silverOrderLines, { orderId }, params.transaction);
+    const lines = params.onlyMissingBaselines
+      ? orderLines.filter((line) => (line.inboundEntryBaseline ?? null) === null)
+      : orderLines;
+    if (lines.length === 0) return { stampedLines: 0, unresolvedLines: 0 };
 
     const sellerboardSourceConnectionIds = await this.sellerboardSourceConnectionIds(params.transaction);
     const baselineByListingId = new Map<string, InboundEntryBaseline | null>();
     let stampedLines = 0;
+    let unresolvedLines = 0;
     for (const line of lines) {
       const lineId = text(line.id);
       const listingId = text(line.companyProductId);
@@ -110,17 +154,22 @@ export class EcobaseInboundEntryBaselineStamper {
         }
         baseline = baselineByListingId.get(listingId) ?? null;
       }
-      // Nothing to write when there is no baseline to record and none was stored before.
-      if (baseline === null && (line.inboundEntryBaseline ?? null) === null) continue;
-      await this.update(
-        ECOBASE_COLLECTIONS.silverOrderLines,
-        lineId,
-        { inboundEntryBaseline: baseline },
-        params.transaction,
-      );
+      if (baseline === null) {
+        unresolvedLines += 1;
+        // Nothing to write when there is no baseline to record and none was stored before.
+        if ((line.inboundEntryBaseline ?? null) === null) continue;
+      }
+      if (!params.dryRun) {
+        await this.update(
+          ECOBASE_COLLECTIONS.silverOrderLines,
+          lineId,
+          { inboundEntryBaseline: baseline },
+          params.transaction,
+        );
+      }
       if (baseline !== null) stampedLines += 1;
     }
-    return { stampedLines };
+    return { stampedLines, unresolvedLines };
   }
 
   /**

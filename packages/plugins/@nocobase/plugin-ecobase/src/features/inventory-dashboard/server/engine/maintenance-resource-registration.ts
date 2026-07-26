@@ -74,6 +74,7 @@ export function createGoldEngineMaintenanceResourceRegistration(
           'verifySilverIntegrity',
           'reconcileReceipts',
           'backfillReceipts',
+          'backfillOrderStamps',
         ],
         role: ADMIN,
       },

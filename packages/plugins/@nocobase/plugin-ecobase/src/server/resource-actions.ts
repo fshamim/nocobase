@@ -65,6 +65,7 @@ import {
   projectCorrectedInventoryPlanningListingRows,
 } from '../features/inventory-dashboard/server/engine/inventory-planning-service';
 import { EcobaseOrderReceiptReconciliationService } from '../features/inventory-dashboard/server/engine/order-receipt-reconciliation-service';
+import { EcobaseOrderStampBackfillService } from '../features/inventory-dashboard/server/engine/order-stamp-backfill';
 import { EcobaseInventoryPlanningGoldAccess } from '../features/inventory-dashboard/server/engine/inventory-planning-gold-access';
 import { EcobaseGoldError } from '../features/inventory-dashboard/server/engine/gold-errors';
 import type { AmazonReceiptStatus } from '../features/inventory-dashboard/server/engine/order-receipt-state';
@@ -1330,6 +1331,16 @@ export function createEcobaseInventoryPlanningActions() {
         };
         await next();
       },
+      // 054 R4: one-off historical sweep. NULL-only fills, so re-running it is free.
+      backfillOrderStamps: async (ctx, next) => {
+        const values = getValues(ctx.action.params);
+        ctx.body = {
+          data: await new EcobaseOrderStampBackfillService(ctx.db, ctx.logger).backfillOrderStamps({
+            dryRun: getOptionalBoolean(values, 'dryRun') !== false,
+          }),
+        };
+        await next();
+      },
       setReceiptOverride: async (ctx, next) => {
         const values = getValues(ctx.action.params);
         const lineId = getOptionalString(values, 'lineId');
@@ -1427,6 +1438,7 @@ export function createEcobaseInventoryPlanningActions() {
       verifySilverIntegrity: 'admin',
       reconcileReceipts: 'admin',
       backfillReceipts: 'admin',
+      backfillOrderStamps: 'admin',
       setReceiptOverride: 'operator',
       updateProductPlanningFields: 'operator',
       setFamilyTarget: 'operator',
