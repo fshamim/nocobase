@@ -14,10 +14,10 @@
  */
 
 import { Button, Descriptions, Input, InputNumber, Progress, Select, Space, Tag, Typography } from 'antd';
-import React, { useRef, useState } from 'react';
+import React, { useState } from 'react';
 import type { DashboardRow, DrawerContextResponse, MonthlyEvidencePoint } from '../server/contract';
 import { DASHBOARD_CLICKUP_OPERATIONAL_STATUSES } from '../server/workflow-stage';
-import { reasonLabel, TEXT } from './dashboard-text';
+import { TEXT } from './dashboard-text';
 import { DASHBOARD_TAG_COLORS, TIER_TAG_COLOR } from './dashboard-tokens';
 import { formatDate, formatDays, formatMoney, formatNumber, type Translate } from './format';
 import { recentTierOf } from './widgets/recent-tier';
@@ -345,90 +345,11 @@ export function BandVisual({ points, t }: { points: MonthlyEvidencePoint[]; t: T
   );
 }
 
-export function AssignSupplierForm({
-  familyId,
-  loadSupplierOptions,
-  run,
-  submitting,
-  t,
-}: {
-  familyId: string;
-  loadSupplierOptions: (search?: string) => Promise<Array<{ label: string; value: string }>>;
-  run: RunDrawerMutation;
-  submitting: boolean;
-  t: Translate;
-}) {
-  const [options, setOptions] = useState<Array<{ label: string; value: string }> | null>(null);
-  const [supplierId, setSupplierId] = useState<string | undefined>(undefined);
-  const [reason, setReason] = useState('');
-  // B3: server-driven typeahead — every keystroke queries the DB, so suppliers beyond
-  // the first slice stay findable. The sequence guard drops stale async responses.
-  const requestSeq = useRef(0);
-  const load = async (search?: string) => {
-    const seq = (requestSeq.current += 1);
-    const loaded = await loadSupplierOptions(search);
-    if (seq === requestSeq.current) setOptions(loaded);
-  };
-  const open = async () => {
-    if (options === null) await load();
-  };
-  const submit = async () => {
-    if (!supplierId || !reason.trim()) return;
-    // T8a (X4 closure): the dashboard talks ONLY to its own resource.
-    await run('ecobaseInventoryDashboard:setFamilyPreferredSupplier', {
-      familyId,
-      supplierId,
-      reason: reason.trim(),
-    });
-  };
-  return (
-    <Space direction="vertical" style={{ width: '100%' }}>
-      <Typography.Title level={5} id={`assign-supplier-label-${familyId}`}>
-        {t(TEXT.drawerAssignSupplier)}
-      </Typography.Title>
-      <Select
-        showSearch
-        aria-label={t(TEXT.drawerAssignSupplier)}
-        aria-labelledby={`assign-supplier-label-${familyId}`}
-        placeholder={t(TEXT.drawerAssignSupplier)}
-        style={{ minWidth: 260 }}
-        options={options ?? []}
-        onDropdownVisibleChange={(visible) => {
-          if (visible) open();
-        }}
-        filterOption={false}
-        onSearch={(text) => load(text)}
-        value={supplierId}
-        onChange={(value: string) => setSupplierId(value)}
-      />
-      <Input
-        aria-label={t(TEXT.drawerReason)}
-        placeholder={t(TEXT.drawerReason)}
-        value={reason}
-        onChange={(event) => setReason(event.target.value)}
-      />
-      <Button size="small" type="primary" disabled={submitting} onClick={submit}>
-        {t(TEXT.drawerSave)}
-      </Button>
-    </Space>
-  );
-}
-
-export function ReasonList({ title, reasons, t }: { title: string; reasons: string[]; t: Translate }) {
-  return (
-    <div>
-      <Typography.Title level={5}>{title}</Typography.Title>
-      {reasons.length ? (
-        <Space wrap>
-          {reasons.map((reason) => (
-            <Tag key={reason} color={DASHBOARD_TAG_COLORS.warning}>
-              {reasonLabel(reason, t)}
-            </Tag>
-          ))}
-        </Space>
-      ) : (
-        <Typography.Text type="secondary">{t(TEXT.empty)}</Typography.Text>
-      )}
-    </div>
-  );
-}
+/*
+ * 066 D4: `AssignSupplierForm` and `ReasonList` were deleted here. Both existed
+ * only for the v1 dataReadiness drawer body, which is gone now that the pane
+ * opens the rich `SupplyActionDrawerBody`: supplier assignment lives in that
+ * body's Change-supplier modal (same `setFamilyPreferredSupplier` mutation,
+ * covered by supply-action-drawer.test.tsx) and the reason codes render in its
+ * "Why it's here" strip (063 D6).
+ */

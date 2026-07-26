@@ -38,7 +38,7 @@ If a file `AGENTS.local.md` exists in this repository root, read it once at the 
 
 ## Internationalization (i18n)
 
-- User-facing strings (UI labels, messages, errors shown to end users) must go through the project's i18n layer (`t()` / `useTranslation()`); do not hardcode them. Add keys for both `en-US` and `zh-CN` when introducing new strings.
+- User-facing strings (UI labels, messages, errors shown to end users) must go through the project's i18n layer (`t()` / `useTranslation()`); do not hardcode them. Add an `en-US` key for every new string — **en-US only** (EcoBase fork ruling 2026-07-27: no Chinese support, so do not write new `zh-CN` entries; existing ones stay).
 
 ## Pre-Commit Workflow
 

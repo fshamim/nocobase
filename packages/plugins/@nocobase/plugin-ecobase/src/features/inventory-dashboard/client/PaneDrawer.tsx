@@ -21,7 +21,6 @@ import type { DashboardRow, DrawerContextResponse, PaneKey } from '../server/con
 import { isRunSuperseded, PRODUCT_TABLE_PANES } from '../server/contract';
 import { paneTitle, TEXT } from './dashboard-text';
 import {
-  AssignSupplierForm,
   BandVisual,
   CommentForm,
   EtaForm,
@@ -29,7 +28,6 @@ import {
   OrderSummary,
   PrepDetailsForm,
   ProductSummary,
-  ReasonList,
   ShipRouteForm,
   StatusForm,
   type RunDrawerMutation,
@@ -37,7 +35,6 @@ import {
 import { isDrawerContextPayload, unwrapEnvelope } from './envelope';
 import { type Translate } from './format';
 import { SupplyActionDrawerBody } from './SupplyActionDrawerBody';
-import { recentTierOf } from './widgets/recent-tier';
 
 /** QA item 4: mutations that confirm success with a toast. */
 const MUTATION_SUCCESS_TEXT: Record<string, string> = {
@@ -71,7 +68,6 @@ export interface PaneDrawerProps {
   onClose: () => void;
   onMutated: (pane: PaneKey) => void;
   onSuperseded: (publishedRunId: string) => void;
-  navigate?: (path: string) => void;
   /** T8b (W5): successful mutations mark the family in the sync registry. */
   markPending?: (familyKey: string) => void;
   pendingFamilies?: ReadonlySet<string>;
@@ -98,7 +94,6 @@ const PaneDrawer: React.FC<PaneDrawerProps> = ({
   onClose,
   onMutated,
   onSuperseded,
-  navigate,
   markPending,
   pendingFamilies,
 }) => {
@@ -306,9 +301,13 @@ const PaneDrawer: React.FC<PaneDrawerProps> = ({
             }
           />
         ) : context && row && target ? (
-          PRODUCT_TABLE_PANES.has(target.pane) ? (
+          PRODUCT_TABLE_PANES.has(target.pane) || target.pane === 'dataReadiness' ? (
             // 063 D5: every product pane opens the same rich drawer; the order
-            // panes, Data Readiness and Performance Review keep their v1 bodies.
+            // panes and Performance Review keep their v1 bodies.
+            // 066 D4: Data issues joins the rich body by an EXPLICIT pane check,
+            // never by joining PRODUCT_TABLE_PANES — that set also selects the
+            // server's tier-composite default sort, which would silently replace
+            // this pane's tiered-first queue order and churn golden fixtures.
             <SupplyActionDrawerBody
               row={row}
               context={context}
@@ -335,8 +334,6 @@ const PaneDrawer: React.FC<PaneDrawerProps> = ({
                 run={runMutation}
                 submitting={submitting}
                 t={t}
-                navigate={navigate}
-                loadSupplierOptions={loadSupplierOptions}
               />
               <FamilyContext context={context} t={t} />
             </Space>
@@ -354,11 +351,9 @@ interface DrawerBodyProps {
   run: RunDrawerMutation;
   submitting: boolean;
   t: Translate;
-  navigate?: (path: string) => void;
-  loadSupplierOptions: (search?: string) => Promise<Array<{ label: string; value: string }>>;
 }
 
-function DrawerBody({ pane, row, context, run, submitting, t, navigate, loadSupplierOptions }: DrawerBodyProps) {
+function DrawerBody({ pane, row, context, run, submitting, t }: DrawerBodyProps) {
   const orderId = row.order?.orderId;
   const supplierId = row.order?.supplierId ?? null;
   switch (pane) {
@@ -417,37 +412,11 @@ function DrawerBody({ pane, row, context, run, submitting, t, navigate, loadSupp
           <CommentForm orderId={orderId} run={run} submitting={submitting} t={t} />
         </Space>
       ) : null;
-    case 'dataReadiness':
-      return (
-        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-          <ReasonList title={t(TEXT.drawerReadinessReasons)} reasons={row.reasonCodes} t={t} />
-          <TargetProvenance context={context} t={t} />
-          {/* 065: membership tests read the RECENT tier — baseline never gates. */}
-          {recentTierOf(row.tier) ? (
-            <AssignSupplierForm
-              familyId={row.identity.familyKey}
-              loadSupplierOptions={loadSupplierOptions}
-              run={run}
-              submitting={submitting}
-              t={t}
-            />
-          ) : null}
-          <Space wrap>
-            <Button
-              size="small"
-              onClick={() =>
-                navigate?.(
-                  `/admin/ecobase/supplier-management?search=${encodeURIComponent(
-                    row.order?.supplierName ?? row.identity?.sku ?? '',
-                  )}`,
-                )
-              }
-            >
-              {t(TEXT.drawerOpenSupplierManagement)}
-            </Button>
-          </Space>
-        </Space>
-      );
+    // 066 D4: the v1 `dataReadiness` case is GONE — the pane routes to the rich
+    // body above. Its parts were all superseded there: the reasons list by the
+    // "Why it's here" strip (063 D6), the supplier form by the action bar's
+    // Change-supplier modal, the supplier-management deep link by the drawer's
+    // own richer context.
     case 'performanceReview':
       return (
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>

@@ -42,7 +42,9 @@ export const TEXT = {
   paneExcessInventory: 'Excess Inventory',
   paneStuckInventory: 'Stuck Inventory',
   paneZeroStock: 'Zero Stock',
-  paneDataReadiness: 'Data Readiness',
+  // 066 D1: display-only rename. The pane KEY stays `dataReadiness` (it is
+  // persisted in gold on every row of every run) — only the label moves.
+  paneDataReadiness: 'Data issues',
   panePerformanceReview: 'Performance Review',
   paneUntieredProducts: 'Untiered Products',
   paneDiscontinuedPaused: 'Discontinued & Paused',
@@ -66,6 +68,8 @@ export const TEXT = {
   colStock: 'Stock',
   colUnitCost: 'Unit cost',
   colSignals: 'Signals',
+  // 066 D2/D3: the Data-issues workbench's own cluster column.
+  colIssues: 'Issues',
   colMembers: 'Members',
   colLastMovement: 'Last movement',
   paneSearchPlaceholder: 'Search this pane',
@@ -126,8 +130,9 @@ export const TEXT = {
   drawerSuggestedQty: 'Suggested order quantity',
   drawerOpenOrderPlanning: 'Open in Order Planning',
   drawerStuckReasons: 'Stuck reasons',
-  drawerReadinessReasons: 'Readiness reasons',
-  drawerOpenSupplierManagement: 'Open Supplier Management',
+  // 066 D4: `drawerReadinessReasons` + `drawerOpenSupplierManagement` died with
+  // the v1 dataReadiness drawer body — the pane now opens the rich body, whose
+  // "Why it's here" strip and action bar replace both.
   drawerBandTitle: 'Monthly units (last closed months)',
   drawerTierEvidence: 'Tier evidence',
   drawerFollowUpAck: 'Follow-up acknowledged.',

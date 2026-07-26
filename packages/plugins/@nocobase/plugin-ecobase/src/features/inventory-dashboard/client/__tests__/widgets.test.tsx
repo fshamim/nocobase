@@ -466,9 +466,11 @@ describe('T7 widgets', () => {
   });
 
   it('T-D5: the urgency badge renders both variants in the shared signals cluster', () => {
-    // 063-D3: the six product panes dropped the Signals column; Data Readiness
-    // keeps it, and its cluster output must be UNCHANGED by the widget extraction.
-    const readiness = PANE_CONFIGS.find((config) => config.pane === 'dataReadiness');
+    // 063-D3: the six product panes dropped the Signals column; Performance
+    // Review keeps it, and its cluster output must be UNCHANGED by the widget
+    // extraction. (066-D2 moved Data issues onto its own workbench table, so
+    // Performance Review is now the shared cluster's last home.)
+    const readiness = PANE_CONFIGS.find((config) => config.pane === 'performanceReview');
     const signalsColumn = readiness?.columns.find((column) => column.key === 'signals');
     if (!signalsColumn) throw new Error('missing signals column');
     const near = render(<App>{signalsColumn.render(rowWith({ stockoutUrgency: { daysUntil: 12 } }), t)}</App>);
@@ -610,9 +612,9 @@ describe('T7 widgets', () => {
   });
 
   it('065: the signals tier tag obeys the SAME rule, with a compact "· last mo." suffix', () => {
-    // The v1 Signals cluster (Data Readiness / Performance Review) must not be
-    // the one surface that still believes a baseline letter.
-    const readiness = PANE_CONFIGS.find((config) => config.pane === 'dataReadiness');
+    // The v1 Signals cluster (Performance Review, since 066-D2) must not be the
+    // one surface that still believes a baseline letter.
+    const readiness = PANE_CONFIGS.find((config) => config.pane === 'performanceReview');
     const signalsColumn = readiness?.columns.find((column) => column.key === 'signals');
     if (!signalsColumn) throw new Error('missing signals column');
     const cell = (tier: DashboardRow['tier']) => render(<App>{signalsColumn.render(rowWith({ tier }), t)}</App>);

@@ -76,20 +76,19 @@ describe('063-D1: one product-table column set', () => {
   it('leaves the non-product panes alone', () => {
     // Discontinued & paused keeps its own search box (task 002).
     expect(PANE_CONFIGS.find((config) => config.pane === 'discontinuedPaused')?.showPaneSearch).toBe(true);
-    // Order panes + the two v1 signal panes keep their own tables.
-    for (const pane of [
-      'activeOrders',
-      'inPrepMonitoring',
-      'inboundMonitoring',
-      'dataReadiness',
-      'performanceReview',
-    ] as PaneKey[]) {
+    // Order panes + the last v1 signal pane keep their own tables.
+    // 066-D2: dataReadiness left this list — it has its own workbench table
+    // (own columns, `issues` cluster instead of `signals`), asserted in
+    // data-issues-workbench.test.tsx.
+    for (const pane of ['activeOrders', 'inPrepMonitoring', 'inboundMonitoring', 'performanceReview'] as PaneKey[]) {
       const config = PANE_CONFIGS.find((candidate) => candidate.pane === pane);
       expect(config?.columns, `${pane} must keep its own columns`).not.toBe(PRODUCT_TABLE_COLUMNS);
       expect(config?.columns.some((column) => column.key === 'signals'), `${pane} keeps its signals cluster`).toBe(
         true,
       );
     }
+    const dataIssues = PANE_CONFIGS.find((candidate) => candidate.pane === 'dataReadiness');
+    expect(dataIssues?.columns, 'dataReadiness must keep its own columns').not.toBe(PRODUCT_TABLE_COLUMNS);
   });
 });
 

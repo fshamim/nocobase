@@ -13,8 +13,9 @@
  * 063-D1: the seven PRODUCT panes (Supply Action, Healthy, Excess, Stuck,
  * Zero-stock, Untiered, Discontinued & paused) all point at the one shared
  * table in `product-table-columns.tsx` — they have no columns of their own.
- * What remains here are the order panes and the two panes that still use the v1
- * Signals cluster (Data Readiness, Performance Review).
+ * 066-D2: Data issues (pane key `dataReadiness`) has its own workbench table in
+ * `data-issues-columns.tsx`. What remains here are the order panes and the one
+ * pane that still uses the v1 Signals cluster (Performance Review).
  *
  * REQ-X6: for those v1 panes, repeated categorical values render as badges
  * inside the single "Signals" cell (max one badge cluster per row); center-stage
@@ -34,7 +35,8 @@ import {
   TIER_TAG_COLOR,
   TREND_TAG_COLOR,
 } from './dashboard-tokens';
-import { formatDate, formatDays, formatNumber, type Translate } from './format';
+import { DATA_ISSUES_COLUMNS } from './data-issues-columns';
+import { formatDate, formatDays, type Translate } from './format';
 import { LAST_ACTIVITY_COLUMN, PRODUCT_TABLE_COLUMNS, PRODUCT_TABLE_SORT_OPTIONS } from './product-table-columns';
 import { recentTierOf } from './widgets/recent-tier';
 import type { PaneRenderContext } from './widgets/render-context';
@@ -224,11 +226,6 @@ const estOos: PaneColumnConfig = {
   titleKey: TEXT.colEstOos,
   render: (row, t) => formatDate(row.estimatedOosDate, t),
 };
-const stock: PaneColumnConfig = {
-  key: 'stock',
-  titleKey: TEXT.colStock,
-  render: (row, t) => formatNumber(row.stock?.currentPlanningStock, t),
-};
 function signals(options: SignalOptions = {}): PaneColumnConfig {
   return { key: 'signals', titleKey: TEXT.colSignals, render: (row, t) => signalsCell(row, t, options) };
 }
@@ -293,7 +290,13 @@ export const PANE_CONFIGS: PaneConfig[] = [
     sortOptions: PRODUCT_TABLE_SORT_OPTIONS,
     columns: PRODUCT_TABLE_COLUMNS,
   },
-  { pane: 'dataReadiness', titleKey: TEXT.paneDataReadiness, columns: [product, stock, signals({ reasons: true })] },
+  {
+    // 066-D2/D11: the workbench table. No sortOptions — the pane is a QUEUE,
+    // and the server's tiered-first order (task 006) is the queue order.
+    pane: 'dataReadiness',
+    titleKey: TEXT.paneDataReadiness,
+    columns: DATA_ISSUES_COLUMNS,
+  },
   {
     pane: 'performanceReview',
     titleKey: TEXT.panePerformanceReview,

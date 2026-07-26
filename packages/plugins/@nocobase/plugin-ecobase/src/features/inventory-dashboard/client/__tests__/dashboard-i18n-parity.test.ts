@@ -7,25 +7,26 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
+/*
+ * en-US ONLY (user ruling 2026-07-27, 066 amendment): this fork has no Chinese
+ * support, now or long-term, so zh-CN is no longer enforced here — new strings
+ * ship with an en-US entry and nothing else. Existing zh-CN entries are left
+ * alone (harmless), which is exactly why the old "both locales carry the same
+ * key set" assertion had to go: en-US now legitimately diverges from zh-CN.
+ */
+
 import { describe, expect, it } from 'vitest';
 import enUS from '../../../../locale/en-US.json';
-import zhCN from '../../../../locale/zh-CN.json';
 import { DASHBOARD_I18N_KEYS, TEXT } from '../dashboard-text';
 
 const en = enUS as Record<string, string>;
-const zh = zhCN as Record<string, string>;
 
 describe('Inventory Dashboard i18n parity (T-2.5)', () => {
-  it('has every dashboard literal in BOTH en-US and zh-CN', () => {
+  it('has every dashboard literal in en-US', () => {
     for (const key of DASHBOARD_I18N_KEYS) {
       expect(en[key], `en-US missing "${key}"`).toBeTypeOf('string');
-      expect(zh[key], `zh-CN missing "${key}"`).toBeTypeOf('string');
-      expect(zh[key]?.length, `zh-CN empty "${key}"`).toBeGreaterThan(0);
+      expect(en[key]?.length, `en-US empty "${key}"`).toBeGreaterThan(0);
     }
-  });
-
-  it('keeps the full en-US and zh-CN key sets identical', () => {
-    expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort());
   });
 
   it('exposes each TEXT key exactly once (no duplicate literals shadowing each other)', () => {

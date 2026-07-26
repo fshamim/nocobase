@@ -450,6 +450,27 @@ describe('InventoryDashboardPage (Gate G2)', () => {
     }
   });
 
+  it('066 T1: the renamed "Data issues" pane renders the five workbench columns', async () => {
+    renderPage(observeAll);
+    await expandPane('dataReadiness');
+    await waitFor(() => expect(paneRequests('dataReadiness')).toHaveLength(1));
+    const section = document.querySelector('section[data-pane="dataReadiness"]') as HTMLElement;
+    await waitFor(() => expect(section.querySelectorAll('tbody tr.ant-table-row').length).toBeGreaterThan(0));
+    // D1: display-only rename — the pane KEY (data-pane) is untouched gold.
+    expect(within(section).getAllByText(TEXT.paneDataReadiness).length).toBeGreaterThan(0);
+    expect(TEXT.paneDataReadiness).toBe('Data issues');
+    expect(section.textContent).not.toContain('Data Readiness');
+    for (const title of [TEXT.colProduct, TEXT.colStock, TEXT.colVelocityCover, TEXT.colLastActivity, TEXT.colIssues]) {
+      expect(within(section).getByText(title), `Data issues is missing the ${title} column`).toBeTruthy();
+    }
+    // D2: the planning-output columns stay out, and D11 keeps the queue order —
+    // no sort selector on this pane.
+    expect(within(section).queryByText(TEXT.colOrderBy)).toBeNull();
+    expect(within(section).queryByText(TEXT.colAction)).toBeNull();
+    expect(within(section).queryByText(TEXT.colSignals)).toBeNull();
+    expect(within(section).queryByRole('combobox', { name: new RegExp(TEXT.sortLabel) })).toBeNull();
+  });
+
   it('task 002: renders Discontinued & Paused as the LAST pane with its own debounced search box', async () => {
     renderPage(observeOnly('discontinuedPaused'));
     await expandPane('discontinuedPaused');

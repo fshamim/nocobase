@@ -18,7 +18,6 @@ import React from 'react';
 import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import InventoryDashboardPage from '../InventoryDashboardPage';
-import { AssignSupplierForm } from '../drawer-sections';
 import type { ObserveVisibility } from '../PaneSection';
 import headerFixture from '../../server/__tests__/fixtures/expected-responses/header.json';
 import paneSupplyAction from '../../server/__tests__/fixtures/expected-responses/pane-supplyAction.json';
@@ -224,8 +223,9 @@ describe('PaneDrawer (Gate G3)', () => {
   });
 
   it('keeps the v1 drawer body for the panes outside the product table', async () => {
+    // 066 D4 took Data issues out of this list — Performance Review is the last
+    // family-grain pane on the v1 body.
     const markers: Record<string, string> = {
-      dataReadiness: 'Readiness reasons',
       performanceReview: 'Monthly units (last closed months)',
     };
     for (const [pane, marker] of Object.entries(markers)) {
@@ -237,6 +237,35 @@ describe('PaneDrawer (Gate G3)', () => {
       expect(within(dialog).getAllByText(marker).length).toBeGreaterThan(0);
       cleanup();
     }
+  });
+
+  it('066 D4: a Data issues row opens the SAME rich drawer as Supply Action', async () => {
+    const dialog = await openDrawer('dataReadiness');
+    // The rich body: four tabs + the action bar.
+    expect(within(dialog).getByRole('tab', { name: 'Overview' })).toBeTruthy();
+    expect(within(dialog).getByRole('tab', { name: /^Orders/ })).toBeTruthy();
+    expect(within(dialog).getByRole('tab', { name: /^Comments/ })).toBeTruthy();
+    expect(within(dialog).getByRole('tab', { name: 'Data' })).toBeTruthy();
+    expect(within(dialog).getByRole('button', { name: 'Create order' })).toBeTruthy();
+    // 063 D6: the reasons strip names the issue that put the row in this pane.
+    expect(within(dialog).getAllByText("Why it's here").length).toBeGreaterThan(0);
+    expect(within(dialog).getAllByText('Family review required').length).toBeGreaterThan(0);
+    // The v1 body is gone with every part of it: no Descriptions summary, no
+    // inline supplier form, and (issue 042 guard) no deep links out of the page.
+    expect(within(dialog).queryByText('SKU')).toBeNull();
+    expect(within(dialog).queryByText('Readiness reasons')).toBeNull();
+    expect(within(dialog).queryByRole('button', { name: 'Open Supplier Management' })).toBeNull();
+    expect(within(dialog).queryByRole('button', { name: 'Open Inventory Planning' })).toBeNull();
+    expect(navigateSpy).not.toHaveBeenCalled();
+  });
+
+  it('066 D4: the pane title travels into the drawer as the renamed "Data issues"', async () => {
+    const dialog = await openDrawer('dataReadiness');
+    // paneTitle() feeds the drawer title, the body's aria-label and the rich
+    // body's action bar — every one of them must read the new name.
+    expect(document.body.textContent).toContain('Data issues');
+    expect(document.body.textContent).not.toContain('Data Readiness');
+    expect(within(dialog).getAllByLabelText(/Data issues/).length).toBeGreaterThan(0);
   });
 
   it('sends dashboard-shaped mutation payloads and refreshes only the affected pane + header', async () => {
@@ -321,15 +350,13 @@ describe('PaneDrawer (Gate G3)', () => {
     expect(navigateSpy).not.toHaveBeenCalled();
   });
 
-  it('QA item 6: data-readiness deep links carry non-empty search params', async () => {
-    const dialog = await openDrawer('dataReadiness');
-    // Issue 042: the Inventory Planning deep link died with the page it pointed at.
-    expect(within(dialog).queryByRole('button', { name: 'Open Inventory Planning' })).toBeNull();
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Open Supplier Management' }));
-    const sup = navigateSpy.mock.calls.at(-1)?.[0] as string;
-    expect(sup).toContain('/admin/ecobase/supplier-management?search=');
-    expect(sup.split('?search=')[1]?.length).toBeGreaterThan(0);
-  });
+  /*
+   * "QA item 6: data-readiness deep links carry non-empty search params" was
+   * deleted here (066 D4): the Supplier-Management deep link was the v1 body's
+   * last navigation, and the rich body replaces it with in-drawer context. The
+   * surviving guard — no deep-link buttons, `navigate` never called — moved
+   * into the D4 routing test above.
+   */
 
   it('QA item 4: focus moves into the drawer on open and returns to the trigger row on close', async () => {
     const dialog = await openDrawer('discontinuedPaused');
@@ -486,12 +513,14 @@ describe('PaneDrawer (Gate G3)', () => {
     // 063 D5: product panes retarget through the shared action bar's modal.
     const dialog = await openDrawer('healthyInventory');
     expect(within(dialog).getByRole('button', { name: 'Change target…' })).toBeTruthy();
-    // Data Readiness (v1 body) without a persisted target says so explicitly.
+    // 066 D4: Data issues reaches the very same retarget affordance now — the
+    // v1 "none (target in review)" line went with the v1 body.
     cleanup();
     request.mockReset();
     mockApi();
     const readiness = await openDrawer('dataReadiness');
-    expect(within(readiness).getAllByText(/none \(target in review\)/).length).toBeGreaterThan(0);
+    expect(within(readiness).getByRole('button', { name: 'Change target…' })).toBeTruthy();
+    expect(within(readiness).queryByText(/none \(target in review\)/)).toBeNull();
   });
 
   it('final item 4: reactivation and supplier assignment confirm success with a toast', async () => {
@@ -507,45 +536,21 @@ describe('PaneDrawer (Gate G3)', () => {
     ).toBeTruthy();
   });
 
-  it('final item 5: the Assign-supplier select is properly labelled', async () => {
-    const dialog = await openDrawer('dataReadiness');
-    // Visible heading + programmatic association both resolve.
-    expect(within(dialog).getAllByText('Assign supplier').length).toBeGreaterThan(0);
-    const combo = within(dialog).getAllByRole('combobox', { name: 'Assign supplier' });
-    expect(combo.length).toBeGreaterThan(0);
-  });
+  /*
+   * "final item 5: the Assign-supplier select is properly labelled" and
+   * "T8a (X4 closed): AssignSupplierForm submits through the dashboard
+   * resource" were deleted here (066 D4) together with the component they
+   * tested. Both live on against the rich body's Change-supplier modal in
+   * supply-action-drawer.test.tsx: it finds the modal BY the same
+   * `TEXT.drawerAssignSupplier` label and asserts the payload goes to
+   * `ecobaseInventoryDashboard:setFamilyPreferredSupplier`.
+   */
 
   it('QA item 7: the drawerContext request carries the clicked listing id', async () => {
     await openDrawer('healthyInventory');
     const [args] = requests('ecobaseInventoryDashboard:drawerContext')[0];
     expect(typeof args.data.listingRowId).toBe('string');
     expect((args.data.listingRowId as string).length).toBeGreaterThan(0);
-  });
-
-  it('T8a (X4 closed): AssignSupplierForm submits through the dashboard resource, never the frozen one', async () => {
-    const run = vi.fn().mockResolvedValue(true);
-    const view = render(
-      <AssignSupplierForm
-        familyId="fam-1"
-        loadSupplierOptions={async () => [{ label: 'Lead Boundary Supplies', value: 'sup-1' }]}
-        run={run}
-        submitting={false}
-        t={(value: string) => value}
-      />,
-    );
-    // Open the select and pick the async-loaded option (antd renders it in a portal).
-    fireEvent.mouseDown(view.getByRole('combobox'));
-    fireEvent.click(await within(document.body).findByText('Lead Boundary Supplies'));
-    // The reason field is the only textbox (the select search input has role combobox).
-    fireEvent.change(view.getByRole('textbox'), { target: { value: 'switching supplier' } });
-    fireEvent.click(view.getByRole('button'));
-    await waitFor(() =>
-      expect(run).toHaveBeenCalledWith('ecobaseInventoryDashboard:setFamilyPreferredSupplier', {
-        familyId: 'fam-1',
-        supplierId: 'sup-1',
-        reason: 'switching supplier',
-      }),
-    );
   });
 });
 

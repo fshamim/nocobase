@@ -18,7 +18,6 @@ import { useAPIClient } from '@nocobase/client';
 import { Alert, Button, Input, Select, Space, Spin, Typography } from 'antd';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DashboardHeader as DashboardHeaderData, DashboardRow, PaneKey, PaneResult } from '../server/contract';
-import { useNavigate } from 'react-router-dom';
 import { useT } from '../../../client/locale';
 import DashboardHeaderStrip from './DashboardHeader';
 import PaneDrawer, { type DrawerTarget } from './PaneDrawer';
@@ -72,7 +71,6 @@ const InventoryDashboardPageInner: React.FC<InventoryDashboardPageProps> = ({
   const [drawerTarget, setDrawerTarget] = useState<DrawerTarget | null>(null);
   const drawerTriggerRef = useRef<HTMLElement | null>(null);
   const paneRefs = useRef(new Map<PaneKey, PaneSectionHandle | null>());
-  const navigate = useNavigate();
 
   // T-3.0c(a): surface a progress hint when the header takes unusually long.
   useEffect(() => {
@@ -346,7 +344,6 @@ const InventoryDashboardPageInner: React.FC<InventoryDashboardPageProps> = ({
         onClose={onDrawerClose}
         onMutated={onDrawerMutated}
         onSuperseded={onSuperseded}
-        navigate={(path) => navigate(path)}
         markPending={syncState.markPending}
         pendingFamilies={syncState.pendingFamilies}
       />
