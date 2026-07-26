@@ -20,19 +20,23 @@ import { DASHBOARD_CLICKUP_OPERATIONAL_STATUSES } from '../server/workflow-stage
 import { reasonLabel, TEXT } from './dashboard-text';
 import { DASHBOARD_TAG_COLORS, TIER_TAG_COLOR } from './dashboard-tokens';
 import { formatDate, formatDays, formatMoney, formatNumber, type Translate } from './format';
+import { recentTierOf } from './widgets/recent-tier';
 
 /** Returns true on success; false when the mutation failed (buffers must be preserved). */
 export type RunDrawerMutation = (url: string, data: Record<string, unknown>) => Promise<boolean>;
 
 export function ProductSummary({ row, t }: { row: DashboardRow; t: Translate }) {
-  const tier = row.tier?.current ?? row.tier?.baseline;
+  // 065: the ONE badge rule reaches the v1 summary too — recent tier only.
+  const tier = row.tier ? recentTierOf(row.tier) : null;
   return (
     <Descriptions column={2} size="small" title={t(TEXT.colProduct)}>
       <Descriptions.Item label="SKU">{row.identity?.sku ?? t(TEXT.unknown)}</Descriptions.Item>
       <Descriptions.Item label="ASIN">{row.identity?.asin ?? t(TEXT.unknown)}</Descriptions.Item>
       <Descriptions.Item label={t(TEXT.tier)}>
         {tier ? (
-          <Tag color={TIER_TAG_COLOR[tier.toLowerCase()] ?? DASHBOARD_TAG_COLORS.neutral}>{tier.toUpperCase()}</Tag>
+          <Tag color={TIER_TAG_COLOR[tier.tier.toLowerCase()] ?? DASHBOARD_TAG_COLORS.neutral}>
+            {`${tier.tier.toUpperCase()}${tier.basis === 'last_month' ? ` · ${t(TEXT.tierLastMonthHint)}` : ''}`}
+          </Tag>
         ) : (
           t(TEXT.unknown)
         )}

@@ -37,6 +37,7 @@ import {
 import { isDrawerContextPayload, unwrapEnvelope } from './envelope';
 import { type Translate } from './format';
 import { SupplyActionDrawerBody } from './SupplyActionDrawerBody';
+import { recentTierOf } from './widgets/recent-tier';
 
 /** QA item 4: mutations that confirm success with a toast. */
 const MUTATION_SUCCESS_TEXT: Record<string, string> = {
@@ -421,7 +422,8 @@ function DrawerBody({ pane, row, context, run, submitting, t, navigate, loadSupp
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
           <ReasonList title={t(TEXT.drawerReadinessReasons)} reasons={row.reasonCodes} t={t} />
           <TargetProvenance context={context} t={t} />
-          {row.tier?.current || row.tier?.baseline ? (
+          {/* 065: membership tests read the RECENT tier — baseline never gates. */}
+          {recentTierOf(row.tier) ? (
             <AssignSupplierForm
               familyId={row.identity.familyKey}
               loadSupplierOptions={loadSupplierOptions}
