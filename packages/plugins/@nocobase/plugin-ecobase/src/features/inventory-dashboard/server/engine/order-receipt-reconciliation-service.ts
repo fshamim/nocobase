@@ -12,9 +12,10 @@ import { ECOBASE_COLLECTIONS } from '../../../../server/collections/names';
 import type { EcobaseDatabase, EcobaseRepository } from '../../../source-import/server/import-service';
 import { allocateReceiptAdditionFifo } from './order-receipt-allocation';
 import {
+  aggregateFamilyInventorySnapshots,
   calculateAmazonReceiptEvidence,
+  readInboundEntryBaseline,
   type AmazonReceiptEvidence,
-  type ReceiptInventorySnapshot,
   type ReceiptSalesFact,
 } from './order-receipt-evidence';
 import {
@@ -542,7 +543,14 @@ export class EcobaseOrderReceiptReconciliationService {
       return this.persistReview(params.line, 'company_account_family_identity_mismatch', params.transaction);
     }
 
-    const baselineAt = dateTime(params.line.amazonReceiptBaselineAt) ?? dateTime(params.order.authorityAsOf);
+    // 054 R2: the state stamped when the order entered inbound monitoring. It anchors the
+    // evidence baseline below, and — purely additively — supplies a baseline time for
+    // orders that have neither a persisted receipt baseline nor an authority timestamp.
+    const inboundEntryBaseline = readInboundEntryBaseline(params.line.inboundEntryBaseline);
+    const baselineAt =
+      dateTime(params.line.amazonReceiptBaselineAt) ??
+      dateTime(params.order.authorityAsOf) ??
+      dateTimeFromDate(inboundEntryBaseline?.asOf ?? undefined);
     if (!baselineAt)
       return this.persistReview(params.line, 'inbound_baseline_time_missing', params.transaction, familyId);
     const members = await this.find(
@@ -575,6 +583,7 @@ export class EcobaseOrderReceiptReconciliationService {
       snapshots,
       salesFacts,
       fulfillmentRoute: text(params.order.fulfillmentRoute),
+      inboundEntryBaseline,
     });
     const orderedQty = number(params.line.orderedQty);
     if (orderedQty === undefined || orderedQty <= 0) {
@@ -721,55 +730,30 @@ export class EcobaseOrderReceiptReconciliationService {
     };
   }
 
+  /**
+   * Family-aggregated snapshots for the evidence window. The grouping itself lives in
+   * `aggregateFamilyInventorySnapshots` so the 054 R2 entry stamp captures its baseline at
+   * exactly this grain; this method only fetches the member rows in member order.
+   */
   private async familySnapshots(
     memberIds: string[],
     identity: { companyId: string; amazonAccountId: string; marketplace: string; familyId: string; lineId: string },
     transaction: Transaction,
   ) {
-    const groups = new Map<string, { rows: Row[]; sourceConnectionId?: string; snapshotDate: string }>();
+    const rows: Row[] = [];
     for (const companyProductId of memberIds) {
-      for (const snapshot of await this.find(
-        ECOBASE_COLLECTIONS.silverInventorySnapshots,
-        { companyProductId },
-        transaction,
-      )) {
-        const snapshotDate = text(snapshot.snapshotDate);
-        if (!snapshotDate) continue;
-        const sourceConnectionId = text(snapshot.sourceConnectionId);
-        const groupKey = `${sourceConnectionId ?? 'unknown'}:${snapshotDate}`;
-        const group = groups.get(groupKey) ?? { rows: [], sourceConnectionId, snapshotDate };
-        group.rows.push(snapshot);
-        groups.set(groupKey, group);
-      }
+      rows.push(...(await this.find(ECOBASE_COLLECTIONS.silverInventorySnapshots, { companyProductId }, transaction)));
     }
-    const snapshotIdsByAggregateId = new Map<string, string[]>();
-    const snapshots: ReceiptInventorySnapshot[] = [];
-    for (const group of groups.values()) {
-      const coveredMemberIds = new Set(
-        group.rows.map((row) => text(row.companyProductId)).filter((id): id is string => Boolean(id)),
-      );
-      if (coveredMemberIds.size !== memberIds.length) continue;
-      const sourceIds = group.rows
-        .map((row) => text(row.id))
-        .filter((id): id is string => Boolean(id))
-        .sort();
-      const id = evidenceKey({ identity: identity.familyId, group: group.snapshotDate, sourceIds });
-      snapshotIdsByAggregateId.set(id, sourceIds);
-      snapshots.push({
-        id,
+    return aggregateFamilyInventorySnapshots({
+      memberIds,
+      rows,
+      identity: {
         companyId: identity.companyId,
         amazonAccountId: identity.amazonAccountId,
         marketplace: identity.marketplace,
         companyProductFamilyId: identity.familyId,
-        sourceConnectionId: group.sourceConnectionId,
-        snapshotDate: group.snapshotDate,
-        sellableStock: group.rows.reduce((sum, row) => sum + (number(row.sellableStock) ?? 0), 0),
-        reservedStock: group.rows.reduce((sum, row) => sum + (number(row.reserved) ?? 0), 0),
-        inboundStock: group.rows.reduce((sum, row) => sum + (number(row.inbound) ?? 0), 0),
-        awdStock: group.rows.reduce((sum, row) => sum + (number(row.awdStock) ?? 0), 0),
-      });
-    }
-    return { snapshots, snapshotIdsByAggregateId };
+      },
+    });
   }
 
   private async familySalesFacts(

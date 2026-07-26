@@ -7,6 +7,7 @@
  * For more information, please refer to: https://www.nocobase.com/agreement.
  */
 
+import { createHash } from 'node:crypto';
 import type { AmazonReceiptStatus } from './order-receipt-state';
 
 export interface ReceiptEvidenceIdentity {
@@ -29,6 +30,31 @@ export interface ReceiptInventorySnapshot {
   reservedStock?: number;
   inboundStock?: number;
   awdStock?: number;
+  /**
+   * Not part of the Amazon-visible-stock sum; carried so the 054 R2 entry baseline can
+   * record the same pipeline buckets the operator sees on the row.
+   */
+  orderedStock?: number;
+  prepStock?: number;
+}
+
+/**
+ * The inventory state stamped on a silver order line when its ORDER entered workflow
+ * stage `amazon_inbound` (054 R2). Captured at the SAME family-aggregated grain the
+ * evidence math consumes, so `baselineAmazonVisibleStock` and `currentAmazonVisibleStock`
+ * stay a like-for-like subtraction. `reserved` is stored alongside the buckets named in
+ * the plan because it is part of Amazon-visible stock: omitting it at the baseline while
+ * counting it in the current snapshot would manufacture phantom arrivals.
+ */
+export interface InboundEntryBaseline {
+  snapshotId: string | null;
+  asOf: string | null;
+  ordered: number | null;
+  inbound: number | null;
+  stock: number | null;
+  reserved: number | null;
+  prepStock: number | null;
+  awdStock: number | null;
 }
 
 export interface ReceiptSalesFact {
@@ -49,6 +75,13 @@ export interface CalculateAmazonReceiptEvidenceInput {
   snapshots: ReceiptInventorySnapshot[];
   salesFacts?: ReceiptSalesFact[];
   fulfillmentRoute?: string;
+  /**
+   * 054 R2: the state stamped when the order entered inbound monitoring. When present
+   * (and carrying a usable `asOf`) it IS the baseline, so the measured shift is anchored
+   * to pane entry instead of drifting with `authorityAsOf`. NULL/absent → the pre-R2
+   * derivation below, byte for byte.
+   */
+  inboundEntryBaseline?: InboundEntryBaseline | null;
 }
 
 export interface AmazonReceiptEvidence {
@@ -106,6 +139,132 @@ export function latestPreferredInventorySnapshot<T>(snapshots: T[], sellerboardS
   })[0];
 }
 
+function finiteNumber(value: unknown) {
+  // `Number(null)` and `Number('')` are 0, which would turn "this bucket was never
+  // reported" into a hard zero on the stored baseline. Absent stays absent.
+  if (value === null || value === undefined || value === '') return undefined;
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function trimmedText(value: unknown) {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  return normalized || undefined;
+}
+
+/**
+ * The family-aggregated inventory snapshots the receipt math measures against: one row
+ * per (source connection, snapshot date) group in which EVERY family member is covered,
+ * with the member buckets summed. Partial groups are dropped — a family total computed
+ * from a subset of its listings would read as a stock drop.
+ *
+ * Single definition on purpose (054 R2): the reconciliation service derives the current
+ * snapshot through this function and the inbound-entry stamper captures the baseline
+ * through it, so the two sides of `currentStock - baselineStock` can never drift to
+ * different grains.
+ */
+export function aggregateFamilyInventorySnapshots(input: {
+  memberIds: string[];
+  rows: Array<Record<string, unknown>>;
+  identity: Omit<ReceiptEvidenceIdentity, 'orderLineId'>;
+}): { snapshots: ReceiptInventorySnapshot[]; snapshotIdsByAggregateId: Map<string, string[]> } {
+  const groups = new Map<
+    string,
+    { rows: Array<Record<string, unknown>>; sourceConnectionId?: string; snapshotDate: string }
+  >();
+  for (const row of input.rows) {
+    const snapshotDate = trimmedText(row.snapshotDate);
+    if (!snapshotDate) continue;
+    const sourceConnectionId = trimmedText(row.sourceConnectionId);
+    const groupKey = `${sourceConnectionId ?? 'unknown'}:${snapshotDate}`;
+    const group = groups.get(groupKey) ?? { rows: [], sourceConnectionId, snapshotDate };
+    group.rows.push(row);
+    groups.set(groupKey, group);
+  }
+  const snapshotIdsByAggregateId = new Map<string, string[]>();
+  const snapshots: ReceiptInventorySnapshot[] = [];
+  const sum = (rows: Array<Record<string, unknown>>, field: string) =>
+    rows.reduce((total, row) => total + (finiteNumber(row[field]) ?? 0), 0);
+  for (const group of groups.values()) {
+    const coveredMemberIds = new Set(
+      group.rows.map((row) => trimmedText(row.companyProductId)).filter((id): id is string => Boolean(id)),
+    );
+    if (coveredMemberIds.size !== input.memberIds.length) continue;
+    const sourceIds = group.rows
+      .map((row) => trimmedText(row.id))
+      .filter((id): id is string => Boolean(id))
+      .sort();
+    const id = createHash('sha256')
+      .update(
+        JSON.stringify({
+          identity: input.identity.companyProductFamilyId,
+          group: group.snapshotDate,
+          sourceIds,
+        }),
+      )
+      .digest('hex');
+    snapshotIdsByAggregateId.set(id, sourceIds);
+    snapshots.push({
+      id,
+      companyId: input.identity.companyId,
+      amazonAccountId: input.identity.amazonAccountId,
+      marketplace: input.identity.marketplace,
+      companyProductFamilyId: input.identity.companyProductFamilyId,
+      sourceConnectionId: group.sourceConnectionId,
+      snapshotDate: group.snapshotDate,
+      sellableStock: sum(group.rows, 'sellableStock'),
+      reservedStock: sum(group.rows, 'reserved'),
+      inboundStock: sum(group.rows, 'inbound'),
+      awdStock: sum(group.rows, 'awdStock'),
+      orderedStock: sum(group.rows, 'ordered'),
+      prepStock: sum(group.rows, 'prepStock'),
+    });
+  }
+  return { snapshots, snapshotIdsByAggregateId };
+}
+
+/** Narrow a raw `inboundEntryBaseline` jsonb column value to the typed baseline (054 R2). */
+export function readInboundEntryBaseline(value: unknown): InboundEntryBaseline | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const raw = value as Record<string, unknown>;
+  const asOf = trimmedText(raw.asOf);
+  if (!asOf) return undefined;
+  const bucket = (field: string) => finiteNumber(raw[field]) ?? null;
+  return {
+    snapshotId: trimmedText(raw.snapshotId) ?? null,
+    asOf,
+    ordered: bucket('ordered'),
+    inbound: bucket('inbound'),
+    stock: bucket('stock'),
+    reserved: bucket('reserved'),
+    prepStock: bucket('prepStock'),
+    awdStock: bucket('awdStock'),
+  };
+}
+
+/** The stamped entry state as a snapshot the evidence math can subtract from. */
+function inboundEntryBaselineSnapshot(
+  baseline: InboundEntryBaseline | null | undefined,
+  identity: ReceiptEvidenceIdentity,
+): ReceiptInventorySnapshot | undefined {
+  const asOf = isoDate(baseline?.asOf ?? '') ?? undefined;
+  if (!baseline || !asOf) return undefined;
+  return {
+    id: baseline.snapshotId ?? `inbound_entry_baseline:${asOf}`,
+    companyId: identity.companyId,
+    amazonAccountId: identity.amazonAccountId,
+    marketplace: identity.marketplace,
+    companyProductFamilyId: identity.companyProductFamilyId,
+    snapshotDate: asOf,
+    sellableStock: baseline.stock ?? undefined,
+    reservedStock: baseline.reserved ?? undefined,
+    inboundStock: baseline.inbound ?? undefined,
+    awdStock: baseline.awdStock ?? undefined,
+    orderedStock: baseline.ordered ?? undefined,
+    prepStock: baseline.prepStock ?? undefined,
+  };
+}
+
 function amazonVisibleStock(snapshot: ReceiptInventorySnapshot, awdIncluded: boolean) {
   return (
     (snapshot.sellableStock ?? 0) +
@@ -120,12 +279,16 @@ export function calculateAmazonReceiptEvidence(input: CalculateAmazonReceiptEvid
   const evaluatedDate = isoDate(input.evaluatedAt);
   const awdIncluded = input.fulfillmentRoute?.trim().toLowerCase() === 'awd';
   const matchingSnapshots = input.snapshots.filter((snapshot) => sameIdentity(snapshot, input.identity));
-  const baseline = inboundDate
-    ? latestPreferredInventorySnapshot(
-        matchingSnapshots.filter((snapshot) => snapshot.snapshotDate <= inboundDate),
-        input.sellerboardSourceConnectionIds,
-      )
-    : undefined;
+  // 054 R2: the stamped pane-entry state wins when it exists; otherwise fall back to
+  // picking the newest preferred snapshot at or before the observed inbound date.
+  const baseline =
+    inboundEntryBaselineSnapshot(input.inboundEntryBaseline, input.identity) ??
+    (inboundDate
+      ? latestPreferredInventorySnapshot(
+          matchingSnapshots.filter((snapshot) => snapshot.snapshotDate <= inboundDate),
+          input.sellerboardSourceConnectionIds,
+        )
+      : undefined);
   if (!baseline) {
     return {
       outcome: 'review_required',

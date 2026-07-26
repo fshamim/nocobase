@@ -24,6 +24,11 @@ import {
   summarizeSupplierOrderExclusions,
   type SupplierOrderExclusionSummary,
 } from './supplier-order-import/supplier-order-import-plan';
+import {
+  AMAZON_INBOUND_WORKFLOW_STAGE,
+  EcobaseInboundEntryBaselineStamper,
+  entersAmazonInbound,
+} from '../../inventory-dashboard/server/engine/inbound-entry-baseline';
 import { EcobaseInventoryPlanningGoldAccess } from '../../inventory-dashboard/server/engine/inventory-planning-gold-access';
 import { EcobaseCompanyProductFamilyService } from '../../semantic-model/server/company-product-family-service';
 import type {
@@ -341,12 +346,14 @@ export class EcobaseSupplierOrderImportApplyService {
 
     const identities = await this.ensureSupplierIdentities(plan, transaction);
     const desiredAccountIds = await this.ensureSupplierAccounts(plan, identities, companyIds, transaction);
+    const inboundEntryOrderIds = new Set<string>();
     const orderIds = await this.ensureOrders(
       plan,
       preflight.preflightDigest,
       identities,
       companyIds,
       existingOrderByIdentity,
+      inboundEntryOrderIds,
       transaction,
     );
     const linksByLine = await this.resolveLineLinks(plan, companyIds, transaction);
@@ -365,6 +372,16 @@ export class EcobaseSupplierOrderImportApplyService {
       supplierProductByLine,
       transaction,
     );
+    // 054 R2: stamped after ensureOrderLines, because the baseline is written per line.
+    const baselineStamper = new EcobaseInboundEntryBaselineStamper(this.db);
+    for (const orderId of inboundEntryOrderIds) {
+      await baselineStamper.stampOrderEntry({
+        orderId,
+        previousStage: undefined,
+        nextStage: AMAZON_INBOUND_WORKFLOW_STAGE,
+        transaction,
+      });
+    }
     await this.relinkComments(commentRelink.comments, transaction);
 
     if (preflight.importMode === 'canonical-rebuild') {
@@ -597,12 +614,17 @@ export class EcobaseSupplierOrderImportApplyService {
     return desired;
   }
 
+  /**
+   * `inboundEntryOrderIds` collects the orders this apply moves INTO workflow stage
+   * `amazon_inbound`; the caller stamps their 054 R2 baselines once the lines exist.
+   */
   private async ensureOrders(
     plan: SupplierOrderImportPlan,
     preflightDigest: string,
     identities: Map<string, SupplierIdentity>,
     companyIds: Map<string, string>,
     existingOrderByIdentity: Map<string, PlainRecord>,
+    inboundEntryOrderIds: Set<string>,
     transaction?: unknown,
   ) {
     const orderIds = new Map<string, string>();
@@ -622,6 +644,10 @@ export class EcobaseSupplierOrderImportApplyService {
         existing.statusSource === 'clickup_csv' || Boolean(existing.operatorStatusOverrideAt);
       const preserveDownstreamAuthority =
         Boolean(text(existing.authoritySource)) && existing.authoritySource !== 'supplier_order_import';
+      // Read before the write: `existing` describes the pre-upsert row.
+      if (!preserveClickupStatus && entersAmazonInbound(existing.workflowStage, order.workflowStage)) {
+        inboundEntryOrderIds.add(id);
+      }
       await this.upsert(
         ECOBASE_COLLECTIONS.silverOrders,
         existing,

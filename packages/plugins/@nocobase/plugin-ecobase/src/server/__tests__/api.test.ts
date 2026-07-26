@@ -2508,6 +2508,88 @@ describe('Ecobase import public API seam', () => {
     });
   });
 
+  // Issue 054 R2: the ClickUp authority import is an order write path that changes
+  // workflowStage without going through the workbench seam, so it must stamp too.
+  it('stamps the inbound-entry baseline when a ClickUp import moves an order into inbound monitoring', async () => {
+    const db = new MemoryDatabase();
+    const actions = createEcobaseImportActions(createSourceAdapterRegistry([noopTestAdapter]));
+    const clickupSourceId = '00000000-0000-4000-8000-000000000456';
+    await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).create({
+      values: { id: clickupSourceId, sourceType: 'clickup', domain: 'order_management', active: true },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).create({
+      values: { id: 'sellerboard-1', sourceType: 'sellerboard', domain: 'amazon_operations', active: true },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+      values: {
+        id: 'supplier-order-1',
+        companyId: 'company-1',
+        company: 'Stop Shop LLC',
+        supplierId: 'supplier-1',
+        externalOrderRef: 'SS7226A',
+        sourceStage: 'order_detail',
+        status: 'approval_pending',
+        statusSource: 'google_sheets',
+        workflowStage: 'in_prep',
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductFamilies).create({
+      values: { id: 'family-1', companyId: 'company-1', amazonAccountId: 'account-1', marketplace: 'Amazon.com' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+      values: {
+        id: 'cp-1',
+        companyId: 'company-1',
+        amazonAccountId: 'account-1',
+        companyProductFamilyId: 'family-1',
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+      values: { id: 'line-1', orderId: 'supplier-order-1', companyProductId: 'cp-1', orderedQty: 12 },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).create({
+      values: {
+        id: 'snap-1',
+        companyProductId: 'cp-1',
+        sourceConnectionId: 'sellerboard-1',
+        snapshotDate: '2026-07-05',
+        sellableStock: 8,
+        reserved: 2,
+        inbound: 1,
+        ordered: 5,
+        prepStock: 3,
+        awdStock: 0,
+      },
+    });
+
+    const content = [
+      'Task ID,Task Link,Task Name,Task Content,Status,Date Created,Date Created Text,Parent ID,List Name',
+      'task-main,https://app.clickup.com/t/task-main,New Order – SS7226A–Stop Shop Inc – USA – My Weigh,,inbound-monitoring,1782921599420,"7/1/2026, 1:00 PM GMT+5",null,Order Management (ORM)',
+    ].join('\n');
+    const context = createActionContext(db, {
+      files: [{ name: 'clickup-inbound-entry.csv', content }],
+      dryRun: false,
+      importedAt: '2026-07-06T00:00:00.000Z',
+      sourceConnectionId: clickupSourceId,
+      skipGoldRefresh: true,
+    });
+    await actions.importClickupOrderStatuses(context, vi.fn());
+
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).all()[0]).toMatchObject({
+      workflowStage: 'amazon_inbound',
+      workflowStageEnteredAt: '2026-07-06T00:00:00.000Z',
+    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).all()[0].inboundEntryBaseline).toMatchObject({
+      asOf: '2026-07-05',
+      stock: 8,
+      reserved: 2,
+      inbound: 1,
+      ordered: 5,
+      prepStock: 3,
+      awdStock: 0,
+    });
+  });
+
   it('creates only deterministic active ClickUp workflow drafts and re-imports idempotently', async () => {
     const db = new MemoryDatabase();
     let transactionCount = 0;

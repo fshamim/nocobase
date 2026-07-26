@@ -13,6 +13,10 @@
  * - the one-time backfill migration derives from best evidence with provenance,
  *   leaves evidence-less orders null, and never touches closed stages.
  * (The ClickUp import writer stamp is asserted inside api.test.ts.)
+ *
+ * Issue 054 R2 rides the same seam: this editor writes workflowStage WITHOUT going
+ * through the workbench's deriveStatusWrite, so its inbound-entry baseline stamp is
+ * asserted here too.
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -133,6 +137,81 @@ describe('updateOrder stage-entry stamping (T-3.0)', () => {
       workflowStage: 'amazon_inbound',
       workflowStageEnteredAt: '2026-07-22T12:00:00.000Z',
     });
+  });
+});
+
+describe('updateOrder inbound-entry baseline stamping (054 R2)', () => {
+  /** One listing, one family, one sellerboard day — the smallest world with a baseline. */
+  async function seedListingWorld(db: FakeDatabase) {
+    await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).create({
+      values: { id: 'sellerboard-1', sourceType: 'sellerboard', active: true },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductFamilies).create({
+      values: { id: 'family-1', companyId: 'company-1', amazonAccountId: 'account-1', marketplace: 'Amazon.com' },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).create({
+      values: {
+        id: 'cp-1',
+        companyId: 'company-1',
+        amazonAccountId: 'account-1',
+        companyProductFamilyId: 'family-1',
+      },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).create({
+      values: { id: 'line-1', orderId: 'order-1', companyProductId: 'cp-1', orderedQty: 12 },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).create({
+      values: {
+        id: 'snap-1',
+        companyProductId: 'cp-1',
+        sourceConnectionId: 'sellerboard-1',
+        snapshotDate: '2026-07-20',
+        sellableStock: 8,
+        reserved: 2,
+        inbound: 1,
+        ordered: 5,
+        prepStock: 3,
+        awdStock: 0,
+      },
+    });
+  }
+
+  it('stamps the entry baseline when the legacy editor moves an order into inbound monitoring', async () => {
+    const db = new FakeDatabase();
+    await seedOrder(db);
+    await seedListingWorld(db);
+    const service = new EcobaseOrderPlanningService(db as never);
+    const line = () => db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[0];
+
+    // Into in_prep first: a stage change that is not an inbound entry stamps nothing.
+    await service.updateOrder({ orderId: 'order-1', values: { lifecycleStatus: 'ordered' }, actorUserId: 'user-1' });
+    expect(line().inboundEntryBaseline).toBeUndefined();
+
+    await service.updateOrder({
+      orderId: 'order-1',
+      values: { lifecycleStatus: 'inbound-monitoring' },
+      actorUserId: 'user-1',
+    });
+
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[0].workflowStage).toBe('amazon_inbound');
+    expect(line().inboundEntryBaseline).toMatchObject({
+      asOf: '2026-07-20',
+      stock: 8,
+      reserved: 2,
+      inbound: 1,
+      ordered: 5,
+      prepStock: 3,
+      awdStock: 0,
+    });
+
+    // A further edit inside the stage must not move it.
+    const stamped = structuredClone(line().inboundEntryBaseline);
+    await service.updateOrder({
+      orderId: 'order-1',
+      values: { lifecycleStatus: 'direct-ship-fba' },
+      actorUserId: 'user-1',
+    });
+    expect(line().inboundEntryBaseline).toEqual(stamped);
   });
 });
 

@@ -111,6 +111,12 @@ export default defineCollection({
     { name: 'amazonReceiptOverrideAt', type: 'datetimeTz' },
     { name: 'amazonReceiptOverrideByUserId', type: 'bigInt', autoFill: false },
     { name: 'amazonReceiptOverrideEvidenceJson', type: 'jsonb', defaultValue: {} },
+    // 054 R2: the family-aggregated inventory buckets for this line's listing at the
+    // moment the ORDER entered workflow stage `amazon_inbound`. Deliberately has NO
+    // defaultValue — NULL is the load-bearing "never stamped" signal that makes the
+    // receipt evidence fall back to its live baseline derivation for older orders.
+    // Shape: { snapshotId, asOf, ordered, inbound, stock, reserved, prepStock, awdStock }.
+    { name: 'inboundEntryBaseline', type: 'jsonb' },
     { name: 'sourceEvidence', type: 'jsonb', defaultValue: {} },
   ],
   indexes: [

@@ -18,6 +18,7 @@ import {
   resolveOrderLifecycle,
   type OrderLifecycleStatus,
 } from './order-lifecycle';
+import { EcobaseInboundEntryBaselineStamper } from '../../inventory-dashboard/server/engine/inbound-entry-baseline';
 import { isProfitTier, profitTierRank } from '../../inventory-dashboard/server/engine/profit-tier';
 import {
   EcobaseInventoryPlanningGoldAccess,
@@ -847,6 +848,8 @@ export class EcobaseOrderPlanningService {
       throw new Error('Ecobase Order Planning update failed: clearStatusOverride cannot include a status edit.');
     }
     const values = cleanEditableValues(params.values ?? {}, ORDER_EDITABLE_FIELDS);
+    // Read before the write, so "what stage was it in" survives the update below.
+    const previousStage = text(order.workflowStage);
     const previousStatus = displayOperationalStatus(order, currentStatus(order)) ?? 'unknown';
     const nextStatus =
       requestedStatus === undefined ? undefined : text(values.lifecycleStatus) ?? text(values.canonicalStatus);
@@ -921,6 +924,13 @@ export class EcobaseOrderPlanningService {
     }
     if (Object.keys(values).length) {
       await this.repo(ECOBASE_COLLECTIONS.silverOrders).update({ filterByTk: params.orderId, values });
+      // 054 R2: this editor writes workflowStage without going through the workbench's
+      // deriveStatusWrite seam, so it stamps the inbound-entry baseline itself.
+      await new EcobaseInboundEntryBaselineStamper(this.db).stampOrderEntry({
+        orderId: params.orderId,
+        previousStage,
+        nextStage: values.workflowStage,
+      });
     }
     const commentBody =
       params.commentBody ??

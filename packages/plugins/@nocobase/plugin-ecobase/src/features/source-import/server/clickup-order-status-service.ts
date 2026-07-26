@@ -12,6 +12,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { ECOBASE_COLLECTIONS } from '../../../server/collections/names';
 import type { CsvSourceFile } from './adapters/csv-utils';
 import { CsvRowReader, parseCsv } from './adapters/csv-utils';
+import { EcobaseInboundEntryBaselineStamper } from '../../inventory-dashboard/server/engine/inbound-entry-baseline';
 import type { EcobaseDatabase } from './import-service';
 import { FOUR_COMPANY_MIGRATION_PROFILE } from './four-company-migration-profile';
 import { projectSourceRecord } from './source-record-projection';
@@ -982,6 +983,13 @@ export class EcobaseClickupOrderStatusService {
             transaction,
           });
         }
+        // 054 R2: a draft created straight into inbound monitoring enters the stage now.
+        await new EcobaseInboundEntryBaselineStamper(this.db).stampOrderEntry({
+          orderId,
+          previousStage: undefined,
+          nextStage: selected.task.workflowStage,
+          transaction,
+        });
       };
       const sequelize = (
         this.db as EcobaseDatabase & {
@@ -1351,8 +1359,16 @@ export class EcobaseClickupOrderStatusService {
                   ? { operatorStatusOverrideAt: null, operatorStatusOverrideByUserId: null }
                   : {}),
               };
+      // Read before the write, so "what stage was it in" survives the update below.
+      const previousStage = asString(order.workflowStage);
       if (recordValuesChanged(order, values)) {
         await supplierOrderRepo.update({ filterByTk: supplierOrderId, values });
+        // 054 R2: an authority-driven move into inbound monitoring stamps the entry baseline.
+        await new EcobaseInboundEntryBaselineStamper(this.db).stampOrderEntry({
+          orderId: supplierOrderId,
+          previousStage,
+          nextStage: values.workflowStage,
+        });
         if (!operatorOverride || overrideOperatorStatus) updatedOrderCount += 1;
       }
     }

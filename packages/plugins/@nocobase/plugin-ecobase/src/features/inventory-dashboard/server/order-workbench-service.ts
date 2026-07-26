@@ -56,6 +56,7 @@ import {
   type OrderPrepMilestones,
   type OrderRiskProduct,
 } from './order-workbench-compute';
+import { EcobaseInboundEntryBaselineStamper } from './engine/inbound-entry-baseline';
 import { PublishedGoldReader, type DashboardDatabase } from './published-gold-reader';
 import { EcobasePlanningSettingsService } from '../../../server/services/planning-settings-service';
 
@@ -629,7 +630,10 @@ export class EcobaseOrderWorkbenchService {
     // (workflowStageEnteredAt) actually changes. A same-status re-set leaves both
     // stamps untouched; sub-status/milestone editors never call through here.
     const lifecycleChanged = canonicalOrderLifecycleStatus(order.lifecycleStatus) !== write.lifecycleStatus;
-    const stageChanged = asString(order.workflowStage) !== write.workflowStage;
+    // Read before the write: the loaded record must not be consulted for "what it was"
+    // after the update has been applied to it.
+    const previousStage = asString(order.workflowStage);
+    const stageChanged = previousStage !== write.workflowStage;
     const values: PlainRecord = {
       lifecycleStatus: write.lifecycleStatus,
       canonicalStatus: write.canonicalStatus,
@@ -649,6 +653,12 @@ export class EcobaseOrderWorkbenchService {
     if (lifecycleChanged) values.statusChangedAt = now;
     if (stageChanged) values.workflowStageEnteredAt = now;
     await this.repo(ECOBASE_COLLECTIONS.silverOrders).update({ filterByTk: orderId, values });
+    // 054 R2: entering inbound monitoring pins each line's inventory baseline.
+    await new EcobaseInboundEntryBaselineStamper(this.db).stampOrderEntry({
+      orderId,
+      previousStage,
+      nextStage: write.workflowStage,
+    });
     return this.getOrderDetail({ orderId });
   }
 

@@ -261,6 +261,106 @@ describe('EcobaseOrderReceiptReconciliationService', () => {
     });
   });
 
+  // ---- 054 R2: the stamped inbound-entry baseline reaches the evidence math ----
+
+  /**
+   * The drift the stamp exists to stop: every ClickUp import moves `authorityAsOf`
+   * forward, so the derived baseline eventually lands ON the snapshot that already
+   * contains the arrival and the receipt disappears.
+   */
+  function driftedFixture() {
+    const db = fixture();
+    db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[0].authorityAsOf = '2026-07-12T12:00:00.000Z';
+    return db;
+  }
+
+  it('reconciles against the stamped entry baseline rather than the drifted authority timestamp', async () => {
+    const drifted = driftedFixture();
+    await new EcobaseOrderReceiptReconciliationService(drifted).reconcileAffectedOrders({
+      orderIds: ['order-1'],
+      evaluatedAt: '2026-07-12T12:00:00.000Z',
+    });
+    // Red-proof: with the baseline re-derived from the drifted timestamp the arrival is lost.
+    expect(drifted.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[0]).toMatchObject({
+      amazonReceiptStatus: 'awaiting_amazon_stock',
+      amazonReceiptCompletionReason: 'missing_current_snapshot',
+    });
+
+    const stamped = driftedFixture();
+    stamped.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[0].inboundEntryBaseline = {
+      snapshotId: 'entry-snapshot',
+      asOf: '2026-07-10',
+      ordered: 10,
+      inbound: 0,
+      stock: 2,
+      reserved: 0,
+      prepStock: 0,
+      awdStock: 0,
+    };
+
+    await new EcobaseOrderReceiptReconciliationService(stamped).reconcileAffectedOrders({
+      orderIds: ['order-1'],
+      evaluatedAt: '2026-07-12T12:00:00.000Z',
+    });
+
+    const line = stamped.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[0];
+    expect(line).toMatchObject({
+      amazonReceiptStatus: 'amazon_stock_observed',
+      amazonReceiptObservedQty: 6,
+      amazonReceiptCompletionReason: 'positive_attributed_addition',
+    });
+    // Call-path proof: the persisted evidence names the stamped snapshot as the baseline.
+    expect(line.amazonReceiptEvidenceJson).toMatchObject({
+      receiptEvidence: {
+        baselineSnapshotId: 'entry-snapshot',
+        baselineSnapshotDate: '2026-07-10',
+        baselineAmazonVisibleStock: 2,
+        currentAmazonVisibleStock: 7,
+        observedAddition: 6,
+      },
+    });
+    expect(stamped.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[0]).toMatchObject({
+      amazonReceiptStatus: 'partially_observed',
+    });
+  });
+
+  it('accepts the stamped entry baseline as the baseline time when no other timestamp exists', async () => {
+    const db = fixture();
+    delete db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[0].authorityAsOf;
+
+    // Red-proof: with no timestamp at all the line can only go to review.
+    await new EcobaseOrderReceiptReconciliationService(db).reconcileAffectedOrders({
+      orderIds: ['order-1'],
+      evaluatedAt: '2026-07-12T12:00:00.000Z',
+    });
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[0]).toMatchObject({
+      amazonReceiptStatus: 'review_required',
+      amazonReceiptCompletionReason: 'inbound_baseline_time_missing',
+    });
+
+    const stampedDb = fixture();
+    delete stampedDb.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[0].authorityAsOf;
+    stampedDb.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[0].inboundEntryBaseline = {
+      snapshotId: 'entry-snapshot',
+      asOf: '2026-07-10',
+      ordered: 10,
+      inbound: 0,
+      stock: 2,
+      reserved: 0,
+      prepStock: 0,
+      awdStock: 0,
+    };
+    await new EcobaseOrderReceiptReconciliationService(stampedDb).reconcileAffectedOrders({
+      orderIds: ['order-1'],
+      evaluatedAt: '2026-07-12T12:00:00.000Z',
+    });
+    expect(stampedDb.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows[0]).toMatchObject({
+      amazonReceiptStatus: 'amazon_stock_observed',
+      amazonReceiptBaselineAt: '2026-07-10T00:00:00.000Z',
+      amazonReceiptObservedQty: 6,
+    });
+  });
+
   it('keeps ClickUp complete visible for receipt review until Amazon stock is observed', async () => {
     const db = fixture();
     const order = db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[0];

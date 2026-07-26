@@ -107,6 +107,8 @@ class FakeDatabase {
 
 const COMPANY_ID = 'company-ef';
 const SUPPLIER_ID = 'supplier-1';
+const AMAZON_ACCOUNT_ID = 'account-1';
+const SELLERBOARD_SOURCE_ID = 'sellerboard-1';
 
 function buildDatabase() {
   const db = new FakeDatabase();
@@ -118,12 +120,75 @@ function buildDatabase() {
     { id: 'product-1', asin: 'B007P55HOW', sku: 'DC-50944', title: 'Piano Humidifier Pads', brand: 'Dampp-Chaser' },
     { id: 'product-2', asin: 'B00948OEPQ', sku: 'DC-UHP-2', title: 'Humidifier Treatment 16oz', brand: 'Dampp-Chaser' },
   ]);
-  db.seed(ECOBASE_COLLECTIONS.silverCompanyProductFamilies, [{ id: 'family-1' }]);
+  db.seed(ECOBASE_COLLECTIONS.silverCompanyProductFamilies, [
+    { id: 'family-1', companyId: COMPANY_ID, amazonAccountId: AMAZON_ACCOUNT_ID, marketplace: 'Amazon.com' },
+  ]);
   db.seed(ECOBASE_COLLECTIONS.silverCompanyProducts, [
-    { id: 'cp-1', companyId: COMPANY_ID, productId: 'product-1', companyProductFamilyId: 'family-1' },
-    { id: 'cp-2', companyId: COMPANY_ID, productId: 'product-2', companyProductFamilyId: 'family-1' },
+    {
+      id: 'cp-1',
+      companyId: COMPANY_ID,
+      amazonAccountId: AMAZON_ACCOUNT_ID,
+      productId: 'product-1',
+      companyProductFamilyId: 'family-1',
+    },
+    {
+      id: 'cp-2',
+      companyId: COMPANY_ID,
+      amazonAccountId: AMAZON_ACCOUNT_ID,
+      productId: 'product-2',
+      companyProductFamilyId: 'family-1',
+    },
   ]);
   return db;
+}
+
+interface SnapshotBuckets {
+  sellableStock: number;
+  reserved: number;
+  inbound: number;
+  ordered: number;
+  prepStock: number;
+  awdStock: number;
+}
+
+/**
+ * Both family members on the same sellerboard day — `aggregateFamilyInventorySnapshots`
+ * drops a day that does not cover every member, so a half-seeded day would read as
+ * "no baseline" rather than as the numbers below.
+ */
+function seedSnapshotDay(db: FakeDatabase, snapshotDate: string, cp1: SnapshotBuckets, cp2: SnapshotBuckets) {
+  db.seed(ECOBASE_COLLECTIONS.silverInventorySnapshots, [
+    {
+      id: `snap-${snapshotDate}-cp1`,
+      companyProductId: 'cp-1',
+      sourceConnectionId: SELLERBOARD_SOURCE_ID,
+      snapshotDate,
+      ...cp1,
+    },
+    {
+      id: `snap-${snapshotDate}-cp2`,
+      companyProductId: 'cp-2',
+      sourceConnectionId: SELLERBOARD_SOURCE_ID,
+      snapshotDate,
+      ...cp2,
+    },
+  ]);
+}
+
+function seedSellerboardWorld(db: FakeDatabase) {
+  db.seed(ECOBASE_COLLECTIONS.sourceConnections, [
+    { id: SELLERBOARD_SOURCE_ID, sourceType: 'sellerboard', active: true },
+  ]);
+  seedSnapshotDay(
+    db,
+    '2026-07-20',
+    { sellableStock: 8, reserved: 2, inbound: 1, ordered: 5, prepStock: 3, awdStock: 0 },
+    { sellableStock: 4, reserved: 0, inbound: 0, ordered: 2, prepStock: 1, awdStock: 0 },
+  );
+}
+
+function lineBaselines(db: FakeDatabase) {
+  return db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).rows.map((row) => row.inboundEntryBaseline);
 }
 
 async function createSampleOrder(service: EcobaseOrderWorkbenchService, orderRef?: string) {
@@ -340,6 +405,104 @@ describe('EcobaseOrderWorkbenchService', () => {
     await service.setOrderStatus({ orderId: detail.header.id, status: 'INBOUND MONITORING' }); // amazon_inbound
     expect(row.statusChangedAt).not.toBe(OLD_STAMP);
     expect(row.workflowStageEnteredAt).not.toBe(OLD_STAMP);
+  });
+
+  // ---- 054 R2 inbound-entry baseline ---------------------------------------
+
+  const EXPECTED_ENTRY_BASELINE = {
+    asOf: '2026-07-20',
+    // Family totals across cp-1 + cp-2, matching the grain the receipt evidence subtracts at.
+    stock: 12,
+    reserved: 2,
+    inbound: 1,
+    ordered: 7,
+    prepStock: 4,
+    awdStock: 0,
+  };
+
+  it('stamps the inbound-entry baseline on every line when the order enters amazon_inbound', async () => {
+    const detail = await createSampleOrder(service);
+    seedSellerboardWorld(db);
+    // Nothing is stamped before the transition — the field is the "entered inbound" record.
+    expect(lineBaselines(db)).toEqual([undefined, undefined]);
+
+    await service.setOrderStatus({ orderId: detail.header.id, status: 'INBOUND MONITORING' });
+
+    const baselines = lineBaselines(db);
+    expect(baselines).toHaveLength(2);
+    for (const baseline of baselines) {
+      expect(baseline).toMatchObject(EXPECTED_ENTRY_BASELINE);
+      // The id is the same content hash the reconciliation service derives for that day,
+      // so a stored baseline and a live one are the same snapshot, not lookalikes.
+      expect((baseline as { snapshotId: string }).snapshotId).toMatch(/^[0-9a-f]{64}$/);
+    }
+    // Both lines share family-1, so they share the family-aggregated entry state.
+    expect(baselines[0]).toEqual(baselines[1]);
+  });
+
+  it('never restamps while the order stays inbound — a newer snapshot cannot move the baseline', async () => {
+    const detail = await createSampleOrder(service);
+    seedSellerboardWorld(db);
+    await service.setOrderStatus({ orderId: detail.header.id, status: 'INBOUND MONITORING' });
+    const stamped = structuredClone(lineBaselines(db));
+
+    // A fat new snapshot lands, then the operator saves twice while still inbound:
+    // once re-picking the same status, once picking a different status in the SAME stage.
+    seedSnapshotDay(
+      db,
+      '2026-07-24',
+      { sellableStock: 80, reserved: 20, inbound: 10, ordered: 50, prepStock: 30, awdStock: 5 },
+      { sellableStock: 40, reserved: 0, inbound: 0, ordered: 20, prepStock: 10, awdStock: 0 },
+    );
+    await service.setOrderStatus({ orderId: detail.header.id, status: 'INBOUND MONITORING' });
+    await service.setOrderStatus({ orderId: detail.header.id, status: 'DIRECT SHIP FBA' });
+
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows[0].workflowStage).toBe('amazon_inbound');
+    expect(lineBaselines(db)).toEqual(stamped);
+  });
+
+  it('restamps with the newer snapshot when the order leaves the stage and re-enters it', async () => {
+    const detail = await createSampleOrder(service);
+    seedSellerboardWorld(db);
+    await service.setOrderStatus({ orderId: detail.header.id, status: 'INBOUND MONITORING' });
+    const firstEntry = structuredClone(lineBaselines(db));
+
+    // Back to prep (leaves the stage), a newer snapshot lands, then inbound again.
+    await service.setOrderStatus({ orderId: detail.header.id, status: 'ORDERED' });
+    seedSnapshotDay(
+      db,
+      '2026-07-24',
+      { sellableStock: 80, reserved: 20, inbound: 10, ordered: 50, prepStock: 30, awdStock: 5 },
+      { sellableStock: 40, reserved: 0, inbound: 0, ordered: 20, prepStock: 10, awdStock: 0 },
+    );
+    expect(lineBaselines(db)).toEqual(firstEntry);
+
+    await service.setOrderStatus({ orderId: detail.header.id, status: 'INBOUND MONITORING' });
+
+    expect(lineBaselines(db)).not.toEqual(firstEntry);
+    for (const baseline of lineBaselines(db)) {
+      expect(baseline).toMatchObject({
+        asOf: '2026-07-24',
+        stock: 120,
+        reserved: 20,
+        inbound: 10,
+        ordered: 70,
+        prepStock: 40,
+        awdStock: 5,
+      });
+    }
+  });
+
+  it('leaves the baseline alone on stage changes that are not an inbound entry', async () => {
+    const detail = await createSampleOrder(service);
+    seedSellerboardWorld(db);
+    await service.setOrderStatus({ orderId: detail.header.id, status: 'ORDERED' }); // in_prep
+    expect(lineBaselines(db)).toEqual([undefined, undefined]);
+
+    await service.setOrderStatus({ orderId: detail.header.id, status: 'INBOUND MONITORING' });
+    const stamped = structuredClone(lineBaselines(db));
+    await service.setOrderStatus({ orderId: detail.header.id, status: 'COMPLETE' }); // amazon_inbound -> complete
+    expect(lineBaselines(db)).toEqual(stamped);
   });
 
   // ---- T2.4 confirmInboundCompletion guards --------------------------------

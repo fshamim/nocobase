@@ -10,7 +10,10 @@
 import { describe, expect, it } from 'vitest';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
 import { EcobaseSupplierOrderImportApplyService } from '../../features/source-import/server/supplier-order-import-apply-service';
-import { buildSupplierOrderImportPlan } from '../../features/source-import/server/supplier-order-import/supplier-order-import-plan';
+import {
+  buildSupplierOrderImportPlan,
+  computeSupplierOrderImportPlanDigest,
+} from '../../features/source-import/server/supplier-order-import/supplier-order-import-plan';
 import {
   preflightSupplierOrderImport,
   type SupplierOrderCatalogSnapshot,
@@ -344,6 +347,70 @@ describe('supplier/order import apply service', () => {
     expect(db.getRepository(ECOBASE_COLLECTIONS.silverActivityComments).records).toEqual(
       expect.arrayContaining([expect.objectContaining({ id: 'clickup-comment', entityId: 'workflow-draft' })]),
     );
+  });
+
+  // Issue 054 R2. The plan builder does not populate `workflowStage` today, so this
+  // branch of ensureOrders is dormant in production; the plan type carries the field and
+  // the apply writes it, so the stamp is wired and pinned here against the day it does.
+  it('stamps the inbound-entry baseline for orders the apply moves into inbound monitoring', async () => {
+    const db = new MemoryDatabase();
+    seedCatalog(db);
+    Object.assign(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductFamilies).records[0], {
+      amazonAccountId: 'account-1',
+    });
+    Object.assign(db.getRepository(ECOBASE_COLLECTIONS.silverCompanyProducts).records[0], {
+      amazonAccountId: 'account-1',
+    });
+    db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).records.push({
+      id: 'sellerboard-1',
+      sourceType: 'sellerboard',
+      active: true,
+    });
+    db.getRepository(ECOBASE_COLLECTIONS.silverInventorySnapshots).records.push({
+      id: 'snap-1',
+      companyProductId: 'company-product-1',
+      sourceConnectionId: 'sellerboard-1',
+      snapshotDate: '2026-07-15',
+      sellableStock: 8,
+      reserved: 2,
+      inbound: 1,
+      ordered: 5,
+      prepStock: 3,
+      awdStock: 0,
+    });
+
+    const built = sourcePlan();
+    const plan = {
+      ...built,
+      orders: built.orders.map((order, index) => (index === 0 ? { ...order, workflowStage: 'amazon_inbound' } : order)),
+    };
+    // The apply re-verifies the plan digest, so the edited plan is re-sealed, not forged.
+    const preflight = preflightSupplierOrderImport(
+      { ...plan, digest: computeSupplierOrderImportPlanDigest(plan) },
+      catalog(db),
+      'canonical-rebuild',
+    );
+    await new EcobaseSupplierOrderImportApplyService(db as never).apply(preflight);
+
+    const lines = db.getRepository(ECOBASE_COLLECTIONS.silverOrderLines).records;
+    const mapped = lines.find((line) => line.companyProductId === 'company-product-1');
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverOrders).records[0]).toMatchObject({
+      workflowStage: 'amazon_inbound',
+    });
+    // Stamped after the lines exist — ensureOrders alone would have had nothing to write.
+    expect(mapped?.inboundEntryBaseline).toMatchObject({
+      asOf: '2026-07-15',
+      stock: 8,
+      reserved: 2,
+      inbound: 1,
+      ordered: 5,
+      prepStock: 3,
+      awdStock: 0,
+    });
+    // Lines with no resolved listing cannot have an entry state, and stay NULL.
+    for (const line of lines.filter((line) => !line.companyProductId)) {
+      expect(line.inboundEntryBaseline ?? null).toBeNull();
+    }
   });
 
   it('does not derive supplier-product evidence from cancelled purchases', async () => {
