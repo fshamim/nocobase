@@ -27,6 +27,7 @@ import { isDrawerContextPayload, unwrapEnvelope } from '../envelope';
 import type { Translate } from '../format';
 import { CellInteractive } from './CellInteractive';
 import type { PaneRenderContext } from './render-context';
+import { StockoutUrgencyTag } from './StockoutUrgencyTag';
 import { SyncDot } from './SyncState';
 
 type FamilyMember = DrawerContextResponse['familyMembers'][number];
@@ -68,6 +69,14 @@ export function FamilyCell({ row, t, ctx }: { row: DashboardRow; t: Translate; c
       <Typography.Text type="secondary" style={{ fontSize: 11, opacity: 0.75 }}>
         {[row.identity.company, row.identity.marketplace].filter(Boolean).join(' · ')}
       </Typography.Text>
+      {/* 063-D3: the product table has no Signals column, so the OPEN-D5 urgency
+          badge for families parked outside the action panes rides here. Supply
+          Action rows are never served the field — their cell is unchanged. */}
+      {row.stockoutUrgency ? (
+        <span style={{ width: 'fit-content' }}>
+          <StockoutUrgencyTag urgency={row.stockoutUrgency} t={t} />
+        </span>
+      ) : null}
       {ctx ? (
         <CellInteractive>
           <TargetControl row={row} t={t} ctx={ctx} memberCount={memberCount} />

@@ -442,8 +442,10 @@ describe('T7 widgets', () => {
   });
 
   it('T-D5: the urgency badge renders both variants in the shared signals cluster', () => {
-    const healthy = PANE_CONFIGS.find((config) => config.pane === 'healthyInventory');
-    const signalsColumn = healthy?.columns.find((column) => column.key === 'signals');
+    // 063-D3: the six product panes dropped the Signals column; Data Readiness
+    // keeps it, and its cluster output must be UNCHANGED by the widget extraction.
+    const readiness = PANE_CONFIGS.find((config) => config.pane === 'dataReadiness');
+    const signalsColumn = readiness?.columns.find((column) => column.key === 'signals');
     if (!signalsColumn) throw new Error('missing signals column');
     const near = render(<App>{signalsColumn.render(rowWith({ stockoutUrgency: { daysUntil: 12 } }), t)}</App>);
     expect(within(near.container).getByText(`${TEXT.urgentStockoutWithin} 12 ${TEXT.dSuffix}`)).toBeTruthy();
@@ -456,6 +458,38 @@ describe('T7 widgets', () => {
     // Rows without the served field never invent the badge.
     const absent = render(<App>{signalsColumn.render(rowWith({}), t)}</App>);
     expect(within(absent.container).queryByText(TEXT.urgentStockoutNow)).toBeNull();
+    expect(within(absent.container).queryByText(new RegExp('stockout'))).toBeNull();
+  });
+
+  it('063-D3: FamilyCell carries the urgency badge ONLY when the row was served the field', () => {
+    const ctx = makeContext();
+    const near = render(
+      <App>
+        <FamilyCell row={rowWith({ stockoutUrgency: { daysUntil: 12 } })} t={t} ctx={ctx} />
+      </App>,
+    );
+    expect(within(near.container).getByText(`${TEXT.urgentStockoutWithin} 12 ${TEXT.dSuffix}`)).toBeTruthy();
+    const imminent = render(
+      <App>
+        <FamilyCell row={rowWith({ stockoutUrgency: { daysUntil: 0 } })} t={t} ctx={ctx} />
+      </App>,
+    );
+    expect(within(imminent.container).getByText(TEXT.urgentStockoutNow)).toBeTruthy();
+    // A date already passed is the imminent variant too — never a negative number.
+    const passed = render(
+      <App>
+        <FamilyCell row={rowWith({ stockoutUrgency: { daysUntil: -3 } })} t={t} ctx={ctx} />
+      </App>,
+    );
+    expect(within(passed.container).getByText(TEXT.urgentStockoutNow)).toBeTruthy();
+    expect(within(passed.container).queryByText(new RegExp('-3'))).toBeNull();
+    // Supply Action rows are never served the field -> their FamilyCell is unchanged.
+    const absent = render(
+      <App>
+        <FamilyCell row={ENRICHED} t={t} ctx={ctx} />
+      </App>,
+    );
+    expect(ENRICHED.stockoutUrgency).toBeUndefined();
     expect(within(absent.container).queryByText(new RegExp('stockout'))).toBeNull();
   });
 

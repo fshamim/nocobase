@@ -8,15 +8,22 @@
  */
 
 /**
- * The 11 pane definitions in REQ-P display order (T-2.4).
+ * The pane definitions in REQ-P display order (T-2.4).
  *
- * REQ-X6: repeated categorical values render as badges inside the single
- * "Signals" cell (max one badge cluster per row); center-stage columns are the
- * pane's decision inputs only (answer, money, dates, tier, last activity) —
- * everything else waits for the drawer. Badges come from served fields only.
+ * 063-D1: the seven PRODUCT panes (Supply Action, Healthy, Excess, Stuck,
+ * Zero-stock, Untiered, Discontinued & paused) all point at the one shared
+ * table in `product-table-columns.tsx` — they have no columns of their own.
+ * What remains here are the order panes and the two panes that still use the v1
+ * Signals cluster (Data Readiness, Performance Review).
+ *
+ * REQ-X6: for those v1 panes, repeated categorical values render as badges
+ * inside the single "Signals" cell (max one badge cluster per row); center-stage
+ * columns are the pane's decision inputs only (answer, money, dates, tier, last
+ * activity) — everything else waits for the drawer. Badges come from served
+ * fields only.
  */
 
-import { Tag, Tooltip, Typography } from 'antd';
+import { Tag, Typography } from 'antd';
 import React from 'react';
 import type { BufferStatus, DashboardRow, PaneKey, PerformanceBand, VelocityTrend } from '../server/contract';
 import { reasonLabel, TEXT } from './dashboard-text';
@@ -27,22 +34,10 @@ import {
   TIER_TAG_COLOR,
   TREND_TAG_COLOR,
 } from './dashboard-tokens';
-import {
-  daysFromNow,
-  EM_DASH,
-  formatDate,
-  formatDays,
-  formatMoney,
-  formatMonthDay,
-  formatNumber,
-  type Translate,
-} from './format';
-import { ActionPill } from './widgets/ActionPill';
-import { FamilyCell } from './widgets/FamilyCell';
+import { formatDate, formatDays, formatNumber, type Translate } from './format';
+import { LAST_ACTIVITY_COLUMN, PRODUCT_TABLE_COLUMNS, PRODUCT_TABLE_SORT_OPTIONS } from './product-table-columns';
 import type { PaneRenderContext } from './widgets/render-context';
-import { StockBuckets } from './widgets/StockBuckets';
-import { SupplierBadge } from './widgets/SupplierLeadTime';
-import { VelocityCover } from './widgets/VelocityCover';
+import { StockoutUrgencyTag } from './widgets/StockoutUrgencyTag';
 
 export interface PaneColumnConfig {
   key: string;
@@ -73,24 +68,6 @@ function productCell(row: DashboardRow): React.ReactNode {
         </Typography.Text>
       ) : null}
     </span>
-  );
-}
-
-function lastActivityCell(row: DashboardRow, t: Translate): React.ReactNode {
-  if (!row.lastActivity) {
-    return <Typography.Text type="secondary">{t(TEXT.noActivityYet)}</Typography.Text>;
-  }
-  const { preview, author, at } = row.lastActivity;
-  const suffix = [author, at ? at.slice(0, 10) : null].filter(Boolean).join(' · ');
-  return (
-    <Tooltip title={preview}>
-      <span>
-        <Typography.Text ellipsis style={{ display: 'block', maxWidth: 240 }}>
-          {preview || t(TEXT.unknown)}
-        </Typography.Text>
-        {suffix ? <Typography.Text type="secondary">{suffix}</Typography.Text> : null}
-      </span>
-    </Tooltip>
   );
 }
 
@@ -132,13 +109,10 @@ function signalsCell(row: DashboardRow, t: Translate, options: SignalOptions = {
   const tags: React.ReactNode[] = [];
   // T-D5 (approved OPEN-D5): tiered near-stockout families parked outside the
   // action panes wear the urgency badge wherever the signals cluster renders.
+  // 063-D3: the shared product table has no Signals column, so the badge itself
+  // lives in a widget that FamilyCell renders too.
   if (row.stockoutUrgency) {
-    const { daysUntil } = row.stockoutUrgency;
-    tags.push(
-      <Tag key="stockout-urgency" color={DASHBOARD_TAG_COLORS.danger}>
-        {daysUntil <= 0 ? t(TEXT.urgentStockoutNow) : `${t(TEXT.urgentStockoutWithin)} ${daysUntil} ${t(TEXT.dSuffix)}`}
-      </Tag>,
-    );
+    tags.push(<StockoutUrgencyTag key="stockout-urgency" urgency={row.stockoutUrgency} t={t} />);
   }
   const tier = row.tier?.current ?? row.tier?.baseline;
   if (tier) {
@@ -231,11 +205,6 @@ function signalsCell(row: DashboardRow, t: Translate, options: SignalOptions = {
 }
 
 const product: PaneColumnConfig = { key: 'product', titleKey: TEXT.colProduct, render: (row) => productCell(row) };
-const lastActivity: PaneColumnConfig = {
-  key: 'lastActivity',
-  titleKey: TEXT.colLastActivity,
-  render: (row, t) => lastActivityCell(row, t),
-};
 const orderRef: PaneColumnConfig = {
   key: 'order',
   titleKey: TEXT.colOrder,
@@ -251,16 +220,6 @@ const estOos: PaneColumnConfig = {
   titleKey: TEXT.colEstOos,
   render: (row, t) => formatDate(row.estimatedOosDate, t),
 };
-const daysOfCover: PaneColumnConfig = {
-  key: 'daysOfCover',
-  titleKey: TEXT.colDaysOfCover,
-  render: (row, t) => formatDays(row.daysOfCover, t),
-};
-const profitRisk: PaneColumnConfig = {
-  key: 'profitRisk',
-  titleKey: TEXT.colProfitRisk,
-  render: (row, t) => formatMoney(row.estimatedProfitRisk, t),
-};
 const stock: PaneColumnConfig = {
   key: 'stock',
   titleKey: TEXT.colStock,
@@ -270,109 +229,24 @@ function signals(options: SignalOptions = {}): PaneColumnConfig {
   return { key: 'signals', titleKey: TEXT.colSignals, render: (row, t) => signalsCell(row, t, options) };
 }
 
-/** T7/R1-4: date + relative urgency ONLY (the supplier badge lives in Order qty now). */
-function orderByCell(row: DashboardRow, t: Translate): React.ReactNode {
-  const days = row.daysUntilSafeReorder;
-  const passed = days !== null && days <= 0;
-  const soon = days !== null && days > 0 && days <= 7;
-  const relative =
-    days === null ? null : passed ? t(TEXT.relPassed) : `${t(TEXT.relInPrefix)} ${Math.ceil(days)} ${t(TEXT.dSuffix)}`;
-  return (
-    <span style={{ fontVariantNumeric: 'tabular-nums' }}>
-      {row.latestSafeReorderDate ? (
-        <Typography.Text strong={passed || soon} type={passed ? 'danger' : soon ? 'warning' : undefined}>
-          {formatMonthDay(row.latestSafeReorderDate)}
-          {relative ? ` — ${relative}` : ''}
-        </Typography.Text>
-      ) : (
-        <Typography.Text type="secondary">{EM_DASH}</Typography.Text>
-      )}
-    </span>
-  );
-}
-
-/**
- * T7/R1-3/R1-4 (R5): recommended qty + cover note + the supplier badge (the
- * growth-percent control is REMOVED — parked concept).
- */
-function orderQtyCell(row: DashboardRow, t: Translate, ctx?: PaneRenderContext): React.ReactNode {
-  const qty = row.recommendedOrderQty;
-  return (
-    <span style={{ fontVariantNumeric: 'tabular-nums', display: 'inline-flex', flexDirection: 'column', gap: 3 }}>
-      {qty !== null ? (
-        <Typography.Text strong style={{ fontSize: 15 }}>
-          {qty}
-        </Typography.Text>
-      ) : (
-        <Typography.Text type="secondary">{EM_DASH}</Typography.Text>
-      )}
-      {/* R1-6: the coverage rule lives in the header hint; a row only speaks
-          up when its horizon DIFFERS from the default (a real operator override). */}
-      {qty !== null &&
-      row.targetCoverDays !== null &&
-      typeof ctx?.targetCoverDaysDefault === 'number' &&
-      row.targetCoverDays !== ctx.targetCoverDaysDefault ? (
-        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          {`${t(TEXT.coversPrefix)} ${row.targetCoverDays} ${t(TEXT.dSuffix)}`}
-        </Typography.Text>
-      ) : null}
-      <SupplierBadge supplier={row.supplier} fbaReceivingBufferDays={ctx?.fbaReceivingBufferDays ?? null} t={t} />
-    </span>
-  );
-}
-
-/** T7/R1-6 (R6): compact dynamic-only money cell — the rule lives in the header hint. */
-function moneyAtRiskCell(row: DashboardRow, t: Translate): React.ReactNode {
-  const risk = row.estimatedProfitRisk;
-  if (risk === null || risk === 0) return <Typography.Text type="secondary">{EM_DASH}</Typography.Text>;
-  return (
-    <span style={{ fontVariantNumeric: 'tabular-nums' }}>
-      <Typography.Text strong type="danger">
-        {formatMoney(risk, t)}
-      </Typography.Text>
-      {row.moneyRiskUncoveredDays !== null ? (
-        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          {` · ${Math.round(row.moneyRiskUncoveredDays)} ${t(TEXT.dSuffix)}`}
-        </Typography.Text>
-      ) : null}
-    </span>
-  );
-}
-
 export const PANE_CONFIGS: PaneConfig[] = [
   {
-    // T7: the eight mockup columns — which product → stock → velocity →
-    // when to order → how much → cost of waiting → what was said → what to do.
+    // 063-D1: Supply Action's eight mockup columns are now THE product table —
+    // the same array instance backs every product pane below.
     pane: 'supplyAction',
     titleKey: TEXT.paneSupplyAction,
-    // T-R1 (R1-2): visible sort scenarios; Tier (server default) first.
-    sortOptions: [
-      { labelKey: TEXT.tier },
-      { value: 'daysUntilSafeReorder', labelKey: TEXT.sortMostUrgent },
-      { value: 'estimatedProfitRisk', labelKey: TEXT.metricMoneyAtRisk },
-      { value: 'daysOfCover', labelKey: TEXT.colDaysOfCover },
-      { value: 'currentPlanningStock', labelKey: TEXT.colStock },
-    ],
-    columns: [
-      { key: 'family', titleKey: TEXT.colProduct, render: (row, t, ctx) => <FamilyCell row={row} t={t} ctx={ctx} /> },
-      { key: 'stock', titleKey: TEXT.colStock, render: (row, t) => <StockBuckets stock={row.stock} t={t} /> },
-      { key: 'velocity', titleKey: TEXT.colVelocityCover, render: (row, t) => <VelocityCover row={row} t={t} /> },
-      { key: 'orderBy', titleKey: TEXT.colOrderBy, render: orderByCell },
-      { key: 'orderQty', titleKey: TEXT.colOrderQty, hintKey: TEXT.hintOrderQty, render: orderQtyCell },
-      { key: 'moneyAtRisk', titleKey: TEXT.metricMoneyAtRisk, hintKey: TEXT.hintMoneyAtRisk, render: moneyAtRiskCell },
-      lastActivity,
-      { key: 'action', titleKey: TEXT.colAction, render: (row, t) => <ActionPill row={row} t={t} /> },
-    ],
+    sortOptions: PRODUCT_TABLE_SORT_OPTIONS,
+    columns: PRODUCT_TABLE_COLUMNS,
   },
   {
     pane: 'activeOrders',
     titleKey: TEXT.paneActiveOrders,
-    columns: [product, orderRef, daysInStage, lastActivity, signals({ clickupStatus: true })],
+    columns: [product, orderRef, daysInStage, LAST_ACTIVITY_COLUMN, signals({ clickupStatus: true })],
   },
   {
     pane: 'inPrepMonitoring',
     titleKey: TEXT.paneInPrepMonitoring,
-    columns: [product, orderRef, daysInStage, lastActivity, signals({ prepPath: true })],
+    columns: [product, orderRef, daysInStage, LAST_ACTIVITY_COLUMN, signals({ prepPath: true })],
   },
   {
     pane: 'inboundMonitoring',
@@ -387,54 +261,52 @@ export const PANE_CONFIGS: PaneConfig[] = [
       },
       estOos,
       daysInStage,
-      lastActivity,
+      LAST_ACTIVITY_COLUMN,
       signals({ buffer: true, prepPath: true }),
     ],
   },
   {
     pane: 'healthyInventory',
     titleKey: TEXT.paneHealthyInventory,
-    columns: [product, daysOfCover, estOos, signals({ trend: true })],
+    sortOptions: PRODUCT_TABLE_SORT_OPTIONS,
+    columns: PRODUCT_TABLE_COLUMNS,
   },
   {
     pane: 'excessInventory',
     titleKey: TEXT.paneExcessInventory,
-    columns: [product, daysOfCover, stock, signals({ trend: true })],
+    sortOptions: PRODUCT_TABLE_SORT_OPTIONS,
+    columns: PRODUCT_TABLE_COLUMNS,
   },
   {
     pane: 'stuckInventory',
     titleKey: TEXT.paneStuckInventory,
-    columns: [
-      product,
-      stock,
-      { key: 'unitCost', titleKey: TEXT.colUnitCost, render: (row, t) => formatMoney(row.stock?.unitCost, t) },
-      signals(),
-    ],
+    sortOptions: PRODUCT_TABLE_SORT_OPTIONS,
+    columns: PRODUCT_TABLE_COLUMNS,
   },
-  { pane: 'zeroStock', titleKey: TEXT.paneZeroStock, columns: [product, estOos, signals()] },
+  {
+    pane: 'zeroStock',
+    titleKey: TEXT.paneZeroStock,
+    sortOptions: PRODUCT_TABLE_SORT_OPTIONS,
+    columns: PRODUCT_TABLE_COLUMNS,
+  },
   { pane: 'dataReadiness', titleKey: TEXT.paneDataReadiness, columns: [product, stock, signals({ reasons: true })] },
   {
     pane: 'performanceReview',
     titleKey: TEXT.panePerformanceReview,
     columns: [product, signals({ band: true, trend: true })],
   },
-  { pane: 'untieredProducts', titleKey: TEXT.paneUntieredProducts, columns: [product, stock, signals()] },
+  {
+    pane: 'untieredProducts',
+    titleKey: TEXT.paneUntieredProducts,
+    sortOptions: PRODUCT_TABLE_SORT_OPTIONS,
+    columns: PRODUCT_TABLE_COLUMNS,
+  },
   {
     // Task 002: clearly separate, BOTTOM pane — these families feed no signals.
     pane: 'discontinuedPaused',
     titleKey: TEXT.paneDiscontinuedPaused,
     showPaneSearch: true,
-    columns: [
-      product,
-      { key: 'members', titleKey: TEXT.colMembers, render: (row, t) => formatNumber(row.familyMemberCount ?? null, t) },
-      { key: 'supplier', titleKey: TEXT.drawerSupplier, render: (row, t) => row.supplierName ?? t(TEXT.unknown) },
-      { key: 'lastMovement', titleKey: TEXT.colLastMovement, render: (row, t) => formatDate(row.lastMovementMonth, t) },
-      {
-        key: 'signals',
-        titleKey: TEXT.colSignals,
-        render: (row) =>
-          row.lifecycleProvenance ? <Tag color={DASHBOARD_TAG_COLORS.neutral}>{row.lifecycleProvenance}</Tag> : null,
-      },
-    ],
+    sortOptions: PRODUCT_TABLE_SORT_OPTIONS,
+    columns: PRODUCT_TABLE_COLUMNS,
   },
 ];

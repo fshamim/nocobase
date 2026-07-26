@@ -20,6 +20,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import InventoryDashboardPage from '../InventoryDashboardPage';
 import type { ObserveVisibility } from '../PaneSection';
+import { TEXT } from '../dashboard-text';
 import headerFixture from '../../server/__tests__/fixtures/expected-responses/header.json';
 import paneSupplyAction from '../../server/__tests__/fixtures/expected-responses/pane-supplyAction.json';
 import paneActiveOrders from '../../server/__tests__/fixtures/expected-responses/pane-activeOrders.json';
@@ -412,6 +413,40 @@ describe('InventoryDashboardPage (Gate G2)', () => {
       expect(paneRequests()).toHaveLength(1);
     } finally {
       vi.unstubAllGlobals();
+    }
+  });
+
+  it('063 T1: every product pane renders the eight Supply Action columns and the sort selector', async () => {
+    const productPanes = [
+      'healthyInventory',
+      'excessInventory',
+      'stuckInventory',
+      'zeroStock',
+      'untieredProducts',
+      'discontinuedPaused',
+    ];
+    renderPage(observeAll);
+    for (const pane of productPanes) {
+      await expandPane(pane);
+      await waitFor(() => expect(paneRequests(pane)).toHaveLength(1));
+      const section = document.querySelector(`section[data-pane="${pane}"]`) as HTMLElement;
+      await waitFor(() => expect(section.querySelectorAll('tbody tr.ant-table-row').length).toBeGreaterThan(0));
+      for (const title of [
+        TEXT.colProduct,
+        TEXT.colStock,
+        TEXT.colVelocityCover,
+        TEXT.colOrderBy,
+        TEXT.colOrderQty,
+        TEXT.metricMoneyAtRisk,
+        TEXT.colLastActivity,
+        TEXT.colAction,
+      ]) {
+        expect(within(section).getByText(title), `${pane} is missing the ${title} column`).toBeTruthy();
+      }
+      // The v1 Signals cluster is gone from these panes (063-D3 moved its one
+      // surviving badge into FamilyCell).
+      expect(within(section).queryByText(TEXT.colSignals), `${pane} still shows Signals`).toBeNull();
+      expect(within(section).getByRole('combobox', { name: new RegExp(TEXT.sortLabel) })).toBeTruthy();
     }
   });
 
