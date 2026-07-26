@@ -548,3 +548,105 @@ describe('PaneDrawer (Gate G3)', () => {
     );
   });
 });
+
+/**
+ * 065: the recent-tier window reaches the drawer.
+ *
+ * The identity header wears the same badge as every table cell — current tier,
+ * else the last closed month with a muted hint, else nothing. `baselineTier` is
+ * history: banished from the header, it gets one muted line in Overview (Supply
+ * Action rows included — the drawer is the agreed home for history). The header
+ * pill adopts the table's 063-D2 evidence gate, minus the em-dash.
+ */
+describe('065: recent tier in the drawer, baseline as history', () => {
+  type FixtureContext = { primaryRow: Record<string, unknown> };
+  const primaryRowOf = (fixture: unknown) => (fixture as FixtureContext).primaryRow;
+
+  const withPrimaryRow = (fixture: unknown, patch: Record<string, unknown>) => ({
+    ...(fixture as Record<string, unknown>),
+    primaryRow: { ...primaryRowOf(fixture), ...patch },
+  });
+
+  /** Everything calm + fresh lead time + trusted velocity = the `order_soon` command. */
+  const orderSoon = (fixture: unknown) => ({
+    daysUntilSafeReorder: 20,
+    supplier: { ...(primaryRowOf(fixture).supplier as Record<string, unknown>), leadTimeFreshness: 'fresh' },
+    velocity: { ...(primaryRowOf(fixture).velocity as Record<string, unknown>), basis: 'rolling_30' },
+  });
+
+  const mockDrawer = (context: unknown) => {
+    request.mockReset();
+    request.mockImplementation((args: { url: string; data: Record<string, unknown> }) => {
+      if (args.url === 'ecobaseInventoryDashboard:header') return respond(headerFixture);
+      if (args.url === 'ecobaseInventoryDashboard:pane') return respond(PANE_FIXTURES[String(args.data.pane)]);
+      if (args.url === 'ecobaseInventoryDashboard:drawerContext') return respond(context);
+      return respond({ ok: true });
+    });
+  };
+
+  /** The identity badge is the only drawer tag whose text is a bare tier letter. */
+  const tierBadges = (scope: HTMLElement) =>
+    Array.from(scope.querySelectorAll<HTMLElement>('.ant-tag')).filter((tag) =>
+      /^[A-D]$/.test((tag.textContent ?? '').trim()),
+    );
+
+  beforeEach(() => {
+    cleanup();
+    request.mockReset();
+    navigateSpy.mockReset();
+    mockApi();
+  });
+
+  it('badges the last closed month with a hint; a baseline-only row gets a line, never a badge', async () => {
+    // Zero-stock is the live case — 5 of its rows are ranked by last month only.
+    mockDrawer(withPrimaryRow(drawerZeroStock, { tier: { baseline: null, current: null, lastClosedMonth: 'B' } }));
+    const lastMonth = await openDrawer('zeroStock');
+    expect(tierBadges(lastMonth).map((tag) => tag.textContent)).toEqual(['B']);
+    expect(within(lastMonth).getAllByText('last mo.').length).toBeGreaterThan(0);
+    // No baseline on this row -> no historical line invented.
+    expect(within(lastMonth).queryByText(/^Baseline tier \(historical\)/)).toBeNull();
+    cleanup();
+
+    // Baseline-only, on a SUPPLY ACTION row: the header stays silent about a
+    // rank the product has not earned in two months...
+    mockDrawer(withPrimaryRow(drawerSupplyAction, { tier: { baseline: 'C', current: null, lastClosedMonth: null } }));
+    const baselineOnly = await openDrawer('supplyAction');
+    expect(tierBadges(baselineOnly)).toHaveLength(0);
+    expect(within(baselineOnly).queryByText('last mo.')).toBeNull();
+    // ...while Overview keeps the history, in words, where it cannot mislead.
+    expect(within(baselineOnly).getByText('Baseline tier (historical): C')).toBeTruthy();
+  });
+
+  it('keeps the current tier plain and unhinted when the product is ranked this month', async () => {
+    mockDrawer(withPrimaryRow(drawerStuck, { tier: { baseline: 'A', current: 'B', lastClosedMonth: 'D' } }));
+    const dialog = await openDrawer('stuckInventory');
+    expect(tierBadges(dialog).map((tag) => tag.textContent)).toEqual(['B']);
+    expect(within(dialog).queryByText('last mo.')).toBeNull();
+    // Baseline still narrates itself below, without ever colouring a badge.
+    expect(within(dialog).getByText('Baseline tier (historical): A')).toBeTruthy();
+  });
+
+  it('header pill: ordering COMMANDS stay silent off Supply Action, evidence verdicts still speak', async () => {
+    // A stuck product told to "Order soon" would be a wrong recommendation (F7).
+    mockDrawer(withPrimaryRow(drawerStuck, { pane: 'stuckInventory', ...orderSoon(drawerStuck) }));
+    const command = await openDrawer('stuckInventory');
+    expect(within(command).queryByText('Order soon')).toBeNull();
+    // The header shows nothing at all — the table's em-dash would be noise here.
+    expect(within(command).queryByText('Overdue — order today')).toBeNull();
+    cleanup();
+
+    // Evidence-driven verdicts are pane-independent and keep speaking (063-D2).
+    mockDrawer(
+      withPrimaryRow(drawerStuck, { pane: 'stuckInventory', ...orderSoon(drawerStuck), daysUntilSafeReorder: -3 }),
+    );
+    const evidence = await openDrawer('stuckInventory');
+    expect(within(evidence).getAllByText('Overdue — order today').length).toBeGreaterThan(0);
+    cleanup();
+
+    // The SAME command verdict on a Supply Action row still speaks — that pane
+    // IS the ordering queue.
+    mockDrawer(withPrimaryRow(drawerSupplyAction, { pane: 'supplyAction', ...orderSoon(drawerSupplyAction) }));
+    const supply = await openDrawer('supplyAction');
+    expect(within(supply).getAllByText('Order soon').length).toBeGreaterThan(0);
+  });
+});

@@ -26,6 +26,7 @@ import { DASHBOARD_TAG_COLORS, TIER_TAG_COLOR } from '../dashboard-tokens';
 import { isDrawerContextPayload, unwrapEnvelope } from '../envelope';
 import type { Translate } from '../format';
 import { CellInteractive } from './CellInteractive';
+import { recentTierOf } from './recent-tier';
 import type { PaneRenderContext } from './render-context';
 import { StockoutUrgencyTag } from './StockoutUrgencyTag';
 import { SyncDot } from './SyncState';
@@ -33,21 +34,28 @@ import { SyncDot } from './SyncState';
 type FamilyMember = DrawerContextResponse['familyMembers'][number];
 
 export function FamilyCell({ row, t, ctx }: { row: DashboardRow; t: Translate; ctx?: PaneRenderContext }) {
-  // T-R2 root cause: this coalesced baseline-first while the sort/badge rule
-  // and every v1 renderer coalesce CURRENT-first — one canonical order now.
-  const tier = (row.tier.current ?? row.tier.baseline ?? '').trim();
+  // 065: the ONE badge rule — recent tier only (current, else last closed month
+  // with a muted hint). Baseline is history and lives in the drawer alone.
+  const tier = recentTierOf(row.tier);
   const pending = Boolean(ctx?.pendingFamilies.has(row.identity.familyKey));
   const memberCount = row.familyMemberCount ?? 1;
   return (
     <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 3, minWidth: 200 }}>
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
         {tier ? (
-          <Tag
-            color={TIER_TAG_COLOR[tier.toLowerCase()] ?? DASHBOARD_TAG_COLORS.neutral}
-            style={{ borderRadius: 999, marginInlineEnd: 0, paddingInline: 6, fontSize: 11, fontWeight: 600 }}
-          >
-            {tier.toUpperCase()}
-          </Tag>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <Tag
+              color={TIER_TAG_COLOR[tier.tier.toLowerCase()] ?? DASHBOARD_TAG_COLORS.neutral}
+              style={{ borderRadius: 999, marginInlineEnd: 0, paddingInline: 6, fontSize: 11, fontWeight: 600 }}
+            >
+              {tier.tier.toUpperCase()}
+            </Tag>
+            {tier.basis === 'last_month' ? (
+              <Typography.Text type="secondary" style={{ fontSize: 10.5 }}>
+                {t(TEXT.tierLastMonthHint)}
+              </Typography.Text>
+            ) : null}
+          </span>
         ) : null}
         <Typography.Text strong>{row.identity.asin ?? ''}</Typography.Text>
         {pending ? <SyncDot t={t} /> : null}

@@ -73,6 +73,8 @@ export const TEXT = {
   drawerAssignSupplier: 'Assign supplier',
   metricTieredNeedingAttention: 'Tiered families needing attention',
   drawerPreviousStatus: 'Previous status',
+  // 065: baseline tier is history — the drawer's Overview tab is its only home.
+  drawerBaselineTierLabel: 'Baseline tier (historical)',
   // 063 D6: why a product sits in this pane (every product pane except Supply Action).
   drawerWhyHere: "Why it's here",
   drawerFamilyTarget: 'Family target',
@@ -81,6 +83,8 @@ export const TEXT = {
   toastSupplierAssigned: 'Supplier assigned',
   drawerReactivateReason: 'Reactivation reason (required)',
   tier: 'Tier',
+  // 065: the muted suffix on a badge whose letter comes from the last closed month.
+  tierLastMonthHint: 'last mo.',
   badgeStale: 'Stale data',
   badgeFamilySplit: 'Family split',
   badgeUntieredProjected: 'Untiered (projected)',

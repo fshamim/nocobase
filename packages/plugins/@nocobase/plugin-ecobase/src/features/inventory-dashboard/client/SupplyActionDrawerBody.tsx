@@ -26,8 +26,9 @@ import { paneTitle, reasonLabel, TEXT } from './dashboard-text';
 import { DASHBOARD_TAG_COLORS, TIER_TAG_COLOR, TREND_TAG_COLOR } from './dashboard-tokens';
 import type { RunDrawerMutation } from './drawer-sections';
 import { EM_DASH, formatMoney, formatMonthDay, type Translate } from './format';
-import { ActionPill } from './widgets/ActionPill';
+import { productActionPillNode } from './product-table-columns';
 import { ProfitRangeChart } from './widgets/ProfitRangeChart';
+import { recentTierOf } from './widgets/recent-tier';
 import { StockBuckets } from './widgets/StockBuckets';
 import { CreateOrderModal as OrderWorkbenchCreateModal } from './order/CreateOrderModal';
 import { OrderViewDrawer } from './order/OrderViewDrawer';
@@ -100,9 +101,9 @@ export function SupplyActionDrawerBody(props: SupplyActionDrawerBodyProps) {
   const [activeTab, setActiveTab] = useState('overview');
   const [viewOrderId, setViewOrderId] = useState<string | null>(null);
   const commentInputRef = useRef<{ focus: () => void } | null>(null);
-  // T-R2 root cause: this coalesced baseline-first while the sort/badge rule
-  // and every v1 renderer coalesce CURRENT-first — one canonical order now.
-  const tier = (row.tier.current ?? row.tier.baseline ?? '').trim();
+  // 065: the ONE badge rule (FamilyCell / signals tag / here) — recent tier
+  // only. The baseline letter is history; it speaks in Overview, never here.
+  const tier = recentTierOf(row.tier);
   const companyProductId = primaryCompanyProductId(row, context);
 
   const focusComments = () => {
@@ -115,17 +116,27 @@ export function SupplyActionDrawerBody(props: SupplyActionDrawerBodyProps) {
       {/* Identity header — D1: no database ids anywhere. */}
       <Space wrap align="center" size={10}>
         {tier ? (
-          <Tag
-            color={TIER_TAG_COLOR[tier.toLowerCase()] ?? DASHBOARD_TAG_COLORS.neutral}
-            style={{ borderRadius: 999, paddingInline: 6, fontSize: 11, fontWeight: 600, marginInlineEnd: 0 }}
-          >
-            {tier.toUpperCase()}
-          </Tag>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <Tag
+              color={TIER_TAG_COLOR[tier.tier.toLowerCase()] ?? DASHBOARD_TAG_COLORS.neutral}
+              style={{ borderRadius: 999, paddingInline: 6, fontSize: 11, fontWeight: 600, marginInlineEnd: 0 }}
+            >
+              {tier.tier.toUpperCase()}
+            </Tag>
+            {tier.basis === 'last_month' ? (
+              <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                {t(TEXT.tierLastMonthHint)}
+              </Typography.Text>
+            ) : null}
+          </span>
         ) : null}
         <Typography.Text strong style={{ fontSize: 18 }}>
           {row.identity.asin ?? row.identity.sku ?? ''}
         </Typography.Text>
-        <ActionPill row={row} t={t} />
+        {/* 065 (ruling 5): the header pill obeys the table's 063-D2 gate — an
+            ordering COMMAND off Supply Action would be a wrong recommendation.
+            The header shows nothing rather than the table's em-dash. */}
+        {productActionPillNode(row, t)}
         {pendingSync ? (
           <Tag bordered style={{ borderRadius: 999, borderStyle: 'dashed', color: 'rgba(0,0,0,0.45)' }}>
             {t(TEXT.syncChip)}
@@ -629,6 +640,7 @@ function SetStatusModal({
 
 function OverviewTab({ row, context, t }: { row: DashboardRow; context: DrawerContextResponse; t: Translate }) {
   const trend = row.velocityTrend ?? 'unknown';
+  const baselineTier = (row.tier?.baseline ?? '').trim();
   return (
     <Space direction="vertical" size="middle" style={{ width: '100%' }}>
       <Space align="center" size={8}>
@@ -716,6 +728,13 @@ function OverviewTab({ row, context, t }: { row: DashboardRow; context: DrawerCo
       {typeof row.lifecyclePreviousStatus === 'string' ? (
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
           {`${t(TEXT.drawerPreviousStatus)}: ${row.lifecyclePreviousStatus}`}
+        </Typography.Text>
+      ) : null}
+      {/* 065: the baseline tier is HISTORY — banished from every badge, it gets
+          this one muted context line (on Supply Action rows too). */}
+      {baselineTier ? (
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          {`${t(TEXT.drawerBaselineTierLabel)}: ${baselineTier}`}
         </Typography.Text>
       ) : null}
       <Typography.Text type="secondary" style={{ fontSize: 11, letterSpacing: '0.07em', textTransform: 'uppercase' }}>

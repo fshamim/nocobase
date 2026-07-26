@@ -44,6 +44,25 @@ function rowWith(overrides: Partial<DashboardRow>): DashboardRow {
   return { ...ENRICHED, ...overrides } as DashboardRow;
 }
 
+/** 065: spell only the tier fields under test; the rest of the triple is null. */
+function tierOf(tier: Partial<DashboardRow['tier']>): DashboardRow['tier'] {
+  return { baseline: null, current: null, lastClosedMonth: null, ...tier };
+}
+
+/** The tier badge is the only tag in a FamilyCell whose text is a bare letter. */
+function tierBadges(container: HTMLElement): HTMLElement[] {
+  return Array.from(container.querySelectorAll<HTMLElement>('.ant-tag')).filter((tag) =>
+    /^[A-D]$/.test((tag.textContent ?? '').trim()),
+  );
+}
+
+/** Its signals-cluster twin spells the word out: `Tier C` / `Tier C · last mo.`. */
+function tierSignalTags(container: HTMLElement): HTMLElement[] {
+  return Array.from(container.querySelectorAll<HTMLElement>('.ant-tag')).filter((tag) =>
+    (tag.textContent ?? '').trim().startsWith(`${TEXT.tier} `),
+  );
+}
+
 function makeContext(overrides: Partial<PaneRenderContext> = {}): PaneRenderContext {
   return {
     api: { request: vi.fn().mockResolvedValue({ data: { data: {} } }) },
@@ -250,7 +269,12 @@ describe('T7 widgets', () => {
     const pendingCtx = makeContext({ pendingFamilies: new Set([ENRICHED.identity.familyKey]) });
     const view = render(
       <App>
-        <FamilyCell row={rowWith({ tier: { baseline: 'D', current: null } })} t={t} ctx={pendingCtx} />
+        {/* 065: the letter must be a RECENT tier — a baseline-only row wears no badge at all. */}
+        <FamilyCell
+          row={rowWith({ tier: { baseline: null, current: 'D', lastClosedMonth: null } })}
+          t={t}
+          ctx={pendingCtx}
+        />
       </App>,
     );
     expect(view.getByText('D')).toBeTruthy();
@@ -539,22 +563,73 @@ describe('T7 widgets', () => {
     expect(within(view.container).queryByText(/stockout gap/)).toBeNull();
   });
 
-  it('T-R2: the FamilyCell tier pill coalesces CURRENT-first — identical to the sort/badge rule', () => {
-    // Staging repro: sorted by COALESCE(current, baseline) but the pill showed
-    // baseline ?? current — rows with differing tiers looked scattered.
+  it('065: the FamilyCell tier badge is the RECENT tier only — current, else last mo., else nothing', () => {
+    // T-R2 (kept): current wins over baseline, matching the sort/badge rule.
+    // 065 (new): the two-month window is the whole truth — a product whose only
+    // letter is the historical baseline wears NO badge, so the operator never
+    // reads a stale rank as today's.
     const promoted = render(
       <App>
-        <FamilyCell row={rowWith({ tier: { baseline: 'A', current: 'B' } })} t={t} ctx={makeContext()} />
+        <FamilyCell row={rowWith({ tier: tierOf({ baseline: 'A', current: 'B' }) })} t={t} ctx={makeContext()} />
       </App>,
     );
+    expect(tierBadges(promoted.container)).toHaveLength(1);
     expect(within(promoted.container).getByText('B')).toBeTruthy();
     expect(within(promoted.container).queryByText('A')).toBeNull();
-    const baselineOnly = render(
+    expect(within(promoted.container).queryByText(TEXT.tierLastMonthHint)).toBeNull();
+
+    // Last closed month only: the SAME colored badge, plus the muted hint.
+    const lastMonth = render(
       <App>
-        <FamilyCell row={rowWith({ tier: { baseline: 'C', current: null } })} t={t} ctx={makeContext()} />
+        <FamilyCell row={rowWith({ tier: tierOf({ lastClosedMonth: 'C' }) })} t={t} ctx={makeContext()} />
       </App>,
     );
-    expect(within(baselineOnly.container).getByText('C')).toBeTruthy();
+    const [lastMonthBadge] = tierBadges(lastMonth.container);
+    expect(lastMonthBadge.textContent).toBe('C');
+    expect(lastMonthBadge.className).toContain('ant-tag-orange'); // colored, not muted away
+    expect(within(lastMonth.container).getByText(TEXT.tierLastMonthHint)).toBeTruthy();
+
+    // Baseline only: history never badges.
+    const baselineOnly = render(
+      <App>
+        <FamilyCell row={rowWith({ tier: tierOf({ baseline: 'C' }) })} t={t} ctx={makeContext()} />
+      </App>,
+    );
+    expect(tierBadges(baselineOnly.container)).toHaveLength(0);
+    expect(within(baselineOnly.container).queryByText('C')).toBeNull();
+    expect(within(baselineOnly.container).queryByText(TEXT.tierLastMonthHint)).toBeNull();
+
+    // No tier at all: unchanged — no badge.
+    const none = render(
+      <App>
+        <FamilyCell row={rowWith({ tier: tierOf({}) })} t={t} ctx={makeContext()} />
+      </App>,
+    );
+    expect(tierBadges(none.container)).toHaveLength(0);
+    expect(within(none.container).queryByText(TEXT.tierLastMonthHint)).toBeNull();
+  });
+
+  it('065: the signals tier tag obeys the SAME rule, with a compact "· last mo." suffix', () => {
+    // The v1 Signals cluster (Data Readiness / Performance Review) must not be
+    // the one surface that still believes a baseline letter.
+    const readiness = PANE_CONFIGS.find((config) => config.pane === 'dataReadiness');
+    const signalsColumn = readiness?.columns.find((column) => column.key === 'signals');
+    if (!signalsColumn) throw new Error('missing signals column');
+    const cell = (tier: DashboardRow['tier']) => render(<App>{signalsColumn.render(rowWith({ tier }), t)}</App>);
+
+    const promoted = cell(tierOf({ baseline: 'A', current: 'B' }));
+    expect(within(promoted.container).getByText(`${TEXT.tier} B`)).toBeTruthy();
+    expect(within(promoted.container).queryByText(`${TEXT.tier} A`)).toBeNull();
+
+    const lastMonth = cell(tierOf({ lastClosedMonth: 'C' }));
+    const tag = within(lastMonth.container).getByText(`${TEXT.tier} C · ${TEXT.tierLastMonthHint}`);
+    expect(tag.closest('.ant-tag')?.className).toContain('ant-tag-orange');
+
+    const baselineOnly = cell(tierOf({ baseline: 'C' }));
+    expect(tierSignalTags(baselineOnly.container)).toHaveLength(0);
+
+    const none = cell(tierOf({}));
+    expect(tierSignalTags(none.container)).toHaveLength(0);
   });
 
   it('R1-5: FamilyCell shows the prominent target SKU + member count; picker disabled for singles', () => {

@@ -138,11 +138,19 @@ const EVIDENCE_VERDICT_KEYS: ReadonlySet<ActionPillVerdict['key']> = new Set([
   'verify_velocity',
 ]);
 
-function actionCell(row: DashboardRow, t: Translate): React.ReactNode {
-  if (row.pane !== 'supplyAction' && !EVIDENCE_VERDICT_KEYS.has(actionPillFor(row).key)) {
-    return <Typography.Text type="secondary">{EM_DASH}</Typography.Text>;
-  }
+/**
+ * 065 (ruling 5): the 063-D2 gate itself, so the drawer's identity header can
+ * adopt the SAME truth rule. Returns null where the pill must stay silent —
+ * the caller decides what silence looks like (the table draws an em-dash, the
+ * drawer header simply renders nothing).
+ */
+export function productActionPillNode(row: DashboardRow, t: Translate): React.ReactNode {
+  if (row.pane !== 'supplyAction' && !EVIDENCE_VERDICT_KEYS.has(actionPillFor(row).key)) return null;
   return <ActionPill row={row} t={t} />;
+}
+
+function actionCell(row: DashboardRow, t: Translate): React.ReactNode {
+  return productActionPillNode(row, t) ?? <Typography.Text type="secondary">{EM_DASH}</Typography.Text>;
 }
 
 export const PRODUCT_TABLE_COLUMNS: PaneColumnConfig[] = [

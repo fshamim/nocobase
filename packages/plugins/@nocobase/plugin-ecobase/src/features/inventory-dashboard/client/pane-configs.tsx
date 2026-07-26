@@ -36,6 +36,7 @@ import {
 } from './dashboard-tokens';
 import { formatDate, formatDays, formatNumber, type Translate } from './format';
 import { LAST_ACTIVITY_COLUMN, PRODUCT_TABLE_COLUMNS, PRODUCT_TABLE_SORT_OPTIONS } from './product-table-columns';
+import { recentTierOf } from './widgets/recent-tier';
 import type { PaneRenderContext } from './widgets/render-context';
 import { StockoutUrgencyTag } from './widgets/StockoutUrgencyTag';
 
@@ -114,11 +115,14 @@ function signalsCell(row: DashboardRow, t: Translate, options: SignalOptions = {
   if (row.stockoutUrgency) {
     tags.push(<StockoutUrgencyTag key="stockout-urgency" urgency={row.stockoutUrgency} t={t} />);
   }
-  const tier = row.tier?.current ?? row.tier?.baseline;
+  // 065: same ONE badge rule as FamilyCell and the drawer header — recent tier
+  // only, with a compact "· last mo." when the letter is the last closed month.
+  const tier = row.tier ? recentTierOf(row.tier) : null;
   if (tier) {
+    const hint = tier.basis === 'last_month' ? ` · ${t(TEXT.tierLastMonthHint)}` : '';
     tags.push(
-      <Tag key="tier" color={TIER_TAG_COLOR[tier.toLowerCase()] ?? DASHBOARD_TAG_COLORS.neutral}>
-        {`${t(TEXT.tier)} ${tier.toUpperCase()}`}
+      <Tag key="tier" color={TIER_TAG_COLOR[tier.tier.toLowerCase()] ?? DASHBOARD_TAG_COLORS.neutral}>
+        {`${t(TEXT.tier)} ${tier.tier.toUpperCase()}${hint}`}
       </Tag>,
     );
   }
