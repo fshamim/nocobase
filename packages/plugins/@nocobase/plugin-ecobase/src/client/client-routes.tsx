@@ -22,7 +22,6 @@ const DailyBriefPromptSettingsPage = lazy(
 const DataSourcesPage = lazy(() => import('../features/source-import/client/DataSourcesPage'));
 const ImportStatusPage = lazy(() => import('../features/source-import/client/ImportStatusPage'));
 const InventoryDashboardPage = lazy(() => import('../features/inventory-dashboard/client/InventoryDashboardPage'));
-const InventoryPlanningPage = lazy(() => import('../features/inventory-planning/client/InventoryPlanningPage'));
 const OrderPlanningPage = lazy(() => import('../features/order-planning/client/OrderPlanningPage'));
 const PlanningSettingsPage = lazy(() => import('./pages/PlanningSettingsPage'));
 const GoldMaintenancePage = lazy(() => import('./pages/GoldMaintenancePage'));
@@ -48,13 +47,6 @@ export const ecobaseWorkspacePages = [
     icon: 'DatabaseOutlined',
     path: `${ECOBASE_WORKSPACE_ROOT}/silver-data`,
     Component: SilverDataPage,
-  },
-  {
-    key: 'inventory-planning',
-    label: 'Inventory Planning',
-    icon: 'InboxOutlined',
-    path: `${ECOBASE_WORKSPACE_ROOT}/inventory-planning`,
-    Component: InventoryPlanningPage,
   },
   {
     key: 'inventory-dashboard',
@@ -189,7 +181,9 @@ const EcobaseWorkspacePage = () => {
 export const ecobaseWorkspaceRoutes = [
   {
     name: 'admin.ecobase.candidate-preview',
-    path: `${ECOBASE_WORKSPACE_ROOT}/inventory-planning/candidate-preview`,
+    // Issue 042: the candidate preview outlived the deleted Inventory Planning page;
+    // it now hangs off Gold Maintenance, the operator surface it actually belongs to.
+    path: `${ECOBASE_WORKSPACE_ROOT}/gold-maintenance/candidate-preview`,
     Component: CandidatePreviewPage,
   },
   {

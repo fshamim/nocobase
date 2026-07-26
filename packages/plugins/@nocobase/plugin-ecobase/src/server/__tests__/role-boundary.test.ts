@@ -182,8 +182,7 @@ describe('EcoBase role boundary', () => {
       return typeof condition === 'function' ? condition(context(user)) : condition === 'loggedIn';
     };
 
-    expect(isGranted('ecobaseInventoryPlanning', 'rows', USERS.member)).toBe(true);
-    expect(isGranted('ecobaseInventoryPlanning', 'listingPerformanceReview', USERS.member)).toBe(true);
+    expect(isGranted('ecobaseInventoryPlanning', 'candidatePreview', USERS.member)).toBe(true);
     expect(isGranted('ecobaseInventoryPlanning', 'setFamilyTarget', USERS.member)).toBe(false);
     expect(isGranted('ecobaseInventoryPlanning', 'setFamilyTarget', USERS.operator)).toBe(true);
     expect(isGranted('ecobaseInventoryPlanning', 'refreshReadModel', USERS.operator)).toBe(false);

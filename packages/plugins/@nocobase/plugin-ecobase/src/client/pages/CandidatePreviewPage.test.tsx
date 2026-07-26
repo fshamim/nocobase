@@ -24,7 +24,7 @@ vi.mock('../locale', () => ({
 }));
 
 const runId = '41501a75-bdb0-4ea1-8297-cc1ef9b972de';
-const route = `/admin/ecobase/inventory-planning/candidate-preview?runId=${runId}`;
+const route = `/admin/ecobase/gold-maintenance/candidate-preview?runId=${runId}`;
 
 function renderPage(path = route) {
   return render(
@@ -124,7 +124,7 @@ describe('dedicated candidate preview page', () => {
   });
 
   it('fails closed without the required query run ID and sends no request', () => {
-    renderPage('/admin/ecobase/inventory-planning/candidate-preview');
+    renderPage('/admin/ecobase/gold-maintenance/candidate-preview');
 
     expect(screen.getByRole('alert')).toHaveTextContent('Candidate preview requires an explicit verified run ID.');
     expect(request).not.toHaveBeenCalled();

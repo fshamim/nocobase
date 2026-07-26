@@ -33,7 +33,10 @@ import {
   extractClickupOrderRefsFromTitle,
   parseClickupOrderStatusFiles,
 } from '../../features/source-import/server/clickup-order-status-service';
-import { commandCenterPaneForRow } from '../../features/inventory-dashboard/server/engine/inventory-planning-service';
+import {
+  commandCenterPaneForRow,
+  EcobaseInventoryPlanningService,
+} from '../../features/inventory-dashboard/server/engine/inventory-planning-service';
 
 interface FindParams {
   filter?: Record<string, unknown>;
@@ -381,19 +384,7 @@ describe('Ecobase AI public API seam', () => {
   });
 });
 
-describe('Ecobase inventory-planning public API seam', () => {
-  it('rejects invalid budgets and fails uncontracted corrected optimization closed', async () => {
-    const actions = createEcobaseInventoryPlanningActions();
-    await expect(
-      actions.optimizeBudget(createActionContext(new MemoryDatabase(), { budget: 0 }), vi.fn()),
-    ).rejects.toThrow('Ecobase budget optimizer requires a budget greater than zero.');
-    await expect(
-      actions.optimizeBudget(createActionContext(new MemoryDatabase(), { budget: 100 }), vi.fn()),
-    ).rejects.toThrow(
-      'EcoBase corrected budget optimization is unavailable until an explicit corrected scoring contract is published.',
-    );
-  });
-
+describe('Ecobase gold engine public API seam', () => {
   it('exposes the read-only Silver integrity verifier as an independent maintenance action', async () => {
     const context = createActionContext(new MemoryDatabase(), {});
     const next = vi.fn();
@@ -463,9 +454,8 @@ describe('Ecobase inventory-planning public API seam', () => {
     expect(preview.body).toMatchObject({ data: { dryRun: true, totalCandidates: 0, complete: true } });
   });
 
-  it('exposes an ACL-backed published listing-performance review action with strict category validation', async () => {
+  it('exposes a published listing-performance review with strict category validation', async () => {
     const db = new MemoryDatabase();
-    const actions = createEcobaseInventoryPlanningActions();
     await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).create({
       values: {
         id: 'published-listing-review',
@@ -485,30 +475,30 @@ describe('Ecobase inventory-planning public API seam', () => {
         baselineTier: 'D',
       },
     });
-    const context = createActionContext(db, { calculationDate: '2026-07-05', categories: ['tier_d'] });
+    const service = new EcobaseInventoryPlanningService(db);
 
-    await actions.listingPerformanceReview(context, vi.fn());
+    const review = await service.listingPerformanceReview({
+      calculationDate: '2026-07-05',
+      categories: ['tier_d'],
+    });
 
-    expect(context.body).toMatchObject({
-      data: {
-        scope: 'listing_performance_review',
-        selectedCategories: ['tier_d'],
-        listingCount: 1,
-        actionCount: 0,
-        rows: [expect.objectContaining({ sku: 'TIER-D-SKU', listingReviewCategories: ['tier_d'] })],
-      },
+    expect(review).toMatchObject({
+      scope: 'listing_performance_review',
+      selectedCategories: ['tier_d'],
+      listingCount: 1,
+      actionCount: 0,
+      rows: [expect.objectContaining({ sku: 'TIER-D-SKU', listingReviewCategories: ['tier_d'] })],
     });
     await expect(
-      actions.listingPerformanceReview(
-        createActionContext(db, { calculationDate: '2026-07-05', categories: ['unsupported_category'] }),
-        vi.fn(),
-      ),
+      service.listingPerformanceReview({
+        calculationDate: '2026-07-05',
+        categories: ['unsupported_category'] as never,
+      }),
     ).rejects.toThrow('unsupported listing review category "unsupported_category"');
   });
 
-  it('returns a compact command-center payload with paginated pane rows and drawer data', async () => {
+  it('returns a command-center payload with paginated pane rows and drawer data', async () => {
     const db = new MemoryDatabase();
-    const actions = createEcobaseInventoryPlanningActions();
     const goldRows = db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows);
     await db.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).create({
       values: {
@@ -807,7 +797,7 @@ describe('Ecobase inventory-planning public API seam', () => {
       },
     });
 
-    const context = createActionContext(db, {
+    const data = (await new EcobaseInventoryPlanningService(db).commandCenter({
       company: 'ACME',
       calculationDate: '2026-07-05',
       pane: 'supplyAction',
@@ -815,9 +805,7 @@ describe('Ecobase inventory-planning public API seam', () => {
       sortBy: 'averageMonthlyProfit',
       sortDirection: 'desc',
       selectedRowId: 'gold-2',
-    });
-    await actions.commandCenter(context, vi.fn());
-    const data = context.body?.data as Record<string, any>;
+    })) as Record<string, any>;
 
     expect(data.metadata).toMatchObject({
       company: 'ACME',
@@ -952,17 +940,16 @@ describe('Ecobase inventory-planning public API seam', () => {
       expect.arrayContaining([expect.objectContaining({ notes: 'Paid confirmed' })]),
     );
 
-    const pageTwoContext = createActionContext(db, {
+    const pageTwo = (await new EcobaseInventoryPlanningService(db).commandCenter({
       company: 'ACME',
       pane: 'inPrepMonitoring',
       page: 2,
       pageSize: 1,
       sortBy: 'asin',
       sortDirection: 'asc',
-    });
-    await actions.commandCenter(pageTwoContext, vi.fn());
-    expect(pageTwoContext.body?.data.panes.inPrepMonitoring).toMatchObject({ total: 2, page: 2, pageSize: 1 });
-    expect(pageTwoContext.body?.data.panes.inPrepMonitoring.rows).toHaveLength(1);
+    })) as Record<string, any>;
+    expect(pageTwo.panes.inPrepMonitoring).toMatchObject({ total: 2, page: 2, pageSize: 1 });
+    expect(pageTwo.panes.inPrepMonitoring.rows).toHaveLength(1);
   });
 });
 

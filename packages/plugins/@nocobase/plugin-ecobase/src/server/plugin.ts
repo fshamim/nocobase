@@ -52,7 +52,6 @@ export {
   createEcobaseMedallionWorkflowActions,
   createEcobaseOperatorWorkspaceActions,
   createEcobaseOrderPlanningActions,
-  createEcobasePlanningActions,
   createEcobasePlanningSettingsActions,
   createEcobaseReportActions,
   createEcobaseSilverDataActions,

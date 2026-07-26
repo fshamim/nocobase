@@ -10,11 +10,7 @@
 import React from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import {
-  CandidatePreviewPanel,
-  CorrectedInventoryEvidencePanel,
-  ListingPerformanceReviewPanel,
-} from './CorrectedInventoryEvidence';
+import { CandidatePreviewPanel, CorrectedInventoryEvidencePanel } from './CorrectedInventoryEvidence';
 
 const t = (value: string) => value;
 
@@ -73,7 +69,7 @@ const correctedRow = {
   ],
 };
 
-describe('corrected Inventory Planning evidence UI', () => {
+describe('corrected candidate evidence UI', () => {
   it('shows baseline/monthly/closed/current, range/pace, disposition, block, and existing-order evidence accessibly', () => {
     render(<CorrectedInventoryEvidencePanel row={correctedRow} t={t} />);
 
@@ -90,32 +86,6 @@ describe('corrected Inventory Planning evidence UI', () => {
     expect(panel).toHaveTextContent('blocked_stuck_inventory');
     expect(within(panel).getByRole('alert')).toHaveTextContent('follow_up_existing_order');
     expect(panel).toHaveTextContent('Linked member cp-2');
-  });
-
-  it('renders a published non-action review surface with all seven listing filters', () => {
-    render(
-      <ListingPerformanceReviewPanel
-        rows={[
-          correctedRow,
-          {
-            ...correctedRow,
-            companyProductId: 'cp-2',
-            sku: 'SKU-2',
-            baselineTier: 'D',
-            listingReviewCategories: ['tier_d'],
-          },
-        ]}
-        t={t}
-      />,
-    );
-
-    const review = screen.getByRole('region', { name: 'Listing Performance Review' });
-    expect(review).toHaveTextContent('Listing evidence only · 0 family actions created');
-    expect(within(review).getAllByRole('checkbox')).toHaveLength(7);
-    fireEvent.click(within(review).getByRole('checkbox', { name: 'published-tier_d' }));
-    expect(review).toHaveTextContent('SKU-2');
-    expect(review).not.toHaveTextContent('SKU-1');
-    expect(review).toHaveTextContent('Baseline D');
   });
 
   it('keeps the unpublished warning persistent and filters listing evidence without action duplication', () => {

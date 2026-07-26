@@ -1261,16 +1261,6 @@ describe('Gold refresh publication control', () => {
       status: 400,
     });
 
-    const pageSource = readFileSync(
-      resolve(
-        process.cwd(),
-        'packages/plugins/@nocobase/plugin-ecobase/src/features/inventory-planning/client/InventoryPlanningPage.tsx',
-      ),
-      'utf8',
-    );
-    expect(pageSource).not.toContain('ecobaseInventoryPlanning:refreshReadModel');
-    expect(pageSource).not.toContain('Rebuild gold inventory');
-
     const maintenancePageSource = readFileSync(
       resolve(process.cwd(), 'packages/plugins/@nocobase/plugin-ecobase/src/client/pages/GoldMaintenancePage.tsx'),
       'utf8',

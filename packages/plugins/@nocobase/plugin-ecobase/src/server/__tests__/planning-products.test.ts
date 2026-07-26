@@ -14,7 +14,6 @@ import {
   SourceAdapter,
 } from '../../features/source-import/server/adapters';
 import { ECOBASE_COLLECTIONS } from '../collections/names';
-import { createEcobasePlanningActions } from '../plugin';
 import {
   EcobaseDatabase,
   EcobaseImportService,
@@ -446,14 +445,14 @@ describe('Ecobase planning product identity layer', () => {
       sourceVersion: '2025-07-01',
     });
     const product = db.getRepository(ECOBASE_COLLECTIONS.planningProducts).all()[0];
-    const actions = createEcobasePlanningActions();
-    const context = createActionContext(db, { planningProductId: product.id, note: 'Known duplicate confirmed.' });
-    const next = vi.fn();
 
-    await actions.confirmMapping(context, next);
+    const confirmed = await new EcobasePlanningProductService(db).confirmPlanningProduct({
+      planningProductId: product.id,
+      actorId: 'operator-1',
+      note: 'Known duplicate confirmed.',
+    });
 
-    expect(context.body).toEqual({ data: expect.objectContaining({ id: product.id, mappingStatus: 'confirmed' }) });
-    expect(next).toHaveBeenCalledOnce();
+    expect(confirmed).toEqual(expect.objectContaining({ id: product.id, mappingStatus: 'confirmed' }));
     expect(db.getRepository(ECOBASE_COLLECTIONS.planningProductListings).all()).toEqual([
       expect.objectContaining({ mappingStatus: 'confirmed' }),
       expect.objectContaining({ mappingStatus: 'confirmed' }),
@@ -556,13 +555,13 @@ describe('Ecobase planning product identity layer', () => {
       sourceVersion: '2025-07-01',
     });
     const product = db.getRepository(ECOBASE_COLLECTIONS.planningProducts).all()[0];
-    const actions = createEcobasePlanningActions();
-    const context = createActionContext(db, { planningProductId: product.id });
 
-    await actions.productData(context, vi.fn());
+    const productData = await new EcobasePlanningProductService(db).getPlanningProductData({
+      planningProductId: product.id,
+    });
 
-    expect(context.body).toEqual({
-      data: expect.objectContaining({
+    expect(productData).toEqual(
+      expect.objectContaining({
         product: expect.objectContaining({ id: product.id, canonicalAsin: 'B0DX35PTCL' }),
         listings: expect.arrayContaining([expect.objectContaining({ sku: 'RM-CLIPS/3-01' })]),
         inventorySnapshots: expect.arrayContaining([
@@ -580,6 +579,6 @@ describe('Ecobase planning product identity layer', () => {
           }),
         ]),
       }),
-    });
+    );
   });
 });

@@ -288,13 +288,12 @@ describe('PaneDrawer (Gate G3)', () => {
 
   it('QA item 6: data-readiness deep links carry non-empty search params', async () => {
     const dialog = await openDrawer('dataReadiness');
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Open Inventory Planning' }));
-    const inv = navigateSpy.mock.calls.at(-1)?.[0] as string;
-    expect(inv).toContain('/admin/ecobase/inventory-planning?search=');
-    expect(inv.split('?search=')[1]?.length).toBeGreaterThan(0);
+    // Issue 042: the Inventory Planning deep link died with the page it pointed at.
+    expect(within(dialog).queryByRole('button', { name: 'Open Inventory Planning' })).toBeNull();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Open Supplier Management' }));
     const sup = navigateSpy.mock.calls.at(-1)?.[0] as string;
     expect(sup).toContain('/admin/ecobase/supplier-management?search=');
+    expect(sup.split('?search=')[1]?.length).toBeGreaterThan(0);
   });
 
   it('QA item 4: focus moves into the drawer on open and returns to the trigger row on close', async () => {

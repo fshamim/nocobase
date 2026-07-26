@@ -105,9 +105,9 @@ const OPERATOR_MUTATIONS = [
  * AD-1 import boundary (issue 055). Two rules, both enforced mechanically below.
  *
  * 1. Zero tolerance: no file under `features/inventory-dashboard/` — the relocated gold
- *    engine included — may import from `features/inventory-planning/`. That folder is
- *    scheduled for deletion (issue 042), so the edge is only ever legal the other way
- *    round: legacy planning code imports the engine at its new home, never the reverse.
+ *    engine included — may import from `features/inventory-planning/`. That folder was
+ *    deleted in issue 042; the tombstone test below keeps it deleted, so this rule guards
+ *    against anything resurrecting the doomed path.
  * 2. Every other cross-feature import must be enumerated in ALLOWED_FOREIGN_MODULES, so a
  *    NEW foreign dependency fails this test until somebody adds it here deliberately.
  *
@@ -127,9 +127,6 @@ const ALLOWED_FOREIGN_MODULES = new Set([
   'supplier-management/server/silver-supplier-order-read-model',
   'supplier-management/server/supplier-order-service',
 ]);
-
-/** The only part of the dashboard the doomed planning folder is allowed to import. */
-const DASHBOARD_ENGINE_MODULE_PREFIX = 'inventory-dashboard/server/engine';
 
 const MODULE_RESOLUTION_SUFFIXES = ['', '.ts', '.tsx', '.json', '/index.ts', '/index.tsx'];
 
@@ -332,24 +329,11 @@ describe('ecobaseInventoryDashboard operator actions (T8a, X4 closure)', () => {
     expect(unallowlisted).toEqual([]);
   });
 
-  it('AD-1 reverse edge: legacy inventory-planning may reach the relocated engine and nothing else in the dashboard', () => {
+  it('AD-1 tombstone (issue 042): the inventory-planning feature folder stays deleted', () => {
+    // The folder is gone. This assertion is the tombstone: reintroducing it — even as a
+    // "temporary" home for something — fails here before anything can import from it,
+    // which is what keeps rule 1 above meaningful rather than vacuous.
     const featuresRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
-    const files = collectSourceFiles(join(featuresRoot, 'inventory-planning'));
-    expect(files.length).toBeGreaterThan(0);
-
-    const offenders: string[] = [];
-    for (const file of files) {
-      for (const specifier of relativeImportSpecifiers(readFileSync(file, 'utf8'))) {
-        const target = resolveModulePath(resolve(dirname(file), specifier));
-        if (target === null) continue;
-        const moduleId = featureModuleId(featuresRoot, target);
-        if (moduleId === null || !moduleId.startsWith('inventory-dashboard/')) continue;
-        if (!moduleId.startsWith(`${DASHBOARD_ENGINE_MODULE_PREFIX}/`)) {
-          offenders.push(`${relative(featuresRoot, file)} -> ${moduleId}`);
-        }
-      }
-    }
-
-    expect(offenders).toEqual([]);
+    expect(existsSync(join(featuresRoot, 'inventory-planning'))).toBe(false);
   });
 });

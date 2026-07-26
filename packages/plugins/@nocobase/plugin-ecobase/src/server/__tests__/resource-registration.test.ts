@@ -69,17 +69,14 @@ describe('Ecobase resource registration', () => {
     const inventoryActions = acl
       .filter((grant) => grant.resource === 'ecobaseInventoryPlanning')
       .flatMap((grant) => grant.actions);
+    // Issue 042: the legacy page's read actions (filters/workspace/rows/digestPreview/
+    // rowWorkspace/optimizeBudget/commandCenter/listingPerformanceReview) went with the page.
     expect(inventoryActions).toEqual(
-      expect.arrayContaining([
-        'filters',
-        'refreshReadModel',
-        'workspace',
-        'rows',
-        'digestPreview',
-        'rowWorkspace',
-        'optimizeBudget',
-      ]),
+      expect.arrayContaining(['refreshAndPublish', 'refreshReadModel', 'verifyRefreshRun', 'candidatePreview']),
     );
+    for (const gone of ['filters', 'workspace', 'rows', 'digestPreview', 'rowWorkspace', 'optimizeBudget']) {
+      expect(inventoryActions).not.toContain(gone);
+    }
     const inventoryGrants = createGoldEngineMaintenanceResourceRegistration().acl;
     const operatorActions = inventoryGrants
       .filter((grant) => grant.resource === 'ecobaseInventoryPlanning' && grant.role === OPERATOR)
@@ -103,17 +100,34 @@ describe('Ecobase resource registration', () => {
     const operatorActions = grants
       .filter((grant) => grant.resource === 'ecobaseInventoryDashboard' && grant.role === OPERATOR)
       .flatMap((grant) => grant.actions);
-    expect(loggedInActions.sort()).toEqual(['drawerContext', 'header', 'pane']);
-    // T8a (X4 closure): the full ported operator surface lives on the dashboard resource.
+    expect(loggedInActions.sort()).toEqual(['drawerContext', 'header', 'pane', 'paneOrders']);
+    // T8a (X4 closure): the full ported operator surface lives on the dashboard resource —
+    // the five delegated legacy handlers plus the order workbench and order-pane popups.
     expect(operatorActions.sort()).toEqual([
       'addComment',
+      'addOrderComment',
+      'addOrderLine',
       'addProductComment',
+      'checkOrderRef',
+      'confirmInboundCompletion',
+      'createOrder',
       'createPlannedOrder',
+      'deleteOrder',
+      'deleteOrderLine',
+      'getOrderDetail',
+      'orderStatusOptions',
+      'prepareOrderDraft',
+      'productOptions',
       'reactivateFamily',
       'savePrepDetails',
       'saveSupplierShipDestination',
       'setFamilyPreferredSupplier',
       'setFamilyTarget',
+      'setOrderStatus',
+      'updateOrderHeader',
+      'updateOrderLine',
+      'updateOrderPaperwork',
+      'updatePrepDetails',
       'updateProductPlanningFields',
       'updateSupplierLeadTime',
     ]);

@@ -63,11 +63,7 @@ import {
   EcobaseInventoryPlanningService,
   projectCorrectedInventoryPlanningFamilyActions,
   projectCorrectedInventoryPlanningListingRows,
-  type InventoryCommandCenterPane,
-  type InventoryPlanningCommandCenterQuery,
-  type InventoryPlanningListingReviewQuery,
 } from '../features/inventory-dashboard/server/engine/inventory-planning-service';
-import type { ListingReviewCategory } from '../features/inventory-dashboard/server/engine/listing-family-projection';
 import { EcobaseOrderReceiptReconciliationService } from '../features/inventory-dashboard/server/engine/order-receipt-reconciliation-service';
 import { EcobaseInventoryPlanningGoldAccess } from '../features/inventory-dashboard/server/engine/inventory-planning-gold-access';
 import { EcobaseGoldError } from '../features/inventory-dashboard/server/engine/gold-errors';
@@ -83,9 +79,7 @@ import {
 } from '../features/semantic-model/server/medallion-workflow-service';
 import { EcobaseCompanyProductFamilyService } from '../features/semantic-model/server/company-product-family-service';
 import { EcobaseSilverIntegrityVerifier } from '../features/semantic-model/server/silver-integrity-verifier';
-import { EcobasePlanningCalculationService } from '../features/inventory-planning/server/planning-calculation-service';
 import { EcobasePlanningSettingsService } from './services/planning-settings-service';
-import { EcobasePlanningProductService } from '../features/source-import/server/planning-product-service';
 import { EcobaseOperatorWorkspaceService } from './services/operator-workspace-service';
 import { EcobaseReportService } from './services/report-service';
 import { EcobaseSilverDataService } from '../features/semantic-model/server/silver-data-service';
@@ -180,33 +174,6 @@ function getCsvFiles(values: Record<string, unknown>, key = 'files'): CsvSourceF
     }
     return [csvFile];
   });
-}
-
-function compactInventoryPlanningRow(row: Record<string, unknown>) {
-  const compact = { ...row };
-  delete compact.evidence;
-  return compact;
-}
-
-function compactInventoryPlanningRows(rows: unknown) {
-  return Array.isArray(rows)
-    ? rows.map((row) =>
-        typeof row === 'object' && row !== null ? compactInventoryPlanningRow(row as Record<string, unknown>) : row,
-      )
-    : rows;
-}
-
-function compactInventoryPlanningDigest(digest: unknown) {
-  if (typeof digest !== 'object' || digest === null || Array.isArray(digest)) return digest;
-  const record = digest as Record<string, unknown>;
-  const sections = record.sections;
-  if (typeof sections !== 'object' || sections === null || Array.isArray(sections)) return digest;
-  return {
-    ...record,
-    sections: Object.fromEntries(
-      Object.entries(sections).map(([key, rows]) => [key, compactInventoryPlanningRows(rows)]),
-    ),
-  };
 }
 
 function requireReceiptOverrideActor(ctx: {
@@ -1171,39 +1138,19 @@ function inventoryPlanningQuery(values: Record<string, unknown>) {
   };
 }
 
-function inventoryPlanningListingReviewQuery(values: Record<string, unknown>): InventoryPlanningListingReviewQuery {
-  return {
-    ...inventoryPlanningQuery(values),
-    categories: (getOptionalStringArray(values, 'categories') ?? []) as ListingReviewCategory[],
-  };
-}
-
-function inventoryPlanningCommandCenterQuery(values: Record<string, unknown>): InventoryPlanningCommandCenterQuery {
-  const sortDirection = getOptionalString(values, 'sortDirection');
-  return {
-    ...inventoryPlanningQuery(values),
-    pane: getOptionalString(values, 'pane') as InventoryCommandCenterPane | undefined,
-    page: getOptionalNumber(values, 'page'),
-    pageSize: getOptionalNumber(values, 'pageSize'),
-    sortBy: getOptionalString(values, 'sortBy'),
-    sortDirection: sortDirection === 'asc' || sortDirection === 'desc' ? sortDirection : undefined,
-    filters: getOptionalRecord(values, 'filters'),
-    selectedRowId: getOptionalString(values, 'selectedRowId'),
-    planningProductId: getOptionalString(values, 'planningProductId'),
-    companyProductId: getOptionalString(values, 'companyProductId'),
-    asin: getOptionalString(values, 'asin'),
-    sku: getOptionalString(values, 'sku'),
-  };
-}
-
+/**
+ * Gold engine maintenance + operator-write surface (issue 042).
+ *
+ * The Inventory Planning page that once consumed the read actions here
+ * (filters/workspace/commandCenter/listingPerformanceReview/rows/digestPreview/
+ * rowWorkspace/optimizeBudget) is gone; those handlers went with it. What remains
+ * has live consumers: `refreshAndPublish` (Gold Maintenance page), the admin
+ * rebuild/verify/reconcile/receipt escape hatches, `candidatePreview` (candidate
+ * preview page), and the four operator writers the Inventory Dashboard delegates to.
+ */
 export function createEcobaseInventoryPlanningActions() {
   return guardEcobaseActions(
     {
-      filters: async (ctx, next) => {
-        const service = new EcobaseInventoryPlanningService(ctx.db);
-        ctx.body = { data: await service.filterOptions() };
-        await next();
-      },
       refreshAndPublish: async (ctx, next) => {
         try {
           ctx.body = {
@@ -1468,95 +1415,6 @@ export function createEcobaseInventoryPlanningActions() {
         ctx.body = { data: goldRefreshRequired({ family }) };
         await next();
       },
-      workspace: async (ctx, next) => {
-        const service = new EcobaseInventoryPlanningService(ctx.db);
-        const workspace = await service.workspace(inventoryPlanningQuery(getValues(ctx.action.params)));
-        ctx.body = {
-          data: {
-            filters: workspace.filters,
-            rows: compactInventoryPlanningRows(workspace.rows),
-            digest: compactInventoryPlanningDigest(workspace.digest),
-          },
-        };
-        await next();
-      },
-      commandCenter: async (ctx, next) => {
-        const service = new EcobaseInventoryPlanningService(ctx.db);
-        try {
-          ctx.body = {
-            data: await service.commandCenter(inventoryPlanningCommandCenterQuery(getValues(ctx.action.params))),
-          };
-        } catch (error) {
-          ctx.throw(400, error instanceof Error ? error.message : 'Ecobase inventory command center request failed.');
-        }
-        await next();
-      },
-      listingPerformanceReview: async (ctx, next) => {
-        const service = new EcobaseInventoryPlanningService(ctx.db);
-        try {
-          ctx.body = {
-            data: await service.listingPerformanceReview(
-              inventoryPlanningListingReviewQuery(getValues(ctx.action.params)),
-            ),
-          };
-        } catch (error) {
-          ctx.throw(400, error instanceof Error ? error.message : 'Ecobase listing-performance review request failed.');
-        }
-        await next();
-      },
-      rows: async (ctx, next) => {
-        const service = new EcobaseInventoryPlanningService(ctx.db);
-        ctx.body = {
-          data: compactInventoryPlanningRows(
-            await service.listRows(inventoryPlanningQuery(getValues(ctx.action.params))),
-          ),
-        };
-        await next();
-      },
-      digestPreview: async (ctx, next) => {
-        const service = new EcobaseInventoryPlanningService(ctx.db);
-        ctx.body = {
-          data: compactInventoryPlanningDigest(
-            await service.digestPreview(inventoryPlanningQuery(getValues(ctx.action.params))),
-          ),
-        };
-        await next();
-      },
-      rowWorkspace: async (ctx, next) => {
-        const values = getValues(ctx.action.params);
-        const service = new EcobaseInventoryPlanningService(ctx.db);
-        ctx.body = {
-          data: await service.rowWorkspace({
-            company: getOptionalString(values, 'company'),
-            familyId: getOptionalString(values, 'familyId'),
-            currentOrderId: getOptionalString(values, 'currentOrderId'),
-            planningProductId: getOptionalString(values, 'planningProductId'),
-            companyProductId: getOptionalString(values, 'companyProductId'),
-            asin: getOptionalString(values, 'asin'),
-            sku: getOptionalString(values, 'sku'),
-            supplierId: getOptionalString(values, 'supplierId'),
-            limit: getOptionalNumber(values, 'limit'),
-          }),
-        };
-        await next();
-      },
-      optimizeBudget: async (ctx, next) => {
-        const values = getValues(ctx.action.params);
-        const budget = getOptionalNumber(values, 'budget');
-        if (typeof budget !== 'number' || budget <= 0) {
-          ctx.throw(400, 'Ecobase budget optimizer requires a budget greater than zero.');
-          return;
-        }
-        const service = new EcobaseInventoryPlanningService(ctx.db);
-        ctx.body = {
-          data: await service.optimizeBudget({
-            ...inventoryPlanningQuery(values),
-            horizonDays: getOptionalNumber(values, 'horizonDays'),
-            budget,
-          }),
-        };
-        await next();
-      },
     },
     {
       refreshAndPublish: 'operator',
@@ -1605,86 +1463,6 @@ export function createEcobasePlanningSettingsActions() {
     },
     { save: 'admin', reset: 'admin' },
   );
-}
-
-export function createEcobasePlanningActions() {
-  return {
-    listDuplicateMappings: async (ctx, next) => {
-      const service = new EcobasePlanningProductService(ctx.db);
-      ctx.body = { data: await service.listDuplicateMappings() };
-      await next();
-    },
-    confirmMapping: async (ctx, next) => {
-      const values = getValues(ctx.action.params);
-      const planningProductId = getOptionalString(values, 'planningProductId');
-      if (!planningProductId) {
-        ctx.throw(400, 'Ecobase planning mapping confirmation requires planningProductId.');
-        return;
-      }
-
-      const service = new EcobasePlanningProductService(ctx.db);
-      ctx.body = {
-        data: await service.confirmPlanningProduct({
-          planningProductId,
-          actorId: getActorId(ctx),
-          note: getOptionalString(values, 'note'),
-        }),
-      };
-      await next();
-    },
-    adjustMapping: async (ctx, next) => {
-      const values = getValues(ctx.action.params);
-      const service = new EcobasePlanningProductService(ctx.db);
-      ctx.body = {
-        data: await service.adjustMapping({
-          planningProductListingId: getOptionalString(values, 'planningProductListingId'),
-          rawListingNaturalKey: getOptionalString(values, 'rawListingNaturalKey'),
-          targetPlanningProductId: getOptionalString(values, 'targetPlanningProductId'),
-          targetCompany: getOptionalString(values, 'targetCompany'),
-          targetCanonicalAsin: getOptionalString(values, 'targetCanonicalAsin'),
-          targetTitle: getOptionalString(values, 'targetTitle'),
-          actorId: getActorId(ctx),
-          note: getOptionalString(values, 'note'),
-        }),
-      };
-      await next();
-    },
-    productData: async (ctx, next) => {
-      const values = getValues(ctx.action.params);
-      const planningProductId = getOptionalString(values, 'planningProductId');
-      if (!planningProductId) {
-        ctx.throw(400, 'Ecobase planning product data query requires planningProductId.');
-        return;
-      }
-
-      const service = new EcobasePlanningProductService(ctx.db);
-      ctx.body = { data: await service.getPlanningProductData({ planningProductId }) };
-      await next();
-    },
-    calculateProduct: async (ctx, next) => {
-      const values = getValues(ctx.action.params);
-      const planningProductId = getOptionalString(values, 'planningProductId');
-      if (!planningProductId) {
-        ctx.throw(400, 'Ecobase planning calculation requires planningProductId.');
-        return;
-      }
-
-      const service = new EcobasePlanningCalculationService(ctx.db);
-      ctx.body = {
-        data: await service.calculatePlanningProduct({
-          planningProductId,
-          calculationDate: getOptionalString(values, 'calculationDate'),
-          safetyBufferDays: getOptionalNumber(values, 'safetyBufferDays'),
-        }),
-      };
-      await next();
-    },
-    validationReport: async (ctx, next) => {
-      const service = new EcobasePlanningCalculationService(ctx.db);
-      ctx.body = { data: await service.validateBenchmarks() };
-      await next();
-    },
-  };
 }
 
 export function createEcobaseAlertActions() {

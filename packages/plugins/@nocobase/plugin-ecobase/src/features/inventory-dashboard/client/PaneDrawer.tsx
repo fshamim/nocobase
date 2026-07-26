@@ -481,18 +481,6 @@ function DrawerBody({ pane, row, context, run, submitting, t, navigate, loadSupp
               size="small"
               onClick={() =>
                 navigate?.(
-                  `/admin/ecobase/inventory-planning?search=${encodeURIComponent(
-                    row.identity?.sku ?? row.identity?.asin ?? '',
-                  )}`,
-                )
-              }
-            >
-              {t(TEXT.drawerOpenInventoryPlanning)}
-            </Button>
-            <Button
-              size="small"
-              onClick={() =>
-                navigate?.(
                   `/admin/ecobase/supplier-management?search=${encodeURIComponent(
                     row.order?.supplierName ?? row.identity?.sku ?? '',
                   )}`,

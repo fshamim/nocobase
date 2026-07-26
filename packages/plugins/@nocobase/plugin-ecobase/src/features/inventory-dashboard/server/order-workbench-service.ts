@@ -16,7 +16,7 @@
  * (pure, unit-tested); the supplier-product upsert + line write is reused from
  * supplier-management's EcobaseSupplierOrderService.createOrderLine, and the
  * canonical ref algorithm from semantic-model's generateOrderRef. Dependency
- * boundary: this file never imports from ../../inventory-planning.
+ * boundary: cross-feature imports are allowlisted by the AD-1 test.
  */
 
 import { randomUUID } from 'node:crypto';

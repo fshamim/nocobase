@@ -119,7 +119,6 @@ export const TEXT = {
   drawerOpenOrderPlanning: 'Open in Order Planning',
   drawerStuckReasons: 'Stuck reasons',
   drawerReadinessReasons: 'Readiness reasons',
-  drawerOpenInventoryPlanning: 'Open Inventory Planning',
   drawerOpenSupplierManagement: 'Open Supplier Management',
   drawerBandTitle: 'Monthly units (last closed months)',
   drawerTierEvidence: 'Tier evidence',

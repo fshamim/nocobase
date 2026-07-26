@@ -50,21 +50,7 @@ export function createGoldEngineMaintenanceResourceRegistration(
       { name: 'ecobasePlanningConfiguration', actions: createEcobasePlanningSettingsActions() },
     ],
     acl: [
-      {
-        resource: 'ecobaseInventoryPlanning',
-        actions: [
-          'filters',
-          'workspace',
-          'commandCenter',
-          'listingPerformanceReview',
-          'rows',
-          'digestPreview',
-          'rowWorkspace',
-          'optimizeBudget',
-          'candidatePreview',
-        ],
-        role: LOGGED_IN,
-      },
+      { resource: 'ecobaseInventoryPlanning', actions: ['candidatePreview'], role: LOGGED_IN },
       {
         resource: 'ecobaseInventoryPlanning',
         actions: [
