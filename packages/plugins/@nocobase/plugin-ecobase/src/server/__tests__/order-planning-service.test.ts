@@ -701,6 +701,37 @@ describe('EcobaseOrderPlanningService', () => {
     });
   });
 
+  it('rebuilds the read model over operator-stamped orders that still carry an import-alias status', async () => {
+    const db = new FakeDatabase();
+    await seed(db);
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+      values: {
+        id: 'order-3',
+        companyId: 'company-1',
+        supplierId: 'supplier-1',
+        orderRef: 'SAM062426C',
+        orderDate: '2026-06-22',
+        dailySequenceLetter: 'C',
+        lifecycleStatus: 'draft',
+        canonicalStatus: 'draft',
+        statusSource: 'operator',
+        operatorStatusOverrideAt: '2026-07-25T10:00:00.000Z',
+        createdAt: '2026-06-22T00:00:00.000Z',
+      },
+    });
+    const service = new EcobaseOrderPlanningService(db);
+
+    const refreshed = await service.refreshReadModel({ companyId: 'company-1' });
+
+    expect(refreshed.rows.find((row) => row.id === 'order-3')).toMatchObject({
+      currentStatus: 'ORDER ANALYSING',
+      statusSource: 'operator',
+    });
+    expect(
+      db.getRepository(ECOBASE_COLLECTIONS.goldOrderPlanningRows).rows.find((row) => row.orderId === 'order-3'),
+    ).toMatchObject({ currentStatus: 'ORDER ANALYSING' });
+  });
+
   it('clears an operator status only through the explicit audited action', async () => {
     const db = new FakeDatabase();
     await seed(db);

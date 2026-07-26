@@ -171,6 +171,60 @@ describe('resolveOrderLifecycle', () => {
     ).toMatchObject({ canonicalStatus: 'INBOUND MONITORING', statusSource: 'operator' });
   });
 
+  it('resolves import-alias canonical statuses on operator-stamped orders instead of throwing', () => {
+    // Order workbench / supplier order creation stamps statusSource 'operator' with the
+    // raw alias vocabulary in both columns; the read-model rebuild must not abort on it.
+    expect(
+      resolveOrderLifecycle({
+        canonicalStatus: 'draft',
+        lifecycleStatus: 'draft',
+        statusSource: 'operator',
+      }),
+    ).toMatchObject({ canonicalStatus: 'ORDER ANALYSING', statusSource: 'operator' });
+    expect(
+      resolveOrderLifecycle({
+        canonicalStatus: 'paid',
+        statusSource: 'operator',
+      }),
+    ).toMatchObject({ canonicalStatus: 'ORDERED', statusSource: 'operator' });
+    expect(
+      resolveOrderLifecycle({
+        canonicalStatus: 'cancelled',
+        lifecycleStatus: 'cancelled',
+        operatorStatusOverrideAt: '2026-07-25T10:00:00.000Z',
+      }),
+    ).toMatchObject({ canonicalStatus: 'COMPLETE', statusSource: 'operator' });
+  });
+
+  it('keeps the exact operator lifecycle pick when canonicalStatus holds a coarser alias', () => {
+    // setOrderStatus writes the operator pick to lifecycleStatus and a lossy engine alias
+    // to canonicalStatus ('paid' covers four statuses, 'shipped_inbound' covers three).
+    expect(
+      resolveOrderLifecycle({
+        canonicalStatus: 'shipped_inbound',
+        lifecycleStatus: 'DIRECT SHIP FBA',
+        statusSource: 'operator',
+      }),
+    ).toMatchObject({ canonicalStatus: 'DIRECT SHIP FBA', statusSource: 'operator' });
+    expect(
+      resolveOrderLifecycle({
+        canonicalStatus: 'paid',
+        lifecycleStatus: 'AT PREP NOT STARTED',
+        statusSource: 'operator',
+      }),
+    ).toMatchObject({ canonicalStatus: 'AT PREP NOT STARTED', statusSource: 'operator' });
+  });
+
+  it('still rejects a genuinely unknown operator status', () => {
+    expect(() =>
+      resolveOrderLifecycle({
+        canonicalStatus: 'nonsense',
+        lifecycleStatus: 'nonsense',
+        statusSource: 'operator',
+      }),
+    ).toThrow(/Ecobase order lifecycle operator override failed: status must be one of/);
+  });
+
   it('keeps ClickUp status authoritative over historical source evidence', () => {
     expect(
       resolveOrderLifecycle({

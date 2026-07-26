@@ -181,12 +181,16 @@ function importedLifecycleAlias(value: unknown): OrderLifecycleStatus | undefine
 
 function operatorOverrideStatus(params: ResolveOrderLifecycleParams) {
   if (params.statusSource !== 'operator' && !params.operatorStatusOverrideAt) return undefined;
+  const stored = params.canonicalStatus ?? params.lifecycleStatus;
   return (
+    // lifecycleStatus stays the most faithful record of the operator's pick: writers derive
+    // canonicalStatus from it and the derivation is lossy (`paid` covers four statuses).
     lifecycleStatusForOperationalStatus(params.lifecycleStatus) ??
-    requireOrderLifecycleStatus(
-      params.canonicalStatus ?? params.lifecycleStatus,
-      'Ecobase order lifecycle operator override failed',
-    )
+    canonicalOrderLifecycleStatus(params.lifecycleStatus) ??
+    // Order creation stamps `statusSource: 'operator'` with raw import-alias vocabulary
+    // (`draft`, `paid`, `cancelled`) in both columns; map it instead of aborting the rebuild.
+    importedLifecycleAlias(stored) ??
+    requireOrderLifecycleStatus(stored, 'Ecobase order lifecycle operator override failed')
   );
 }
 
