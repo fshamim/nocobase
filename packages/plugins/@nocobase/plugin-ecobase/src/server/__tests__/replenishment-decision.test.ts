@@ -52,6 +52,22 @@ describe('total replenishment and primary-pane decision', () => {
     ],
     [2, { hasFrozenTarget: false }, 'review_missing_target', 'dataReadiness', 'frozen_family_target_review'],
     [2, { targetSelectionState: 'review' }, 'review_missing_target', 'dataReadiness', 'frozen_family_target_review'],
+    // 065: the two-month recent-movement window. Unranked in BOTH recent months ⇒ untiered,
+    // and it outranks the dispositions so Stuck/Excess only ever hold recently-ranked products.
+    [
+      2,
+      {
+        lastClosedMonthState: 'no_movement',
+        lastClosedMonthTier: null,
+        currentProjectedState: 'no_movement',
+        currentProjectedTier: null,
+        closedTierMovement: 'not_comparable',
+        projectedTierMovement: 'not_comparable',
+      },
+      'not_eligible_no_recent_movement',
+      'untieredProducts',
+      'no_recent_movement',
+    ],
     [
       3,
       { inventoryDisposition: 'no_sell_through' },
@@ -94,14 +110,9 @@ describe('total replenishment and primary-pane decision', () => {
       'dataReadiness',
       'missing_or_invalid_baseline_evidence',
     ],
-    [
-      6,
-      { baselineState: 'no_movement', baselineTier: null },
-      'not_eligible_no_movement',
-      'untieredProducts',
-      'baseline_no_movement',
-    ],
-    [7, { baselineTier: 'D' }, 'blocked_baseline_tier_d', 'performanceReview', 'baseline_tier_d'],
+    // 065: precedences 6 (baseline no-movement → untiered) and 7 (baseline tier D → review) are
+    // deleted; baseline no longer decides membership. Their replacement behaviour — flowing on
+    // when the recent window still ranks — is asserted in the dedicated cases below.
     [
       8,
       {
@@ -130,16 +141,19 @@ describe('total replenishment and primary-pane decision', () => {
       'performanceReview',
       'last_closed_period_unknown',
     ],
+    // 065: precedence 13 still reviews thin baselines, but only when the current rank is NOT
+    // trusted — hence the explicit 'early' projection confidence here. The trusted bypass has
+    // its own cases below.
     [
       13,
-      { baselineConfidence: 'moderate' },
+      { baselineConfidence: 'moderate', currentProjectionConfidence: 'early' },
       'review_insufficient_baseline_confidence',
       'performanceReview',
       'insufficient_baseline_confidence',
     ],
     [
       13,
-      { baselineConfidence: 'low' },
+      { baselineConfidence: 'low', currentProjectionConfidence: 'early' },
       'review_insufficient_baseline_confidence',
       'performanceReview',
       'insufficient_baseline_confidence',
@@ -303,9 +317,12 @@ describe('total replenishment and primary-pane decision', () => {
     });
 
     for (const overrides of [
-      { baselineTier: 'D' as const },
+      // 065: baselineTier 'D' no longer blocks (precedence 7 deleted) — recent tier D does, so
+      // the blocking case is now expressed through the last-closed month (precedence 9).
+      { lastClosedMonthTier: 'D' as const },
       { closedTierMovement: 'declined' as const },
-      { baselineConfidence: 'moderate' as const },
+      // 065: a thin baseline only blocks while the current rank is untrusted (precedence 13).
+      { baselineConfidence: 'moderate' as const, currentProjectionConfidence: 'early' as const },
       { currentProjectionGateMode: 'evidence_driven' as const, currentProjectedTier: 'D' as const },
     ]) {
       const result = decideReplenishment(input({ ...overrides, trustedZeroStock: true, reorderDueKind: 'trusted' }));
@@ -400,9 +417,226 @@ describe('total replenishment and primary-pane decision', () => {
       oosAlertActionable: true,
       supplyActionable: false,
     });
-    expect(decideReplenishment(input({ baselineTier: 'D', reorderDueKind: 'estimated' }))).toMatchObject({
+    // 065: baseline tier D is no longer an outranking branch (precedence 7 deleted). Recent tier
+    // D still is, via the last closed month (precedence 9).
+    expect(decideReplenishment(input({ lastClosedMonthTier: 'D', reorderDueKind: 'estimated' }))).toMatchObject({
       primaryActionPane: 'performanceReview',
       supplyActionable: false,
+    });
+  });
+
+  describe('065 — recent-tier membership (two-month window)', () => {
+    it('keeps a product whose recent window still ranks, in either month', () => {
+      // Ranked now, silent last month — a recovering/new product stays a citizen.
+      expect(
+        decideReplenishment(
+          input({
+            lastClosedMonthState: 'no_movement',
+            lastClosedMonthTier: null,
+            closedTierMovement: 'not_comparable',
+          }),
+        ).primaryActionPane,
+      ).not.toBe('untieredProducts');
+      // Ranked last month, no current projection yet — still a citizen, and fully eligible.
+      expect(
+        decideReplenishment(
+          input({
+            currentProjectedState: 'unclassified',
+            currentProjectedTier: null,
+            currentProjectionConfidence: 'unavailable',
+            projectedTierMovement: 'not_comparable',
+          }),
+        ),
+      ).toMatchObject({ replenishmentEligibility: 'eligible', primaryActionPane: 'healthyInventory' });
+    });
+
+    it('exiles a phantom whose baseline still ranks A but whose recent window is silent', () => {
+      // The phantom-exile proof: the strongest possible baseline cannot buy membership.
+      const result = decideReplenishment(
+        input({
+          baselineState: 'ranked',
+          baselineTier: 'A',
+          baselineConfidence: 'full',
+          lastClosedMonthState: 'no_movement',
+          lastClosedMonthTier: null,
+          closedTierMovement: 'not_comparable',
+          currentProjectedState: 'no_movement',
+          currentProjectedTier: null,
+          projectedTierMovement: 'not_comparable',
+        }),
+      );
+
+      expect(result).toMatchObject({
+        decisionPrecedence: 2,
+        replenishmentEligibility: 'not_eligible_no_recent_movement',
+        primaryActionPane: 'untieredProducts',
+        primaryActionReasonCode: 'no_recent_movement',
+      });
+    });
+
+    it('outranks the stuck and excess dispositions so they hold only recently-ranked products', () => {
+      for (const inventoryDisposition of ['no_sell_through', 'over_60_days_cover'] as const) {
+        expect(
+          decideReplenishment(
+            input({
+              inventoryDisposition,
+              lastClosedMonthState: 'no_movement',
+              lastClosedMonthTier: null,
+              closedTierMovement: 'not_comparable',
+              currentProjectedState: 'no_movement',
+              currentProjectedTier: null,
+              projectedTierMovement: 'not_comparable',
+            }),
+          ).primaryActionPane,
+        ).toBe('untieredProducts');
+      }
+    });
+
+    it('no longer exiles a baseline no-movement product that has a recent rank (precedence 6 deleted)', () => {
+      // RED-PROOF: on the pre-065 ladder both of these returned untieredProducts /
+      // baseline_no_movement at precedence 6.
+      const stillRankingNow = decideReplenishment(input({ baselineState: 'no_movement', baselineTier: null }));
+      expect(stillRankingNow.primaryActionPane).not.toBe('untieredProducts');
+      expect(stillRankingNow).toMatchObject({
+        decisionPrecedence: 14,
+        replenishmentEligibility: 'eligible',
+        primaryActionPane: 'healthyInventory',
+      });
+
+      // Same new-product citizenship, but last month was silent: it reviews on RECENT evidence
+      // (precedence 10) rather than being exiled on baseline history.
+      expect(
+        decideReplenishment(
+          input({
+            baselineState: 'no_movement',
+            baselineTier: null,
+            lastClosedMonthState: 'no_movement',
+            lastClosedMonthTier: null,
+            closedTierMovement: 'not_comparable',
+          }),
+        ),
+      ).toMatchObject({
+        decisionPrecedence: 10,
+        primaryActionPane: 'performanceReview',
+        primaryActionReasonCode: 'last_closed_no_movement',
+      });
+    });
+
+    it('no longer sends a baseline tier D product with a recent rank to review (precedence 7 deleted)', () => {
+      // RED-PROOF: on the pre-065 ladder this returned performanceReview / baseline_tier_d at
+      // precedence 7.
+      const result = decideReplenishment(input({ baselineTier: 'D' }));
+
+      expect(result.primaryActionReasonCode).not.toBe('baseline_tier_d');
+      expect(result).toMatchObject({
+        decisionPrecedence: 14,
+        replenishmentEligibility: 'eligible',
+        primaryActionPane: 'healthyInventory',
+      });
+    });
+
+    it('waives the baseline-confidence review for a TRUSTED current rank (precedence 13 bypass)', () => {
+      // BaselineConfidence has no 'partial' member; 'none' and 'low' are the thin-history values.
+      for (const baselineConfidence of ['none', 'low', 'moderate'] as const) {
+        expect(decideReplenishment(input({ baselineConfidence }))).toMatchObject({
+          decisionPrecedence: 14,
+          replenishmentEligibility: 'eligible',
+          primaryActionPane: 'healthyInventory',
+        });
+      }
+      // The bypass carries all the way to the far end of the ladder, not just to gate 14.
+      expect(
+        decideReplenishment(input({ baselineConfidence: 'none', currentProjectionGateMode: 'evidence_driven' })),
+      ).toMatchObject({ decisionPrecedence: 19, replenishmentEligibility: 'eligible' });
+    });
+
+    it('requires trust for the bypass — an early or absent current rank still reviews', () => {
+      expect(
+        decideReplenishment(input({ baselineConfidence: 'none', currentProjectionConfidence: 'early' })),
+      ).toMatchObject({
+        decisionPrecedence: 13,
+        replenishmentEligibility: 'review_insufficient_baseline_confidence',
+        primaryActionPane: 'performanceReview',
+      });
+      // Trusted, but not currently RANKED (it survives on last month's rank) ⇒ no bypass.
+      expect(
+        decideReplenishment(
+          input({
+            baselineConfidence: 'low',
+            currentProjectedState: 'no_movement',
+            currentProjectedTier: null,
+            projectedTierMovement: 'not_comparable',
+          }),
+        ),
+      ).toMatchObject({ decisionPrecedence: 13, primaryActionPane: 'performanceReview' });
+    });
+
+    it('assigns the predicted redistribution categories across a synthetic population', () => {
+      const population = {
+        // Ranked six months ago, silent since ⇒ exiled by the recent window.
+        phantomBaselineOnly: input({
+          baselineState: 'ranked',
+          baselineTier: 'A',
+          lastClosedMonthState: 'no_movement',
+          lastClosedMonthTier: null,
+          closedTierMovement: 'not_comparable',
+          currentProjectedState: 'no_movement',
+          currentProjectedTier: null,
+          projectedTierMovement: 'not_comparable',
+        }),
+        // Never ranked anywhere ⇒ exiled by the same gate, not by Data Readiness.
+        twoDeadMonths: input({
+          baselineState: 'no_movement',
+          baselineTier: null,
+          baselineConfidence: 'low',
+          lastClosedMonthState: 'no_movement',
+          lastClosedMonthTier: null,
+          closedTierMovement: 'not_comparable',
+          currentProjectedState: 'no_movement',
+          currentProjectedTier: null,
+          currentProjectionConfidence: 'unavailable',
+          projectedTierMovement: 'not_comparable',
+        }),
+        // Brand-new seller: no closed history at all, trusted current rank. Admitted by the
+        // recent window and NOT dumped in Data Readiness, but the unknown closed period still
+        // routes it to review at precedence 12 (gates 9-12 are unchanged by 065).
+        newSeller: input({
+          baselineState: 'unclassified',
+          baselineTier: null,
+          baselineConfidence: 'none',
+          lastClosedMonthState: 'unclassified',
+          lastClosedMonthTier: null,
+          closedTierMovement: 'not_comparable',
+          currentProjectedState: 'ranked',
+          currentProjectedTier: 'B',
+          projectedTierMovement: 'not_comparable',
+        }),
+        // Ranked last month, current projection not in yet ⇒ full citizen on the recent pair.
+        lastClosedOnly: input({
+          currentProjectedState: 'unclassified',
+          currentProjectedTier: null,
+          currentProjectionConfidence: 'unavailable',
+          projectedTierMovement: 'not_comparable',
+        }),
+        // Ranked now and reorder-due ⇒ operational.
+        currentRanked: input({ reorderDueKind: 'trusted' }),
+      } as const;
+
+      const panes = Object.fromEntries(
+        Object.entries(population).map(([name, decisionInput]) => [
+          name,
+          decideReplenishment(decisionInput).primaryActionPane,
+        ]),
+      );
+
+      expect(panes).toEqual({
+        phantomBaselineOnly: 'untieredProducts',
+        twoDeadMonths: 'untieredProducts',
+        newSeller: 'performanceReview',
+        lastClosedOnly: 'healthyInventory',
+        currentRanked: 'supplyAction',
+      });
+      expect(decideReplenishment(population.newSeller).primaryActionPane).not.toBe('dataReadiness');
     });
   });
 
@@ -436,8 +670,7 @@ describe('total replenishment and primary-pane decision', () => {
       'blocked_stuck_inventory',
       'blocked_excess_inventory',
       'blocked_insufficient_evidence',
-      'not_eligible_no_movement',
-      'blocked_baseline_tier_d',
+      'not_eligible_no_recent_movement',
       'blocked_closed_tier_d',
       'review_closed_no_movement',
       'review_closed_tier_decline',

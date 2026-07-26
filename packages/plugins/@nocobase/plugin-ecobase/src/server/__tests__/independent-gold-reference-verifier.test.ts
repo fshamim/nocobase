@@ -149,7 +149,7 @@ async function fixture(unitsPerMonth = 10, emulatePersistenceCoercions = false) 
   const result = buildCorrectedGoldProjection({
     runId: 'reference-run',
     calculationDate: '2026-07-18',
-    ruleVersion: 'individual_dynamic_6m_profit_trend_v2',
+    ruleVersion: 'individual_dynamic_6m_profit_trend_v3',
     algorithmContractVersion: 'individual_monthly_profit_performance_v2',
     currentProjectionGateMode: 'informational',
     resolvedPlanningSettingsDigest: sha('settings'),
@@ -194,6 +194,11 @@ async function fixture(unitsPerMonth = 10, emulatePersistenceCoercions = false) 
         lastClosedMonth: '2026-06-01',
         lastClosedMonthUnits: fixed(unitsPerMonth),
         lastClosedMonthProfit: fixed(10),
+        // 065: an eligible, actionable row must be RANKED in the recent two-month window. The
+        // fixture already sells in the last closed month (units/profit above); these two fields
+        // simply state it, which the action-leak mirror now reads. Nothing recomputes them.
+        lastClosedMonthState: 'ranked',
+        lastClosedMonthTier: 'B',
         monthlyPerformanceEvidence,
         inventoryDisposition: 'none',
         inventoryDispositionReasonCode: 'trusted_positive_velocity',

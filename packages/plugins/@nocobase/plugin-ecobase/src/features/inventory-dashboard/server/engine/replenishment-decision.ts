@@ -34,6 +34,10 @@ export type ReplenishmentEligibility =
   | 'blocked_stuck_inventory'
   | 'blocked_excess_inventory'
   | 'blocked_insufficient_evidence'
+  | 'not_eligible_no_recent_movement'
+  // 065: retired outcomes. No gate produces these any more (precedences 6 and 7 were removed when
+  // the ladder adopted the two-month recent window), but published Gold rows written before the
+  // recent-tier rebuild still carry them, so they remain part of the published contract.
   | 'not_eligible_no_movement'
   | 'blocked_baseline_tier_d'
   | 'blocked_closed_tier_d'
@@ -74,6 +78,8 @@ export type PrimaryActionReasonCode =
   | 'trusted_no_sell_through'
   | 'trusted_over_60_days_cover'
   | 'missing_or_invalid_baseline_evidence'
+  | 'no_recent_movement'
+  // 065: retired reasons — see the note on ReplenishmentEligibility above.
   | 'baseline_no_movement'
   | 'baseline_tier_d'
   | 'last_closed_tier_d'
@@ -220,6 +226,29 @@ function eligibilityDecision(input: ReplenishmentDecisionInput): Decision {
       reason: 'frozen_family_target_review',
     };
   }
+  // 065 (binding): membership is a TWO-MONTH window. recentTier = currentProjectedTier ??
+  // lastClosedMonthTier, so a product is a planning citizen iff it ranked in the current
+  // projection OR in the last closed month. Two consecutive unranked months ⇒ untiered, no
+  // matter how strong the baseline is — this exiles baseline-only phantoms (an 'A' from six
+  // months ago that has since gone quiet) and, symmetrically, admits brand-new sellers that
+  // have no baseline at all. `baselineState`/`baselineTier` keep feeding movement comparisons,
+  // thresholds and history, but they no longer decide who is in the planning population.
+  //
+  // Placed above the dispositions on purpose: Stuck and Excess may then only ever hold
+  // recently-ranked products, which is exactly what the dashboard shows at read time.
+  //
+  // Precedence 2 is shared with the lifecycle and target-review gates, following this file's own
+  // Task-002 precedent (the lifecycle gate was inserted ahead of target review and reused its
+  // neighbour's number instead of renumbering the ladder). Sharing keeps decisionPrecedence
+  // byte-stable for every surviving gate, so a published-row diff still attributes cleanly.
+  if (input.currentProjectedState !== 'ranked' && input.lastClosedMonthState !== 'ranked') {
+    return {
+      precedence: 2,
+      eligibility: 'not_eligible_no_recent_movement',
+      pane: 'untieredProducts',
+      reason: 'no_recent_movement',
+    };
+  }
   if (input.inventoryDisposition === 'no_sell_through') {
     return {
       precedence: 3,
@@ -253,25 +282,21 @@ function eligibilityDecision(input: ReplenishmentDecisionInput): Decision {
       reason: 'missing_or_invalid_baseline_evidence',
     };
   }
-  if (input.baselineState === 'no_movement') {
-    return {
-      precedence: 6,
-      eligibility: 'not_eligible_no_movement',
-      pane: 'untieredProducts',
-      reason: 'baseline_no_movement',
-    };
-  }
-  if (input.baselineTier === 'D') {
-    return {
-      precedence: 7,
-      eligibility: 'blocked_baseline_tier_d',
-      pane: 'performanceReview',
-      reason: 'baseline_tier_d',
-    };
-  }
+  // 065: precedences 6 and 7 are RETIRED and deliberately left as gaps in the numbering.
+  //   6 was `baselineState === 'no_movement'` → untieredProducts. Superseded by the recent-window
+  //     gate above: a product whose baseline never moved but which ranks TODAY is a new-product
+  //     citizen and now flows on instead of being exiled on history alone.
+  //   7 was `baselineTier === 'D'` → performanceReview. Baseline never drives membership any
+  //     more; recent-D is still caught by precedence 9 (last closed) and 16 (current projection).
+  // Do not reuse these numbers for new gates — published rows carry the old meanings.
+
   // 'none' confidence means zero closed eligible months. That is true absence ONLY when there is
   // also no current-month projection; a brand-new product WITH a projected tier flows on (to the
   // last-closed/current review gates below), never to Data Readiness.
+  // 065 reachability: the recent-window gate above already exiled rows that are unranked in BOTH
+  // recent months, so anything arriving here with `currentProjectedState !== 'ranked'` must be
+  // lastClosed-ranked. The gate is left exactly as written, but it is now partially shadowed and
+  // fires only for that narrow lastClosed-ranked-yet-no-baseline-confidence combination.
   if (input.baselineConfidence === 'none' && input.currentProjectedState !== 'ranked') {
     return {
       precedence: 8,
@@ -312,7 +337,13 @@ function eligibilityDecision(input: ReplenishmentDecisionInput): Decision {
       reason: 'last_closed_period_unknown',
     };
   }
-  if (input.baselineConfidence !== 'full') {
+  // 065: a product that is ranked in the CURRENT projection on TRUSTED evidence is a full
+  // citizen on its own recent record — thin or absent baseline history is not a reason to send
+  // it to review. The bypass requires 'trusted'; an 'early' projection is still too weak to
+  // stand in for baseline confidence, so those rows keep reviewing here.
+  const trustedCurrentRank =
+    input.currentProjectedState === 'ranked' && input.currentProjectionConfidence === 'trusted';
+  if (input.baselineConfidence !== 'full' && !trustedCurrentRank) {
     return {
       precedence: 13,
       eligibility: 'review_insufficient_baseline_confidence',

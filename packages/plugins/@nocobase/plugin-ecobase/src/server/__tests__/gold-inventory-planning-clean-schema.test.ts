@@ -131,7 +131,7 @@ describe('clean Gold inventory-planning schema', () => {
     const projection = buildCorrectedGoldProjection({
       runId: 'run-clean',
       calculationDate: '2026-07-16',
-      ruleVersion: 'individual_dynamic_6m_profit_trend_v2',
+      ruleVersion: 'individual_dynamic_6m_profit_trend_v3',
       algorithmContractVersion: 'individual_monthly_profit_performance_v2',
       currentProjectionGateMode: 'informational',
       resolvedPlanningSettingsDigest: '1'.repeat(64),

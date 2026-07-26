@@ -40,7 +40,10 @@ function decision(eligible: boolean) {
     baselineTier: eligible ? 'B' : 'D',
     baselineConfidence: 'full',
     lastClosedMonthState: 'ranked',
-    lastClosedMonthTier: 'B',
+    // 065: baseline tier D no longer blocks (precedence 7 deleted), so the ineligible member is
+    // blocked by RECENT tier D instead (precedence 9). The listing row keeps its baseline D, which
+    // is what the 'tier_d' review category and the target-listing assertion read.
+    lastClosedMonthTier: eligible ? 'B' : 'D',
     closedTierMovement: 'stable',
     currentProjectionGateMode: 'informational',
     currentProjectionConfidence: 'trusted',
@@ -107,7 +110,7 @@ function fixture() {
 const provenance = {
   runId: 'candidate-run-1',
   calculationDate: '2026-07-18',
-  ruleVersion: 'individual_dynamic_6m_profit_trend_v2',
+  ruleVersion: 'individual_dynamic_6m_profit_trend_v3',
   algorithmContractVersion: 'individual_monthly_profit_performance_v2',
   currentProjectionGateMode: 'informational' as const,
   resolvedPlanningSettingsDigest: sha256('settings'),
@@ -205,7 +208,7 @@ describe('corrected listing and frozen-target family projection', () => {
       targetSelectionState: 'frozen_target',
       targetCompanyProductId: 'cp-0000',
       actionSourceCompanyProductId: 'cp-0000',
-      replenishmentEligibility: 'blocked_baseline_tier_d',
+      replenishmentEligibility: 'blocked_closed_tier_d',
       primaryActionPane: 'performanceReview',
       alternateRecommendationCompanyProductIds: ['cp-0001'],
       recommendedOrderQty: '25.00000000',

@@ -22,7 +22,13 @@ import type { ReplenishmentDecisionResult } from './replenishment-decision';
 // velocity-gap routing, confidence-gated blocking dispositions. Bumped so run identity
 // (candidateInputDigest → derived idempotency key) can never reuse a v1 run for identical
 // silver inputs after the behavior change.
-export const CORRECTED_TIER_RULE_VERSION = 'individual_dynamic_6m_profit_trend_v2';
+// v3 (065: eligibility ladder adopts recentTier (two-month window), 2026-07) — membership is now
+// decided by `currentProjectedTier ?? lastClosedMonthTier` instead of the baseline: a new
+// recent-movement gate exiles rows unranked in both recent months, the baseline no-movement and
+// baseline-tier-D gates are gone, and a trusted current rank waives the baseline-confidence
+// review. Same silver inputs now yield different panes/eligibility, so the version moves for the
+// same reason as the v2 bump — run identity must never reuse a v2 run for a v3 formula.
+export const CORRECTED_TIER_RULE_VERSION = 'individual_dynamic_6m_profit_trend_v3';
 export const CORRECTED_ALGORITHM_CONTRACT_VERSION = 'individual_monthly_profit_performance_v2';
 export const CORRECTED_CANONICAL_SERIALIZER_VERSION = 'canonical_json_schema_normalized_bytewise_v2';
 export const CORRECTED_CANDIDATE_INPUT_DIGEST_VERSION = 'candidate_input_digest_v1';

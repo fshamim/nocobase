@@ -736,7 +736,7 @@ describe('Gold refresh publication control', () => {
         settingsDigest: digest('settings'),
         algorithmContractVersion: 'individual_monthly_profit_performance_v2',
       },
-      request: { calculationDate: '2026-07-18', ruleVersion: 'individual_dynamic_6m_profit_trend_v2' },
+      request: { calculationDate: '2026-07-18', ruleVersion: 'individual_dynamic_6m_profit_trend_v3' },
       materialize: async ({ runId, candidateInputDigest }) => {
         await db.gold.create({
           values: {
@@ -756,7 +756,7 @@ describe('Gold refresh publication control', () => {
           created: 1,
           updated: 0,
           lastRefreshedAt: '2026-07-18T00:00:00.000Z',
-          ruleVersion: 'individual_dynamic_6m_profit_trend_v2',
+          ruleVersion: 'individual_dynamic_6m_profit_trend_v3',
           algorithmContractVersion: 'individual_monthly_profit_performance_v2',
           currentProjectionGateMode: 'informational',
           resolvedPlanningSettingsDigest: digest('settings'),
@@ -778,7 +778,7 @@ describe('Gold refresh publication control', () => {
     });
 
     expect(result.run).toMatchObject({
-      ruleVersion: 'individual_dynamic_6m_profit_trend_v2',
+      ruleVersion: 'individual_dynamic_6m_profit_trend_v3',
       algorithmContractVersion: 'individual_monthly_profit_performance_v2',
       currentProjectionGateMode: 'informational',
       resolvedPlanningSettingsDigest: digest('settings'),

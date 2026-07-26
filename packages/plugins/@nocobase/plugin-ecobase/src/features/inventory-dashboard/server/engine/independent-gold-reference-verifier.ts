@@ -22,9 +22,12 @@ import { EcobaseInventoryPlanningGoldAccess } from './inventory-planning-gold-ac
 const ReferenceDecimal = Decimal.clone({ precision: 40, rounding: Decimal.ROUND_HALF_EVEN });
 
 const REFERENCE_VERIFIER_VERSION = 'independent_gold_reference_v1';
-// v2 pins (Batch D sparse-tolerant contract) — must track the engine constants in
-// listing-family-projection.ts or every fresh publication fails verification.
-const CORRECTED_RULE_VERSION = 'individual_dynamic_6m_profit_trend_v2';
+// Version pins (Batch D sparse-tolerant contract; rule version at v3 since 065) — must track the
+// engine constants in listing-family-projection.ts or every fresh publication fails verification.
+// 065: eligibility ladder adopts recentTier (two-month window). Kept byte-identical to
+// CORRECTED_TIER_RULE_VERSION in listing-family-projection.ts — this verifier is independent by
+// construction, so the expected version is restated here rather than imported.
+const CORRECTED_RULE_VERSION = 'individual_dynamic_6m_profit_trend_v3';
 const CORRECTED_ALGORITHM_VERSION = 'individual_monthly_profit_performance_v2';
 const CORRECTED_SERIALIZER_VERSION = 'canonical_json_schema_normalized_bytewise_v2';
 const CORRECTED_LISTING_DIGEST_VERSION = 'listing_performance_digest_v2';
@@ -850,10 +853,22 @@ export class EcobaseIndependentGoldReferenceVerifier {
     // blocks, so an actionable row may carry 'none' OR 'insufficient_velocity_evidence' (e.g. an
     // in-stock estimated reorder-due row, or trusted rolling velocity with a stale inventory
     // snapshot). Only the BLOCKING dispositions (stuck/excess) are a leak.
+    // 065: membership moved to the two-month recent window, so this mirror moves with it. An
+    // actionable row must be RECENT-ranked (current projection or last closed month) rather than
+    // baseline-tiered — baseline tier D and a missing baseline no longer block, so testing
+    // `baselineTier ∈ {A,B,C}` here would flag every legitimately promoted new seller as a leak.
+    // Recent tier D still blocks via last-closed (precedence 9) and current (16).
+    const recentlyRanked = row.currentProjectedState === 'ranked' || row.lastClosedMonthState === 'ranked';
+    const trustedCurrentRank = row.currentProjectedState === 'ranked' && row.currentProjectionConfidence === 'trusted';
     return !(
       row.replenishmentEligibility === 'eligible' &&
-      row.baselineConfidence === 'full' &&
-      ['A', 'B', 'C'].includes(String(row.baselineTier)) &&
+      recentlyRanked &&
+      // Baseline confidence is waived for a trusted current rank (precedence 13 bypass).
+      (row.baselineConfidence === 'full' || trustedCurrentRank) &&
+      // Last-closed D always blocks (precedence 9). Current-projected D is deliberately NOT
+      // asserted: under the informational gate mode the ladder settles at precedence 14 before
+      // reaching 16, so an eligible row may legitimately carry a projected D.
+      String(row.lastClosedMonthTier) !== 'D' &&
       !['no_sell_through', 'over_60_days_cover'].includes(String(row.inventoryDisposition)) &&
       row.isFrozenFamilyTarget === true &&
       row.existingOrderFollowUp !== true

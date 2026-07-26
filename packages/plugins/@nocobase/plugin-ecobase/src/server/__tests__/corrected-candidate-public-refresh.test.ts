@@ -452,7 +452,7 @@ describe('corrected candidate public refresh seam', () => {
       rowCount: 2363,
       run: {
         status: 'materialized',
-        ruleVersion: 'individual_dynamic_6m_profit_trend_v2',
+        ruleVersion: 'individual_dynamic_6m_profit_trend_v3',
         algorithmContractVersion: 'individual_monthly_profit_performance_v2',
         currentProjectionGateMode: 'informational',
         listingRowCount: 2363,
@@ -653,9 +653,12 @@ describe('corrected candidate public refresh seam', () => {
       // Six eligible months (five complete + one partial): the sparse month stays visible.
       baselineEligibleMonthCount: 6,
       baselineConfidence: 'moderate',
-      replenishmentEligibility: 'review_insufficient_baseline_confidence',
-      newReplenishmentActionable: false,
-      supplyActionable: false,
+      // 065 (precedence 13 bypass): the current month is ranked on trusted evidence, so a thin
+      // baseline no longer routes the row to review. "Lowering confidence not visibility" now
+      // holds in its strongest form — the sparse month costs confidence and nothing else.
+      replenishmentEligibility: 'eligible',
+      newReplenishmentActionable: true,
+      supplyActionable: true,
       oosAlertActionable: false,
     });
     expect(db.goldRows.rows[0].monthlyPerformanceEvidence).toEqual(
@@ -687,7 +690,10 @@ describe('corrected candidate public refresh seam', () => {
     expect(db.goldRows.rows[0]).toMatchObject({
       baselineEligibleMonthCount: 5,
       baselineConfidence: 'moderate',
-      newReplenishmentActionable: false,
+      // 065 (precedence 13 bypass): the failed month still costs baseline confidence, but the
+      // trusted current rank keeps the row actionable. The month-level verdict below is the
+      // assertion this test is actually about, and it is unchanged.
+      newReplenishmentActionable: true,
     });
     expect(db.goldRows.rows[0].monthlyPerformanceEvidence).toEqual(
       expect.arrayContaining([
@@ -715,7 +721,9 @@ describe('corrected candidate public refresh seam', () => {
     expect(db.goldRows.rows[0]).toMatchObject({
       baselineEligibleMonthCount: 5,
       baselineConfidence: 'moderate',
-      newReplenishmentActionable: false,
+      // 065 (precedence 13 bypass): as above — the trusted current rank keeps the row actionable
+      // while the closed month is still failed shut.
+      newReplenishmentActionable: true,
     });
     expect(db.goldRows.rows[0].monthlyPerformanceEvidence).toEqual(
       expect.arrayContaining([
@@ -1013,7 +1021,12 @@ describe('corrected candidate public refresh seam', () => {
     expect(commandCenter.metadata.historyReadiness.fields).toEqual(
       expect.arrayContaining(['baselineTier', 'baselineWeightedProfitPerUnit', 'averageMonthlyProfit']),
     );
-    expect(commandCenter.metadata.dataReadinessCount).toBeGreaterThan(0);
+    // 065 (new recent-movement gate, precedence 2): rows with no rank in either recent month are
+    // now exiled to Untiered BEFORE the evidence gates (5/8) can file them under Data Readiness,
+    // so this fixture's readiness pane empties and those rows surface as untiered instead. Data
+    // Readiness still fills from the target-review gate, which outranks the new gate.
+    expect(commandCenter.metadata.dataReadinessCount).toBe(0);
+    expect(Number(((commandCenter.panes as Row).untieredProducts as Row).total ?? 0)).toBeGreaterThan(0);
     expect(commandCenter.metadata.nullAverageMonthlyProfitCount).toBeGreaterThan(0);
     expect(
       Object.values(commandCenter.panes).reduce((total, pane) => total + Number((pane as Row).total ?? 0), 0),
@@ -1070,8 +1083,12 @@ describe('corrected candidate public refresh seam', () => {
       baselineConfidence: 'full',
       baselineState: 'no_movement',
       baselineTier: null,
-      replenishmentEligibility: 'blocked_stuck_inventory',
-      primaryActionPane: 'stuckInventory',
+      // 065 (new recent-movement gate, precedence 2): zero movement in both recent months now
+      // outranks the stuck disposition (precedence 3), so a product that never sold reads as
+      // untiered rather than as stuck inventory. Still unranked, still non-actionable — which is
+      // exactly what this test is named for; only the pane it lands in has changed.
+      replenishmentEligibility: 'not_eligible_no_recent_movement',
+      primaryActionPane: 'untieredProducts',
       newReplenishmentActionable: false,
     });
   });
