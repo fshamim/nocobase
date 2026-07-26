@@ -234,7 +234,7 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
     expect(byKey.get('stuckCapital')).toMatchObject({ count: 1, moneyAtRisk: null, unknownCount: 1 });
   });
 
-  it('(d2) 051: every tile counts TIERED products only; urgentStockout is the Supply Action subset', async () => {
+  it('(d2) 051 + 065: every tile counts RECENTLY tiered products only; urgentStockout is the Supply Action subset', async () => {
     const local = new RecordingDatabase();
     local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).rows.push({
       id: PUBLISHED_RUN_ID,
@@ -263,17 +263,19 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
         ...overrides,
       });
     const untiered = { baselineTier: null, currentProjectedTier: null, lastClosedMonthTier: null };
-    // The X5 pane projection reads isTiered(baseline, current, lastClosedMonth)
-    // (A/B/C), so a lastClosedMonth-only row KEEPS its operational pane — while
-    // the header excludes it, because the tier the operator sees on the row
-    // (tier.current / tier.baseline) is empty.
+    // 065: both the X5 pane projection and the header slice read the RECENT tier
+    // (currentProjectedTier ?? lastClosedMonthTier) — the very tier the row
+    // badges. A lastClosedMonth-only row is therefore a full citizen of its pane
+    // AND of every tile, while a baseline-only row is history with no recent
+    // rank: it keeps its non-operational pane but counts nowhere.
     const lastMonthTierOnly = { baselineTier: null, currentProjectedTier: null, lastClosedMonthTier: 'A' };
+    const baselineOnly = { baselineTier: 'B', currentProjectedTier: null, lastClosedMonthTier: null };
 
     // urgentStockout: Supply Action + running out (latestSafeReorderDate passed).
     push('t-urgent', 'supplyAction', { latestSafeReorderDate: dayOffset(-1), estimatedProfitRisk: 400 });
     push('t-urgent-null-money', 'supplyAction', { currentProjectedTier: 'C', latestSafeReorderDate: FIXED_TODAY });
     push('t-supply-later', 'supplyAction', { latestSafeReorderDate: dayOffset(5), estimatedProfitRisk: 900 });
-    push('x-urgent-no-dto-tier', 'supplyAction', {
+    push('x-urgent-last-month-tier', 'supplyAction', {
       ...lastMonthTierOnly,
       latestSafeReorderDate: dayOffset(-1),
       estimatedProfitRisk: 777,
@@ -295,6 +297,14 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
     });
     push('u-late', 'dataReadiness', { ...untiered, pipelineHealthStatus: 'late', estimatedProfitRisk: 999 });
     push('t-stale', 'healthyInventory', { leadTimeConfirmedAt: STALE_LEAD_TIME_AT, estimatedProfitRisk: 250 });
+    // 065 tile-slice proof, isolated from REQ-X5: performanceReview is not an
+    // operational pane, so this baseline-only row is NOT re-paned — it simply
+    // carries no recent tier, and the staleLeadTimes tile must skip it.
+    push('b-stale-baseline-only', 'performanceReview', {
+      ...baselineOnly,
+      leadTimeConfirmedAt: STALE_LEAD_TIME_AT,
+      estimatedProfitRisk: 444,
+    });
     // D is a RANKED product (059 §2 only bars it from money-at-risk): it counts.
     push('d-stale', 'performanceReview', {
       baselineTier: 'D',
@@ -315,7 +325,7 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
       supplierOrderId: 'order-t-followup',
       supplierOrderWorkflowStage: 'in_prep',
     });
-    push('x-followup-no-dto-tier', 'inPrepMonitoring', {
+    push('x-followup-last-month-tier', 'inPrepMonitoring', {
       ...lastMonthTierOnly,
       supplierOrderId: 'order-x-followup',
       supplierOrderWorkflowStage: 'in_prep',
@@ -327,7 +337,11 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
       currentPlanningStock: 10,
       unitCost: null,
     });
-    push('x-stuck-no-dto-tier', 'stuckInventory', { ...lastMonthTierOnly, currentPlanningStock: 100, unitCost: 7 });
+    push('x-stuck-last-month-tier', 'stuckInventory', {
+      ...lastMonthTierOnly,
+      currentPlanningStock: 100,
+      unitCost: 7,
+    });
 
     const silverOrders = local.getRepository(ECOBASE_COLLECTIONS.silverOrders);
     silverOrders.rows.push({ id: 'order-t-followup', workflowStage: 'in_prep', workflowStageEnteredAt: hoursAgo(72) });
@@ -348,21 +362,30 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
     );
     // Asserted as ONE object so a regression reports every tile that moved.
     expect(tiles).toEqual({
-      // t-urgent (EUR 400) + t-urgent-null-money. NOT t-supply-later (not
-      // running out yet), NOT x-urgent-no-dto-tier, NOT t-zero-stock /
-      // t-badge-outside (running out, tiered, but outside Supply Action).
-      urgentStockout: { count: 2, moneyAtRisk: 400, unknownCount: 1 },
+      // t-urgent (EUR 400) + t-urgent-null-money + x-urgent-last-month-tier
+      // (EUR 777 — 065: last month's rank is a recent rank). NOT t-supply-later
+      // (not running out yet), NOT t-zero-stock / t-badge-outside (running out,
+      // tiered, but outside Supply Action).
+      urgentStockout: { count: 3, moneyAtRisk: 1177, unknownCount: 1 },
       // u-late's EUR 999 never reaches the sum.
       orderedButLate: { count: 1, moneyAtRisk: 500, unknownCount: 0 },
-      // t-stale + d-stale; unknown counts t-lead-unknown only (u-lead-unknown out).
+      // t-stale + d-stale; b-stale-baseline-only's EUR 444 is history, not a
+      // recent rank, so it neither counts nor sums. Unknown counts
+      // t-lead-unknown only (u-lead-unknown out).
       staleLeadTimes: { count: 2, moneyAtRisk: 250, unknownCount: 1 },
-      // Row grain: t-followup only; x-followup-no-dto-tier's EUR 600 excluded.
-      needsFollowUp: { count: 1, moneyAtRisk: null, unknownCount: 1 },
-      // t-stuck (10 x 3) + t-stuck-null-cost; x-stuck-no-dto-tier's 700 excluded.
-      stuckCapital: { count: 2, moneyAtRisk: 30, unknownCount: 1 },
+      // Row grain: t-followup (null money) + x-followup-last-month-tier (600).
+      needsFollowUp: { count: 2, moneyAtRisk: 600, unknownCount: 1 },
+      // t-stuck (10 x 3) + t-stuck-null-cost + x-stuck-last-month-tier (100 x 7).
+      stuckCapital: { count: 3, moneyAtRisk: 730, unknownCount: 1 },
     });
 
-    // Tiles shrank; the panes and the row-level signals did NOT.
+    // The baseline-only row is still SERVED (history is context, not deletion) —
+    // it is only barred from the tiles.
+    const review = await svc.pane({ pane: 'performanceReview', runId: PUBLISHED_RUN_ID, page: 1, pageSize: 200 });
+    if (isRunSuperseded(review)) throw new Error('bad');
+    expect(review.rows.map((row) => row.identity.listingRowId)).toContain('b-stale-baseline-only');
+
+    // Tiles are tier-scoped; the panes and the row-level signals are NOT.
     const healthy = await svc.pane({ pane: 'healthyInventory', runId: PUBLISHED_RUN_ID, page: 1, pageSize: 200 });
     if (isRunSuperseded(healthy)) throw new Error('bad');
     expect(healthy.rows.find((row) => row.identity.listingRowId === 't-badge-outside')?.stockoutUrgency).toEqual({
@@ -428,7 +451,7 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
       refreshRunId: PUBLISHED_RUN_ID,
       primaryActionPane: 'supplyAction',
       companyProductFamilyId: 'family-sparse-velocity',
-      baselineTier: 'A',
+      currentProjectedTier: 'A',
       salesVelocity: 2,
       salesVelocityBasis: 'rolling_30',
       salesVelocityAsOfDate: '2026-07-19',
@@ -1078,7 +1101,7 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
     expect(raw.asin).toBe('B0011A');
   });
 
-  it('T-D5: stockout urgency signal — tiered near-OOS rows OUTSIDE action panes only (pinned clock)', async () => {
+  it('T-D5 + 065: stockout urgency — RECENTLY tiered near-OOS rows OUTSIDE action panes only (pinned clock)', async () => {
     const local = new RecordingDatabase();
     local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).rows.push({
       id: PUBLISHED_RUN_ID,
@@ -1106,6 +1129,19 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
       currentProjectedTier: null,
       positionEstimatedOosDate: '2026-07-26',
     }); // tier rule -> absent
+    // 065: the badge shares hasTier with the header tiles, so it follows the
+    // RECENT tier too. dataReadiness is not an operational pane, so the
+    // baseline-only row keeps its pane and only loses the badge.
+    push('sig-baseline-only', 'dataReadiness', {
+      currentProjectedTier: null,
+      positionEstimatedOosDate: '2026-07-26',
+    }); // baseline A is history -> absent
+    push('sig-last-month', 'healthyInventory', {
+      baselineTier: null,
+      currentProjectedTier: null,
+      lastClosedMonthTier: 'B',
+      positionEstimatedOosDate: '2026-08-01',
+    }); // last month's rank is recent -> present
     push('sig-action-pane', 'supplyAction', {
       positionEstimatedOosDate: '2026-07-26',
       latestSafeReorderDate: '2026-07-20', // passed -> existing branch A
@@ -1120,6 +1156,9 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
       daysUntil: 11,
     });
     expect(healthy.rows.find((row) => row.identity.listingRowId === 'sig-far')?.stockoutUrgency).toBeUndefined();
+    expect(healthy.rows.find((row) => row.identity.listingRowId === 'sig-last-month')?.stockoutUrgency).toEqual({
+      daysUntil: 11,
+    });
     const excess = await svc.pane({ pane: 'excessInventory', runId: PUBLISHED_RUN_ID, page: 1, pageSize: 200 });
     if (isRunSuperseded(excess)) throw new Error('bad');
     expect(excess.rows.find((row) => row.identity.listingRowId === 'sig-passed')?.stockoutUrgency).toEqual({
@@ -1128,6 +1167,9 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
     const readiness = await svc.pane({ pane: 'dataReadiness', runId: PUBLISHED_RUN_ID, page: 1, pageSize: 200 });
     if (isRunSuperseded(readiness)) throw new Error('bad');
     expect(readiness.rows.find((row) => row.identity.listingRowId === 'sig-untiered')?.stockoutUrgency).toBeUndefined();
+    expect(
+      readiness.rows.find((row) => row.identity.listingRowId === 'sig-baseline-only')?.stockoutUrgency,
+    ).toBeUndefined();
     const supply = await svc.pane({ pane: 'supplyAction', runId: PUBLISHED_RUN_ID, page: 1, pageSize: 200 });
     if (isRunSuperseded(supply)) throw new Error('bad');
     expect(supply.rows.find((row) => row.identity.listingRowId === 'sig-action-pane')?.stockoutUrgency).toBeUndefined();
@@ -1143,7 +1185,7 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
     expect(tile?.targetPane).toBe('supplyAction');
   });
 
-  it('T-R1 (R1-2): default supplyAction order is tier rank A->B->C->D->untiered, then urgency', async () => {
+  it('T-R1 (R1-2) + 065: default supplyAction order is RECENT tier rank A->B->C->D, then urgency', async () => {
     const local = new RecordingDatabase();
     local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).rows.push({
       id: PUBLISHED_RUN_ID,
@@ -1152,7 +1194,7 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
       publishedAt: `${FIXED_TODAY}T00:00:00.000Z`,
     });
     const goldRepo = local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows);
-    const push = (id: string, current: string | null, baseline: string | null, daysUntil: number | null) =>
+    const push = (id: string, current: string | null, lastClosed: string | null, daysUntil: number | null) =>
       goldRepo.rows.push({
         id,
         naturalKey: id,
@@ -1160,33 +1202,33 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
         primaryActionPane: 'supplyAction',
         companyProductFamilyId: `family-${id}`,
         currentProjectedTier: current,
-        baselineTier: baseline,
-        // untiered rows would project to untieredProducts; give them a closed tier
-        // so they stay in the pane while the COALESCE rank still lands null-last.
-        lastClosedMonthTier: 'C',
+        lastClosedMonthTier: lastClosed,
+        // 065 decoy: a strong baseline on EVERY row, including the one with no
+        // recent rank. History must move nothing — not membership, not order.
+        baselineTier: 'A',
         daysUntilSafeReorder: daysUntil,
       });
-    push('tier-c', 'C', 'A', 5); // COALESCE -> C (current wins over baseline)
-    push('tier-null', null, null, -20); // untiered by badge rule -> LAST despite urgency
+    push('tier-c', 'C', 'A', 5); // COALESCE -> C (current wins over last month)
+    push('tier-quarantined', null, null, -20); // no recent rank -> leaves the pane
     push('tier-a-late', 'A', null, 9);
     push('tier-a-urgent', 'A', null, -2); // same tier -> urgency breaks the tie
-    push('tier-d', 'D', null, -50);
-    push('tier-b', null, 'B', 0); // baseline fallback
-    // T-R2 staging reality: rows whose two tiers DIFFER group by the COALESCED
-    // display tier (current-first) — the exact scatter QA observed.
-    push('tier-b-promoted', 'B', 'A', -9); // baseline A, current B -> sorts as B
-    push('tier-b-recovered', 'B', 'C', 3); // baseline C, current B -> sorts as B
+    push('tier-d', 'D', 'C', -50); // D now, C last month: stays, ranks last
+    push('tier-b-lastmonth', null, 'B', 0); // last-closed-month fallback
+    // T-R2 staging reality: rows whose two RECENT tiers DIFFER group by the
+    // COALESCED display tier (current-first) — the exact scatter QA observed.
+    push('tier-b-promoted', 'B', 'A', -9); // last month A, current B -> sorts as B
+    push('tier-b-recovered', 'B', 'C', 3); // last month C, current B -> sorts as B
     const expectedOrder = [
       'tier-a-urgent',
       'tier-a-late',
       'tier-b-promoted', // daysUntil -9
-      'tier-b', // 0
+      'tier-b-lastmonth', // 0
       'tier-b-recovered', // 3
       'tier-c',
       'tier-d',
-      'tier-null',
     ];
-    const response = await service(local).pane({
+    const svc = service(local);
+    const response = await svc.pane({
       pane: 'supplyAction',
       runId: PUBLISHED_RUN_ID,
       page: 1,
@@ -1194,8 +1236,8 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
     });
     if (isRunSuperseded(response)) throw new Error('bad');
     expect(response.rows.map((row) => row.identity.listingRowId)).toEqual(expectedOrder);
-    // The served pill tier equals the sort tier for every row (display == order).
-    expect(response.rows.map((row) => row.tier.current ?? row.tier.baseline ?? 'untiered')).toEqual([
+    // The served badge tier equals the sort tier for every row (display == order).
+    expect(response.rows.map((row) => row.tier.current ?? row.tier.lastClosedMonth)).toEqual([
       'A',
       'A',
       'B',
@@ -1203,10 +1245,21 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
       'B',
       'C',
       'D',
-      'untiered',
     ]);
+    // 065: baseline A is served on every row and ranks none of them — the old
+    // "sorts last" leg is gone because a rank-null row cannot hold an
+    // operational pane at all; REQ-X5 quarantines it instead.
+    expect(response.rows.every((row) => row.tier.baseline === 'A')).toBe(true);
+    const quarantined = await svc.pane({
+      pane: 'untieredProducts',
+      runId: PUBLISHED_RUN_ID,
+      page: 1,
+      pageSize: 25,
+    });
+    if (isRunSuperseded(quarantined)) throw new Error('bad');
+    expect(quarantined.rows.map((row) => row.identity.listingRowId)).toEqual(['tier-quarantined']);
     // T-R2 guard: an unknown sort key serves the SAME default composite order.
-    const junk = await service(local).pane({
+    const junk = await svc.pane({
       pane: 'supplyAction',
       runId: PUBLISHED_RUN_ID,
       page: 1,
@@ -1230,7 +1283,7 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
         publishedAt: `${FIXED_TODAY}T00:00:00.000Z`,
       });
       const goldRepo = local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows);
-      const push = (id: string, current: string | null, baseline: string | null, daysUntil: number | null) =>
+      const push = (id: string, current: string | null, lastClosed: string | null, daysUntil: number | null) =>
         goldRepo.rows.push({
           id,
           naturalKey: id,
@@ -1238,20 +1291,19 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
           primaryActionPane: pane,
           companyProductFamilyId: `family-${id}`,
           currentProjectedTier: current,
-          baselineTier: baseline,
-          // Keeps the COALESCE-null row inside the pane (REQ-X5 would otherwise
-          // project it to untieredProducts) while its sort rank stays null-last.
-          lastClosedMonthTier: 'C',
+          lastClosedMonthTier: lastClosed,
+          // 065 decoy: history on every row, ranking none of them.
+          baselineTier: 'A',
           daysUntilSafeReorder: daysUntil,
         });
       // Seeded deliberately out of order — the composite, not insertion, decides.
       push('p-b-urgent', 'B', null, -10); // most urgent overall, still behind every A
       push('p-a-null-urgency', 'A', null, null); // null urgency -> last WITHIN tier A
-      push('p-untiered', null, null, -100); // no tier -> LAST despite peak urgency
+      push('p-no-recent-tier', null, null, -100); // REQ-X5 quarantines it out of BOTH panes
       push('p-a-late', 'A', null, 4);
-      push('p-d', 'D', null, -99);
+      push('p-d', 'D', 'C', -99); // D now, C last month -> stays, ranks last
       push('p-a-urgent', 'A', null, -3);
-      push('p-b-baseline', null, 'B', 2); // COALESCE falls back to baseline B
+      push('p-b-lastmonth', null, 'B', 2); // COALESCE falls back to last month's B
       return local;
     };
     const expectedOrder = [
@@ -1259,9 +1311,8 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
       'p-a-late', // A, 4
       'p-a-null-urgency', // A, null urgency last within the tier
       'p-b-urgent', // B, -10 (tier outranks urgency)
-      'p-b-baseline', // B, 2
+      'p-b-lastmonth', // B, 2
       'p-d', // D
-      'p-untiered', // null tier last
     ];
     const excess = await service(productPaneDb('excessInventory')).pane({
       pane: 'excessInventory',
@@ -1300,8 +1351,8 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
       sortDirection: 'desc',
     });
     if (isRunSuperseded(asc) || isRunSuperseded(desc)) throw new Error('bad');
-    expect(asc.rows.map((row) => row.daysUntilSafeReorder)).toEqual([-100, -99, -10, -3, 2, 4, null]);
-    expect(desc.rows.map((row) => row.daysUntilSafeReorder)).toEqual([4, 2, -3, -10, -99, -100, null]);
+    expect(asc.rows.map((row) => row.daysUntilSafeReorder)).toEqual([-99, -10, -3, 2, 4, null]);
+    expect(desc.rows.map((row) => row.daysUntilSafeReorder)).toEqual([4, 2, -3, -10, -99, null]);
   });
 
   it('063 (D4): dataReadiness keeps its tiered-first default and does NOT join the tier composite', async () => {
@@ -1343,6 +1394,86 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
       'r-untiered-1',
       'r-untiered-2',
     ]);
+  });
+
+  it('065: membership and the tier composite read the RECENT tier (current ?? last closed month)', async () => {
+    const local = new RecordingDatabase();
+    local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).rows.push({
+      id: PUBLISHED_RUN_ID,
+      status: 'published',
+      calculationDate: FIXED_TODAY,
+      publishedAt: `${FIXED_TODAY}T00:00:00.000Z`,
+    });
+    const goldRepo = local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows);
+    const push = (id: string, pane: string, overrides: Record<string, unknown>) =>
+      goldRepo.rows.push({
+        id,
+        naturalKey: id,
+        refreshRunId: PUBLISHED_RUN_ID,
+        primaryActionPane: pane,
+        companyProductFamilyId: `family-${id}`,
+        baselineTier: null,
+        currentProjectedTier: null,
+        lastClosedMonthTier: null,
+        ...overrides,
+      });
+    // Two consecutive unranked months: a B-grade history no longer holds an
+    // operational pane, however urgent the row looks.
+    push('r-baseline-only', 'excessInventory', { baselineTier: 'B', daysUntilSafeReorder: -5 });
+    // One unranked month: last month's rank keeps the pane AND ranks the row.
+    push('r-lastclosed-c', 'excessInventory', { lastClosedMonthTier: 'C', daysUntilSafeReorder: 1 });
+    push('r-current-a', 'excessInventory', { currentProjectedTier: 'A', daysUntilSafeReorder: 50 });
+    push('r-declined-d', 'excessInventory', {
+      currentProjectedTier: 'D',
+      lastClosedMonthTier: 'B',
+      daysUntilSafeReorder: -80,
+    });
+    // Already parked in P11: a recent rank there still sorts above the rankless.
+    push('r-untiered-ranked', 'untieredProducts', { lastClosedMonthTier: 'A' });
+
+    const svc = service(local);
+    const excess = await svc.pane({ pane: 'excessInventory', runId: PUBLISHED_RUN_ID, page: 1, pageSize: 25 });
+    const untiered = await svc.pane({ pane: 'untieredProducts', runId: PUBLISHED_RUN_ID, page: 1, pageSize: 25 });
+    if (isRunSuperseded(excess) || isRunSuperseded(untiered)) throw new Error('bad');
+
+    // The lastClosed-only row KEEPS its persisted pane and sorts at rank C —
+    // between the current-A row and the one that declined to D this month.
+    expect(excess.rows.map((row) => row.identity.listingRowId)).toEqual([
+      'r-current-a',
+      'r-lastclosed-c',
+      'r-declined-d',
+    ]);
+    expect(excess.rows.map((row) => row.tier.lastClosedMonth)).toEqual([null, 'C', 'B']);
+
+    // The baseline-only row is quarantined into P11 with the X5 reason, and it
+    // sorts BELOW the rank-carrying row already parked there (nulls last).
+    expect(untiered.rows.map((row) => row.identity.listingRowId)).toEqual(['r-untiered-ranked', 'r-baseline-only']);
+    const quarantined = untiered.rows[1];
+    expect(quarantined.reasonCodes).toContain('untiered_projected');
+    expect(quarantined.tier).toEqual({ baseline: 'B', current: null, lastClosedMonth: null });
+  });
+
+  it('065: every served row carries tier.lastClosedMonth, with baseline still served for the drawer', async () => {
+    const responses = await collectAllPanes(service(db));
+    const goldById = new Map(GOLD_ROWS.map((row) => [row.id, row]));
+    let withLastClosed = 0;
+    let withBaseline = 0;
+    for (const response of responses.values()) {
+      if (isRunSuperseded(response)) throw new Error('bad');
+      for (const row of response.rows) {
+        const gold = goldById.get(row.identity.listingRowId);
+        expect(gold, `gold row ${row.identity.listingRowId}`).toBeDefined();
+        expect(row.tier.lastClosedMonth, `${row.identity.listingRowId} lastClosedMonth`).toBe(
+          gold?.lastClosedMonthTier ?? null,
+        );
+        expect(row.tier.baseline, `${row.identity.listingRowId} baseline`).toBe(gold?.baselineTier ?? null);
+        if (row.tier.lastClosedMonth !== null) withLastClosed += 1;
+        if (row.tier.baseline !== null) withBaseline += 1;
+      }
+    }
+    // Guards against a vacuous pass: the fixture exercises both fields.
+    expect(withLastClosed).toBeGreaterThan(0);
+    expect(withBaseline).toBeGreaterThan(0);
   });
 
   it('T-R1 (R1-5): familyMemberCount is served on EVERY pane row (zero extra queries)', async () => {
@@ -1558,7 +1689,7 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
       refreshRunId: PUBLISHED_RUN_ID,
       primaryActionPane: 'inPrepMonitoring',
       companyProductFamilyId: 'family-date-row',
-      baselineTier: 'A',
+      currentProjectedTier: 'A',
       supplierOrderId: 'order-date',
       supplierOrderOperationalStatus: 'ordered',
       supplierOrderWorkflowStage: 'in_prep',
@@ -1691,7 +1822,10 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
       publishedAt: `${FIXED_TODAY}T00:00:00.000Z`,
     });
     const goldRepo = local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows);
-    for (const [id, tier] of [
+    // 065: "tiered" here is the RECENT tier. Every row carries a baseline A, so
+    // if history still voted the counter would read 4 and the hoist would be a
+    // no-op — the counter and the hoist consume the same flag as REQ-X5.
+    for (const [id, lastClosed] of [
       ['dr-untiered-1', null],
       ['dr-tiered-1', 'B'],
       ['dr-untiered-2', null],
@@ -1703,7 +1837,8 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
         refreshRunId: PUBLISHED_RUN_ID,
         primaryActionPane: 'dataReadiness',
         companyProductFamilyId: `family-${id}`,
-        baselineTier: tier,
+        baselineTier: 'A',
+        lastClosedMonthTier: lastClosed,
       });
     }
     const response = await service(local).pane({
@@ -1713,9 +1848,10 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
       pageSize: 25,
     });
     if (isRunSuperseded(response)) throw new Error('bad');
-    // Tiered families first.
-    expect(response.rows.slice(0, 2).every((row) => row.tier.baseline !== null)).toBe(true);
-    expect(response.rows.slice(2).every((row) => row.tier.baseline === null)).toBe(true);
+    // Recently tiered families first; baseline history is served on all four.
+    expect(response.rows.slice(0, 2).every((row) => row.tier.lastClosedMonth !== null)).toBe(true);
+    expect(response.rows.slice(2).every((row) => row.tier.lastClosedMonth === null)).toBe(true);
+    expect(response.rows.every((row) => row.tier.baseline === 'A')).toBe(true);
     const counter = response.metrics.find((metric) => metric.key === 'tieredNeedingAttention');
     expect(counter?.value).toBe(2);
     expect(counter?.label).toBe('Tiered families needing attention');

@@ -746,11 +746,10 @@ export class EcobaseInventoryDashboardService {
     for (const raw of goldRows) {
       const listingRowId = asString(raw.id) ?? asString(raw.naturalKey) ?? '';
       const primaryActionPane = asString(raw.primaryActionPane) ?? '';
-      const tiered = isTiered(
-        asString(raw.baselineTier),
-        asString(raw.currentProjectedTier),
-        asString(raw.lastClosedMonthTier),
-      );
+      // 065: membership reads the RECENT tier only — currentProjectedTier ??
+      // lastClosedMonthTier. Two consecutive zero/unranked months means untiered,
+      // however good the baseline history was; baselineTier no longer votes.
+      const tiered = isTiered(asString(raw.currentProjectedTier), asString(raw.lastClosedMonthTier));
       const directShip = isDirectShipFba(raw.supplierOrderOperationalStatus);
       const goldStage =
         asString(raw.supplierOrderWorkflowStage) ??
@@ -836,13 +835,14 @@ export class EcobaseInventoryDashboardService {
     if (!sort && PRODUCT_TABLE_PANES.has(pane)) {
       // T-R1 (R1-2), widened to every product pane by 063 (D4) so the shared
       // table's "Tier" default-sort label is truthful everywhere it is shown:
-      // composite DEFAULT — tier rank A -> B -> C -> D -> untiered
-      // via COALESCE(currentProjectedTier, baselineTier) (strict uppercase
-      // A|B|C|D enum in gold, so case-folded alphabetical IS the rank), nulls
-      // last; ties broken by the exact urgency scalar asc, nulls last.
-      // User-selected sorts stay single-key.
+      // composite DEFAULT — tier rank A -> B -> C -> D -> untiered via the 065
+      // RECENT tier COALESCE(currentProjectedTier, lastClosedMonthTier) (strict
+      // uppercase A|B|C|D enum in gold, so case-folded alphabetical IS the
+      // rank), nulls last; ties broken by the exact urgency scalar asc, nulls
+      // last. Order equals the badge the row shows. User-selected sorts stay
+      // single-key.
       const tierRank = (row: ProjectedRow) => {
-        const tier = asString(row.raw.currentProjectedTier) ?? asString(row.raw.baselineTier);
+        const tier = asString(row.raw.currentProjectedTier) ?? asString(row.raw.lastClosedMonthTier);
         return tier ? tier.toLowerCase() : null;
       };
       return [...rows].sort((left, right) => {
@@ -1100,7 +1100,11 @@ export class EcobaseInventoryDashboardService {
         title: asString(raw.title),
       },
       pane: row.pane,
-      tier: { baseline: asString(raw.baselineTier), current: asString(raw.currentProjectedTier) },
+      tier: {
+        baseline: asString(raw.baselineTier),
+        current: asString(raw.currentProjectedTier),
+        lastClosedMonth: asString(raw.lastClosedMonthTier),
+      },
       // T4 widened projection (REQ-X5): every group below is served VERBATIM
       // from published gold — no reclassification, nulls stay null.
       stock: {
@@ -1420,23 +1424,25 @@ function daysUntilDate(dateOnly: string | null, today: string): number | null {
 }
 
 /**
- * "Carries a tier at all" — the published gold row's own A/B/C/D ranking
- * (currentProjectedTier ?? baselineTier), i.e. the pair the row DTO exposes as
- * `tier.current` / `tier.baseline`. The single definition behind the 051 header
- * population rule and the T-D5 badge. Deliberately NOT `ProjectedRow.tiered`
- * (`isTiered`, A/B/C), which is the PANE-projection notion: D-tier products are
- * ranked products and belong in the management view, they simply carry no
+ * "Carries a RECENT tier at all" — the published gold row's A/B/C/D ranking in
+ * the 065 two-month window (currentProjectedTier ?? lastClosedMonthTier), i.e.
+ * the pair the row DTO exposes as `tier.current` / `tier.lastClosedMonth` and
+ * the badge the operator actually sees. The single definition behind the 051
+ * header population rule and the T-D5 badge. `baselineTier` is history and
+ * never populates either. Deliberately NOT `ProjectedRow.tiered` (`isTiered`,
+ * A/B/C), which is the PANE-projection notion: D-tier products are ranked
+ * products and belong in the management view, they simply carry no
  * engine-computed money-at-risk (059 §2: € is an A/B/C-only proposition).
  */
 function hasTier(row: ProjectedRow): boolean {
-  return (asString(row.raw.currentProjectedTier) ?? asString(row.raw.baselineTier)) !== null;
+  return (asString(row.raw.currentProjectedTier) ?? asString(row.raw.lastClosedMonthTier)) !== null;
 }
 
 /**
  * T-D5 signal predicate (position-based, evaluated on the SERVED pane): the
- * family is tiered (currentProjectedTier ?? baselineTier non-null), sits in a
- * non-action pane, and its position-based stockout estimate falls within
- * URGENT_STOCKOUT_HORIZON_DAYS of today (or has already passed).
+ * family carries a recent tier (currentProjectedTier ?? lastClosedMonthTier
+ * non-null), sits in a non-action pane, and its position-based stockout
+ * estimate falls within URGENT_STOCKOUT_HORIZON_DAYS of today (or has passed).
  */
 function stockoutUrgencyFor(row: ProjectedRow, today: string): { daysUntil: number } | undefined {
   if (STOCKOUT_SIGNAL_EXEMPT_PANES.has(row.pane)) return undefined;

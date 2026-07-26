@@ -28,7 +28,8 @@
     "pane": "untieredProducts",
     "tier": {
       "baseline": null,
-      "current": null
+      "current": null,
+      "lastClosedMonth": null
     },
     "stock": {
       "currentPlanningStock": 100,

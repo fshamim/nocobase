@@ -100,10 +100,17 @@ export interface DashboardRowIdentity {
   title: string | null;
 }
 
-/** Baseline + current tier per ADR-012. */
+/**
+ * Baseline + current tier per ADR-012, plus the last CLOSED month's tier (065).
+ *
+ * 065 ruling: the RECENT tier — `current ?? lastClosedMonth` — is the only tier
+ * that decides membership, header population and default order. `baseline` is
+ * HISTORY: served so the drawer can show it as context, never a table badge.
+ */
 export interface DashboardRowTier {
   baseline: string | null;
   current: string | null;
+  lastClosedMonth: string | null;
 }
 
 export interface DashboardRowStock {

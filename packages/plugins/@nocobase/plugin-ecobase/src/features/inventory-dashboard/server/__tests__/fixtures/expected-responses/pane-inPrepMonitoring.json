@@ -34,7 +34,8 @@
       "pane": "inPrepMonitoring",
       "tier": {
         "baseline": "A",
-        "current": "A"
+        "current": "A",
+        "lastClosedMonth": "A"
       },
       "stock": {
         "currentPlanningStock": 100,
@@ -115,7 +116,8 @@
       "pane": "inPrepMonitoring",
       "tier": {
         "baseline": "A",
-        "current": "A"
+        "current": "A",
+        "lastClosedMonth": "A"
       },
       "stock": {
         "currentPlanningStock": 100,
@@ -200,7 +202,8 @@
       "pane": "inPrepMonitoring",
       "tier": {
         "baseline": "A",
-        "current": "A"
+        "current": "A",
+        "lastClosedMonth": "A"
       },
       "stock": {
         "currentPlanningStock": 100,
@@ -286,7 +289,8 @@
       "pane": "inPrepMonitoring",
       "tier": {
         "baseline": "A",
-        "current": "A"
+        "current": "A",
+        "lastClosedMonth": "A"
       },
       "stock": {
         "currentPlanningStock": 100,
@@ -372,7 +376,8 @@
       "pane": "inPrepMonitoring",
       "tier": {
         "baseline": "A",
-        "current": "A"
+        "current": "A",
+        "lastClosedMonth": "A"
       },
       "stock": {
         "currentPlanningStock": 100,

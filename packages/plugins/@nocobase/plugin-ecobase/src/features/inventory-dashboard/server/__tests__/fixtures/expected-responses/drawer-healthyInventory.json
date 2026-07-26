@@ -40,7 +40,8 @@
     "pane": "supplyAction",
     "tier": {
       "baseline": "A",
-      "current": "A"
+      "current": "A",
+      "lastClosedMonth": "A"
     },
     "stock": {
       "currentPlanningStock": 8,

@@ -34,7 +34,8 @@
       "pane": "zeroStock",
       "tier": {
         "baseline": "A",
-        "current": "A"
+        "current": "A",
+        "lastClosedMonth": "A"
       },
       "stock": {
         "currentPlanningStock": 0,

@@ -34,7 +34,8 @@
       "pane": "healthyInventory",
       "tier": {
         "baseline": "A",
-        "current": "A"
+        "current": "A",
+        "lastClosedMonth": "A"
       },
       "stock": {
         "currentPlanningStock": 100,
@@ -103,7 +104,8 @@
       "pane": "healthyInventory",
       "tier": {
         "baseline": "A",
-        "current": "A"
+        "current": "A",
+        "lastClosedMonth": "A"
       },
       "stock": {
         "currentPlanningStock": 100,
@@ -183,7 +185,8 @@
       "pane": "healthyInventory",
       "tier": {
         "baseline": "A",
-        "current": "A"
+        "current": "A",
+        "lastClosedMonth": "A"
       },
       "stock": {
         "currentPlanningStock": 100,
@@ -251,7 +254,8 @@
       "pane": "healthyInventory",
       "tier": {
         "baseline": "B",
-        "current": "B"
+        "current": "B",
+        "lastClosedMonth": "B"
       },
       "stock": {
         "currentPlanningStock": 100,

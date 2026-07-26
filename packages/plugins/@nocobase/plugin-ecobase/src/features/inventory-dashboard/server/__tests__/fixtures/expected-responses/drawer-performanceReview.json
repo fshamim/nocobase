@@ -65,7 +65,8 @@
     "pane": "performanceReview",
     "tier": {
       "baseline": "A",
-      "current": "B"
+      "current": "B",
+      "lastClosedMonth": "A"
     },
     "stock": {
       "currentPlanningStock": 100,
