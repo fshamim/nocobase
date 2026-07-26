@@ -299,24 +299,51 @@ function publicationPayload(db: MemoryDatabase, runId: string): GoldPublicationP
   };
 }
 
+/** Response compaction the deleted read handlers applied before serialising. */
+function compactRows(rows: unknown) {
+  return Array.isArray(rows)
+    ? rows.map((row) => {
+        if (typeof row !== 'object' || row === null) return row;
+        const compact = { ...(row as Row) };
+        delete compact.evidence;
+        return compact;
+      })
+    : rows;
+}
+
+function compactDigest(digest: unknown) {
+  if (typeof digest !== 'object' || digest === null || Array.isArray(digest)) return digest;
+  const record = digest as Row;
+  const sections = record.sections;
+  if (typeof sections !== 'object' || sections === null || Array.isArray(sections)) return digest;
+  return {
+    ...record,
+    sections: Object.fromEntries(Object.entries(sections).map(([key, rows]) => [key, compactRows(rows)])),
+  };
+}
+
+/**
+ * Issue 042 deleted the page-only `ecobaseInventoryPlanning` read actions with the page
+ * they served. The engine methods behind them are what this suite is actually about, so
+ * it calls them directly and reproduces the handlers' response compaction verbatim.
+ */
 async function readThroughPublicAction(
   db: MemoryDatabase,
   actionName: 'workspace' | 'commandCenter' | 'digestPreview' | 'listingPerformanceReview',
   values: Row = {},
 ) {
-  const action = createEcobaseInventoryPlanningActions()[actionName];
-  const next = vi.fn(async () => undefined);
-  const ctx: Row = {
-    db,
-    action: { params: { values } },
-    body: undefined,
-    throw(status: number, message: string) {
-      throw new Error(`HTTP ${status}: ${message}`);
-    },
-  };
-  await action(ctx as never, next);
-  expect(next).toHaveBeenCalledOnce();
-  return (ctx.body as { data: Row }).data;
+  const service = new EcobaseInventoryPlanningService(db);
+  if (actionName === 'workspace') {
+    const workspace = await service.workspace(values);
+    return {
+      filters: workspace.filters,
+      rows: compactRows(workspace.rows),
+      digest: compactDigest(workspace.digest),
+    } as Row;
+  }
+  if (actionName === 'commandCenter') return (await service.commandCenter(values)) as unknown as Row;
+  if (actionName === 'digestPreview') return compactDigest(await service.digestPreview(values)) as Row;
+  return (await service.listingPerformanceReview({ ...values, categories: [] })) as unknown as Row;
 }
 
 function exactNames(value: unknown, names = new Set<string>()) {
