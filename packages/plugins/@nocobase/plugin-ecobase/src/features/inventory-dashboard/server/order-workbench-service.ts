@@ -1023,6 +1023,9 @@ export class EcobaseOrderWorkbenchService {
       prepStatus: asString(order.prepStatus),
       prepDimensions: readDimensions(order.prepDimensions),
       prepWeightValue: asNumber(order.prepWeightValue),
+      prepBoxes: asNumber(order.prepBoxes),
+      prepUnits: asNumber(order.prepUnits),
+      labelFilesLink: asString(order.labelFilesLink),
     });
     const arrivalDetected = orderArrivalDetected({
       orderReceiptStatus: asString(order.amazonReceiptStatus),

@@ -164,12 +164,27 @@ export interface OrderPaperwork {
   invoice: OrderMilestone;
 }
 
+/** Contextual state of the sub-line under the prep chain (issue 053 item 2). */
+export type OrderPrepNoteKind =
+  | 'ready'
+  | 'measured'
+  | 'measuring'
+  | 'awaiting_measurement'
+  | 'awaiting_arrival'
+  | 'awaiting_supplier';
+
+export interface OrderPrepNote {
+  kind: OrderPrepNoteKind;
+  recorded: number;
+  total: number;
+}
+
 export interface OrderPrep {
   transit: PrepMilestoneState;
   atPrep: PrepMilestoneState;
   prep: PrepMilestoneState;
   ready: PrepMilestoneState;
-  prepMeasured: boolean;
+  note: OrderPrepNote;
 }
 
 export interface OrderInbound {

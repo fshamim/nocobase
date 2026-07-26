@@ -285,6 +285,10 @@ export const TEXT = {
   ovCancelBtn: 'Cancel…',
   ovActualCost: 'Actual cost',
   ovReceivedOnAmazon: 'Received on Amazon',
+  // Received-on-Amazon tile sub-line (issue 053 item 6), from the receipt counts.
+  ovFullyObserved: 'fully observed',
+  ovPartiallyObserved: 'partially observed',
+  ovNotObservedYet: 'not observed yet',
   ovProductsSub: 'products',
   ovVsExpected: 'vs expected',
   ovCarrier: 'Carrier',
@@ -329,7 +333,14 @@ export const TEXT = {
   opMileAtPrep: 'AT PREP',
   opMileReady: 'READY',
   opMeasured: 'measured',
-  opNotMeasured: 'not measured',
+  // In-prep sub-line states (issue 053 item 2). The prep sheet records four
+  // measurements per ORDER (boxes · units · L·B·H · weight), so progress counts
+  // those four; `opPrepMeasurements` is composed as "2 of 4 prep measurements".
+  opPrepMeasurements: 'prep measurements',
+  opPrepReady: 'ready to ship',
+  opPrepAwaitingMeasurement: 'waiting for prep to measure and weigh',
+  opPrepAwaitingSupplier: 'waiting for carton details + labels from supplier',
+  opPrepAwaitingArrival: 'labels received · waiting for goods at prep',
   opSellerboard: 'sellerboard:',
   opInboundWord: 'inbound',
   opUnitAbbrev: 'u',

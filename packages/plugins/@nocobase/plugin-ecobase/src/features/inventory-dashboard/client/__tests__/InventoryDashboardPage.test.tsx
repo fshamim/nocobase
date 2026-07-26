@@ -81,7 +81,13 @@ function orderRow(orderRef: string, extra: Record<string, unknown> = {}) {
       payment: { state: 'current' },
       invoice: { state: 'pending' },
     },
-    prep: { transit: 'done', atPrep: 'done', prep: 'current', ready: 'pending', prepMeasured: false },
+    prep: {
+      transit: 'done',
+      atPrep: 'done',
+      prep: 'current',
+      ready: 'pending',
+      note: { kind: 'measuring', recorded: 2, total: 4 },
+    },
     inbound: { orderedUnits: 108, arrivedUnits: 0, arrivalDetected: false, alreadyConfirmed: false },
     expectedCost: 1214.28,
     units: 108,
@@ -295,6 +301,10 @@ describe('InventoryDashboardPage (Gate G2)', () => {
     // The prep chain is the In-prep pane's status cell anatomy (TRANSIT → AT PREP → PREP → READY);
     // the trailing READY chip renders without a state glyph, so its label is an exact match.
     expect(within(section).getAllByText('READY').length).toBeGreaterThan(0);
+    // Issue 053 item 2: the sub-line under the chain states the row's own prep progress,
+    // never the old literal "not measured" every row used to share.
+    expect(within(section).getAllByText('2 of 4 prep measurements').length).toBeGreaterThan(0);
+    expect(within(section).queryByText('not measured')).toBeNull();
   });
 
   it('REQ-X6: no non-badge literal repeats in >80% of rows; at most one badge cluster per row', async () => {

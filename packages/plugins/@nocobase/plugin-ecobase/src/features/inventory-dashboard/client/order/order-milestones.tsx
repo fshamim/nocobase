@@ -19,7 +19,14 @@ import { Tag } from 'antd';
 import React from 'react';
 import { TEXT } from '../dashboard-text';
 import type { Translate } from '../format';
-import type { MilestoneStateValue, OrderMilestone, OrderPaperwork, OrderPrep, PrepMilestoneState } from './order-api';
+import type {
+  MilestoneStateValue,
+  OrderMilestone,
+  OrderPaperwork,
+  OrderPrep,
+  OrderPrepNote,
+  PrepMilestoneState,
+} from './order-api';
 
 const MILE_STYLE: React.CSSProperties = {
   borderRadius: 999,
@@ -90,7 +97,30 @@ export function PaperworkChain({ paperwork, t }: { paperwork: OrderPaperwork; t:
   );
 }
 
-/** TRANSIT → AT PREP → PREP → READY prep chain + measured hint (In-prep pane). */
+/**
+ * The prep chain's sub-line (issue 053 item 2). Every state gets its own sentence —
+ * the pane used to print a literal "not measured" on every row — and the measuring
+ * state carries the progress fraction over the prep sheet's four per-order
+ * measurements (boxes · units · L·B·H · weight).
+ */
+export function prepNoteText(note: OrderPrepNote, t: Translate): string {
+  switch (note.kind) {
+    case 'ready':
+      return t(TEXT.opPrepReady);
+    case 'measured':
+      return t(TEXT.opMeasured);
+    case 'measuring':
+      return `${note.recorded} ${t(TEXT.opOf)} ${note.total} ${t(TEXT.opPrepMeasurements)}`;
+    case 'awaiting_measurement':
+      return t(TEXT.opPrepAwaitingMeasurement);
+    case 'awaiting_arrival':
+      return t(TEXT.opPrepAwaitingArrival);
+    default:
+      return t(TEXT.opPrepAwaitingSupplier);
+  }
+}
+
+/** TRANSIT → AT PREP → PREP → READY prep chain + contextual sub-line (In-prep pane). */
 export function PrepChain({ prep, t }: { prep: OrderPrep; t: Translate }) {
   const items: Array<{ label: string; state: PrepMilestoneState }> = [
     { label: t(TEXT.opMileTransit), state: prep.transit },
@@ -105,7 +135,7 @@ export function PrepChain({ prep, t }: { prep: OrderPrep; t: Translate }) {
           <MilestonePill key={label} label={label} state={state} />
         ))}
       </span>
-      <span style={HINT_STYLE}>{prep.prepMeasured ? t(TEXT.opMeasured) : t(TEXT.opNotMeasured)}</span>
+      <span style={HINT_STYLE}>{prepNoteText(prep.note, t)}</span>
     </span>
   );
 }

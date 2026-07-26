@@ -12,10 +12,26 @@ import React from 'react';
 import {
   ORDER_LIFECYCLE_STATUS_METADATA,
   canonicalOrderLifecycleStatus,
+  type OrderLifecycleStatus,
 } from '../../../order-planning/order-lifecycle-status';
 
 const PILL_STYLE: React.CSSProperties = { borderRadius: 999, marginInlineEnd: 0 };
 const TINY_PILL_STYLE: React.CSSProperties = { ...PILL_STYLE, fontSize: 11, paddingInline: 7 };
+
+/**
+ * Dashboard-local pill colours (issue 053 item 1). The Active-orders prototype
+ * renders ORDER ANALYSING as `.pill.blue`, not the lifecycle metadata's purple.
+ * The override lives here rather than in `ORDER_LIFECYCLE_STATUS_METADATA` because
+ * that map is shared with the order-planning feature, which this feature does not
+ * get to restyle.
+ *
+ * Only ORDER ANALYSING is overridden: the prototype paints the same status two
+ * different colours in different rows (INBOUND MONITORING is blue on one row and
+ * orange on another), so beyond the status QA flagged it is not a colour spec.
+ */
+const PILL_COLOR_OVERRIDES: Partial<Record<OrderLifecycleStatus, string>> = {
+  'ORDER ANALYSING': 'blue',
+};
 
 /** Lifecycle status pill using the order-lifecycle metadata colour. */
 export function LifecycleStatusPill({ status, fallbackLabel }: { status?: string | null; fallbackLabel?: string }) {
@@ -28,7 +44,7 @@ export function LifecycleStatusPill({ status, fallbackLabel }: { status?: string
   }
   const meta = ORDER_LIFECYCLE_STATUS_METADATA[canonical];
   return (
-    <Tag color={meta.color} style={PILL_STYLE}>
+    <Tag color={PILL_COLOR_OVERRIDES[canonical] ?? meta.color} style={PILL_STYLE}>
       {canonical}
     </Tag>
   );

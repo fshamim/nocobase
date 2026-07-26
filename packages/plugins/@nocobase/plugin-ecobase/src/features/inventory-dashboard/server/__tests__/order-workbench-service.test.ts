@@ -518,6 +518,35 @@ describe('EcobaseOrderWorkbenchService', () => {
     expect(result.rows[0].daysInPane).toBe(2);
   });
 
+  it('paneOrders derives the contextual prep note from the stored prep details (issue 053 item 2)', async () => {
+    const detail = await createSampleOrder(service, 'EF072426P');
+    seedRun('run-prep', detail.header.id);
+    const orderRow = db.getRepository(ECOBASE_COLLECTIONS.silverOrders).rows.find((r) => r.id === detail.header.id);
+    if (!orderRow) throw new Error('order row missing');
+    orderRow.lifecycleStatus = 'PREP IN-PROGRESS';
+
+    // Nothing measured yet at the prep centre.
+    let result = await service.paneOrders({ pane: 'activeOrders', runId: 'run-prep' });
+    if ('runSuperseded' in result) throw new Error('unexpected superseded result');
+    expect(result.rows[0].prep.note).toEqual({ kind: 'awaiting_measurement', recorded: 0, total: 4 });
+
+    // Boxes + units recorded, dimensions and weight still missing.
+    await service.updatePrepDetails({ orderId: detail.header.id, prepBoxes: 2, prepUnits: 108 });
+    result = await service.paneOrders({ pane: 'activeOrders', runId: 'run-prep' });
+    if ('runSuperseded' in result) throw new Error('unexpected superseded result');
+    expect(result.rows[0].prep.note).toEqual({ kind: 'measuring', recorded: 2, total: 4 });
+
+    // Fully measured.
+    await service.updatePrepDetails({
+      orderId: detail.header.id,
+      prepDimensions: { length: 21, breadth: 13, height: 7 },
+      prepWeightValue: 25,
+    });
+    result = await service.paneOrders({ pane: 'activeOrders', runId: 'run-prep' });
+    if ('runSuperseded' in result) throw new Error('unexpected superseded result');
+    expect(result.rows[0].prep.note).toEqual({ kind: 'measured', recorded: 4, total: 4 });
+  });
+
   it('paneOrders signals runSuperseded when the pinned run is stale', async () => {
     const detail = await createSampleOrder(service);
     seedRun('run-2', detail.header.id);

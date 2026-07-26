@@ -52,6 +52,25 @@ export function formatMonth(value: string | null | undefined): string {
   return Number.isNaN(parsed) ? '' : MONTH_ONLY.format(new Date(parsed));
 }
 
+const SHORT_DATE = new Intl.DateTimeFormat('en', { month: 'short', day: '2-digit' });
+const SHORT_DATE_WITH_YEAR = new Intl.DateTimeFormat('en', { month: 'short', day: '2-digit', year: 'numeric' });
+
+/**
+ * Prototype log date (issue 053 item 9): `Jul 22` inside the current year,
+ * `Jul 22, 2025` outside it. Accepts a date-only value — parsed at LOCAL midnight
+ * so the printed calendar day can never slip a day west of UTC — or a full ISO
+ * timestamp. Em-dash when unparseable. Shared by the order popup's activity list
+ * and its Comments tab so both read the same way.
+ */
+export function formatShortDate(value: string | null | undefined, now: Date = new Date()): string {
+  if (typeof value !== 'string' || !value.trim()) return EM_DASH;
+  const text = value.trim();
+  const ms = /^\d{4}-\d{2}-\d{2}$/.test(text) ? Date.parse(`${text}T00:00:00`) : Date.parse(text);
+  if (Number.isNaN(ms)) return EM_DASH;
+  const date = new Date(ms);
+  return date.getFullYear() === now.getFullYear() ? SHORT_DATE.format(date) : SHORT_DATE_WITH_YEAR.format(date);
+}
+
 /**
  * Relative age of an ISO timestamp against a client-clock millisecond `now`:
  * `just now` → `N min ago` → `N h ago` → `N d ago`; empty string when unparseable.

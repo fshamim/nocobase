@@ -209,7 +209,7 @@ describe('deriveOrderPrepMilestones (T2.5)', () => {
     });
   });
 
-  it('READY is done only once prepStatus is Completed, and measured needs dims + weight', () => {
+  it('READY is done only once prepStatus is Completed', () => {
     const ready = deriveOrderPrepMilestones({
       lifecycleStatus: 'PREP IN-PROGRESS',
       prepStatus: 'Completed',
@@ -218,11 +218,65 @@ describe('deriveOrderPrepMilestones (T2.5)', () => {
     });
     expect(ready.prep).toBe('done');
     expect(ready.ready).toBe('done');
-    expect(ready.prepMeasured).toBe(true);
-    expect(
-      deriveOrderPrepMilestones({ lifecycleStatus: 'PREP IN-PROGRESS', prepDimensions: { length: 21, breadth: 13 } })
-        .prepMeasured,
-    ).toBe(false);
+    expect(deriveOrderPrepMilestones({ lifecycleStatus: 'PREP IN-PROGRESS' }).ready).toBe('pending');
+  });
+
+  /**
+   * Issue 053 item 2: the pane's sub-line used to print a literal "not measured" on
+   * every row. Each branch below is one sentence the pane can now print.
+   */
+  describe('the contextual prep note (issue 053 item 2)', () => {
+    const measurements = {
+      prepBoxes: 2,
+      prepUnits: 108,
+      prepDimensions: { length: 21, breadth: 13, height: 7 },
+      prepWeightValue: 25,
+    };
+
+    it('counts measured progress over the four per-order prep-sheet measurements once the goods are at prep', () => {
+      expect(
+        deriveOrderPrepMilestones({ lifecycleStatus: 'PREP IN-PROGRESS', prepBoxes: 2, prepUnits: 108 }).note,
+      ).toEqual({ kind: 'measuring', recorded: 2, total: 4 });
+      expect(deriveOrderPrepMilestones({ lifecycleStatus: 'PREP IN-PROGRESS', ...measurements }).note).toEqual({
+        kind: 'measured',
+        recorded: 4,
+        total: 4,
+      });
+      // A partial dimension triple does not count as a recorded measurement.
+      expect(
+        deriveOrderPrepMilestones({
+          lifecycleStatus: 'PREP IN-PROGRESS',
+          prepDimensions: { length: 21, breadth: 13 },
+        }).note,
+      ).toEqual({ kind: 'awaiting_measurement', recorded: 0, total: 4 });
+    });
+
+    it('AT PREP NOT STARTED counts as at-prep: nothing recorded reads as awaiting measurement', () => {
+      expect(deriveOrderPrepMilestones({ lifecycleStatus: 'AT PREP NOT STARTED' }).note.kind).toBe(
+        'awaiting_measurement',
+      );
+    });
+
+    it('waits on the supplier before the goods reach prep, and on the goods once the labels are in', () => {
+      expect(deriveOrderPrepMilestones({ lifecycleStatus: 'IN TRANSIT TO PREP' }).note.kind).toBe('awaiting_supplier');
+      expect(deriveOrderPrepMilestones({ lifecycleStatus: 'ORDERED' }).note.kind).toBe('awaiting_supplier');
+      // Whitespace-only label links are not labels.
+      expect(deriveOrderPrepMilestones({ lifecycleStatus: 'ORDERED', labelFilesLink: '   ' }).note.kind).toBe(
+        'awaiting_supplier',
+      );
+      expect(
+        deriveOrderPrepMilestones({
+          lifecycleStatus: 'IN TRANSIT TO PREP',
+          labelFilesLink: 'https://chat.example.com/labels-1.pdf',
+        }).note.kind,
+      ).toBe('awaiting_arrival');
+    });
+
+    it('a completed prep status reports ready to ship whatever the measurements say', () => {
+      expect(
+        deriveOrderPrepMilestones({ lifecycleStatus: 'PREP IN-PROGRESS', prepStatus: 'Completed' }).note.kind,
+      ).toBe('ready');
+    });
   });
 });
 

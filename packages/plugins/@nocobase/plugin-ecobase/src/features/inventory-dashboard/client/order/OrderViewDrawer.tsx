@@ -18,7 +18,7 @@
 import { App, Button, Input, Modal, Radio, Space, Spin, Tabs, Typography } from 'antd';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { TEXT } from '../dashboard-text';
-import { EM_DASH, formatDate, formatMoney, relativeTime, type Translate } from '../format';
+import { EM_DASH, formatDate, formatMoney, formatShortDate, type Translate } from '../format';
 import { EditLineModal, EditOrderModal, EditPaperworkModal, PrepDetailsSection } from './OrderEditPopups';
 import {
   createOrderApi,
@@ -62,6 +62,25 @@ const STAT_VALUE: React.CSSProperties = { fontSize: 15, fontWeight: 700, fontVar
 const STAT_SUB: React.CSSProperties = { fontSize: 11, color: 'rgba(0,0,0,0.45)' };
 const MONO: React.CSSProperties = { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12.5 };
 const SEC_LABEL: React.CSSProperties = { ...STAT_LABEL, display: 'block', margin: '0 0 8px' };
+/**
+ * Issue 053 item 4: the prototype shows the order ref ONCE, as the large in-content
+ * heading. antd only wires the dialog's `aria-labelledby` when a `title` is present,
+ * so the title stays — clipped into a screen-reader-only box — instead of being
+ * dropped outright. Its header row keeps the default 24px height: antd parks the
+ * close button across that band (top 12px, size 32px), so collapsing the row would
+ * drop the ✕ straight onto the header's action buttons.
+ */
+const SR_ONLY: React.CSSProperties = {
+  position: 'absolute',
+  width: 1,
+  height: 1,
+  padding: 0,
+  margin: -1,
+  overflow: 'hidden',
+  clip: 'rect(0, 0, 0, 0)',
+  whiteSpace: 'nowrap',
+  border: 0,
+};
 
 function StatTile({ label, value, sub }: { label: string; value: React.ReactNode; sub?: React.ReactNode }) {
   return (
@@ -73,14 +92,30 @@ function StatTile({ label, value, sub }: { label: string; value: React.ReactNode
   );
 }
 
+/**
+ * One cell of the fixed six-item key-value strip (issue 053 item 7). Every field
+ * renders on every order — an empty one shows the em-dash placeholder — so the row
+ * has the prototype's stable shape instead of a per-order field count.
+ */
 function Kv({ label, value }: { label: string; value?: React.ReactNode }) {
-  if (value === undefined || value === null || value === '') return null;
+  const empty = value === undefined || value === null || value === '';
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
       <span style={STAT_LABEL}>{label}</span>
-      <span style={{ fontSize: 13 }}>{value}</span>
+      <span style={{ fontSize: 13, color: empty ? 'rgba(0,0,0,0.45)' : undefined }}>{empty ? EM_DASH : value}</span>
     </div>
   );
+}
+
+/**
+ * Sub-label under the "Received on Amazon" tile (issue 053 item 6), read off the
+ * receipt counts the order detail already carries. Em-dash when there is nothing
+ * to receive at all.
+ */
+function receiptSubLabel(observed: number, ordered: number, t: Translate): string {
+  if (ordered <= 0) return EM_DASH;
+  if (observed <= 0) return t(TEXT.ovNotObservedYet);
+  return observed >= ordered ? t(TEXT.ovFullyObserved) : t(TEXT.ovPartiallyObserved);
 }
 
 export function OrderViewDrawer(props: OrderViewDrawerProps) {
@@ -179,9 +214,12 @@ export function OrderViewDrawer(props: OrderViewDrawerProps) {
       width={880}
       destroyOnClose
       footer={null}
-      title={header ? header.orderRef ?? EM_DASH : t(TEXT.colOrder)}
+      title={<span style={SR_ONLY}>{header?.orderRef ?? t(TEXT.colOrder)}</span>}
       style={{ top: 32 }}
-      styles={{ body: { maxHeight: 'calc(100vh - 160px)', overflowY: 'auto' } }}
+      styles={{
+        header: { height: 24 },
+        body: { maxHeight: 'calc(100vh - 160px)', overflowY: 'auto' },
+      }}
     >
       <div aria-label={t(TEXT.colOrder)}>
         {loading && !detail ? (
@@ -260,10 +298,14 @@ export function OrderViewDrawer(props: OrderViewDrawerProps) {
                 value={header.orderedUnits}
                 sub={`${header.productCount} ${t(TEXT.ovProductsSub)}`}
               />
-              <StatTile label={t(TEXT.ovReceivedOnAmazon)} value={`${header.observedUnits} / ${header.orderedUnits}`} />
+              <StatTile
+                label={t(TEXT.ovReceivedOnAmazon)}
+                value={`${header.observedUnits} / ${header.orderedUnits}`}
+                sub={receiptSubLabel(header.observedUnits, header.orderedUnits, t)}
+              />
             </Space>
 
-            {/* KV strip */}
+            {/* KV strip — fixed six fields, em-dash when empty (issue 053 item 7). */}
             <Space size={22} wrap>
               <Kv label={t(TEXT.ocPaymentMode)} value={header.paymentMode} />
               <Kv
@@ -432,7 +474,7 @@ export function OrderViewDrawer(props: OrderViewDrawerProps) {
                 <Space direction="vertical" size={6} style={{ fontSize: 12.5 }}>
                   {detail.activity.map((entry, index) => (
                     <span key={`${entry.kind}-${index}`}>
-                      <Typography.Text type="secondary">{entry.at ? formatDate(entry.at, t) : EM_DASH}</Typography.Text>
+                      <Typography.Text type="secondary">{formatShortDate(entry.at)}</Typography.Text>
                       {' — '}
                       {entry.summary}
                     </span>
@@ -499,10 +541,11 @@ export function OrderViewDrawer(props: OrderViewDrawerProps) {
 }
 
 /**
- * T8 Comments tab: newest-first history (author strong, relative time muted, body in
+ * T8 Comments tab: newest-first history (author strong, short date muted, body in
  * the drawer comment-bubble idiom) plus an add-comment box. Posting rides the workbench
  * addOrderComment endpoint, which returns the recomputed detail so the list + tab count
- * refresh in one round trip.
+ * refresh in one round trip. Dates share the activity list's `Mon DD` formatter
+ * (issue 053 item 9) so the two logs in one popup never disagree.
  */
 function CommentsTab(props: {
   comments: OrderCommentEntry[];
@@ -515,7 +558,6 @@ function CommentsTab(props: {
   const { message } = App.useApp();
   const [body, setBody] = useState('');
   const [posting, setPosting] = useState(false);
-  const now = Date.now();
 
   const submit = useCallback(async () => {
     const trimmed = body.trim();
@@ -547,7 +589,7 @@ function CommentsTab(props: {
                 <Typography.Text strong style={{ fontSize: 11.5 }}>
                   {comment.author}
                 </Typography.Text>
-                {` · ${relativeTime(comment.at, now, t)}`}
+                {` · ${formatShortDate(comment.at)}`}
               </Typography.Text>
               <Typography.Text
                 style={{

@@ -309,13 +309,42 @@ export function deriveOrderPaperworkMilestones(input: {
 
 export type PrepMilestoneState = 'done' | 'current' | 'pending';
 
+/**
+ * State of the sub-line under the prep chain (issue 053 item 2). The pane used to
+ * print a literal "not measured" on every row; these states let the client print
+ * WHY the order sits where it does. Ordered from the end of the chain backwards:
+ * ready → measured → measuring → awaiting_measurement → awaiting_arrival →
+ * awaiting_supplier.
+ */
+export type OrderPrepNoteKind =
+  | 'ready'
+  | 'measured'
+  | 'measuring'
+  | 'awaiting_measurement'
+  | 'awaiting_arrival'
+  | 'awaiting_supplier';
+
+export interface OrderPrepNote {
+  kind: OrderPrepNoteKind;
+  /** How many of the prep sheet's per-order measurements are recorded. */
+  recorded: number;
+  total: number;
+}
+
 export interface OrderPrepMilestones {
   transit: PrepMilestoneState;
   atPrep: PrepMilestoneState;
   prep: PrepMilestoneState;
   ready: PrepMilestoneState;
-  prepMeasured: boolean;
+  note: OrderPrepNote;
 }
+
+/**
+ * The prep sheet records its measurements once per ORDER — boxes, units, the
+ * L·B·H triple and a weight — and silver has no per-product measurement anywhere,
+ * so measured-progress is counted over exactly those four inputs.
+ */
+const PREP_MEASUREMENT_TOTAL = 4;
 
 /** Position of an in-prep lifecycle status on the TRANSIT → AT PREP → PREP ladder. */
 const PREP_LADDER_RANK: Partial<Record<OrderLifecycleStatus, number>> = {
@@ -333,14 +362,22 @@ const PREP_LADDER_COMPLETE_STATUSES: ReadonlySet<OrderLifecycleStatus> = new Set
 
 /**
  * Derive the TRANSIT → AT PREP → PREP → READY chain from the lifecycle-status
- * ladder, with READY driven by prepStatus === 'Completed', plus a `prepMeasured`
- * flag (all three dimensions AND a weight present). In-prep pane only (T2.5).
+ * ladder, with READY driven by prepStatus === 'Completed', plus the contextual
+ * `note` the pane prints under the chain (issue 053 item 2). In-prep pane only (T2.5).
+ *
+ * The note reads off the chain position first: goods that have not reached the prep
+ * centre are waiting on the supplier (or, once the label files are in, just on the
+ * goods); goods that are there report measurement progress. Everything is derived at
+ * read time — nothing here is stored.
  */
 export function deriveOrderPrepMilestones(input: {
   lifecycleStatus?: string | null;
   prepStatus?: string | null;
   prepDimensions?: { length?: number | null; breadth?: number | null; height?: number | null } | null;
   prepWeightValue?: number | null;
+  prepBoxes?: number | null;
+  prepUnits?: number | null;
+  labelFilesLink?: string | null;
 }): OrderPrepMilestones {
   const canonical = canonicalOrderLifecycleStatus(input.lifecycleStatus);
   let rank = 0;
@@ -362,9 +399,30 @@ export function deriveOrderPrepMilestones(input: {
     finiteNumber(dims.length) !== undefined &&
     finiteNumber(dims.breadth) !== undefined &&
     finiteNumber(dims.height) !== undefined;
-  const prepMeasured = hasDims && finiteNumber(input.prepWeightValue) !== undefined;
 
-  return { transit: state(0), atPrep: state(1), prep: state(2), ready: state(3), prepMeasured };
+  const recorded = [
+    finiteNumber(input.prepBoxes) !== undefined,
+    finiteNumber(input.prepUnits) !== undefined,
+    hasDims,
+    finiteNumber(input.prepWeightValue) !== undefined,
+  ].filter(Boolean).length;
+  const hasLabels = typeof input.labelFilesLink === 'string' && input.labelFilesLink.trim().length > 0;
+  // `transitDone` is the "goods are at the prep centre" gate: it turns true at
+  // AT PREP NOT STARTED, one rung before prep work itself begins.
+  let kind: OrderPrepNoteKind;
+  if (readyDone) kind = 'ready';
+  else if (!transitDone) kind = hasLabels ? 'awaiting_arrival' : 'awaiting_supplier';
+  else if (recorded === 0) kind = 'awaiting_measurement';
+  else if (recorded === PREP_MEASUREMENT_TOTAL) kind = 'measured';
+  else kind = 'measuring';
+
+  return {
+    transit: state(0),
+    atPrep: state(1),
+    prep: state(2),
+    ready: state(3),
+    note: { kind, recorded, total: PREP_MEASUREMENT_TOTAL },
+  };
 }
 
 export interface OrderRiskProduct {
