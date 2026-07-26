@@ -30,10 +30,18 @@ import {
 import { createInventoryDashboardResourceRegistration } from '../features/inventory-dashboard/server/resource-registration';
 import { createGoldEngineMaintenanceResourceRegistration } from '../features/inventory-dashboard/server/engine/maintenance-resource-registration';
 import { EcobaseInventoryPlanningService } from '../features/inventory-dashboard/server/engine/inventory-planning-service';
+import {
+  EcobaseScheduledReceiptReconciler,
+  type ScheduledReceiptReconciliationLogger,
+} from '../features/inventory-dashboard/server/engine/scheduled-receipt-reconciliation';
 import { createOrderPlanningResourceRegistration } from '../features/order-planning/server/resource-registration';
 import { createSemanticModelResourceRegistration } from '../features/semantic-model/server/resource-registration';
 import { createSourceImportResourceRegistration } from '../features/source-import/server/resource-registration';
-import { EcobaseImportService } from '../features/source-import/server/import-service';
+import {
+  EcobaseImportService,
+  type EcobaseDatabase,
+  type SellerboardCommittedUnitHandler,
+} from '../features/source-import/server/import-service';
 import { EcobaseSourceConnectionService } from '../features/source-import/server/source-connection-service';
 import { createSupplierManagementResourceRegistration } from '../features/supplier-management/server/resource-registration';
 import { registerEcobaseResources } from './resource-registration';
@@ -125,6 +133,65 @@ export class SellerboardGoldPromotionDebouncer {
   }
 }
 
+export interface EcobaseGoldPromotionHost {
+  db: EcobaseDatabase;
+  logger?: ScheduledReceiptReconciliationLogger;
+}
+
+export interface EcobaseGoldPromotions {
+  /** Debounced promotion for committed Sellerboard import units — reconciles receipts, then publishes. */
+  sellerboardImport: SellerboardGoldPromotionDebouncer;
+  /** Debounced promotion for operator writes — publishes only, never reconciles. */
+  operatorWrite: SellerboardGoldPromotionDebouncer;
+  receiptReconciler: EcobaseScheduledReceiptReconciler;
+  onSellerboardCommittedUnit: SellerboardCommittedUnitHandler;
+  stop(): void;
+}
+
+/**
+ * Builds the two Gold promotion paths and the committed-unit hook that feeds
+ * the Sellerboard one. Exported so the wiring (order of operations, scope
+ * accumulation, failure isolation) is testable without booting the plugin.
+ */
+export function createEcobaseGoldPromotions(host: EcobaseGoldPromotionHost): EcobaseGoldPromotions {
+  const publishGold = async () => {
+    const result = await new EcobaseInventoryPlanningService(host.db).refreshAndPublish();
+    if (result.status === 'failed') {
+      throw new Error(`Ecobase scheduled Gold promotion failed with code ${result.code}.`);
+    }
+  };
+  const onError = (error: unknown) => host.logger?.error?.(error);
+  const receiptReconciler = new EcobaseScheduledReceiptReconciler(host.db, host.logger);
+  // Issue 054 R1: the Sellerboard-import-triggered promotion stamps arrival
+  // evidence onto Silver order lines before Gold reads it. Reconciliation never
+  // blocks the publish — the reconciler logs and counts its own failures.
+  const sellerboardImport = new SellerboardGoldPromotionDebouncer(async () => {
+    await receiptReconciler.reconcilePendingScope();
+    await publishGold();
+  }, onError);
+  // Task 001 (surgical v1.1): operator writes share the same publish but get
+  // their own, longer, settings-driven debounce window so a burst of edits
+  // produces one publish and imports cannot starve operator triggers. Operator
+  // edits do not move Sellerboard evidence, so this path never reconciles.
+  const operatorWrite = new SellerboardGoldPromotionDebouncer(publishGold, onError, async () => {
+    const settings = await new EcobasePlanningSettingsService(host.db).getResolvedSettings();
+    return settings.operatorWritePublishDebounceSeconds * 1000;
+  });
+  return {
+    sellerboardImport,
+    operatorWrite,
+    receiptReconciler,
+    onSellerboardCommittedUnit: (unit) => {
+      receiptReconciler.recordCommittedUnit(unit);
+      sellerboardImport.schedule();
+    },
+    stop() {
+      sellerboardImport.stop();
+      operatorWrite.stop();
+    },
+  };
+}
+
 export class PluginEcobaseServer extends Plugin {
   declare app: any;
   private registry = createSourceAdapterRegistry([
@@ -141,34 +208,14 @@ export class PluginEcobaseServer extends Plugin {
 
   private sellerboardScheduler?: ReturnType<typeof setInterval>;
   private sellerboardSchedulerRunning = false;
-  private sellerboardGoldPromotion?: SellerboardGoldPromotionDebouncer;
-  private operatorWriteGoldPromotion?: SellerboardGoldPromotionDebouncer;
+  private goldPromotions?: EcobaseGoldPromotions;
 
   private startSellerboardScheduler() {
     if (this.sellerboardScheduler) {
       return;
     }
-    const promoteGold = async () => {
-      const result = await new EcobaseInventoryPlanningService(this.app.db).refreshAndPublish();
-      if (result.status === 'failed') {
-        throw new Error(`Ecobase scheduled Gold promotion failed with code ${result.code}.`);
-      }
-    };
-    this.sellerboardGoldPromotion = new SellerboardGoldPromotionDebouncer(
-      promoteGold,
-      (error) => this.app.logger?.error?.(error),
-    );
-    // Task 001 (surgical v1.1): operator writes share the same promote but get
-    // their own, longer, settings-driven debounce window so a burst of edits
-    // produces one publish and imports cannot starve operator triggers.
-    this.operatorWriteGoldPromotion = new SellerboardGoldPromotionDebouncer(
-      promoteGold,
-      (error) => this.app.logger?.error?.(error),
-      async () => {
-        const settings = await new EcobasePlanningSettingsService(this.app.db).getResolvedSettings();
-        return settings.operatorWritePublishDebounceSeconds * 1000;
-      },
-    );
+    const promotions = createEcobaseGoldPromotions({ db: this.app.db, logger: this.app.logger });
+    this.goldPromotions = promotions;
     const runScheduledImports = async () => {
       if (this.sellerboardSchedulerRunning) {
         return;
@@ -177,7 +224,7 @@ export class PluginEcobaseServer extends Plugin {
       try {
         const service = new EcobaseImportService(this.app.db, this.registry);
         await service.runScheduledSellerboardImports({
-          onCommittedUnit: () => this.sellerboardGoldPromotion?.schedule(),
+          onCommittedUnit: promotions.onSellerboardCommittedUnit,
         });
       } catch (error) {
         this.app.logger?.error?.(error);
@@ -192,10 +239,8 @@ export class PluginEcobaseServer extends Plugin {
   private stopSellerboardScheduler() {
     if (this.sellerboardScheduler) clearInterval(this.sellerboardScheduler);
     this.sellerboardScheduler = undefined;
-    this.sellerboardGoldPromotion?.stop();
-    this.sellerboardGoldPromotion = undefined;
-    this.operatorWriteGoldPromotion?.stop();
-    this.operatorWriteGoldPromotion = undefined;
+    this.goldPromotions?.stop();
+    this.goldPromotions = undefined;
   }
 
   private registerAiEmployeeTools() {
@@ -233,9 +278,12 @@ export class PluginEcobaseServer extends Plugin {
     });
 
     // Task 001: operator writes schedule a debounced Gold publish.
-    const onOperatorWrite = () => this.operatorWriteGoldPromotion?.schedule();
+    const onOperatorWrite = () => this.goldPromotions?.operatorWrite.schedule();
     registerEcobaseResources(this.app, [
-      createSourceImportResourceRegistration(this.registry, () => this.sellerboardGoldPromotion?.schedule()),
+      createSourceImportResourceRegistration(
+        this.registry,
+        (unit) => this.goldPromotions?.onSellerboardCommittedUnit(unit),
+      ),
       createGoldEngineMaintenanceResourceRegistration(onOperatorWrite),
       createInventoryDashboardResourceRegistration(onOperatorWrite),
       createOrderPlanningResourceRegistration(onOperatorWrite),

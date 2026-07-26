@@ -538,14 +538,23 @@ interface SellerboardReportUnitExecutionParams {
   assertReservation?: () => Promise<void>;
 }
 
-interface SellerboardReportUnitHooks {
-  now?: Date;
-  onCommittedUnit?: (unit: SellerboardReportUnitDescriptor & { importRunId: string }) => void | Promise<void>;
+/**
+ * Payload handed to the committed-unit hook. `companyId` carries the Sellerboard
+ * source connection's company so downstream consumers (054 R1 receipt
+ * reconciliation) can scope their work to the companies whose data just moved.
+ * It is optional because a source connection may not be linked to a company.
+ */
+export interface SellerboardCommittedUnit extends SellerboardReportUnitDescriptor {
+  importRunId: string;
+  companyId?: string;
 }
 
-export type SellerboardCommittedUnitHandler = (
-  unit: SellerboardReportUnitDescriptor & { importRunId: string },
-) => void | Promise<void>;
+export type SellerboardCommittedUnitHandler = (unit: SellerboardCommittedUnit) => void | Promise<void>;
+
+interface SellerboardReportUnitHooks {
+  now?: Date;
+  onCommittedUnit?: SellerboardCommittedUnitHandler;
+}
 
 export interface RunScheduledSellerboardImportsParams {
   now?: string;
@@ -2771,6 +2780,7 @@ export class EcobaseImportService {
               sourceName: getString(params.sourceConnection, 'name') ?? sourceConnectionId,
               sourceActive: getBoolean(params.sourceConnection, 'active', true),
               scheduleEnabled: this.readSellerboardSchedule(getConfig(params.sourceConnection)).enabled,
+              companyId: getString(params.sourceConnection, 'companyId'),
               ...params.report,
               importRunId,
             });
