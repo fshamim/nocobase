@@ -5,9 +5,9 @@
   "tiles": [
     {
       "key": "urgentStockout",
-      "count": 3,
+      "count": 1,
       "moneyAtRisk": null,
-      "unknownCount": 3,
+      "unknownCount": 1,
       "currency": "EUR",
       "targetPane": "supplyAction"
     },

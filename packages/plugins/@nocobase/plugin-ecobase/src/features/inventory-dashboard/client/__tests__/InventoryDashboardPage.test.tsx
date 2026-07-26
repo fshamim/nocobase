@@ -220,7 +220,7 @@ describe('InventoryDashboardPage (Gate G2)', () => {
     renderPage(observeNever);
     const group = await screen.findByRole('group', { name: 'Inventory Dashboard' });
     const urgent = within(group).getByRole('button', { name: 'Urgent stockout risk' });
-    expect(urgent).toHaveTextContent('3'); // T-D5: + the badge-branch family
+    expect(urgent).toHaveTextContent('1'); // 051: tiered Supply Action rows running out
     expect(within(group).getByRole('button', { name: 'Needs follow-up' })).toHaveTextContent('6');
     expect(within(group).getByRole('button', { name: 'Ordered but late' })).toHaveTextContent('€500.00');
     expect(screen.getByText(`Published run: ${headerFixture.publishedRunId}`)).toBeTruthy();
@@ -448,7 +448,7 @@ describe('InventoryDashboardPage (Gate G2)', () => {
     });
     renderPage(observeOnly('supplyAction'));
     const group = await screen.findByRole('group', { name: 'Inventory Dashboard' });
-    expect(within(group).getByRole('button', { name: 'Urgent stockout risk' })).toHaveTextContent('3'); // T-D5
+    expect(within(group).getByRole('button', { name: 'Urgent stockout risk' })).toHaveTextContent('1'); // 051
     // The G2 staging defect died between header resolution and the first pane
     // render: assert the flow now continues into a pinned pane fetch.
     await waitFor(() => expect(paneRequests('supplyAction')).toHaveLength(1));

@@ -1271,18 +1271,19 @@ export class EcobaseInventoryDashboardService {
   ): DashboardHeaderTile[] {
     const today = todayDateOnly(this.now);
     // Task 002: discontinued/paused families contribute NO signals to any tile.
-    const signalRows = projected.filter((row) => row.pane !== 'discontinuedPaused');
+    // 051 (user directive 2026-07-25): the header is the management view over
+    // TIERED products only — an untiered / data-problem row never inflates a
+    // tile count, its € sum, or its unknown sub-count; those rows are addressed
+    // in their own tables instead.
+    const signalRows = projected.filter((row) => row.pane !== 'discontinuedPaused' && hasTier(row));
 
+    // 051: "Urgent stockout risk should equal the tiered products in Supply
+    // Action that are running out — nothing else." Scoped to the Supply Action
+    // pane the projection already assigns; the former zeroStock and T-D5
+    // out-of-pane branches no longer feed this tile (the per-row T-D5 badge in
+    // buildRow is unchanged, so the task-006 visibility invariant still holds).
     const urgent = signalRows.filter(
-      (row) =>
-        (row.pane === 'supplyAction' && onOrBeforeToday(asString(row.raw.latestSafeReorderDate), today)) ||
-        row.pane === 'zeroStock' ||
-        // T-D5 third branch: tiered near-stockout families parked outside the
-        // action panes (badge rule). Pane-disjoint from the two branches above
-        // by construction, and the tile counts DISTINCT families anyway; their
-        // estimatedProfitRisk is null by design, so they surface through the
-        // tile's existing unknownCount convention.
-        stockoutUrgencyFor(row, today) !== undefined,
+      (row) => row.pane === 'supplyAction' && onOrBeforeToday(asString(row.raw.latestSafeReorderDate), today),
     );
     const orderedLate = signalRows.filter((row) => asString(row.raw.pipelineHealthStatus) === 'late');
     const stale = signalRows.filter(
@@ -1416,6 +1417,19 @@ function daysUntilDate(dateOnly: string | null, today: string): number | null {
 }
 
 /**
+ * "Carries a tier at all" — the published gold row's own A/B/C/D ranking
+ * (currentProjectedTier ?? baselineTier), i.e. the pair the row DTO exposes as
+ * `tier.current` / `tier.baseline`. The single definition behind the 051 header
+ * population rule and the T-D5 badge. Deliberately NOT `ProjectedRow.tiered`
+ * (`isTiered`, A/B/C), which is the PANE-projection notion: D-tier products are
+ * ranked products and belong in the management view, they simply carry no
+ * engine-computed money-at-risk (059 §2: € is an A/B/C-only proposition).
+ */
+function hasTier(row: ProjectedRow): boolean {
+  return (asString(row.raw.currentProjectedTier) ?? asString(row.raw.baselineTier)) !== null;
+}
+
+/**
  * T-D5 signal predicate (position-based, evaluated on the SERVED pane): the
  * family is tiered (currentProjectedTier ?? baselineTier non-null), sits in a
  * non-action pane, and its position-based stockout estimate falls within
@@ -1423,8 +1437,7 @@ function daysUntilDate(dateOnly: string | null, today: string): number | null {
  */
 function stockoutUrgencyFor(row: ProjectedRow, today: string): { daysUntil: number } | undefined {
   if (STOCKOUT_SIGNAL_EXEMPT_PANES.has(row.pane)) return undefined;
-  const tier = asString(row.raw.currentProjectedTier) ?? asString(row.raw.baselineTier);
-  if (!tier) return undefined;
+  if (!hasTier(row)) return undefined;
   const daysUntil = daysUntilDate(asString(row.raw.positionEstimatedOosDate), today);
   if (daysUntil === null || daysUntil > URGENT_STOCKOUT_HORIZON_DAYS) return undefined;
   return { daysUntil };

@@ -224,12 +224,156 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
     const header = await service(db).header();
     expect(header.publishedRunId).toBe(PUBLISHED_RUN_ID);
     const byKey = new Map(header.tiles.map((tile) => [tile.key, tile]));
-    // T-D5: the third (badge) branch adds f-urgent-badge — money unknown by design.
-    expect(byKey.get('urgentStockout')).toMatchObject({ count: 3, moneyAtRisk: null, unknownCount: 3 });
+    // 051: Supply Action + running out + tiered ONLY — f9b-supply-null-risk.
+    // f-zero-stock (zeroStock pane) and f-urgent-badge (T-D5 badge, healthy
+    // pane) keep their row-level signals but no longer feed the tile.
+    expect(byKey.get('urgentStockout')).toMatchObject({ count: 1, moneyAtRisk: null, unknownCount: 1 });
     expect(byKey.get('orderedButLate')).toMatchObject({ count: 1, moneyAtRisk: 500, unknownCount: 0 });
     expect(byKey.get('staleLeadTimes')).toMatchObject({ count: 1, moneyAtRisk: 250, unknownCount: 1 });
     expect(byKey.get('needsFollowUp')).toMatchObject({ count: 6, moneyAtRisk: 500, unknownCount: 5 });
     expect(byKey.get('stuckCapital')).toMatchObject({ count: 1, moneyAtRisk: null, unknownCount: 1 });
+  });
+
+  it('(d2) 051: every tile counts TIERED products only; urgentStockout is the Supply Action subset', async () => {
+    const local = new RecordingDatabase();
+    local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).rows.push({
+      id: PUBLISHED_RUN_ID,
+      status: 'published',
+      calculationDate: FIXED_TODAY,
+      publishedAt: `${FIXED_TODAY}T00:00:00.000Z`,
+    });
+    const goldRepo = local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows);
+    const dayOffset = (days: number) =>
+      new Date(Date.parse(`${FIXED_TODAY}T00:00:00.000Z`) + days * 86_400_000).toISOString().slice(0, 10);
+    const hoursAgo = (hours: number) => new Date(Date.parse(FIXED_NOW) - hours * 3_600_000).toISOString();
+    const STALE_LEAD_TIME_AT = hoursAgo((LEAD_TIME_FRESHNESS_DAYS + 5) * 24);
+    // Lead-time evidence is FRESH by default so only the opt-in rows reach the
+    // staleLeadTimes tile (a null leadTimeConfirmedAt is its "unknown" input).
+    const push = (id: string, pane: string, overrides: Record<string, unknown>) =>
+      goldRepo.rows.push({
+        id,
+        naturalKey: id,
+        refreshRunId: PUBLISHED_RUN_ID,
+        primaryActionPane: pane,
+        companyProductFamilyId: `family-${id}`,
+        baselineTier: 'A',
+        currentProjectedTier: 'A',
+        lastClosedMonthTier: 'A',
+        leadTimeConfirmedAt: hoursAgo(24),
+        ...overrides,
+      });
+    const untiered = { baselineTier: null, currentProjectedTier: null, lastClosedMonthTier: null };
+    // The X5 pane projection reads isTiered(baseline, current, lastClosedMonth)
+    // (A/B/C), so a lastClosedMonth-only row KEEPS its operational pane — while
+    // the header excludes it, because the tier the operator sees on the row
+    // (tier.current / tier.baseline) is empty.
+    const lastMonthTierOnly = { baselineTier: null, currentProjectedTier: null, lastClosedMonthTier: 'A' };
+
+    // urgentStockout: Supply Action + running out (latestSafeReorderDate passed).
+    push('t-urgent', 'supplyAction', { latestSafeReorderDate: dayOffset(-1), estimatedProfitRisk: 400 });
+    push('t-urgent-null-money', 'supplyAction', { currentProjectedTier: 'C', latestSafeReorderDate: FIXED_TODAY });
+    push('t-supply-later', 'supplyAction', { latestSafeReorderDate: dayOffset(5), estimatedProfitRisk: 900 });
+    push('x-urgent-no-dto-tier', 'supplyAction', {
+      ...lastMonthTierOnly,
+      latestSafeReorderDate: dayOffset(-1),
+      estimatedProfitRisk: 777,
+    });
+    // Tiered and running out, but OUTSIDE Supply Action: row signals stay, tile does not.
+    push('t-zero-stock', 'zeroStock', { currentPlanningStock: 0 });
+    push('t-badge-outside', 'healthyInventory', {
+      currentProjectedTier: 'B',
+      positionEstimatedOosDate: dayOffset(5),
+    });
+
+    // orderedButLate + staleLeadTimes have no pane restriction, so untiered
+    // rows parked in P9/P10/P11 are exactly the noise 051 is removing.
+    push('t-late', 'inboundMonitoring', {
+      pipelineHealthStatus: 'late',
+      estimatedProfitRisk: 500,
+      supplierOrderId: 'order-t-late',
+      supplierOrderWorkflowStage: 'amazon_inbound',
+    });
+    push('u-late', 'dataReadiness', { ...untiered, pipelineHealthStatus: 'late', estimatedProfitRisk: 999 });
+    push('t-stale', 'healthyInventory', { leadTimeConfirmedAt: STALE_LEAD_TIME_AT, estimatedProfitRisk: 250 });
+    // D is a RANKED product (059 §2 only bars it from money-at-risk): it counts.
+    push('d-stale', 'performanceReview', {
+      baselineTier: 'D',
+      currentProjectedTier: 'D',
+      lastClosedMonthTier: 'D',
+      leadTimeConfirmedAt: STALE_LEAD_TIME_AT,
+    });
+    push('u-stale', 'untieredProducts', {
+      ...untiered,
+      leadTimeConfirmedAt: STALE_LEAD_TIME_AT,
+      estimatedProfitRisk: 888,
+    });
+    push('t-lead-unknown', 'healthyInventory', { leadTimeConfirmedAt: null });
+    push('u-lead-unknown', 'dataReadiness', { ...untiered, leadTimeConfirmedAt: null });
+
+    // needsFollowUp (row grain) and stuckCapital (units x unitCost).
+    push('t-followup', 'inPrepMonitoring', {
+      supplierOrderId: 'order-t-followup',
+      supplierOrderWorkflowStage: 'in_prep',
+    });
+    push('x-followup-no-dto-tier', 'inPrepMonitoring', {
+      ...lastMonthTierOnly,
+      supplierOrderId: 'order-x-followup',
+      supplierOrderWorkflowStage: 'in_prep',
+      estimatedProfitRisk: 600,
+    });
+    push('t-stuck', 'stuckInventory', { currentPlanningStock: 10, unitCost: 3 });
+    push('t-stuck-null-cost', 'stuckInventory', {
+      currentProjectedTier: 'B',
+      currentPlanningStock: 10,
+      unitCost: null,
+    });
+    push('x-stuck-no-dto-tier', 'stuckInventory', { ...lastMonthTierOnly, currentPlanningStock: 100, unitCost: 7 });
+
+    const silverOrders = local.getRepository(ECOBASE_COLLECTIONS.silverOrders);
+    silverOrders.rows.push({ id: 'order-t-followup', workflowStage: 'in_prep', workflowStageEnteredAt: hoursAgo(72) });
+    silverOrders.rows.push({ id: 'order-x-followup', workflowStage: 'in_prep', workflowStageEnteredAt: hoursAgo(72) });
+    silverOrders.rows.push({
+      id: 'order-t-late',
+      workflowStage: 'amazon_inbound',
+      workflowStageEnteredAt: hoursAgo(2), // fresh stage entry -> no follow-up
+    });
+
+    const svc = service(local);
+    const header = await svc.header();
+    const tiles = Object.fromEntries(
+      header.tiles.map((tile) => [
+        tile.key,
+        { count: tile.count, moneyAtRisk: tile.moneyAtRisk, unknownCount: tile.unknownCount },
+      ]),
+    );
+    // Asserted as ONE object so a regression reports every tile that moved.
+    expect(tiles).toEqual({
+      // t-urgent (EUR 400) + t-urgent-null-money. NOT t-supply-later (not
+      // running out yet), NOT x-urgent-no-dto-tier, NOT t-zero-stock /
+      // t-badge-outside (running out, tiered, but outside Supply Action).
+      urgentStockout: { count: 2, moneyAtRisk: 400, unknownCount: 1 },
+      // u-late's EUR 999 never reaches the sum.
+      orderedButLate: { count: 1, moneyAtRisk: 500, unknownCount: 0 },
+      // t-stale + d-stale; unknown counts t-lead-unknown only (u-lead-unknown out).
+      staleLeadTimes: { count: 2, moneyAtRisk: 250, unknownCount: 1 },
+      // Row grain: t-followup only; x-followup-no-dto-tier's EUR 600 excluded.
+      needsFollowUp: { count: 1, moneyAtRisk: null, unknownCount: 1 },
+      // t-stuck (10 x 3) + t-stuck-null-cost; x-stuck-no-dto-tier's 700 excluded.
+      stuckCapital: { count: 2, moneyAtRisk: 30, unknownCount: 1 },
+    });
+
+    // Tiles shrank; the panes and the row-level signals did NOT.
+    const healthy = await svc.pane({ pane: 'healthyInventory', runId: PUBLISHED_RUN_ID, page: 1, pageSize: 200 });
+    if (isRunSuperseded(healthy)) throw new Error('bad');
+    expect(healthy.rows.find((row) => row.identity.listingRowId === 't-badge-outside')?.stockoutUrgency).toEqual({
+      daysUntil: 5,
+    });
+    const readiness = await svc.pane({ pane: 'dataReadiness', runId: PUBLISHED_RUN_ID, page: 1, pageSize: 200 });
+    if (isRunSuperseded(readiness)) throw new Error('bad');
+    expect(readiness.rows.some((row) => row.identity.listingRowId === 'u-late')).toBe(true);
+    const zeroStock = await svc.pane({ pane: 'zeroStock', runId: PUBLISHED_RUN_ID, page: 1, pageSize: 200 });
+    if (isRunSuperseded(zeroStock)) throw new Error('bad');
+    expect(zeroStock.rows).toHaveLength(1);
   });
 
   it('(d3) surfaces the oldest covered sales day and one quiet alert only when a feed is >3 days behind', async () => {
@@ -988,13 +1132,14 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
     if (isRunSuperseded(supply)) throw new Error('bad');
     expect(supply.rows.find((row) => row.identity.listingRowId === 'sig-action-pane')?.stockoutUrgency).toBeUndefined();
 
-    // Tile third branch: union of the three branches, DISTINCT families, and
-    // the badge families flow into unknownCount (their money is null by design).
+    // 051: the BADGE keeps all three branches (asserted above); the TILE is
+    // Supply-Action-only, so the badge families and the zeroStock row no longer
+    // count toward it.
     const header = await svc.header();
     const tile = header.tiles.find((candidate) => candidate.key === 'urgentStockout');
-    expect(tile?.count).toBe(4); // supply-passed + zero + near + passed (far/untiered excluded)
-    expect(tile?.moneyAtRisk).toBe(100); // only the supplyAction row carries money
-    expect(tile?.unknownCount).toBe(3); // zero + the two badge families
+    expect(tile?.count).toBe(1); // sig-action-pane only
+    expect(tile?.moneyAtRisk).toBe(100);
+    expect(tile?.unknownCount).toBe(0); // no null-money row left in the population
     expect(tile?.targetPane).toBe('supplyAction');
   });
 
