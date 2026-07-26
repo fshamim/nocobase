@@ -14,6 +14,8 @@
  * `en-US.json` and `zh-CN.json`.
  */
 
+import type { PaneKey } from '../server/contract';
+
 export const TEXT = {
   pageTitle: 'Inventory Dashboard',
   publishedRun: 'Published run',
@@ -71,6 +73,8 @@ export const TEXT = {
   drawerAssignSupplier: 'Assign supplier',
   metricTieredNeedingAttention: 'Tiered families needing attention',
   drawerPreviousStatus: 'Previous status',
+  // 063 D6: why a product sits in this pane (every product pane except Supply Action).
+  drawerWhyHere: "Why it's here",
   drawerFamilyTarget: 'Family target',
   drawerNoTargetInReview: 'none (target in review)',
   toastFamilyReactivated: 'Family reactivated — it returns to normal classification on the next publish',
@@ -402,6 +406,28 @@ export const REASON_CODE_LABELS: Record<string, string> = {
 export function reasonLabel(code: string, t: (key: string) => string): string {
   const label = REASON_CODE_LABELS[code];
   return label ? t(label) : code;
+}
+
+/**
+ * The pane's display title (063 D6). Shared home: both the drawer shell and the
+ * shared drawer body label themselves with it, and neither imports the other.
+ */
+export function paneTitle(pane: PaneKey): string {
+  const byPane: Record<PaneKey, string> = {
+    supplyAction: TEXT.paneSupplyAction,
+    activeOrders: TEXT.paneActiveOrders,
+    inPrepMonitoring: TEXT.paneInPrepMonitoring,
+    inboundMonitoring: TEXT.paneInboundMonitoring,
+    healthyInventory: TEXT.paneHealthyInventory,
+    excessInventory: TEXT.paneExcessInventory,
+    stuckInventory: TEXT.paneStuckInventory,
+    zeroStock: TEXT.paneZeroStock,
+    dataReadiness: TEXT.paneDataReadiness,
+    performanceReview: TEXT.panePerformanceReview,
+    untieredProducts: TEXT.paneUntieredProducts,
+    discontinuedPaused: TEXT.paneDiscontinuedPaused,
+  };
+  return byPane[pane];
 }
 
 /** Every literal the dashboard renders — the i18n parity test iterates this. */

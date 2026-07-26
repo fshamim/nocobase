@@ -174,6 +174,29 @@ async function openDrawer(pane: string, onPaneRender?: (pane: string) => void) {
   return dialog;
 }
 
+/**
+ * 063 D6: the Reactivate action lives in the shared drawer's action bar and
+ * opens a mandatory-reason modal (antd portals it to document.body, outside the
+ * drawer element). Auto-cleanup is off in this suite, so the LAST match wins.
+ */
+async function openReactivateModal(dialog: HTMLElement) {
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Reactivate' }));
+  const inputs = await within(document.body).findAllByLabelText('Reactivation reason (required)');
+  const reason = inputs[inputs.length - 1] as HTMLTextAreaElement;
+  const modal = reason.closest('.ant-modal') as HTMLElement;
+  return { modal, reason, ok: within(modal).getByRole('button', { name: 'Reactivate' }) };
+}
+
+/** 063 D5: the panes that share the Supply Action drawer body. */
+const PRODUCT_PANES = [
+  'healthyInventory',
+  'excessInventory',
+  'stuckInventory',
+  'zeroStock',
+  'untieredProducts',
+  'discontinuedPaused',
+];
+
 describe('PaneDrawer (Gate G3)', () => {
   beforeEach(() => {
     request.mockReset();
@@ -184,30 +207,34 @@ describe('PaneDrawer (Gate G3)', () => {
   // T4 (order-pane redesign): activeOrders/inPrepMonitoring/inboundMonitoring rows render in
   // OrderPaneTable and open the ORDER popup, not this family-grain drawer. They are covered by
   // the order-workbench suites; every assertion below therefore uses a family-grain pane.
-  it('resolves a drawer body for all 9 family-grain panes with pane-specific content', async () => {
-    const markers: Record<string, string | null> = {
-      supplyAction: 'Create order', // T8b: the v2 drawer's primary action
-      healthyInventory: null, // read-only evidence
-      excessInventory: null,
-      stuckInventory: 'Stuck reasons',
-      zeroStock: null,
+  it('063 D5: every product pane opens the shared rich drawer (four tabs + action bar)', async () => {
+    for (const pane of PRODUCT_PANES) {
+      request.mockReset();
+      mockApi();
+      const dialog = await openDrawer(pane);
+      expect(within(dialog).getByRole('tab', { name: 'Overview' })).toBeTruthy();
+      expect(within(dialog).getByRole('tab', { name: /^Orders/ })).toBeTruthy();
+      expect(within(dialog).getByRole('tab', { name: /^Comments/ })).toBeTruthy();
+      expect(within(dialog).getByRole('tab', { name: 'Data' })).toBeTruthy();
+      expect(within(dialog).getByRole('button', { name: 'Create order' })).toBeTruthy();
+      // The v1 body is gone: no Descriptions summary with its "SKU" label row.
+      expect(within(dialog).queryByText('SKU')).toBeNull();
+      cleanup();
+    }
+  });
+
+  it('keeps the v1 drawer body for the panes outside the product table', async () => {
+    const markers: Record<string, string> = {
       dataReadiness: 'Readiness reasons',
       performanceReview: 'Monthly units (last closed months)',
-      untieredProducts: 'Tier evidence',
-      discontinuedPaused: 'Reactivate',
     };
     for (const [pane, marker] of Object.entries(markers)) {
       request.mockReset();
       mockApi();
       const dialog = await openDrawer(pane);
       // Common sections always render (a11y: drawer is a dialog with content).
-      // T8b: supplyAction runs the v2 body (identity header, no v1 "SKU" label row).
-      if (pane !== 'supplyAction') {
-        expect(within(dialog).getAllByText('SKU').length).toBeGreaterThan(0);
-      }
-      if (marker) {
-        expect(within(dialog).getAllByText(marker).length).toBeGreaterThan(0);
-      }
+      expect(within(dialog).getAllByText('SKU').length).toBeGreaterThan(0);
+      expect(within(dialog).getAllByText(marker).length).toBeGreaterThan(0);
       cleanup();
     }
   });
@@ -217,10 +244,9 @@ describe('PaneDrawer (Gate G3)', () => {
     const headerCallsBefore = requests('ecobaseInventoryDashboard:header').length;
     const paneCallsBefore = paneRequests('discontinuedPaused').length;
 
-    fireEvent.change(within(dialog).getByLabelText('Reactivation reason (required)'), {
-      target: { value: 'Chasing the supplier' },
-    });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Reactivate' }));
+    const { reason, ok } = await openReactivateModal(dialog);
+    fireEvent.change(reason, { target: { value: 'Chasing the supplier' } });
+    fireEvent.click(ok);
 
     await waitFor(() => expect(requests('ecobaseInventoryDashboard:reactivateFamily')).toHaveLength(1));
     const [args] = requests('ecobaseInventoryDashboard:reactivateFamily')[0];
@@ -239,17 +265,14 @@ describe('PaneDrawer (Gate G3)', () => {
     const drawerContextCalls = requests('ecobaseInventoryDashboard:drawerContext').length;
     const paneCalls = paneRequests().length;
 
-    fireEvent.change(within(dialog).getByLabelText('Reactivation reason (required)'), {
-      target: { value: 'important note' },
-    });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Reactivate' }));
+    const { reason, ok } = await openReactivateModal(dialog);
+    fireEvent.change(reason, { target: { value: 'important note' } });
+    fireEvent.click(ok);
 
     expect(await within(dialog).findByText('mutation boom')).toBeTruthy();
     // Drawer still open, buffer preserved, no refetch of pane or context.
     expect(document.querySelector('.ant-drawer-content')).not.toBeNull();
-    expect((within(dialog).getByLabelText('Reactivation reason (required)') as HTMLTextAreaElement).value).toBe(
-      'important note',
-    );
+    expect(reason.value).toBe('important note');
     expect(requests('ecobaseInventoryDashboard:drawerContext')).toHaveLength(drawerContextCalls);
     expect(paneRequests()).toHaveLength(paneCalls);
   });
@@ -266,13 +289,11 @@ describe('PaneDrawer (Gate G3)', () => {
       },
     });
     const dialog = await openDrawer('discontinuedPaused');
-    fireEvent.change(within(dialog).getByLabelText('Reactivation reason (required)'), {
-      target: { value: 'once only' },
-    });
-    const button = within(dialog).getByRole('button', { name: 'Reactivate' });
-    fireEvent.click(button);
-    fireEvent.click(button);
-    fireEvent.click(button);
+    const { reason, ok } = await openReactivateModal(dialog);
+    fireEvent.change(reason, { target: { value: 'once only' } });
+    fireEvent.click(ok);
+    fireEvent.click(ok);
+    fireEvent.click(ok);
     expect(requests('ecobaseInventoryDashboard:reactivateFamily')).toHaveLength(1);
     act(() => {
       release({ status: 200, data: { data: { data: { ok: true } } } });
@@ -283,10 +304,10 @@ describe('PaneDrawer (Gate G3)', () => {
   it('does not re-render pane sections while typing in the drawer (render isolation)', async () => {
     const renderSpy = vi.fn();
     const dialog = await openDrawer('discontinuedPaused', renderSpy);
+    const { reason } = await openReactivateModal(dialog);
     renderSpy.mockClear();
-    const input = within(dialog).getByLabelText('Reactivation reason (required)');
     for (const value of ['a', 'ab', 'abc', 'abcd', 'abcde']) {
-      fireEvent.change(input, { target: { value } });
+      fireEvent.change(reason, { target: { value } });
     }
     expect(renderSpy).not.toHaveBeenCalled();
   });
@@ -323,10 +344,9 @@ describe('PaneDrawer (Gate G3)', () => {
 
   it('polish item 2: focus stays inside the drawer after a mutation-driven scoped refresh', async () => {
     const dialog = await openDrawer('discontinuedPaused');
-    fireEvent.change(within(dialog).getByLabelText('Reactivation reason (required)'), {
-      target: { value: 'focus check' },
-    });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Reactivate' }));
+    const { reason, ok } = await openReactivateModal(dialog);
+    fireEvent.change(reason, { target: { value: 'focus check' } });
+    fireEvent.click(ok);
     await waitFor(() => expect(requests('ecobaseInventoryDashboard:reactivateFamily')).toHaveLength(1));
     // The scoped refresh re-renders page + drawer; focus must remain usable inside it.
     await waitFor(() => {
@@ -370,21 +390,73 @@ describe('PaneDrawer (Gate G3)', () => {
     expect(within(dialog).queryByText('family_review_required')).toBeNull();
   });
 
-  it('task 002: the Discontinued & Paused drawer reactivates with a required reason', async () => {
+  it('task 002 / 063 D6: Reactivate is discontinuedPaused-only and needs a reason', async () => {
+    // Absent on a sibling product pane that shares the very same drawer body...
+    const excess = await openDrawer('excessInventory');
+    expect(within(excess).queryByRole('button', { name: 'Reactivate' })).toBeNull();
+    cleanup();
+    request.mockReset();
+    mockApi();
+
+    // ...present on Discontinued & Paused, behind a mandatory-reason modal.
     const dialog = await openDrawer('discontinuedPaused');
-    const button = within(dialog).getByRole('button', { name: 'Reactivate' });
+    const { reason, ok } = await openReactivateModal(dialog);
     // Without a reason nothing is sent.
-    fireEvent.click(button);
+    expect(ok).toHaveProperty('disabled', true);
+    fireEvent.click(ok);
     expect(requests('ecobaseInventoryDashboard:reactivateFamily')).toHaveLength(0);
-    fireEvent.change(within(dialog).getByLabelText('Reactivation reason (required)'), {
-      target: { value: 'Back in stock soon' },
-    });
-    fireEvent.click(button);
+    fireEvent.change(reason, { target: { value: 'Back in stock soon' } });
+    await waitFor(() => expect(ok).toHaveProperty('disabled', false));
+    fireEvent.click(ok);
     await waitFor(() => expect(requests('ecobaseInventoryDashboard:reactivateFamily')).toHaveLength(1));
     expect(requests('ecobaseInventoryDashboard:reactivateFamily')[0][0].data).toMatchObject({
       familyId: 'family-disc',
       comment: 'Back in stock soon',
     });
+  });
+
+  it('063 D6: the reasons strip explains non-Supply-Action panes only', async () => {
+    const withReasons = (fixture: unknown, pane: string) => {
+      const base = fixture as { primaryRow: Record<string, unknown> };
+      return {
+        ...(fixture as Record<string, unknown>),
+        primaryRow: { ...base.primaryRow, pane, reasonCodes: ['family_review_required'] },
+      };
+    };
+    const mockDrawer = (context: unknown) => {
+      request.mockReset();
+      request.mockImplementation((args: { url: string; data: Record<string, unknown> }) => {
+        if (args.url === 'ecobaseInventoryDashboard:header') return respond(headerFixture);
+        if (args.url === 'ecobaseInventoryDashboard:pane') return respond(PANE_FIXTURES[String(args.data.pane)]);
+        if (args.url === 'ecobaseInventoryDashboard:drawerContext') return respond(context);
+        return respond({ ok: true });
+      });
+    };
+
+    // Stuck row: the strip names why the product landed in this pane.
+    mockDrawer(withReasons(drawerStuck, 'stuckInventory'));
+    const stuck = await openDrawer('stuckInventory');
+    expect(within(stuck).getAllByText("Why it's here").length).toBeGreaterThan(0);
+    expect(within(stuck).getAllByText('Family review required').length).toBeGreaterThan(0);
+    cleanup();
+
+    // Supply Action row with the SAME codes: parity guarantee — nothing renders.
+    mockDrawer(withReasons(drawerSupplyAction, 'supplyAction'));
+    const supply = await openDrawer('supplyAction');
+    expect(within(supply).queryByText("Why it's here")).toBeNull();
+    expect(within(supply).queryByText('Family review required')).toBeNull();
+  });
+
+  it('063 D6: the previous-status line survives on discontinued rows only', async () => {
+    // drawer-discontinuedPaused.json: lifecyclePreviousStatus = candidate_new_product.
+    const dialog = await openDrawer('discontinuedPaused');
+    expect(within(dialog).getByText('Previous status: candidate_new_product')).toBeTruthy();
+    cleanup();
+    request.mockReset();
+    mockApi();
+    // Rows without the field (every other product pane) render no line at all.
+    const excess = await openDrawer('excessInventory');
+    expect(within(excess).queryByText(/^Previous status:/)).toBeNull();
   });
 
   it('final item 1: the drawer header renders the primaryRow identity even when orderRows are present', async () => {
@@ -403,21 +475,18 @@ describe('PaneDrawer (Gate G3)', () => {
       return respond({ ok: true });
     });
     const dialog = await openDrawer('healthyInventory');
-    expect(within(dialog).getAllByText(primary.identity.sku).length).toBeGreaterThan(0);
     const foreignSku = (foreignOrderRows[0] as { identity: { sku: string } }).identity.sku;
-    // The foreign order row's SKU may appear in the family list, but the
-    // Product summary (first Descriptions block) must carry the primary SKU.
-    const summary = dialog.querySelector('.ant-descriptions') as HTMLElement;
-    expect(summary.textContent).toContain(primary.identity.sku);
-    expect(summary.textContent).not.toContain(foreignSku);
+    // 063 D5: the shared body's identity header must carry the primary listing,
+    // and no sibling order row's identity may leak into it.
+    expect(dialog.textContent).toContain(primary.identity.sku);
+    expect(dialog.textContent).not.toContain(foreignSku);
   });
 
   it('final item 2: family target member and selection provenance are visible', async () => {
-    // drawer-healthyInventory.json (family-13): cp-13a persisted as target
-    // with tiered_first_migration_rule provenance.
+    // 063 D5: product panes retarget through the shared action bar's modal.
     const dialog = await openDrawer('healthyInventory');
-    expect(within(dialog).getAllByText('Family target').length).toBeGreaterThan(0);
-    // Data Readiness drawer without a persisted target says so explicitly.
+    expect(within(dialog).getByRole('button', { name: 'Change target…' })).toBeTruthy();
+    // Data Readiness (v1 body) without a persisted target says so explicitly.
     cleanup();
     request.mockReset();
     mockApi();
@@ -427,10 +496,9 @@ describe('PaneDrawer (Gate G3)', () => {
 
   it('final item 4: reactivation and supplier assignment confirm success with a toast', async () => {
     const dialog = await openDrawer('discontinuedPaused');
-    fireEvent.change(within(dialog).getByLabelText('Reactivation reason (required)'), {
-      target: { value: 'Back in business' },
-    });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Reactivate' }));
+    const { reason, ok } = await openReactivateModal(dialog);
+    fireEvent.change(reason, { target: { value: 'Back in business' } });
+    fireEvent.click(ok);
     await waitFor(() => expect(requests('ecobaseInventoryDashboard:reactivateFamily')).toHaveLength(1));
     expect(
       await within(document.body).findByText(

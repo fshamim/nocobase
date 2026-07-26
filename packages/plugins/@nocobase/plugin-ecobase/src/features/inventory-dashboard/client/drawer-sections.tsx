@@ -341,42 +341,6 @@ export function BandVisual({ points, t }: { points: MonthlyEvidencePoint[]; t: T
   );
 }
 
-export function ReactivateForm({
-  familyId,
-  run,
-  submitting,
-  t,
-}: {
-  familyId: string;
-  run: RunDrawerMutation;
-  submitting: boolean;
-  t: Translate;
-}) {
-  const [reason, setReason] = useState('');
-  const submit = async () => {
-    if (!reason.trim()) return;
-    const succeeded = await run('ecobaseInventoryDashboard:reactivateFamily', {
-      familyId,
-      comment: reason.trim(),
-    });
-    if (succeeded) setReason('');
-  };
-  return (
-    <Space direction="vertical" style={{ width: '100%' }}>
-      <Input.TextArea
-        rows={2}
-        aria-label={t(TEXT.drawerReactivateReason)}
-        placeholder={t(TEXT.drawerReactivateReason)}
-        value={reason}
-        onChange={(event) => setReason(event.target.value)}
-      />
-      <Button size="small" type="primary" disabled={submitting} onClick={submit}>
-        {t(TEXT.drawerReactivate)}
-      </Button>
-    </Space>
-  );
-}
-
 export function AssignSupplierForm({
   familyId,
   loadSupplierOptions,

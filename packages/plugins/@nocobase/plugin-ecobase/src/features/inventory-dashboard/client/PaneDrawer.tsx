@@ -18,8 +18,8 @@
 import { Alert, App, Button, Divider, Drawer, Space, Spin, Typography } from 'antd';
 import React, { useCallback, useEffect, useState } from 'react';
 import type { DashboardRow, DrawerContextResponse, PaneKey } from '../server/contract';
-import { isRunSuperseded } from '../server/contract';
-import { TEXT } from './dashboard-text';
+import { isRunSuperseded, PRODUCT_TABLE_PANES } from '../server/contract';
+import { paneTitle, TEXT } from './dashboard-text';
 import {
   AssignSupplierForm,
   BandVisual,
@@ -29,18 +29,14 @@ import {
   OrderSummary,
   PrepDetailsForm,
   ProductSummary,
-  ReactivateForm,
   ReasonList,
   ShipRouteForm,
   StatusForm,
   type RunDrawerMutation,
 } from './drawer-sections';
 import { isDrawerContextPayload, unwrapEnvelope } from './envelope';
-import { formatNumber, type Translate } from './format';
+import { type Translate } from './format';
 import { SupplyActionDrawerBody } from './SupplyActionDrawerBody';
-
-/** Sibling workspace page (kept literal to avoid importing client-routes into the feature). */
-const ORDER_PLANNING_PATH = '/admin/ecobase/order-planning';
 
 /** QA item 4: mutations that confirm success with a toast. */
 const MUTATION_SUCCESS_TEXT: Record<string, string> = {
@@ -309,8 +305,9 @@ const PaneDrawer: React.FC<PaneDrawerProps> = ({
             }
           />
         ) : context && row && target ? (
-          target.pane === 'supplyAction' ? (
-            // T8b: the redesigned drawer — supplyAction ONLY; every other pane keeps v1.
+          PRODUCT_TABLE_PANES.has(target.pane) ? (
+            // 063 D5: every product pane opens the same rich drawer; the order
+            // panes, Data Readiness and Performance Review keep their v1 bodies.
             <SupplyActionDrawerBody
               row={row}
               context={context}
@@ -348,24 +345,6 @@ const PaneDrawer: React.FC<PaneDrawerProps> = ({
     </Drawer>
   );
 };
-
-function paneTitle(pane: PaneKey): string {
-  const byPane: Record<PaneKey, string> = {
-    supplyAction: TEXT.paneSupplyAction,
-    activeOrders: TEXT.paneActiveOrders,
-    inPrepMonitoring: TEXT.paneInPrepMonitoring,
-    inboundMonitoring: TEXT.paneInboundMonitoring,
-    healthyInventory: TEXT.paneHealthyInventory,
-    excessInventory: TEXT.paneExcessInventory,
-    stuckInventory: TEXT.paneStuckInventory,
-    zeroStock: TEXT.paneZeroStock,
-    dataReadiness: TEXT.paneDataReadiness,
-    performanceReview: TEXT.panePerformanceReview,
-    untieredProducts: TEXT.paneUntieredProducts,
-    discontinuedPaused: TEXT.paneDiscontinuedPaused,
-  };
-  return byPane[pane];
-}
 
 interface DrawerBodyProps {
   pane: PaneKey;
@@ -437,31 +416,6 @@ function DrawerBody({ pane, row, context, run, submitting, t, navigate, loadSupp
           <CommentForm orderId={orderId} run={run} submitting={submitting} t={t} />
         </Space>
       ) : null;
-    case 'supplyAction':
-      return (
-        <Space direction="vertical" size="middle">
-          <Typography.Text>
-            {`${t(TEXT.drawerSuggestedQty)}: ${formatNumber(row.recommendedOrderQty, t)}`}
-          </Typography.Text>
-          <Button
-            type="primary"
-            onClick={() =>
-              navigate?.(
-                `${ORDER_PLANNING_PATH}?search=${encodeURIComponent(row.identity?.sku ?? row.identity?.asin ?? '')}`,
-              )
-            }
-          >
-            {t(TEXT.drawerOpenOrderPlanning)}
-          </Button>
-        </Space>
-      );
-    case 'stuckInventory':
-      return (
-        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-          <ReasonList title={t(TEXT.drawerStuckReasons)} reasons={row.reasonCodes} t={t} />
-          {orderId ? <CommentForm orderId={orderId} run={run} submitting={submitting} t={t} /> : null}
-        </Space>
-      );
     case 'dataReadiness':
       return (
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
@@ -499,29 +453,9 @@ function DrawerBody({ pane, row, context, run, submitting, t, navigate, loadSupp
           <BandVisual points={context.performanceEvidence} t={t} />
         </Space>
       );
-    case 'discontinuedPaused':
-      return (
-        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-          <ReasonList title={t(TEXT.drawerTierEvidence)} reasons={row.reasonCodes} t={t} />
-          <Typography.Text>
-            {`${t(TEXT.drawerPreviousStatus)}: ${row.lifecyclePreviousStatus ?? t(TEXT.unknown)}`}
-          </Typography.Text>
-          <ReactivateForm familyId={row.identity.familyKey} run={run} submitting={submitting} t={t} />
-        </Space>
-      );
-    case 'untieredProducts':
-      return (
-        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-          <ReasonList title={t(TEXT.drawerTierEvidence)} reasons={row.reasonCodes} t={t} />
-        </Space>
-      );
     default:
-      // healthyInventory, excessInventory, zeroStock: read-only evidence (+ comment when an order exists).
-      return (
-        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-          {orderId ? <CommentForm orderId={orderId} run={run} submitting={submitting} t={t} /> : null}
-        </Space>
-      );
+      // 063 D5: every product pane routes to the rich body before it reaches here.
+      return null;
   }
 }
 

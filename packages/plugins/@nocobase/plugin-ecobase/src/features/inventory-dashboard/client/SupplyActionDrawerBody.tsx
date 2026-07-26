@@ -8,18 +8,21 @@
  */
 
 /**
- * T8b: the Supply Action drawer v2 (this pane ONLY — every other pane keeps
- * its v1 drawer). Identity header (NO database ids anywhere), the action bar
- * on top (all mutations go through the T8a `ecobaseInventoryDashboard:*`
- * actions), and four tabs: Overview (W7 chart + key numbers + full buckets),
- * Orders (T6 history), Comments (T6 thread + post box) and Data (lazy raw
- * record, fetched with includeRaw only on first open).
+ * T8b: the Supply Action drawer v2 — since 063 D5 the shared body for EVERY
+ * product pane (order panes, Data Readiness and Performance Review keep v1).
+ * Identity header (NO database ids anywhere), the action bar on top (all
+ * mutations go through the T8a `ecobaseInventoryDashboard:*` actions), and
+ * four tabs: Overview (W7 chart + key numbers + full buckets), Orders (T6
+ * history), Comments (T6 thread + post box) and Data (lazy raw record,
+ * fetched with includeRaw only on first open). Pane-conditional extras
+ * (reasons strip, previous status, Reactivate) are gated on `row.pane` so
+ * Supply Action renders exactly what it did before unification.
  */
 
 import { Button, Input, InputNumber, Modal, Radio, Select, Space, Spin, Table, Tabs, Tag, Typography } from 'antd';
 import React, { useRef, useState } from 'react';
 import type { DashboardRow, DrawerCommentEntry, DrawerContextResponse } from '../server/contract';
-import { TEXT } from './dashboard-text';
+import { paneTitle, reasonLabel, TEXT } from './dashboard-text';
 import { DASHBOARD_TAG_COLORS, TIER_TAG_COLOR, TREND_TAG_COLOR } from './dashboard-tokens';
 import type { RunDrawerMutation } from './drawer-sections';
 import { EM_DASH, formatMoney, formatMonthDay, type Translate } from './format';
@@ -230,11 +233,12 @@ function ActionBar(props: ActionBarProps) {
     api,
     onOpenOrder,
   } = props;
-  const [open, setOpen] = useState<'order' | 'target' | 'supplier' | 'leadTime' | 'status' | null>(null);
+  const [open, setOpen] = useState<'order' | 'target' | 'supplier' | 'leadTime' | 'status' | 'reactivate' | null>(null);
   const close = () => setOpen(null);
   return (
     <>
-      <Space wrap role="toolbar" aria-label={t(TEXT.paneSupplyAction)}>
+      {/* 063 D6: the toolbar names the pane the row was opened from. */}
+      <Space wrap role="toolbar" aria-label={t(paneTitle(row.pane))}>
         <Button type="primary" disabled={submitting} onClick={() => setOpen('order')}>
           {t(TEXT.btnCreateOrder)}
         </Button>
@@ -253,6 +257,12 @@ function ActionBar(props: ActionBarProps) {
         <Button disabled={submitting} onClick={onComment}>
           {t(TEXT.drawerComment)}
         </Button>
+        {/* F9: the only v1 capability without a v2 equivalent — discontinuedPaused rows only. */}
+        {row.pane === 'discontinuedPaused' ? (
+          <Button disabled={submitting} onClick={() => setOpen('reactivate')}>
+            {t(TEXT.drawerReactivate)}
+          </Button>
+        ) : null}
       </Space>
       {api ? (
         <OrderWorkbenchCreateModal
@@ -287,7 +297,57 @@ function ActionBar(props: ActionBarProps) {
       />
       <UpdateLeadTimeModal open={open === 'leadTime'} row={row} run={run} t={t} onClose={close} />
       <SetStatusModal open={open === 'status'} companyProductId={companyProductId} run={run} t={t} onClose={close} />
+      <ReactivateModal
+        open={open === 'reactivate'}
+        familyId={familyId}
+        run={run}
+        submitting={submitting}
+        t={t}
+        onClose={close}
+      />
     </>
+  );
+}
+
+function ReactivateModal({
+  open,
+  familyId,
+  run,
+  submitting,
+  t,
+  onClose,
+}: {
+  open: boolean;
+  familyId: string;
+  run: RunDrawerMutation;
+  submitting: boolean;
+  t: Translate;
+  onClose: () => void;
+}) {
+  const [reason, setReason] = useState('');
+  const submit = async () => {
+    if (!reason.trim()) return;
+    const ok = await run('ecobaseInventoryDashboard:reactivateFamily', { familyId, comment: reason.trim() });
+    if (ok) onClose();
+  };
+  return (
+    <Modal
+      open={open}
+      title={t(TEXT.drawerReactivate)}
+      onCancel={onClose}
+      onOk={submit}
+      okText={t(TEXT.drawerReactivate)}
+      okButtonProps={{ disabled: submitting || !reason.trim() }}
+      destroyOnClose
+    >
+      <Input.TextArea
+        rows={2}
+        aria-label={t(TEXT.drawerReactivateReason)}
+        placeholder={t(TEXT.drawerReactivateReason)}
+        value={reason}
+        onChange={(event) => setReason(event.target.value)}
+      />
+    </Modal>
   );
 }
 
@@ -632,6 +692,32 @@ function OverviewTab({ row, context, t }: { row: DashboardRow; context: DrawerCo
           }
         />
       </Space>
+      {/* 063 D6: why this product sits in its pane. Supply Action is excluded —
+          its rows are an ordering queue, not a classification, so the drawer
+          stays byte-identical there. */}
+      {row.pane !== 'supplyAction' && row.reasonCodes.length > 0 ? (
+        <Space direction="vertical" size={8} style={{ width: '100%' }}>
+          <Typography.Text
+            type="secondary"
+            style={{ fontSize: 11, letterSpacing: '0.07em', textTransform: 'uppercase' }}
+          >
+            {t(TEXT.drawerWhyHere)}
+          </Typography.Text>
+          <Space wrap size={6}>
+            {row.reasonCodes.map((code) => (
+              <Tag key={code} color={DASHBOARD_TAG_COLORS.neutral} style={{ borderRadius: 999 }}>
+                {reasonLabel(code, t)}
+              </Tag>
+            ))}
+          </Space>
+        </Space>
+      ) : null}
+      {/* F9: only discontinued/paused rows carry a previous lifecycle status. */}
+      {typeof row.lifecyclePreviousStatus === 'string' ? (
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          {`${t(TEXT.drawerPreviousStatus)}: ${row.lifecyclePreviousStatus}`}
+        </Typography.Text>
+      ) : null}
       <Typography.Text type="secondary" style={{ fontSize: 11, letterSpacing: '0.07em', textTransform: 'uppercase' }}>
         {t(TEXT.stockBucketsTitle)}
       </Typography.Text>
