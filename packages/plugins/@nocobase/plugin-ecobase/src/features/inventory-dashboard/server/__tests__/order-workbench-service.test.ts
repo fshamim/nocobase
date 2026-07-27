@@ -802,4 +802,168 @@ describe('EcobaseOrderWorkbenchService', () => {
     expect(after.comments[0]).toMatchObject({ body: 'no user seeded', author: 'Operator' });
     await expect(service.addOrderComment({ orderId, body: '   ' })).rejects.toBeInstanceOf(OrderWorkbenchError);
   });
+
+  // ---- 069 comment history across BOTH entityType vocabularies -------------
+  // The workbench writes 'order'; the imported ClickUp history landed as
+  // 'supplier_order'. Every reader accepts both, so the panes stop reading blind.
+
+  function seedBothVocabularies(orderId: string, orderNoteAt: string, importedNoteAt: string) {
+    db.seed('users', [{ id: 7, nickname: 'Ada Ops' }]);
+    db.seed(ECOBASE_COLLECTIONS.silverActivityComments, [
+      {
+        id: 'c-order',
+        entityType: 'order',
+        entityId: orderId,
+        body: 'operator note',
+        actorUserId: 7,
+        commentType: 'note',
+        occurredAt: orderNoteAt,
+      },
+      {
+        id: 'c-imported',
+        entityType: 'supplier_order',
+        entityId: orderId,
+        body: 'supplier confirmed the ship date',
+        actorUserId: 7,
+        commentType: 'note',
+        occurredAt: importedNoteAt,
+      },
+    ]);
+  }
+
+  it('paneOrders lastActivity surfaces an imported supplier_order comment with its resolved author', async () => {
+    const detail = await createSampleOrder(service, 'EF072426C');
+    seedRun('run-c', detail.header.id);
+    seedBothVocabularies(detail.header.id, '2026-07-24T09:00:00.000Z', '2026-07-25T09:00:00.000Z');
+    const result = await service.paneOrders({ pane: 'activeOrders', runId: 'run-c' });
+    if ('runSuperseded' in result) throw new Error('unexpected superseded result');
+    expect(result.rows[0].lastActivity).toEqual({
+      at: '2026-07-25T09:00:00.000Z',
+      body: 'supplier confirmed the ship date',
+      author: 'Ada Ops',
+    });
+  });
+
+  it('paneOrders lastActivity keeps an order-typed comment when it is the newest of the two', async () => {
+    const detail = await createSampleOrder(service, 'EF072426D');
+    seedRun('run-n', detail.header.id);
+    seedBothVocabularies(detail.header.id, '2026-07-25T09:00:00.000Z', '2026-07-24T09:00:00.000Z');
+    const result = await service.paneOrders({ pane: 'activeOrders', runId: 'run-n' });
+    if ('runSuperseded' in result) throw new Error('unexpected superseded result');
+    expect(result.rows[0].lastActivity).toEqual({
+      at: '2026-07-25T09:00:00.000Z',
+      body: 'operator note',
+      author: 'Ada Ops',
+    });
+  });
+
+  it('paneOrders lastActivity ignores a soft-deleted comment whose deletedAt hydrates as a Date', async () => {
+    const detail = await createSampleOrder(service, 'EF072426E');
+    seedRun('run-del', detail.header.id);
+    db.seed('users', [{ id: 7, nickname: 'Ada Ops' }]);
+    db.seed(ECOBASE_COLLECTIONS.silverActivityComments, [
+      {
+        id: 'c-live',
+        entityType: 'supplier_order',
+        entityId: detail.header.id,
+        body: 'still the newest live note',
+        actorUserId: 7,
+        occurredAt: '2026-07-24T09:00:00.000Z',
+      },
+      {
+        // Postgres hydrates datetimeTz as a Date object; the old string-only guard
+        // let this deleted row win the newest-comment race.
+        id: 'c-deleted',
+        entityType: 'supplier_order',
+        entityId: detail.header.id,
+        body: 'deleted import',
+        actorUserId: 7,
+        occurredAt: '2026-07-25T09:00:00.000Z',
+        deletedAt: new Date('2026-07-25T10:00:00.000Z'),
+      },
+    ]);
+    const result = await service.paneOrders({ pane: 'activeOrders', runId: 'run-del' });
+    if ('runSuperseded' in result) throw new Error('unexpected superseded result');
+    expect(result.rows[0].lastActivity).toMatchObject({ body: 'still the newest live note' });
+  });
+
+  it('getOrderDetail threads both vocabularies newest-first, resolving names and falling back for a NULL actor', async () => {
+    const detail = await createSampleOrder(service);
+    const orderId = detail.header.id;
+    db.seed('users', [{ id: 7, nickname: 'Ada Ops' }]);
+    db.seed(ECOBASE_COLLECTIONS.silverActivityComments, [
+      {
+        id: 'c-op',
+        entityType: 'order',
+        entityId: orderId,
+        body: 'operator note',
+        actorUserId: 7,
+        occurredAt: '2026-07-24T09:00:00.000Z',
+      },
+      {
+        id: 'c-clickup',
+        entityType: 'supplier_order',
+        entityId: orderId,
+        body: 'clickup thread reply',
+        actorUserId: 7,
+        occurredAt: '2026-07-25T09:00:00.000Z',
+      },
+      {
+        id: 'c-anon',
+        entityType: 'supplier_order',
+        entityId: orderId,
+        body: 'imported without an actor',
+        actorUserId: null,
+        occurredAt: '2026-07-23T09:00:00.000Z',
+      },
+      {
+        id: 'c-del',
+        entityType: 'supplier_order',
+        entityId: orderId,
+        body: 'deleted import',
+        actorUserId: 7,
+        occurredAt: '2026-07-26T09:00:00.000Z',
+        deletedAt: new Date('2026-07-26T10:00:00.000Z'),
+      },
+    ]);
+    const refreshed = await service.getOrderDetail({ orderId });
+    expect(refreshed.comments.map((comment) => comment.body)).toEqual([
+      'clickup thread reply',
+      'operator note',
+      'imported without an actor',
+    ]);
+    expect(refreshed.comments.map((comment) => comment.author)).toEqual(['Ada Ops', 'Ada Ops', 'Operator']);
+  });
+
+  it('getOrderDetail activity now carries the comment history (the feed read a dead entityType before)', async () => {
+    const detail = await createSampleOrder(service);
+    const orderId = detail.header.id;
+    db.seed(ECOBASE_COLLECTIONS.silverActivityComments, [
+      {
+        id: 'a-imported',
+        entityType: 'supplier_order',
+        entityId: orderId,
+        body: 'supplier confirmed',
+        actorUserId: 7,
+        commentType: 'note',
+        occurredAt: '2026-07-25T09:00:00.000Z',
+      },
+      {
+        id: 'a-deleted',
+        entityType: 'order',
+        entityId: orderId,
+        body: 'removed note',
+        commentType: 'note',
+        occurredAt: '2026-07-26T09:00:00.000Z',
+        deletedAt: new Date('2026-07-26T10:00:00.000Z'),
+      },
+    ]);
+    const refreshed = await service.getOrderDetail({ orderId });
+    expect(refreshed.activity).toContainEqual({
+      at: '2026-07-25T09:00:00.000Z',
+      kind: 'note',
+      summary: 'supplier confirmed',
+    });
+    expect(refreshed.activity.some((entry) => entry.summary === 'removed note')).toBe(false);
+  });
 });

@@ -210,7 +210,7 @@ export interface OrderPaneRow {
   units: number;
   daysInStatus: number | null;
   daysInPane: number | null;
-  lastActivity: { at: string; body: string } | null;
+  lastActivity: { at: string; body: string; author: string | null } | null;
   moneyAtRisk: number;
   atRiskProductCount: number;
   productCount: number;

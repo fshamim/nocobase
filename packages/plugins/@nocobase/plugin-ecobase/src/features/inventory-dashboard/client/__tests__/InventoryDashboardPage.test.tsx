@@ -94,7 +94,7 @@ function orderRow(orderRef: string, extra: Record<string, unknown> = {}) {
     units: 108,
     daysInStatus: 2,
     daysInPane: 2,
-    lastActivity: { at: '2026-07-24T00:00:00.000Z', body: 'arrived at prep' },
+    lastActivity: { at: '2026-07-24T00:00:00.000Z', body: 'arrived at prep', author: 'Ada Ops' },
     moneyAtRisk: 0,
     atRiskProductCount: 0,
     productCount: 2,
@@ -306,6 +306,8 @@ describe('InventoryDashboardPage (Gate G2)', () => {
     // never the old literal "not measured" every row used to share.
     expect(within(section).getAllByText('2 of 4 prep measurements').length).toBeGreaterThan(0);
     expect(within(section).queryByText('not measured')).toBeNull();
+    // Issue 069: Last activity leads with who wrote the comment, then the time.
+    expect(within(section).getAllByText(/^Ada Ops · /).length).toBeGreaterThan(0);
   });
 
   it('REQ-X6: no non-badge literal repeats in >80% of rows; at most one badge cluster per row', async () => {

@@ -68,6 +68,13 @@ const MANUAL_ORDER_INTENTS = new Set(['manual', 'operator_draft']);
 /** Author label when a comment's actor id resolves to no known user (T8). */
 const DEFAULT_COMMENT_AUTHOR = 'Operator';
 
+/**
+ * An order's comment history spans two vocabularies: this workbench writes
+ * 'order', while the imported ClickUp threads landed as 'supplier_order'. Every
+ * READER accepts both; the writers keep stamping 'order' (issue 069).
+ */
+const ORDER_COMMENT_ENTITY_TYPES = ['order', 'supplier_order'];
+
 /** Line fields the operator may edit via updateOrderLine (T3 #6). */
 const LINE_EDITABLE_FIELDS = [
   'orderedQty',
@@ -125,7 +132,7 @@ export interface OrderPaneRow {
   units: number;
   daysInStatus: number | null;
   daysInPane: number | null;
-  lastActivity: { at: string; body: string } | null;
+  lastActivity: { at: string; body: string; author: string | null } | null;
   moneyAtRisk: number;
   atRiskProductCount: number;
   productCount: number;
@@ -815,16 +822,17 @@ export class EcobaseOrderWorkbenchService {
   /**
    * Full order comment thread for the popup: newest-first, soft-deleted excluded,
    * each author resolved through one page-scoped users lookup (fallback 'Operator').
+   * Reads both comment vocabularies, so the imported ClickUp history shows up.
    */
   private async loadOrderCommentThread(orderId: string): Promise<Array<{ author: string; at: string; body: string }>> {
     const rows = (
       await this.repo(ECOBASE_COLLECTIONS.silverActivityComments)
-        .find({ filter: { entityType: 'order', entityId: orderId }, limit: 500 })
+        .find({ filter: { entityType: { $in: ORDER_COMMENT_ENTITY_TYPES }, entityId: orderId }, limit: 500 })
         .catch(() => [])
     ).map(toPlainRecord);
     const entries: Array<{ at: string; body: string; actorUserId: unknown }> = [];
     for (const row of rows) {
-      if (asString(row.deletedAt)) continue;
+      if (asTimestampString(row.deletedAt)) continue;
       const body = asString(row.body);
       const at = asTimestampString(row.occurredAt) ?? asTimestampString(row.createdAt);
       if (!body || !at) continue;
@@ -995,7 +1003,7 @@ export class EcobaseOrderWorkbenchService {
     lines: PlainRecord[];
     supplier: PlainRecord;
     company: PlainRecord;
-    comment: { at: string; body: string } | null;
+    comment: { at: string; body: string; author: string | null } | null;
     goldByCompanyProductId: Map<string, { estimatedProfitRisk?: number; estimatedOosDate?: string }>;
     pane: OrderPaneKey;
     thresholds: OrderAttentionThresholds;
@@ -1134,26 +1142,43 @@ export class EcobaseOrderWorkbenchService {
     };
   }
 
-  /** Latest non-deleted comment per order (entityType 'order'); body clipped to 120 chars. */
-  private async loadLatestOrderComments(orderIds: string[]): Promise<Map<string, { at: string; body: string }>> {
-    const result = new Map<string, { at: string; body: string }>();
+  /**
+   * Latest non-deleted comment per order across both comment vocabularies; body
+   * clipped to 120 chars and the author resolved exactly like the popup thread
+   * (one users lookup for the winning rows, fallback 'Operator').
+   */
+  private async loadLatestOrderComments(
+    orderIds: string[],
+  ): Promise<Map<string, { at: string; body: string; author: string | null }>> {
+    const result = new Map<string, { at: string; body: string; author: string | null }>();
     if (orderIds.length === 0) return result;
     const rows = (
       await this.repo(ECOBASE_COLLECTIONS.silverActivityComments)
         .find({
-          filter: { entityType: 'order', entityId: { $in: orderIds } },
+          filter: { entityType: { $in: ORDER_COMMENT_ENTITY_TYPES }, entityId: { $in: orderIds } },
           limit: Math.min(orderIds.length * 100, 10000),
         })
         .catch(() => [])
     ).map(toPlainRecord);
+    const newest = new Map<string, { at: string; body: string; actorUserId: unknown }>();
     for (const row of rows) {
-      if (asString(row.deletedAt)) continue;
+      if (asTimestampString(row.deletedAt)) continue;
       const entityId = asString(row.entityId);
       const body = asString(row.body);
       const at = asTimestampString(row.occurredAt) ?? asTimestampString(row.createdAt);
       if (!entityId || !body || !at) continue;
-      const existing = result.get(entityId);
-      if (!existing || at > existing.at) result.set(entityId, { at, body: body.slice(0, 120) });
+      const existing = newest.get(entityId);
+      if (!existing || at > existing.at) {
+        newest.set(entityId, { at, body: body.slice(0, 120), actorUserId: row.actorUserId });
+      }
+    }
+    const authors = await this.resolveCommentAuthors([...newest.values()].map((entry) => entry.actorUserId));
+    for (const [entityId, entry] of newest) {
+      result.set(entityId, {
+        at: entry.at,
+        body: entry.body,
+        author: authors.get(String(entry.actorUserId)) ?? DEFAULT_COMMENT_AUTHOR,
+      });
     }
     return result;
   }
@@ -1324,13 +1349,13 @@ export class EcobaseOrderWorkbenchService {
     }
     const comments = (
       await this.repo(ECOBASE_COLLECTIONS.silverActivityComments)
-        .find({ filter: { entityType: ECOBASE_COLLECTIONS.silverOrders, entityId: orderId }, limit: 50 })
+        .find({ filter: { entityType: { $in: ORDER_COMMENT_ENTITY_TYPES }, entityId: orderId }, limit: 50 })
         .catch(() => [])
     ).map(toPlainRecord);
     for (const comment of comments) {
-      if (asString(comment.deletedAt)) continue;
+      if (asTimestampString(comment.deletedAt)) continue;
       activity.push({
-        at: asString(comment.occurredAt) ?? asString(comment.createdAt),
+        at: asTimestampString(comment.occurredAt) ?? asTimestampString(comment.createdAt),
         kind: asString(comment.commentType) ?? 'comment',
         summary: asString(comment.body) ?? 'Activity',
       });

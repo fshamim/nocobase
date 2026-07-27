@@ -466,9 +466,11 @@ function lastActivityCell(row: OrderPaneRow, ctx: CellContext): React.ReactNode 
   }
   const rel = relativeTime(row.lastActivity.at, ctx.now, ctx.t);
   const firstLine = row.lastActivity.body.split('\n')[0];
+  // Author first, then the time — the product panes' "author · date" suffix.
+  const meta = [row.lastActivity.author, rel].filter(Boolean).join(' · ');
   return (
     <span style={{ fontSize: 13 }}>
-      <span style={{ color: MUTED }}>{rel}</span>
+      <span style={{ color: MUTED }}>{meta}</span>
       {' — '}
       {firstLine}
     </span>
