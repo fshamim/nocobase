@@ -102,6 +102,10 @@ class MemoryDatabase implements EcobaseDatabase {
   }
 }
 
+function hasOwn(overrides: Record<string, unknown>, key: string) {
+  return Object.prototype.hasOwnProperty.call(overrides, key);
+}
+
 async function seedPlanningProduct(_db: MemoryDatabase, overrides: Record<string, unknown> = {}) {
   return {
     id: overrides.id ?? 'product-1',
@@ -242,22 +246,22 @@ async function seedPlanningRows(
       leadTimeDays: overrides.leadTimeDays ?? 10,
       leadTimeConfirmedAt: overrides.leadTimeConfirmedAt ?? '2025-07-01T00:00:00.000Z',
       buyBoxPercentage: overrides.buyBoxPercentage ?? 100,
-      sixMonthMargin: overrides.margin ?? 30,
-      calculationStatus: overrides.calculationStatus ?? 'calculated',
       familyRole: 'target',
       isFrozenFamilyTarget: true,
       familyTargetCompanyProductId: planningProductId,
       listingReviewCategories: [],
       replenishmentEligibility: 'eligible',
       replenishmentBlockReasonCode: 'eligible_informational_projection',
-      primaryActionPane:
-        actionStatus === 'sufficient_stock'
+      primaryActionPane: hasOwn(overrides, 'primaryActionPane')
+        ? overrides.primaryActionPane
+        : actionStatus === 'sufficient_stock'
           ? 'healthyInventory'
           : actionStatus === 'out_of_stock'
             ? 'zeroStock'
             : 'supplyAction',
-      primaryActionReasonCode:
-        actionStatus === 'sufficient_stock'
+      primaryActionReasonCode: hasOwn(overrides, 'primaryActionReasonCode')
+        ? overrides.primaryActionReasonCode
+        : actionStatus === 'sufficient_stock'
           ? 'sufficient_stock'
           : actionStatus === 'out_of_stock'
             ? 'trusted_zero_stock'
@@ -520,14 +524,87 @@ describe('Ecobase deterministic alert evaluation service', () => {
     await seedPlanningRows(manualDb, manualProduct, {
       actionStatus: 'sufficient_stock',
       recommendedReorderQuantity: 0,
-      calculationStatus: 'manual_review',
+      primaryActionPane: 'dataReadiness',
+      primaryActionReasonCode: 'frozen_family_target_review',
     });
     await new EcobaseAlertEvaluationService(manualDb).evaluatePlanningProducts({
       planningProductId: String(manualProduct.id),
       calculationDate: '2025-07-10',
     });
     expect(manualDb.getRepository(ECOBASE_COLLECTIONS.alertEvaluations).all()[0].rootCauses).toEqual(
-      expect.arrayContaining([expect.objectContaining({ code: 'unknown_manual_review' })]),
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'unknown_manual_review',
+          evidence: expect.objectContaining({
+            primaryActionPane: 'dataReadiness',
+            primaryActionReasonCode: 'frozen_family_target_review',
+          }),
+        }),
+      ]),
     );
+  });
+
+  it('raises unknown_manual_review only when the published gold row sits in the data-issues pane', async () => {
+    const paneCases = [
+      { id: 'pane-data-issues', asin: 'B010PANE1', pane: 'dataReadiness', fires: true },
+      { id: 'pane-supply-action', asin: 'B010PANE2', pane: 'supplyAction', fires: false },
+      { id: 'pane-missing', asin: 'B010PANE3', pane: undefined, fires: false },
+      { id: 'pane-unknown', asin: 'B010PANE4', pane: 'someFuturePane', fires: false },
+    ];
+
+    for (const paneCase of paneCases) {
+      const db = new MemoryDatabase();
+      const product = await seedPlanningProduct(db, { id: paneCase.id, asin: paneCase.asin });
+      await seedPlanningRows(db, product, {
+        actionStatus: 'sufficient_stock',
+        recommendedReorderQuantity: 0,
+        primaryActionPane: paneCase.pane,
+      });
+      const run = await new EcobaseAlertEvaluationService(db).evaluatePlanningProducts({
+        planningProductId: String(product.id),
+        calculationDate: '2025-07-10',
+      });
+
+      const label = `pane ${String(paneCase.pane)}`;
+      expect(run.summaries, label).toHaveLength(1);
+      if (paneCase.fires) {
+        expect(run.summaries[0].rootCauseCodes, label).toContain('unknown_manual_review');
+      } else {
+        expect(run.summaries[0].rootCauseCodes, label).not.toContain('unknown_manual_review');
+      }
+    }
+  });
+
+  it('keeps price_margin_issue on the live silver margin fact with no sixMonthMargin fallback', async () => {
+    const lowDb = new MemoryDatabase();
+    const lowProduct = await seedPlanningProduct(lowDb, { id: 'margin-low-product', asin: 'B010MARGINLOW' });
+    await seedPlanningRows(lowDb, lowProduct, {
+      actionStatus: 'sufficient_stock',
+      recommendedReorderQuantity: 0,
+      margin: 8,
+    });
+    const lowRun = await new EcobaseAlertEvaluationService(lowDb).evaluatePlanningProducts({
+      planningProductId: String(lowProduct.id),
+      calculationDate: '2025-07-10',
+    });
+
+    expect(lowRun.summaries[0].rootCauseCodes).toContain('price_margin_issue');
+    expect(lowDb.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows).all()[0]).not.toHaveProperty(
+      'sixMonthMargin',
+    );
+
+    const healthyDb = new MemoryDatabase();
+    const healthyProduct = await seedPlanningProduct(healthyDb, { id: 'margin-ok-product', asin: 'B010MARGINOK' });
+    await seedPlanningRows(healthyDb, healthyProduct, {
+      actionStatus: 'sufficient_stock',
+      recommendedReorderQuantity: 0,
+      margin: 30,
+    });
+    const healthyRun = await new EcobaseAlertEvaluationService(healthyDb).evaluatePlanningProducts({
+      planningProductId: String(healthyProduct.id),
+      calculationDate: '2025-07-10',
+    });
+
+    expect(healthyRun.summaries[0].rootCauseCodes).not.toContain('price_margin_issue');
   });
 });

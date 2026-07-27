@@ -220,7 +220,7 @@ function actionFor(code: RootCauseCode) {
     supplier_order_missing_update: 'Update the supplier order status or delivery evidence.',
     blocked_unreliable_open_order: 'Resolve the blocked supplier order before relying on its recovery quantity.',
     data_warning: 'Fix the data warning before relying on this alert.',
-    unknown_manual_review: 'Review the product manually because available facts are incomplete.',
+    unknown_manual_review: 'Resolve this product in the Data issues pane so planning can act on it.',
   };
   return actions[code];
 }
@@ -401,7 +401,6 @@ export class EcobaseAlertEvaluationService {
       restockNeeded: ['overdue', 'order_today', 'order_soon', 'missing_lead_time', 'stale_lead_time'].includes(
         actionStatus ?? '',
       ),
-      calculationStatus: asString(product.calculationStatus) ?? 'calculated',
       warnings: [],
     };
   }
@@ -429,7 +428,7 @@ export class EcobaseAlertEvaluationService {
       confirmedAt: asString(latestPlanning.leadTimeConfirmedAt),
     };
     const buyBoxPercentage = maxNumber(planningRows, ['buyBoxPercentage', 'Buy Box %']);
-    const margin = asNumber(latestFact.margin) ?? asNumber(latestPlanning.sixMonthMargin);
+    const margin = asNumber(latestFact.margin);
     const refundRate = asNumber(latestFact.refunds);
     const baselineVelocity = asNumber(latestPlanning.baselineVelocity) ?? asNumber(latestPlanning.salesVelocity);
     const sourceVelocity = asNumber(latestInventory.salesVelocity);
@@ -638,13 +637,16 @@ export class EcobaseAlertEvaluationService {
         evidence: { calculationWarnings: calculation.warnings, coverageWarnings: coverage.dataWarnings },
       });
     }
-    if (asString(calculation.calculationStatus) !== 'calculated') {
+    if (asString(calculation.primaryActionPane) === 'dataReadiness') {
       causes.push({
         code: 'unknown_manual_review',
         priority: 180,
         severity: 'info',
-        message: 'The product requires manual review because deterministic inputs are incomplete.',
-        evidence: { calculationStatus: calculation.calculationStatus },
+        message: 'The product sits in the Data issues pane and needs an operator decision.',
+        evidence: {
+          primaryActionPane: calculation.primaryActionPane,
+          primaryActionReasonCode: calculation.primaryActionReasonCode,
+        },
       });
     }
     return rootCauseSort(causes);
