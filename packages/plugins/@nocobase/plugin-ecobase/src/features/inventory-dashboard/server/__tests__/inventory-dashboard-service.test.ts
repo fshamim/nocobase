@@ -1857,6 +1857,107 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
     expect(counter?.label).toBe('Tiered families needing attention');
   });
 
+  it('066 (D10): serves familyTargetAssigned from the gold family target, on every pane', async () => {
+    const local = new RecordingDatabase();
+    local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).rows.push({
+      id: PUBLISHED_RUN_ID,
+      status: 'published',
+      calculationDate: FIXED_TODAY,
+      publishedAt: `${FIXED_TODAY}T00:00:00.000Z`,
+    });
+    const goldRepo = local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows);
+    for (const [id, familyTargetCompanyProductId] of [
+      ['ft-assigned', 'cp-ft-target'],
+      ['ft-none', null],
+    ] as const) {
+      goldRepo.rows.push({
+        id,
+        naturalKey: id,
+        refreshRunId: PUBLISHED_RUN_ID,
+        primaryActionPane: 'dataReadiness',
+        companyProductFamilyId: `family-${id}`,
+        primaryActionReasonCode: 'frozen_family_target_review',
+        familyTargetCompanyProductId,
+      });
+    }
+    const response = await service(local).pane({
+      pane: 'dataReadiness',
+      runId: PUBLISHED_RUN_ID,
+      page: 1,
+      pageSize: 25,
+    });
+    if (isRunSuperseded(response)) throw new Error('bad');
+    const assigned = new Map(response.rows.map((row) => [row.identity.listingRowId, row.familyTargetAssigned]));
+    expect(assigned.get('ft-assigned')).toBe(true);
+    expect(assigned.get('ft-none')).toBe(false);
+    // Uniform row shape (063 F3): the field is served outside dataReadiness too.
+    const supply = await service(db).pane({ pane: 'supplyAction', runId: PUBLISHED_RUN_ID, page: 1, pageSize: 200 });
+    if (isRunSuperseded(supply)) throw new Error('bad');
+    expect(supply.rows.length).toBeGreaterThan(0);
+    expect(supply.rows.every((row) => row.familyTargetAssigned === false)).toBe(true);
+  });
+
+  it('066 (D9): familiesNeedingTarget counts distinct target-less families only', async () => {
+    const local = new RecordingDatabase();
+    local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).rows.push({
+      id: PUBLISHED_RUN_ID,
+      status: 'published',
+      calculationDate: FIXED_TODAY,
+      publishedAt: `${FIXED_TODAY}T00:00:00.000Z`,
+    });
+    const goldRepo = local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows);
+    const push = (id: string, familyId: string, overrides: Record<string, unknown>) =>
+      goldRepo.rows.push({
+        id,
+        naturalKey: id,
+        refreshRunId: PUBLISHED_RUN_ID,
+        primaryActionPane: 'dataReadiness',
+        companyProductFamilyId: familyId,
+        primaryActionReasonCode: 'frozen_family_target_review',
+        familyTargetCompanyProductId: null,
+        ...overrides,
+      });
+    // Real queue: one single-listing family + one family whose two listings must
+    // count ONCE (family grain, 066 F7).
+    push('nt-solo', 'family-needs-1', { lastClosedMonthTier: 'A' });
+    push('nt-multi-a', 'family-needs-2', {});
+    push('nt-multi-b', 'family-needs-2', {});
+    // 066 F5 shadow member: same reason, but the family already has a target —
+    // this listing is not work, so it must not inflate the queue.
+    push('nt-secondary', 'family-has-target', { familyTargetCompanyProductId: 'cp-elsewhere' });
+    // Different issue class entirely (taxonomy 2) — never counted.
+    push('nt-evidence', 'family-evidence', {
+      primaryActionReasonCode: 'missing_or_invalid_baseline_evidence',
+    });
+
+    const response = await service(local).pane({
+      pane: 'dataReadiness',
+      runId: PUBLISHED_RUN_ID,
+      page: 1,
+      pageSize: 25,
+    });
+    if (isRunSuperseded(response)) throw new Error('bad');
+    const needingTarget = response.metrics.find((metric) => metric.key === 'familiesNeedingTarget');
+    expect(needingTarget?.label).toBe('Families needing a target');
+    expect(needingTarget?.value).toBe(2);
+    // Pane rows are family-grain (4 families from 5 listings) and the task-006
+    // counter is untouched by the new metric.
+    expect(response.metrics.find((metric) => metric.key === 'count')?.value).toBe(4);
+    expect(response.metrics.find((metric) => metric.key === 'tieredNeedingAttention')?.value).toBe(1);
+    // The shadow member wears the honest flag the badge split reads (066 D10).
+    const secondary = response.rows.find((row) => row.identity.listingRowId === 'nt-secondary');
+    expect(secondary?.familyTargetAssigned).toBe(true);
+    // Non-dataReadiness panes never carry the metric.
+    const healthy = await service(local).pane({
+      pane: 'healthyInventory',
+      runId: PUBLISHED_RUN_ID,
+      page: 1,
+      pageSize: 25,
+    });
+    if (isRunSuperseded(healthy)) throw new Error('bad');
+    expect(healthy.metrics.some((metric) => metric.key === 'familiesNeedingTarget')).toBe(false);
+  });
+
   it('(h) emits typed response snapshots for G2 to consume', async () => {
     const svc = service(db);
     const header = await svc.header();

@@ -217,6 +217,15 @@ export interface DashboardRow {
   /** T-D5 rider: the resolved coverage horizon behind recommendedOrderQty (override ?? setting). */
   targetCoverDays: number | null;
   /**
+   * 066-D10: the row's family has a frozen planning target
+   * (`familyTargetCompanyProductId` non-null on published gold). Read-time
+   * derivation, no gold schema change — served on every pane for a uniform row
+   * shape, consumed by the Data issues workbench to tell a family that truly
+   * NEEDS a target apart from a secondary listing of an already-targeted
+   * family (both carry `frozen_family_target_review`, plan F5).
+   */
+  familyTargetAssigned: boolean;
+  /**
    * T-D5 (approved OPEN-D5): present when a TIERED family outside the action/
    * order panes has a position-based stockout estimate within
    * URGENT_STOCKOUT_HORIZON_DAYS of today (daysUntil may be <= 0 when the

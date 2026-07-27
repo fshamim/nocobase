@@ -114,6 +114,7 @@
     "moneyRiskUncoveredDays": null,
     "recommendedOrderQty": null,
     "targetCoverDays": null,
+    "familyTargetAssigned": false,
     "reasonCodes": [],
     "velocityTrend": "down",
     "performanceBand": "below_band",

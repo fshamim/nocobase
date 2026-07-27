@@ -1153,6 +1153,10 @@ export class EcobaseInventoryDashboardService {
       moneyRiskUncoveredDays: asNumber(raw.moneyRiskUncoveredDays),
       recommendedOrderQty: asNumber(raw.recommendedOrderQty),
       targetCoverDays: asNumber(raw.targetCoverDays),
+      // 066-D10: read-time only — the family's frozen target, straight off the
+      // gold listing row. Splits "needs a target" from "secondary listing of a
+      // targeted family" in the Data issues workbench (066 F5).
+      familyTargetAssigned: asString(raw.familyTargetCompanyProductId) !== null,
       // QA item 7b: readinessReasonCodes is empty on live gold rows; the actual
       // reason lives in primaryActionReasonCode — fall back so P9/P7 drawers
       // and badges never show an empty reason list.
@@ -1366,6 +1370,23 @@ export class EcobaseInventoryDashboardService {
         key: 'tieredNeedingAttention',
         label: 'Tiered families needing attention',
         value: new Set(rows.filter((row) => row.tiered).map((row) => row.familyKey)).size,
+      });
+      // 066-D9: the pane's TRUE queue length — families whose target review is
+      // real (no frozen target yet). Rows carrying the same reason for an
+      // already-targeted family are secondary listings (066 F5) and are not
+      // work; evidence-reason rows are a different issue class entirely.
+      metrics.push({
+        key: 'familiesNeedingTarget',
+        label: 'Families needing a target',
+        value: new Set(
+          rows
+            .filter(
+              (row) =>
+                asString(row.raw.primaryActionReasonCode) === 'frozen_family_target_review' &&
+                asString(row.raw.familyTargetCompanyProductId) === null,
+            )
+            .map((row) => row.familyKey),
+        ).size,
       });
     }
     if (pane === 'supplyAction') {

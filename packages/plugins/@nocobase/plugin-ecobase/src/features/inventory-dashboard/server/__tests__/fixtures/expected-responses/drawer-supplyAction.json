@@ -114,6 +114,7 @@
     "moneyRiskUncoveredDays": 28,
     "recommendedOrderQty": 520,
     "targetCoverDays": 45,
+    "familyTargetAssigned": false,
     "reasonCodes": [],
     "velocityTrend": "flat",
     "performanceBand": "within_band",

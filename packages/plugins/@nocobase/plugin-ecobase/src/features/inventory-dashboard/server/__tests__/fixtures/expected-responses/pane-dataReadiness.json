@@ -22,6 +22,11 @@
       "key": "tieredNeedingAttention",
       "label": "Tiered families needing attention",
       "value": 1
+    },
+    {
+      "key": "familiesNeedingTarget",
+      "label": "Families needing a target",
+      "value": 0
     }
   ],
   "rows": [
@@ -88,6 +93,7 @@
       "moneyRiskUncoveredDays": null,
       "recommendedOrderQty": null,
       "targetCoverDays": null,
+      "familyTargetAssigned": false,
       "reasonCodes": [
         "family_review_required"
       ],
