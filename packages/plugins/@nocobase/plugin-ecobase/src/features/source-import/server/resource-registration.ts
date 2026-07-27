@@ -62,6 +62,7 @@ export function createSourceImportResourceRegistration(
           'applySupplierOrderImportPreflight',
           'ensureClickupAttributionUsers',
           'importClickupOrderStatuses',
+          'repairClickupCommentBodies',
           'saveCsvSourceConnection',
           'saveSellerboardSource',
           'deleteSellerboardSource',

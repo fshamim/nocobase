@@ -15,6 +15,7 @@ import { CsvRowReader, parseCsv } from './adapters/csv-utils';
 import { EcobaseInboundEntryBaselineStamper } from '../../inventory-dashboard/server/engine/inbound-entry-baseline';
 import type { EcobaseDatabase } from './import-service';
 import { FOUR_COMPANY_MIGRATION_PROFILE } from './four-company-migration-profile';
+import { sanitizeClickupCommentText } from './clickup-comment-text';
 import { projectSourceRecord } from './source-record-projection';
 import { silverSupplierOrderReadModel } from '../../supplier-management/server/silver-supplier-order-read-model';
 import {
@@ -85,6 +86,8 @@ type ParsedTask = {
   mainOrderTask: boolean;
   comments: ParsedClickupComment[];
   invalidCommentCount: number;
+  /** 069 follow-up: comments whose entire text was the export's `undefined` block artifact. */
+  textlessCommentCount: number;
   company: string;
   titleCompany?: string;
   companyConflict?: string;
@@ -107,6 +110,12 @@ export interface ClickupOrderStatusImportResult {
   updatedCommentCount: number;
   duplicateCommentCount: number;
   invalidCommentCount: number;
+  /**
+   * 069 follow-up: comments the export carried with no text of their own (attachment/embed blocks,
+   * which it serialises as the token `undefined`). Skipped, and deliberately NOT a warning — there
+   * is nothing malformed about them and nothing to store.
+   */
+  textlessCommentCount: number;
   missingMainTaskCount: number;
   conflictingMainTaskCount: number;
   companyConflictCount: number;
@@ -261,23 +270,35 @@ function parseClickupCommentDate(value: string | undefined) {
 }
 
 function parseClickupComments(value: string | undefined) {
+  const empty = { comments: [] as ParsedClickupComment[], invalidCount: 0, textlessCount: 0 };
   const rawValue = asString(value);
-  if (!rawValue) return { comments: [] as ParsedClickupComment[], invalidCount: 0 };
+  if (!rawValue) return empty;
   let parsed: unknown;
   try {
     parsed = JSON.parse(rawValue);
   } catch {
-    return { comments: [] as ParsedClickupComment[], invalidCount: 1 };
+    return { ...empty, invalidCount: 1 };
   }
-  if (!Array.isArray(parsed)) return { comments: [] as ParsedClickupComment[], invalidCount: 1 };
+  if (!Array.isArray(parsed)) return { ...empty, invalidCount: 1 };
   let invalidCount = 0;
+  let textlessCount = 0;
   const comments = parsed.flatMap((item): ParsedClickupComment[] => {
     const record = asPlainRecord(item);
-    const text = asString(record.text);
+    const rawText = asString(record.text);
     const actor = asString(record.by);
     const occurredAt = parseClickupCommentDate(asString(record.date));
-    if (!text || !actor || !occurredAt) {
+    if (!rawText || !actor || !occurredAt) {
       invalidCount += 1;
+      return [];
+    }
+    // 069 follow-up: the export writes the JS token `undefined` for every textless comment block.
+    // Cleaning here — where the export's string first becomes ours — is what keeps the token out of
+    // the stored body, the proposal preview, and everything else that reads `comment.text`.
+    const text = sanitizeClickupCommentText(rawText);
+    if (!text) {
+      // The whole comment was that artifact: an attachment-only comment with nothing to store.
+      // Not malformed, so it stays out of the invalid count that drives import warnings.
+      textlessCount += 1;
       return [];
     }
     return [
@@ -290,7 +311,7 @@ function parseClickupComments(value: string | undefined) {
       },
     ];
   });
-  return { comments, invalidCount };
+  return { comments, invalidCount, textlessCount };
 }
 
 function authoritativeTaskForRef(ref: string, tasks: ParsedTask[]) {
@@ -519,6 +540,7 @@ export function parseClickupOrderStatusFiles(files: CsvSourceFile[]) {
           mainOrderTask: isMainOrderTask({ taskName, ref, parentId, listName }),
           comments: parsedComments.comments,
           invalidCommentCount: parsedComments.invalidCount,
+          textlessCommentCount: parsedComments.textlessCount,
         };
         tasksByRef.set(ref, [...(tasksByRef.get(ref) ?? []), task]);
       }
@@ -1159,6 +1181,7 @@ export class EcobaseClickupOrderStatusService {
       .flatMap(([, tasks]) => tasks);
     const selectedCommentCount = matchedTasks.reduce((count, task) => count + task.comments.length, 0);
     const invalidCommentCount = allTasks.reduce((count, task) => count + task.invalidCommentCount, 0);
+    const textlessCommentCount = allTasks.reduce((count, task) => count + task.textlessCommentCount, 0);
     const userLinks = await this.ensureApprovedAttributionUsers(dryRun);
     const actorOccurrences = new Map<string, { sourceActor: string; occurrenceCount: number }>();
     for (const task of matchedTasks) {
@@ -1398,6 +1421,7 @@ export class EcobaseClickupOrderStatusService {
       updatedCommentCount,
       duplicateCommentCount,
       invalidCommentCount,
+      textlessCommentCount,
       missingMainTaskCount: missingMainTaskRefs.length,
       conflictingMainTaskCount: conflictingMainTasks.length,
       companyConflictCount: companyConflicts.length,

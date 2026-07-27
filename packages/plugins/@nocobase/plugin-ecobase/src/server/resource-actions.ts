@@ -44,6 +44,7 @@ import {
   type SellerboardCommittedUnitHandler,
   type SellerboardReportKind,
 } from '../features/source-import/server/import-service';
+import { EcobaseClickupCommentBodyRepairService } from '../features/source-import/server/clickup-comment-body-repair';
 import { EcobaseClickupOrderStatusService } from '../features/source-import/server/clickup-order-status-service';
 import { EcobaseOrderDetailsRelationshipVerifier } from '../features/source-import/server/order-details-relationship-verifier';
 import { EcobaseSellerboardCogsService } from '../features/source-import/server/sellerboard-cogs-service';
@@ -2975,6 +2976,17 @@ export function createEcobaseImportActions(
         }
         await next();
       },
+      // 069 follow-up: one-off sweep for bodies stored before the importer cleaned the export's
+      // `undefined` block artifact. ClickUp-sourced comments only, and it previews unless told not to.
+      repairClickupCommentBodies: async (ctx, next) => {
+        const values = getValues(ctx.action.params);
+        ctx.body = {
+          data: await new EcobaseClickupCommentBodyRepairService(ctx.db, ctx.logger).repairClickupCommentBodies({
+            dryRun: getOptionalBoolean(values, 'dryRun') !== false,
+          }),
+        };
+        await next();
+      },
       saveCsvSourceConnection: async (ctx, next) => {
         const values = getValues(ctx.action.params);
         const service = new EcobaseSourceConnectionService(ctx.db);
@@ -3047,6 +3059,7 @@ export function createEcobaseImportActions(
       applySupplierOrderImportPreflight: 'admin',
       ensureClickupAttributionUsers: 'admin',
       importClickupOrderStatuses: 'admin',
+      repairClickupCommentBodies: 'admin',
       saveCsvSourceConnection: 'admin',
       saveSellerboardSource: 'admin',
       deleteSellerboardSource: 'admin',
