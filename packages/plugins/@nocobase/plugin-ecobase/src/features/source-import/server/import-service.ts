@@ -514,6 +514,12 @@ export interface ImportClickupOrderStatusesParams {
   snapshotDate?: string;
   forceReconcile?: boolean;
   overrideOperatorStatus?: boolean;
+  /**
+   * Issue 070: schedules the debounced Gold publish after an apply that changed order status.
+   * The host passes the operator-write debouncer here — a ClickUp apply moves exactly the kind
+   * of signal an operator edit moves, and it publishes without reconciling Sellerboard receipts.
+   */
+  onGoldRefreshRequired?: () => void;
 }
 
 interface ClickupReceiptStateCoverage extends ReceiptStateCoverage {
@@ -1271,7 +1277,15 @@ export class EcobaseImportService {
           },
         },
       });
-      return toPlainRecord(await importRunRepo.findOne({ filterByTk: importRunId }));
+      const completedRun = toPlainRecord(await importRunRepo.findOne({ filterByTk: importRunId }));
+      // Issue 070: the apply computed `goldRefreshRequired` and nothing consumed it, so a
+      // perfect ClickUp upload left the panes showing pre-import statuses until some unrelated
+      // Sellerboard commit or operator edit happened to publish. Consume it here.
+      const goldTrigger = this.notifyClickupApplyCommit(params, {
+        status: getString(completedRun, 'status'),
+        goldRefreshRequired,
+      });
+      return goldTrigger ? { ...completedRun, goldTrigger } : completedRun;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'ClickUp import threw a non-Error value.';
       await importRunRepo.update({
@@ -1279,6 +1293,32 @@ export class EcobaseImportService {
         values: { finishedAt: new Date(), status: 'failed', errorCount: 1, errorMessage },
       });
       throw error;
+    }
+  }
+
+  /**
+   * Issue 070: a committed ClickUp apply must promote Gold the way an operator write does.
+   * `goldRefreshRequired` is already false unless the run committed a real change with zero
+   * errors, and the run status is asserted here too, so a `partial`/`failed`/`skipped` run and
+   * a no-change apply both schedule nothing. Failures to schedule are reported on the run
+   * rather than thrown — the import itself committed and must not be reported as failed.
+   */
+  private notifyClickupApplyCommit(
+    params: ImportClickupOrderStatusesParams,
+    run: { status?: string; goldRefreshRequired: boolean },
+  ) {
+    if (!params.onGoldRefreshRequired || run.status !== 'success' || !run.goldRefreshRequired) {
+      return undefined;
+    }
+    try {
+      params.onGoldRefreshRequired();
+      return { status: 'scheduled' as const };
+    } catch (error) {
+      return {
+        status: 'failed' as const,
+        reasonCode: 'gold_trigger_scheduling_failed',
+        message: error instanceof Error ? error.message : 'Gold trigger scheduling failed with a non-Error value.',
+      };
     }
   }
 

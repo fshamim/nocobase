@@ -1058,11 +1058,15 @@ export class EcobaseClickupOrderStatusService {
         authorityStatus,
         authoritySource,
         authorityTaskRef: clickupTaskRef,
+        // 070: the run time is only this order's news when the run actually carried ClickUp
+        // evidence for it. Stamping it on every order made a 2023 order look days old and hid
+        // it from the follow-up flags. Orders this run saw nothing for keep whatever they had —
+        // including NULL, which honestly reads as "never observed".
         authorityAsOf:
           asString(clickupEvidence.observedAt) ??
           asString(statusEvidenceJson.importedAt) ??
           asString(order.authorityAsOf) ??
-          asOf,
+          (hasClickupEvidence ? asOf : undefined),
         authorityEvidenceJson: {
           orderRef: asString(order.externalOrderRef) ?? asString(order.orderRef),
           canonicalStatus: asString(order.canonicalStatus) ?? asString(order.status),

@@ -31,6 +31,20 @@
  * unrecoverable, so the sweep stamps the CURRENT snapshot through the R2 stamper and reports
  * it as `baselineProvenance: 'sweep_time_snapshot'` — from here on their bucket shift is
  * measured from the sweep date rather than from a fiction.
+ *
+ * Issue 070 — `authorityAsOf` is only an age signal for ClickUp-sourced orders.
+ *
+ * Every ClickUp apply stamped `authorityAsOf` with the RUN time on every order, including the
+ * ones that run saw no ClickUp evidence for (fixed at the writer in `reconcileAuthority`). R4
+ * then copied that run time into `statusChangedAt`, so a 2023 sheet order rendered as three
+ * days old and evaded every follow-up flag. Two changes here:
+ *
+ * - `resolveOrderStampFallback` consults `authorityAsOf` ONLY for ClickUp-sourced orders. For
+ *   every other order the chain falls straight through to `orderDate` — the one date the order
+ *   actually owns.
+ * - `repairOrderStamps` is the one-time corrective sweep for rows R4 already wiped: a
+ *   non-ClickUp order whose `statusChangedAt` is byte-identical to its `authorityAsOf` gets
+ *   re-derived from `orderDate`. Like the R4 sweep it defaults to a dry run and is idempotent.
  */
 
 import { ECOBASE_COLLECTIONS } from '../../../../server/collections/names';
@@ -41,6 +55,13 @@ type Row = Record<string, unknown>;
 
 /** Matches the Silver order scan budget used by the scheduled reconciliation path. */
 export const ORDER_STAMP_BACKFILL_ORDER_LIMIT = 20000;
+
+/**
+ * 070: the `statusSource` the ClickUp status import writes. It is the only writer whose
+ * `authorityAsOf` describes the order's OWN status observation, so it is the only source whose
+ * orders may take their stamp from that column.
+ */
+export const CLICKUP_STATUS_SOURCE = 'clickup_csv';
 
 /** The pane fallback chain, minus the stamp column being filled. Order is the priority. */
 export const ORDER_STAMP_FALLBACK_SOURCES = ['operatorStatusOverrideAt', 'authorityAsOf', 'orderDate'] as const;
@@ -79,6 +100,29 @@ export interface OrderStampBackfillLogger {
   info?: (...args: unknown[]) => void;
 }
 
+export interface OrderStampRepairInput {
+  /** Defaults to true, exactly like `backfillOrderStamps`: a bare call previews, it never writes. */
+  dryRun?: boolean;
+}
+
+/** The `statusSource` bucket key used for orders whose `statusSource` column is NULL. */
+export const UNSOURCED_STATUS_SOURCE = 'unsourced';
+
+export interface OrderStampRepairResult {
+  dryRun: boolean;
+  /** Scan counts. These describe the sweep's reach and stay non-zero on a second run. */
+  ordersScanned: number;
+  clickupSourcedOrdersSkipped: number;
+  /** Work counts. Every one of these is 0 on a second run — that is the idempotence proof. */
+  ordersUpdated: number;
+  statusChangedAtRepaired: number;
+  workflowStageEnteredAtRepaired: number;
+  /** Repaired orders keyed by the `statusSource` that owned them. */
+  ordersRepairedByStatusSource: Record<string, number>;
+  /** Matched the wiped-stamp predicate but hold no `orderDate` to re-derive from. */
+  ordersWithoutOrderDate: number;
+}
+
 function text(value: unknown) {
   const normalized = typeof value === 'string' ? value.trim() : '';
   return normalized || undefined;
@@ -109,9 +153,17 @@ function isStampMissing(value: unknown) {
   return typeof value === 'string' && value.trim() === '';
 }
 
-/** First non-null of `operatorStatusOverrideAt → authorityAsOf → orderDate`. */
+/**
+ * First non-null of `operatorStatusOverrideAt → authorityAsOf → orderDate`.
+ *
+ * 070: `authorityAsOf` is skipped entirely unless ClickUp is the order's status source. On any
+ * other order that column holds the last ClickUp RUN time — evidence about the import, not about
+ * the order — so reading it would restate a 2023 order as days old.
+ */
 export function resolveOrderStampFallback(order: Row): { at: string; source: OrderStampFallbackSource } | null {
+  const clickupSourced = text(order.statusSource) === CLICKUP_STATUS_SOURCE;
   for (const source of ORDER_STAMP_FALLBACK_SOURCES) {
+    if (source === 'authorityAsOf' && !clickupSourced) continue;
     const at = isoInstant(order[source]);
     if (at) return { at, source };
   }
@@ -189,6 +241,72 @@ export class EcobaseOrderStampBackfillService {
     }
 
     this.logger?.info?.('Ecobase order stamp backfill completed.', { ...result });
+    return result;
+  }
+
+  /**
+   * 070 one-time corrective sweep for the stamps R4 copied off `authorityAsOf`.
+   *
+   * Candidate: a NON-ClickUp-sourced order whose `statusChangedAt` is byte-identical to its
+   * `authorityAsOf` — the exact signature R4 leaves behind, and a coincidence no other writer
+   * produces, because every other writer stamps the two columns at different moments. Such an
+   * order is re-derived from `orderDate`, the one date it actually owns.
+   *
+   * `workflowStageEnteredAt` is repaired under the SAME per-column test rather than blindly: a
+   * later import may have stamped a REAL stage entry on one of these orders, and that is a true
+   * signal the sweep must not overwrite. A stage stamp left NULL here is filled from `orderDate`
+   * by the next `backfillOrderStamps` run anyway, so both paths converge.
+   */
+  async repairOrderStamps(input: OrderStampRepairInput = {}): Promise<OrderStampRepairResult> {
+    const dryRun = input.dryRun !== false;
+    const orders = (
+      await this.db.getRepository(ECOBASE_COLLECTIONS.silverOrders).find({ limit: ORDER_STAMP_BACKFILL_ORDER_LIMIT })
+    ).map(record);
+    const result: OrderStampRepairResult = {
+      dryRun,
+      ordersScanned: 0,
+      clickupSourcedOrdersSkipped: 0,
+      ordersUpdated: 0,
+      statusChangedAtRepaired: 0,
+      workflowStageEnteredAtRepaired: 0,
+      ordersRepairedByStatusSource: {},
+      ordersWithoutOrderDate: 0,
+    };
+
+    for (const order of orders) {
+      const orderId = text(order.id);
+      if (!orderId) continue;
+      result.ordersScanned += 1;
+      const statusSource = text(order.statusSource);
+      if (statusSource === CLICKUP_STATUS_SOURCE) {
+        result.clickupSourcedOrdersSkipped += 1;
+        continue;
+      }
+      const authorityAsOf = isoInstant(order.authorityAsOf);
+      if (!authorityAsOf || isoInstant(order.statusChangedAt) !== authorityAsOf) continue;
+      const orderDate = isoInstant(order.orderDate);
+      if (!orderDate) {
+        result.ordersWithoutOrderDate += 1;
+        continue;
+      }
+      // Already honest: the order's own date IS the stamped instant, so there is nothing to undo.
+      if (orderDate === authorityAsOf) continue;
+
+      const values: Row = { statusChangedAt: orderDate };
+      result.statusChangedAtRepaired += 1;
+      if (isoInstant(order.workflowStageEnteredAt) === authorityAsOf) {
+        values.workflowStageEnteredAt = orderDate;
+        result.workflowStageEnteredAtRepaired += 1;
+      }
+      const sourceKey = statusSource ?? UNSOURCED_STATUS_SOURCE;
+      result.ordersRepairedByStatusSource[sourceKey] = (result.ordersRepairedByStatusSource[sourceKey] ?? 0) + 1;
+      result.ordersUpdated += 1;
+      if (!dryRun) {
+        await this.db.getRepository(ECOBASE_COLLECTIONS.silverOrders).update({ filterByTk: orderId, values });
+      }
+    }
+
+    this.logger?.info?.('Ecobase order stamp repair completed.', { ...result });
     return result;
   }
 }

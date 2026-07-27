@@ -131,7 +131,7 @@ function projection() {
   return buildCorrectedGoldProjection({
     runId: 'run-1',
     calculationDate: '2026-07-18',
-    ruleVersion: 'individual_dynamic_6m_profit_trend_v4',
+    ruleVersion: 'individual_dynamic_6m_profit_trend_v5',
     algorithmContractVersion: 'individual_monthly_profit_performance_v2',
     currentProjectionGateMode: 'informational',
     resolvedPlanningSettingsDigest: sha('settings'),

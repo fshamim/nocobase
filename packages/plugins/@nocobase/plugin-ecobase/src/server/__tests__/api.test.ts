@@ -2054,6 +2054,62 @@ describe('Ecobase import public API seam', () => {
     );
   });
 
+  /**
+   * Issue 070. `reconcileAuthority` ran over EVERY order after every ClickUp apply and stamped
+   * `authorityAsOf` with the run time even on orders the run had no ClickUp evidence for. The
+   * 054 R4 backfill then copied that into `statusChangedAt`, so all nine orders on the import
+   * pane showed the identical instant and a 2023 order looked three days old.
+   */
+  it('070: stamps authorityAsOf with the run time only on orders that carry ClickUp evidence', async () => {
+    const db = new MemoryDatabase();
+    for (const order of [
+      {
+        id: 'no-evidence-with-history',
+        externalOrderRef: 'EF2001A',
+        canonicalStatus: 'IN-PROGRESS',
+        statusSource: 'supplier_order_import',
+        authorityAsOf: '2023-11-02T00:00:00.000Z',
+      },
+      {
+        id: 'no-evidence-never-observed',
+        externalOrderRef: 'EF2002A',
+        canonicalStatus: 'IN-PROGRESS',
+        statusSource: 'google_sheets',
+      },
+      {
+        id: 'clickup-evidenced',
+        externalOrderRef: 'EF2003A',
+        canonicalStatus: 'IN-PROGRESS',
+        statusSource: 'clickup_csv',
+        authorityTaskRef: 'task-evidenced',
+      },
+    ]) {
+      await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+        values: { ...order, company: 'Ecofission LLC', supplierId: 'supplier-1' },
+      });
+    }
+
+    await new EcobaseClickupOrderStatusService(db).reconcileAuthority('2026-07-24T01:30:36.984Z');
+
+    const ordersById = new Map(
+      db
+        .getRepository(ECOBASE_COLLECTIONS.silverOrders)
+        .all()
+        .map((order) => [order.id, order]),
+    );
+    // Zero ClickUp evidence this run: the prior value survives, and a never-observed order stays
+    // NULL rather than borrowing the import's clock.
+    expect(ordersById.get('no-evidence-with-history')).toMatchObject({
+      authorityAsOf: '2023-11-02T00:00:00.000Z',
+    });
+    expect(ordersById.get('no-evidence-never-observed')?.authorityAsOf ?? null).toBeNull();
+    // The one order this run actually saw is stamped exactly as before.
+    expect(ordersById.get('clickup-evidenced')).toMatchObject({
+      authorityStatus: 'clickup_authoritative',
+      authorityAsOf: '2026-07-24T01:30:36.984Z',
+    });
+  });
+
   it('dry-runs ClickUp order-status imports without updating supplier orders', async () => {
     const db = new MemoryDatabase();
     const actions = createEcobaseImportActions(createSourceAdapterRegistry([noopTestAdapter]));
@@ -2506,6 +2562,90 @@ describe('Ecobase import public API seam', () => {
         },
       },
     });
+  });
+
+  /**
+   * Issue 070. The ClickUp apply already computed `goldRefreshRequired` and then dropped it on
+   * the floor: the promotion hook was Sellerboard-only, so even a perfect ClickUp upload left
+   * the panes rendering pre-import statuses until some unrelated commit happened to publish.
+   * The apply now schedules the same debounced publish an operator write schedules.
+   */
+  it('070: a committed ClickUp apply schedules the Gold publish; a no-change apply does not', async () => {
+    const db = new MemoryDatabase();
+    const scheduleGoldPublish = vi.fn();
+    const actions = createEcobaseImportActions(
+      createSourceAdapterRegistry([noopTestAdapter]),
+      undefined,
+      scheduleGoldPublish,
+    );
+    const clickupSourceId = '00000000-0000-4000-8000-000000000789';
+    await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).create({
+      values: { id: clickupSourceId, sourceType: 'clickup', domain: 'order_management', active: true },
+    });
+    await db.getRepository(ECOBASE_COLLECTIONS.silverOrders).create({
+      values: {
+        id: 'supplier-order-1',
+        company: 'Stop Shop LLC',
+        supplierId: 'supplier-1',
+        externalOrderRef: 'SS7226A',
+        canonicalStatus: 'approval_pending',
+        lifecycleStatus: 'approval_pending',
+        statusSource: 'google_sheets',
+      },
+    });
+    const content = [
+      'Task ID,Task Link,Task Name,Task Content,Status,Date Created,Date Created Text,Parent ID,List Name',
+      'task-main,,New Order SS7226A Stop Shop,,ordered,1782921599420,"7/1/2026, 1:00 PM GMT+5",null,Order Management (ORM)',
+    ].join('\n');
+    const files = [{ name: 'Order Management Clickup Data 06-07-2026.csv', content }];
+
+    // A preview commits nothing, so it must never publish.
+    const dryRunContext = createActionContext(db, { files, importedAt: '2026-07-06T00:00:00.000Z' });
+    await actions.importClickupOrderStatuses(dryRunContext, vi.fn());
+    expect(scheduleGoldPublish).not.toHaveBeenCalled();
+
+    const applyContext = createActionContext(db, {
+      files,
+      dryRun: false,
+      importedAt: '2026-07-06T00:00:00.000Z',
+      sourceConnectionId: clickupSourceId,
+    });
+    await actions.importClickupOrderStatuses(applyContext, vi.fn());
+    expect(applyContext.body).toMatchObject({
+      data: {
+        status: 'success',
+        summary: { clickup: { updatedOrderCount: 1 }, goldRefreshRequired: true },
+        goldTrigger: { status: 'scheduled' },
+      },
+    });
+    expect(scheduleGoldPublish).toHaveBeenCalledTimes(1);
+
+    // Re-uploading identical content is skipped outright: no commit, no publish.
+    const unchangedContext = createActionContext(db, {
+      files,
+      dryRun: false,
+      importedAt: '2026-07-07T00:00:00.000Z',
+      sourceConnectionId: clickupSourceId,
+    });
+    await actions.importClickupOrderStatuses(unchangedContext, vi.fn());
+    expect(unchangedContext.body).toMatchObject({ data: { status: 'skipped' } });
+    expect(scheduleGoldPublish).toHaveBeenCalledTimes(1);
+
+    // A forced re-reconcile runs the whole apply again but changes nothing, so the predicate is
+    // false and the debouncer is left alone.
+    const reconciledContext = createActionContext(db, {
+      files,
+      dryRun: false,
+      importedAt: '2026-07-08T00:00:00.000Z',
+      sourceConnectionId: clickupSourceId,
+      forceReconcile: true,
+    });
+    await actions.importClickupOrderStatuses(reconciledContext, vi.fn());
+    expect(reconciledContext.body).toMatchObject({
+      data: { status: 'success', summary: { clickup: { updatedOrderCount: 0 }, goldRefreshRequired: false } },
+    });
+    expect(reconciledContext.body).not.toHaveProperty('data.goldTrigger');
+    expect(scheduleGoldPublish).toHaveBeenCalledTimes(1);
   });
 
   // Issue 054 R2: the ClickUp authority import is an order write path that changes

@@ -94,6 +94,65 @@ describe('T6 order pane routing', () => {
     expect(decision.primaryActionPane).toBe('supplyAction');
   });
 
+  /**
+   * Issue 070. The sheet import records the sheet's own "Order status" as evidence only
+   * (`statusEvidenceJson.sourceOrderStatus`) and never derives a `canonicalStatus`, so 713
+   * orders the sheet had already closed — some dating to 2023 — resolved to the open catch-all
+   * and sat in Active Orders forever. These lock the read-model fallback that retires them.
+   */
+  it('070: a sheet-Completed order with no canonical status resolves closed, and Cancelled too', () => {
+    for (const sourceOrderStatus of ['Completed', 'completed', 'COMPLETED', '  Completed  ']) {
+      expect(silverOrderStatus({ statusEvidenceJson: { sourceOrderStatus } })).toBe('completed');
+    }
+    for (const sourceOrderStatus of ['Cancelled', 'cancelled', 'CANCELLED']) {
+      expect(silverOrderStatus({ statusEvidenceJson: { sourceOrderStatus } })).toBe('cancelled');
+    }
+    // The zombies carry the sheet's workflow stage in `lifecyclePhase`, which is what used to
+    // fall through to the catch-all. The evidence still decides.
+    expect(
+      silverOrderStatus({ lifecyclePhase: 'pre_purchase', statusEvidenceJson: { sourceOrderStatus: 'Completed' } }),
+    ).toBe('completed');
+    for (const closed of ['completed', 'cancelled']) {
+      expect(DEFAULT_SUPPLIER_ORDER_STATUS_BUCKETS.supplierOrderClosedStatuses).toContain(closed);
+    }
+  });
+
+  it('070: every other sheet status keeps the catch-all, and an explicit canonicalStatus wins', () => {
+    for (const sourceOrderStatus of ['In Progress', 'Ordered', 'Complete', 'Canceled', '']) {
+      expect(silverOrderStatus({ statusEvidenceJson: { sourceOrderStatus } })).toBe('supplier_contacted');
+    }
+    // A malformed or absent evidence column must not throw its way through the read model.
+    expect(silverOrderStatus({ statusEvidenceJson: null })).toBe('supplier_contacted');
+    expect(silverOrderStatus({ statusEvidenceJson: 'not-an-object' })).toBe('supplier_contacted');
+    expect(silverOrderStatus({})).toBe('supplier_contacted');
+    // An explicitly canonicalized order is decided by its own status, never by sheet evidence.
+    expect(silverOrderStatus({ canonicalStatus: 'paid', statusEvidenceJson: { sourceOrderStatus: 'Completed' } })).toBe(
+      'paid',
+    );
+    expect(
+      silverOrderStatus({ canonicalStatus: 'shipped_inbound', statusEvidenceJson: { sourceOrderStatus: 'Cancelled' } }),
+    ).toBe('shipped_inbound');
+  });
+
+  it('070: the sheet-Completed order leaves Active Orders while a sheet-In Progress order stays', () => {
+    // Closed statuses carry no open quantity → existingOrderStage `none` → the family is routed
+    // by its own reorder need, so no Active Orders row survives for the retired order.
+    expect(silverOrderStatus({ statusEvidenceJson: { sourceOrderStatus: 'Completed' } })).toBe('completed');
+    const retired = decideReplenishment(eligibleInput({ existingOrderStage: 'none', reorderDueKind: 'trusted' }));
+    expect(retired.primaryActionPane).not.toBe('activeOrders');
+    expect(retired.primaryActionPane).toBe('supplyAction');
+    expect(retired.existingOrderFollowUp).toBe(false);
+
+    // The in-progress order is untouched: still an open placed-not-purchased order → pre_purchase.
+    expect(silverOrderStatus({ statusEvidenceJson: { sourceOrderStatus: 'In Progress' } })).toBe('supplier_contacted');
+    expect(DEFAULT_SUPPLIER_ORDER_STATUS_BUCKETS.supplierOrderPlacedNotPurchasedStatuses).toContain(
+      'supplier_contacted',
+    );
+    const stillOpen = decideReplenishment(eligibleInput({ existingOrderStage: 'pre_purchase' }));
+    expect(stillOpen.primaryActionPane).toBe('activeOrders');
+    expect(stillOpen.existingOrderFollowUp).toBe(true);
+  });
+
   it('a manual create writes a `draft` status that the engine treats as an open (placed-not-purchased) order', () => {
     // createOrder persists canonicalStatus:'draft'; the read model keeps it 'draft'…
     expect(silverOrderStatus({ canonicalStatus: 'draft', orderIntent: 'manual' })).toBe('draft');

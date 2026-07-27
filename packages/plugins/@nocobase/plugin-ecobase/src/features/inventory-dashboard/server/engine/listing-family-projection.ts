@@ -33,7 +33,11 @@ import type { ReplenishmentDecisionResult } from './replenishment-decision';
 // trusted-current-rank bypass gate 13 has, so a brand-new seller with a trusted rank reaches the
 // operational panes instead of waiting for its first month to close. Same silver inputs, different
 // panes/eligibility ⇒ the version moves again.
-export const CORRECTED_TIER_RULE_VERSION = 'individual_dynamic_6m_profit_trend_v4';
+// 070: sheet-'Completed'/'Cancelled' orders read as closed — the read model now derives a terminal
+// status from the sheet's own "Order status" evidence when no canonicalStatus was ever written, so
+// ~713 never-canonicalized orders leave the open-order buckets for closed history. Same silver
+// inputs, different pane membership ⇒ the version moves again.
+export const CORRECTED_TIER_RULE_VERSION = 'individual_dynamic_6m_profit_trend_v5';
 export const CORRECTED_ALGORITHM_CONTRACT_VERSION = 'individual_monthly_profit_performance_v2';
 export const CORRECTED_CANONICAL_SERIALIZER_VERSION = 'canonical_json_schema_normalized_bytewise_v2';
 export const CORRECTED_CANDIDATE_INPUT_DIGEST_VERSION = 'candidate_input_digest_v1';

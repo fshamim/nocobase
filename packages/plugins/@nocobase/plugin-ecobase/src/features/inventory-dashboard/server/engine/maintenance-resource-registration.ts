@@ -75,6 +75,7 @@ export function createGoldEngineMaintenanceResourceRegistration(
           'reconcileReceipts',
           'backfillReceipts',
           'backfillOrderStamps',
+          'repairOrderStamps',
         ],
         role: ADMIN,
       },

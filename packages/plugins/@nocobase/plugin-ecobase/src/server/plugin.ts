@@ -283,6 +283,8 @@ export class PluginEcobaseServer extends Plugin {
       createSourceImportResourceRegistration(
         this.registry,
         (unit) => this.goldPromotions?.onSellerboardCommittedUnit(unit),
+        // 070: a committed ClickUp apply publishes through the operator-write debouncer.
+        onOperatorWrite,
       ),
       createGoldEngineMaintenanceResourceRegistration(onOperatorWrite),
       createInventoryDashboardResourceRegistration(onOperatorWrite),

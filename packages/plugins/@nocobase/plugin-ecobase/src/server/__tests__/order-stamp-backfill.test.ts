@@ -125,8 +125,10 @@ function fixture() {
       orderDate: '2026-06-01',
     },
     {
+      // 070: only a ClickUp-sourced order may take its stamp from `authorityAsOf`.
       id: 'authority-only',
       workflowStage: 'in_prep',
+      statusSource: 'clickup_csv',
       statusChangedAt: null,
       workflowStageEnteredAt: null,
       operatorStatusOverrideAt: null,
@@ -150,8 +152,11 @@ function fixture() {
       orderDate: null,
     },
     {
+      // 070: sheet-sourced, so its `authorityAsOf` is the last ClickUp RUN time, not its own
+      // news — the chain must skip it and answer with the order's own date.
       id: 'inbound-old',
       workflowStage: 'amazon_inbound',
+      statusSource: 'supplier_order_import',
       statusChangedAt: null,
       workflowStageEnteredAt: null,
       operatorStatusOverrideAt: null,
@@ -221,6 +226,70 @@ function lineById(db: Db, id: string) {
   return line;
 }
 
+/**
+ * Issue 070 repair fixture: six orders around the ONE signature the corrective sweep may act on
+ * — a non-ClickUp order whose `statusChangedAt` is byte-identical to its `authorityAsOf`.
+ */
+function repairFixture() {
+  const db = new Db();
+  db.seed(ECOBASE_COLLECTIONS.silverOrders, [
+    {
+      // The live signature: R4 copied a run-time authorityAsOf into both stamps of a 2023 order.
+      id: 'wiped-sheet-order',
+      statusSource: 'supplier_order_import',
+      authorityAsOf: '2026-07-24T01:30:36.984Z',
+      statusChangedAt: '2026-07-24T01:30:36.984Z',
+      workflowStageEnteredAt: '2026-07-24T01:30:36.984Z',
+      orderDate: '2023-10-20',
+    },
+    {
+      // Same wipe, no statusSource at all — still not ClickUp's to claim.
+      id: 'wiped-unsourced-order',
+      authorityAsOf: new Date('2026-07-24T01:30:36.984Z'),
+      statusChangedAt: new Date('2026-07-24T01:30:36.984Z'),
+      workflowStageEnteredAt: null,
+      orderDate: '2025-05-28',
+    },
+    {
+      // Wiped status stamp, but a REAL later stage entry that the sweep must not overwrite.
+      id: 'wiped-with-real-stage-entry',
+      statusSource: 'google_sheets',
+      authorityAsOf: '2026-07-24T01:30:36.984Z',
+      statusChangedAt: '2026-07-24T01:30:36.984Z',
+      workflowStageEnteredAt: '2026-07-25T09:00:00.000Z',
+      orderDate: '2024-02-11',
+    },
+    {
+      // ClickUp genuinely observed this one, so the authority instant IS its own news.
+      id: 'clickup-order',
+      statusSource: 'clickup_csv',
+      authorityAsOf: '2026-07-24T01:30:36.984Z',
+      statusChangedAt: '2026-07-24T01:30:36.984Z',
+      workflowStageEnteredAt: '2026-07-24T01:30:36.984Z',
+      orderDate: '2026-07-01',
+    },
+    {
+      // Stamped by a real event that is not the authority instant — outside the predicate.
+      id: 'independently-stamped',
+      statusSource: 'operator',
+      authorityAsOf: '2026-07-24T01:30:36.984Z',
+      statusChangedAt: '2026-07-20T12:00:00.000Z',
+      workflowStageEnteredAt: '2026-07-20T12:00:00.000Z',
+      orderDate: '2026-06-01',
+    },
+    {
+      // Matches the predicate but owns no date to re-derive from: reported, never written.
+      id: 'wiped-without-order-date',
+      statusSource: 'supplier_order_import',
+      authorityAsOf: '2026-07-24T01:30:36.984Z',
+      statusChangedAt: '2026-07-24T01:30:36.984Z',
+      workflowStageEnteredAt: '2026-07-24T01:30:36.984Z',
+      orderDate: null,
+    },
+  ]);
+  return db;
+}
+
 function actionContext(values: Record<string, unknown> = {}, currentRoles: string[] = ['admin'], authenticated = true) {
   return {
     action: { params: { values } },
@@ -236,6 +305,14 @@ function actionContext(values: Record<string, unknown> = {}, currentRoles: strin
   };
 }
 
+function repairActionContext(
+  values: Record<string, unknown> = {},
+  currentRoles: string[] = ['admin'],
+  authenticated = true,
+) {
+  return { ...actionContext(values, currentRoles, authenticated), db: repairFixture() };
+}
+
 describe('order stamp backfill fallback resolution (054 R4)', () => {
   it('prefers operatorStatusOverrideAt, then authorityAsOf, then orderDate, and reports none', () => {
     expect(
@@ -248,6 +325,7 @@ describe('order stamp backfill fallback resolution (054 R4)', () => {
     expect(
       resolveOrderStampFallback({
         operatorStatusOverrideAt: null,
+        statusSource: 'clickup_csv',
         authorityAsOf: new Date('2026-07-03T08:00:00.000Z'),
         orderDate: '2026-06-01',
       }),
@@ -260,6 +338,38 @@ describe('order stamp backfill fallback resolution (054 R4)', () => {
     expect(
       resolveOrderStampFallback({ operatorStatusOverrideAt: null, authorityAsOf: null, orderDate: '' }),
     ).toBeNull();
+  });
+
+  /**
+   * Issue 070. Every ClickUp apply stamped `authorityAsOf` with the run time on EVERY order,
+   * so on a sheet-imported order that column says "the last import ran on Friday", not "this
+   * order moved on Friday". R4 copied it into `statusChangedAt` and a 2023 order rendered as
+   * three days old. Only ClickUp-sourced orders may read it.
+   */
+  it('070: reads authorityAsOf only for ClickUp-sourced orders, else falls through to orderDate', () => {
+    const wiped = {
+      operatorStatusOverrideAt: null,
+      authorityAsOf: '2026-07-24T01:30:36.984Z',
+      orderDate: '2023-10-20',
+    };
+    expect(resolveOrderStampFallback({ ...wiped, statusSource: 'clickup_csv' })).toEqual({
+      at: '2026-07-24T01:30:36.984Z',
+      source: 'authorityAsOf',
+    });
+    for (const statusSource of ['supplier_order_import', 'google_sheets', 'operator', undefined]) {
+      expect(resolveOrderStampFallback({ ...wiped, statusSource })).toEqual({
+        at: '2023-10-20T00:00:00.000Z',
+        source: 'orderDate',
+      });
+    }
+    // A non-ClickUp order with nothing but authorityAsOf now honestly reports no evidence
+    // rather than borrowing the import's clock.
+    expect(resolveOrderStampFallback({ authorityAsOf: '2026-07-24T01:30:36.984Z', orderDate: null })).toBeNull();
+    // An operator override still outranks everything — it is that order's own event.
+    expect(resolveOrderStampFallback({ ...wiped, operatorStatusOverrideAt: '2026-07-02T08:00:00.000Z' })).toEqual({
+      at: '2026-07-02T08:00:00.000Z',
+      source: 'operatorStatusOverrideAt',
+    });
   });
 });
 
@@ -283,6 +393,11 @@ describe('EcobaseOrderStampBackfillService (054 R4)', () => {
       statusChangedAt: '2026-06-03T00:00:00.000Z',
       workflowStageEnteredAt: '2026-06-03T00:00:00.000Z',
     });
+    // 070: sheet-sourced, so it takes its own order date instead of the import's run time.
+    expect(orderById(db, 'inbound-old')).toMatchObject({
+      statusChangedAt: '2026-06-04T00:00:00.000Z',
+      workflowStageEnteredAt: '2026-06-04T00:00:00.000Z',
+    });
     expect(orderById(db, 'no-evidence')).toMatchObject({ statusChangedAt: null, workflowStageEnteredAt: null });
 
     expect(result).toMatchObject({
@@ -291,8 +406,8 @@ describe('EcobaseOrderStampBackfillService (054 R4)', () => {
       ordersUpdated: 4,
       statusChangedAtFilled: 4,
       workflowStageEnteredAtFilled: 4,
-      statusChangedAtSources: { operatorStatusOverrideAt: 1, authorityAsOf: 2, orderDate: 1 },
-      workflowStageEnteredAtSources: { operatorStatusOverrideAt: 1, authorityAsOf: 2, orderDate: 1 },
+      statusChangedAtSources: { operatorStatusOverrideAt: 1, authorityAsOf: 1, orderDate: 2 },
+      workflowStageEnteredAtSources: { operatorStatusOverrideAt: 1, authorityAsOf: 1, orderDate: 2 },
       ordersWithoutFallbackEvidence: 1,
     });
   });
@@ -310,8 +425,8 @@ describe('EcobaseOrderStampBackfillService (054 R4)', () => {
     expect(result).toMatchObject({
       statusChangedAtFilled: 3,
       workflowStageEnteredAtFilled: 4,
-      statusChangedAtSources: { operatorStatusOverrideAt: 0, authorityAsOf: 2, orderDate: 1 },
-      workflowStageEnteredAtSources: { operatorStatusOverrideAt: 1, authorityAsOf: 2, orderDate: 1 },
+      statusChangedAtSources: { operatorStatusOverrideAt: 0, authorityAsOf: 1, orderDate: 2 },
+      workflowStageEnteredAtSources: { operatorStatusOverrideAt: 1, authorityAsOf: 1, orderDate: 2 },
     });
   });
 
@@ -413,6 +528,139 @@ describe('EcobaseOrderStampBackfillService (054 R4)', () => {
     expect(entries).toHaveLength(1);
     expect(entries[0][0]).toBe('Ecobase order stamp backfill completed.');
     expect(entries[0][1]).toEqual(result);
+  });
+});
+
+describe('EcobaseOrderStampBackfillService.repairOrderStamps (070)', () => {
+  it('re-derives only the wiped non-ClickUp stamps from orderDate and reports them per source', async () => {
+    const db = repairFixture();
+    const clickupOrder = structuredClone(orderById(db, 'clickup-order'));
+    const independentlyStamped = structuredClone(orderById(db, 'independently-stamped'));
+    const withoutOrderDate = structuredClone(orderById(db, 'wiped-without-order-date'));
+
+    const result = await new EcobaseOrderStampBackfillService(db).repairOrderStamps({ dryRun: false });
+
+    expect(orderById(db, 'wiped-sheet-order')).toMatchObject({
+      statusChangedAt: '2023-10-20T00:00:00.000Z',
+      workflowStageEnteredAt: '2023-10-20T00:00:00.000Z',
+    });
+    expect(orderById(db, 'wiped-unsourced-order')).toMatchObject({
+      statusChangedAt: '2025-05-28T00:00:00.000Z',
+      // Left NULL rather than invented; the R4 sweep fills it from orderDate on its next run.
+      workflowStageEnteredAt: null,
+    });
+    expect(orderById(db, 'wiped-with-real-stage-entry')).toMatchObject({
+      statusChangedAt: '2024-02-11T00:00:00.000Z',
+      // A genuine later stage entry is a real signal — the sweep must not flatten it.
+      workflowStageEnteredAt: '2026-07-25T09:00:00.000Z',
+    });
+    expect(orderById(db, 'clickup-order')).toEqual(clickupOrder);
+    expect(orderById(db, 'independently-stamped')).toEqual(independentlyStamped);
+    expect(orderById(db, 'wiped-without-order-date')).toEqual(withoutOrderDate);
+
+    expect(result).toEqual({
+      dryRun: false,
+      ordersScanned: 6,
+      clickupSourcedOrdersSkipped: 1,
+      ordersUpdated: 3,
+      statusChangedAtRepaired: 3,
+      workflowStageEnteredAtRepaired: 1,
+      ordersRepairedByStatusSource: { supplier_order_import: 1, unsourced: 1, google_sheets: 1 },
+      ordersWithoutOrderDate: 1,
+    });
+  });
+
+  it('dry-runs by default: writes nothing, reports exactly what the real run does', async () => {
+    const previewDb = repairFixture();
+    const ordersBefore = structuredClone(previewDb.rows(ECOBASE_COLLECTIONS.silverOrders));
+
+    const defaulted = await new EcobaseOrderStampBackfillService(previewDb).repairOrderStamps();
+    const explicit = await new EcobaseOrderStampBackfillService(previewDb).repairOrderStamps({ dryRun: true });
+
+    expect(defaulted.dryRun).toBe(true);
+    expect(defaulted).toEqual(explicit);
+    expect(previewDb.rows(ECOBASE_COLLECTIONS.silverOrders)).toEqual(ordersBefore);
+
+    const applied = await new EcobaseOrderStampBackfillService(repairFixture()).repairOrderStamps({ dryRun: false });
+    expect({ ...defaulted, dryRun: false }).toEqual(applied);
+  });
+
+  it('is idempotent: the second real run does no work', async () => {
+    const db = repairFixture();
+    const first = await new EcobaseOrderStampBackfillService(db).repairOrderStamps({ dryRun: false });
+    const ordersAfterFirst = structuredClone(db.rows(ECOBASE_COLLECTIONS.silverOrders));
+
+    const second = await new EcobaseOrderStampBackfillService(db).repairOrderStamps({ dryRun: false });
+
+    expect(first.ordersUpdated).toBe(3);
+    expect(second).toEqual({
+      dryRun: false,
+      ordersScanned: 6,
+      clickupSourcedOrdersSkipped: 1,
+      ordersUpdated: 0,
+      statusChangedAtRepaired: 0,
+      workflowStageEnteredAtRepaired: 0,
+      ordersRepairedByStatusSource: {},
+      // Still unrepairable, still reported every run, still never written.
+      ordersWithoutOrderDate: 1,
+    });
+    expect(db.rows(ECOBASE_COLLECTIONS.silverOrders)).toEqual(ordersAfterFirst);
+  });
+
+  it('logs the run with the same counts it returns', async () => {
+    const entries: unknown[][] = [];
+    const result = await new EcobaseOrderStampBackfillService(repairFixture(), {
+      info: (...args: unknown[]) => entries.push(args),
+    }).repairOrderStamps({ dryRun: false });
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0][0]).toBe('Ecobase order stamp repair completed.');
+    expect(entries[0][1]).toEqual(result);
+  });
+});
+
+describe('repairOrderStamps admin action (070)', () => {
+  it('rejects operators and unauthenticated callers, and admins get a dry run by default', async () => {
+    const actions = createEcobaseInventoryPlanningActions();
+    const next = async () => {};
+
+    await expect(actions.repairOrderStamps(repairActionContext({}, ['operator']), next)).rejects.toThrow(
+      'Ecobase repairOrderStamps requires the admin or root role.',
+    );
+    await expect(actions.repairOrderStamps(repairActionContext({}, ['admin'], false), next)).rejects.toThrow(
+      'Ecobase repairOrderStamps requires an authenticated user.',
+    );
+
+    const preview = repairActionContext({});
+    await actions.repairOrderStamps(preview, next);
+    expect(preview.body).toMatchObject({ data: { dryRun: true, ordersScanned: 6, ordersUpdated: 3 } });
+    expect(
+      preview.db.rows(ECOBASE_COLLECTIONS.silverOrders).find((row) => row.id === 'wiped-sheet-order'),
+    ).toMatchObject({ statusChangedAt: '2026-07-24T01:30:36.984Z' });
+
+    // Only a real boolean `false` opts into writing; a stray string still previews.
+    const stringy = repairActionContext({ dryRun: 'false' });
+    await actions.repairOrderStamps(stringy, next);
+    expect(stringy.body).toMatchObject({ data: { dryRun: true } });
+
+    const applied = repairActionContext({ dryRun: false });
+    await actions.repairOrderStamps(applied, next);
+    expect(applied.body).toMatchObject({ data: { dryRun: false, ordersUpdated: 3 } });
+    expect(
+      applied.db.rows(ECOBASE_COLLECTIONS.silverOrders).find((row) => row.id === 'wiped-sheet-order'),
+    ).toMatchObject({ statusChangedAt: '2023-10-20T00:00:00.000Z' });
+  });
+
+  it('is granted to the admin role only', () => {
+    const grants = createGoldEngineMaintenanceResourceRegistration().acl.filter(
+      (grant) => grant.resource === 'ecobaseInventoryPlanning',
+    );
+    const actionsFor = (role: unknown) =>
+      grants.filter((grant) => grant.role === role).flatMap((grant) => grant.actions);
+
+    expect(actionsFor(ADMIN)).toContain('repairOrderStamps');
+    expect(actionsFor(OPERATOR)).not.toContain('repairOrderStamps');
+    expect(actionsFor(LOGGED_IN)).not.toContain('repairOrderStamps');
   });
 });
 

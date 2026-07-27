@@ -122,11 +122,9 @@ export async function silverSupplierOrderReadModel(
 }
 
 export function silverOrderStatus(order: PlainRecord) {
+  const canonicalStatus = asString(order.canonicalStatus);
   const status = normalizeStatus(
-    asString(order.canonicalStatus) ??
-      asString(order.lifecycleStatus) ??
-      asString(order.lifecyclePhase) ??
-      asString(order.status),
+    canonicalStatus ?? asString(order.lifecycleStatus) ?? asString(order.lifecyclePhase) ?? asString(order.status),
   );
   if (LEGACY_SUPPLIER_ORDER_STATUSES.has(status)) return status;
   if (['complete', 'completed'].includes(status)) return 'completed';
@@ -137,6 +135,16 @@ export function silverOrderStatus(order: PlainRecord) {
   if (status.includes('prep')) return 'supplier_preparing';
   if (status === 'ordered' || status.includes('paid')) return 'paid';
   if (status.includes('approved') || status.includes('analys') || status === 'in_progress') return 'approval_pending';
+  // Issue 070: the sheet import never derives a canonicalStatus — the sheet's own "Order status"
+  // survives only as evidence, so an order the sheet already closed used to fall through to the
+  // open catch-all and sit in the active panes forever. Read that evidence here. An explicit
+  // canonicalStatus always wins (it is decided above), and every other sheet value — 'In
+  // Progress' included — keeps the catch-all, because only these two are terminal.
+  if (!canonicalStatus) {
+    const sourceOrderStatus = normalizeStatus(asString(evidence(order.statusEvidenceJson).sourceOrderStatus));
+    if (sourceOrderStatus === 'completed') return 'completed';
+    if (sourceOrderStatus === 'cancelled') return 'cancelled';
+  }
   return 'supplier_contacted';
 }
 
@@ -175,6 +183,11 @@ function orderDateTime(order: PlainRecord | undefined) {
 
 function asString(value: unknown) {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+/** The `statusEvidenceJson` payload, or an empty record when the column is NULL or malformed. */
+function evidence(value: unknown): PlainRecord {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as PlainRecord) : {};
 }
 
 function asNumber(value: unknown) {

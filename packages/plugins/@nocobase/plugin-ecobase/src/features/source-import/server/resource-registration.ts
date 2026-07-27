@@ -16,9 +16,16 @@ import { ADMIN, LOGGED_IN, type EcobaseFeatureResourceRegistration } from '../..
 export function createSourceImportResourceRegistration(
   registry: SourceAdapterRegistry,
   onSellerboardCommitted?: SellerboardCommittedUnitHandler,
+  // 070: a committed ClickUp apply schedules the same debounced publish an operator write does.
+  onGoldRefreshRequired?: () => void,
 ): EcobaseFeatureResourceRegistration {
   return {
-    resources: [{ name: 'ecobaseImport', actions: createEcobaseImportActions(registry, onSellerboardCommitted) }],
+    resources: [
+      {
+        name: 'ecobaseImport',
+        actions: createEcobaseImportActions(registry, onSellerboardCommitted, onGoldRefreshRequired),
+      },
+    ],
     acl: [
       {
         resource: 'ecobaseImport',

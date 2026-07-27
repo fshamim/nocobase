@@ -1341,6 +1341,16 @@ export function createEcobaseInventoryPlanningActions() {
         };
         await next();
       },
+      // 070: one-off corrective sweep for the stamps R4 copied off a run-time `authorityAsOf`.
+      repairOrderStamps: async (ctx, next) => {
+        const values = getValues(ctx.action.params);
+        ctx.body = {
+          data: await new EcobaseOrderStampBackfillService(ctx.db, ctx.logger).repairOrderStamps({
+            dryRun: getOptionalBoolean(values, 'dryRun') !== false,
+          }),
+        };
+        await next();
+      },
       setReceiptOverride: async (ctx, next) => {
         const values = getValues(ctx.action.params);
         const lineId = getOptionalString(values, 'lineId');
@@ -1439,6 +1449,7 @@ export function createEcobaseInventoryPlanningActions() {
       reconcileReceipts: 'admin',
       backfillReceipts: 'admin',
       backfillOrderStamps: 'admin',
+      repairOrderStamps: 'admin',
       setReceiptOverride: 'operator',
       updateProductPlanningFields: 'operator',
       setFamilyTarget: 'operator',
@@ -2335,6 +2346,8 @@ export function createEcobaseAccountabilityActions() {
 export function createEcobaseImportActions(
   registry: SourceAdapterRegistry,
   onSellerboardCommitted?: SellerboardCommittedUnitHandler,
+  // 070: the host's operator-write Gold debouncer, scheduled by a committed ClickUp apply.
+  onGoldRefreshRequired?: () => void,
 ) {
   return guardEcobaseActions(
     {
@@ -2953,6 +2966,7 @@ export function createEcobaseImportActions(
               snapshotDate: getOptionalString(values, 'snapshotDate'),
               forceReconcile: values.forceReconcile === true,
               overrideOperatorStatus: values.overrideOperatorStatus === true,
+              onGoldRefreshRequired,
             }),
           };
         } catch (error) {
