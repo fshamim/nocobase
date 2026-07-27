@@ -72,6 +72,13 @@ const STOCKOUT_SIGNAL_EXEMPT_PANES: ReadonlySet<PaneKey> = new Set<PaneKey>([
   'inboundMonitoring',
 ]);
 
+/**
+ * The gold ladder's frozen-target gate is computed PER LISTING ("this listing IS
+ * the family target"), so every non-target listing of an already-targeted family
+ * trips it and wears this reason (066 F5).
+ */
+const FROZEN_FAMILY_TARGET_REVIEW_REASON = 'frozen_family_target_review';
+
 const SORTABLE_KEYS = new Set([
   'latestSafeReorderDate',
   'estimatedOosDate',
@@ -426,6 +433,11 @@ export class EcobaseInventoryDashboardService {
     return {
       pane,
       publishedRunId: run.id,
+      // 067: `sorted` is post-exclusion, so "Rows" and the money sums describe
+      // exactly the listing the operator sees. `tieredNeedingAttention` drops
+      // the secondary members it used to count — the honest number.
+      // `familiesNeedingTarget` is unaffected: its predicate already required a
+      // NULL family target, which no secondary member has.
       metrics: this.paneMetrics(pane, sorted),
       rows,
       pagination: { page, pageSize, total },
@@ -806,9 +818,15 @@ export class EcobaseInventoryDashboardService {
       }
       return [...byOrder.values()];
     }
-    // Family grain: one representative listing per family.
+    // Family grain: one representative listing per family. 067: a secondary
+    // member of an already-targeted family is not work and never occupies a
+    // pane row — the family is represented by its TARGET listing, wherever that
+    // listing's own routing puts it. The row stays in the projection, so the
+    // drawer's family-member list, the Change-target picker and
+    // familyMemberCount still see it (see isSecondaryFamilyMember).
     const byFamily = new Map<string, ProjectedRow>();
     for (const row of inPane) {
+      if (isSecondaryFamilyMember(row)) continue;
       const existing = byFamily.get(row.familyKey);
       if (!existing || (row.isFamilyTarget && !existing.isFamilyTarget)) byFamily.set(row.familyKey, row);
     }
@@ -1382,7 +1400,7 @@ export class EcobaseInventoryDashboardService {
           rows
             .filter(
               (row) =>
-                asString(row.raw.primaryActionReasonCode) === 'frozen_family_target_review' &&
+                asString(row.raw.primaryActionReasonCode) === FROZEN_FAMILY_TARGET_REVIEW_REASON &&
                 asString(row.raw.familyTargetCompanyProductId) === null,
             )
             .map((row) => row.familyKey),
@@ -1399,6 +1417,26 @@ export class EcobaseInventoryDashboardService {
     }
     return metrics;
   }
+}
+
+/**
+ * 067 (user-confirmed 2026-07-27): a family is operationally represented by its
+ * TARGET listing, which plans with the family-aggregated stock. A listing that
+ * wears the target-review reason while its family ALREADY has a frozen target is
+ * therefore a SECONDARY member — not work, and never a pane row. Exact inverse
+ * of the `familiesNeedingTarget` predicate (066 D9).
+ *
+ * Applied ONLY in {@link EcobaseInventoryDashboardService.rowsForPane} (the pane
+ * LISTING path, whose single caller is `pane()`). Secondary rows remain in
+ * `projectRows` output, so `familyPaneSets`, `countFamilyMembers`, the header
+ * tiles and `drawerContext`'s familyMembers / Change-target picker are all
+ * unaffected — suppressing them from serving entirely would break the picker.
+ */
+function isSecondaryFamilyMember(row: ProjectedRow): boolean {
+  return (
+    asString(row.raw.primaryActionReasonCode) === FROZEN_FAMILY_TARGET_REVIEW_REASON &&
+    asString(row.raw.familyTargetCompanyProductId) !== null
+  );
 }
 
 function countFamilyMembers(projected: ProjectedRow[]): Map<string, number> {

@@ -1866,9 +1866,13 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
       publishedAt: `${FIXED_TODAY}T00:00:00.000Z`,
     });
     const goldRepo = local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows);
-    for (const [id, familyTargetCompanyProductId] of [
-      ['ft-assigned', 'cp-ft-target'],
-      ['ft-none', null],
+    // 067: `ft-assigned` carries a NON-target-review reason on purpose. A row
+    // that pairs the target-review reason with an assigned family target is a
+    // secondary member and no longer reaches any pane listing, so the D10
+    // "served on every pane" contract has to be observed on a row that stays.
+    for (const [id, familyTargetCompanyProductId, primaryActionReasonCode] of [
+      ['ft-assigned', 'cp-ft-target', 'missing_or_invalid_baseline_evidence'],
+      ['ft-none', null, 'frozen_family_target_review'],
     ] as const) {
       goldRepo.rows.push({
         id,
@@ -1876,7 +1880,7 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
         refreshRunId: PUBLISHED_RUN_ID,
         primaryActionPane: 'dataReadiness',
         companyProductFamilyId: `family-${id}`,
-        primaryActionReasonCode: 'frozen_family_target_review',
+        primaryActionReasonCode,
         familyTargetCompanyProductId,
       });
     }
@@ -1940,13 +1944,12 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
     const needingTarget = response.metrics.find((metric) => metric.key === 'familiesNeedingTarget');
     expect(needingTarget?.label).toBe('Families needing a target');
     expect(needingTarget?.value).toBe(2);
-    // Pane rows are family-grain (4 families from 5 listings) and the task-006
-    // counter is untouched by the new metric.
-    expect(response.metrics.find((metric) => metric.key === 'count')?.value).toBe(4);
+    // Pane rows are family-grain. 067: the shadow member's family is
+    // represented by its target listing, so it leaves the listing entirely —
+    // 3 families from the 4 remaining listings (was 4 from 5).
+    expect(response.metrics.find((metric) => metric.key === 'count')?.value).toBe(3);
+    expect(response.rows.some((row) => row.identity.listingRowId === 'nt-secondary')).toBe(false);
     expect(response.metrics.find((metric) => metric.key === 'tieredNeedingAttention')?.value).toBe(1);
-    // The shadow member wears the honest flag the badge split reads (066 D10).
-    const secondary = response.rows.find((row) => row.identity.listingRowId === 'nt-secondary');
-    expect(secondary?.familyTargetAssigned).toBe(true);
     // Non-dataReadiness panes never carry the metric.
     const healthy = await service(local).pane({
       pane: 'healthyInventory',
@@ -1956,6 +1959,119 @@ describe('EcobaseInventoryDashboardService (Gate G1)', () => {
     });
     if (isRunSuperseded(healthy)) throw new Error('bad');
     expect(healthy.metrics.some((metric) => metric.key === 'familiesNeedingTarget')).toBe(false);
+  });
+
+  it('067: secondary members leave the pane listing but stay in the projection', async () => {
+    const local = new RecordingDatabase();
+    local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRefreshRuns).rows.push({
+      id: PUBLISHED_RUN_ID,
+      status: 'published',
+      calculationDate: FIXED_TODAY,
+      publishedAt: `${FIXED_TODAY}T00:00:00.000Z`,
+    });
+    // The family is already represented by its TARGET listing, so the operator
+    // has no work to do on the other listings (user ruling 2026-07-27).
+    local.getRepository(ECOBASE_COLLECTIONS.silverCompanyProductFamilies).rows.push({
+      id: 'family-targeted',
+      replenishmentTargetCompanyProductId: 'cp-target',
+      targetSelectionSource: 'frozen',
+    });
+    const goldRepo = local.getRepository(ECOBASE_COLLECTIONS.goldInventoryPlanningRows);
+    const push = (id: string, familyId: string, overrides: Record<string, unknown>) =>
+      goldRepo.rows.push({
+        id,
+        naturalKey: id,
+        refreshRunId: PUBLISHED_RUN_ID,
+        primaryActionPane: 'dataReadiness',
+        companyProductFamilyId: familyId,
+        lastClosedMonthTier: 'A',
+        estimatedProfitRisk: 100,
+        ...overrides,
+      });
+    // (1) The live shape (066 F5, 241/293 rows): the family's TARGET listing
+    // plans normally in another pane, so its secondary is the family's ONLY
+    // Data-issues listing — the whole family must vanish from the pane.
+    push('sec-target', 'family-targeted', {
+      primaryActionPane: 'healthyInventory',
+      companyProductId: 'cp-target',
+      familyTargetCompanyProductId: 'cp-target',
+      primaryActionReasonCode: null,
+    });
+    push('sec-shadow', 'family-targeted', {
+      companyProductId: 'cp-shadow',
+      familyTargetCompanyProductId: 'cp-target',
+      primaryActionReasonCode: 'frozen_family_target_review',
+    });
+    // (2) Both listings in the pane, secondary FIRST: family-grain dedup alone
+    // would elect the secondary as the family's representative row. The
+    // exclusion has to hand the row to the real target listing instead.
+    push('mix-shadow', 'family-mixed', {
+      companyProductId: 'cp-mix-shadow',
+      familyTargetCompanyProductId: 'cp-mix-target',
+      primaryActionReasonCode: 'frozen_family_target_review',
+    });
+    push('mix-target', 'family-mixed', {
+      companyProductId: 'cp-mix-target',
+      familyTargetCompanyProductId: 'cp-mix-target',
+      primaryActionReasonCode: 'missing_or_invalid_baseline_evidence',
+    });
+    // (3) Genuine review queue: no frozen target yet, so this one IS work.
+    push('sec-true-review', 'family-needs-target', {
+      companyProductId: 'cp-needs',
+      familyTargetCompanyProductId: null,
+      primaryActionReasonCode: 'frozen_family_target_review',
+    });
+
+    const response = await service(local).pane({
+      pane: 'dataReadiness',
+      runId: PUBLISHED_RUN_ID,
+      page: 1,
+      pageSize: 25,
+    });
+    if (isRunSuperseded(response)) throw new Error('bad');
+    const listed = response.rows.map((row) => row.identity.listingRowId).sort();
+    // No secondary occupies a row; the targeted family is gone from the pane
+    // entirely, the mixed family is represented by its target listing.
+    expect(listed).toEqual(['mix-target', 'sec-true-review']);
+    expect(response.rows.some((row) => row.identity.familyKey === 'family-targeted')).toBe(false);
+    // Metrics describe the LISTING: 2 rows, and only the kept rows' money.
+    expect(response.metrics.find((metric) => metric.key === 'count')?.value).toBe(2);
+    expect(response.metrics.find((metric) => metric.key === 'moneyAtRisk')?.value).toBe(200);
+    expect(response.metrics.find((metric) => metric.key === 'familiesNeedingTarget')?.value).toBe(1);
+    // tieredNeedingAttention counts tiered families that are STILL listed.
+    expect(response.metrics.find((metric) => metric.key === 'tieredNeedingAttention')?.value).toBe(2);
+    // CRITICAL: the excluded rows stay in the projection — familyMemberCount is
+    // counted over projected rows, so the served row keeps advertising the
+    // Change-target affordance.
+    const mixTarget = response.rows.find((row) => row.identity.listingRowId === 'mix-target');
+    expect(mixTarget?.familyMemberCount).toBe(2);
+    // The target listing still serves its own pane, with the family intact.
+    const healthy = await service(local).pane({
+      pane: 'healthyInventory',
+      runId: PUBLISHED_RUN_ID,
+      page: 1,
+      pageSize: 25,
+    });
+    if (isRunSuperseded(healthy)) throw new Error('bad');
+    expect(healthy.rows.map((row) => row.identity.listingRowId)).toEqual(['sec-target']);
+    expect(healthy.rows[0].familyMemberCount).toBe(2);
+    // familySplit is derived from familyPaneSets, which is built over the FULL
+    // projection — the excluded secondary still votes, so the flag stays honest.
+    expect(healthy.rows[0].familySplit).toBe(true);
+
+    // …and the drawer's family-member list (the Change-target picker source)
+    // still offers BOTH listings, with the target correctly flagged — even
+    // though the secondary appears in no pane listing at all.
+    const drawer = await service(local).drawerContext({
+      pane: 'dataReadiness',
+      runId: PUBLISHED_RUN_ID,
+      familyId: 'family-targeted',
+    });
+    if (isRunSuperseded(drawer)) throw new Error('bad');
+    expect(drawer.familyMembers.map((member) => member.listingRowId).sort()).toEqual(['sec-shadow', 'sec-target']);
+    expect(drawer.familyMembers.find((member) => member.listingRowId === 'sec-shadow')?.isTarget).toBe(false);
+    expect(drawer.familyMembers.find((member) => member.listingRowId === 'sec-target')?.isTarget).toBe(true);
+    expect(drawer.familyTarget?.companyProductId).toBe('cp-target');
   });
 
   it('(h) emits typed response snapshots for G2 to consume', async () => {
