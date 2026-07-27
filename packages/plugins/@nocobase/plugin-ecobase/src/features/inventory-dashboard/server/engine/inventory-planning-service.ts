@@ -16,6 +16,7 @@ import {
 } from '../../../supplier-management/server/supplier-order-service';
 import {
   amazonReceivedQty,
+  sheetTerminalStatus,
   silverOrderStatus,
   silverSupplierOrderReadModel,
 } from '../../../supplier-management/server/silver-supplier-order-read-model';
@@ -2792,11 +2793,19 @@ export class EcobaseInventoryPlanningService {
           statusRules.placedNotPurchased.has(rawStatus) ||
           statusRules.purchasedPipeline.has(rawStatus) ||
           statusRules.closed.has(rawStatus);
+        // Issue 070 residual: an order the sheet already closed carries NULL canonicalStatus,
+        // lifecycleStatus and lifecyclePhase, so `rawStatus` normalizes to 'draft' — a configured
+        // (placed-not-purchased) status. The bypass below would therefore never call
+        // `silverOrderStatus`, the 070 evidence fallback would stay dead, and
+        // `supplierCoverageStatus` would go on upgrading paymentStatus 'Completed' to 'paid'.
+        // Sheet-terminal evidence outranks the bypass; true drafts (no terminal evidence) get
+        // `undefined` here and keep their current behaviour.
+        const sheetTerminal = sheetTerminalStatus(order);
         return [
           asString(order.id),
           {
             ...order,
-            status: configuredStatus ? rawStatus : silverOrderStatus(order),
+            status: sheetTerminal ?? (configuredStatus ? rawStatus : silverOrderStatus(order)),
             externalOrderRef: asString(order.orderRef),
           },
         ];

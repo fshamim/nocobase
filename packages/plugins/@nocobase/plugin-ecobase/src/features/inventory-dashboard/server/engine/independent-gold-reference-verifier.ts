@@ -22,14 +22,15 @@ import { EcobaseInventoryPlanningGoldAccess } from './inventory-planning-gold-ac
 const ReferenceDecimal = Decimal.clone({ precision: 40, rounding: Decimal.ROUND_HALF_EVEN });
 
 const REFERENCE_VERIFIER_VERSION = 'independent_gold_reference_v1';
-// Version pins (Batch D sparse-tolerant contract; rule version at v5 since 070) — must track the
-// engine constants in listing-family-projection.ts or every fresh publication fails verification.
-// 065: eligibility ladder adopts recentTier (two-month window). 068-2: trusted current rank
-// bypasses the first-closed-month review gates. 070: sheet-'Completed'/'Cancelled' orders read as
-// closed. Kept byte-identical to CORRECTED_TIER_RULE_VERSION in listing-family-projection.ts —
-// this verifier is independent by construction, so the expected version is restated here rather
-// than imported.
-const CORRECTED_RULE_VERSION = 'individual_dynamic_6m_profit_trend_v5';
+// Version pins (Batch D sparse-tolerant contract; rule version at v6 since the 070 residual) —
+// must track the engine constants in listing-family-projection.ts or every fresh publication fails
+// verification. 065: eligibility ladder adopts recentTier (two-month window). 068-2: trusted
+// current rank bypasses the first-closed-month review gates. 070: sheet-'Completed'/'Cancelled'
+// orders read as closed. 070 residual (v6): that fallback now runs ahead of the engine's
+// configured-status bypass, where it was previously unreachable. Kept byte-identical to
+// CORRECTED_TIER_RULE_VERSION in listing-family-projection.ts — this verifier is independent by
+// construction, so the expected version is restated here rather than imported.
+const CORRECTED_RULE_VERSION = 'individual_dynamic_6m_profit_trend_v6';
 const CORRECTED_ALGORITHM_VERSION = 'individual_monthly_profit_performance_v2';
 const CORRECTED_SERIALIZER_VERSION = 'canonical_json_schema_normalized_bytewise_v2';
 const CORRECTED_LISTING_DIGEST_VERSION = 'listing_performance_digest_v2';

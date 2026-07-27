@@ -37,7 +37,14 @@ import type { ReplenishmentDecisionResult } from './replenishment-decision';
 // status from the sheet's own "Order status" evidence when no canonicalStatus was ever written, so
 // ~713 never-canonicalized orders leave the open-order buckets for closed history. Same silver
 // inputs, different pane membership ⇒ the version moves again.
-export const CORRECTED_TIER_RULE_VERSION = 'individual_dynamic_6m_profit_trend_v5';
+// v6 (070 residual: the sheet-terminal fallback reaches the gold engine, 2026-07) — the v5 read
+// model fallback was provably dead in this pipeline: an all-NULL lifecycle order normalizes to
+// 'draft', a configured bucket, so the engine's configured-status bypass never called
+// `silverOrderStatus` and `supplierCoverageStatus` kept upgrading paymentStatus 'Completed' to
+// 'paid' → purchased_pipeline. The engine now consults `sheetTerminalStatus` ahead of that bypass,
+// so the sheet-closed orders finally land in closed history. Same silver inputs, different pane
+// membership ⇒ the version moves again.
+export const CORRECTED_TIER_RULE_VERSION = 'individual_dynamic_6m_profit_trend_v6';
 export const CORRECTED_ALGORITHM_CONTRACT_VERSION = 'individual_monthly_profit_performance_v2';
 export const CORRECTED_CANONICAL_SERIALIZER_VERSION = 'canonical_json_schema_normalized_bytewise_v2';
 export const CORRECTED_CANDIDATE_INPUT_DIGEST_VERSION = 'candidate_input_digest_v1';

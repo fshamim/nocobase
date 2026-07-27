@@ -140,12 +140,31 @@ export function silverOrderStatus(order: PlainRecord) {
   // open catch-all and sit in the active panes forever. Read that evidence here. An explicit
   // canonicalStatus always wins (it is decided above), and every other sheet value — 'In
   // Progress' included — keeps the catch-all, because only these two are terminal.
-  if (!canonicalStatus) {
-    const sourceOrderStatus = normalizeStatus(asString(evidence(order.statusEvidenceJson).sourceOrderStatus));
-    if (sourceOrderStatus === 'completed') return 'completed';
-    if (sourceOrderStatus === 'cancelled') return 'cancelled';
-  }
-  return 'supplier_contacted';
+  return sheetTerminalStatus(order) ?? 'supplier_contacted';
+}
+
+/**
+ * Issue 070 residual: the terminal status the source sheet already recorded, for orders the
+ * import never canonicalized.
+ *
+ * Returns a value ONLY when both hold:
+ *   - `canonicalStatus` is null/absent (an explicitly canonicalized order is decided by its own
+ *     status, never by sheet evidence), and
+ *   - `statusEvidenceJson.sourceOrderStatus` normalizes to exactly 'completed' or 'cancelled' —
+ *     the only two terminal sheet values. Everything else ('In Progress', 'Ordered', a malformed
+ *     or absent evidence column) yields undefined so the caller's own status wins.
+ *
+ * Exported because the gold engine has to consult this evidence BEFORE its configured-status
+ * bypass: an all-NULL lifecycle order normalizes to 'draft', which is a configured bucket, so the
+ * bypass would otherwise never reach `silverOrderStatus` and the sheet-closed order would stay in
+ * the active pipeline forever.
+ */
+export function sheetTerminalStatus(order: PlainRecord): 'completed' | 'cancelled' | undefined {
+  if (asString(order.canonicalStatus)) return undefined;
+  const sourceOrderStatus = normalizeStatus(asString(evidence(order.statusEvidenceJson).sourceOrderStatus));
+  if (sourceOrderStatus === 'completed') return 'completed';
+  if (sourceOrderStatus === 'cancelled') return 'cancelled';
+  return undefined;
 }
 
 export function amazonReceivedQty(line: PlainRecord) {
