@@ -151,17 +151,29 @@ export interface CoverageEvidencePlan {
 }
 
 /**
- * An incoming coverage interval whose window sits fully inside an existing ACTIVE interval we
- * already hold from an equal-or-newer source. Sellerboard routinely re-serves an older/stale
- * report for days a fresher pull already covered; refusing to overwrite is correct, but it must
- * be a quiet no-op, not an error. Each skipped metric set is surfaced here so the sources page can
- * show an informational note instead of a red failure.
+ * An incoming coverage interval whose window is already covered by an ACTIVE interval we hold from
+ * an equal-or-newer source. Sellerboard routinely re-serves an older/stale report for days a
+ * fresher pull already covered; refusing to overwrite is correct, but it must be a quiet no-op, not
+ * an error. Two shapes reach here, told apart by `heldCoverageStatus`:
+ * - `active`: the incoming window sits inside the live interval that still holds the key space.
+ * - `superseded`: the incoming natural key itself is held by a row the lineage already rolled past
+ *   (the stock report mints the current-month key nightly; the month-to-date profit report re-serves
+ *   that exact as-of two days later), while an ACTIVE successor already covers the window.
+ * Each skipped metric set is surfaced here so the sources page can show an informational note
+ * instead of a red failure.
  */
 export interface CoverageSkippedStale {
   metricSet: string;
   incomingAsOf: string;
   heldAsOf: string;
   window: string;
+  heldCoverageStatus: string;
+  // naturalKey of the ACTIVE interval whose window covers the skipped one.
+  coveringActiveKey: string;
+  incomingInputDigest: string;
+  incomingScopeDigest: string;
+  heldInputDigest: string;
+  heldScopeDigest: string;
 }
 
 export interface CoverageReconciliationResult {
@@ -1365,8 +1377,53 @@ export class EcobaseSourceCoverageService {
           supersededInPlaceCount += 1;
           continue;
         }
-        // Strictly-older as-of claiming the same key with different content -> genuine conflict.
-        throw this.conflict(interval.naturalKey, 'the same natural key has different evidence digests or scope');
+        // The held row is NOT active: the lineage already rolled past this as-of. Sellerboard's
+        // stock report mints the current-month key on night D and supersedes it on night D+1, so
+        // the month-to-date profit report for data date D — which only arrives on night D+2 —
+        // always lands on a just-superseded key. That is stale bookkeeping, not a competing truth,
+        // as long as an ACTIVE interval of the same scope already covers this window with an
+        // equal-or-newer as-of. Skip it: write nothing, mutate nothing (the superseded row stays
+        // the provenance record of what evidence held that as-of). An orphaned superseded key with
+        // no active successor keeps failing closed.
+        if (sameKey.coverageStatus !== 'active') {
+          const activeSuccessor = existingIntervals
+            .filter(
+              (item) =>
+                item.coverageStatus === 'active' &&
+                sameIntervalScope(item, values) &&
+                String(item.coveredStartDate) <= String(values.coveredStartDate) &&
+                String(values.coveredEndDate) <= String(item.coveredEndDate) &&
+                String(item.sourceAsOfDate) >= String(values.sourceAsOfDate),
+            )
+            .sort((left, right) => sourceOrder(right).localeCompare(sourceOrder(left)))[0];
+          if (activeSuccessor) {
+            staleSkippedIntervalKeys.add(interval.naturalKey);
+            coverageSkippedStale.push({
+              metricSet: String(values.metricSet),
+              incomingAsOf: String(values.sourceAsOfDate),
+              heldAsOf: String(sameKey.sourceAsOfDate),
+              window: `${values.coveredStartDate}..${values.coveredEndDate}`,
+              heldCoverageStatus: String(sameKey.coverageStatus),
+              coveringActiveKey: String(activeSuccessor.naturalKey),
+              incomingInputDigest: String(values.inputDigest),
+              incomingScopeDigest: String(values.scopeDigest),
+              heldInputDigest: String(sameKey.inputDigest),
+              heldScopeDigest: String(sameKey.scopeDigest),
+            });
+            continue;
+          }
+        }
+        // Strictly-older as-of claiming the same key with different content, or a non-active held
+        // row with no active successor -> genuine conflict.
+        throw this.conflict(interval.naturalKey, 'the same natural key has different evidence digests or scope', {
+          heldCoverageStatus: String(sameKey.coverageStatus),
+          heldAsOf: String(sameKey.sourceAsOfDate),
+          incomingAsOf: String(values.sourceAsOfDate),
+          heldInputDigest: String(sameKey.inputDigest),
+          heldScopeDigest: String(sameKey.scopeDigest),
+          incomingInputDigest: String(values.inputDigest),
+          incomingScopeDigest: String(values.scopeDigest),
+        });
       }
 
       const activeOverlaps = existingIntervals
@@ -1394,6 +1451,12 @@ export class EcobaseSourceCoverageService {
             incomingAsOf: String(values.sourceAsOfDate),
             heldAsOf: String(predecessor.sourceAsOfDate),
             window: `${values.coveredStartDate}..${values.coveredEndDate}`,
+            heldCoverageStatus: String(predecessor.coverageStatus),
+            coveringActiveKey: String(predecessor.naturalKey),
+            incomingInputDigest: String(values.inputDigest),
+            incomingScopeDigest: String(values.scopeDigest),
+            heldInputDigest: String(predecessor.inputDigest),
+            heldScopeDigest: String(predecessor.scopeDigest),
           });
           continue;
         }
@@ -1574,11 +1637,11 @@ export class EcobaseSourceCoverageService {
     };
   }
 
-  private conflict(naturalKey: string, reason: string) {
+  private conflict(naturalKey: string, reason: string, details: Record<string, unknown> = {}) {
     return new EcobaseCoverageError(
       'ECOBASE_COVERAGE_CONFLICT',
       `EcoBase source coverage conflicts for "${naturalKey}": ${reason}.`,
-      { naturalKey, reason },
+      { naturalKey, reason, ...details },
     );
   }
 

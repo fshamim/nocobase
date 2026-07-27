@@ -1159,6 +1159,12 @@ describe('EcoBase source coverage ledger', () => {
         incomingAsOf: '2026-01-25',
         heldAsOf: '2026-02-01',
         window: '2026-01-01..2026-01-20',
+        heldCoverageStatus: 'active',
+        coveringActiveKey: 'coverage:source-1:account-1:2026-01-01:v1',
+        incomingInputDigest: '5'.repeat(64),
+        incomingScopeDigest: '6'.repeat(64),
+        heldInputDigest: '1'.repeat(64),
+        heldScopeDigest: '2'.repeat(64),
       },
     ]);
 
@@ -1177,6 +1183,12 @@ describe('EcoBase source coverage ledger', () => {
         incomingAsOf: '2026-02-01',
         heldAsOf: '2026-02-01',
         window: '2026-01-01..2026-01-22',
+        heldCoverageStatus: 'active',
+        coveringActiveKey: 'coverage:source-1:account-1:2026-01-01:v1',
+        incomingInputDigest: '1'.repeat(64),
+        incomingScopeDigest: '2'.repeat(64),
+        heldInputDigest: '1'.repeat(64),
+        heldScopeDigest: '2'.repeat(64),
       },
     ]);
 
@@ -1244,5 +1256,213 @@ describe('EcoBase source coverage ledger', () => {
       eligible: true,
       reasonCode: 'eligible_complete_month',
     });
+  });
+
+  /**
+   * Issue 062. Sellerboard serves two report families per night into ONE key space: the stock
+   * report (as-of = tonight) mints the current-month key every night and supersedes yesterday's,
+   * while the month-to-date profit report lags two days and therefore always re-serves a key the
+   * stock lineage just superseded. The same-natural-key branch treated any non-active match as a
+   * fatal conflict, which rolled back entire scheduled nights. These tests walk the month rollover
+   * night by night — the case that makes the July gap unrecoverable after Aug 1.
+   */
+  const NIGHT_WALK_METRIC_SET = 'sellerboard_units_net_profit_v1';
+
+  function nightWalkKey(monthStart: string, asOf: string) {
+    return `coverage:source-1:account-1:${NIGHT_WALK_METRIC_SET}:${monthStart}:${asOf}`;
+  }
+
+  function nightWalkDigest(seed: string) {
+    return seed
+      .replace(/[^a-f0-9]/g, '')
+      .padEnd(64, '0')
+      .slice(0, 64);
+  }
+
+  // The nightly stock report: as-of is tonight, evidence carries no by-day profit rows.
+  function stockNightPlan(monthStart: string, asOf: string): CoverageEvidencePlan {
+    return nightPlan('stock', monthStart, asOf, false);
+  }
+
+  // The month-to-date profit report: as-of lags two days behind the run night.
+  function profitNightPlan(monthStart: string, asOf: string): CoverageEvidencePlan {
+    return nightPlan('profit', monthStart, asOf, true);
+  }
+
+  function nightPlan(
+    kind: 'stock' | 'profit',
+    monthStart: string,
+    asOf: string,
+    continuousCoverage: boolean,
+  ): CoverageEvidencePlan {
+    const intervalNaturalKey = nightWalkKey(monthStart, asOf);
+    return {
+      intervals: [
+        {
+          naturalKey: intervalNaturalKey,
+          sourceConnectionId: scope.sourceConnectionId,
+          companyId: scope.companyId,
+          amazonAccountId: scope.amazonAccountId,
+          marketplace: scope.marketplace,
+          coveredStartDate: monthStart,
+          coveredEndDate: asOf,
+          continuousCoverage,
+          sourceAsOfDate: asOf,
+          sourceVersion: asOf,
+          importRunId: `run-${kind}-${asOf}`,
+          inputDigest: nightWalkDigest(`${kind}-input-${asOf}`),
+          scopeDigest: nightWalkDigest(`${kind}-scope-${asOf}`),
+          evidenceJson: { reportKind: kind },
+        },
+      ],
+      memberships: [
+        {
+          intervalNaturalKey,
+          companyProductId: scope.companyProductId,
+          monthStart,
+          scopeEvidenceKinds: [kind === 'stock' ? 'stock_daily' : 'profit_by_product_daily'],
+          scopeEvidenceDigest: nightWalkDigest(`${kind}-member-${asOf}`),
+          sourceMetricRowCount: kind === 'stock' ? 0 : 30,
+          normalizedFactLinkCount: kind === 'stock' ? 0 : 30,
+          metricReconciliationStatus: 'complete',
+          metricEvidenceDigest: nightWalkDigest(`${kind}-metric-${asOf}`),
+        },
+      ],
+    };
+  }
+
+  it('walks the July/August month rollover: skips a superseded same-key re-serve, still supersedes the active head', async () => {
+    const db = new MemoryDatabase();
+    const service = new EcobaseSourceCoverageService(db);
+    const intervalRepo = db.getRepository(ECOBASE_COLLECTIONS.sourceCoverageIntervals);
+
+    // Jul 30 + Jul 31 nights: the stock report mints the July key and supersedes yesterday's.
+    await expect(service.reconcileEvidence(stockNightPlan('2026-07-01', '2026-07-30'))).resolves.toMatchObject({
+      intervalCreatedCount: 1,
+    });
+    await expect(service.reconcileEvidence(stockNightPlan('2026-07-01', '2026-07-31'))).resolves.toMatchObject({
+      intervalCreatedCount: 1,
+      supersededIntervalCount: 1,
+    });
+    const supersededBefore = { ...intervalRepo.all().find((row) => row.sourceAsOfDate === '2026-07-30') };
+    expect(supersededBefore).toMatchObject({ coverageStatus: 'superseded' });
+
+    // Aug 1 night: the profit report's data date is 07-30 — the key the stock lineage superseded
+    // yesterday. An ACTIVE July head (as-of 07-31) covers that window, so this is a quiet skip.
+    const aug1 = await service.reconcileEvidence(profitNightPlan('2026-07-01', '2026-07-30'));
+    expect(aug1).toMatchObject({
+      intervalCreatedCount: 0,
+      membershipCreatedCount: 0,
+      supersededIntervalCount: 0,
+      supersededInPlaceCount: 0,
+      membershipUpdatedCount: 0,
+      noOp: true,
+    });
+    expect(aug1.coverageSkippedStale).toEqual([
+      {
+        metricSet: NIGHT_WALK_METRIC_SET,
+        incomingAsOf: '2026-07-30',
+        heldAsOf: '2026-07-30',
+        window: '2026-07-01..2026-07-30',
+        heldCoverageStatus: 'superseded',
+        coveringActiveKey: nightWalkKey('2026-07-01', '2026-07-31'),
+        incomingInputDigest: nightWalkDigest('profit-input-2026-07-30'),
+        incomingScopeDigest: nightWalkDigest('profit-scope-2026-07-30'),
+        heldInputDigest: nightWalkDigest('stock-input-2026-07-30'),
+        heldScopeDigest: nightWalkDigest('stock-scope-2026-07-30'),
+      },
+    ]);
+    // MUST-NOT 1/2: the superseded provenance row is neither mutated nor resurrected, and no row
+    // was added for the skipped report.
+    expect(intervalRepo.all()).toHaveLength(2);
+    expect(intervalRepo.all().find((row) => row.sourceAsOfDate === '2026-07-30')).toEqual(supersededBefore);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.sourceCoverageMemberships).all()).toHaveLength(2);
+
+    // Aug 2 night: the profit report's data date is 07-31 — the ACTIVE July head. The existing
+    // supersede-in-place branch still fires and hands July's head to the profit evidence.
+    const aug2 = await service.reconcileEvidence(profitNightPlan('2026-07-01', '2026-07-31'));
+    expect(aug2).toMatchObject({
+      intervalCreatedCount: 0,
+      supersededInPlaceCount: 1,
+      membershipUpdatedCount: 1,
+      noOp: false,
+    });
+    expect(aug2.coverageSkippedStale).toEqual([]);
+    expect(intervalRepo.all().find((row) => row.naturalKey === nightWalkKey('2026-07-01', '2026-07-31'))).toMatchObject(
+      {
+        coverageStatus: 'active',
+        continuousCoverage: true,
+        inputDigest: nightWalkDigest('profit-input-2026-07-31'),
+        importRunId: 'run-profit-2026-07-31',
+      },
+    );
+
+    // Aug 1..Aug 3 nights, August lineage: the stock report mints and supersedes August keys while
+    // July's head stays untouched (no overlap, so no lineage branch).
+    await service.reconcileEvidence(stockNightPlan('2026-08-01', '2026-08-01'));
+    await service.reconcileEvidence(stockNightPlan('2026-08-01', '2026-08-02'));
+    await service.reconcileEvidence(stockNightPlan('2026-08-01', '2026-08-03'));
+
+    // Aug 3 night: the profit report's data date is 08-01, superseded inside the August lineage.
+    const aug3 = await service.reconcileEvidence(profitNightPlan('2026-08-01', '2026-08-01'));
+    expect(aug3).toMatchObject({ intervalCreatedCount: 0, noOp: true });
+    expect(aug3.coverageSkippedStale).toEqual([
+      expect.objectContaining({
+        incomingAsOf: '2026-08-01',
+        heldCoverageStatus: 'superseded',
+        coveringActiveKey: nightWalkKey('2026-08-01', '2026-08-03'),
+      }),
+    ]);
+    expect(intervalRepo.all().filter((row) => row.coverageStatus === 'active')).toHaveLength(2);
+  });
+
+  it('skips a superseded same-key re-serve whether digests match or differ, and fails closed for an orphan', async () => {
+    const db = new MemoryDatabase();
+    const service = new EcobaseSourceCoverageService(db);
+    await service.reconcileEvidence(stockNightPlan('2026-07-01', '2026-07-30'));
+    await service.reconcileEvidence(stockNightPlan('2026-07-01', '2026-07-31'));
+
+    // Identical digests: since dad51a40b9 gated the idempotent branch on `active`, even a byte-for-
+    // byte replay of the superseded row threw. It must skip.
+    const identical = await service.reconcileEvidence(stockNightPlan('2026-07-01', '2026-07-30'));
+    expect(identical).toMatchObject({ intervalCreatedCount: 0, supersededInPlaceCount: 0, noOp: true });
+    expect(identical.coverageSkippedStale).toEqual([
+      expect.objectContaining({
+        heldCoverageStatus: 'superseded',
+        incomingInputDigest: nightWalkDigest('stock-input-2026-07-30'),
+        heldInputDigest: nightWalkDigest('stock-input-2026-07-30'),
+      }),
+    ]);
+
+    // Different digests (the real incident: stock evidence held, profit evidence incoming).
+    const differing = await service.reconcileEvidence(profitNightPlan('2026-07-01', '2026-07-30'));
+    expect(differing).toMatchObject({ intervalCreatedCount: 0, noOp: true });
+    expect(differing.coverageSkippedStale).toHaveLength(1);
+
+    // Orphan: a superseded row whose scope has no ACTIVE interval covering the incoming window
+    // must keep failing closed rather than skipping silently.
+    const orphanDb = new MemoryDatabase();
+    const orphanService = new EcobaseSourceCoverageService(orphanDb);
+    await seedInterval(orphanDb, {
+      id: 'orphan-interval',
+      naturalKey: nightWalkKey('2026-07-01', '2026-07-30'),
+      coveredStartDate: '2026-07-01',
+      coveredEndDate: '2026-07-30',
+      continuousCoverage: false,
+      sourceAsOfDate: '2026-07-30',
+      sourceVersion: '2026-07-30',
+      inputDigest: nightWalkDigest('stock-input-2026-07-30'),
+      scopeDigest: nightWalkDigest('stock-scope-2026-07-30'),
+      coverageStatus: 'superseded',
+    });
+    await expect(orphanService.reconcileEvidence(profitNightPlan('2026-07-01', '2026-07-30'))).rejects.toMatchObject({
+      code: 'ECOBASE_COVERAGE_CONFLICT',
+      details: {
+        heldCoverageStatus: 'superseded',
+        heldInputDigest: nightWalkDigest('stock-input-2026-07-30'),
+        incomingInputDigest: nightWalkDigest('profit-input-2026-07-30'),
+      },
+    });
+    expect(orphanDb.getRepository(ECOBASE_COLLECTIONS.sourceCoverageIntervals).all()).toHaveLength(1);
   });
 });

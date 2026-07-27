@@ -146,6 +146,50 @@ class MemoryDatabase implements EcobaseDatabase {
   }
 }
 
+/**
+ * Issue 062: MemoryDatabase's transaction helper just invokes the callback, so it cannot show
+ * whether a failed write was rolled back. This variant snapshots every repository on entry and
+ * restores it when the callback throws, which is what makes the transaction boundaries observable:
+ * facts committed by the unit transaction must survive a coverage transaction that fails, and a
+ * coverage plan that throws halfway must leave none of its own rows behind.
+ */
+class RollbackMemoryDatabase implements EcobaseDatabase {
+  readonly repositories = new Map<string, MemoryRepository>();
+  readonly sequelize = {
+    query: async () => [],
+    transaction: async (...args: unknown[]) => {
+      const callback = args.find((value) => typeof value === 'function') as
+        | ((transaction: Record<string, never>) => Promise<unknown>)
+        | undefined;
+      if (!callback) throw new Error('RollbackMemoryDatabase transaction requires a callback.');
+      const snapshot = [...this.repositories.entries()].map(
+        ([name, repository]) => [name, repository.all().map((record) => ({ ...record }))] as const,
+      );
+      try {
+        return await callback({});
+      } catch (error) {
+        for (const [name, records] of snapshot) {
+          const live = this.getRepository(name).all();
+          live.splice(0, live.length, ...records);
+        }
+        throw error;
+      }
+    },
+  };
+
+  constructor() {
+    Object.values(ECOBASE_COLLECTIONS).forEach((name) => this.repositories.set(name, new MemoryRepository()));
+  }
+
+  getRepository(name: string) {
+    const repository = this.repositories.get(name);
+    if (!repository) {
+      throw new Error(`RollbackMemoryDatabase failed: repository ${name} was not registered.`);
+    }
+    return repository;
+  }
+}
+
 function sellerboardGoodsCsv(date: string, netProfit: number) {
   return `Date,Marketplace,ASIN,SKU,Name,SalesOrganic,UnitsOrganic,Refunds,GrossProfit,NetProfit,Sessions,Unit Session Percentage\n${date},Amazon.com,B007P55HOW,DC50944,Dampp Chaser,63.40,3,0,20.1,${netProfit},30,10%`;
 }
@@ -169,6 +213,42 @@ function createService(csv = sellerboardGoodsCsv('2026-06-05', 15.2)) {
         ],
         schedule: { enabled: true, dailyRefreshTime: '09:00', retryIntervalMinutes: 60 },
         requireFreshData: true,
+        defaultCompany: 'Ecofission LLC',
+      },
+      active: true,
+    },
+  });
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => ({ ok: true, status: 200, text: async () => csv })),
+  );
+  return { db, service: new EcobaseImportService(db, createSourceAdapterRegistry([sellerboardApiAdapter])) };
+}
+
+// Issue 062: the same scheduled Sellerboard source, on a database whose transactions actually roll
+// back, with the company relation coverage planning needs.
+function createRollbackService(csv: string) {
+  const db = new RollbackMemoryDatabase();
+  db.getRepository(ECOBASE_COLLECTIONS.silverCompanies).create({
+    values: { id: 'company-1', name: 'Ecofission LLC', companyKey: 'ECOFISSION_LLC' },
+  });
+  db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).create({
+    values: {
+      id: 'sellerboard-source-1',
+      name: 'Sellerboard live source',
+      sourceType: 'sellerboard',
+      domain: 'amazon_operations',
+      companyId: 'company-1',
+      config: {
+        catalogMutationMode: 'rebuild',
+        reportUrls: [
+          {
+            name: 'Profit by Product Dashboard Daily Data',
+            category: 'profit_by_product_daily',
+            url: 'https://sellerboard.test/report.csv?t=redacted',
+          },
+        ],
+        schedule: { enabled: true, dailyRefreshTime: '09:00', retryIntervalMinutes: 60 },
         defaultCompany: 'Ecofission LLC',
       },
       active: true,
@@ -1388,6 +1468,170 @@ describe('Sellerboard live URL import', () => {
       ]),
     );
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  /**
+   * Issue 062. The scheduled report-unit path ran coverage maintenance inside the outer unit
+   * transaction (databaseInTransaction fakes nested transactions, so the "sub-transaction" WAS the
+   * unit transaction). A coverage conflict therefore rolled back every bronze row and silver fact
+   * of the night, the run was rewritten to `failed` with normalizedCount 0, and the unit was
+   * classified non_retryable for the rest of the day: no scheduled profit import committed a single
+   * record for any company from 2026-07-24 onward. Coverage bookkeeping now runs after the unit
+   * commits, so the night stands and only the ledger is degraded.
+   */
+  it('commits the scheduled night when coverage maintenance conflicts, books the unit, and still promotes Gold', async () => {
+    const { db, service } = createService();
+    await db.getRepository(ECOBASE_COLLECTIONS.sourceConnections).update({
+      filterByTk: 'sellerboard-source-1',
+      values: { companyId: 'company-1' },
+    });
+    vi.spyOn(EcobaseSourceCoverageService.prototype, 'maintainSuccessfulImport').mockRejectedValue(
+      new EcobaseCoverageError(
+        'ECOBASE_COVERAGE_CONFLICT',
+        'EcoBase source coverage conflicts for "coverage:sellerboard-source-1:account-1:sellerboard_units_net_profit_v1:2026-06-01:2026-06-05": the same natural key has different evidence digests or scope.',
+      ),
+    );
+    const committed: string[] = [];
+
+    const cycle = await service.runScheduledSellerboardImports({
+      now: '2026-06-05T09:01:00.000Z',
+      onCommittedUnit: ({ reportKind }) => {
+        committed.push(reportKind);
+      },
+    });
+
+    // The unit is committed for the day, not failed and not dead-locked as non_retryable.
+    expect(cycle.results).toEqual([
+      expect.objectContaining({
+        reportKind: 'profit_by_product_daily',
+        status: 'partial',
+        coverageDegraded: true,
+        goldTrigger: { status: 'scheduled' },
+      }),
+    ]);
+    // Gold promotion fires for a committed-partial: the tail hook never runs on this path, so the
+    // cycle-level hook is the only one that can.
+    expect(committed).toEqual(['profit_by_product_daily']);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all().length).toBeGreaterThan(0);
+
+    const runs = db.getRepository(ECOBASE_COLLECTIONS.importRuns).all();
+    const unitRun = runs.find((run) => run.sourceIdentifier === 'sellerboard-unit:profit_by_product_daily');
+    // Visibility: the sources page reads the run's status + errorMessage, so a degraded night shows
+    // "Completed with errors" rather than a quiet success.
+    expect(unitRun).toMatchObject({
+      status: 'partial',
+      errorMessage: expect.stringContaining('ECOBASE_COVERAGE_CONFLICT'),
+      summary: { coverageMaintenance: { recorded: false, reasonCode: 'maintenance_failed' } },
+    });
+    expect(Number(unitRun?.normalizedCount)).toBeGreaterThan(0);
+
+    const reservation = runs.find(
+      (run) => run.sourceIdentifier === 'sellerboard-unit-reservation:profit_by_product_daily',
+    );
+    expect(reservation).toMatchObject({
+      status: 'success',
+      errorMessage: expect.stringContaining('ECOBASE_COVERAGE_CONFLICT'),
+      summary: {
+        committedImportRunId: unitRun?.id,
+        coverageDegraded: { runStatus: 'partial' },
+        sellerboardUnitCycle: expect.objectContaining({ classification: 'succeeded' }),
+      },
+    });
+    expect(Number(reservation?.errorCount)).toBeGreaterThanOrEqual(1);
+
+    // Committed means committed: the same cycle does not refetch or retry the unit.
+    const sameCycle = await service.runScheduledSellerboardImports({ now: '2026-06-05T09:30:00.000Z' });
+    expect(sameCycle.results).toEqual([
+      expect.objectContaining({ status: 'not_due', reason: 'report_unit_already_committed' }),
+    ]);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves no torn coverage rows when a coverage plan throws mid-write, while the night stays committed', async () => {
+    const csv = ['Date,Marketplace,ASIN,SKU,Name,SalesOrganic,UnitsOrganic,NetProfit']
+      .concat([1, 2, 3, 4, 5].map((day) => `2026-06-0${day},Amazon.com,B007P55HOW,DC50944,Dampp Chaser,10,1,3`))
+      .join('\n');
+    const { db, service } = createRollbackService(csv);
+    const intervalRepo = db.getRepository(ECOBASE_COLLECTIONS.sourceCoverageIntervals);
+    const membershipRepo = db.getRepository(ECOBASE_COLLECTIONS.sourceCoverageMemberships);
+    const intervalCreate = vi.spyOn(intervalRepo, 'create');
+    // The plan writes its intervals first, then its memberships: failing the membership write tears
+    // the plan in half after at least one interval row already exists.
+    vi.spyOn(membershipRepo, 'create').mockRejectedValue(
+      new Error('Ecobase coverage membership write failed mid-plan.'),
+    );
+    const committed: string[] = [];
+
+    const cycle = await service.runScheduledSellerboardImports({
+      now: '2026-06-05T09:01:00.000Z',
+      onCommittedUnit: ({ reportKind }) => {
+        committed.push(reportKind);
+      },
+    });
+
+    // The coverage plan really did start writing...
+    expect(intervalCreate.mock.calls.length).toBeGreaterThan(0);
+    // ...and its own transaction took every one of those rows back.
+    expect(intervalRepo.all()).toHaveLength(0);
+    expect(membershipRepo.all()).toHaveLength(0);
+    // The facts committed by the unit transaction are untouched by that rollback.
+    expect(db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords).all().length).toBeGreaterThan(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts).all().length).toBeGreaterThan(0);
+    expect(cycle.results).toEqual([
+      expect.objectContaining({ reportKind: 'profit_by_product_daily', status: 'partial', coverageDegraded: true }),
+    ]);
+    expect(committed).toEqual(['profit_by_product_daily']);
+    expect(
+      db
+        .getRepository(ECOBASE_COLLECTIONS.importRuns)
+        .all()
+        .find((run) => run.sourceIdentifier === 'sellerboard-unit:profit_by_product_daily'),
+    ).toMatchObject({
+      status: 'partial',
+      errorMessage: expect.stringContaining('ECOBASE_COVERAGE_MAINTENANCE_FAILED'),
+    });
+  });
+
+  it('still rolls the whole scheduled unit back when the adapter stream fails mid-file', async () => {
+    // Strict scoping: non-fatality covers coverage bookkeeping only. A genuine ingest failure keeps
+    // failing closed — no half-imported night is allowed to survive.
+    const csv = ['Date,Marketplace,ASIN,SKU,Name,SalesOrganic,UnitsOrganic,NetProfit']
+      .concat([1, 2, 3, 4, 5].map((day) => `2026-06-0${day},Amazon.com,B007P55HOW,DC50944,Dampp Chaser,10,1,3`))
+      .join('\n');
+    const { db, service } = createRollbackService(csv);
+    const bronzeRepo = db.getRepository(ECOBASE_COLLECTIONS.bronzeSourceRecords);
+    const create = bronzeRepo.create.bind(bronzeRepo);
+    let bronzeWrites = 0;
+    vi.spyOn(bronzeRepo, 'create').mockImplementation(async (params) => {
+      bronzeWrites += 1;
+      if (bronzeWrites === 2) {
+        throw new Error('Sellerboard live import failed: the report stream aborted mid-file.');
+      }
+      return create(params);
+    });
+    const committed: string[] = [];
+
+    const cycle = await service.runScheduledSellerboardImports({
+      now: '2026-06-05T09:01:00.000Z',
+      onCommittedUnit: ({ reportKind }) => {
+        committed.push(reportKind);
+      },
+    });
+
+    // Rows were written before the stream died, and none of them survived the rollback.
+    expect(bronzeWrites).toBeGreaterThan(1);
+    expect(bronzeRepo.all()).toHaveLength(0);
+    expect(db.getRepository(ECOBASE_COLLECTIONS.silverListingDailyFacts).all()).toHaveLength(0);
+    expect(committed).toEqual([]);
+    expect(cycle.results).toEqual([
+      expect.objectContaining({ reportKind: 'profit_by_product_daily', status: 'terminal' }),
+    ]);
+    expect(
+      db
+        .getRepository(ECOBASE_COLLECTIONS.importRuns)
+        .all()
+        .some((run) => run.status === 'partial' || run.status === 'success'),
+    ).toBe(false);
   });
 
   it('records missing Sellerboard URL configuration as a credential blocker audit record', async () => {

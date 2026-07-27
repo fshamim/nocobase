@@ -320,6 +320,12 @@ export function databaseInTransaction(db: EcobaseDatabase, transaction: unknown)
   };
 }
 
+function coverageMaintenanceMessage(coverageError: unknown) {
+  if (coverageError instanceof EcobaseCoverageError) return `${coverageError.code}: ${coverageError.message}`;
+  if (coverageError instanceof Error) return `ECOBASE_COVERAGE_MAINTENANCE_FAILED: ${coverageError.message}`;
+  return 'ECOBASE_COVERAGE_MAINTENANCE_FAILED: coverage maintenance threw a non-Error value.';
+}
+
 export type SellerboardReportKind = 'profit_dashboard' | 'stock_daily' | 'profit_by_product_daily';
 
 const SELLERBOARD_REPORT_KINDS = new Set<SellerboardReportKind>([
@@ -1813,7 +1819,9 @@ export class EcobaseImportService {
           }
           return result;
         });
-        return { ...toPlainRecord(run), reused: false };
+        // The unit transaction has committed: bronze rows and silver facts are durable. Coverage
+        // bookkeeping runs now, in its own transaction, and can no longer take the night with it.
+        return { ...(await this.maintainCoverageAfterUnitCommit(params, toPlainRecord(run))), reused: false };
       } catch (error) {
         if (error instanceof SellerboardUnitReservationError || isSystemicSellerboardCoordinatorFailure(error)) {
           throw error;
@@ -2121,9 +2129,16 @@ export class EcobaseImportService {
     };
     const maintainsSellerboardCoverage =
       status === 'success' && ['sellerboard-api', 'sellerboard-history-csv'].includes(adapter.metadata.name);
+    // Issue 062: on the scheduled report-unit path every write above lives inside ONE outer
+    // transaction, and databaseInTransaction fakes nested transactions (the callback just receives
+    // the outer transaction — no savepoint). Running coverage maintenance here would put a
+    // bookkeeping step inside the fact transaction, where its failure rolls back the entire
+    // committed night. Defer it until after the outer transaction commits, where it gets its own
+    // real transaction, exactly like the manual path.
+    const deferCoverageToUnitCommit = Boolean(params.unitTransaction);
     const completeRun = async (transaction?: unknown) => {
       await importRunRepo.update({ filterByTk: importRunId, values: completionValues, transaction });
-      if (!maintainsSellerboardCoverage) return;
+      if (!maintainsSellerboardCoverage || deferCoverageToUnitCommit) return;
       const coverageMaintenance = await new EcobaseSourceCoverageService(this.db).maintainSuccessfulImport(
         importRunId,
         {
@@ -2148,18 +2163,13 @@ export class EcobaseImportService {
       });
     };
     try {
-      if (maintainsSellerboardCoverage && this.db.sequelize?.transaction) {
+      if (maintainsSellerboardCoverage && !deferCoverageToUnitCommit && this.db.sequelize?.transaction) {
         await this.db.sequelize.transaction((transaction: unknown) => completeRun(transaction));
       } else {
         await completeRun();
       }
     } catch (coverageError) {
-      const coverageMessage =
-        coverageError instanceof EcobaseCoverageError
-          ? `${coverageError.code}: ${coverageError.message}`
-          : coverageError instanceof Error
-            ? `ECOBASE_COVERAGE_MAINTENANCE_FAILED: ${coverageError.message}`
-            : 'ECOBASE_COVERAGE_MAINTENANCE_FAILED: coverage maintenance threw a non-Error value.';
+      const coverageMessage = coverageMaintenanceMessage(coverageError);
       await importRunRepo.update({
         filterByTk: importRunId,
         values: {
@@ -2228,6 +2238,77 @@ export class EcobaseImportService {
         message: error instanceof Error ? error.message : 'Gold trigger scheduling failed with a non-Error value.',
       };
     }
+  }
+
+  /**
+   * Issue 062: Sellerboard coverage maintenance for a scheduled report unit, run AFTER the unit
+   * transaction committed. Bronze rows and silver facts are already durable here, so a coverage
+   * conflict can no longer roll back the night — it degrades the run to `partial` (records kept,
+   * error surfaced) exactly like the manual force-refresh path has always done. The coverage writes
+   * still get their own REAL transaction, so a plan that throws halfway through leaves no torn
+   * interval rows behind.
+   */
+  private async maintainCoverageAfterUnitCommit(
+    params: RunAdapterImportParams,
+    committedRun: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const importRunId = getString(committedRun, 'id');
+    const adapterName = getString(committedRun, 'adapterName') ?? params.adapterName;
+    if (
+      !importRunId ||
+      getString(committedRun, 'status') !== 'success' ||
+      !['sellerboard-api', 'sellerboard-history-csv'].includes(adapterName)
+    ) {
+      return committedRun;
+    }
+    const importRunRepo = this.db.getRepository(ECOBASE_COLLECTIONS.importRuns);
+    const runSummary = toPlainRecord(committedRun.summary);
+    const applyCoverage = async (transaction?: unknown) => {
+      const coverageMaintenance = await new EcobaseSourceCoverageService(this.db).maintainSuccessfulImport(
+        importRunId,
+        { transaction },
+      );
+      const coverageSkippedStale = coverageMaintenance.recorded
+        ? coverageMaintenance.reconciliation.coverageSkippedStale
+        : [];
+      await importRunRepo.update({
+        filterByTk: importRunId,
+        values: {
+          summary: {
+            ...runSummary,
+            coverageMaintenance,
+            ...(coverageSkippedStale.length > 0 ? { coverageSkippedStale } : {}),
+          },
+        },
+        transaction,
+      });
+    };
+    try {
+      if (this.db.sequelize?.transaction) {
+        await this.db.sequelize.transaction((transaction: unknown) => applyCoverage(transaction));
+      } else {
+        await applyCoverage();
+      }
+    } catch (coverageError) {
+      const coverageMessage = coverageMaintenanceMessage(coverageError);
+      await importRunRepo.update({
+        filterByTk: importRunId,
+        values: {
+          status: getNumber(committedRun, 'normalizedCount') > 0 ? 'partial' : 'failed',
+          errorCount: getNumber(committedRun, 'errorCount') + 1,
+          errorMessage: coverageMessage,
+          summary: {
+            ...runSummary,
+            coverageMaintenance: {
+              recorded: false,
+              reasonCode: 'maintenance_failed',
+              error: coverageMessage,
+            },
+          },
+        },
+      });
+    }
+    return toPlainRecord((await importRunRepo.findOne({ filterByTk: importRunId })) ?? committedRun);
   }
 
   private async runAdapterStream(params: AdapterImportStreamParams): Promise<AdapterImportStreamResult> {
@@ -2803,8 +2884,14 @@ export class EcobaseImportService {
     }
 
     const status = getString(run, 'status') ?? 'unknown';
+    // Issue 062: coverage maintenance now runs after the unit transaction commits, so a `partial`
+    // run that normalized records HAS committed its night — only the coverage ledger degraded. Book
+    // it as committed for the day: the reservation is stamped success-equivalent (so the unit is
+    // not refetched and not dead-locked as a non-retryable daily failure) and Gold promotion fires,
+    // while the degradation stays visible on both the run and the reservation.
+    const coverageDegradedCommit = status === 'partial' && getNumber(run, 'normalizedCount') > 0;
     const result: Record<string, unknown> = outcome({ status, attemptCount: attempt }, run);
-    if (status === 'success') {
+    if (status === 'success' || coverageDegradedCommit) {
       const currentReservation = await repository.findOne({ filterByTk: reservationId });
       if (!currentReservation) {
         throw new SellerboardUnitReservationError(
@@ -2813,17 +2900,27 @@ export class EcobaseImportService {
       }
       const reservationSummary = toPlainRecord(toPlainRecord(currentReservation).summary);
       const committedImportRunId = getString(run, 'id');
+      const coverageDegradedNote = coverageDegradedCommit
+        ? {
+            coverageDegraded: {
+              importRunId: committedImportRunId,
+              runStatus: status,
+              message: getString(run, 'errorMessage') ?? 'Coverage maintenance did not record this committed unit.',
+            },
+          }
+        : {};
       await this.updateSellerboardReservation(repository, reservationId, {
         finishedAt: new Date(),
         status: 'success',
         rowCount: getNumber(run, 'rowCount'),
         normalizedCount: getNumber(run, 'normalizedCount'),
         warningCount: getNumber(run, 'warningCount'),
-        errorCount: 0,
-        errorMessage: null,
+        errorCount: coverageDegradedCommit ? Math.max(1, getNumber(run, 'errorCount')) : 0,
+        errorMessage: coverageDegradedCommit ? getString(run, 'errorMessage') ?? null : null,
         summary: {
           ...reservationSummary,
           committedImportRunId,
+          ...coverageDegradedNote,
           reportUnitInputDigest: getString(toPlainRecord(run.summary), 'reportUnitInputDigest'),
           sellerboardUnitCycle: {
             ...toPlainRecord(reservationSummary.sellerboardUnitCycle),
@@ -2832,6 +2929,7 @@ export class EcobaseImportService {
           },
         },
       });
+      if (coverageDegradedCommit) result.coverageDegraded = true;
       if (run.reused !== true && params.onCommittedUnit) {
         const importRunId = getString(run, 'id');
         if (!importRunId) {
