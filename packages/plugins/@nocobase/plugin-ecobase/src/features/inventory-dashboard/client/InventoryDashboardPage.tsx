@@ -146,6 +146,16 @@ const InventoryDashboardPageInner: React.FC<InventoryDashboardPageProps> = ({
     });
   }, []);
 
+  // 066 T3 (D7): a cell popup can hand the operator on to the standard product
+  // drawer. It reuses the row-click path verbatim; there is no row element to
+  // return focus to afterwards, so the trigger stays empty.
+  const openDrawerFromCell = useCallback(
+    (row: DashboardRow) => {
+      onRowClick(row, null);
+    },
+    [onRowClick],
+  );
+
   // QA item 4: closing the drawer returns focus to the row that opened it.
   const onDrawerClose = useCallback(() => {
     setDrawerTarget(null);
@@ -190,6 +200,7 @@ const InventoryDashboardPageInner: React.FC<InventoryDashboardPageProps> = ({
       pendingFamilies: syncState.pendingFamilies,
       markPending: syncState.markPending,
       onMutated: onDrawerMutated,
+      openDrawer: openDrawerFromCell,
     }),
     [
       api,
@@ -199,6 +210,7 @@ const InventoryDashboardPageInner: React.FC<InventoryDashboardPageProps> = ({
       syncState.pendingFamilies,
       syncState.markPending,
       onDrawerMutated,
+      openDrawerFromCell,
     ],
   );
 

@@ -13,7 +13,7 @@
  * the W5 sync registry, header settings, and the scoped-refresh callback.
  */
 
-import type { PaneKey } from '../../server/contract';
+import type { DashboardRow, PaneKey } from '../../server/contract';
 
 export interface DashboardRequestApi {
   request: (options: { url: string; method: 'post'; data: Record<string, unknown> }) => Promise<unknown>;
@@ -28,4 +28,11 @@ export interface PaneRenderContext {
   pendingFamilies: ReadonlySet<string>;
   markPending: (familyKey: string) => void;
   onMutated: (pane: PaneKey) => void;
+  /**
+   * 066 T3 (D7): open the row's standard product drawer — the evidence modal's
+   * "Open product drawer" action, wired from the page's own row-click handler.
+   * Optional so every existing consumer (and every test fixture) stays valid;
+   * a cell that does not get it simply omits the action.
+   */
+  openDrawer?: (row: DashboardRow) => void;
 }

@@ -282,7 +282,13 @@ function PaneSectionInner(props: PaneSectionProps, ref: React.Ref<PaneSectionHan
                     </Tag>
                   ) : null}
                   {(response?.metrics ?? [])
-                    .filter((metric) => metric.key === 'tieredNeedingAttention' && metric.value !== null)
+                    .filter(
+                      // 066 D9: the Data-issues pane's true queue length rides
+                      // next to the tiered-attention count, same treatment.
+                      (metric) =>
+                        ['tieredNeedingAttention', 'familiesNeedingTarget'].includes(metric.key) &&
+                        metric.value !== null,
+                    )
                     .map((metric) => (
                       <Typography.Text key={metric.key} type="warning">
                         {`${t(metric.label)}: ${metric.value}`}

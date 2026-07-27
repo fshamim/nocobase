@@ -395,6 +395,38 @@ export const TEXT = {
   opConfirmInboundBody: 'Mark this order as arrived and move it to Healthy inventory on the next publish?',
   opConfirm: 'Confirm',
   opInboundConfirmed: 'Order marked inbound-complete',
+  // 066 T3 (D3/D6/D7): the Data-issues workbench badges and their resolution
+  // modals. `frozen_family_target_review` means two different things depending
+  // on whether the family already has a target (plan F5), so the badge label —
+  // not just the popup — has to split; anything else would tell 245 families a
+  // falsehood.
+  issueNeedsTarget: 'Needs target',
+  issueSecondaryListing: 'Secondary listing',
+  issueResolveAriaPrefix: 'Resolve',
+  targetConfirmOnlyMember: "Confirm this listing as the family's planning target",
+  targetAssignedElsewhere: 'This family already has a planning target',
+  targetSecondaryExplain: 'This listing is a secondary member and is not planned separately',
+  evidenceModalTitle: 'No usable sales history',
+  evidenceIntro:
+    "The engine has no closed month of trusted sales data for this product, and this month's data isn't rankable yet",
+  evidenceStateHeading: 'What the engine sees',
+  evidenceBasisLabel: 'Velocity basis',
+  evidenceConfidenceLabel: 'Velocity confidence',
+  evidenceStatusLabel: 'Evidence status',
+  evidenceObservedLabel: 'Days observed',
+  evidenceAsOfLabel: 'Velocity as of',
+  evidenceMonthsHeading: 'Closed months',
+  evidenceNoMonths: 'No closed months on record',
+  evidenceTrusted: 'trusted',
+  evidenceUntrusted: 'not trusted',
+  evidenceCausesHeading: 'What this usually means',
+  evidenceCauseNewProduct: 'A brand-new product that has not sold yet',
+  evidenceCauseNoImport: 'The sales feed has not been imported for this account or marketplace',
+  evidenceCauseRollover: 'A coverage gap at the month roll-over — the data catches up once the import lands',
+  evidenceOpenDrawer: 'Open product drawer',
+  // MUST stay byte-identical to the server's `familiesNeedingTarget` metric
+  // label (T2) — PaneSection renders the served label through `t()`.
+  metricFamiliesNeedingTarget: 'Families needing a target',
 } as const;
 
 export type DashboardTextKey = keyof typeof TEXT;
