@@ -22,12 +22,13 @@ import { EcobaseInventoryPlanningGoldAccess } from './inventory-planning-gold-ac
 const ReferenceDecimal = Decimal.clone({ precision: 40, rounding: Decimal.ROUND_HALF_EVEN });
 
 const REFERENCE_VERIFIER_VERSION = 'independent_gold_reference_v1';
-// Version pins (Batch D sparse-tolerant contract; rule version at v3 since 065) — must track the
+// Version pins (Batch D sparse-tolerant contract; rule version at v4 since 068-2) — must track the
 // engine constants in listing-family-projection.ts or every fresh publication fails verification.
-// 065: eligibility ladder adopts recentTier (two-month window). Kept byte-identical to
+// 065: eligibility ladder adopts recentTier (two-month window). 068-2: trusted current rank
+// bypasses the first-closed-month review gates. Kept byte-identical to
 // CORRECTED_TIER_RULE_VERSION in listing-family-projection.ts — this verifier is independent by
 // construction, so the expected version is restated here rather than imported.
-const CORRECTED_RULE_VERSION = 'individual_dynamic_6m_profit_trend_v3';
+const CORRECTED_RULE_VERSION = 'individual_dynamic_6m_profit_trend_v4';
 const CORRECTED_ALGORITHM_VERSION = 'individual_monthly_profit_performance_v2';
 const CORRECTED_SERIALIZER_VERSION = 'canonical_json_schema_normalized_bytewise_v2';
 const CORRECTED_LISTING_DIGEST_VERSION = 'listing_performance_digest_v2';
@@ -864,6 +865,10 @@ export class EcobaseIndependentGoldReferenceVerifier {
       row.replenishmentEligibility === 'eligible' &&
       recentlyRanked &&
       // Baseline confidence is waived for a trusted current rank (precedence 13 bypass).
+      // 068-2 audit: no mirror change needed when that same bypass was extended to precedences 10
+      // and 12. Every newly promoted row is trusted-currently-ranked, so it satisfies
+      // `recentlyRanked` and the waiver above, and its last closed month is unknown or silent
+      // (tier null, never 'D' — precedence 9 outranks the bypass), so the D assertion still holds.
       (row.baselineConfidence === 'full' || trustedCurrentRank) &&
       // Last-closed D always blocks (precedence 9). Current-projected D is deliberately NOT
       // asserted: under the informational gate mode the ladder settles at precedence 14 before

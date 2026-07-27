@@ -149,7 +149,7 @@ async function fixture(unitsPerMonth = 10, emulatePersistenceCoercions = false) 
   const result = buildCorrectedGoldProjection({
     runId: 'reference-run',
     calculationDate: '2026-07-18',
-    ruleVersion: 'individual_dynamic_6m_profit_trend_v3',
+    ruleVersion: 'individual_dynamic_6m_profit_trend_v4',
     algorithmContractVersion: 'individual_monthly_profit_performance_v2',
     currentProjectionGateMode: 'informational',
     resolvedPlanningSettingsDigest: sha('settings'),

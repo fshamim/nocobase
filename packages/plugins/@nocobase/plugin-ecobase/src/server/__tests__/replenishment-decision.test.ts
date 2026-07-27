@@ -126,9 +126,12 @@ describe('total replenishment and primary-pane decision', () => {
       'missing_or_invalid_baseline_evidence',
     ],
     [9, { lastClosedMonthTier: 'D' }, 'blocked_closed_tier_d', 'performanceReview', 'last_closed_tier_d'],
+    // 068-2: precedences 10 and 12 now carry the same trusted-current-rank bypass as 13, so — as
+    // with the 13 rows below — these cases state an 'early' projection confidence to keep the gate
+    // under test reachable. The trusted side of the bypass has its own cases further down.
     [
       10,
-      { lastClosedMonthState: 'no_movement', lastClosedMonthTier: null },
+      { lastClosedMonthState: 'no_movement', lastClosedMonthTier: null, currentProjectionConfidence: 'early' },
       'review_closed_no_movement',
       'performanceReview',
       'last_closed_no_movement',
@@ -136,7 +139,7 @@ describe('total replenishment and primary-pane decision', () => {
     [11, { closedTierMovement: 'declined' }, 'review_closed_tier_decline', 'performanceReview', 'closed_tier_decline'],
     [
       12,
-      { lastClosedMonthState: 'unclassified', lastClosedMonthTier: null },
+      { lastClosedMonthState: 'unclassified', lastClosedMonthTier: null, currentProjectionConfidence: 'early' },
       'review_closed_period_unknown',
       'performanceReview',
       'last_closed_period_unknown',
@@ -505,6 +508,9 @@ describe('total replenishment and primary-pane decision', () => {
 
       // Same new-product citizenship, but last month was silent: it reviews on RECENT evidence
       // (precedence 10) rather than being exiled on baseline history.
+      // 068-2: the current rank is stated as 'early' here — a TRUSTED one now bypasses precedence
+      // 10 outright (see the 068-2 block below); the point of this case is only that baseline
+      // history alone never exiles.
       expect(
         decideReplenishment(
           input({
@@ -513,6 +519,7 @@ describe('total replenishment and primary-pane decision', () => {
             lastClosedMonthState: 'no_movement',
             lastClosedMonthTier: null,
             closedTierMovement: 'not_comparable',
+            currentProjectionConfidence: 'early',
           }),
         ),
       ).toMatchObject({
@@ -598,8 +605,9 @@ describe('total replenishment and primary-pane decision', () => {
           projectedTierMovement: 'not_comparable',
         }),
         // Brand-new seller: no closed history at all, trusted current rank. Admitted by the
-        // recent window and NOT dumped in Data Readiness, but the unknown closed period still
-        // routes it to review at precedence 12 (gates 9-12 are unchanged by 065).
+        // recent window and NOT dumped in Data Readiness. 065 still parked it in review at
+        // precedence 12; 068-2 bypasses 10/12/13 on the trusted rank, so it is a full citizen and
+        // settles at 14 — healthy while it has stock.
         newSeller: input({
           baselineState: 'unclassified',
           baselineTier: null,
@@ -610,6 +618,20 @@ describe('total replenishment and primary-pane decision', () => {
           currentProjectedState: 'ranked',
           currentProjectedTier: 'B',
           projectedTierMovement: 'not_comparable',
+        }),
+        // The case the 068-2 ruling was written for: the same first-month seller, reorder-due.
+        // It must reach Supply Action rather than waiting for its first month to close.
+        newSellerReorderDue: input({
+          baselineState: 'unclassified',
+          baselineTier: null,
+          baselineConfidence: 'none',
+          lastClosedMonthState: 'unclassified',
+          lastClosedMonthTier: null,
+          closedTierMovement: 'not_comparable',
+          currentProjectedState: 'ranked',
+          currentProjectedTier: 'B',
+          projectedTierMovement: 'not_comparable',
+          reorderDueKind: 'trusted',
         }),
         // Ranked last month, current projection not in yet ⇒ full citizen on the recent pair.
         lastClosedOnly: input({
@@ -632,11 +654,137 @@ describe('total replenishment and primary-pane decision', () => {
       expect(panes).toEqual({
         phantomBaselineOnly: 'untieredProducts',
         twoDeadMonths: 'untieredProducts',
-        newSeller: 'performanceReview',
+        newSeller: 'healthyInventory',
+        newSellerReorderDue: 'supplyAction',
         lastClosedOnly: 'healthyInventory',
         currentRanked: 'supplyAction',
       });
       expect(decideReplenishment(population.newSeller).primaryActionPane).not.toBe('dataReadiness');
+    });
+  });
+
+  describe('068-2 — trusted first-month sellers promote to the operational panes', () => {
+    // A first-month seller: no closed eligible month at all (baseline confidence 'none', last
+    // closed period unknown), but the current month ranks on trusted evidence. Under 065 it sat
+    // in Performance review until its first month closed; the user ruling is that a tiered,
+    // profitable, moving product belongs in the operational panes — "especially if it's the new
+    // one" — because a new product about to go out of stock must reach Supply Action.
+    function firstMonthSeller(overrides: Partial<ReplenishmentDecisionInput> = {}): ReplenishmentDecisionInput {
+      return input({
+        baselineState: 'unclassified',
+        baselineTier: null,
+        baselineConfidence: 'none',
+        lastClosedMonthState: 'unclassified',
+        lastClosedMonthTier: null,
+        closedTierMovement: 'not_comparable',
+        currentProjectedState: 'ranked',
+        currentProjectedTier: 'B',
+        currentProjectionConfidence: 'trusted',
+        projectedTierMovement: 'not_comparable',
+        ...overrides,
+      });
+    }
+
+    it('flows a trusted first-month seller past gates 10, 12 and 13 into the eligible panes', () => {
+      // Reorder-due: the motivating case — Supply Action, actionable.
+      expect(decideReplenishment(firstMonthSeller({ reorderDueKind: 'trusted' }))).toMatchObject({
+        decisionPrecedence: 14,
+        replenishmentEligibility: 'eligible',
+        primaryActionPane: 'supplyAction',
+        primaryActionReasonCode: 'trusted_reorder_due',
+        newReplenishmentActionable: true,
+        supplyActionable: true,
+      });
+      // Already out of stock: Zero-stock, with the OOS alert live.
+      expect(decideReplenishment(firstMonthSeller({ trustedZeroStock: true }))).toMatchObject({
+        replenishmentEligibility: 'eligible',
+        primaryActionPane: 'zeroStock',
+        primaryActionReasonCode: 'trusted_zero_stock',
+        oosAlertActionable: true,
+      });
+      // Plenty of stock: healthy, not review.
+      const healthy = decideReplenishment(firstMonthSeller());
+      expect(healthy.primaryActionPane).not.toBe('performanceReview');
+      expect(healthy).toMatchObject({
+        replenishmentEligibility: 'eligible',
+        primaryActionPane: 'healthyInventory',
+        primaryActionReasonCode: 'sufficient_stock',
+      });
+      // The bypass carries to the far end of the ladder under the evidence-driven gate too.
+      expect(decideReplenishment(firstMonthSeller({ currentProjectionGateMode: 'evidence_driven' }))).toMatchObject({
+        decisionPrecedence: 19,
+        replenishmentEligibility: 'eligible',
+      });
+    });
+
+    it('flows a trusted seller whose last closed month showed no movement past gate 10', () => {
+      // Existed last month and sold nothing; ranks this month on trusted evidence.
+      const result = decideReplenishment(
+        input({
+          baselineConfidence: 'low',
+          lastClosedMonthState: 'no_movement',
+          lastClosedMonthTier: null,
+          closedTierMovement: 'not_comparable',
+          reorderDueKind: 'trusted',
+        }),
+      );
+
+      expect(result.primaryActionReasonCode).not.toBe('last_closed_no_movement');
+      expect(result).toMatchObject({
+        decisionPrecedence: 14,
+        replenishmentEligibility: 'eligible',
+        primaryActionPane: 'supplyAction',
+        supplyActionable: true,
+      });
+    });
+
+    it('still reviews an EARLY current rank at gate 12 — the bypass requires trust', () => {
+      // RED-PROOF for the width of the bypass: widening it to accept 'early' confidence breaks
+      // this case. An early projection is not yet evidence of a real tier.
+      expect(decideReplenishment(firstMonthSeller({ currentProjectionConfidence: 'early' }))).toMatchObject({
+        decisionPrecedence: 12,
+        replenishmentEligibility: 'review_closed_period_unknown',
+        primaryActionPane: 'performanceReview',
+        primaryActionReasonCode: 'last_closed_period_unknown',
+      });
+      // Same for the no-movement gate.
+      expect(
+        decideReplenishment(
+          input({
+            lastClosedMonthState: 'no_movement',
+            lastClosedMonthTier: null,
+            closedTierMovement: 'not_comparable',
+            currentProjectionConfidence: 'early',
+          }),
+        ),
+      ).toMatchObject({
+        decisionPrecedence: 10,
+        replenishmentEligibility: 'review_closed_no_movement',
+        primaryActionPane: 'performanceReview',
+      });
+    });
+
+    it('keeps D-rank products out of the promotion — 9 and 16 still block', () => {
+      // Current-projected D, trusted, first month: blocked at 16 under the evidence-driven gate.
+      expect(
+        decideReplenishment(
+          firstMonthSeller({ currentProjectedTier: 'D', currentProjectionGateMode: 'evidence_driven' }),
+        ),
+      ).toMatchObject({
+        decisionPrecedence: 16,
+        replenishmentEligibility: 'blocked_current_tier_d',
+        primaryActionPane: 'performanceReview',
+        primaryActionReasonCode: 'current_projected_tier_d',
+      });
+      // A last-closed D is outside this ruling's scope: gate 9 precedes the bypass entirely.
+      expect(
+        decideReplenishment(input({ lastClosedMonthTier: 'D', currentProjectedTier: 'B', reorderDueKind: 'trusted' })),
+      ).toMatchObject({
+        decisionPrecedence: 9,
+        replenishmentEligibility: 'blocked_closed_tier_d',
+        primaryActionPane: 'performanceReview',
+        primaryActionReasonCode: 'last_closed_tier_d',
+      });
     });
   });
 

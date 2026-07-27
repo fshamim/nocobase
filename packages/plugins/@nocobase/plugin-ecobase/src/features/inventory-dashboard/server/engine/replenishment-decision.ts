@@ -313,7 +313,21 @@ function eligibilityDecision(input: ReplenishmentDecisionInput): Decision {
       reason: 'last_closed_tier_d',
     };
   }
-  if (input.lastClosedMonthState === 'no_movement') {
+  // 065 (extended by 068-2): a product that is ranked in the CURRENT projection on TRUSTED
+  // evidence is a full citizen on its own recent record. Computed once here because three gates
+  // now consult it (10, 12 and 13); 'trusted' is required throughout — an 'early' projection is
+  // still too thin to stand in for closed-month history.
+  const trustedCurrentRank =
+    input.currentProjectedState === 'ranked' && input.currentProjectionConfidence === 'trusted';
+  // 068-2 (user ruling 2026-07-27): "if the product is tiered, even if it's recent tiering and
+  // it's current … it should land in the operational panes where it belongs. Especially if it's
+  // the new one." A brand-new seller has zero closed months, so gates 10 and 12 used to park it
+  // in Performance review until its first month closed — even when it was about to go out of
+  // stock. Both gates now carry the same trusted-current-rank bypass gate 13 already had: a
+  // current rank IS the profit-based A/B/C/D and already implies movement, so a trusted one
+  // routes straight to Supply Action / Zero-stock. Recent D still blocks (9 and 16), and an
+  // 'early' current projection still reviews here.
+  if (input.lastClosedMonthState === 'no_movement' && !trustedCurrentRank) {
     return {
       precedence: 10,
       eligibility: 'review_closed_no_movement',
@@ -329,7 +343,9 @@ function eligibilityDecision(input: ReplenishmentDecisionInput): Decision {
       reason: 'closed_tier_decline',
     };
   }
-  if (input.lastClosedMonthState === 'unclassified' || input.lastClosedMonthTier === null) {
+  // 068-2: same bypass as gate 10 above — an unknown last closed period is the normal state of a
+  // first-month seller, and a trusted current rank answers the question that gate is asking.
+  if ((input.lastClosedMonthState === 'unclassified' || input.lastClosedMonthTier === null) && !trustedCurrentRank) {
     return {
       precedence: 12,
       eligibility: 'review_closed_period_unknown',
@@ -337,12 +353,9 @@ function eligibilityDecision(input: ReplenishmentDecisionInput): Decision {
       reason: 'last_closed_period_unknown',
     };
   }
-  // 065: a product that is ranked in the CURRENT projection on TRUSTED evidence is a full
-  // citizen on its own recent record — thin or absent baseline history is not a reason to send
-  // it to review. The bypass requires 'trusted'; an 'early' projection is still too weak to
-  // stand in for baseline confidence, so those rows keep reviewing here.
-  const trustedCurrentRank =
-    input.currentProjectedState === 'ranked' && input.currentProjectionConfidence === 'trusted';
+  // 065: thin or absent baseline history is not a reason to send a trusted currently-ranked
+  // product to review. `trustedCurrentRank` is hoisted above gate 10 since 068-2; this gate's own
+  // logic is unchanged.
   if (input.baselineConfidence !== 'full' && !trustedCurrentRank) {
     return {
       precedence: 13,

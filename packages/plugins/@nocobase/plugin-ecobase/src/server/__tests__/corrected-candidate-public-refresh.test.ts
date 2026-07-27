@@ -452,7 +452,7 @@ describe('corrected candidate public refresh seam', () => {
       rowCount: 2363,
       run: {
         status: 'materialized',
-        ruleVersion: 'individual_dynamic_6m_profit_trend_v3',
+        ruleVersion: 'individual_dynamic_6m_profit_trend_v4',
         algorithmContractVersion: 'individual_monthly_profit_performance_v2',
         currentProjectionGateMode: 'informational',
         listingRowCount: 2363,

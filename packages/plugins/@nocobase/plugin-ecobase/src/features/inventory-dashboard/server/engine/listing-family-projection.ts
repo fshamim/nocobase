@@ -28,7 +28,12 @@ import type { ReplenishmentDecisionResult } from './replenishment-decision';
 // baseline-tier-D gates are gone, and a trusted current rank waives the baseline-confidence
 // review. Same silver inputs now yield different panes/eligibility, so the version moves for the
 // same reason as the v2 bump — run identity must never reuse a v2 run for a v3 formula.
-export const CORRECTED_TIER_RULE_VERSION = 'individual_dynamic_6m_profit_trend_v3';
+// v4 (068-2: trusted current rank bypasses first-closed-month review gates, 2026-07) — the
+// last-closed no-movement (10) and unknown-period (12) review gates now carry the same
+// trusted-current-rank bypass gate 13 has, so a brand-new seller with a trusted rank reaches the
+// operational panes instead of waiting for its first month to close. Same silver inputs, different
+// panes/eligibility ⇒ the version moves again.
+export const CORRECTED_TIER_RULE_VERSION = 'individual_dynamic_6m_profit_trend_v4';
 export const CORRECTED_ALGORITHM_CONTRACT_VERSION = 'individual_monthly_profit_performance_v2';
 export const CORRECTED_CANONICAL_SERIALIZER_VERSION = 'canonical_json_schema_normalized_bytewise_v2';
 export const CORRECTED_CANDIDATE_INPUT_DIGEST_VERSION = 'candidate_input_digest_v1';
